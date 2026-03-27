@@ -110,7 +110,7 @@ def _read_profile_description(workspace_dir: str) -> str:
         if not profile_path.exists():
             return ""
 
-        content = read_text_file_with_encoding_fallback(profile_path)
+        content = read_text_file_with_encoding_fallback(profile_path).strip()
         lines = []
         in_identity = False
 

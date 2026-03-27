@@ -44,11 +44,11 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
         file_path: Path to the file to read (Path object or string)
 
     Returns:
-        File content as string, stripped of leading/trailing whitespace
+        File content as string (with original whitespace preserved)
 
     Raises:
         FileNotFoundError: If file doesn't exist
-        Exception: If file cannot be read even with fallback encodings
+        IOError: If file cannot be read even with fallback encodings
     """
     file_path = Path(file_path)
     if not file_path.exists():
@@ -66,7 +66,7 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     for encoding in encodings_to_try:
         try:
             with open(file_path, "r", encoding=encoding) as f:
-                content = f.read().strip()
+                content = f.read()
                 if encoding not in ("utf-8", "utf-8-sig"):
                     logger.debug(
                         "File %s read with encoding: %s",
@@ -80,7 +80,7 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     # Final fallback: UTF-8 with error replacement
     try:
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read().strip()
+            content = f.read()
             logger.warning(
                 "File %s read with UTF-8 errors='replace' fallback, "
                 "some characters may be corrupted",
@@ -93,7 +93,9 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
             file_path.name,
             e,
         )
-        return f"File {file_path.name} cannot be read even with fallback: {e}"
+        raise IOError(
+            f"File {file_path.name} cannot be read even with fallback: {e}",
+        ) from e
 
 
 def _default_download_dir() -> str:

@@ -78,7 +78,7 @@ class PromptBuilder:
             return
 
         try:
-            content = read_text_file_with_encoding_fallback(file_path)
+            content = read_text_file_with_encoding_fallback(file_path).strip()
 
             # Remove YAML frontmatter if present
             if content.startswith("---"):

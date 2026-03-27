@@ -61,7 +61,7 @@ class AgentMdManager:
         if not file_path.exists():
             raise FileNotFoundError(f"Working md file not found: {md_name}")
 
-        return read_text_file_with_encoding_fallback(file_path)
+        return read_text_file_with_encoding_fallback(file_path).strip()
 
     def write_working_md(self, md_name: str, content: str):
         """Write markdown content to a file in the working directory."""
@@ -114,7 +114,7 @@ class AgentMdManager:
         if not file_path.exists():
             raise FileNotFoundError(f"Memory md file not found: {md_name}")
 
-        return read_text_file_with_encoding_fallback(file_path)
+        return read_text_file_with_encoding_fallback(file_path).strip()
 
     def write_memory_md(self, md_name: str, content: str):
         """Write markdown content to a file in the memory directory."""
