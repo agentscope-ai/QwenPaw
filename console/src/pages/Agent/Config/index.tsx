@@ -6,6 +6,11 @@ import {
   PageHeader,
   ReactAgentCard,
   LlmRetryCard,
+  LlmRateLimiterCard,
+  ContextCompactCard,
+  ToolResultCompactCard,
+  MemorySummaryCard,
+  EmbeddingConfigCard,
   ContextManagementCard,
 } from "./components";
 import styles from "./index.module.less";
@@ -31,6 +36,7 @@ function AgentConfigPage() {
   const [, forceUpdate] = useState({});
   const handleValuesChange = () => forceUpdate({});
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
+  const maxInputLength = Form.useWatch("max_input_length", form) ?? 0;
 
   const getCalculatedValues = () => {
     const values = form.getFieldsValue([
@@ -38,13 +44,15 @@ function AgentConfigPage() {
       "memory_compact_ratio",
       "memory_reserve_ratio",
     ]);
-    const maxInputLength = values.max_input_length ?? 0;
+    const maxInputLengthVal = values.max_input_length ?? 0;
     const memoryCompactRatio = values.memory_compact_ratio ?? 0;
     const memoryReserveRatio = values.memory_reserve_ratio ?? 0;
     return {
-      contextCompactThreshold: Math.floor(maxInputLength * memoryCompactRatio),
+      contextCompactThreshold: Math.floor(
+        maxInputLengthVal * memoryCompactRatio,
+      ),
       contextCompactReserveThreshold: Math.floor(
-        maxInputLength * memoryReserveRatio,
+        maxInputLengthVal * memoryReserveRatio,
       ),
     };
   };
@@ -95,12 +103,22 @@ function AgentConfigPage() {
               onTimezoneChange={handleTimezoneChange}
             />
 
+            <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+
+            <LlmRateLimiterCard />
+
             <ContextManagementCard
               contextCompactThreshold={contextCompactThreshold}
               contextCompactReserveThreshold={contextCompactReserveThreshold}
             />
 
-            <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+            <ContextCompactCard maxInputLength={maxInputLength} />
+
+            <ToolResultCompactCard />
+
+            <MemorySummaryCard />
+
+            <EmbeddingConfigCard />
           </Form>
         </div>
       </div>

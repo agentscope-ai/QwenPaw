@@ -8,14 +8,15 @@ import {
   Select,
   message,
 } from "@agentscope-ai/design";
-import { Alert, ConfigProvider } from "antd";
+import { Alert, ConfigProvider, Spin } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import { api } from "../../../../api";
 
 const WECOM_SDK_URL =
   "https://wwcdn.weixin.qq.com/node/wework/js/wecom-aibot-sdk@0.1.0.min.js";
@@ -53,6 +54,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "wecom",
   "mattermost",
   "matrix",
+  "weixin",
 ];
 
 // Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
@@ -69,6 +71,8 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   mattermost: "https://copaw.agentscope.io/docs/channels/?lang=en#Mattermost",
   matrix: "https://copaw.agentscope.io/docs/channels/?lang=en#Matrix",
   wecom: "https://copaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
+  weixin:
+    "https://copaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
@@ -86,6 +90,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   mattermost: "https://copaw.agentscope.io/docs/channels/?lang=zh#Mattermost",
   matrix: "https://copaw.agentscope.io/docs/channels/?lang=zh#Matrix",
   wecom: "https://copaw.agentscope.io/docs/channels/?lang=zh#企业微信",
+  weixin: "https://copaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
@@ -128,6 +133,58 @@ export function ChannelDrawer({
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey) : activeLabel;
   const sdkLoadedRef = useRef(false);
+
+  // WeChat QR code state
+  const [weixinQrcodeImg, setWeixinQrcodeImg] = useState<string>("");
+  const [weixinQrcodeLoading, setWeixinQrcodeLoading] = useState(false);
+  const weixinPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const weixinConfirmedRef = useRef(false);
+
+  const stopWeixinPoll = useCallback(() => {
+    if (weixinPollRef.current) {
+      clearInterval(weixinPollRef.current);
+      weixinPollRef.current = null;
+    }
+  }, []);
+
+  const handleFetchWeixinQrcode = useCallback(async () => {
+    stopWeixinPoll();
+    setWeixinQrcodeLoading(true);
+    setWeixinQrcodeImg("");
+    weixinConfirmedRef.current = false;
+    try {
+      const data = await api.getWeixinQrcode();
+      if (data.qrcode_img) {
+        setWeixinQrcodeImg(data.qrcode_img);
+        // Start polling for scan confirmation
+        weixinPollRef.current = setInterval(async () => {
+          try {
+            const s = await api.getWeixinQrcodeStatus(data.qrcode);
+            if (s.status === "confirmed" && s.bot_token) {
+              if (weixinConfirmedRef.current) return;
+              weixinConfirmedRef.current = true;
+              stopWeixinPoll();
+              form.setFieldsValue({ bot_token: s.bot_token });
+              setWeixinQrcodeImg("");
+              message.success(t("channels.weixinLoginSuccess"));
+            } else if (s.status === "expired") {
+              stopWeixinPoll();
+              setWeixinQrcodeImg("");
+              message.warning(t("channels.weixinQrcodeExpired"));
+            }
+          } catch {
+            // ignore poll errors
+          }
+        }, 2000);
+      } else {
+        message.error(t("channels.weixinQrcodeFailed"));
+      }
+    } catch {
+      message.error(t("channels.weixinQrcodeFailed"));
+    } finally {
+      setWeixinQrcodeLoading(false);
+    }
+  }, [t, form, stopWeixinPoll]);
 
   // Dynamically load the WeCom SDK script
   const loadWecomSDK = useCallback((): Promise<void> => {
@@ -310,6 +367,14 @@ export function ChannelDrawer({
             <Form.Item name="http_proxy_auth" label="HTTP Proxy Auth">
               <Input placeholder="user:password" />
             </Form.Item>
+            <Form.Item
+              name="accept_bot_messages"
+              label={t("channels.acceptBotMessages")}
+              valuePropName="checked"
+              tooltip={t("channels.acceptBotMessagesTooltip")}
+            >
+              <Switch />
+            </Form.Item>
           </>
         );
 
@@ -424,7 +489,7 @@ export function ChannelDrawer({
             <Form.Item name="verification_token" label="Verification Token">
               <Input placeholder="Optional" />
             </Form.Item>
-            <Form.Item name="media_dir" label="Media Dir">
+            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media" />
             </Form.Item>
           </>
@@ -594,7 +659,7 @@ export function ChannelDrawer({
             >
               <Input.Password placeholder="Mattermost bot token" />
             </Form.Item>
-            <Form.Item name="media_dir" label="Media Dir">
+            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media/mattermost" />
             </Form.Item>
             <Form.Item
@@ -702,7 +767,7 @@ export function ChannelDrawer({
             >
               <Input.Password placeholder="Secret from WeCom backend" />
             </Form.Item>
-            <Form.Item name="media_dir" label="Media Dir">
+            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media" />
             </Form.Item>
             <Form.Item
@@ -749,6 +814,78 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="ws_url" label="WebSocket URL">
               <Input placeholder="wss://hag.cloud.huawei.com/openclaw/v1/ws/link" />
+            </Form.Item>
+          </>
+        );
+
+      case "weixin":
+        return (
+          <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.weixinSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <Form.Item label={t("channels.weixinScanLogin")}>
+              <Button
+                type="primary"
+                block
+                loading={weixinQrcodeLoading}
+                onClick={handleFetchWeixinQrcode}
+              >
+                {t("channels.weixinGetQrcode")}
+              </Button>
+              {weixinQrcodeLoading && (
+                <div style={{ textAlign: "center", marginTop: 12 }}>
+                  <Spin />
+                </div>
+              )}
+              {weixinQrcodeImg && !weixinQrcodeLoading && (
+                <div style={{ textAlign: "center", marginTop: 12 }}>
+                  <img
+                    src={
+                      weixinQrcodeImg.startsWith("http")
+                        ? weixinQrcodeImg
+                        : `data:image/png;base64,${weixinQrcodeImg}`
+                    }
+                    alt="WeChat QR Code"
+                    style={{ width: 200, height: 200 }}
+                  />
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      color: isDark
+                        ? "rgba(255,255,255,0.45)"
+                        : "rgba(0,0,0,0.45)",
+                    }}
+                  >
+                    {t("channels.weixinScanHint")}
+                  </div>
+                </div>
+              )}
+            </Form.Item>
+            <Form.Item
+              name="bot_token"
+              label={t("channels.weixinBotToken")}
+              tooltip={t("channels.weixinBotTokenTooltip")}
+            >
+              <Input.Password
+                placeholder={t("channels.weixinBotTokenPlaceholder")}
+              />
+            </Form.Item>
+            <Form.Item
+              name="bot_token_file"
+              label={t("channels.weixinBotTokenFile")}
+              tooltip={t("channels.weixinBotTokenFileTooltip")}
+            >
+              <Input placeholder="~/.copaw/weixin_bot_token" />
+            </Form.Item>
+            <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
+              <Input placeholder="~/.copaw/media" />
             </Form.Item>
           </>
         );

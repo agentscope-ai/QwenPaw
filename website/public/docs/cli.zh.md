@@ -40,7 +40,6 @@ copaw init --force      # 覆盖已有配置文件
 copaw app                             # 默认 127.0.0.1:8088
 copaw app --host 0.0.0.0 --port 9090 # 自定义地址
 copaw app --reload                    # 代码改动自动重载（开发用）
-copaw app --workers 4                 # 多 worker 模式
 copaw app --log-level debug           # 详细日志
 ```
 
@@ -49,8 +48,10 @@ copaw app --log-level debug           # 详细日志
 | `--host`      | `127.0.0.1` | 绑定地址                                                      |
 | `--port`      | `8088`      | 绑定端口                                                      |
 | `--reload`    | 关闭        | 文件变动时自动重载（仅开发用）                                |
-| `--workers`   | `1`         | Worker 进程数                                                 |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
+| `--workers`   | —           | **[已废弃]** 将被忽略，CoPaw 始终使用 1 个 worker             |
+
+> **说明：** `--workers` 选项因稳定性原因已废弃。CoPaw 被设计为单 worker 进程运行。多 worker 模式会导致内存状态管理和 WebSocket 连接出现问题。此选项将在未来版本中移除。
 
 ### 控制台
 
@@ -319,7 +320,7 @@ copaw channels send \
 copaw agents list
 copaw agent list  # 单数别名效果相同
 
-# 与另一个智能体对话（单次）
+# 与另一个智能体对话（实时模式，单次）
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
@@ -332,7 +333,20 @@ copaw agents chat \
   --session-id collab_session_001 \
   --text "继续上一个问题"
 
-# 流式模式（逐步返回）
+# 复杂任务（后台模式）
+copaw agents chat --background \
+  --agent-id my_bot \
+  --to-agent data_analyst \
+  --text "分析 /data/logs/2026-03-26.log 并生成详细报告"
+# 返回 [TASK_ID: xxx] [SESSION: xxx]
+
+# 查询后台任务状态（查询时 --to-agent 为可选）
+copaw agents chat --background \
+  --task-id <task_id>
+# 状态流程：submitted → pending → running → finished
+# finished 时结果显示：completed（✅）或 failed（❌）
+
+# 流式模式（逐步返回，仅实时模式支持）
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
@@ -340,19 +354,46 @@ copaw agents chat \
   --mode stream
 ```
 
-**必填参数：**
+**必填参数（实时模式）：**
 
 - `--from-agent`（别名：`--agent-id`）：你的智能体 ID（发送方）
 - `--to-agent`：目标智能体 ID（接收方）
 - `--text`：消息内容
 
+**后台任务参数（新增）：**
+
+- `--background`：后台任务模式
+- `--task-id`：查询后台任务状态（与 `--background` 一起使用）
+
 **可选参数：**
 
 - `--session-id`：多轮对话的会话 ID（省略时自动生成）
 - `--mode`：响应模式 —— `final`（默认，完整响应）或 `stream`（逐步返回）
+  - **注意**：`--background` 与 `--mode stream` 互斥
 - `--base-url`：覆盖 API 地址
+- `--timeout`：超时时间（秒，默认 300）
+- `--json-output`：输出完整 JSON 而非纯文本
 
-**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。
+**后台模式说明：**
+
+当任务复杂（如数据分析、批量处理、报告生成）时，使用 `--background` 可以避免阻塞当前智能体。提交后返回 `task_id`，稍后可以查询任务状态和结果。
+
+**适用场景**：
+
+- 数据分析和统计
+- 批量文件处理
+- 生成详细报告
+- 调用慢速外部 API
+- 不确定执行时间的复杂任务
+
+**任务状态流程**：
+
+- `submitted`：任务已接受，等待开始
+- `pending`：排队等待执行
+- `running`：正在执行
+- `finished`：已完成（结果为 `completed` 成功或 `failed` 失败）
+
+**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。查询任务状态时只需 `--task-id`（`--to-agent` 为可选）。
 
 **与 `copaw channels send` 的区别：**
 
