@@ -11,6 +11,7 @@ pretty-printed to the terminal.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import sys
@@ -274,7 +275,7 @@ class ConsoleChannel(BaseChannel):
         request.channel_meta = meta
         return request
 
-    async def _extract_media_message(self, message: Message) -> Message:
+    async def _extract_media_message(self, message: Message) -> Message | None:
         """Extract media message from message."""
         parts = self._message_to_content_parts(message)
         media_message = None
@@ -283,26 +284,36 @@ class ConsoleChannel(BaseChannel):
             MessageType.PLUGIN_CALL_OUTPUT,
             MessageType.MCP_TOOL_CALL_OUTPUT,
         ):
+            new_parts = []
             for part in parts:
                 if part.type == ContentType.IMAGE:
-                    part.image_url = file_url_to_local_path(
-                        part.image_url,
+                    new_part = copy.deepcopy(part)
+                    new_part.image_url = file_url_to_local_path(
+                        new_part.image_url,
                     )
+                    new_parts.append(new_part)
                 elif part.type == ContentType.VIDEO:
-                    part.video_url = file_url_to_local_path(
-                        part.video_url,
+                    new_part = copy.deepcopy(part)
+                    new_part.video_url = file_url_to_local_path(
+                        new_part.video_url,
                     )
+                    new_parts.append(new_part)
                 elif part.type == ContentType.AUDIO:
-                    part.data = file_url_to_local_path(part.data)
+                    new_part = copy.deepcopy(part)
+                    new_part.data = file_url_to_local_path(new_part.data)
+                    new_parts.append(new_part)
                 elif part.type == ContentType.FILE:
-                    part.file_url = file_url_to_local_path(
-                        part.file_url,
+                    new_part = copy.deepcopy(part)
+                    new_part.file_url = file_url_to_local_path(
+                        new_part.file_url,
                     )
-            media_message = Message(
-                type=MessageType.MESSAGE,
-                role="assistant",
-                content=parts,
-            )
+                    new_parts.append(new_part)
+            if new_parts:
+                media_message = Message(
+                    type=MessageType.MESSAGE,
+                    role="assistant",
+                    content=new_parts,
+                )
         return media_message
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
@@ -379,12 +390,12 @@ class ConsoleChannel(BaseChannel):
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
-                    parts = self._message_to_content_parts(event)
-                    self._print_parts(parts, ev_type)
-
                     media_message = await self._extract_media_message(event)
                     if media_message:
                         yield f"data: {media_message.model_dump_json()}\n\n"
+
+                    parts = self._message_to_content_parts(event)
+                    self._print_parts(parts, ev_type)
 
                 elif obj == "response":
                     last_response = event

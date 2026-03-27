@@ -9,16 +9,20 @@ Two ways to manage skills:
 
 > If you're new to channels, heartbeat, or cron, read [Introduction](./intro) first.
 
-The app loads skills from the working directory `skills` folder (default
-`~/.copaw/active_skills/`): any subdirectory containing a `SKILL.md` is loaded as a
-skill; no extra registration.
+Each workspace stores its local skills in `skills/` and controls whether they
+are active through `skill.json`. Any subdirectory containing a `SKILL.md` is
+recognized as a skill; no extra registration is needed.
+
+All newly created or imported skills are **disabled by default**. You must
+explicitly enable them in the Console or CLI before they take effect.
 
 ---
 
 ## Built-in skills overview
 
-The following skills are built-in. They are synced to the working directory
-when needed; you can enable or disable them in the Console or via config.
+The following skills are built-in. They are available through the local skill
+pool and can be broadcast into a workspace when needed; once present in a
+workspace, you can enable or disable them there.
 
 | Skill                        | Description                                                                                                                                                                 | Source                                                         |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -42,24 +46,118 @@ In the [Console](./console), go to **Agent → Skills** to:
 - See all loaded skills and their enabled state;
 - **Enable or disable** a skill with a toggle;
 - **Create** a custom skill by entering a name and content (no need to create a directory);
-- **Edit** an existing skill’s name or content.
+- **Edit** an existing skill's name or content.
 
-Changes are synced to the working directory and affect the agent. Handy if you prefer not to edit files directly.
+Changes are written to the workspace `skills/` directory and `skill.json`, and
+take effect for that workspace. Handy if you prefer not to edit files directly.
 
 ---
 
 ## Built-in skill: Cron (scheduled tasks)
 
-On first run the **Cron** skill is synced from the package to
-`~/.copaw/active_skills/cron/`. It provides “run on a schedule and send results to a
-channel.” You manage jobs with the [CLI](./cli) (`copaw cron`) or in the
-Console under **Control → Cron Jobs**; no need to edit skill files.
+The **Cron** skill is built in and can be added to a workspace from the skill
+pool. It provides "run on a schedule and send results to a channel." You
+manage jobs with the [CLI](./cli) (`copaw cron`) or in the Console under
+**Control → Cron Jobs**; no need to edit skill files.
 
 Common operations:
 
 - Create a job: `copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
 - List jobs: `copaw cron list`
 - Check state: `copaw cron state <job_id>`
+
+---
+
+## Skill Pool
+
+The **Skill Pool** is a shared, local skill repository at `~/.copaw/skill_pool/`.
+It stores built-in skills and any custom skills you choose to share across
+workspaces.
+
+```
+~/.copaw/
+  skill_pool/                # Shared pool
+    skill.json               # Pool manifest (source of truth)
+    pdf/
+      SKILL.md
+    cron/
+      SKILL.md
+    my_shared_skill/
+      SKILL.md
+  workspaces/
+    default/
+      skill.json             # Workspace manifest (enabled/channels/config)
+      skills/                # This workspace's local copies
+        pdf/
+          SKILL.md
+        my_skill/
+          SKILL.md
+```
+
+Key points:
+
+- Pool skills are **not directly used** by any workspace. A workspace must
+  **broadcast** (copy) a skill before it can be enabled.
+- Each workspace's `skill.json` is the source of truth for which skills are
+  enabled, which channels they apply to, and their config.
+- Built-in skills in the pool can be deleted and later imported back from the
+  packaged source. They still cannot be overwritten in-place by a customized
+  skill with the same name.
+
+### Broadcast from pool (pool → workspace)
+
+To use a pool skill in a workspace, broadcast it:
+
+1. Go to the **Skill Pool** page in the Console.
+2. Browse the pool and click **Broadcast** on the skill you want.
+3. Select target workspace(s) and confirm.
+4. The skill is copied into the workspace's `skills/` directory, **disabled by default**.
+5. Enable it with the toggle on the **Agent → Skills** page.
+
+If a skill with the same name already exists in the workspace, the broadcast
+will report a conflict and suggest a renamed alternative.
+
+The workspace tracks the relationship via `sync_to_pool`:
+
+| Status       | Meaning                                                         |
+| ------------ | --------------------------------------------------------------- |
+| `synced`     | Workspace copy matches the pool version                         |
+| `not_synced` | No corresponding pool entry (e.g. created locally)              |
+| `conflict`   | Both exist but content differs (locally edited after broadcast) |
+
+### Upload to pool (workspace → pool)
+
+To share a workspace skill across agents, upload it to the pool:
+
+1. On the **Agent → Skills** page, click **Upload**.
+2. Select the skill(s) you want to upload and confirm.
+3. If a pool skill with the same name exists, rename or delete the existing one first.
+4. After upload, the workspace entry is marked `synced` with a link to the pool copy.
+
+If a builtin with the same name already exists, upload/create/save will report
+a conflict. Save it under a different name, or delete the builtin first if you
+really want a customized replacement with the same name.
+
+### Importing built-in skills
+
+When CoPaw is upgraded, packaged built-in skills under `src/` may be newer than
+what is in your local pool, or some builtins may have been deleted from the
+pool intentionally.
+
+To import built-ins from source into the pool:
+
+1. Go to the Skill Pool page in the Console.
+2. Click **Import Builtin**.
+3. Select the builtins you want to import and confirm.
+4. Missing builtins are copied into the pool. Builtins already up-to-date are
+   left unchanged. Builtins whose pool copy differs from the packaged version
+   are reported as conflicts — approve to overwrite, or skip to keep the
+   current copy.
+
+To update a single outdated builtin, click **Update** on its card in the pool
+page.
+
+You can also delete a builtin from the pool and import it back later.
 
 ---
 
@@ -77,7 +175,7 @@ You can import skills from these URL sources in the Console:
 
 ### Steps
 
-1. Open the [Console](./console) → **Agent → Skills**, click **Import Skills**.
+1. Open the [Console](./console) → **Agent → Skills**, click **Import Hub**.
 
    ![skill](https://img.alicdn.com/imgextra/i2/O1CN01gQN4gv1HCj5HVBeq1_!!6000000000722-2-tps-3410-1978.png)
 
@@ -112,33 +210,40 @@ You can import skills from these URL sources in the Console:
 
 ### Notes
 
+- Imported skills are **disabled by default**. Enable them after import.
 - If a skill with the same name already exists, import does not overwrite by default. Check the existing one in the list first.
 - If import fails, first check URL completeness, supported domains, and outbound network access. If GitHub rate-limits requests, add `GITHUB_TOKEN` in Console → Settings → Environments. See GitHub docs: [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 
 ---
 
+## Channel routing
+
+Each skill can be restricted to specific channels. By default, skills apply to
+**all channels** (`channels: ["all"]`).
+
+To limit a skill to certain channels:
+
+1. In **Agent → Skills**, click the channel setting on a skill.
+2. Select the channels where this skill should be active (e.g. `discord`,
+   `telegram`, `console`).
+
+When the agent runs on a given channel, only skills whose `channels` list
+includes that channel (or `"all"`) are loaded. This lets you have
+channel-specific skills — for example, a DingTalk-only onboarding skill that
+doesn't appear on Discord.
+
+---
+
 ## Custom skills (in the working directory)
 
-To add your own instructions or capabilities via the file system, add a custom skill under the `customized_skills` directory.
+To add your own instructions or capabilities via the file system, add a custom
+skill under a workspace's `skills/` directory.
 
 ### Steps
 
-1. Create a directory under `~/.copaw/customized_skills/`, e.g. `my_skill`.
-2. Add a `SKILL.md` file in that directory. Write Markdown that describes the capability for the agent. It is recommended to use YAML front matter at the top with `name` and `description` (`metadata` is optional) so the agent and Console can display and manage the skill correctly. Skills are still discovered as long as the directory contains a `SKILL.md`, but may show incomplete information without this front matter.
-
-### Directory layout example
-
-```
-~/.copaw/
-  active_skills/        # Activated skills (merged from built-in + custom)
-    cron/
-      SKILL.md
-    my_skill/
-      SKILL.md
-  customized_skills/    # User-created custom skills (add here)
-    my_skill/
-      SKILL.md
-```
+1. Create a directory under `~/.copaw/workspaces/{agent_id}/skills/`, e.g.
+   `my_skill`.
+2. Add a `SKILL.md` file in that directory. The file **must** start with YAML front matter containing both `name` and `description` fields. Write Markdown body after the front matter to describe the capability for the agent. If the skill depends on external binaries or environment variables, declare them in `metadata.requires`; CoPaw exposes them as `require_bins` and `require_envs` metadata, but does not disable the skill automatically.
 
 ### Example SKILL.md
 
@@ -146,6 +251,10 @@ To add your own instructions or capabilities via the file system, add a custom s
 ---
 name: my_skill
 description: My custom capability
+metadata:
+  requires:
+    bins: [ffmpeg]
+    env: [MY_SKILL_API_KEY]
 ---
 
 # Usage
@@ -153,7 +262,108 @@ description: My custom capability
 This skill is used for…
 ```
 
-On startup the app merges built-in skills with custom skills from `~/.copaw/customized_skills/` into `~/.copaw/active_skills/`; custom skills take priority when names collide. Your custom directories are never overwritten; built-in skills are only copied to `active_skills` when missing.
+`name` and `description` are **required**. `metadata` is optional.
+
+Manually placed skills are detected on the next manifest reconcile and added
+to `skill.json` as **disabled**. Enable them in the Console or CLI.
+
+---
+
+## Skill config
+
+Each skill can have a `config` object stored in its manifest entry. This config
+is not just stored metadata — when a skill is effective for the current
+workspace and channel, CoPaw injects that config into the runtime environment
+for that agent turn, then restores the environment after the turn completes.
+
+You can set config per skill in the Console (**Agent → Skills** → click the
+config icon on a skill) or via the API.
+
+### How it works
+
+Config keys that match a `metadata.requires.env` entry in SKILL.md are
+injected as environment variables. Keys not declared in `requires.env` are
+skipped (but still available via the full JSON variable). If a required key
+is missing from the config, a warning is logged.
+
+The full config is always available as `COPAW_SKILL_CONFIG_<SKILL_NAME>`
+(JSON string), regardless of `requires.env`.
+
+Existing host environment variables are never overwritten.
+
+### Example
+
+If `SKILL.md` declares:
+
+```markdown
+---
+name: my_skill
+description: demo
+metadata:
+  requires:
+    env: [MY_API_KEY, BASE_URL]
+---
+```
+
+And the config is:
+
+```json
+{
+  "MY_API_KEY": "sk-demo",
+  "BASE_URL": "https://api.example.com",
+  "timeout": 30
+}
+```
+
+The skill can read:
+
+- `MY_API_KEY` ← from config, matches `requires.env`
+- `BASE_URL` ← from config, matches `requires.env`
+- `timeout` ← not in `requires.env`, only available via the full JSON below
+- `COPAW_SKILL_CONFIG_MY_SKILL` ← full JSON config (always injected)
+
+Python example:
+
+```python
+import json
+import os
+
+api_key = os.environ.get("MY_API_KEY", "")
+base_url = os.environ.get("BASE_URL", "")
+cfg = json.loads(os.environ.get("COPAW_SKILL_CONFIG_MY_SKILL", "{}"))
+timeout = cfg.get("timeout", 30)
+```
+
+Config is also preserved across pool ↔ workspace sync: uploading a workspace
+skill copies its config to the pool entry, and downloading copies the pool
+config into the workspace entry.
+
+### Config priority
+
+When a skill runs, the effective config follows this priority (highest wins):
+
+1. **Host environment** — existing env vars on the machine are never overwritten.
+2. **Workspace config** — the `config` object in the workspace manifest entry (`skill.json`). This is what you edit in the Console per agent.
+3. **Pool config** — when downloading a pool skill to a workspace, the pool's `config` is copied as the initial workspace config. Subsequent workspace edits take precedence.
+
+For `requires` metadata, the parser checks keys in order: `metadata.openclaw.requires` → `metadata.copaw.requires` → `metadata.requires`. The first one found is used.
+
+---
+
+## Upgrading from Earlier Versions
+
+Introduced in the latest version. Converts legacy `active_skills/` and `customized_skills/` directories into the unified workspace skill layout.
+
+All migrations run automatically on first start. No manual file operations required.
+
+| Before               | After                                                                    |
+| -------------------- | ------------------------------------------------------------------------ |
+| `active_skills/`     | Workspace `skills/` (enabled)                                            |
+| `customized_skills/` | Workspace `skills/` (disabled unless also active with identical content) |
+
+- Same skill name with **different content** in both directories: both copies kept with `-active` / `-customize` suffixes.
+- Builtin skills are managed separately and always synced from the packaged version.
+- To share a workspace skill across agents, upload it to the skill pool manually via the UI.
 
 ---
 

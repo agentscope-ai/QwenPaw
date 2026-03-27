@@ -36,6 +36,62 @@
   }
 }
 
+/* ─── Skill Picker (agent create/edit modal) ───────────────────────────────── */
+.pickerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.pickerCard {
+  position: relative;
+  padding: 8px 12px;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.02);
+  }
+
+  &.pickerCardSelected {
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.06);
+  }
+
+  &.pickerCardDisabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+}
+
+.pickerCheck {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #615ced;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+}
+
+.pickerCardTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1a1a1a;
+  word-break: break-all;
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .sectionTitle {
@@ -44,6 +100,22 @@
 
   .sectionDesc {
     color: rgba(255, 255, 255, 0.35);
+  }
+
+  .pickerCard {
+    border-color: rgba(255, 255, 255, 0.12);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.08);
+    }
+
+    &.pickerCardSelected {
+      background: rgba(97, 92, 237, 0.12);
+    }
+  }
+
+  .pickerCardTitle {
+    color: rgba(255, 255, 255, 0.85);
   }
 }
 

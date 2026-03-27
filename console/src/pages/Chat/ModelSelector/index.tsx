@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Dropdown, message, Spin } from "antd";
 import {
-  DownOutlined,
   CheckOutlined,
   LoadingOutlined,
   RightOutlined,
 } from "@ant-design/icons";
+import { SparkDownLine } from "@agentscope-ai/icons";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
@@ -232,7 +232,7 @@ export default function ModelSelector() {
           <LoadingOutlined style={{ fontSize: 11, color: "#615ced" }} />
         )}
         <span className={styles.triggerName}>{activeModelName}</span>
-        <DownOutlined
+        <SparkDownLine
           className={[
             styles.triggerArrow,
             open ? styles.triggerArrowOpen : "",
