@@ -28,6 +28,7 @@
   --color-text-tertiary: rgba(20, 20, 19, 0.45);
   --color-fill-tertiary: rgba(205, 208, 220, 0.15);
   --color-card-fill: rgba(43, 18, 0, 0.02);
+  --color-fill-secondary: rgba(43, 18, 0, 0.08);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -636,6 +637,15 @@ button {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
+.docs-content img.docs-title-banner {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: 270px;
+  max-height: none;
+  object-fit: cover;
+}
+
 .docs-content video {
   max-width: min(100%, 36rem);
   max-height: 20rem;
@@ -806,7 +816,7 @@ button {
   flex: 1;
   display: flex;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-4);
+  padding: var(--space-4) var(--space-4) 0 var(--space-4);
   overflow: hidden;
   min-width: 0;
 }
@@ -895,13 +905,13 @@ button {
   z-index: 30;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
-  font-size: 0.875rem;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: 9999px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   cursor: pointer;
   transition:
@@ -921,7 +931,7 @@ button {
 
   .docs-main {
     gap: 0;
-    padding: var(--space-2);
+    padding: var(--space-2) var(--space-2) 0 var(--space-2);
   }
 
   .docs-main .docs-content-scroll {
@@ -930,7 +940,7 @@ button {
 
   .docs-back-to-top {
     right: var(--space-3);
-    bottom: var(--space-4);
+    bottom: var(--space-5);
   }
 }
 

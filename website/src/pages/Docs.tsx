@@ -12,31 +12,12 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import {
-  BookOpen,
-  Rocket,
-  Zap,
-  Terminal,
-  MessageSquare,
-  Wrench,
-  Plug,
-  Brain,
-  Archive,
-  Command,
-  Activity,
-  Settings,
-  Shield,
-  CircleHelp,
-  Users,
-  GitBranch,
-  Map as MapIcon,
   Menu,
-  Cpu,
   ChevronRight,
   ChevronDown,
   ArrowUp,
   Copy,
   Check,
-  type LucideIcon,
 } from "lucide-react";
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { DocSearch } from "@/components/DocSearch";
@@ -122,7 +103,11 @@ function headingText(children: React.ReactNode): string {
 interface DocEntry {
   slug: string;
   titleKey: string;
-  children?: DocEntry[];
+}
+
+interface DocGroup {
+  titleKey: string;
+  children: DocEntry[];
 }
 
 interface FaqItem {
@@ -165,62 +150,88 @@ function parseFaqContent(md: string): { intro: string; items: FaqItem[] } {
   };
 }
 
-const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
-  intro: Rocket,
-  quickstart: Zap,
-  console: Terminal,
-  "multi-agent": Users,
-  models: Cpu,
-  channels: MessageSquare,
-  skills: Wrench,
-  mcp: Plug,
-  memory: Brain,
-  context: Archive,
-  commands: Command,
-  heartbeat: Activity,
-  config: Settings,
-  security: Shield,
-  cli: Terminal,
-  faq: CircleHelp,
-  community: Users,
-  contributing: GitBranch,
-  roadmap: MapIcon,
-};
-
-const DOC_SLUGS: DocEntry[] = [
-  { slug: "intro", titleKey: "docs.intro" },
+const DOC_GROUPS: DocGroup[] = [
   {
-    slug: "quickstart",
-    titleKey: "docs.quickstart",
-    children: [{ slug: "desktop", titleKey: "docs.desktop" }],
+    titleKey: "docs.groupWelcome",
+    children: [
+      { slug: "intro", titleKey: "docs.intro" },
+      { slug: "quickstart", titleKey: "docs.quickstart" },
+      { slug: "desktop", titleKey: "docs.desktop" },
+    ],
   },
-  { slug: "console", titleKey: "docs.console" },
-  { slug: "models", titleKey: "docs.models" },
-  { slug: "channels", titleKey: "docs.channels" },
-  { slug: "skills", titleKey: "docs.skills" },
-  { slug: "mcp", titleKey: "docs.mcp" },
-  { slug: "memory", titleKey: "docs.memory" },
-  { slug: "context", titleKey: "docs.context" },
-  { slug: "commands", titleKey: "docs.commands" },
-  { slug: "heartbeat", titleKey: "docs.heartbeat" },
-  { slug: "multi-agent", titleKey: "docs.multiAgent" },
-  { slug: "config", titleKey: "docs.config" },
-  { slug: "security", titleKey: "docs.security" },
-  { slug: "cli", titleKey: "docs.cli" },
-  { slug: "faq", titleKey: "docs.faq" },
-  { slug: "community", titleKey: "docs.community" },
-  { slug: "contributing", titleKey: "docs.contributing" },
-  { slug: "roadmap", titleKey: "docs.roadmap" },
+  {
+    titleKey: "docs.groupControl",
+    children: [
+      { slug: "console", titleKey: "docs.console" },
+      { slug: "channels", titleKey: "docs.channels" },
+      { slug: "commands", titleKey: "docs.commands" },
+      { slug: "heartbeat", titleKey: "docs.heartbeat" },
+      { slug: "memory", titleKey: "docs.memory" },
+    ],
+  },
+  {
+    titleKey: "docs.groupAgent",
+    children: [
+      { slug: "multi-agent", titleKey: "docs.multiAgent" },
+      { slug: "skills", titleKey: "docs.skills" },
+      { slug: "mcp", titleKey: "docs.mcp" },
+      { slug: "context", titleKey: "docs.context" },
+      { slug: "config", titleKey: "docs.config" },
+    ],
+  },
+  {
+    titleKey: "docs.groupSettings",
+    children: [
+      { slug: "models", titleKey: "docs.models" },
+      { slug: "security", titleKey: "docs.security" },
+      { slug: "cli", titleKey: "docs.cli" },
+    ],
+  },
+  {
+    titleKey: "docs.groupOthers",
+    children: [
+      { slug: "faq", titleKey: "docs.faq" },
+      { slug: "community", titleKey: "docs.community" },
+      { slug: "contributing", titleKey: "docs.contributing" },
+      { slug: "roadmap", titleKey: "docs.roadmap" },
+    ],
+  },
 ];
-
 /** Collect all valid slugs (parents + children). */
 const ALL_SLUGS = [
-  ...DOC_SLUGS.flatMap((d) => [
-    d.slug,
-    ...(d.children?.map((c) => c.slug) ?? []),
-  ]),
+  ...DOC_GROUPS.flatMap((g) => g.children.map((d) => d.slug)),
   "comparison", // Hidden page, accessible only via FAQ link
 ];
+
+const DOC_TITLE_BANNERS = [
+  "https://img.alicdn.com/imgextra/i3/O1CN01AFF5p31rkup6lRZdP_!!6000000005670-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i2/O1CN01XVYxhh1qss5VAHS8W_!!6000000005552-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i3/O1CN01bVhRvK1Kk6o0OBTvx_!!6000000001201-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i2/O1CN01iKcnsI1zblqDgJj1g_!!6000000006733-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i4/O1CN017vxGqK1X43RXh4MiW_!!6000000002869-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i2/O1CN01a1gbkF1W6VxFh6e6X_!!6000000002739-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i3/O1CN01jM1xfY1oTYyDha2cC_!!6000000005226-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i1/O1CN018pVqGD1TeurBxIlox_!!6000000002408-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i2/O1CN01IH0RKW1YhGyQLgQnH_!!6000000003090-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i3/O1CN01LXpygR1HHlRkroefl_!!6000000000733-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i4/O1CN01YhyXsW25kMyJd5Xuh_!!6000000007564-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i2/O1CN01nrpSe11fGR4mcMCWr_!!6000000003979-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i4/O1CN01ZZCKMR1TYxhxRVeuz_!!6000000002395-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i1/O1CN01RkWA7H1QJtppbRCYy_!!6000000001956-2-tps-1708-954.png",
+  "https://img.alicdn.com/imgextra/i1/O1CN0125urEE1XvBO2jAQnn_!!6000000002985-2-tps-1708-954.png",
+] as const;
+
+const DOC_BANNER_BY_SLUG = (() => {
+  const map = new Map<string, (typeof DOC_TITLE_BANNERS)[number]>();
+  const allDocs = DOC_GROUPS.flatMap((group) => group.children);
+  let bannerIndex = 0;
+  for (const entry of allDocs) {
+    map.set(entry.slug, DOC_TITLE_BANNERS[bannerIndex]);
+    bannerIndex += 1;
+    if (bannerIndex >= DOC_TITLE_BANNERS.length) bannerIndex = 0;
+  }
+  return map;
+})();
 
 export function Docs() {
   const { t, i18n } = useTranslation();
@@ -246,6 +257,10 @@ export function Docs() {
   > | null>(null);
   const [openFaqSet, setOpenFaqSet] = useState<Set<number>>(() => new Set([0]));
   const faqData = useMemo(() => parseFaqContent(content), [content]);
+  const titleBannerSrc = useMemo(
+    () => DOC_BANNER_BY_SLUG.get(activeSlug) ?? DOC_TITLE_BANNERS[0],
+    [activeSlug],
+  );
   const headingIdCounter = new Map<string, number>();
   const getHeadingId = (children: React.ReactNode) => {
     const baseId = slugifyHeading(headingText(children));
@@ -253,29 +268,43 @@ export function Docs() {
     headingIdCounter.set(baseId, count);
     return count === 1 ? baseId : `${baseId}-${count}`;
   };
-  const mobileBreadcrumb = useMemo(() => {
-    for (const entry of DOC_SLUGS) {
-      if (entry.slug === activeSlug) {
-        return { current: t(entry.titleKey) };
-      }
-      const child = entry.children?.find((c) => c.slug === activeSlug);
-      if (child) {
-        return { parent: t(entry.titleKey), current: t(child.titleKey) };
-      }
+  const mobileBreadcrumb = useMemo<{ parent?: string; current: string }>(() => {
+    const currentEntry = DOC_GROUPS.flatMap((g) => g.children).find(
+      (entry) => entry.slug === activeSlug,
+    );
+    if (!currentEntry) {
+      return { parent: t("docs.groupWelcome"), current: t("docs.intro") };
     }
-    return { current: t("docs.intro") };
+    const group = DOC_GROUPS.find((g) =>
+      g.children.some((entry) => entry.slug === activeSlug),
+    );
+    return {
+      parent: group ? t(group.titleKey) : undefined,
+      current: t(currentEntry.titleKey),
+    };
   }, [activeSlug, t]);
 
   const flatDocNav = useMemo(() => {
     const out: Array<{ slug: string; title: string }> = [];
-    for (const entry of DOC_SLUGS) {
-      out.push({ slug: entry.slug, title: t(entry.titleKey) });
-      for (const child of entry.children ?? []) {
-        out.push({ slug: child.slug, title: t(child.titleKey) });
+    for (const group of DOC_GROUPS) {
+      for (const entry of group.children) {
+        out.push({ slug: entry.slug, title: t(entry.titleKey) });
       }
     }
     return out;
   }, [t]);
+
+  const docEntryMap = useMemo(
+    () =>
+      new Map(
+        DOC_GROUPS.flatMap((group) =>
+          group.children.map(
+            (entry) => [entry.slug, { title: t(entry.titleKey) }] as const,
+          ),
+        ),
+      ),
+    [t],
+  );
 
   const { prevDoc, nextDoc } = useMemo(() => {
     const idx = flatDocNav.findIndex((d) => d.slug === activeSlug);
@@ -369,7 +398,6 @@ export function Docs() {
       navigate("/docs/intro", { replace: true });
       return;
     }
-    setContent("");
     let cancelled = false;
     const langSuffix = lang === "zh" ? "zh" : "en";
     const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "") || "";
@@ -493,78 +521,40 @@ export function Docs() {
             <Menu size={24} />
           </button>
           <DocSearch initialQuery={isSearchPage ? searchQ : ""} />
-          <nav className="flex flex-col gap-0.5">
-            {DOC_SLUGS.map((entry) => {
-              const { slug: s, titleKey, children } = entry;
-              const isParentActive =
-                activeSlug === s ||
-                (children?.some((c) => c.slug === activeSlug) ?? false);
-              const ParentIcon = DOC_SLUG_ICONS[s] ?? BookOpen;
-              return (
-                <div key={s}>
-                  <Link
-                    to={`/docs/${s}`}
-                    className={[
-                      "flex items-center gap-1 rounded-md px-2 py-2 text-[0.9375rem] transition-colors",
-                      activeSlug === s
-                        ? "bg-(--bg) text-(--text)"
-                        : "text-(--text-muted) hover:bg-(--bg)/60 hover:text-(--text)",
-                    ].join(" ")}
-                    onClick={() => setSidebarOpen(false)}
-                  >
-                    <ParentIcon size={16} strokeWidth={1.5} aria-hidden />
-                    {t(titleKey)}
-                    {children && children.length > 0 && (
-                      <ChevronDown
-                        size={14}
+          <nav className="flex flex-col gap-3 pt-1">
+            {DOC_GROUPS.map((group) => (
+              <section key={group.titleKey}>
+                <h3 className="mb-1 px-2 text-[1rem] leading-6 font-semibold text-(--color-text)">
+                  {t(group.titleKey)}
+                </h3>
+                <div className="flex flex-col gap-0.5">
+                  {group.children.map((entry) => {
+                    const docEntry = docEntryMap.get(entry.slug);
+                    if (!docEntry) return null;
+                    return (
+                      <Link
+                        key={entry.slug}
+                        to={`/docs/${entry.slug}`}
                         className={[
-                          "ml-auto transition-transform duration-150",
-                          isParentActive ? "rotate-0" : "-rotate-90",
+                          "flex items-center rounded-lg px-3 py-1.5 text-[0.9375rem] leading-6 transition-colors",
+                          activeSlug === entry.slug
+                            ? "bg-(--color-fill-secondary) font-medium text-(--color-text)"
+                            : "text-(-color-text-secondary) hover:bg-[#F1F1F1] hover:text-(--color-text)",
                         ].join(" ")}
-                      />
-                    )}
-                    {!children && activeSlug === s && (
-                      <ChevronRight size={16} className="ml-auto" />
-                    )}
-                  </Link>
-                  {children && isParentActive && (
-                    <div className="pl-5">
-                      {children.map(({ slug: cs, titleKey: ct }) => {
-                        const ChildIcon = DOC_SLUG_ICONS[cs] ?? BookOpen;
-                        return (
-                          <Link
-                            key={cs}
-                            to={`/docs/${cs}`}
-                            className={[
-                              "flex items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors",
-                              activeSlug === cs
-                                ? "bg-(--bg) text-(--text)"
-                                : "text-(--text-muted) hover:bg-(--bg)/60 hover:text-(--text)",
-                            ].join(" ")}
-                            onClick={() => setSidebarOpen(false)}
-                          >
-                            <ChildIcon
-                              size={14}
-                              strokeWidth={1.5}
-                              aria-hidden
-                            />
-                            {t(ct)}
-                            {activeSlug === cs && (
-                              <ChevronRight size={14} className="ml-auto" />
-                            )}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        {docEntry.title}
+                      </Link>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </section>
+            ))}
           </nav>
         </aside>
         <main className="docs-main relative min-w-0">
           <div className="docs-content-scroll" ref={articleRef}>
-            <div className="sticky -top-px z-20 border-y border-border/60 bg-(--surface) py-3 md:hidden">
+            <div className="sticky -top-px z-20 border-b border-border/60 bg-(--surface) pb-3 md:hidden">
               <div
                 className="flex items-center gap-2"
                 onClick={() => setSidebarOpen((o) => !o)}
@@ -610,6 +600,17 @@ export function Docs() {
                           remarkPlugins={[remarkGfm]}
                           rehypePlugins={[rehypeRaw, rehypeHighlight]}
                           components={{
+                            h1: ({ children }) => (
+                              <>
+                                <h1>{children}</h1>
+                                <img
+                                  src={titleBannerSrc}
+                                  alt=""
+                                  aria-hidden="true"
+                                  className="docs-title-banner mt-3 mb-5 block h-[270px] w-full object-cover"
+                                />
+                              </>
+                            ),
                             h2: ({ children }) => {
                               const id = getHeadingId(children);
                               return <h2 id={id}>{children}</h2>;
@@ -675,6 +676,17 @@ export function Docs() {
                       remarkPlugins={[remarkGfm]}
                       rehypePlugins={[rehypeRaw, rehypeHighlight]}
                       components={{
+                        h1: ({ children }) => (
+                          <>
+                            <h1>{children}</h1>
+                            <img
+                              src={titleBannerSrc}
+                              alt=""
+                              aria-hidden="true"
+                              className="docs-title-banner mt-3 mb-5 block h-[270px] w-full object-cover"
+                            />
+                          </>
+                        ),
                         pre: ({ children, ...props }) => {
                           return (
                             <CodeBlockWithCopy>
@@ -870,7 +882,6 @@ export function Docs() {
           aria-label={t("docs.backToTop")}
         >
           <ArrowUp size={20} aria-hidden />
-          <span>{t("docs.backToTop")}</span>
         </button>
       )}
     </>
