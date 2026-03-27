@@ -200,7 +200,7 @@ def _emit_match_entries(
 def _output_context_for_hit(
     hit_line_no: int,
     line_buffer: deque[tuple[int, str]],
-    disp_path: str,
+    display_path: str,
     context_lines: int,
     matches: list[str],
     total_chars: int,
@@ -217,7 +217,7 @@ def _output_context_for_hit(
     Args:
         hit_line_no: Line number of the hit.
         line_buffer: Deque of (line_no, content) tuples.
-        disp_path: Display path for the file.
+        display_path: Display path for the file.
         context_lines: Number of context lines before/after hit.
         matches: List to append formatted entries to (modified in place).
         total_chars: Current character count.
@@ -226,41 +226,27 @@ def _output_context_for_hit(
         Tuple of (success, new_total_chars). Success is False if limits
         were reached during output.
     """
-    start_line = max(1, hit_line_no - context_lines)
-    end_line = hit_line_no + context_lines
-
     # Find the index of hit_line_no in the buffer for fast slicing
-    hit_idx = None
-    for idx, (ln, _) in enumerate(line_buffer):
-        if ln == hit_line_no:
-            hit_idx = idx
-            break
+    # hit_idx is always found since hit_line_no was taken from the buffer
+    hit_idx = next(
+        idx
+        for idx, (line_no, _) in enumerate(line_buffer)
+        if line_no == hit_line_no
+    )
 
-    # Collect all entries to output: (line_no, content, is_hit)
-    entries: list[tuple[int, str, bool]] = []
+    slice_start = max(0, hit_idx - context_lines)
+    slice_end = min(len(line_buffer), hit_idx + context_lines + 1)
 
-    if hit_idx is None:
-        # Fallback: hit not in current buffer, scan by line number range
-        for ln, content in line_buffer:
-            if start_line <= ln <= end_line:
-                is_hit = ln == hit_line_no
-                entries.append((ln, content, is_hit))
-    else:
-        # Fast path: slice the buffer directly around the hit index
-        slice_start = max(0, hit_idx - context_lines)
-        slice_end = min(len(line_buffer), hit_idx + context_lines + 1)
-
-        for idx in range(slice_start, slice_end):
-            ln, content = line_buffer[idx]
-            # Clamp to actual context range for file boundaries
-            if start_line <= ln <= end_line:
-                is_hit = idx == hit_idx
-                entries.append((ln, content, is_hit))
+    buffer_slice = list(line_buffer)[slice_start:slice_end]
+    entries: list[tuple[int, str, bool]] = [
+        (line_no, line_content, line_no == hit_line_no)
+        for line_no, line_content in buffer_slice
+    ]
 
     # Batch append all collected entries
     success, total_chars = _emit_match_entries(
         entries,
-        disp_path,
+        display_path,
         matches,
         total_chars,
     )
@@ -349,11 +335,9 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         )
 
         # Sliding window holds (line_no, line_content) tuples
-        window: deque[tuple[int, str]] = deque(maxlen=window_size)
+        sliding_window: deque[tuple[int, str]] = deque(maxlen=window_size)
         # Indices in window where matches occurred, ordered by position
         hit_indices: list[int] = []
-        # Track which line numbers have been output to avoid duplicates
-        emitted_hit_lines: set[int] = set()
 
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -363,63 +347,59 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         status = "timeout"
                         break
 
-                    line_no += 1
+                    line_no = line_no + 1
                     line_content = line.rstrip("\n").rstrip("\r")
                     is_match = bool(regex.search(line_content))
 
-                    window.append((line_no, line_content))
+                    sliding_window.append((line_no, line_content))
                     if is_match:
-                        hit_indices.append(len(window) - 1)
+                        hit_indices.append(len(sliding_window) - 1)
 
-                    if len(window) == window_size:
+                    if len(sliding_window) == window_size:
                         # Process hits that are before the middle of the window.
                         # These hits have collected their full context (context_lines after).
                         while hit_indices and hit_indices[0] < middle_idx:
-                            hit_line = window[hit_indices.pop(0)][0]
-                            if hit_line not in emitted_hit_lines:
-                                success, total_chars = _output_context_for_hit(
-                                    hit_line,
-                                    window,
-                                    display_path,
-                                    context_lines,
-                                    matches,
-                                    total_chars,
+                            hit_line = sliding_window[hit_indices.pop(0)][0]
+                            success, total_chars = _output_context_for_hit(
+                                hit_line,
+                                sliding_window,
+                                display_path,
+                                context_lines,
+                                matches,
+                                total_chars,
+                            )
+                            if not success:
+                                status = (
+                                    f"truncated: match limit ({_MAX_MATCHES})"
+                                    if len(matches) >= _MAX_MATCHES
+                                    else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
                                 )
-                                if not success:
-                                    status = (
-                                        f"truncated: match limit ({_MAX_MATCHES})"
-                                        if len(matches) >= _MAX_MATCHES
-                                        else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
-                                    )
-                                    break
-                                emitted_hit_lines.add(hit_line)
+                                break
 
                         if status != "ok":
                             break
                         # Process the middle position hit if any.
                         # At this point, the hit has context_lines before and after.
                         if hit_indices and hit_indices[0] == middle_idx:
-                            hit_line = window[hit_indices.pop(0)][0]
-                            if hit_line not in emitted_hit_lines:
-                                success, total_chars = _output_context_for_hit(
-                                    hit_line,
-                                    window,
-                                    display_path,
-                                    context_lines,
-                                    matches,
-                                    total_chars,
+                            hit_line = sliding_window[hit_indices.pop(0)][0]
+                            success, total_chars = _output_context_for_hit(
+                                hit_line,
+                                sliding_window,
+                                display_path,
+                                context_lines,
+                                matches,
+                                total_chars,
+                            )
+                            if not success:
+                                status = (
+                                    f"truncated: match limit ({_MAX_MATCHES})"
+                                    if len(matches) >= _MAX_MATCHES
+                                    else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
                                 )
-                                if not success:
-                                    status = (
-                                        f"truncated: match limit ({_MAX_MATCHES})"
-                                        if len(matches) >= _MAX_MATCHES
-                                        else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
-                                    )
-                                    break
-                                emitted_hit_lines.add(hit_line)
+                                break
                         # Slide the window forward by removing the oldest line.
                         # Adjust remaining hit indices to match new positions.
-                        window.popleft()
+                        sliding_window.popleft()
                         hit_indices = [i - 1 for i in hit_indices if i > 0]
 
                 if status != "ok":
@@ -429,12 +409,10 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                 # These are hits that never became the middle of a full window
                 # (e.g., hits near file start or end).
                 for hit_idx in hit_indices:
-                    hit_line_no = window[hit_idx][0]
-                    if hit_line_no in emitted_hit_lines:
-                        continue
+                    hit_line_no = sliding_window[hit_idx][0]
                     success, total_chars = _output_context_for_hit(
                         hit_line_no,
-                        window,
+                        sliding_window,
                         display_path,
                         context_lines,
                         matches,
