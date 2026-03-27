@@ -242,10 +242,10 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 Control commands are processed immediately with high priority, without waiting for ongoing tasks to complete. Suitable for urgent operations.
 
-| Command                             | Description                                                    |
-| ----------------------------------- | -------------------------------------------------------------- |
-| `/stop`                             | Immediately terminate the running task in current session      |
-| `/stop session=<session_id>`        | Terminate task in specified session (optional parameter)       |
+| Command                      | Description                                               |
+| ---------------------------- | --------------------------------------------------------- |
+| `/stop`                      | Immediately terminate the running task in current session |
+| `/stop session=<session_id>` | Terminate task in specified session (optional parameter)  |
 
 **Example**:
 
@@ -260,6 +260,7 @@ Task has been terminated.
 ```
 
 **Features**:
+
 - **High-priority processing**: `/stop` is processed immediately even when other tasks are running
 - **Non-blocking**: Stopping a task doesn't affect other users or sessions
 - **Default to current session**: Without parameters, stops the current session's task
