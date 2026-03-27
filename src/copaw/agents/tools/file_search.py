@@ -271,10 +271,11 @@ def _output_context_for_hit(
     if context_lines > 0:
         if len(matches) >= _MAX_MATCHES:
             return False, total_chars
-        matches.append("---")
-        total_chars += 4
-        if total_chars >= _MAX_OUTPUT_CHARS:
+        projected_total = total_chars + 4
+        if projected_total > _MAX_OUTPUT_CHARS:
             return False, total_chars
+        matches.append("---")
+        total_chars = projected_total
 
     return True, total_chars
 
