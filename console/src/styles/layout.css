@@ -633,6 +633,18 @@ html.dark-mode .ant-tooltip-arrow::before {
   background: #2a2a2a !important;
 }
 
+/* Tooltip global override — force opaque background in light mode */
+.copaw-tooltip-inner,
+.ant-tooltip-inner {
+  background-color: rgba(0, 0, 0, 0.75) !important;
+  color: #fff !important;
+}
+
+.copaw-tooltip-arrow::before,
+.ant-tooltip-arrow::before {
+  background: rgba(0, 0, 0, 0.75) !important;
+}
+
 /* Disabled chat input overlay in dark mode */
 html.dark-mode
   [class*="chatDisabledOverlay"]

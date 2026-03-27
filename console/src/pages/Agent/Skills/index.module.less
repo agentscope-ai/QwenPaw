@@ -1,27 +1,48 @@
 .skillsPage {
-  padding: 24px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
-.header {
+.pageHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
-  gap: 16px;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  flex-shrink: 0;
 }
 
-.headerInfo {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.headerActions {
+.breadcrumbHeader {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 24px;
-  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .headerActionsLeft {
@@ -76,7 +97,7 @@
 
 .loading {
   text-align: center;
-  padding: 60px;
+  padding: 84px 60px;
 }
 
 .loadingText {
@@ -130,9 +151,11 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 24px;
+  padding: 24px;
 }
 
 .emptyState {
+  margin: 24px;
   padding: 40px 32px;
   border: 1px solid #e7ebf3;
   border-radius: 20px;
@@ -591,6 +614,22 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
   .description {
     color: rgba(255, 255, 255, 0.35);
   }

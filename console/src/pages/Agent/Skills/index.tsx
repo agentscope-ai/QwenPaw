@@ -345,12 +345,13 @@ function SkillsPage() {
 
   return (
     <div className={styles.skillsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("skills.title")}</h1>
-          <p className={styles.description}>{t("skills.description")}</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>{t("skills.title")}</span>
         </div>
-        <div className={styles.headerActions}>
+        <div className={styles.headerRight}>
           <input
             type="file"
             accept=".zip"
