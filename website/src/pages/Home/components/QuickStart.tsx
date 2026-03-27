@@ -309,7 +309,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                   {t(`quickstart.desc.${selectedMethod}`)}
                 </p>
 
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="min-h-0 flex-1 overflow-y-hidden">
                   <AnimatePresence mode="wait" initial={false}>
                     {selectedMethod === "pip" ? (
                       <motion.div

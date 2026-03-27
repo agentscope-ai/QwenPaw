@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { motion } from "motion/react";
 import { Check } from "lucide-react";
@@ -86,6 +86,12 @@ export function CopawHero() {
     }
   };
 
+  const mascotSrc = !showIdle
+    ? "/copaw-slogan-start.gif"
+    : isHovered || !idlePlayedOnce
+      ? "/copaw-slogan-idle.gif"
+      : "/copaw-slogan-idle-001.png";
+
   return (
     <>
       <style>{dashAnimations}</style>
@@ -110,26 +116,15 @@ export function CopawHero() {
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
           >
-            {/* Start animation - plays once on load */}
-            {!showIdle && (
-              <img
-                src="/copaw-slogan-start.gif"
-                alt=""
-                className="h-11 w-11 object-contain sm:h-12 sm:w-12 md:h-18 md:w-18"
-                onLoad={() => setStartGifLoaded(true)}
-                aria-hidden
-              />
-            )}
-            {/* Idle animation - plays once then static, GIF on hover */}
-            {showIdle && (
-              <img
-                key={isHovered || !idlePlayedOnce ? "gif" : "static"}
-                src={isHovered || !idlePlayedOnce ? "/copaw-slogan-idle.gif" : "/copaw-slogan-idle-001.png"}
-                alt=""
-                className="h-11 w-11 object-contain sm:h-12 sm:w-12 md:h-18 md:w-18"
-                aria-hidden
-              />
-            )}
+            <img
+              src={mascotSrc}
+              alt=""
+              className="h-11 w-11 object-contain sm:h-12 sm:w-12 md:h-18 md:w-18"
+              onLoad={() => {
+                if (!showIdle) setStartGifLoaded(true);
+              }}
+              aria-hidden
+            />
           </span>
           <span
             className="font-newsreader relative top-[0.02em] inline-block font-normal italic leading-[0.9]"
