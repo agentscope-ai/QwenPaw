@@ -124,7 +124,13 @@ export interface LocalServerStatus {
 }
 
 export interface LocalDownloadProgress {
-  status: "idle" | "pending" | "downloading" | "completed" | "failed" | "cancelled";
+  status:
+    | "idle"
+    | "pending"
+    | "downloading"
+    | "completed"
+    | "failed"
+    | "cancelled";
   model_name: string | null;
   downloaded_bytes: number;
   total_bytes: number | null;
