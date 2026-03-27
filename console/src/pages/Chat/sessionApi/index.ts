@@ -68,6 +68,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   realId?: string;
   /** Conversation status from backend. */
   status?: ChatStatus;
+  /** Whether the backend is still generating a response for this session. */
+  generating?: boolean;
 }
 
 // ---------------------------------------------------------------------------
