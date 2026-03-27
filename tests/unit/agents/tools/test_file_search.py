@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for file_search module — _walk_and_grep and _walk_and_glob."""
+"""Tests for file_search module — _is_text_file and _walk_and_grep."""
 
 # pylint: disable=redefined-outer-name,protected-access
 import os
