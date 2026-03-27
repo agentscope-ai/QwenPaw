@@ -554,6 +554,7 @@
     "anthropicEndpointHint": "Anthropicエンドポイント、例: https://api.anthropic.com",
     "ollamaEndpointHint": "Ollamaエンドポイント、例: http://localhost:11434",
     "lmstudioEndpointHint": "LM Studioエンドポイント、例: http://localhost:1234/v1",
+    "opencodeEndpointHint": "OpenCodeサーバーエンドポイント、例: http://127.0.0.1:4096",
     "apiEndpointHint": "APIエンドポイント、例: https://api.example.com",
     "pleaseEnterBaseURL": "APIベースURLを入力してください",
     "pleaseEnterValidURL": "有効なURLを入力してください",

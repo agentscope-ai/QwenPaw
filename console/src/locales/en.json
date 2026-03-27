@@ -619,6 +619,7 @@
     "anthropicEndpointHint": "Anthropic endpoint, e.g. https://api.anthropic.com",
     "ollamaEndpointHint": "Ollama endpoint, e.g. http://localhost:11434",
     "lmstudioEndpointHint": "LM Studio endpoint, e.g. http://localhost:1234/v1",
+    "opencodeEndpointHint": "OpenCode server endpoint, e.g. http://127.0.0.1:4096",
     "apiEndpointHint": "API endpoint, e.g. https://api.example.com",
     "pleaseEnterBaseURL": "Please enter the API base URL",
     "pleaseEnterValidURL": "Please enter a valid URL",

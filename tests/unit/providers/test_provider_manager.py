@@ -10,6 +10,7 @@ import pytest
 import copaw.providers.provider_manager as provider_manager_module
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.openai_provider import OpenAIProvider
+from copaw.providers.opencode_provider import OpenCodeProvider
 from copaw.providers.provider import DefaultProvider, ModelInfo
 from copaw.providers.provider_manager import ProviderManager
 
@@ -381,6 +382,55 @@ def test_provider_from_data_fallback_to_openai(isolated_secret_dir) -> None:
     )
 
     assert isinstance(provider, OpenAIProvider)
+
+
+def test_provider_from_data_dispatch_to_opencode(isolated_secret_dir) -> None:
+    manager = ProviderManager()
+
+    provider = manager._provider_from_data(
+        {
+            "id": "opencode",
+            "name": "OpenCode",
+            "base_url": "http://127.0.0.1:53962",
+        },
+    )
+
+    assert isinstance(provider, OpenCodeProvider)
+
+
+def test_opencode_provider_registered(isolated_secret_dir) -> None:
+    manager = ProviderManager()
+
+    provider = manager.get_provider("opencode")
+
+    assert provider is not None
+    assert isinstance(provider, OpenCodeProvider)
+    assert provider.id == "opencode"
+    assert provider.name == "OpenCode"
+    assert provider.base_url == "http://127.0.0.1:4096"
+    assert provider.require_api_key is False
+
+
+def test_opencode_provider_with_api_key(isolated_secret_dir) -> None:
+    manager = ProviderManager()
+
+    provider = manager._provider_from_data(
+        {
+            "id": "opencode",
+            "name": "OpenCode With Key",
+            "base_url": "http://custom.opencode.ai:8080",
+            "api_key": "sk-opencode-custom-key",
+            "require_api_key": True,
+        },
+    )
+
+    assert provider is not None
+    assert isinstance(provider, OpenCodeProvider)
+    assert provider.id == "opencode"
+    assert provider.name == "OpenCode With Key"
+    assert provider.base_url == "http://custom.opencode.ai:8080"
+    assert provider.api_key == "sk-opencode-custom-key"
+    assert provider.require_api_key is True
 
 
 def test_init_from_storage_migrates_with_different_provider(

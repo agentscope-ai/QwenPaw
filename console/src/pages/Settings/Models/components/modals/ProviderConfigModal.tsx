@@ -332,6 +332,9 @@ export function ProviderConfigModal({
     if (provider.id === "lmstudio") {
       return t("models.lmstudioEndpointHint");
     }
+    if (provider.id === "opencode") {
+      return t("models.opencodeEndpointHint");
+    }
     if (provider.is_custom) {
       return effectiveChatModel === "AnthropicChatModel"
         ? t("models.anthropicEndpointHint")
@@ -358,6 +361,9 @@ export function ProviderConfigModal({
     }
     if (provider.id === "lmstudio") {
       return "http://localhost:1234/v1";
+    }
+    if (provider.id === "opencode") {
+      return "http://127.0.0.1:4096";
     }
     if (provider.is_custom && effectiveChatModel === "AnthropicChatModel") {
       return "https://api.anthropic.com";

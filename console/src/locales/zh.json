@@ -582,6 +582,7 @@
     "anthropicEndpointHint": "Anthropic 端点，例如 https://api.anthropic.com",
     "ollamaEndpointHint": "Ollama 端点，例如 http://localhost:11434",
     "lmstudioEndpointHint": "LM Studio 端点，例如 http://localhost:1234/v1",
+    "opencodeEndpointHint": "OpenCode 服务器端点，例如 http://127.0.0.1:4096",
     "apiEndpointHint": "API 端点，例如 https://api.example.com",
     "pleaseEnterBaseURL": "请输入 API 基础 URL",
     "pleaseEnterValidURL": "请输入有效的 URL",

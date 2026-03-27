@@ -559,6 +559,7 @@
     "anthropicEndpointHint": "Anthropic endpoint, например https://api.anthropic.com",
     "ollamaEndpointHint": "Ollama endpoint, например http://localhost:11434",
     "lmstudioEndpointHint": "LM Studio endpoint, например http://localhost:1234/v1",
+    "opencodeEndpointHint": "Эндпоинт сервера OpenCode, например http://127.0.0.1:4096",
     "apiEndpointHint": "API endpoint, например https://api.example.com",
     "pleaseEnterBaseURL": "Пожалуйста, введите базовый URL API",
     "pleaseEnterValidURL": "Пожалуйста, введите корректный URL",

@@ -24,6 +24,7 @@ from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.gemini_provider import GeminiProvider
 from copaw.providers.ollama_provider import OllamaProvider
+from copaw.providers.opencode_provider import OpenCodeProvider
 from copaw.constant import SECRET_DIR
 from copaw.local_models import create_local_chat_model
 
@@ -565,6 +566,15 @@ PROVIDER_LMSTUDIO = OpenAIProvider(
     generate_kwargs={"max_tokens": None},
 )
 
+PROVIDER_OPENCODE = OpenCodeProvider(
+    id="opencode",
+    name="OpenCode",
+    base_url="http://127.0.0.1:4096",
+    require_api_key=False,
+    api_key_prefix="",
+    support_model_discovery=True,
+)
+
 
 class ActiveModelsInfo(BaseModel):
     active_llm: ModelSlotConfig | None
@@ -619,6 +629,7 @@ class ProviderManager:
         self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
+        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_LLAMACPP)
         self._add_builtin(PROVIDER_MLX)
 
@@ -927,6 +938,8 @@ class ProviderManager:
             return GeminiProvider.model_validate(data)
         if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
+        if provider_id == "opencode":
+            return OpenCodeProvider.model_validate(data)
         if data.get("is_local", False):
             return DefaultProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
