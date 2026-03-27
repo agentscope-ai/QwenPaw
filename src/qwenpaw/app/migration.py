@@ -7,7 +7,6 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from ..config.timezone import detect_system_timezone
 
