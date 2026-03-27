@@ -1,5 +1,4 @@
 import { Card, Button, Modal, Tooltip, Input } from "@agentscope-ai/design";
-import { DeleteOutlined } from "@ant-design/icons";
 import { Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";

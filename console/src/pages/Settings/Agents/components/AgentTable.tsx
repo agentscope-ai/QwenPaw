@@ -5,7 +5,6 @@ import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
 import { EyeOff, Eye } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
-import styles from "../index.module.less";
 
 interface AgentTableProps {
   agents: AgentSummary[];

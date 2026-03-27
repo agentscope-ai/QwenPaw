@@ -1,4 +1,3 @@
-import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
 interface PageHeaderProps {
@@ -14,7 +13,6 @@ export function PageHeader({
   className,
   action,
 }: PageHeaderProps) {
-  const { t } = useTranslation();
 
   return (
     <div className={`${styles.pageHeader} ${className || ""}`}>
