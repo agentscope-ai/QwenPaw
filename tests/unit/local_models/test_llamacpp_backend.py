@@ -304,6 +304,38 @@ async def test_download_starts_background_task(
 
 
 @pytest.mark.asyncio
+async def test_download_ignores_stale_part_file_from_previous_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    dest = tmp_path / "stale-part-install"
+    downloader.target_dir = dest
+    dest.mkdir(parents=True)
+
+    stale_part = dest / "llama-b1234-bin-win-cpu-x64.zip.part"
+    stale_part.write_text("stale")
+
+    _patch_urlopen(monkeypatch, _make_zip_payload())
+    _patch_download_url(
+        monkeypatch,
+        (
+            "https://example.com/releases/b1234/"
+            "llama-b1234-bin-win-cpu-x64.zip"
+        ),
+    )
+
+    downloader.download()
+    progress = await _wait_for_status(downloader, "completed")
+
+    assert progress["status"] == "completed"
+    assert (dest / "bin" / "server.exe").read_text() == "zip-binary"
+    assert stale_part.exists()
+    assert stale_part.read_text() == "stale"
+    assert not list(dest.glob("*.zip"))
+
+
+@pytest.mark.asyncio
 async def test_download_flattens_single_top_level_archive_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

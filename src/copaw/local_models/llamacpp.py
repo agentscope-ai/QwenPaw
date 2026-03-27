@@ -339,9 +339,12 @@ class LlamaCppBackend:
         url = self.download_url
         file_name = url.rsplit("/", 1)[-1]
         dest_dir.mkdir(parents=True, exist_ok=True)
-        final_path = dest_dir / file_name
-
-        temp_path = final_path.with_name(final_path.name + ".part")
+        temp_file_fd, temp_file_name = tempfile.mkstemp(
+            prefix="copaw-download-",
+            suffix=f"-{file_name}",
+            dir=str(dest_dir),
+        )
+        temp_path = Path(temp_file_name)
 
         req = urllib.request.Request(
             url,
@@ -359,7 +362,7 @@ class LlamaCppBackend:
 
                 downloaded = 0
 
-                with open(temp_path, "wb") as f:
+                with os.fdopen(temp_file_fd, "wb") as f:
                     while True:
                         if self._is_download_cancelled():
                             raise DownloadCancelled(
@@ -379,12 +382,15 @@ class LlamaCppBackend:
                             source=url,
                         )
 
-                shutil.move(str(temp_path), str(final_path))
                 if self._is_download_cancelled():
                     raise DownloadCancelled("Download cancelled by user.")
 
-                self._extract_archive(final_path, dest_dir)
-                final_path.unlink(missing_ok=True)
+                self._extract_archive(
+                    temp_path,
+                    dest_dir,
+                    archive_name=file_name,
+                )
+                temp_path.unlink(missing_ok=True)
 
                 self._progress.update_downloaded(
                     downloaded,
@@ -395,10 +401,10 @@ class LlamaCppBackend:
                 return dest_dir
 
         except DownloadCancelled:
-            self._cleanup_download_files(temp_path, final_path)
+            self._cleanup_download_files(temp_path)
             raise
         except Exception:
-            self._cleanup_download_files(temp_path, final_path)
+            self._cleanup_download_files(temp_path)
             raise
 
     @staticmethod
@@ -509,7 +515,12 @@ class LlamaCppBackend:
         with suppress(Exception):
             self.force_shutdown_server()
 
-    def _extract_archive(self, archive_path: Path, dest_dir: Path) -> None:
+    def _extract_archive(
+        self,
+        archive_path: Path,
+        dest_dir: Path,
+        archive_name: str | None = None,
+    ) -> None:
         staging_dir = Path(
             tempfile.mkdtemp(
                 prefix=f"{archive_path.stem}-",
@@ -521,7 +532,7 @@ class LlamaCppBackend:
             self._merge_extracted_content(
                 staging_dir,
                 dest_dir,
-                archive_path,
+                archive_name or archive_path.name,
             )
         finally:
             shutil.rmtree(staging_dir, ignore_errors=True)
@@ -530,7 +541,7 @@ class LlamaCppBackend:
         self,
         staging_dir: Path,
         dest_dir: Path,
-        archive_path: Path,
+        archive_name: str,
     ) -> None:
         extracted_entries = list(staging_dir.iterdir())
         source_root = staging_dir
@@ -539,7 +550,7 @@ class LlamaCppBackend:
             and extracted_entries[0].is_dir()
             and self._should_flatten_archive_root(
                 extracted_entries[0],
-                archive_path,
+                archive_name,
             )
         ):
             source_root = extracted_entries[0]
@@ -550,16 +561,16 @@ class LlamaCppBackend:
     @staticmethod
     def _should_flatten_archive_root(
         root_dir: Path,
-        archive_path: Path,
+        archive_name: str,
     ) -> bool:
         dir_name = root_dir.name
         archive_names = {
-            archive_path.name,
-            archive_path.stem,
+            archive_name,
+            Path(archive_name).stem,
         }
         for suffix in (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".zip"):
-            if archive_path.name.endswith(suffix):
-                archive_names.add(archive_path.name[: -len(suffix)])
+            if archive_name.endswith(suffix):
+                archive_names.add(archive_name[: -len(suffix)])
 
         return any(
             candidate == dir_name or candidate.startswith(dir_name)
@@ -585,13 +596,11 @@ class LlamaCppBackend:
 
     def _cleanup_download_files(
         self,
-        temp_path: Path,
-        archive_path: Path,
+        *paths: Path,
     ) -> None:
-        with suppress(FileNotFoundError):
-            temp_path.unlink(missing_ok=True)
-        with suppress(FileNotFoundError):
-            archive_path.unlink(missing_ok=True)
+        for path in paths:
+            with suppress(FileNotFoundError):
+                path.unlink(missing_ok=True)
 
     def _is_download_cancelled(self) -> bool:
         cancel_event = self._download_cancel_event
