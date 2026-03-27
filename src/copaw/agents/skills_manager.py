@@ -23,6 +23,7 @@ from typing import Any, TypeVar
 import frontmatter
 from pydantic import BaseModel, Field
 from ..security.skill_scanner import scan_skill_directory
+from .utils.file_handling import read_text_file_with_encoding_fallback
 
 try:
     import fcntl
@@ -152,10 +153,70 @@ def _directory_tree(directory: Path) -> dict[str, Any]:
     return tree
 
 
-def _read_frontmatter(skill_dir: Path) -> Any:
-    return frontmatter.loads(
-        (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
-    )
+def _collect_skills_from_dir(directory: Path) -> dict[str, Path]:
+    """
+    Collect skills from a directory.
+
+    Args:
+        directory: Directory to scan for skills.
+
+    Returns:
+        Dictionary mapping skill names to their paths.
+    """
+    skills: dict[str, Path] = {}
+    if directory.exists():
+        for skill_dir in directory.iterdir():
+            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                skills[skill_dir.name] = skill_dir
+    return skills
+
+
+def _get_builtin_skill_version(skill_dir: Path) -> Version | None:
+    """Read ``builtin_skill_version`` from SKILL.md front matter."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return None
+    try:
+        content = read_text_file_with_encoding_fallback(skill_md)
+        post = frontmatter.loads(content)
+        metadata = post.get("metadata") or {}
+        ver = metadata.get("builtin_skill_version")
+        if ver is not None:
+            return Version(str(ver))
+    except Exception as e:
+        logger.warning(
+            "Could not parse version for skill '%s' from '%s': %s",
+            skill_dir.name,
+            skill_md,
+            e,
+        )
+    return None
+
+
+def _replace_skill_dir(source: Path, target: Path) -> None:
+    """Remove *target* (if it exists) and copy *source* in its place."""
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target)
+
+
+def _skill_md_differs(dir_a: Path, dir_b: Path) -> bool:
+    """Return True when the SKILL.md files in two dirs have different
+    content (or one side is missing)."""
+    md_a = dir_a / "SKILL.md"
+    md_b = dir_b / "SKILL.md"
+    if not md_a.exists() or not md_b.exists():
+        return True
+    try:
+        content_a = read_text_file_with_encoding_fallback(md_a)
+        content_b = read_text_file_with_encoding_fallback(md_b)
+        return content_a != content_b
+    except Exception as e:
+        logger.debug(
+            "Error comparing SKILL.md files: %s, treating as different",
+            e,
+        )
+        return True
 
 
 def _extract_version(post: Any) -> str:
@@ -173,9 +234,230 @@ def _extract_version(post: Any) -> str:
 def _build_signature(skill_dir: Path) -> str:
     """Hash the full skill tree using real file paths and real contents.
 
+<<<<<<< HEAD
     This is the canonical content identity used by migration, pool sync,
     and conflict detection. If any file changes, including ``SKILL.md``,
     the signature changes.
+=======
+    Args:
+        workspace_dir: Workspace directory path.
+        skill_names: List of skill names to sync. If None, sync all skills.
+
+    Returns:
+        Tuple of (synced_count, skipped_count).
+    """
+    active_skills = get_active_skills_dir(workspace_dir)
+    customized_skills = get_customized_skills_dir(workspace_dir)
+    builtin_skills = get_builtin_skills_dir()
+
+    customized_skills.mkdir(parents=True, exist_ok=True)
+
+    active_skills_dict = _collect_skills_from_dir(active_skills)
+    if not active_skills_dict:
+        logger.debug("No skills found in active_skills.")
+        return 0, 0
+
+    builtin_skills_dict = _collect_skills_from_dir(builtin_skills)
+
+    synced_count = 0
+    skipped_count = 0
+
+    for skill_name, skill_dir in active_skills_dict.items():
+        if skill_names is not None and skill_name not in skill_names:
+            continue
+
+        # Builtin skill: check version upgrade, skip back-sync
+        if skill_name in builtin_skills_dict:
+            builtin_dir = builtin_skills_dict[skill_name]
+            active_ver = _get_builtin_skill_version(skill_dir)
+            builtin_ver = _get_builtin_skill_version(builtin_dir)
+            if (
+                active_ver is not None
+                and builtin_ver is not None
+                and builtin_ver > active_ver
+            ):
+                _replace_skill_dir(builtin_dir, skill_dir)
+                logger.debug(
+                    "Builtin skill '%s' updated in "
+                    "active_skills (v%s -> v%s).",
+                    skill_name,
+                    active_ver,
+                    builtin_ver,
+                )
+                synced_count += 1
+            else:
+                skipped_count += 1
+            continue
+
+        # Non-builtin: back-sync to customized (first-time only)
+        target_dir = customized_skills / skill_name
+        if target_dir.exists():
+            skipped_count += 1
+            continue
+
+        try:
+            shutil.copytree(skill_dir, target_dir)
+            logger.debug(
+                "Synced skill '%s' from active_skills to "
+                "customized_skills.",
+                skill_name,
+            )
+            synced_count += 1
+        except Exception as e:
+            logger.debug(
+                "Failed to sync skill '%s' to customized_skills: %s",
+                skill_name,
+                e,
+            )
+
+    return synced_count, skipped_count
+
+
+def list_available_skills(workspace_dir: Path) -> list[str]:
+    """
+    List all available skills in active_skills directory.
+
+    Args:
+        workspace_dir: Workspace directory path.
+
+    Returns:
+        List of skill names.
+    """
+    active_skills = get_active_skills_dir(workspace_dir)
+
+    if not active_skills.exists():
+        return []
+
+    return [
+        d.name
+        for d in active_skills.iterdir()
+        if d.is_dir() and (d / "SKILL.md").exists()
+    ]
+
+
+def ensure_skills_initialized(workspace_dir: Path) -> None:
+    """
+    Check if skills are initialized in active_skills directory.
+
+    Args:
+        workspace_dir: Workspace directory path.
+
+    Logs a warning if no skills are found, or info about loaded skills.
+    Skills should be configured via `copaw init` or
+    `copaw skills config`.
+    """
+    active_skills = get_active_skills_dir(workspace_dir)
+    available = list_available_skills(workspace_dir)
+
+    if not active_skills.exists() or not available:
+        logger.warning(
+            "No skills found in active_skills directory. "
+            "Run 'copaw init' or 'copaw skills config' "
+            "to configure skills.",
+        )
+    else:
+        logger.debug(
+            "Loaded %d skill(s) from active_skills: %s",
+            len(available),
+            ", ".join(available),
+        )
+
+
+def _read_skills_from_dir(
+    directory: Path,
+    source: str,
+) -> list[SkillInfo]:
+    """
+    Read skills from a directory and return SkillInfo list.
+
+    Args:
+        directory: Directory to read skills from.
+        source: Source label for the skills.
+
+    Returns:
+        List of SkillInfo objects.
+    """
+    skills: list[SkillInfo] = []
+
+    if not directory.exists():
+        return skills
+
+    for skill_dir in directory.iterdir():
+        if not skill_dir.is_dir():
+            continue
+
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+
+        try:
+            content = read_text_file_with_encoding_fallback(skill_md)
+            description = ""
+            try:
+                post = frontmatter.loads(content)
+                description = str(post.get("description", "") or "")
+            except Exception as e:
+                logger.warning(
+                    "Failed to parse SKILL.md frontmatter for skill '%s': %s",
+                    skill_dir.name,
+                    e,
+                )
+                logger.debug(
+                    "Invalid SKILL.md frontmatter/content in '%s': %r",
+                    skill_md,
+                    e,
+                )
+                description = ""
+
+            # Build references directory tree
+            references = {}
+            references_dir = skill_dir / "references"
+            if references_dir.exists() and references_dir.is_dir():
+                references = _build_directory_tree(references_dir)
+
+            # Build scripts directory tree
+            scripts = {}
+            scripts_dir = skill_dir / "scripts"
+            if scripts_dir.exists() and scripts_dir.is_dir():
+                scripts = _build_directory_tree(scripts_dir)
+
+            skills.append(
+                SkillInfo(
+                    name=skill_dir.name,
+                    description=description,
+                    content=content,
+                    source=source,
+                    path=str(skill_dir),
+                    references=references,
+                    scripts=scripts,
+                ),
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to read skill '%s': %s",
+                skill_dir.name,
+                e,
+            )
+
+    return skills
+
+
+def _create_files_from_tree(
+    base_dir: Path,
+    tree: dict[str, Any],
+) -> None:
+    """
+    Create files and directories from a tree structure.
+
+    Args:
+        base_dir: Base directory to create files in.
+        tree: Tree structure where:
+            - {filename: str_content} creates a file with content
+            - {dirname: {nested_tree}} creates a directory recursively
+
+    Raises:
+        ValueError: If tree contains invalid value types.
+>>>>>>> 7567079 (fix encoding issue)
 
     Example:
         ``skill_pool/docx`` and ``workspaces/a1/skills/docx`` with identical
@@ -444,10 +726,19 @@ def _create_files_from_tree(base_dir: Path, tree: dict[str, Any]) -> None:
 
 def _resolve_skill_name(skill_dir: Path) -> str:
     try:
+<<<<<<< HEAD
         post = _read_frontmatter(skill_dir)
         name = str(post.get("name") or "").strip()
         if name:
             return name
+=======
+        content = read_text_file_with_encoding_fallback(skill_dir / "SKILL.md")
+        name = frontmatter.loads(content).get("name", "")
+        if name and isinstance(name, str):
+            name = name.strip()
+            if re.fullmatch(r"[a-zA-Z0-9_\-]+", name):
+                return name
+>>>>>>> 7567079 (fix encoding issue)
     except Exception:
         pass
     return skill_dir.name
@@ -1324,7 +1615,12 @@ def _import_skill_dir(
     overwrite: bool,
 ) -> bool:
     try:
+<<<<<<< HEAD
         post = _read_frontmatter(src_dir)
+=======
+        content = read_text_file_with_encoding_fallback(src_dir / "SKILL.md")
+        post = frontmatter.loads(content)
+>>>>>>> 7567079 (fix encoding issue)
         if not post.get("name") or not post.get("description"):
             return False
     except Exception:
@@ -2068,6 +2364,7 @@ class SkillPoolService:
         tmp_dir, found = _extract_zip_skills(data)
         renames = rename_map or {}
         try:
+<<<<<<< HEAD
             normalized_target = str(target_name or "").strip()
             if normalized_target:
                 normalized_target = _normalize_skill_dir_name(
@@ -2093,6 +2390,14 @@ class SkillPoolService:
                 else set(
                     manifest.get("skills", {}).keys(),
                 )
+=======
+            content = read_text_file_with_encoding_fallback(full_path)
+            logger.debug(
+                "Loaded file '%s' from skill '%s' (%s)",
+                file_path,
+                skill_name,
+                source,
+>>>>>>> 7567079 (fix encoding issue)
             )
             for skill_dir, skill_name in found:
                 _scan_skill_dir_or_raise(skill_dir, skill_name)

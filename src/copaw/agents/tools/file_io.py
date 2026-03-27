@@ -35,6 +35,30 @@ def _resolve_file_path(file_path: str) -> str:
         return str(workspace_dir / file_path)
 
 
+def _get_encoding_for_file(file_path: str) -> str:
+    """Determine the appropriate encoding for a file based on its type.
+
+    For cross-platform compatibility, especially with Windows Excel/Notepad:
+    - CSV/TSV/TXT files: Use UTF-8-BOM (Windows Excel needs BOM to detect UTF-8)
+    - All other files: Use UTF-8 (safer default, no BOM)
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        Encoding string: "utf-8-sig" or "utf-8"
+    """
+    suffix = Path(file_path).suffix.lower()
+
+    # Files that need BOM for Windows compatibility
+    if suffix in {".csv", ".tsv", ".tab", ".txt", ".log"}:
+        return "utf-8-sig"
+
+    # Default: UTF-8 without BOM (safe for all other files)
+    # This includes: .sh, .yaml, .json, .py, .js, .md, etc.
+    return "utf-8"
+
+
 async def read_file(  # pylint: disable=too-many-return-statements
     file_path: str,
     start_line: Optional[int] = None,
@@ -195,9 +219,10 @@ async def write_file(
         )
 
     file_path = _resolve_file_path(file_path)
+    encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "w", encoding="utf-8") as file:
+        with open(file_path, "w", encoding=encoding) as file:
             file.write(content)
         return ToolResponse(
             content=[
@@ -336,9 +361,10 @@ async def append_file(
         )
 
     file_path = _resolve_file_path(file_path)
+    encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "a", encoding="utf-8") as file:
+        with open(file_path, "a", encoding=encoding) as file:
             file.write(content)
         return ToolResponse(
             content=[

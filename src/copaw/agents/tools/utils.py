@@ -157,9 +157,10 @@ def read_file_safe(
     Returns:
         File content as string (up to max_bytes).
     """
+    # Use utf-8-sig to auto-remove BOM if present, compatible with plain utf-8
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8-sig") as f:
             return f.read(max_bytes)
     except UnicodeDecodeError:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
             return f.read(max_bytes)

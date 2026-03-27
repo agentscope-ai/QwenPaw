@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, field_validator
 
+from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..utils import schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
@@ -109,7 +110,7 @@ def _read_profile_description(workspace_dir: str) -> str:
         if not profile_path.exists():
             return ""
 
-        content = profile_path.read_text(encoding="utf-8")
+        content = read_text_file_with_encoding_fallback(profile_path)
         lines = []
         in_identity = False
 
