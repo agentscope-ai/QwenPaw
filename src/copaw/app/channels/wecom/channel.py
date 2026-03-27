@@ -601,7 +601,7 @@ class WecomChannel(BaseChannel):
         if file_url.startswith("file:"):
             from urllib.parse import urlparse, unquote
             parsed = urlparse(file_url)
-            # parsed.path gives the path component after stripping scheme/netloc
+            # parsed.path gives the path after stripping scheme/netloc
             return Path(unquote(parsed.path))
         return Path(file_url)
 
