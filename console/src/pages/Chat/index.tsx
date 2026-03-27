@@ -49,6 +49,21 @@ interface CustomWindow extends Window {
 
 declare const window: CustomWindow;
 
+interface CommandSuggestion {
+  command: string;
+  value: string;
+  description: string;
+}
+
+function renderSuggestionLabel(command: string, description: string) {
+  return (
+    <div className={styles.suggestionLabel}>
+      <span className={styles.suggestionCommand}>{command}</span>
+      <span className={styles.suggestionDescription}>{description}</span>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -474,6 +489,28 @@ export default function ChatPage() {
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
+    const commandSuggestions: CommandSuggestion[] = [
+      {
+        command: "/clear",
+        value: "clear",
+        description: t("chat.commands.clear.description"),
+      },
+      {
+        command: "/compact",
+        value: "compact",
+        description: t("chat.commands.compact.description"),
+      },
+      {
+        command: "/approve",
+        value: "approve",
+        description: t("chat.commands.approve.description"),
+      },
+      {
+        command: "/deny",
+        value: "deny",
+        description: t("chat.commands.deny.description"),
+      },
+    ];
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -500,6 +537,7 @@ export default function ChatPage() {
       },
       welcome: {
         ...i18nConfig.welcome,
+        nick: "CoPaw",
         avatar: isDark
           ? `${import.meta.env.BASE_URL}copaw-dark.png`
           : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
@@ -528,6 +566,11 @@ export default function ChatPage() {
           accept: "*/*",
           customRequest: handleFileUpload,
         },
+        placeholder: t("chat.inputPlaceholder"),
+        suggestions: commandSuggestions.map((item) => ({
+          label: renderSuggestionLabel(item.command, item.description),
+          value: item.value,
+        })),
       },
       session: {
         multiple: true,

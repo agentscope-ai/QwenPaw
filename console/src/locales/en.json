@@ -983,6 +983,21 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
+    "inputPlaceholder": "Type / to see commands; use /approve or /deny during approval...",
+    "commands": {
+      "clear": {
+        "description": "Clear the conversation context"
+      },
+      "compact": {
+        "description": "Clear the conversation context and generate a summary of the conversation history"
+      },
+      "approve": {
+        "description": "Approve the pending tool action and continue execution"
+      },
+      "deny": {
+        "description": "Deny the pending tool action"
+      }
+    },
     "attachments": {
       "tooltip": "Supports documents, images, videos, audio and more formats, single file up to 10MB",
       "tooltipImageOnly": "Current model supports image upload only, single file up to 10MB",
