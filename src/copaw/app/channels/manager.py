@@ -220,38 +220,6 @@ class ChannelManager:
 
         return cb
 
-    def _extract_query_text(self, payload: Any) -> str:
-        """Extract query text from payload.
-
-        Args:
-            payload: Native dict or AgentRequest
-
-        Returns:
-            Query text string (empty if not found)
-        """
-        # Native payload (dict with content_parts)
-        if isinstance(payload, dict):
-            parts = payload.get("content_parts") or []
-            for part in parts:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    return part.get("text") or ""
-                if hasattr(part, "type") and part.type == "text":
-                    return getattr(part, "text", "") or ""
-            return ""
-
-        # AgentRequest (has input list)
-        if hasattr(payload, "input"):
-            inp = payload.input or []
-            if inp and hasattr(inp[0], "content"):
-                content = inp[0].content or []
-                for part in content:
-                    if isinstance(part, dict):
-                        if part.get("type") == "text":
-                            return part.get("text") or ""
-                    elif hasattr(part, "type") and part.type == "text":
-                        return getattr(part, "text", "") or ""
-        return ""
-
     def _extract_session_id(
         self,
         ch: BaseChannel,
@@ -310,7 +278,7 @@ class ChannelManager:
             return
 
         # Extract query text for priority classification
-        query = self._extract_query_text(payload)
+        query = ch._extract_query_from_payload(payload)
 
         # Get priority level
         priority_level = self._command_registry.get_priority_level(query)

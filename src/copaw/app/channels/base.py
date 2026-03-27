@@ -364,7 +364,11 @@ class BaseChannel(ABC):
                     if hasattr(content, "text"):
                         return content.text[:50]
             return "New Chat"
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Failed to extract chat name from payload: {e}",
+                exc_info=True,
+            )
             return "New Chat"
 
     async def _consume_with_tracker(
@@ -503,8 +507,12 @@ class BaseChannel(ABC):
                 await process_iterator.aclose()
             raise
 
-        except Exception:
-            logger.exception("channel _stream_with_tracker failed")
+        except Exception as e:
+            logger.exception(
+                f"channel _stream_with_tracker failed: {e}, "
+                f"session={getattr(request, 'session_id', 'N/A')[:30]}, "
+                f"agent={to_handle}",
+            )
             await self._on_consume_error(
                 request,
                 to_handle,
