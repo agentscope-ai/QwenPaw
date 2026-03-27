@@ -60,14 +60,16 @@
 /* ---- Provider Cards ---- */
 
 .providerCards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(432px, 1fr));
+  display: flex;
   gap: 16px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: stretch;
 }
 
 .providerCard {
-  min-width: 0;
+  flex: 0 1 calc(33.333% - 16px);
+  min-width: 432px;
   border-radius: 16px;
   transition: all 0.2s ease-in-out;
   cursor: pointer;
