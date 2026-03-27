@@ -943,7 +943,10 @@
     "enableAllSuccess": "All tools enabled",
     "disableAllSuccess": "All tools disabled",
     "allEnabled": "All tools are already enabled",
-    "allDisabled": "All tools are already disabled"
+    "allDisabled": "All tools are already disabled",
+    "asyncExecution": "Async Execution",
+    "asyncExecutionEnabled": "Async execution enabled",
+    "asyncExecutionDisabled": "Async execution disabled"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",

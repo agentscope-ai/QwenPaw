@@ -860,6 +860,10 @@ class BuiltinToolConfig(BaseModel):
         True,
         description="Whether tool output is rendered to user channels",
     )
+    async_execution: bool = Field(
+        False,
+        description="Whether to execute the tool asynchronously in background",
+    )
 
 
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:

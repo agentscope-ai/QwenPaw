@@ -63,6 +63,7 @@ class AgentRunner(Runner):
         self,
         agent_id: str = "default",
         workspace_dir: Path | None = None,
+        task_tracker: Any | None = None,
     ) -> None:
         super().__init__()
         self.framework_type = "agentscope"
@@ -73,6 +74,7 @@ class AgentRunner(Runner):
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
         self.memory_manager: BaseMemoryManager | None = None
+        self._task_tracker = task_tracker  # Task tracker for background tasks
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -296,6 +298,7 @@ class AgentRunner(Runner):
                     ),
                 },
                 workspace_dir=self.workspace_dir,
+                task_tracker=self._task_tracker,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)

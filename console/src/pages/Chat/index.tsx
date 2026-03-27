@@ -19,9 +19,11 @@ import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
+import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
+import ChatActionGroup from "./components/ChatActionGroup";
+import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
   toDisplayUrl,
   copyText,
@@ -489,7 +491,10 @@ export default function ChatPage() {
         rightHeader: (
           <>
             <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
+            <ChatHeaderTitle />
+            <span style={{ flex: 1 }} />
             <ModelSelector />
+            <ChatActionGroup />
           </>
         ),
       },
@@ -524,7 +529,11 @@ export default function ChatPage() {
           customRequest: handleFileUpload,
         },
       },
-      session: { multiple: true, api: sessionApi },
+      session: {
+        multiple: true,
+        hideBuiltInSessionList: true,
+        api: sessionApi,
+      },
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
