@@ -230,7 +230,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         )
 
         # Sliding window holds (line_no, line_content) tuples
-        window: deque[tuple[int, str]] = deque()
+        window: deque[tuple[int, str]] = deque(maxlen=window_size)
         # Indices in window where matches occurred, ordered by position
         hit_indices: list[int] = []
         # Track which line numbers have been output to avoid duplicates
