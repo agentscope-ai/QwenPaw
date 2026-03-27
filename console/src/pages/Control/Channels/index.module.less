@@ -97,8 +97,8 @@
 .channelsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(346px, 1fr));
-  gap: 20px;
-  padding: 20px;
+  gap: 16px;
+  padding: 16px;
 }
 
 /* ---- Channel Card Styles ---- */
@@ -339,7 +339,7 @@
 
   .filterTabActive {
     background: #2a2a2a;
-    color: #8b87f0;
+    color: #ff7f16;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   }
 
@@ -372,16 +372,26 @@
 
   .statusIndicator {
     &.enabled {
-      color: rgba(82, 196, 26, 0.85);
+      color: rgba(20, 184, 166, 1);
     }
 
     &.disabled {
-      color: rgba(255, 255, 255, 0.45);
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
+
+  .statusText {
+    &.enabled {
+      color: rgba(20, 184, 166, 1);
+    }
+
+    &.disabled {
+      color: rgba(255, 255, 255, 0.65);
     }
   }
 
   .statusDot.disabled {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.4);
   }
 
   .cardDescription {

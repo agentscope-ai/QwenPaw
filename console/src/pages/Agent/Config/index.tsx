@@ -78,29 +78,32 @@ function AgentConfigPage() {
   return (
     <div className={styles.configPage}>
       <PageHeader />
+      <div className={styles.pageContent}>
+        <div className={styles.formContainer}>
+          <Form
+            form={form}
+            layout="vertical"
+            className={styles.form}
+            onValuesChange={handleValuesChange}
+          >
+            <ReactAgentCard
+              language={language}
+              savingLang={savingLang}
+              onLanguageChange={handleLanguageChange}
+              timezone={timezone}
+              savingTimezone={savingTimezone}
+              onTimezoneChange={handleTimezoneChange}
+            />
 
-      <Form
-        form={form}
-        layout="vertical"
-        className={styles.form}
-        onValuesChange={handleValuesChange}
-      >
-        <ReactAgentCard
-          language={language}
-          savingLang={savingLang}
-          onLanguageChange={handleLanguageChange}
-          timezone={timezone}
-          savingTimezone={savingTimezone}
-          onTimezoneChange={handleTimezoneChange}
-        />
+            <ContextManagementCard
+              contextCompactThreshold={contextCompactThreshold}
+              contextCompactReserveThreshold={contextCompactReserveThreshold}
+            />
 
-        <ContextManagementCard
-          contextCompactThreshold={contextCompactThreshold}
-          contextCompactReserveThreshold={contextCompactReserveThreshold}
-        />
-
-        <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
-      </Form>
+            <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+          </Form>
+        </div>
+      </div>
 
       <div className={styles.footerActions}>
         <Button

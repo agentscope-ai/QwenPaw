@@ -2,7 +2,8 @@ import { Button, Tag } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ColumnsType } from "antd/es/table";
-import { CHANNEL_COLORS, formatTime, type Session } from "./constants";
+import { formatTime, type Session } from "./constants";
+import { CHANNEL_COLORS } from "../../../../constants/channel";
 import styles from "../index.module.less";
 
 interface ColumnHandlers {

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Card, Switch, Empty, Button } from "@agentscope-ai/design";
+import { Card, Switch, Empty } from "@agentscope-ai/design";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
@@ -26,34 +26,20 @@ export default function ToolsPage() {
 
   return (
     <div className={styles.toolsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("tools.title")}</h1>
-          <p className={styles.description}>{t("tools.description")}</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>{t("tools.title")}</span>
         </div>
-        <div className={styles.actionTabs}>
-          <Button
-            className={`${styles.actionTab} ${
-              !hasDisabledTools ? styles.disabledTab : ""
-            }`}
-            onClick={enableAll}
-            disabled={batchLoading || loading || !hasDisabledTools}
-            type="text"
-            size="small"
-          >
-            {t("tools.enableAll")}
-          </Button>
-          <Button
-            className={`${styles.actionTab} ${
-              !hasEnabledTools ? styles.disabledTab : ""
-            }`}
-            onClick={disableAll}
-            disabled={batchLoading || loading || !hasEnabledTools}
-            type="text"
-            size="small"
-          >
-            {t("tools.disableAll")}
-          </Button>
+        <div className={styles.headerAction}>
+          <Switch
+            checked={hasEnabledTools && !hasDisabledTools}
+            onChange={() => (hasDisabledTools ? enableAll() : disableAll())}
+            disabled={batchLoading || loading}
+            checkedChildren={t("tools.enableAll")}
+            unCheckedChildren={t("tools.disableAll")}
+          />
         </div>
       </div>
 
