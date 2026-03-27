@@ -73,6 +73,18 @@
     display: block;
   }
 
+  // Hover bridge: extend leftward to cover the margin-right gap between
+  // providerItem and the left-side submenu, keeping :hover active during transition
+  &::after {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    background: transparent;
+  }
+
   &:first-child {
     border-radius: 6px 6px 0 0;
   }
@@ -114,16 +126,6 @@
   border: 1px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   z-index: 1100;
-
-  &::before {
-    content: "";
-    position: absolute;
-    right: -4px;
-    top: 0;
-    width: 4px;
-    height: 100%;
-    background: transparent;
-  }
 }
 
 .modelItem {
