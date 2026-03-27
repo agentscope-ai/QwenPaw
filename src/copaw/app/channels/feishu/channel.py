@@ -20,6 +20,7 @@ import re
 import sys
 import threading
 import time
+from email.utils import parsedate_to_datetime
 import types
 from collections import OrderedDict
 from pathlib import Path
@@ -450,8 +451,6 @@ class FeishuChannel(BaseChannel):
             date_str = response.headers.get("Date")
             if date_str:
                 try:
-                    from email.utils import parsedate_to_datetime
-
                     server_ms = int(
                         parsedate_to_datetime(date_str).timestamp() * 1000,
                     )
