@@ -318,7 +318,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
   const [activeTocId, setActiveTocId] = useState<string | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const articleRef = useRef<HTMLDivElement | null>(null);
-  const [openFaqSet, setOpenFaqSet] = useState<Set<number>>(() => new Set([0]));
+  const [openFaqSet, setOpenFaqSet] = useState<Set<number>>(() => new Set());
   const faqData = useMemo(() => parseFaqContent(content), [content]);
 
   useEffect(() => {

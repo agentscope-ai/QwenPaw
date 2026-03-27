@@ -199,22 +199,27 @@ CoPaw is open source. Official repository:
 
 ### Where to check latest version upgrade details
 
-You can check version changes in CoPaw GitHub
-[Releases](https://github.com/agentscope-ai/CoPaw/releases).
+See the site [Release notes](https://copaw.agentscope.io/release-notes/?lang=en)
+or CoPaw GitHub [Releases](https://github.com/agentscope-ai/CoPaw/releases).
 
 ### How to configure models
 
-In Console, go to **Settings -> Models** to configure. See the
+In Console, go to **Settings → Models** to configure. See the
 [Models](https://copaw.agentscope.io/docs/models) doc for details:
 
-- Cloud models: fill provider API key (e.g. ModelScope, DashScope, or custom),
-  then select the active model.
-- Local models: supports `llama.cpp`, `MLX`, and Ollama. After download, select
-  the active model on the same page.
+- Cloud models: enter the provider API key (e.g. ModelScope, DashScope, or a
+  custom provider).
+- Local models: supports `llama.cpp`, `MLX`, and Ollama.
 
-You can also use `copaw models` CLI commands for configuration, download, and
-switching. See
-[CLI -> Models and environment variables -> copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
+After configuration, choose the target provider and model under **Default LLM**
+at the top of the Models page and **Save** — that becomes the global default.
+
+To use a different model per agent, switch the agent with the selector at the
+top of Console, then pick a model in the top-left of the **Chat** page for that
+agent.
+
+You can also use `copaw models` for setup, downloads, and switching. See
+[CLI → Models and environment variables → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
 
 ### When using models deployed with Ollama / LM Studio, why can't CoPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?
 
@@ -300,7 +305,7 @@ custom Skills, and import Skills from Skills Hub. See
 Go to **Agent -> MCP** in Console. You can enable/disable/delete/create MCP
 clients there. See [MCP](https://copaw.agentscope.io/docs/mcp).
 
-### Common error
+### Common errors
 
 1. Error pattern: `You didn't provide an API key`
 
