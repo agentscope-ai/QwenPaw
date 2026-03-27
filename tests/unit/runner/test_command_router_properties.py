@@ -36,7 +36,7 @@ DAEMON_COMMANDS = frozenset(
         "version",
         "logs",
         "approve",
-    ]
+    ],
 )
 CONVERSATION_COMMANDS = frozenset(
     [
@@ -49,7 +49,7 @@ CONVERSATION_COMMANDS = frozenset(
         "message",
         "dump_history",
         "load_history",
-    ]
+    ],
 )
 ALL_KNOWN_COMMANDS = DAEMON_COMMANDS | CONVERSATION_COMMANDS
 
@@ -65,7 +65,7 @@ def _make_router_with_commands() -> CommandRouter:
             name="Friday",
             role="assistant",
             content=[
-                TextBlock(type="text", text=f"handled /{ctx.command_name}")
+                TextBlock(type="text", text=f"handled /{ctx.command_name}"),
             ],
         )
 
@@ -95,12 +95,12 @@ registered_command_st = st.sampled_from(sorted(ALL_KNOWN_COMMANDS))
 # We filter out anything that happens to match a known command or "daemon".
 _ALL_REGISTERED = ALL_KNOWN_COMMANDS | {"daemon"}
 unregistered_name_st = st.text(min_size=1, max_size=30).filter(
-    lambda s: s not in _ALL_REGISTERED
+    lambda s: s not in _ALL_REGISTERED,
 )
 
 # Strategy: random plain text (no leading /)
 plain_text_st = st.text(min_size=0, max_size=100).filter(
-    lambda s: not s.lstrip().startswith("/")
+    lambda s: not s.lstrip().startswith("/"),
 )
 
 
@@ -138,7 +138,8 @@ class TestMessageClassificationPartition:
     @given(text=st.text(min_size=0, max_size=100))
     @settings(max_examples=200)
     def test_classification_is_mutually_exclusive_and_complete(
-        self, text: str
+        self,
+        text: str,
     ) -> None:
         """For any string, it is either in registered commands
         XOR not — never both."""
@@ -154,9 +155,7 @@ class TestMessageClassificationPartition:
             f"registered={is_registered}, normal={is_normal}"
         )
         # Complete: exactly one must be true
-        assert (
-            is_registered or is_normal
-        ), (
+        assert is_registered or is_normal, (
             f"Classification for '{text}' is incomplete"
             f" — neither registered nor normal"
         )
@@ -164,7 +163,8 @@ class TestMessageClassificationPartition:
     @given(cmd=registered_command_st)
     @settings(max_examples=200)
     def test_registered_command_routes_to_command_queue(
-        self, cmd: str
+        self,
+        cmd: str,
     ) -> None:
         """A registered command name should route to
         CommandQueue (has a priority)."""
@@ -175,7 +175,8 @@ class TestMessageClassificationPartition:
         assert cmd in registered
         priority = router.get_priority(cmd)
         assert isinstance(
-            priority, CommandPriority
+            priority,
+            CommandPriority,
         ), f"/{cmd} should have a valid CommandPriority, got {priority}"
 
     @given(text=plain_text_st)
@@ -279,7 +280,10 @@ class TestCommandDispatchCorrectness:
 
             # Each command gets its own unique async handler that returns
             # a Msg tagged with the command name so we can verify identity.
-            async def _handler(ctx: CommandContext, _name: str = cmd) -> Msg:
+            async def _handler(
+                ctx: CommandContext,  # pylint: disable=unused-argument
+                _name: str = cmd,
+            ) -> Msg:
                 return Msg(
                     name="Friday",
                     role="assistant",
@@ -327,7 +331,7 @@ class TestCommandDispatchCorrectness:
         # No *other* handler should have been called.
         for other_cmd, mock_h in handlers.items():
             if other_cmd != cmd:
-                mock_h.assert_not_called(), (
+                assert mock_h.call_count == 0, (
                     f"Handler for /{other_cmd} was unexpectedly called "
                     f"when dispatching /{cmd}"
                 )
@@ -344,7 +348,7 @@ class TestCommandDispatchCorrectness:
         ctx = self._make_context(cmd)
 
         result = asyncio.new_event_loop().run_until_complete(
-            router.dispatch(ctx)
+            router.dispatch(ctx),
         )
 
         assert isinstance(result, Msg)
@@ -407,11 +411,12 @@ class TestUnknownCommandHandling:
         ctx = self._make_context(name)
 
         result = asyncio.new_event_loop().run_until_complete(
-            router.dispatch(ctx)
+            router.dispatch(ctx),
         )
 
         assert isinstance(
-            result, Msg
+            result,
+            Msg,
         ), f"Expected Msg for unknown command '{name}', got {type(result)}"
         text = result.content[0]["text"]
         assert (
@@ -434,7 +439,7 @@ class TestUnknownCommandHandling:
         except Exception as exc:
             raise AssertionError(
                 f"dispatch() raised {type(exc).__name__} for unknown "
-                f"command '{name}': {exc}"
+                f"command '{name}': {exc}",
             ) from exc
 
 
@@ -462,7 +467,7 @@ class TestCommandHandlerExceptionSafety:
 
     # Exception types that handlers may throw
     _exception_types_st = st.sampled_from(
-        [RuntimeError, ValueError, TypeError, KeyError, Exception]
+        [RuntimeError, ValueError, TypeError, KeyError, Exception],
     )
 
     # Strategy: list of (command_name, exception_class) pairs
@@ -495,7 +500,8 @@ class TestCommandHandlerExceptionSafety:
     @given(data=_commands_with_exceptions_st)
     @settings(max_examples=100)
     def test_dispatch_catches_handler_exceptions(
-        self, data: list[tuple[str, type]]
+        self,
+        data: list[tuple[str, type]],
     ) -> None:
         """dispatch() returns an error Msg when a handler
         raises, never propagates."""
@@ -528,12 +534,13 @@ class TestCommandHandlerExceptionSafety:
                     raise AssertionError(
                         f"dispatch() propagated {type(exc).__name__} for "
                         f"/{cmd_name} (handler raises "
-                        f"{exc_cls.__name__}): {exc}"
+                        f"{exc_cls.__name__}): {exc}",
                     ) from exc
 
                 # Must return a Msg
                 assert isinstance(
-                    result, Msg
+                    result,
+                    Msg,
                 ), f"Expected Msg for /{cmd_name}, got {type(result)}"
 
                 # Must contain error text
@@ -547,7 +554,9 @@ class TestCommandHandlerExceptionSafety:
     @given(exc_cls=_exception_types_st, cmd=_random_cmd_name_st)
     @settings(max_examples=100)
     def test_each_exception_type_is_caught(
-        self, exc_cls: type, cmd: str
+        self,
+        exc_cls: type,
+        cmd: str,
     ) -> None:
         """Each individual exception type is caught and
         converted to error Msg."""
@@ -569,7 +578,7 @@ class TestCommandHandlerExceptionSafety:
         except Exception as exc:
             raise AssertionError(
                 f"dispatch() propagated {type(exc).__name__} for "
-                f"/{cmd} with {exc_cls.__name__}: {exc}"
+                f"/{cmd} with {exc_cls.__name__}: {exc}",
             ) from exc
         finally:
             loop.close()
@@ -596,7 +605,8 @@ class TestDaemonSubcommandEquivalenceMapping:
 
     @staticmethod
     def _make_context(
-        command_name: str, command_args: list[str] | None = None
+        command_name: str,
+        command_args: list[str] | None = None,
     ) -> CommandContext:
         return CommandContext(
             channel=MagicMock(),
@@ -622,9 +632,10 @@ class TestDaemonSubcommandEquivalenceMapping:
         import asyncio
 
         from agentscope.message import Msg
-        from copaw.app.runner.daemon_commands import DAEMON_SUBCOMMANDS as DS
 
-        assert sub in DS, f"{sub} not in DAEMON_SUBCOMMANDS"
+        assert sub in DAEMON_SUBCOMMANDS, (
+            f"{sub} not in DAEMON_SUBCOMMANDS"
+        )
 
         router = CommandRouter()
 
@@ -641,17 +652,19 @@ class TestDaemonSubcommandEquivalenceMapping:
         loop2 = asyncio.new_event_loop()
         try:
             daemon_result = loop2.run_until_complete(
-                router.dispatch(daemon_ctx)
+                router.dispatch(daemon_ctx),
             )
         finally:
             loop2.close()
 
         # Both must return Msg
         assert isinstance(
-            short_result, Msg
+            short_result,
+            Msg,
         ), f"Short form /{sub} did not return Msg: {type(short_result)}"
         assert isinstance(
-            daemon_result, Msg
+            daemon_result,
+            Msg,
         ), f"Long form /daemon {sub} did not return Msg: {type(daemon_result)}"
 
         # Extract text from both results
@@ -714,7 +727,9 @@ class TestRepeatedStopIdempotency:
         # task_tracker.request_stop returns True on first call, False after
         call_count = 0
 
-        async def _mock_request_stop(run_key: str) -> bool:
+        async def _mock_request_stop(
+            run_key: str,  # pylint: disable=unused-argument
+        ) -> bool:
             nonlocal call_count
             call_count += 1
             return call_count == 1
@@ -737,20 +752,19 @@ class TestRepeatedStopIdempotency:
                 except Exception as exc:
                     raise AssertionError(
                         f"dispatch() raised {type(exc).__name__} on /stop "
-                        f"attempt {len(results) + 1}/{stop_count}: {exc}"
+                        f"attempt {len(results) + 1}/{stop_count}: {exc}",
                     ) from exc
                 results.append(result)
 
             # -- verify results --------------------------------------------
             for i, result in enumerate(results):
                 assert isinstance(
-                    result, Msg
+                    result,
+                    Msg,
                 ), f"/stop attempt {i + 1}: expected Msg, got {type(result)}"
                 text = result.content[0]["text"]
                 if i == 0:
-                    assert (
-                        text == "Task stopped."
-                    ), (
+                    assert text == "Task stopped.", (
                         f"/stop attempt 1: expected "
                         f"'Task stopped.', got: {text!r}"
                     )

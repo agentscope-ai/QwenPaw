@@ -9,8 +9,6 @@ import ast
 import inspect
 from pathlib import Path
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # Source file paths
 # ---------------------------------------------------------------------------
@@ -193,6 +191,7 @@ class TestCommandsRouteToCommandQueue:
         """_enqueue_one should call _classify_command for routing."""
         from copaw.app.channels.manager import ChannelManager
 
+        # pylint: disable=protected-access
         src = inspect.getsource(ChannelManager._enqueue_one)
         assert "_classify_command" in src
 
@@ -200,6 +199,7 @@ class TestCommandsRouteToCommandQueue:
         """_enqueue_one should put commands into _command_queues."""
         from copaw.app.channels.manager import ChannelManager
 
+        # pylint: disable=protected-access
         src = inspect.getsource(ChannelManager._enqueue_one)
         assert "_command_queues" in src
 
@@ -207,6 +207,7 @@ class TestCommandsRouteToCommandQueue:
         """_enqueue_one should not reference the old is_stop_command."""
         from copaw.app.channels.manager import ChannelManager
 
+        # pylint: disable=protected-access
         src = inspect.getsource(ChannelManager._enqueue_one)
         assert "is_stop_command" not in src
 
