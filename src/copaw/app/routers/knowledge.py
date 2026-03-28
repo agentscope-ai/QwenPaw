@@ -27,7 +27,16 @@ async def import_knowledge_uploads(
 ) -> KnowledgeImportResponse:
     """Import current-message uploads into knowledge workspace."""
     workspace = await get_agent_for_request(request)
-    service = KnowledgeImportService(workspace.workspace_dir)
+    console_channel = await workspace.channel_manager.get_channel("console")
+    media_dir = (
+        console_channel.media_dir
+        if console_channel is not None
+        else workspace.workspace_dir / "media"
+    )
+    service = KnowledgeImportService(
+        workspace.workspace_dir,
+        media_dir=media_dir,
+    )
     return await service.import_uploads(body)
 
 
