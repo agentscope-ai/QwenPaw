@@ -56,6 +56,13 @@ first, then send text to the model).
 You can attach **files** such as documents, images, and audio/video (follow
 on-screen limits; per-file size caps apply).
 
+**Knowledge base import note:**
+KB import from current-message uploads supports `.md`, `.txt`, `.pdf`, `.docx`,
+and `.doc`.
+Legacy `.doc` files are converted via LibreOffice `soffice`. If `soffice` is
+missing, import fails. Run `soffice --version` to verify, then install
+LibreOffice and retry.
+
 **Create a new session:**
 Click the **+ New Chat** button at the top of the chat sidebar to start a new
 conversation. Each session keeps separate history.
