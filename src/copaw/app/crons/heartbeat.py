@@ -206,12 +206,12 @@ async def run_heartbeat_once(
         if ld.channel and (ld.user_id or ld.session_id):
 
             async def _run_and_dispatch() -> None:
-                # Step 1: 收集所有消息
+                # Step 1: Collect all messages
                 messages = []
                 async for event in runner.stream_query(req):
                     messages.append(event)
 
-                # Step 2: 检测是否需要发送
+                # Step 2: Check if messages should be sent
                 if hb.heartbeat_ok_enabled:
                     last_text = _get_last_text_message(messages)
                     if _is_heartbeat_ok(last_text):
@@ -219,9 +219,9 @@ async def run_heartbeat_once(
                             "heartbeat confirmed with HEARTBEAT_OK, "
                             "silently discarding",
                         )
-                        return  # 静默丢弃，不发送任何消息
+                        return  # Silently discard, do not send any messages
 
-                # Step 3: 非 HEARTBEAT_OK，发送所有消息
+                # Step 3: Not a HEARTBEAT_OK, send all messages
                 for event in messages:
                     await channel_manager.send_event(
                         channel=ld.channel,
