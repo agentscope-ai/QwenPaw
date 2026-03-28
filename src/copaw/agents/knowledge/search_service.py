@@ -93,7 +93,10 @@ class KnowledgeSearchService:
                     continue
 
                 chunk_norm = _normalize_text(chunk_text)
-                lexical_score, hit_count = _score_chunk(query_terms, chunk_norm)
+                lexical_score, hit_count = _score_chunk(
+                    query_terms,
+                    chunk_norm,
+                )
                 title_boost = (
                     0.12
                     if hit_count > 0
@@ -123,7 +126,10 @@ class KnowledgeSearchService:
                         source_file=source_file,
                         source_type=source_type,
                         imported_at=imported_at,
-                        chunk_id=str(chunk.get("chunk_id") or f"chunk-{chunk_index:04d}"),
+                        chunk_id=str(
+                            chunk.get("chunk_id")
+                            or f"chunk-{chunk_index:04d}",
+                        ),
                         chunk_index=chunk_index,
                         chunk_text=chunk_text,
                         score=round(score, 6),
@@ -196,7 +202,9 @@ class KnowledgeSearchService:
                     source_file=str(meta.get("source_file") or ""),
                     source_type=str(meta.get("source_type") or "unknown"),
                     imported_at=str(meta.get("imported_at") or ""),
-                    chunk_id=str(first.get("chunk_id") or f"chunk-{index:04d}"),
+                    chunk_id=str(
+                        first.get("chunk_id") or f"chunk-{index:04d}",
+                    ),
                     chunk_index=index,
                     chunk_text=text,
                     score=fallback_score,
@@ -263,7 +271,9 @@ def _score_chunk(query_terms: list[str], chunk_norm: str) -> tuple[float, int]:
 def _score_title_overlap(query_terms: list[str], title_norm: str) -> float:
     if not query_terms or not title_norm:
         return 0.0
-    hit_count = sum(1 for term in query_terms if _contains_term(term, title_norm))
+    hit_count = sum(
+        1 for term in query_terms if _contains_term(term, title_norm)
+    )
     return hit_count / len(query_terms)
 
 

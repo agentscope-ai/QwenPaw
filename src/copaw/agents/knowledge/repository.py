@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .chunker import KnowledgeChunk
 from .models import ImportedKnowledgeDoc, KnowledgeDocumentSummary
 
 
@@ -95,7 +96,7 @@ class KnowledgeRepository:
         title: str,
         source_type: str,
         normalized_text: str,
-        chunks: list[dict[str, Any]],
+        chunks: list[KnowledgeChunk],
         source_hash: str,
         content_hash: str,
     ) -> ImportedKnowledgeDoc:
@@ -202,8 +203,7 @@ class KnowledgeRepository:
                     source_type=str(meta.get("source_type") or "unknown"),
                     imported_at=str(meta.get("imported_at") or ""),
                     markdown_path=str(
-                        paths.get("markdown")
-                        or f"knowledge/docs/{doc_id}.md",
+                        paths.get("markdown") or f"knowledge/docs/{doc_id}.md",
                     ),
                 ),
             )
@@ -215,10 +215,14 @@ class KnowledgeRepository:
         # Backward-compatible fallback for old layouts without state index.
         for md_file in sorted(self.docs_dir.glob("*.md")):
             stat = md_file.stat()
-            imported_at = datetime.fromtimestamp(
-                stat.st_mtime,
-                tz=timezone.utc,
-            ).isoformat().replace("+00:00", "Z")
+            imported_at = (
+                datetime.fromtimestamp(
+                    stat.st_mtime,
+                    tz=timezone.utc,
+                )
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
             results.append(
                 KnowledgeDocumentSummary(
                     doc_id=md_file.stem,

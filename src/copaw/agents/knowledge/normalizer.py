@@ -12,9 +12,13 @@ def normalize_document_text(raw_text: str) -> str:
         ch for ch in raw_text if not 0xD800 <= ord(ch) <= 0xDFFF
     )
 
-    text = safe_text.replace("\r\n", "\n").replace("\r", "\n").replace(
-        "\x00",
-        "",
+    text = (
+        safe_text.replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace(
+            "\x00",
+            "",
+        )
     )
     lines = [line.rstrip() for line in text.split("\n")]
 

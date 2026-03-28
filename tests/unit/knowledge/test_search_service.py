@@ -101,12 +101,18 @@ def test_search_respects_min_score(tmp_path: Path) -> None:
     _seed_knowledge_workspace(tmp_path)
     service = KnowledgeSearchService(tmp_path)
 
-    hits = service.search("totally unrelated topic", max_results=3, min_score=0.4)
+    hits = service.search(
+        "totally unrelated topic",
+        max_results=3,
+        min_score=0.4,
+    )
 
-    assert hits == []
+    assert not hits
 
 
-def test_listing_query_returns_preview_when_no_keyword_match(tmp_path: Path) -> None:
+def test_listing_query_returns_preview_when_no_keyword_match(
+    tmp_path: Path,
+) -> None:
     _seed_knowledge_workspace(tmp_path)
     service = KnowledgeSearchService(tmp_path)
 

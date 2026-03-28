@@ -16,7 +16,9 @@ class PdfParser:
 
     def parse(self, path: Path) -> ParsedDocument:
         try:
-            from pypdf import PdfReader  # lazy import to avoid hard import cost
+            from pypdf import (
+                PdfReader,
+            )  # lazy import to avoid hard import cost
         except ImportError as exc:
             raise KnowledgeError(
                 "pypdf is required for PDF knowledge import support",

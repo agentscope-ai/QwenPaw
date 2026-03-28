@@ -35,7 +35,10 @@ def create_knowledge_search_tool(workspace_dir: str | Path | None):
                 content=[
                     TextBlock(
                         type="text",
-                        text="Error: Workspace is unavailable for knowledge search.",
+                        text=(
+                            "Error: Workspace is unavailable for "
+                            "knowledge search."
+                        ),
                     ),
                 ],
             )
@@ -74,7 +77,8 @@ def create_knowledge_search_tool(workspace_dir: str | Path | None):
                     TextBlock(
                         type="text",
                         text=(
-                            "No matching knowledge found in imported documents "
+                            "No matching knowledge found in imported "
+                            "documents "
                             f"for query: {normalized_query}"
                         ),
                     ),
@@ -82,13 +86,22 @@ def create_knowledge_search_tool(workspace_dir: str | Path | None):
             )
 
         lines = [
-            f"Found {len(hits)} knowledge hit(s) for query: {normalized_query}",
+            (
+                f"Found {len(hits)} knowledge hit(s) for query: "
+                f"{normalized_query}"
+            ),
         ]
         for idx, hit in enumerate(hits, start=1):
             lines.extend(
                 [
-                    f"{idx}. [{hit.score:.3f}] {hit.title} ({hit.source_file})",
-                    f"   doc_id: {hit.doc_id}, chunk: {hit.chunk_id}, source_type: {hit.source_type}",
+                    (
+                        f"{idx}. [{hit.score:.3f}] {hit.title} "
+                        f"({hit.source_file})"
+                    ),
+                    (
+                        f"   doc_id: {hit.doc_id}, chunk: {hit.chunk_id}, "
+                        f"source_type: {hit.source_type}"
+                    ),
                     f"   snippet: {hit.chunk_text}",
                 ],
             )

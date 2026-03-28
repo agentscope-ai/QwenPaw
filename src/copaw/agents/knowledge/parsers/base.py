@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from ..exceptions import UnsupportedFileTypeError
 from ..models import ParsedDocument
@@ -21,10 +21,11 @@ class BaseKnowledgeParser(Protocol):
 
 def _all_parsers() -> tuple[BaseKnowledgeParser, ...]:
     from .markdown_parser import MarkdownParser
-    from .text_parser import TextParser
     from .pdf_parser import PdfParser
+    from .text_parser import TextParser
 
-    return (MarkdownParser(), TextParser(), PdfParser())
+    parsers = (MarkdownParser(), TextParser(), PdfParser())
+    return cast(tuple[BaseKnowledgeParser, ...], parsers)
 
 
 def resolve_parser_for_path(path: Path) -> BaseKnowledgeParser:
@@ -33,4 +34,6 @@ def resolve_parser_for_path(path: Path) -> BaseKnowledgeParser:
     for parser in _all_parsers():
         if suffix in parser.supported_suffixes:
             return parser
-    raise UnsupportedFileTypeError(f"Unsupported file type: {suffix or '<none>'}")
+    raise UnsupportedFileTypeError(
+        f"Unsupported file type: {suffix or '<none>'}",
+    )
