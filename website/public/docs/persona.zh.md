@@ -188,8 +188,7 @@ Your agent id is `{agent_id}`. This is your unique identifier in the multi-agent
 
 系统提示词中还包含工具和 Skills 的说明：
 
-- **内置工具**：参见 [MCP 与内置工具](./mcp)
-- **MCP 工具**：参见 [MCP 与内置工具](./mcp)
+- **内置工具与 MCP 工具**：参见 [MCP 与内置工具](./mcp)
 - **Skills**：每个启用的 Skill 会加载其 `SKILL.md` 的部分内容（name 和 description 字段），告诉智能体该 Skill 的用途。详见 [Skills](./skills)
 
 > 人设管理机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，在此表示感谢。
