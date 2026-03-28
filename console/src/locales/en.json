@@ -388,7 +388,8 @@
     "activeEnd": "End time",
     "loadFailed": "Failed to load heartbeat config",
     "saveSuccess": "Saved successfully; heartbeat hot-reloaded",
-    "saveFailed": "Failed to save heartbeat config"
+    "saveFailed": "Failed to save heartbeat config",
+    "heartbeatOkEnabled": "Enable HEARTBEAT_OK"
   },
   "cronJobs": {
     "title": "Cron Jobs",

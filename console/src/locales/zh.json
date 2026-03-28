@@ -352,7 +352,8 @@
     "activeEnd": "结束时间",
     "loadFailed": "加载心跳配置失败",
     "saveSuccess": "保存成功，心跳已热重载",
-    "saveFailed": "保存心跳配置失败"
+    "saveFailed": "保存心跳配置失败",
+    "heartbeatOkEnabled": "启用 HEARTBEAT_OK"
   },
   "cronJobs": {
     "title": "定时任务",
