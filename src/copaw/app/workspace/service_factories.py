@@ -187,9 +187,11 @@ async def create_backup_service(ws: "Workspace", _):
     from ...backup.scheduler import BackupScheduler
 
     # Try to get memory manager for consistent memory snapshots
-    memory_manager = ws._service_manager.services.get(
-        "memory_manager",
-    )  # pylint: disable=protected-access
+    memory_manager = (
+        ws._service_manager.services.get(  # pylint: disable=protected-access
+            "memory_manager",
+        )
+    )
 
     exporter = AssetExporter(memory_manager=memory_manager)
     importer = AssetImporter(workspace_dir=ws.workspace_dir)
@@ -200,8 +202,8 @@ async def create_backup_service(ws: "Workspace", _):
         "asset_importer": importer,
         "backup_scheduler": scheduler,
     }
-    ws._service_manager.services.update(
+    ws._service_manager.services.update(  # pylint: disable=protected-access
         services,
-    )  # pylint: disable=protected-access
+    )
     logger.info("Backup services registered for agent: %s", ws.agent_id)
     return services

@@ -173,7 +173,9 @@ def check_compatibility(manifest: AssetManifest) -> CompatibilityResult:
 # ---------------------------------------------------------------------------
 
 
-def validate_manifest_strict(manifest_data: dict) -> list[str]:
+def validate_manifest_strict(  # pylint: disable=too-many-branches
+    manifest_data: dict,
+) -> list[str]:
     """Perform strict validation on raw manifest data.
 
     Returns a list of warning/error strings.
@@ -260,7 +262,9 @@ def validate_manifest_strict(manifest_data: dict) -> list[str]:
     return issues
 
 
-def validate_package(zip_path: Path) -> dict:
+def validate_package(  # pylint: disable=too-many-statements
+    zip_path: Path,
+) -> dict:
     """Validate a ZIP asset package comprehensively.
 
     Returns a dict with keys:
