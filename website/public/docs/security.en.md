@@ -25,6 +25,7 @@ Security Architecture:
 <!-- TODO: Add architecture diagram here -->
 
 **Key concepts**:
+
 - **Tool Guard** inspects tool calls in real-time before execution, using regex rules to detect dangerous patterns
 - **File Guard** operates independently to protect sensitive files and directories from unauthorized access
 - **Skill Scanner** runs before skills are enabled to detect malicious code and security threats
@@ -67,13 +68,13 @@ In `config.json`:
 }
 ```
 
-| Field            | Description                                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `enabled`        | Enable or disable Tool Guard entirely. Can also be set via the `COPAW_TOOL_GUARD_ENABLED` environment variable (takes precedence). |
+| Field            | Description                                                                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`        | Enable or disable Tool Guard entirely. Can also be set via the `COPAW_TOOL_GUARD_ENABLED` environment variable (takes precedence).                    |
 | `guarded_tools`  | Specify guard scope:<br>• `null` (default) — guard all built-in tools<br>• `[]` — guard nothing<br>• `["tool_a", "tool_b"]` — guard only listed tools |
-| `denied_tools`   | Tools that are always blocked regardless of parameters.                                                                              |
-| `custom_rules`   | User-defined regex rules (see format below).                                                                                         |
-| `disabled_rules` | Built-in rule IDs to disable.                                                                                                        |
+| `denied_tools`   | Tools that are always blocked regardless of parameters.                                                                                               |
+| `custom_rules`   | User-defined regex rules (see format below).                                                                                                          |
+| `disabled_rules` | Built-in rule IDs to disable.                                                                                                                         |
 
 #### Custom rule format
 
@@ -93,17 +94,17 @@ Each custom rule is a JSON object with the following fields:
 }
 ```
 
-| Field              | Type            | Required | Description                                                                                                    |
-| ------------------ | --------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `id`               | string          | **Yes**  | Unique identifier for this rule (use UPPERCASE_WITH_UNDERSCORES)                                               |
-| `tools`            | string or array | No       | Tool name(s) this rule applies to. Empty array or omitted means "all tools"                                    |
-| `params`           | string or array | No       | Parameter name(s) to scan. Empty array or omitted means "all string parameters"                                |
-| `category`         | string          | **Yes**  | Threat category (see available categories below)                                                               |
-| `severity`         | string          | **Yes**  | Severity level: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`                                                 |
-| `patterns`         | array           | **Yes**  | Regular expressions to match dangerous patterns (case-insensitive)                                             |
-| `exclude_patterns` | array           | No       | Regular expressions to exclude (allowlist patterns that should NOT trigger the rule)                           |
-| `description`      | string          | No       | Human-readable description of the threat                                                                       |
-| `remediation`      | string          | No       | Guidance on how to fix or avoid the issue                                                                      |
+| Field              | Type            | Required | Description                                                                          |
+| ------------------ | --------------- | -------- | ------------------------------------------------------------------------------------ |
+| `id`               | string          | **Yes**  | Unique identifier for this rule (use UPPERCASE_WITH_UNDERSCORES)                     |
+| `tools`            | string or array | No       | Tool name(s) this rule applies to. Empty array or omitted means "all tools"          |
+| `params`           | string or array | No       | Parameter name(s) to scan. Empty array or omitted means "all string parameters"      |
+| `category`         | string          | **Yes**  | Threat category (see available categories below)                                     |
+| `severity`         | string          | **Yes**  | Severity level: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`                       |
+| `patterns`         | array           | **Yes**  | Regular expressions to match dangerous patterns (case-insensitive)                   |
+| `exclude_patterns` | array           | No       | Regular expressions to exclude (allowlist patterns that should NOT trigger the rule) |
+| `description`      | string          | No       | Human-readable description of the threat                                             |
+| `remediation`      | string          | No       | Guidance on how to fix or avoid the issue                                            |
 
 **Available threat categories**: `command_injection`, `data_exfiltration`, `path_traversal`, `sensitive_file_access`, `network_abuse`, `credential_exposure`, `resource_abuse`, `prompt_injection`, `code_execution`, `privilege_escalation`
 
@@ -161,23 +162,24 @@ In the Console under **Settings → Security → Tool Guard** tab, you can:
 
 Tool Guard includes the following built-in detection rules (for `execute_shell_command` tool):
 
-| Rule ID | Severity | Threat Category | Trigger Pattern | Description |
-| ------- | -------- | --------------- | --------------- | ----------- |
-| `TOOL_CMD_DANGEROUS_RM` | HIGH | Command Injection | Any `rm` command (matches `\brm\b`) | Detects file removal operations that may cause data loss |
-| `TOOL_CMD_DANGEROUS_MV` | HIGH | Command Injection | Any `mv` command (matches `\bmv\b`) | Detects operations that may move or overwrite files |
-| `TOOL_CMD_FS_DESTRUCTION` | CRITICAL | Command Injection | `mkfs`, `dd of=/dev/`, writes to block devices | Detects low-level disk formatting or wiping commands |
-| `TOOL_CMD_DOS_FORK_BOMB` | CRITICAL | Resource Abuse | Fork bombs `:(){ :\|:& };:`, `kill -9 -1` | Detects fork bombs and mass process termination |
-| `TOOL_CMD_PIPE_TO_SHELL` | CRITICAL | Code Execution | `curl/wget ... \| bash/sh` patterns | Downloads and immediately executes remote scripts |
-| `TOOL_CMD_REVERSE_SHELL` | CRITICAL | Network Abuse | `/dev/tcp`, `nc -e`, `socat EXEC:` | Establishes reverse shells or network tunnels |
-| `TOOL_CMD_SYSTEM_TAMPERING` | HIGH | Sensitive File Access | `crontab`, `authorized_keys`, `/etc/sudoers` | Accesses cron jobs, SSH keys, or sudo configuration |
-| `TOOL_CMD_UNSAFE_PERMISSIONS` | HIGH | Privilege Escalation | `chmod -R 777 /`, `chattr +i` | Global permission changes or immutable flags |
-| `TOOL_CMD_OBFUSCATED_EXEC` | HIGH | Code Execution | `base64 -d \| bash` patterns | Executes base64-encoded commands |
-| `TOOL_CMD_SYSTEM_REBOOT` | CRITICAL | Resource Abuse | `reboot`, `shutdown`, `halt`, `init 0/6` | Terminates the host system |
-| `TOOL_CMD_SERVICE_RESTART` | HIGH | Resource Abuse | `systemctl restart/stop`, `service ... restart` | Manages or disrupts system services |
-| `TOOL_CMD_PROCESS_KILL` | HIGH | Resource Abuse | `pkill`, `killall`, `kill` (excludes `kill $$`) | Terminates processes that may be critical |
-| `TOOL_CMD_PRIVILEGE_ESCALATION` | CRITICAL | Privilege Escalation | `sudo`, `su`, `doas`, `pkexec` | Executes commands with elevated privileges |
+| Rule ID                         | Severity | Threat Category       | Trigger Pattern                                 | Description                                              |
+| ------------------------------- | -------- | --------------------- | ----------------------------------------------- | -------------------------------------------------------- |
+| `TOOL_CMD_DANGEROUS_RM`         | HIGH     | Command Injection     | Any `rm` command (matches `\brm\b`)             | Detects file removal operations that may cause data loss |
+| `TOOL_CMD_DANGEROUS_MV`         | HIGH     | Command Injection     | Any `mv` command (matches `\bmv\b`)             | Detects operations that may move or overwrite files      |
+| `TOOL_CMD_FS_DESTRUCTION`       | CRITICAL | Command Injection     | `mkfs`, `dd of=/dev/`, writes to block devices  | Detects low-level disk formatting or wiping commands     |
+| `TOOL_CMD_DOS_FORK_BOMB`        | CRITICAL | Resource Abuse        | Fork bombs `:(){ :\|:& };:`, `kill -9 -1`       | Detects fork bombs and mass process termination          |
+| `TOOL_CMD_PIPE_TO_SHELL`        | CRITICAL | Code Execution        | `curl/wget ... \| bash/sh` patterns             | Downloads and immediately executes remote scripts        |
+| `TOOL_CMD_REVERSE_SHELL`        | CRITICAL | Network Abuse         | `/dev/tcp`, `nc -e`, `socat EXEC:`              | Establishes reverse shells or network tunnels            |
+| `TOOL_CMD_SYSTEM_TAMPERING`     | HIGH     | Sensitive File Access | `crontab`, `authorized_keys`, `/etc/sudoers`    | Accesses cron jobs, SSH keys, or sudo configuration      |
+| `TOOL_CMD_UNSAFE_PERMISSIONS`   | HIGH     | Privilege Escalation  | `chmod -R 777 /`, `chattr +i`                   | Global permission changes or immutable flags             |
+| `TOOL_CMD_OBFUSCATED_EXEC`      | HIGH     | Code Execution        | `base64 -d \| bash` patterns                    | Executes base64-encoded commands                         |
+| `TOOL_CMD_SYSTEM_REBOOT`        | CRITICAL | Resource Abuse        | `reboot`, `shutdown`, `halt`, `init 0/6`        | Terminates the host system                               |
+| `TOOL_CMD_SERVICE_RESTART`      | HIGH     | Resource Abuse        | `systemctl restart/stop`, `service ... restart` | Manages or disrupts system services                      |
+| `TOOL_CMD_PROCESS_KILL`         | HIGH     | Resource Abuse        | `pkill`, `killall`, `kill` (excludes `kill $$`) | Terminates processes that may be critical                |
+| `TOOL_CMD_PRIVILEGE_ESCALATION` | CRITICAL | Privilege Escalation  | `sudo`, `su`, `doas`, `pkexec`                  | Executes commands with elevated privileges               |
 
 **Usage recommendations**:
+
 - Keep CRITICAL level rules enabled; these represent the most dangerous operations
 - HIGH level rules can be adjusted based on actual use cases; some legitimate operations may trigger them
 - Use `disabled_rules` config to disable rules that don't apply to your use case
@@ -219,12 +221,13 @@ In `config.json`:
 }
 ```
 
-| Field             | Description                                                                                                                                                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`         | Enable or disable File Guard (default: `true`). When disabled, file path checks are skipped.                                                                                                                       |
+| Field             | Description                                                                                                                                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`         | Enable or disable File Guard (default: `true`). When disabled, file path checks are skipped.                                                                                                                                                |
 | `sensitive_files` | List of file/directory paths to block from tool access. Supports:<br>• Absolute paths: `/etc/passwd`<br>• Relative paths: `secrets/api_keys.json`<br>• User home: `~/.ssh/`<br>• Directory guards: ending with `/` for recursive protection |
 
 **Path handling rules**:
+
 - Relative paths are resolved relative to the current workspace directory
 - `~` is automatically expanded to the user's home directory
 - All paths are normalized to absolute paths for matching
@@ -275,11 +278,11 @@ The **Skill Scanner** automatically scans skills for security threats before the
 
 ### Scanner modes
 
-| Mode               | Behavior                                                                                       |
-| ------------------ | ---------------------------------------------------------------------------------------------- |
-| **Block**          | Scan and block unsafe skills. The operation fails with a detailed error; skill cannot be enabled. |
-| **Warn**           | Scan and record findings, but allow the skill to proceed. Shows warning notification and logs to Scan Alerts. (default) |
-| **Off**            | Disable scanning entirely; all skills pass through directly.                                   |
+| Mode      | Behavior                                                                                                                |
+| --------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Block** | Scan and block unsafe skills. The operation fails with a detailed error; skill cannot be enabled.                       |
+| **Warn**  | Scan and record findings, but allow the skill to proceed. Shows warning notification and logs to Scan Alerts. (default) |
+| **Off**   | Disable scanning entirely; all skills pass through directly.                                                            |
 
 **Configuration priority**: Environment variable `COPAW_SKILL_SCAN_MODE` > Console settings > `config.json`
 
@@ -298,6 +301,7 @@ All scan findings (both blocked and warned) are recorded in the **Scan Alerts** 
 - **Clear all** — Click the "Clear All" button to batch delete all alert records
 
 Alert records include:
+
 - Skill name
 - Action type (blocked/warned)
 - Detection time
@@ -315,6 +319,7 @@ Whitelisted skills bypass the security scan. The whitelist mechanism is based on
 - **Remove from whitelist** — Click the delete button to remove a whitelist entry; the system automatically disables the skill and prompts for rescanning
 
 The whitelist is useful for:
+
 - Self-developed skills that have been verified as safe
 - False positives (scanner incorrectly identified)
 - Trusted skills that need to bypass specific detections
@@ -326,6 +331,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 <!-- TODO: Add screenshot of Skill Scanner console interface with tabs -->
 
 **Configuration area**:
+
 - **Scanner mode** — Dropdown to select "Block", "Warn", or "Off"
 - **Timeout** — Set the maximum duration for scanning a single skill (5-300 seconds); stops after timeout
 
@@ -364,6 +370,7 @@ scanner = SkillScanner(policy=policy)
 ```
 
 Built-in signature categories:
+
 - `command_injection` — Command injection
 - `data_exfiltration` — Data exfiltration
 - `hardcoded_secrets` — Hardcoded secrets
@@ -407,18 +414,19 @@ Each YAML signature file contains a list of detection rules:
 
 **Field descriptions**:
 
-| Field              | Type            | Required | Description                                                                    |
-| ------------------ | --------------- | -------- | ------------------------------------------------------------------------------ |
-| `id`               | string          | **Yes**  | Unique identifier for this signature (use UPPERCASE_WITH_UNDERSCORES)          |
-| `category`         | string          | **Yes**  | Threat category (see list above)                                               |
-| `severity`         | string          | **Yes**  | Severity level: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`                 |
-| `patterns`         | array           | **Yes**  | Regular expressions to match dangerous patterns (case-insensitive)             |
-| `exclude_patterns` | array           | No       | Patterns to exclude (reduces false positives)                                  |
-| `file_types`       | array           | No       | File types to scan: `python`, `javascript`, `typescript`, `bash`, `json`, etc. |
-| `description`      | string          | No       | Human-readable description of the threat                                       |
-| `remediation`      | string          | No       | Guidance on how to fix the issue                                               |
+| Field              | Type   | Required | Description                                                                    |
+| ------------------ | ------ | -------- | ------------------------------------------------------------------------------ |
+| `id`               | string | **Yes**  | Unique identifier for this signature (use UPPERCASE_WITH_UNDERSCORES)          |
+| `category`         | string | **Yes**  | Threat category (see list above)                                               |
+| `severity`         | string | **Yes**  | Severity level: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, or `INFO`                 |
+| `patterns`         | array  | **Yes**  | Regular expressions to match dangerous patterns (case-insensitive)             |
+| `exclude_patterns` | array  | No       | Patterns to exclude (reduces false positives)                                  |
+| `file_types`       | array  | No       | File types to scan: `python`, `javascript`, `typescript`, `bash`, `json`, etc. |
+| `description`      | string | No       | Human-readable description of the threat                                       |
+| `remediation`      | string | No       | Guidance on how to fix the issue                                               |
 
 **Usage tips**:
+
 - Test patterns with real code samples before deploying
 - Use `exclude_patterns` to filter out false positives from documentation and tests
 - Specify `file_types` to improve performance and reduce false positives
@@ -488,6 +496,7 @@ Here's a complete `config.json` with all security features configured:
 ```
 
 **Notes**:
+
 - Configuration changes take effect immediately for most settings (no restart required)
 - Environment variables override config file values (see each section for details)
 - For Docker deployments, mount your config at `/app/working/config.json`
@@ -518,6 +527,7 @@ CoPaw supports optional web login authentication to protect the Console from una
 5. **Localhost bypass** — Requests from localhost (`127.0.0.1` / `::1`) automatically skip authentication; CLI commands (`copaw app`, `copaw chat`, etc.) work without a token
 
 **Security features**:
+
 - Password stored as salted SHA-256 hash, no plaintext stored
 - HMAC-SHA256 signed tokens with 7-day auto-expiry
 - Uses only Python standard library (`hashlib`, `hmac`, `secrets`), no external dependencies
@@ -525,13 +535,14 @@ CoPaw supports optional web login authentication to protect the Console from una
 
 ### Environment variables
 
-| Variable              | Description                                      | Required |
-| --------------------- | ------------------------------------------------ | -------- |
-| `COPAW_AUTH_ENABLED`  | Set to `true` to enable authentication           | **Yes**  |
-| `COPAW_AUTH_USERNAME` | Pre-set admin username for auto-registration     | Optional |
-| `COPAW_AUTH_PASSWORD` | Pre-set admin password for auto-registration     | Optional |
+| Variable              | Description                                  | Required |
+| --------------------- | -------------------------------------------- | -------- |
+| `COPAW_AUTH_ENABLED`  | Set to `true` to enable authentication       | **Yes**  |
+| `COPAW_AUTH_USERNAME` | Pre-set admin username for auto-registration | Optional |
+| `COPAW_AUTH_PASSWORD` | Pre-set admin password for auto-registration | Optional |
 
 **Configuration notes**:
+
 - `COPAW_AUTH_ENABLED=true` is the only required variable to enable authentication
 - `COPAW_AUTH_USERNAME` and `COPAW_AUTH_PASSWORD` are used together:
   - Both set → Auto-creates admin account on startup (for automated deployments)
@@ -672,11 +683,13 @@ copaw app
 ### Logout
 
 Click the **Logout** button at the bottom of the sidebar in the Console:
+
 - Clears the token from browser localStorage
 - Automatically redirects to the login page
 - Requires re-entering credentials to access
 
 **Automatic logout**:
+
 - Token expires (after 7 days)
 - Token becomes invalid (password reset or signing secret rotation)
 - Server returns 401 unauthorized response
