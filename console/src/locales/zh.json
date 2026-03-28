@@ -353,7 +353,8 @@
     "loadFailed": "加载心跳配置失败",
     "saveSuccess": "保存成功，心跳已热重载",
     "saveFailed": "保存心跳配置失败",
-    "heartbeatOkEnabled": "启用 HEARTBEAT_OK"
+    "heartbeatOkEnabled": "启用 HEARTBEAT_OK",
+    "heartbeatOkEnabledTooltip": "启用后，模型回复 HEARTBEAT_OK 时心跳确认将被静默丢弃"
   },
   "cronJobs": {
     "title": "定时任务",

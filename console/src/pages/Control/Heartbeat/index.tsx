@@ -230,7 +230,7 @@ function HeartbeatPage() {
               name="heartbeatOkEnabled"
               label={t("heartbeat.heartbeatOkEnabled")}
               valuePropName="checked"
-              tooltip="启用后，模型回复 HEARTBEAT_OK 时心跳确认将被静默丢弃"
+              tooltip={t("heartbeat.heartbeatOkEnabledTooltip")}
             >
               <Switch />
             </Form.Item>
