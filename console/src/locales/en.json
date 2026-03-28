@@ -1050,7 +1050,7 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
-    "inputPlaceholder": "Type / to see commands; use /approve or /deny during approval...",
+    "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"
