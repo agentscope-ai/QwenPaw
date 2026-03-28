@@ -33,6 +33,7 @@ from copaw.backup.version_checker import (
     migrate_manifest,
     parse_version,
 )
+from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ class AssetImporter:
                 manifest = AssetManifest.model_validate(
                     json.loads(zf.read("manifest.json")),
                 )
-            except (json.JSONDecodeError, Exception) as exc:
+            except (json.JSONDecodeError, ValidationError) as exc:
                 raise InvalidAssetPackageError(
                     f"Invalid manifest.json: {exc}",
                 ) from exc

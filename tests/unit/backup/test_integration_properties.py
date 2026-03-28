@@ -171,6 +171,81 @@ def _create_workspace(tmp_path: Path, content: dict) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _has_exportable_content(content: dict) -> bool:
+    """Check if content dict has at least one selected type with data."""
+    has_any = (
+        content["include_preferences"]
+        or content["include_memories"]
+        or content["include_skills"]
+        or content["include_tools"]
+    )
+    if not has_any:
+        return False
+    if content["include_preferences"]:
+        return True
+    if content["include_memories"] and content["memory_files"]:
+        return True
+    if content["include_skills"] and content["skill_files"]:
+        return True
+    if content["include_tools"] and content["agent_json"].get("tools"):
+        return True
+    return False
+
+
+def _verify_zip_matches_imported(
+    export_result: "ExportResult",
+    export_zip: Path,
+    ws_target: Path,
+) -> None:
+    """Verify every exported file matches the imported copy."""
+    with zipfile.ZipFile(export_zip, "r") as zf:
+        for entry in export_result.manifest.assets:
+            target_file = ws_target / entry.relative_path
+            assert target_file.exists(), (
+                f"Imported file missing: {entry.relative_path}"
+            )
+            assert target_file.read_bytes() == zf.read(
+                entry.relative_path,
+            ), f"Round-trip mismatch for {entry.relative_path}"
+
+
+def _verify_preferences_sanitized(
+    content: dict,
+    ws_source: Path,
+    ws_target: Path,
+) -> None:
+    """Verify sanitized preferences match imported versions."""
+    if not content["include_preferences"]:
+        return
+    for pref_name in ["agent.json", "config.json"]:
+        target_file = ws_target / f"preferences/{pref_name}"
+        source_file = ws_source / pref_name
+        if not target_file.exists() or not source_file.exists():
+            continue
+        original = json.loads(
+            source_file.read_text(encoding="utf-8"),
+        )
+        sanitized = json.dumps(
+            sanitize_preferences(original),
+            ensure_ascii=False,
+            indent=2,
+        ).encode("utf-8")
+        assert target_file.read_bytes() == sanitized, (
+            f"Sanitized round-trip mismatch for {pref_name}"
+        )
+
+
+def _verify_asset_type_exists(
+    export_result: "ExportResult",
+    ws_target: Path,
+    asset_type: AssetType,
+) -> None:
+    """Verify all entries of a given type exist in target."""
+    for entry in export_result.manifest.assets:
+        if entry.asset_type == asset_type:
+            assert (ws_target / entry.relative_path).exists()
+
+
 @given(content=_workspace_content())
 @settings(
     max_examples=50,
@@ -182,45 +257,18 @@ async def test_export_import_roundtrip_consistency(
     content: dict,
     tmp_path: Path,
 ) -> None:
-    """Property 1: For any valid workspace W and any asset type combination,
-    export W to ZIP Z, then import Z with OVERWRITE strategy to empty workspace W',
-    then every non-sensitive asset file in W' matches the corresponding file in W.
-
-    Preference files will have sensitive fields redacted, so we compare the
-    sanitized version of the original with the imported version.
+    """Property 1: Export-import round-trip consistency.
 
     **Validates: Requirements 1.1, 1.2, 3.1, 3.2**
     """
-    # Ensure at least one asset type is selected
-    has_any = (
-        content["include_preferences"]
-        or content["include_memories"]
-        or content["include_skills"]
-        or content["include_tools"]
-    )
-    assume(has_any)
+    assume(_has_exportable_content(content))
 
-    # Also ensure there's actual content for at least one selected type
-    has_content = False
-    if content["include_preferences"]:
-        has_content = True  # agent.json / config.json always exist
-    if content["include_memories"] and content["memory_files"]:
-        has_content = True
-    if content["include_skills"] and content["skill_files"]:
-        has_content = True
-    if content["include_tools"] and content["agent_json"].get("tools"):
-        has_content = True
-    assume(has_content)
-
-    # Use unique subdirectory per hypothesis example (tmp_path is shared)
     run_dir = tmp_path / uuid.uuid4().hex
     run_dir.mkdir()
 
-    # Step 1: Create source workspace W
     ws_source = _create_workspace(run_dir, content)
     export_zip = run_dir / "export.zip"
 
-    # Step 2: Export W to ZIP Z
     exporter = AssetExporter()
     export_result = await exporter.export_assets(
         ExportOptions(
@@ -232,11 +280,9 @@ async def test_export_import_roundtrip_consistency(
             include_tools=content["include_tools"],
         ),
     )
-
     assert export_zip.exists()
     assert export_result.asset_count > 0
 
-    # Step 3: Import Z to empty workspace W' with OVERWRITE
     ws_target = run_dir / "workspace_target"
     ws_target.mkdir(exist_ok=True)
 
@@ -245,74 +291,25 @@ async def test_export_import_roundtrip_consistency(
         zip_path=export_zip,
         strategy=ConflictStrategy.OVERWRITE,
     )
+    assert not import_result.errors, (
+        f"Import errors: {import_result.errors}"
+    )
 
-    assert (
-        len(import_result.errors) == 0
-    ), f"Import errors: {import_result.errors}"
+    _verify_zip_matches_imported(export_result, export_zip, ws_target)
+    _verify_preferences_sanitized(content, ws_source, ws_target)
 
-    # Step 4: Compare — every imported file in W' matches the exported content
-    with zipfile.ZipFile(export_zip, "r") as zf:
-        for entry in export_result.manifest.assets:
-            target_file = ws_target / entry.relative_path
-            assert (
-                target_file.exists()
-            ), f"Imported file missing: {entry.relative_path}"
-
-            # Read the content from the ZIP (this is the exported/sanitized version)
-            zip_content = zf.read(entry.relative_path)
-            imported_content = target_file.read_bytes()
-
-            assert (
-                imported_content == zip_content
-            ), f"Round-trip mismatch for {entry.relative_path}"
-
-    # Step 5: For preference files, verify sanitized original matches imported
-    if content["include_preferences"]:
-        for pref_name in ["agent.json", "config.json"]:
-            rel_path = f"preferences/{pref_name}"
-            target_file = ws_target / rel_path
-            if not target_file.exists():
-                continue
-
-            # Read original and sanitize it
-            source_file = ws_source / pref_name
-            if source_file.exists():
-                original_data = json.loads(
-                    source_file.read_text(encoding="utf-8")
-                )
-                sanitized_original = sanitize_preferences(original_data)
-                sanitized_bytes = json.dumps(
-                    sanitized_original,
-                    ensure_ascii=False,
-                    indent=2,
-                ).encode("utf-8")
-
-                imported_bytes = target_file.read_bytes()
-                assert (
-                    imported_bytes == sanitized_bytes
-                ), f"Sanitized round-trip mismatch for {pref_name}"
-
-    # Step 6: For non-preference files, verify exact match with source
     if content["include_memories"] and content["memory_files"]:
-        for entry in export_result.manifest.assets:
-            if entry.asset_type != AssetType.MEMORIES:
-                continue
-            target_file = ws_target / entry.relative_path
-            assert target_file.exists()
-
+        _verify_asset_type_exists(
+            export_result, ws_target, AssetType.MEMORIES,
+        )
     if content["include_skills"] and content["skill_files"]:
-        for entry in export_result.manifest.assets:
-            if entry.asset_type != AssetType.SKILLS:
-                continue
-            target_file = ws_target / entry.relative_path
-            assert target_file.exists()
-
+        _verify_asset_type_exists(
+            export_result, ws_target, AssetType.SKILLS,
+        )
     if content["include_tools"] and content["agent_json"].get("tools"):
-        for entry in export_result.manifest.assets:
-            if entry.asset_type != AssetType.TOOLS:
-                continue
-            target_file = ws_target / entry.relative_path
-            assert target_file.exists()
+        _verify_asset_type_exists(
+            export_result, ws_target, AssetType.TOOLS,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -331,12 +328,18 @@ class MockMemoryManager:
         self.acquire_count = 0
         self.release_count = 0
 
-    async def acquire_read_lock(self, timeout: float = 30.0) -> str:
+    async def acquire_read_lock(
+        self,
+        timeout: float = 30.0,  # pylint: disable=unused-argument
+    ) -> str:
         self.lock_acquired = True
         self.acquire_count += 1
         return "mock-lock-token"
 
-    async def release_read_lock(self, lock: Any) -> None:
+    async def release_read_lock(
+        self,
+        lock: Any,  # pylint: disable=unused-argument
+    ) -> None:
         self.lock_released = True
         self.release_count += 1
 

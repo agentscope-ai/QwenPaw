@@ -2,7 +2,6 @@
 """Unit tests for backup data models."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -15,10 +14,8 @@ from copaw.backup.models import (
     BackupResult,
     CompatibilityLevel,
     CompatibilityResult,
-    ConflictInfo,
     ConflictStrategy,
     ExportOptions,
-    ExportResult,
     ImportResult,
     VersionInfo,
 )
@@ -257,10 +254,10 @@ class TestDataclasses:
 
     def test_import_result_defaults(self) -> None:
         result = ImportResult()
-        assert result.imported == []
-        assert result.skipped == []
-        assert result.conflicts == []
-        assert result.errors == []
+        assert not result.imported
+        assert not result.skipped
+        assert not result.conflicts
+        assert not result.errors
 
     def test_backup_config_defaults(self) -> None:
         cfg = BackupConfig()
@@ -288,5 +285,5 @@ class TestDataclasses:
             target_version=vi,
             migration_needed=False,
         )
-        assert cr.migration_path == []
+        assert not cr.migration_path
         assert cr.message == ""

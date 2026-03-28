@@ -26,6 +26,7 @@ from copaw.backup.models import (
     ExportResult,
 )
 from copaw.backup.sanitizer import sanitize_preferences
+from copaw.backup.utils import get_agent_id
 from copaw.constant import WORKING_DIR
 
 logger = logging.getLogger(__name__)
@@ -51,19 +52,6 @@ class MemoryManagerProtocol(Protocol):
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
-
-
-def _get_agent_id(workspace_dir: Path) -> str:
-    agent_json = workspace_dir / "agent.json"
-    if agent_json.exists():
-        try:
-            return json.loads(agent_json.read_text(encoding="utf-8")).get(
-                "id",
-                "unknown",
-            )
-        except (json.JSONDecodeError, OSError):
-            pass
-    return "unknown"
 
 
 def _safe_read_file(path: Path) -> tuple[bytes, str, bool]:
@@ -256,8 +244,13 @@ class AssetExporter:
                         False,
                     ),
                 )
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            pass
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            logger.warning(
+                "Failed to parse tools from %s,"
+                " skipping tool collection: %s",
+                agent_json,
+                exc,
+            )
         return entries, file_data
 
     def _collect_dir(
@@ -344,7 +337,7 @@ class AssetExporter:
 
         manifest = AssetManifest(
             created_at=datetime.now(timezone.utc).isoformat(),
-            source_agent_id=_get_agent_id(ws),
+            source_agent_id=get_agent_id(ws),
             source_device_id=platform.node() or "unknown",
             copaw_version=__version__,
             assets=all_entries,
@@ -355,7 +348,7 @@ class AssetExporter:
             ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
             output = (
                 ws.parent
-                / f"copaw-assets-{_get_agent_id(ws)}-{ts}.copaw-assets.zip"
+                / f"copaw-assets-{get_agent_id(ws)}-{ts}.copaw-assets.zip"
             )
 
         estimated = sum(len(d) for d in all_data.values()) + 4096
