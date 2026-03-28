@@ -18,5 +18,6 @@ class HeartbeatBody(BaseModel):
         default=None,
         alias="activeHours",
     )
+    heartbeat_ok_enabled: bool = True
 
     model_config = {"populate_by_name": True, "extra": "allow"}

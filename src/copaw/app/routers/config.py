@@ -378,6 +378,7 @@ async def put_heartbeat(
         every=body.every,
         target=body.target,
         active_hours=body.active_hours,
+        heartbeat_ok_enabled=body.heartbeat_ok_enabled,
     )
     agent.config.heartbeat = hb
     save_agent_config(agent.agent_id, agent.config)
