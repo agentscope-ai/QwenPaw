@@ -667,7 +667,6 @@
     "localDownloaded": "Загружено",
     "localNotDownloaded": "Не загружено",
     "localNoRecommendedModels": "Нет рекомендованных локальных моделей",
-    "localCancelDownload": "Отменить загрузку",
     "localCancelDownloadConfirm": "Отменить загрузку «{{repo}}»?",
     "localDownloadCancelled": "Загрузка отменена",
     "localCancelDownloadFailed": "Не удалось отменить загрузку",

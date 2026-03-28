@@ -949,6 +949,49 @@
   line-height: 1.5;
 }
 
+.localRuntimeDownloadRow {
+  margin-top: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+
+  @media (max-width: 768px) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.localRuntimeProgressBlock {
+  flex: 1;
+  min-width: 0;
+}
+
+.localRuntimeProgress {
+  width: 100%;
+
+  :global(.ant-progress-outer) {
+    margin-inline-end: 0;
+  }
+
+  :global(.ant-progress-inner) {
+    background: rgba(255, 127, 22, 0.14);
+    border-radius: 999px;
+  }
+
+  :global(.ant-progress-bg) {
+    border-radius: 999px;
+  }
+}
+
+.localRuntimeProgressMeta {
+  display: block;
+  margin-top: 6px;
+  color: #7a7f8f;
+  font-size: 11px;
+  line-height: 1.4;
+  font-family: "SF Mono", "Menlo", monospace;
+}
+
 .localInlineProgress {
   color: #7a7f8f;
   font-size: 12px;
@@ -1071,6 +1114,16 @@
     color: #93c5fd;
     background: rgba(59, 130, 246, 0.12);
     border-color: rgba(59, 130, 246, 0.28);
+  }
+
+  .localRuntimeProgress {
+    :global(.ant-progress-inner) {
+      background: rgba(255, 127, 22, 0.18);
+    }
+  }
+
+  .localRuntimeProgressMeta {
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .modelListItemStatusButton {

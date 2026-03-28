@@ -690,7 +690,6 @@
     "localDownloaded": "已下载",
     "localNotDownloaded": "未下载",
     "localNoRecommendedModels": "当前没有可用的推荐本地模型",
-    "localCancelDownload": "取消下载",
     "localCancelDownloadConfirm": "确定取消下载 \"{{repo}}\"？",
     "localDownloadCancelled": "下载已取消",
     "localCancelDownloadFailed": "取消下载失败",

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Button, Tooltip } from "@agentscope-ai/design";
 import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
+import { Progress } from "antd";
 import { useTranslation } from "react-i18next";
 import type {
   LocalDownloadProgress,
@@ -54,10 +55,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           label: t("models.localServerIdle"),
         };
   const progressPercent = getProgressPercent(progress);
-  const progressBadgeLabel =
-    progressPercent !== null
-      ? `${progressPercent}%`
-      : t("models.localDownloadPending");
+  const progressText = isDownloading ? formatProgressText(progress) : null;
 
   return (
     <div className={styles.localRuntimePanel}>
@@ -67,9 +65,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             {t("models.localLlamacppName")}
           </span>
           <span className={styles.modelListItemId}>
-            {isDownloading
-              ? formatProgressText(progress)
-              : t("models.localRuntimeSectionDescription")}
+            {t("models.localRuntimeSectionDescription")}
           </span>
         </div>
       </div>
@@ -121,21 +117,40 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             ? t("models.localDownloadNavigateHint")
             : t("models.localEngineStatusHint")}
         </span>
-        {isDownloading ? (
-          <div className={styles.localStatusActions}>
-            <span className={styles.localStatusActionPill}>
-              {progressBadgeLabel}
-            </span>
-            <Button danger icon={<CloseOutlined />} onClick={onCancel}>
-              {t("models.localCancelDownload")}
-            </Button>
-          </div>
-        ) : !installed ? (
+        {!isDownloading && !installed ? (
           <Button type="primary" icon={<DownloadOutlined />} onClick={onStart}>
             {t("models.localInstallLlamacpp")}
           </Button>
         ) : null}
       </div>
+
+      {isDownloading ? (
+        <div className={styles.localRuntimeDownloadRow}>
+          <div className={styles.localRuntimeProgressBlock}>
+            <Progress
+              className={styles.localRuntimeProgress}
+              percent={progressPercent ?? 0}
+              showInfo={false}
+              status="active"
+              strokeColor="#ff7f16"
+              strokeWidth={10}
+            />
+            {progressText ? (
+              <span className={styles.localRuntimeProgressMeta}>
+                {progressText}
+              </span>
+            ) : null}
+          </div>
+          <Tooltip title={t("common.cancel")}>
+            <Button
+              danger
+              size="small"
+              icon={<CloseOutlined />}
+              onClick={onCancel}
+            />
+          </Tooltip>
+        </div>
+      ) : null}
     </div>
   );
 });

@@ -662,7 +662,6 @@
     "localDownloaded": "ダウンロード済み",
     "localNotDownloaded": "未ダウンロード",
     "localNoRecommendedModels": "推奨ローカルモデルはありません",
-    "localCancelDownload": "ダウンロードをキャンセル",
     "localCancelDownloadConfirm": "\"{{repo}}\" のダウンロードをキャンセルしますか？",
     "localDownloadCancelled": "ダウンロードをキャンセルしました",
     "localCancelDownloadFailed": "ダウンロードのキャンセルに失敗しました",

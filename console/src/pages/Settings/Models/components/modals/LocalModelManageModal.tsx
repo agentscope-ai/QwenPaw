@@ -252,11 +252,11 @@ export function LocalModelManageModal({
 
   const handleCancelLlamacppDownload = useCallback(() => {
     Modal.confirm({
-      title: t("models.localCancelDownload"),
+      title: t("common.cancel"),
       content: t("models.localCancelDownloadConfirm", {
         repo: t("models.localLlamacppName"),
       }),
-      okText: t("models.localCancelDownload"),
+      okText: t("common.cancel"),
       okButtonProps: { danger: true },
       cancelText: t("models.cancel"),
       onOk: async () => {
@@ -312,9 +312,9 @@ export function LocalModelManageModal({
   const handleCancelModelDownload = useCallback(
     (modelName: string) => {
       Modal.confirm({
-        title: t("models.localCancelDownload"),
+        title: t("common.cancel"),
         content: t("models.localCancelDownloadConfirm", { repo: modelName }),
-        okText: t("models.localCancelDownload"),
+        okText: t("common.cancel"),
         okButtonProps: { danger: true },
         cancelText: t("models.cancel"),
         onOk: async () => {
@@ -481,7 +481,7 @@ export function LocalModelManageModal({
                   handleCancelModelDownload(currentModelDownloadName)
                 }
               >
-                {t("models.localCancelDownload")}
+                {t("common.cancel")}
               </Button>
             </div>
           </div>
