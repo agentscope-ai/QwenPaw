@@ -768,26 +768,9 @@ def download_cmd(
 
 
 @models_group.command("local")
-@click.option(
-    "--backend",
-    "-b",
-    type=click.Choice(["llamacpp", "mlx"]),
-    default=None,
-    help="Filter by backend",
-)
-def list_local_cmd(backend: str | None) -> None:
+def list_local_cmd() -> None:
     """List all downloaded local models."""
     local_model_manager = _get_local_model_manager()
-
-    if backend and backend != "llamacpp":
-        click.echo(
-            click.style(
-                "Only the llamacpp backend is supported in the current "
-                "local-model architecture.",
-                fg="yellow",
-            ),
-        )
-        return
 
     models = local_model_manager.list_downloaded_models()
 
@@ -802,9 +785,7 @@ def list_local_cmd(backend: str | None) -> None:
         click.echo(f"\n{'─' * 44}")
         click.echo(f"  {m.name}")
         click.echo(f"  ID:      {m.id}")
-        click.echo("  Backend: llamacpp")
         click.echo(f"  Size:    {size_mb:.1f} MB")
-        click.echo(f"  Path:    {m.local_path}")
     click.echo()
 
 

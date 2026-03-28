@@ -418,8 +418,9 @@ export function LocalModelManageModal({
   ).length;
 
   const currentRunningModelName = serverStatus?.model_name ?? null;
-  const currentRunningModelDisplayName =
-    getLocalModelDisplayName(currentRunningModelName);
+  const currentRunningModelDisplayName = getLocalModelDisplayName(
+    currentRunningModelName,
+  );
   const currentModelDownloadName =
     getLocalModelDisplayName(modelDownload?.model_name ?? null) ||
     t("models.localDownloadPending");
