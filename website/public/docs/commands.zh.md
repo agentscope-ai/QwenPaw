@@ -52,6 +52,11 @@
 [3] **user** (text_tokens=28)
     content: [text(tokens=28)]
     preview: 能不能加上错误处理？
+
+---
+
+- Use /message <index> to view full message content
+- Use /compact_str to view full compact summary
 ```
 
 > 💡 **提示**：建议多使用 `/history` 命令了解当前上下文占用情况。
@@ -76,7 +81,7 @@
 
 - `index` - 消息索引号（从 1 开始）
 
-**返回示例：**
+**示例：**
 
 ```
 /message 1
@@ -200,7 +205,7 @@
 **History Dumped!**
 
 - Messages saved: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 ```
 
@@ -222,7 +227,7 @@
 **History Loaded!**
 
 - Messages loaded: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 - Memory cleared before loading
 ```
@@ -281,7 +286,7 @@ Agent：[开始处理...]
 系统：**Task Stopped** - Task for session `console:user1` has been terminated.
 ```
 
-> ⚠️ **注意**：`/stop` 会立即终止任务，可能导致部分结果丢失。
+> ⚠️ **警告**：`/stop` 会立即终止任务，可能导致部分结果丢失。
 
 ---
 

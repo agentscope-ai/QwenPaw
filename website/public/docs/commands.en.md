@@ -52,6 +52,11 @@ Display a list of all uncompressed messages in the current conversation, along w
 [3] **user** (text_tokens=28)
     content: [text(tokens=28)]
     preview: Can you add error handling?
+
+---
+
+- Use /message <index> to view full message content
+- Use /compact_str to view full compact summary
 ```
 
 > 💡 **Tip**: Use `/history` frequently to monitor your context usage.
@@ -142,7 +147,7 @@ User requested help building a user authentication system, login endpoint implem
 - Summary task started in background
 ```
 
-> Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
+> 💡 Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
 
 ---
 
@@ -200,7 +205,7 @@ Save current conversation history (including compressed summary) to a JSONL file
 **History Dumped!**
 
 - Messages saved: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 ```
 
@@ -222,7 +227,7 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 **History Loaded!**
 
 - Messages loaded: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 - Memory cleared before loading
 ```
