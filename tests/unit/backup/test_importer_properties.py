@@ -53,7 +53,9 @@ _file_content = st.binary(min_size=1, max_size=500)
 
 @st.composite
 def _asset_files(draw: st.DrawFn) -> list[tuple[AssetType, str, bytes]]:
-    """Generate a list of (asset_type, filename, content) tuples with unique paths."""
+    """Generate a list of (asset_type, filename, content)
+    tuples with unique paths.
+    """
     n = draw(st.integers(min_value=1, max_value=6))
     seen: set[str] = set()
     files: list[tuple[AssetType, str, bytes]] = []
@@ -170,10 +172,14 @@ def test_path_safety_no_traversal(
 
         if has_traversal:
             with pytest.raises(Exception):
-                importer._validate_zip(zip_path)  # pylint: disable=protected-access
+                importer._validate_zip(  # pylint: disable=protected-access
+                    zip_path,
+                )
         else:
             try:
-                importer._validate_zip(zip_path)  # pylint: disable=protected-access
+                importer._validate_zip(  # pylint: disable=protected-access
+                    zip_path,
+                )
             except Exception as exc:
                 assert "traversal" not in str(exc).lower()
                 assert "outside target" not in str(exc).lower()
@@ -216,7 +222,7 @@ def test_resolved_paths_are_children(filename: str) -> None:
                     "sha256": sha,
                     "size_bytes": len(content),
                     "metadata": {},
-                }
+                },
             ],
         }
 
@@ -226,18 +232,24 @@ def test_resolved_paths_are_children(filename: str) -> None:
             zf.writestr(rel_path, content)
 
         importer = AssetImporter(workspace_dir=ws)
-        manifest = importer._validate_zip(zip_path)  # pylint: disable=protected-access
+        manifest = importer._validate_zip(  # pylint: disable=protected-access
+            zip_path,
+        )
 
         ws_resolved = ws.resolve()
         for entry in manifest.assets:
             resolved = (ws_resolved / entry.relative_path).resolve()
             assert str(resolved).startswith(
-                str(ws_resolved)
-            ), f"Path {entry.relative_path} resolves outside workspace: {resolved}"
+                str(ws_resolved),
+            ), (
+                f"Path {entry.relative_path} resolves "
+                f"outside workspace: {resolved}"
+            )
 
 
 # ---------------------------------------------------------------------------
-# Property 5: Conflict detection partition consistency (冲突检测分区一致性)
+# Property 5: Conflict detection partition consistency
+# (冲突检测分区一致性)
 # ---------------------------------------------------------------------------
 
 _conflict_strategy_no_ask = st.sampled_from(
@@ -245,7 +257,7 @@ _conflict_strategy_no_ask = st.sampled_from(
         ConflictStrategy.SKIP,
         ConflictStrategy.OVERWRITE,
         ConflictStrategy.RENAME,
-    ]
+    ],
 )
 
 
@@ -298,7 +310,11 @@ def test_conflict_detection_partition_consistency(
         manifest = _build_zip_from_files(zip_path, files)
 
         importer = AssetImporter(workspace_dir=ws)
-        to_import, to_skip, _conflicts = importer._detect_conflicts(  # pylint: disable=protected-access
+        (
+            to_import,
+            to_skip,
+            _conflicts,
+        ) = importer._detect_conflicts(  # pylint: disable=protected-access
             manifest,
             ws,
             strategy,
@@ -312,7 +328,7 @@ def test_conflict_detection_partition_consistency(
 
         # imported ∩ skipped = ∅
         assert imported_ids.isdisjoint(
-            skipped_ids
+            skipped_ids,
         ), "imported and skipped sets overlap!"
 
         # |imported| + |skipped| + |unresolved| = |manifest.assets|
@@ -350,7 +366,11 @@ def test_conflict_detection_partition_ask_strategy(
         manifest = _build_zip_from_files(zip_path, files)
 
         importer = AssetImporter(workspace_dir=ws)
-        to_import, to_skip, conflicts = importer._detect_conflicts(  # pylint: disable=protected-access
+        (
+            to_import,
+            to_skip,
+            conflicts,
+        ) = importer._detect_conflicts(  # pylint: disable=protected-access
             manifest,
             ws,
             ConflictStrategy.ASK,
@@ -371,7 +391,8 @@ def test_conflict_detection_partition_ask_strategy(
 
 
 # ---------------------------------------------------------------------------
-# Property 6: Conflict strategy behavior correctness (冲突策略行为正确性)
+# Property 6: Conflict strategy behavior correctness
+# (冲突策略行为正确性)
 # ---------------------------------------------------------------------------
 
 
@@ -451,7 +472,8 @@ async def test_overwrite_target_equals_source(
 
         importer = AssetImporter(workspace_dir=ws)
         result = await importer.import_assets(
-            zip_path, ConflictStrategy.OVERWRITE
+            zip_path,
+            ConflictStrategy.OVERWRITE,
         )
 
         for rel_path in result.imported:
@@ -473,7 +495,8 @@ async def test_overwrite_target_equals_source(
 async def test_rename_original_unchanged_new_has_source(
     scenario: dict,
 ) -> None:
-    """Property 6 (RENAME): Original target unchanged, new path has source content.
+    """Property 6 (RENAME): Original target unchanged,
+    new path has source content.
 
     **Validates: Requirements 4.1, 4.4**
     """
@@ -522,7 +545,8 @@ async def test_rename_original_unchanged_new_has_source(
 async def test_no_conflict_writes_directly(
     files: list[tuple[AssetType, str, bytes]],
 ) -> None:
-    """Property 6 (no conflict): Asset written directly when target doesn't exist.
+    """Property 6 (no conflict): Asset written directly
+    when target doesn't exist.
 
     **Validates: Requirements 4.6**
     """

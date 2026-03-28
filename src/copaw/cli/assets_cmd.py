@@ -110,12 +110,9 @@ def export_cmd(
             workspace_dir=workspace_dir,
             include_preferences=include_all
             or AssetType.PREFERENCES in types_list,
-            include_memories=include_all
-            or AssetType.MEMORIES in types_list,
-            include_skills=include_all
-            or AssetType.SKILLS in types_list,
-            include_tools=include_all
-            or AssetType.TOOLS in types_list,
+            include_memories=include_all or AssetType.MEMORIES in types_list,
+            include_skills=include_all or AssetType.SKILLS in types_list,
+            include_tools=include_all or AssetType.TOOLS in types_list,
             include_global_config=include_all
             or AssetType.GLOBAL_CONFIG in types_list,
             output_path=Path(output).expanduser()
@@ -124,8 +121,10 @@ def export_cmd(
         )
 
         click.echo(f"Exporting assets for agent '{aid}': {workspace_dir}")
-        if asset_types:
-            click.echo(f"  Types: {', '.join(t.value for t in asset_types)}")
+        if types_list:
+            click.echo(
+                f"  Types: {', '.join(t.value for t in types_list)}",
+            )
 
         try:
             exporter = AssetExporter()
@@ -200,7 +199,10 @@ def import_cmd(
     click.echo(f"  Source: {zip_path}")
     click.echo(f"  Strategy: {conflict_strategy.value}")
     if asset_types:
-        click.echo(f"  Types: {', '.join(t.value for t in asset_types)}")
+        types_list = asset_types or []
+        click.echo(
+            f"  Types: {', '.join(t.value for t in types_list)}",
+        )
 
     try:
         importer = AssetImporter(workspace_dir=workspace_dir)

@@ -85,7 +85,7 @@ def _workspace_content(draw: st.DrawFn) -> dict[str, Any]:
     for i in range(n_memories):
         content = draw(_safe_text)
         memory_files.append(
-            (f"{i:03d}.json", json.dumps({"content": content}))
+            (f"{i:03d}.json", json.dumps({"content": content})),
         )
 
     # Skill files
@@ -95,7 +95,7 @@ def _workspace_content(draw: st.DrawFn) -> dict[str, Any]:
         skill_name = f"skill_{i}"
         content = draw(_safe_text)
         skill_files.append(
-            (skill_name, "SKILL.md", f"# {skill_name}\n{content}")
+            (skill_name, "SKILL.md", f"# {skill_name}\n{content}"),
         )
 
     return {
@@ -164,7 +164,7 @@ _asset_type_flags = st.fixed_dictionaries(
         "include_memories": st.booleans(),
         "include_skills": st.booleans(),
         "include_tools": st.booleans(),
-    }
+    },
 )
 
 
@@ -292,7 +292,8 @@ async def test_asset_package_directory_structure(
     content: dict,
     tmp_path: Path,
 ) -> None:
-    """Property 11: ZIP contains manifest.json at root and proper directory structure.
+    """Property 11: ZIP contains manifest.json at root
+    and proper directory structure.
 
     **Validates: Requirements 13.1, 13.2, 13.3, 13.4, 13.5**
     """
@@ -385,7 +386,8 @@ async def test_manifest_sha256_integrity(
     content: dict,
     tmp_path: Path,
 ) -> None:
-    """Property 2: SHA256 checksums in manifest match actual file contents in ZIP.
+    """Property 2: SHA256 checksums in manifest match
+    actual file contents in ZIP.
 
     **Validates: Requirements 2.2, 2.3**
     """

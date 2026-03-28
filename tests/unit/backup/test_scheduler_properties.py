@@ -74,12 +74,14 @@ async def test_cleanup_respects_max_backups(
     now = datetime.now(timezone.utc)
     for i, age in enumerate(ages):
         ts = now - timedelta(
-            days=age, seconds=i
+            days=age,
+            seconds=i,
         )  # seconds offset for uniqueness
         _create_fake_backup(backup_dir, "agent", ts)
 
     config = BackupConfig(
-        retention_days=retention_days, max_backups=max_backups
+        retention_days=retention_days,
+        max_backups=max_backups,
     )
     scheduler = BackupScheduler(config=config)
     await scheduler.cleanup_old_backups(backup_dir, config)
@@ -101,7 +103,8 @@ async def test_cleanup_respects_retention_days(
     tmp_path_factory: pytest.TempPathFactory,
     scenario: tuple[int, int, list[int]],
 ) -> None:
-    """After cleanup_old_backups: all remaining backups created within retention_days.
+    """After cleanup_old_backups: all remaining backups
+    created within retention_days.
 
     **Validates: Requirements 6.2**
     """
@@ -114,7 +117,8 @@ async def test_cleanup_respects_retention_days(
         _create_fake_backup(backup_dir, "agent", ts)
 
     config = BackupConfig(
-        retention_days=retention_days, max_backups=max_backups
+        retention_days=retention_days,
+        max_backups=max_backups,
     )
     scheduler = BackupScheduler(config=config)
     await scheduler.cleanup_old_backups(backup_dir, config)

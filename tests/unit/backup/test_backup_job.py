@@ -22,7 +22,8 @@ def test_build_backup_cron_job_defaults() -> None:
 
 def test_build_backup_cron_job_custom_schedule() -> None:
     job = build_backup_cron_job(
-        schedule="30 3 * * *", timezone="Asia/Shanghai"
+        schedule="30 3 * * *",
+        timezone="Asia/Shanghai",
     )
     assert job.schedule.cron == "30 3 * * *"
     assert job.schedule.timezone == "Asia/Shanghai"

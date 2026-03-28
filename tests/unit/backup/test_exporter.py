@@ -34,7 +34,7 @@ def _create_workspace(tmp_path: Path) -> Path:
                         "read_file": {"name": "read_file", "enabled": True},
                     },
                 },
-            }
+            },
         ),
         encoding="utf-8",
     )
@@ -49,7 +49,7 @@ def _create_workspace(tmp_path: Path) -> Path:
                         "enabled": True,
                     },
                 },
-            }
+            },
         ),
         encoding="utf-8",
     )
@@ -74,7 +74,8 @@ def _create_workspace(tmp_path: Path) -> Path:
     skill_sub = skills_dir / "my_skill"
     skill_sub.mkdir()
     (skill_sub / "SKILL.md").write_text(
-        "# My Skill\nA test skill.", encoding="utf-8"
+        "# My Skill\nA test skill.",
+        encoding="utf-8",
     )
 
     return ws
@@ -87,11 +88,17 @@ class FakeMemoryManager:
         self.lock_acquired = False
         self.lock_released = False
 
-    async def acquire_read_lock(self, timeout: float = 30.0) -> str:  # pylint: disable=unused-argument
+    async def acquire_read_lock(
+        self,
+        timeout: float = 30.0,  # pylint: disable=unused-argument
+    ) -> str:
         self.lock_acquired = True
         return "fake-lock"
 
-    async def release_read_lock(self, lock: Any) -> None:  # pylint: disable=unused-argument
+    async def release_read_lock(
+        self,
+        lock: Any,  # pylint: disable=unused-argument
+    ) -> None:
         self.lock_released = True
 
 
@@ -142,7 +149,7 @@ async def test_export_selective_types(tmp_path: Path) -> None:
     output = tmp_path / "export.zip"
 
     exporter = AssetExporter()
-    _result = await exporter.export_assets(
+    await exporter.export_assets(
         ExportOptions(
             workspace_dir=ws,
             include_preferences=False,
@@ -275,9 +282,12 @@ async def test_memory_lock_timeout(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_export_global_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Global config is collected, sanitized, and placed under global_config/."""
+    """Global config is collected, sanitized, and placed
+    under global_config/.
+    """
     ws = _create_workspace(tmp_path)
     output = tmp_path / "export.zip"
 
@@ -288,9 +298,9 @@ async def test_export_global_config(
         json.dumps(
             {
                 "providers": {
-                    "openai": {"api_key": "sk-secret", "model": "gpt-4"}
-                }
-            }
+                    "openai": {"api_key": "sk-secret", "model": "gpt-4"},
+                },
+            },
         ),
         encoding="utf-8",
     )
@@ -326,7 +336,8 @@ async def test_export_global_config(
 
 @pytest.mark.asyncio
 async def test_export_global_config_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No error when global config.json doesn't exist."""
     ws = _create_workspace(tmp_path)
@@ -359,7 +370,8 @@ async def test_export_global_config_missing(
 
 @pytest.mark.asyncio
 async def test_export_excludes_global_config_when_disabled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Global config excluded when include_global_config=False."""
     ws = _create_workspace(tmp_path)
@@ -368,7 +380,8 @@ async def test_export_excludes_global_config_when_disabled(
     global_dir = tmp_path / "copaw_home2"
     global_dir.mkdir()
     (global_dir / "config.json").write_text(
-        json.dumps({"x": 1}), encoding="utf-8"
+        json.dumps({"x": 1}),
+        encoding="utf-8",
     )
     monkeypatch.setattr("copaw.backup.exporter.WORKING_DIR", global_dir)
 

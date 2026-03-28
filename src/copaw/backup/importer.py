@@ -13,6 +13,8 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
+from pydantic import ValidationError
+
 from copaw.backup.errors import (
     IncompatibleVersionError,
     InsufficientStorageError,
@@ -33,7 +35,6 @@ from copaw.backup.version_checker import (
     migrate_manifest,
     parse_version,
 )
-from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 

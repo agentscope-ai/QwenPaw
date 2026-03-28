@@ -52,7 +52,7 @@ def _create_fake_backup(backup_dir: Path, agent_id: str, ts: datetime) -> Path:
 
 def test_parse_backup_filename_valid() -> None:
     result = _parse_backup_filename(
-        "backup-myagent-20250101-020000.copaw-assets.zip"
+        "backup-myagent-20250101-020000.copaw-assets.zip",
     )
     assert result is not None
     agent_id, ts = result
@@ -74,7 +74,8 @@ def test_parse_backup_filename_invalid() -> None:
 
 @pytest.mark.asyncio
 async def test_run_backup_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ws = _create_workspace(tmp_path)
     backup_dir = tmp_path / "backups"
@@ -97,7 +98,8 @@ async def test_run_backup_success(
 
 @pytest.mark.asyncio
 async def test_run_backup_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Backup on nonexistent workspace returns success=False."""
     backup_dir = tmp_path / "backups"

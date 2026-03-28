@@ -33,7 +33,7 @@ _leaf_value = st.one_of(
 
 # Keys that are NOT sensitive
 _safe_key = st.text(min_size=1, max_size=20).filter(
-    lambda k: k not in SENSITIVE_FIELDS
+    lambda k: k not in SENSITIVE_FIELDS,
 )
 
 # Keys that ARE sensitive
@@ -62,7 +62,7 @@ def _nested_config(draw: st.DrawFn, max_depth: int = 3) -> dict:
                     is_dict = draw(st.booleans())
                     if is_dict:
                         items.append(
-                            draw(_nested_config(max_depth=max_depth - 1))
+                            draw(_nested_config(max_depth=max_depth - 1)),
                         )
                     else:
                         items.append(draw(_leaf_value))
@@ -92,7 +92,9 @@ def _collect_sensitive_values(d: dict) -> list[tuple[str, object]]:
 
 
 def _collect_nonsensitive_values(d: dict) -> list[tuple[str, object]]:
-    """Walk *d* and return (key, value) for every non-sensitive, non-container key."""
+    """Walk *d* and return (key, value) for every
+    non-sensitive, non-container key.
+    """
     results: list[tuple[str, object]] = []
     for key, value in d.items():
         if key not in SENSITIVE_FIELDS:
@@ -100,7 +102,8 @@ def _collect_nonsensitive_values(d: dict) -> list[tuple[str, object]]:
                 results.extend(_collect_nonsensitive_values(value))
             elif isinstance(value, list):
                 # list values at non-sensitive keys are preserved as-is
-                # (only dict items inside are recursed, but the key itself is safe)
+                # (only dict items inside are recursed,
+                # but the key itself is safe)
                 results.append((key, value))
             else:
                 results.append((key, value))

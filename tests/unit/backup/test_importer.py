@@ -60,7 +60,7 @@ def _build_test_zip(
                 "sha256": _sha256(content),
                 "size_bytes": len(content),
                 "metadata": {},
-            }
+            },
         )
 
     manifest = {
@@ -92,7 +92,9 @@ class TestValidateZip:
     def test_missing_zip(self, tmp_path: Path) -> None:
         importer = AssetImporter(workspace_dir=tmp_path)
         with pytest.raises(InvalidAssetPackageError, match="not found"):
-            importer._validate_zip(tmp_path / "nonexistent.zip")  # pylint: disable=protected-access
+            importer._validate_zip(  # pylint: disable=protected-access
+                tmp_path / "nonexistent.zip",
+            )
 
     def test_invalid_zip(self, tmp_path: Path) -> None:
         bad_zip = tmp_path / "bad.zip"
@@ -107,9 +109,12 @@ class TestValidateZip:
             zf.writestr("some_file.txt", "hello")
         importer = AssetImporter(workspace_dir=tmp_path)
         with pytest.raises(
-            InvalidAssetPackageError, match="manifest.json not found"
+            InvalidAssetPackageError,
+            match="manifest.json not found",
         ):
-            importer._validate_zip(zip_path)  # pylint: disable=protected-access
+            importer._validate_zip(  # pylint: disable=protected-access
+                zip_path,
+            )
 
     def test_invalid_manifest_json(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "bad_manifest.zip"
@@ -117,7 +122,9 @@ class TestValidateZip:
             zf.writestr("manifest.json", "not valid json{{{")
         importer = AssetImporter(workspace_dir=tmp_path)
         with pytest.raises(InvalidAssetPackageError, match="Invalid manifest"):
-            importer._validate_zip(zip_path)  # pylint: disable=protected-access
+            importer._validate_zip(  # pylint: disable=protected-access
+                zip_path,
+            )
 
     def test_path_traversal_rejected(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "traversal.zip"
@@ -134,14 +141,18 @@ class TestValidateZip:
             zf.writestr("../etc/passwd", "evil")
         importer = AssetImporter(workspace_dir=tmp_path)
         with pytest.raises(InvalidAssetPackageError, match="Path traversal"):
-            importer._validate_zip(zip_path)  # pylint: disable=protected-access
+            importer._validate_zip(  # pylint: disable=protected-access
+                zip_path,
+            )
 
     def test_valid_zip(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "valid.zip"
         content = b'{"key": "value"}'
         _build_test_zip(zip_path, {"preferences/config.json": content})
         importer = AssetImporter(workspace_dir=tmp_path)
-        manifest = importer._validate_zip(zip_path)  # pylint: disable=protected-access
+        manifest = importer._validate_zip(  # pylint: disable=protected-access
+            zip_path,
+        )
         assert len(manifest.assets) == 1
 
 
@@ -221,7 +232,8 @@ class TestImportAssets:
 
         importer = AssetImporter(workspace_dir=ws)
         result = await importer.import_assets(
-            zip_path, ConflictStrategy.OVERWRITE
+            zip_path,
+            ConflictStrategy.OVERWRITE,
         )
 
         assert len(result.imported) == 1
@@ -241,7 +253,8 @@ class TestImportAssets:
 
         importer = AssetImporter(workspace_dir=ws)
         result = await importer.import_assets(
-            zip_path, ConflictStrategy.RENAME
+            zip_path,
+            ConflictStrategy.RENAME,
         )
 
         assert len(result.imported) == 1
@@ -276,7 +289,8 @@ class TestImportAssets:
 
     @pytest.mark.asyncio
     async def test_import_preserves_sensitive_fields(
-        self, tmp_path: Path
+        self,
+        tmp_path: Path,
     ) -> None:
         ws = tmp_path / "workspace"
         ws.mkdir()
@@ -300,11 +314,12 @@ class TestImportAssets:
 
         importer = AssetImporter(workspace_dir=ws)
         await importer.import_assets(
-            zip_path, ConflictStrategy.OVERWRITE
+            zip_path,
+            ConflictStrategy.OVERWRITE,
         )
 
         merged = json.loads(
-            (pref_dir / "config.json").read_text(encoding="utf-8")
+            (pref_dir / "config.json").read_text(encoding="utf-8"),
         )
         assert merged["bot_token"] == "my-secret-token"  # preserved
         assert merged["name"] == "new-name"  # updated
@@ -329,10 +344,10 @@ class TestImportAssets:
                     "asset_type": "preferences",
                     "name": "config.json",
                     "relative_path": "preferences/config.json",
-                    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "sha256": "0" * 64,
                     "size_bytes": len(content),
                     "metadata": {},
-                }
+                },
             ],
         }
         with zipfile.ZipFile(zip_path, "w") as zf:
@@ -388,12 +403,12 @@ class TestHelpers:
 
     def test_merge_preferences_nested(self) -> None:
         existing = {
-            "channels": {"discord": {"bot_token": "secret", "enabled": False}}
+            "channels": {"discord": {"bot_token": "secret", "enabled": False}},
         }
         incoming = {
             "channels": {
-                "discord": {"bot_token": "***REDACTED***", "enabled": True}
-            }
+                "discord": {"bot_token": "***REDACTED***", "enabled": True},
+            },
         }
         merged = _merge_preferences(existing, incoming)
         assert merged["channels"]["discord"]["bot_token"] == "secret"

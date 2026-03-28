@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Property-based integration tests for export-import round-trip and memory snapshot consistency.
+"""Property-based integration tests for export-import \
+round-trip and memory snapshot consistency.
 
 Properties 1 and 14 from the design document.
 """
@@ -21,6 +22,7 @@ from copaw.backup.models import (
     AssetType,
     ConflictStrategy,
     ExportOptions,
+    ExportResult,
 )
 from copaw.backup.sanitizer import sanitize_preferences
 
@@ -96,7 +98,7 @@ def _workspace_content(draw: st.DrawFn) -> dict[str, Any]:
     for i in range(n_memories):
         content = draw(_safe_text)
         memory_files.append(
-            (f"{i:03d}.json", json.dumps({"content": content}))
+            (f"{i:03d}.json", json.dumps({"content": content})),
         )
 
     # Skill files
@@ -106,7 +108,7 @@ def _workspace_content(draw: st.DrawFn) -> dict[str, Any]:
         skill_name = f"skill_{i}"
         content = draw(_safe_text)
         skill_files.append(
-            (skill_name, "SKILL.md", f"# {skill_name}\n{content}")
+            (skill_name, "SKILL.md", f"# {skill_name}\n{content}"),
         )
 
     # Asset type flags
@@ -167,7 +169,8 @@ def _create_workspace(tmp_path: Path, content: dict) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Property 1: Export-Import round-trip consistency (导出-导入往返一致性)
+# Property 1: Export-Import round-trip consistency
+# (导出-导入往返一致性)
 # ---------------------------------------------------------------------------
 
 
@@ -193,7 +196,7 @@ def _has_exportable_content(content: dict) -> bool:
 
 
 def _verify_zip_matches_imported(
-    export_result: "ExportResult",
+    export_result: ExportResult,
     export_zip: Path,
     ws_target: Path,
 ) -> None:
@@ -201,9 +204,9 @@ def _verify_zip_matches_imported(
     with zipfile.ZipFile(export_zip, "r") as zf:
         for entry in export_result.manifest.assets:
             target_file = ws_target / entry.relative_path
-            assert target_file.exists(), (
-                f"Imported file missing: {entry.relative_path}"
-            )
+            assert (
+                target_file.exists()
+            ), f"Imported file missing: {entry.relative_path}"
             assert target_file.read_bytes() == zf.read(
                 entry.relative_path,
             ), f"Round-trip mismatch for {entry.relative_path}"
@@ -230,13 +233,13 @@ def _verify_preferences_sanitized(
             ensure_ascii=False,
             indent=2,
         ).encode("utf-8")
-        assert target_file.read_bytes() == sanitized, (
-            f"Sanitized round-trip mismatch for {pref_name}"
-        )
+        assert (
+            target_file.read_bytes() == sanitized
+        ), f"Sanitized round-trip mismatch for {pref_name}"
 
 
 def _verify_asset_type_exists(
-    export_result: "ExportResult",
+    export_result: ExportResult,
     ws_target: Path,
     asset_type: AssetType,
 ) -> None:
@@ -291,24 +294,28 @@ async def test_export_import_roundtrip_consistency(
         zip_path=export_zip,
         strategy=ConflictStrategy.OVERWRITE,
     )
-    assert not import_result.errors, (
-        f"Import errors: {import_result.errors}"
-    )
+    assert not import_result.errors, f"Import errors: {import_result.errors}"
 
     _verify_zip_matches_imported(export_result, export_zip, ws_target)
     _verify_preferences_sanitized(content, ws_source, ws_target)
 
     if content["include_memories"] and content["memory_files"]:
         _verify_asset_type_exists(
-            export_result, ws_target, AssetType.MEMORIES,
+            export_result,
+            ws_target,
+            AssetType.MEMORIES,
         )
     if content["include_skills"] and content["skill_files"]:
         _verify_asset_type_exists(
-            export_result, ws_target, AssetType.SKILLS,
+            export_result,
+            ws_target,
+            AssetType.SKILLS,
         )
     if content["include_tools"] and content["agent_json"].get("tools"):
         _verify_asset_type_exists(
-            export_result, ws_target, AssetType.TOOLS,
+            export_result,
+            ws_target,
+            AssetType.TOOLS,
         )
 
 
@@ -318,8 +325,8 @@ async def test_export_import_roundtrip_consistency(
 
 
 class MockMemoryManager:
-    """Mock MemoryManager that tracks lock acquire/release calls and
-    verifies consistency during the locked region.
+    """Mock MemoryManager that tracks lock acquire/release
+    calls and verifies consistency during the locked region.
     """
 
     def __init__(self) -> None:
@@ -351,9 +358,11 @@ class MockMemoryManager:
 
 @st.composite
 def _memory_workspace_content(draw: st.DrawFn) -> dict[str, Any]:
-    """Generate workspace content with memory data for snapshot consistency testing.
+    """Generate workspace content with memory data for
+    snapshot consistency testing.
 
-    Ensures memory_index.json references match actual entry files.
+    Ensures memory_index.json references match actual
+    entry files.
     """
     agent_id = draw(
         st.text(
@@ -498,7 +507,8 @@ async def test_memory_snapshot_consistency(
                 if entry_filename:  # skip directory entries
                     entry_files_in_zip.add(entry_filename)
 
-        # Consistency check 1: Every index reference has a corresponding entry file
+        # Consistency check 1: Every index reference has
+        # a corresponding entry file
         for ref in referenced_entries:
             assert ref in entry_files_in_zip, (
                 f"Index references entry '{ref}' but it's not in the ZIP. "
@@ -514,7 +524,8 @@ async def test_memory_snapshot_consistency(
 
         # Consistency check 3: Entry count matches
         assert len(referenced_entries) == len(entry_files_in_zip), (
-            f"Entry count mismatch: index references {len(referenced_entries)}, "
+            f"Entry count mismatch: index references "
+            f"{len(referenced_entries)}, "
             f"ZIP contains {len(entry_files_in_zip)} entry files"
         )
 
