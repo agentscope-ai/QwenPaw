@@ -22,7 +22,7 @@
 
 ## 第一步：写 HEARTBEAT.md
 
-**路径（多智能体，常见情况）**：`<COPAW_WORKING_DIR>/workspaces/<agent_id>/HEARTBEAT.md`。  
+**路径（多智能体，常见情况）**：`<COPAW_WORKING_DIR>/workspaces/<agent_id>/HEARTBEAT.md`。
 `<COPAW_WORKING_DIR>` 默认是 `~/.copaw`，也可用环境变量 `COPAW_WORKING_DIR` 覆盖；`<agent_id>` 与当前智能体一致（例如 `default`）。
 
 文件名默认 `HEARTBEAT.md`，可通过 **`COPAW_HEARTBEAT_FILE`** 改成别的名字；路径始终是「该智能体 workspace 根目录 + 该文件名」。
@@ -50,7 +50,7 @@
 
 推荐在 console 的 **心跳**页面进行配置。如果想通过修改agent.json实现，参考以下内容。
 
-**间隔、开关、发到哪、活跃时段** 读自当前智能体的 **`workspaces/<agent_id>/agent.json`** 里的 **`heartbeat`** 字段（与控制台保存的配置一致）。  
+**间隔、开关、发到哪、活跃时段** 读自当前智能体的 **`workspaces/<agent_id>/agent.json`** 里的 **`heartbeat`** 字段（与控制台保存的配置一致）。
 从旧版迁移时，历史上写在根目录 **`config.json`** 的 `agents.defaults.heartbeat` 会合并进默认智能体的 `agent.json`；新配置请以 **`agent.json` 为准**。
 
 | 字段            | 含义                                                                                                                                                                                                                  |

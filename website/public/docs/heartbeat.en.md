@@ -40,7 +40,7 @@ You can also set **active hours**: heartbeat only runs in that daily window
 ## Step 1: Write HEARTBEAT.md
 
 **Path (multi-agent, usual case):**
-`<COPAW_WORKING_DIR>/workspaces/<agent_id>/HEARTBEAT.md`.  
+`<COPAW_WORKING_DIR>/workspaces/<agent_id>/HEARTBEAT.md`.
 Default `COPAW_WORKING_DIR` is `~/.copaw` (override with **`COPAW_WORKING_DIR`**);
 `<agent_id>` is the current agent id (e.g. `default`).
 
