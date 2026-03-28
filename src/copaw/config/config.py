@@ -295,7 +295,7 @@ class ContextCompactConfig(BaseModel):
     )
 
     token_count_estimate_divisor: float = Field(
-        default=3.75,
+        default=4,
         ge=2,
         le=5,
         description=(
