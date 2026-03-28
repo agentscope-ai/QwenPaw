@@ -83,7 +83,10 @@ export interface LocalModelInfo {
   name: string;
   size_bytes: number;
   downloaded: boolean;
+  source: LocalDownloadSource;
 }
+
+export type LocalDownloadSource = "huggingface" | "modelscope" | "auto";
 
 export interface LocalServerStatus {
   available: boolean;
@@ -105,7 +108,7 @@ export interface LocalDownloadProgress {
   downloaded_bytes: number;
   total_bytes: number | null;
   speed_bytes_per_sec: number;
-  source: string | null;
+  source: LocalDownloadSource | null;
   error: string | null;
   local_path: string | null;
 }

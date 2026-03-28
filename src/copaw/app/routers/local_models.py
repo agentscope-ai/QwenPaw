@@ -8,7 +8,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 
-from ...local_models import LocalModelInfo, LocalModelManager
+from ...local_models import DownloadSource, LocalModelInfo, LocalModelManager
 from ...providers.provider_manager import ProviderManager
 
 router = APIRouter(prefix="/local-models", tags=["local-models"])
@@ -74,6 +74,10 @@ class StartModelDownloadRequest(BaseModel):
     model_name: str = Field(
         ...,
         description="Recommended local model name to download",
+    )
+    source: DownloadSource = Field(
+        default=DownloadSource.AUTO,
+        description="Optional source to download the model from",
     )
 
 
@@ -271,7 +275,10 @@ async def start_local_model_download(
 ) -> ActionResponse:
     """Start downloading a recommended local model."""
     try:
-        manager.start_model_download(payload.model_name)
+        manager.start_model_download(
+            payload.model_name,
+            source=payload.source,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

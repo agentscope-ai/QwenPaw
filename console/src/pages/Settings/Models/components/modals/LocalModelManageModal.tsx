@@ -284,24 +284,24 @@ export function LocalModelManageModal({
   }, [refreshStatus, t]);
 
   const handleStartModelDownload = useCallback(
-    async (modelName: string) => {
+    async (model: LocalModelInfo) => {
       const previousModelDownload = modelDownloadRef.current;
       const previousModelStatus = previousModelStatusRef.current;
 
       setModelDownloadState({
         status: "pending",
-        model_name: modelName,
+        model_name: model.id,
         downloaded_bytes: 0,
         total_bytes: null,
         speed_bytes_per_sec: 0,
-        source: null,
+        source: model.source,
         error: null,
         local_path: null,
       });
       previousModelStatusRef.current = "pending";
 
       try {
-        await api.startLocalModelDownload(modelName);
+        await api.startLocalModelDownload(model.id, model.source);
         await refreshStatus();
         startPolling();
       } catch (error) {

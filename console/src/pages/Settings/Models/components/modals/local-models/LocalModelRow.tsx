@@ -17,7 +17,7 @@ interface LocalModelRowProps {
   isServerBusy: boolean;
   startingModelName: string | null;
   stoppingServer: boolean;
-  onStartDownload: (modelName: string) => void;
+  onStartDownload: (model: LocalModelInfo) => void;
   onStartServer: (model: LocalModelInfo) => void;
   onStopServer: () => void;
 }
@@ -57,7 +57,7 @@ export const LocalModelRow = memo(function LocalModelRow({
               type="primary"
               size="small"
               icon={<DownloadOutlined />}
-              onClick={() => onStartDownload(model.id)}
+              onClick={() => onStartDownload(model)}
               disabled={isModelDownloading || isServerBusy}
             >
               {t("common.download")}

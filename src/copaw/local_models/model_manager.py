@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 class DownloadSource(str, Enum):
     HUGGINGFACE = "huggingface"
     MODELSCOPE = "modelscope"
+    # First try Hugging Face, then fall back to ModelScope if unreachable
+    AUTO = "auto"
 
 
 class LocalModelInfo(ModelInfo):
@@ -48,6 +50,10 @@ class LocalModelInfo(ModelInfo):
     downloaded: bool = Field(
         default=False,
         description="Whether the model is fully downloaded and ready to use",
+    )
+    source: DownloadSource = Field(
+        default=DownloadSource.AUTO,
+        description="Preferred source to download the model from",
     )
 
 
@@ -87,6 +93,12 @@ class ModelManager:
                     name="CoPaw-flash-2B-Q8_0",
                     size_bytes=2552356320,
                 ),
+                LocalModelInfo(
+                    id="Qwen/Qwen3-0.6B-GGUF",
+                    name="Qwen3-0.6B-GGUF",
+                    size_bytes=639446688,
+                    source=DownloadSource.MODELSCOPE,
+                ),
             ]
         elif memory_gb <= 16:
             models = [
@@ -103,7 +115,8 @@ class ModelManager:
                 LocalModelInfo(
                     id="Qwen/Qwen3-0.6B-GGUF",
                     name="Qwen3-0.6B-GGUF",
-                    size_bytes=596000000,
+                    size_bytes=639446688,
+                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
         else:
@@ -121,7 +134,8 @@ class ModelManager:
                 LocalModelInfo(
                     id="Qwen/Qwen3-0.6B-GGUF",
                     name="Qwen3-0.6B-GGUF",
-                    size_bytes=596000000,
+                    size_bytes=639446688,
+                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
 
