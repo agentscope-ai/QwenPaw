@@ -164,6 +164,24 @@ class MatrixConfig(BaseChannelConfig):
     user_id: str = ""
     access_token: str = ""
 
+    # Extended Matrix channel fields
+    group_allow_from: List[str] = Field(default_factory=list)
+    groups: Dict[str, Any] = Field(default_factory=dict)
+    encryption: bool = False
+    # When False, images are surfaced as text placeholders (no vision URL).
+    vision_enabled: bool = True
+    history_limit: int = 50
+    username: str = ""
+    password: str = ""
+    device_name: str = "copaw-worker"
+    # matrix-nio sync long-poll timeout (ms); typical 30s
+    sync_timeout_ms: int = Field(default=30000, ge=5000, le=300000)
+    # When True, prepend HTML pill to formatted_body for outbound mentions.
+    # Default False: m.mentions is always set for push, but pill is omitted.
+    mention_pill_in_body: bool = False
+    # When True, apply m.mentions + optional pill on outbound messages.
+    outbound_structured_mentions: bool = True
+
 
 class VoiceChannelConfig(BaseChannelConfig):
     """Voice channel: Twilio ConversationRelay + Cloudflare Tunnel."""

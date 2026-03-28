@@ -209,6 +209,14 @@ class MatrixChannelConfig:
             "outbound_structured_mentions",
             True,
         )
+        # When True, prepend the HTML pill (clickable mention link) to
+        # formatted_body. Default is False: m.mentions is always set for push
+        # notifications, but the visible pill prefix is omitted from the
+        # rendered message to avoid duplicate @-mentions in rich clients.
+        self.mention_pill_in_body: bool = raw.get(
+            "mention_pill_in_body",
+            False,
+        )
 
 
 def _normalize_user_id(uid: str) -> str:
@@ -1863,6 +1871,14 @@ class MatrixChannel(BaseChannel):
         room_id = (channel_meta or {}).get("room_id", sender_id)
         return f"matrix:{room_id}"
 
+    def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
+        """For Matrix, return room_id (session_id), not user_id.
+
+        Matrix requires room_id to send messages, not user_id.
+        Override BaseChannel's default implementation which returns user_id.
+        """
+        return session_id
+
     def get_to_handle_from_request(self, request: Any) -> str:
         meta = getattr(request, "channel_meta", {}) or {}
         return meta.get("room_id", getattr(request, "user_id", ""))
@@ -1902,36 +1918,76 @@ class MatrixChannel(BaseChannel):
         content: dict[str, Any],
         user_id: str,
         room_id: str,
+        meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Add a full Matrix mention to an outgoing event content dict.
 
-        Sets ``m.mentions`` (for push notifications) and adds a
+        Sets ``m.mentions`` (for push notifications) and optionally adds a
         ``formatted_body`` with an HTML pill so clients render the
-        mention visually.
+        mention visually (controlled by ``mention_pill_in_body`` config).
 
         Plain ``body`` is not prefixed with the display name (that duplicated
         @).  If the upstream ``body`` already starts with the same display
         name or MXID as the pill, that lead is stripped and HTML is rebuilt
         so the rich client does not show the name twice.
-        """
-        content["m.mentions"] = {"user_ids": [user_id]}
 
-        display_name = self._resolve_display_name(user_id, room_id)
-        pill = (
-            f'<a href="https://matrix.to/#/{user_id}">' f"{display_name}</a>"
-        )
+        Args:
+            content: The Matrix event content dict to modify in place.
+            user_id: The MXID to mention (e.g. "@user:server").
+            room_id: The room where this event will be sent.
+            meta: Optional message metadata; supports overrides:
+                - ``skip_mention_pill``: If True, omit HTML pill even if config
+                  enables it.
+                - ``force_mention_pill``: If True, include HTML pill even if
+                  config disables it.
+        """
+        # Always set m.mentions for push notification delivery
+        content["m.mentions"] = {"user_ids": [user_id]}
 
         body = content.get("body", "")
         body = self._strip_lead_echo_of_ping_target(body, user_id, room_id)
+
+        # Convert body to HTML
         html_body = _md_to_html(body)
         content["format"] = "org.matrix.custom.html"
-        content["formatted_body"] = (
-            f"{pill} {html_body}" if html_body else pill
-        )
+
+        # Determine whether to show HTML pill (config + meta overrides)
+        show_pill = self._should_show_mention_pill(meta)
+
+        # Conditionally prepend HTML pill
+        if show_pill:
+            display_name = self._resolve_display_name(user_id, room_id)
+            pill = (
+                f'<a href="https://matrix.to/#/{user_id}">'
+                f"{display_name}</a>"
+            )
+            content["formatted_body"] = (
+                f"{pill} {html_body}" if html_body else pill
+            )
+        else:
+            # No pill prefix, just the converted HTML body
+            content["formatted_body"] = html_body
+
         if body.strip():
             content["body"] = body
         else:
+            display_name = self._resolve_display_name(user_id, room_id)
             content["body"] = display_name
+
+    def _should_show_mention_pill(
+        self,
+        meta: Optional[Dict[str, Any]],
+    ) -> bool:
+        """Determine whether to prepend HTML pill to formatted_body.
+
+        Checks meta overrides first, then falls back to config default.
+        """
+        m = meta or {}
+        if m.get("skip_mention_pill"):
+            return False
+        if m.get("force_mention_pill"):
+            return True
+        return bool(self._cfg.mention_pill_in_body)
 
     def _resolve_display_name(self, user_id: str, room_id: str) -> str:
         """Best-effort display name for *user_id* in *room_id*."""
@@ -1999,7 +2055,7 @@ class MatrixChannel(BaseChannel):
             "user_id",
         )
         if sender_id and self._should_apply_outbound_mention(meta):
-            self._apply_mention(content, sender_id, room_id)
+            self._apply_mention(content, sender_id, room_id, meta)
 
         try:
             await self._client.room_send(
@@ -2104,7 +2160,7 @@ class MatrixChannel(BaseChannel):
                 "user_id",
             )
             if sender_id and self._should_apply_outbound_mention(meta):
-                self._apply_mention(event_content, sender_id, room_id)
+                self._apply_mention(event_content, sender_id, room_id, meta)
 
             await self._client.room_send(
                 room_id,
