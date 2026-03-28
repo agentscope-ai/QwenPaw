@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urljoin
 
@@ -14,6 +15,18 @@ import aiohttp
 from .constants import DINGTALK_TOKEN_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
+
+_IDEMPOTENT_RETRYABLE_METHODS = frozenset(
+    {"DELETE", "GET", "HEAD", "OPTIONS"},
+)
+_RETRYABLE_STATUS_CODES = frozenset({429, 503})
+_MAX_RETRY_ATTEMPTS = 2
+_RETRY_BASE_DELAY_SECONDS = 0.25
+_RETRYABLE_NETWORK_EXCEPTIONS = (
+    asyncio.TimeoutError,
+    aiohttp.ClientConnectionError,
+    aiohttp.ClientPayloadError,
+)
 
 
 class DingTalkOpenAPIError(RuntimeError):
@@ -110,30 +123,45 @@ class DingTalkOpenAPIClient:
             if self._token_value and now < self._token_expires_at:
                 return self._token_value
 
-            payload = {
-                "appKey": self.client_id,
-                "appSecret": self.client_secret,
-            }
-            async with self.http_session.post(url, json=payload) as resp:
-                body_text = await resp.text()
-                data = self._parse_json(body_text)
-                if resp.status >= 400:
-                    raise self._make_error(
-                        "DingTalk access token request failed",
+            async def _fetch_token() -> str:
+                payload = {
+                    "appKey": self.client_id,
+                    "appSecret": self.client_secret,
+                }
+                async with self.http_session.post(url, json=payload) as resp:
+                    body_text = await resp.text()
+                    if resp.status in _RETRYABLE_STATUS_CODES:
+                        raise self._make_error(
+                            "DingTalk access token request failed",
+                            url=url,
+                            status=resp.status,
+                            body=body_text,
+                        )
+
+                    data = self._parse_json(body_text)
+                    if resp.status >= 400:
+                        raise self._make_error(
+                            "DingTalk access token request failed",
+                            url=url,
+                            status=resp.status,
+                            body=data if data else body_text,
+                        )
+
+                token = data.get("accessToken") or data.get("access_token")
+                if not token:
+                    raise DingTalkOpenAPIError(
+                        "DingTalk access token missing in response",
                         url=url,
-                        status=resp.status,
-                        body=data if data else body_text,
+                        body=data,
                     )
+                return str(token)
 
-            token = data.get("accessToken") or data.get("access_token")
-            if not token:
-                raise DingTalkOpenAPIError(
-                    "DingTalk access token missing in response",
-                    url=url,
-                    body=data,
-                )
-
-            self._token_value = str(token)
+            token = await self._with_retry(
+                operation="DingTalk access token request",
+                url=url,
+                action=_fetch_token,
+            )
+            self._token_value = token
             self._token_expires_at = (
                 asyncio.get_running_loop().time() + self.token_ttl_seconds
             )
@@ -148,6 +176,7 @@ class DingTalkOpenAPIClient:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         auth: bool = True,
+        retry_on_transient: bool | None = None,
     ) -> Any:
         """Send a JSON request to DingTalk and return parsed JSON."""
         resolved_url = self._resolve_url(url)
@@ -167,7 +196,13 @@ class DingTalkOpenAPIClient:
             )
 
         method_name = (method or "GET").upper()
-        try:
+        should_retry = (
+            method_name in _IDEMPOTENT_RETRYABLE_METHODS
+            if retry_on_transient is None
+            else bool(retry_on_transient)
+        )
+
+        async def _request_once() -> Any:
             async with self.http_session.request(
                 method_name,
                 resolved_url,
@@ -176,6 +211,14 @@ class DingTalkOpenAPIClient:
                 headers=request_headers,
             ) as resp:
                 body_text = await resp.text()
+                if resp.status in _RETRYABLE_STATUS_CODES:
+                    raise self._make_error(
+                        f"DingTalk {method_name} request failed",
+                        url=resolved_url,
+                        status=resp.status,
+                        body=body_text,
+                    )
+
                 data = self._parse_json(body_text)
                 if resp.status >= 400:
                     raise self._make_error(
@@ -194,6 +237,15 @@ class DingTalkOpenAPIClient:
                             body=data,
                         )
                 return data
+
+        try:
+            if should_retry:
+                return await self._with_retry(
+                    operation=f"DingTalk {method_name} request",
+                    url=resolved_url,
+                    action=_request_once,
+                )
+            return await _request_once()
         except asyncio.CancelledError:  # pragma: no cover - passthrough
             raise
         except DingTalkOpenAPIError:
@@ -208,6 +260,63 @@ class DingTalkOpenAPIClient:
         if url.startswith("http://") or url.startswith("https://"):
             return url
         return urljoin(f"{self.base_url}/", url.lstrip("/"))
+
+    async def _with_retry(
+        self,
+        *,
+        operation: str,
+        url: str,
+        action: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        last_error: Exception | None = None
+        for attempt in range(_MAX_RETRY_ATTEMPTS + 1):
+            try:
+                return await action()
+            except asyncio.CancelledError:  # pragma: no cover - passthrough
+                raise
+            except DingTalkOpenAPIError as exc:
+                if not self._is_retryable_error(exc) or attempt >= _MAX_RETRY_ATTEMPTS:
+                    raise
+                last_error = exc
+            except _RETRYABLE_NETWORK_EXCEPTIONS as exc:
+                if attempt >= _MAX_RETRY_ATTEMPTS:
+                    raise DingTalkOpenAPIError(
+                        f"{operation} failed after retries: {exc}",
+                        url=url,
+                    ) from exc
+                last_error = exc
+
+            delay = self._retry_delay_seconds(attempt)
+            logger.warning(
+                "Retrying DingTalk %s (attempt %s/%s) in %.2fs after %s",
+                operation,
+                attempt + 1,
+                _MAX_RETRY_ATTEMPTS + 1,
+                delay,
+                last_error,
+            )
+            await asyncio.sleep(delay)
+
+        if isinstance(last_error, DingTalkOpenAPIError):
+            raise last_error
+        if last_error is not None:
+            raise DingTalkOpenAPIError(
+                f"{operation} failed after retries: {last_error}",
+                url=url,
+            ) from last_error
+        raise DingTalkOpenAPIError(
+            f"{operation} failed after retries",
+            url=url,
+        )
+
+    @staticmethod
+    def _is_retryable_error(exc: DingTalkOpenAPIError) -> bool:
+        return exc.status in _RETRYABLE_STATUS_CODES
+
+    @staticmethod
+    def _retry_delay_seconds(attempt: int) -> float:
+        delay = _RETRY_BASE_DELAY_SECONDS * (2**attempt)
+        return min(delay, 1.0)
 
     @staticmethod
     def _parse_json(body_text: str) -> dict[str, Any]:

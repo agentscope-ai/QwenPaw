@@ -12,6 +12,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+import aiohttp
 import pytest
 
 
@@ -39,7 +40,7 @@ class _FakeResponse:
 
 
 class _FakeSession:
-    def __init__(self, responses: list[_FakeResponse]):
+    def __init__(self, responses: list[Any]):
         self.responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
@@ -47,7 +48,10 @@ class _FakeSession:
         self.calls.append({"method": method, "url": url, **kwargs})
         if not self.responses:
             raise AssertionError("unexpected request")
-        return self.responses.pop(0)
+        outcome = self.responses.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
     def post(self, url: str, **kwargs):
         return self.request("POST", url, **kwargs)
@@ -68,6 +72,16 @@ def _new_client(module, **overrides):
         **overrides,
     )
     return client
+
+
+def _patch_sleep(monkeypatch, module):
+    delays: list[float] = []
+
+    async def _fake_sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(module.asyncio, "sleep", _fake_sleep)
+    return delays
 
 
 def test_missing_credentials_raise_clear_error():
@@ -98,6 +112,24 @@ def test_access_token_is_cached(monkeypatch):
     assert len(fake_session.calls) == 1
     assert fake_session.calls[0]["method"] == "POST"
     assert "accessToken" in fake_session.calls[0]["url"]
+
+
+def test_access_token_retries_retryable_status_and_succeeds(monkeypatch):
+    module = _load_module()
+    delays = _patch_sleep(monkeypatch, module)
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(503, {"code": "ServiceUnavailable"}),
+            _FakeResponse(200, {"accessToken": "token-1", "expireIn": 3600}),
+        ],
+    )
+    client = _new_client(module, http_session=fake_session)
+
+    token = asyncio.run(client.get_access_token())
+
+    assert token == "token-1"
+    assert len(fake_session.calls) == 2
+    assert delays and delays[0] > 0
 
 
 def test_access_token_failure_raises():
@@ -150,6 +182,103 @@ def test_request_json_success_injects_access_token(monkeypatch):
     assert headers["x-acs-dingtalk-access-token"] == "token-xyz"
 
 
+def test_request_json_retries_retryable_status_and_succeeds(monkeypatch):
+    module = _load_module()
+    delays = _patch_sleep(monkeypatch, module)
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(200, {"accessToken": "token-xyz"}),
+            _FakeResponse(503, {"code": "ServiceUnavailable"}),
+            _FakeResponse(200, {"ok": True}),
+        ],
+    )
+    client = _new_client(module, http_session=fake_session)
+
+    result = asyncio.run(
+        client.request_json(
+            "GET",
+            "/v1/test/resource",
+        ),
+    )
+
+    assert result == {"ok": True}
+    assert len(fake_session.calls) == 3
+    assert delays and delays[0] > 0
+
+
+def test_request_json_retries_network_exception_for_get(monkeypatch):
+    module = _load_module()
+    delays = _patch_sleep(monkeypatch, module)
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(200, {"accessToken": "token-xyz"}),
+            aiohttp.ClientConnectionError("connection reset"),
+            _FakeResponse(200, {"ok": True}),
+        ],
+    )
+    client = _new_client(module, http_session=fake_session)
+
+    result = asyncio.run(
+        client.request_json(
+            "GET",
+            "/v1/test/resource",
+        ),
+    )
+
+    assert result == {"ok": True}
+    assert len(fake_session.calls) == 3
+    assert delays and delays[0] > 0
+
+
+def test_request_json_does_not_retry_post_by_default(monkeypatch):
+    module = _load_module()
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(200, {"accessToken": "token-xyz"}),
+            _FakeResponse(503, {"code": "ServiceUnavailable"}),
+            _FakeResponse(200, {"ok": True}),
+        ],
+    )
+    client = _new_client(module, http_session=fake_session)
+
+    with pytest.raises(Exception, match="503|ServiceUnavailable"):
+        asyncio.run(
+            client.request_json(
+                "POST",
+                "/v1/test/resource",
+                json_body={"hello": "world"},
+            ),
+        )
+
+    assert len(fake_session.calls) == 2
+
+
+def test_request_json_can_retry_post_when_opted_in(monkeypatch):
+    module = _load_module()
+    delays = _patch_sleep(monkeypatch, module)
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(200, {"accessToken": "token-xyz"}),
+            _FakeResponse(503, {"code": "ServiceUnavailable"}),
+            _FakeResponse(200, {"ok": True}),
+        ],
+    )
+    client = _new_client(module, http_session=fake_session)
+
+    result = asyncio.run(
+        client.request_json(
+            "POST",
+            "/v1/test/resource",
+            json_body={"hello": "world"},
+            retry_on_transient=True,
+        ),
+    )
+
+    assert result == {"ok": True}
+    assert len(fake_session.calls) == 3
+    assert delays and delays[0] > 0
+
+
 @pytest.mark.parametrize(
     "status,payload",
     [
@@ -176,3 +305,28 @@ def test_request_json_failure_raises(status, payload, monkeypatch):
         )
 
     assert len(fake_session.calls) == 1
+
+
+def test_request_json_final_failure_after_retries(monkeypatch):
+    module = _load_module()
+    delays = _patch_sleep(monkeypatch, module)
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(200, {"accessToken": "token-xyz"}),
+            _FakeResponse(503, {"code": "ServiceUnavailable"}),
+            _FakeResponse(503, {"code": "ServiceUnavailable"}),
+            _FakeResponse(503, {"code": "ServiceUnavailable"}),
+        ],
+    )
+    client = _new_client(module, http_session=fake_session)
+
+    with pytest.raises(Exception, match="503|ServiceUnavailable|after retries"):
+        asyncio.run(
+            client.request_json(
+                "GET",
+                "/v1/test/resource",
+            ),
+        )
+
+    assert len(fake_session.calls) == 4
+    assert len(delays) == 2
