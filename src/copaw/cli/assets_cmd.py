@@ -105,18 +105,19 @@ def export_cmd(
         workspace_dir = _get_workspace_dir(aid)
 
         include_all = asset_types is None
+        types_list = asset_types or []
         options = ExportOptions(
             workspace_dir=workspace_dir,
             include_preferences=include_all
-            or AssetType.PREFERENCES in (asset_types or []),
+            or AssetType.PREFERENCES in types_list,
             include_memories=include_all
-            or AssetType.MEMORIES in (asset_types or []),
+            or AssetType.MEMORIES in types_list,
             include_skills=include_all
-            or AssetType.SKILLS in (asset_types or []),
+            or AssetType.SKILLS in types_list,
             include_tools=include_all
-            or AssetType.TOOLS in (asset_types or []),
+            or AssetType.TOOLS in types_list,
             include_global_config=include_all
-            or AssetType.GLOBAL_CONFIG in (asset_types or []),
+            or AssetType.GLOBAL_CONFIG in types_list,
             output_path=Path(output).expanduser()
             if output and not export_all
             else None,
@@ -144,7 +145,7 @@ def export_cmd(
                 err=True,
             )
             if not export_all:
-                raise SystemExit(1)
+                raise SystemExit(1) from exc
 
     if export_all:
         click.echo(
@@ -226,7 +227,7 @@ def import_cmd(
             click.style(f"\n✗ Import failed: {exc}", fg="red"),
             err=True,
         )
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
 
 @assets_group.command("verify")

@@ -92,14 +92,14 @@ class TestValidateZip:
     def test_missing_zip(self, tmp_path: Path) -> None:
         importer = AssetImporter(workspace_dir=tmp_path)
         with pytest.raises(InvalidAssetPackageError, match="not found"):
-            importer._validate_zip(tmp_path / "nonexistent.zip")
+            importer._validate_zip(tmp_path / "nonexistent.zip")  # pylint: disable=protected-access
 
     def test_invalid_zip(self, tmp_path: Path) -> None:
         bad_zip = tmp_path / "bad.zip"
         bad_zip.write_text("not a zip file")
         importer = AssetImporter(workspace_dir=tmp_path)
         with pytest.raises(InvalidAssetPackageError, match="Invalid ZIP"):
-            importer._validate_zip(bad_zip)
+            importer._validate_zip(bad_zip)  # pylint: disable=protected-access
 
     def test_missing_manifest(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "no_manifest.zip"
@@ -109,7 +109,7 @@ class TestValidateZip:
         with pytest.raises(
             InvalidAssetPackageError, match="manifest.json not found"
         ):
-            importer._validate_zip(zip_path)
+            importer._validate_zip(zip_path)  # pylint: disable=protected-access
 
     def test_invalid_manifest_json(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "bad_manifest.zip"
@@ -117,7 +117,7 @@ class TestValidateZip:
             zf.writestr("manifest.json", "not valid json{{{")
         importer = AssetImporter(workspace_dir=tmp_path)
         with pytest.raises(InvalidAssetPackageError, match="Invalid manifest"):
-            importer._validate_zip(zip_path)
+            importer._validate_zip(zip_path)  # pylint: disable=protected-access
 
     def test_path_traversal_rejected(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "traversal.zip"
@@ -134,14 +134,14 @@ class TestValidateZip:
             zf.writestr("../etc/passwd", "evil")
         importer = AssetImporter(workspace_dir=tmp_path)
         with pytest.raises(InvalidAssetPackageError, match="Path traversal"):
-            importer._validate_zip(zip_path)
+            importer._validate_zip(zip_path)  # pylint: disable=protected-access
 
     def test_valid_zip(self, tmp_path: Path) -> None:
         zip_path = tmp_path / "valid.zip"
         content = b'{"key": "value"}'
         _build_test_zip(zip_path, {"preferences/config.json": content})
         importer = AssetImporter(workspace_dir=tmp_path)
-        manifest = importer._validate_zip(zip_path)
+        manifest = importer._validate_zip(zip_path)  # pylint: disable=protected-access
         assert len(manifest.assets) == 1
 
 

@@ -218,7 +218,7 @@ def restore_cmd(
             click.style(f"\n✗ Restore failed: {exc}", fg="red"),
             err=True,
         )
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
 
 def _format_size(size_bytes: int) -> str:

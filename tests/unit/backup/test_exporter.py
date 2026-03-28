@@ -9,8 +9,7 @@ from typing import Any
 
 import pytest
 
-from copaw.backup.errors import InsufficientStorageError
-from copaw.backup.exporter import AssetExporter, MemoryManagerProtocol
+from copaw.backup.exporter import AssetExporter
 from copaw.backup.models import AssetType, ExportOptions
 
 
@@ -88,11 +87,11 @@ class FakeMemoryManager:
         self.lock_acquired = False
         self.lock_released = False
 
-    async def acquire_read_lock(self, timeout: float = 30.0) -> str:
+    async def acquire_read_lock(self, timeout: float = 30.0) -> str:  # pylint: disable=unused-argument
         self.lock_acquired = True
         return "fake-lock"
 
-    async def release_read_lock(self, lock: Any) -> None:
+    async def release_read_lock(self, lock: Any) -> None:  # pylint: disable=unused-argument
         self.lock_released = True
 
 
@@ -143,7 +142,7 @@ async def test_export_selective_types(tmp_path: Path) -> None:
     output = tmp_path / "export.zip"
 
     exporter = AssetExporter()
-    result = await exporter.export_assets(
+    _result = await exporter.export_assets(
         ExportOptions(
             workspace_dir=ws,
             include_preferences=False,
