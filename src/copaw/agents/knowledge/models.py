@@ -68,3 +68,13 @@ class KnowledgeDocumentSummary(BaseModel):
     source_type: str
     imported_at: str
     markdown_path: str
+
+
+class ParsedDocument(BaseModel):
+    """Normalized parser output used by downstream import pipeline."""
+
+    title: str
+    source_path: str
+    source_type: Literal["md", "txt", "pdf"]
+    raw_text: str
+    metadata: dict = Field(default_factory=dict)

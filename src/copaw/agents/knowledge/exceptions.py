@@ -12,3 +12,7 @@ class UploadNotFoundError(KnowledgeError):
 
 class UnsupportedFileTypeError(KnowledgeError):
     """Raised when uploaded file type is not supported for import."""
+
+
+class EmptyParsedContentError(KnowledgeError):
+    """Raised when parser can open file but cannot extract textual content."""
