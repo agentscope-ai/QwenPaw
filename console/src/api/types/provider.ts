@@ -78,41 +78,11 @@ export interface AddModelRequest {
 
 /* ---- Local models ---- */
 
-export interface LocalModelResponse {
-  id: string;
-  repo_id: string;
-  filename: string;
-  backend: string;
-  source: string;
-  file_size: number;
-  local_path: string;
-  display_name: string;
-}
-
-export interface DownloadModelRequest {
-  repo_id: string;
-  filename?: string;
-  backend: string;
-  source: string;
-}
-
-export interface DownloadTaskResponse {
-  task_id: string;
-  status: "pending" | "downloading" | "completed" | "failed" | "cancelled";
-  repo_id: string;
-  filename: string | null;
-  backend: string;
-  source: string;
-  error: string | null;
-  result: LocalModelResponse | null;
-}
-
 export interface LocalModelInfo {
   id: string;
   name: string;
   size_bytes: number;
   downloaded: boolean;
-  local_path?: string | null;
 }
 
 export interface LocalServerStatus {
@@ -146,7 +116,6 @@ export interface LocalActionResponse {
 }
 
 export interface StartLocalServerRequest {
-  model_path: string;
   model_name: string;
 }
 

@@ -57,10 +57,6 @@ class DownloadProgressResponse(BaseModel):
 
 
 class StartServerRequest(BaseModel):
-    model_path: str = Field(
-        ...,
-        description="Path to a local GGUF file or repo directory",
-    )
     model_name: str = Field(
         ...,
         description="Alias exposed by the llama.cpp server",

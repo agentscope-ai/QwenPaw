@@ -49,12 +49,6 @@ class LocalModelInfo(ModelInfo):
         default=False,
         description="Whether the model is fully downloaded and ready to use",
     )
-    local_path: str | None = Field(
-        default=None,
-        description=(
-            "Resolved local directory path when the model is downloaded"
-        ),
-    )
 
 
 class ModelManager:
@@ -129,8 +123,6 @@ class ModelManager:
         # check local download status for each recommended model
         for model in models:
             model.downloaded = self.is_downloaded(model.id)
-            if model.downloaded:
-                model.local_path = str(self.get_model_dir(model.id))
 
         return models
 
@@ -159,7 +151,6 @@ class ModelManager:
                     name=repo_id,
                     size_bytes=size_bytes,
                     downloaded=True,
-                    local_path=str(entry),
                 ),
             )
 
@@ -176,10 +167,7 @@ class ModelManager:
         for model in self.list_downloaded_models():
             if model.id != model_name:
                 continue
-            local_path = model.local_path
-            if local_path is None:
-                break
-            resolved_path = Path(local_path)
+            resolved_path = self.get_model_dir(model.id)
             self._cleanup_path(resolved_path)
             self._cleanup_empty_parent_dirs(resolved_path.parent)
             return

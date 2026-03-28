@@ -40,8 +40,7 @@ function isSameDownloadProgress(
     left?.total_bytes === right?.total_bytes &&
     left?.speed_bytes_per_sec === right?.speed_bytes_per_sec &&
     left?.source === right?.source &&
-    left?.error === right?.error &&
-    left?.local_path === right?.local_path
+    left?.error === right?.error
   );
 }
 
@@ -339,15 +338,9 @@ export function LocalModelManageModal({
   const handleStartServer = useCallback(
     async (model: LocalModelInfo) => {
       const run = async () => {
-        if (!model.local_path) {
-          message.error(t("models.localModelPathMissing"));
-          return;
-        }
-
         setStartingModelName(model.name);
         try {
           await api.startLocalServer({
-            model_path: model.local_path,
             model_name: model.name,
           });
           await refreshStatus();
