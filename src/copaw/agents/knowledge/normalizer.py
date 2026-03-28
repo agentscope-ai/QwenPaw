@@ -6,7 +6,13 @@ from __future__ import annotations
 
 def normalize_document_text(raw_text: str) -> str:
     """Normalize parser text into stable markdown-friendly content."""
-    text = raw_text.replace("\r\n", "\n").replace("\r", "\n").replace(
+    # Some PDF extractors may emit lone surrogate code points that cannot be
+    # encoded as UTF-8 when persisting markdown/json. Strip them early.
+    safe_text = "".join(
+        ch for ch in raw_text if not 0xD800 <= ord(ch) <= 0xDFFF
+    )
+
+    text = safe_text.replace("\r\n", "\n").replace("\r", "\n").replace(
         "\x00",
         "",
     )
