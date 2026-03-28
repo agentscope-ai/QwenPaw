@@ -168,6 +168,10 @@ class KnowledgeImportService:
         self.repo.save_index(index)
         return KnowledgeImportResponse(
             success=len(failed) == 0,
+            requested=len(request.uploads),
+            imported_count=len(imported),
+            skipped_count=len(skipped),
+            failed_count=len(failed),
             imported=imported,
             skipped=skipped,
             failed=failed,

@@ -54,6 +54,10 @@ class KnowledgeImportResponse(BaseModel):
     """Response body for import endpoint."""
 
     success: bool = True
+    requested: int = 0
+    imported_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
     imported: list[ImportedKnowledgeDoc] = Field(default_factory=list)
     skipped: list[SkippedKnowledgeImport] = Field(default_factory=list)
     failed: list[FailedKnowledgeImport] = Field(default_factory=list)
