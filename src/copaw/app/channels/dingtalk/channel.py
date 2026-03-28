@@ -51,7 +51,6 @@ from .constants import (
     AI_CARD_RECOVERY_FINAL_TEXT,
     AI_CARD_STREAM_MIN_INTERVAL_SECONDS,
     AI_CARD_TOKEN_PREEMPTIVE_REFRESH_SECONDS,
-    DINGTALK_TOKEN_TTL_SECONDS,
     SENT_VIA_AI_CARD,
     SENT_VIA_WEBHOOK,
     SESSION_WEBHOOK_EXPIRY_SAFETY_MARGIN_MS,
@@ -71,6 +70,7 @@ from .ai_card import (
     AICardPendingStore,
     ActiveAICard,
 )
+from .openapi_client import DingTalkOpenAPIClient, DingTalkOpenAPIError
 from .utils import guess_suffix_from_file_content
 
 if TYPE_CHECKING:
@@ -163,6 +163,7 @@ class DingTalkChannel(BaseChannel):
         self._stream_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._http: Optional[aiohttp.ClientSession] = None
+        self._openapi_client: Optional[DingTalkOpenAPIClient] = None
 
         # Store sessionWebhook for proactive send (in-memory).
         # Key is a handle string, e.g. "dingtalk:sw:<sender>"
@@ -173,11 +174,6 @@ class DingTalkChannel(BaseChannel):
         # Time debounce disabled: manager drains same-session from queue
         # and merges before calling us.
         self._debounce_seconds = 0.0
-
-        # Token cache (instance-level for multi-instance / tests)
-        self._token_lock = asyncio.Lock()
-        self._token_value: Optional[str] = None
-        self._token_expires_at: float = 0.0
 
         # Dedup: in-flight message_ids only (message_id is sufficient).
         self._processing_message_ids: set = set()
@@ -319,6 +315,41 @@ class DingTalkChannel(BaseChannel):
             if kind == "webhook":
                 return {"session_webhook": ident}
         return {"webhook_key": s} if s else {}
+
+    def _get_openapi_client(self) -> DingTalkOpenAPIClient:
+        """Return a lazily initialized DingTalk OpenAPI client."""
+        if self._http is None:
+            raise RuntimeError("DingTalk HTTP session is not initialized")
+        if (
+            self._openapi_client is None
+            or self._openapi_client.http_session is not self._http
+        ):
+            self._openapi_client = DingTalkOpenAPIClient(
+                self.client_id,
+                self.client_secret,
+                self._http,
+            )
+        return self._openapi_client
+
+    async def _request_openapi_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        json_body: Any = None,
+        params: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        auth: bool = True,
+    ) -> Any:
+        """Send a DingTalk OpenAPI JSON request through the shared client."""
+        return await self._get_openapi_client().request_json(
+            method,
+            url,
+            json_body=json_body,
+            params=params,
+            headers=headers,
+            auth=auth,
+        )
 
     def _session_webhook_store_path(self) -> Path:
         """Path to persist session webhook mapping (for cron after restart).
@@ -792,7 +823,6 @@ class DingTalkChannel(BaseChannel):
         - /v1.0/robot/oToMessages/batchSend for DMs
         - /v1.0/robot/groupMessages/send for groups
         """
-        token = await self._get_access_token()
         text = (bot_prefix + "  " + body) if body else bot_prefix
         is_group = conversation_type == "group"
 
@@ -832,48 +862,24 @@ class DingTalkChannel(BaseChannel):
                 },
             }
 
-        headers = {
-            "Content-Type": "application/json",
-            "x-acs-dingtalk-access-token": token,
-        }
         try:
-            async with self._http.post(
+            await self._request_openapi_json(
+                "POST",
                 url,
-                json=payload,
-                headers=headers,
-            ) as resp:
-                body_text = await resp.text()
-                if resp.status >= 400:
-                    logger.warning(
-                        "dingtalk _send_via_open_api failed: is_group=%s "
-                        "status=%s body=%s",
-                        is_group,
-                        resp.status,
-                        body_text[:500],
-                    )
-                    return False
-                try:
-                    body_json = json.loads(body_text) if body_text else {}
-                except json.JSONDecodeError:
-                    body_json = {}
-                errcode = body_json.get("errcode", 0)
-                errmsg = body_json.get("errmsg", "")
-                if errcode != 0:
-                    logger.warning(
-                        "dingtalk _send_via_open_api API error: is_group=%s "
-                        "errcode=%s errmsg=%s body=%s",
-                        is_group,
-                        errcode,
-                        errmsg,
-                        body_text[:300],
-                    )
-                    return False
-                logger.info(
-                    "dingtalk _send_via_open_api ok: is_group=%s status=%s",
-                    is_group,
-                    resp.status,
-                )
-                return True
+                json_body=payload,
+            )
+            logger.info(
+                "dingtalk _send_via_open_api ok: is_group=%s",
+                is_group,
+            )
+            return True
+        except DingTalkOpenAPIError as exc:
+            logger.warning(
+                "dingtalk _send_via_open_api failed: is_group=%s err=%s",
+                is_group,
+                exc,
+            )
+            return False
         except Exception:
             logger.exception(
                 "dingtalk _send_via_open_api failed: is_group=%s",
@@ -938,7 +944,8 @@ class DingTalkChannel(BaseChannel):
             len(data),
             filename or "(none)",
         )
-        token = await self._get_access_token()
+        client = self._get_openapi_client()
+        token = await client.get_access_token()
         # Use oapi media upload (api.dingtalk.com upload returns 404).
         # Doc:
         # https://open.dingtalk.com/document/development/upload-media-files
@@ -2062,6 +2069,11 @@ class DingTalkChannel(BaseChannel):
         self._stream_thread.start()
         if self._http is None:
             self._http = aiohttp.ClientSession()
+        self._openapi_client = DingTalkOpenAPIClient(
+            self.client_id,
+            self.client_secret,
+            self._http,
+        )
         await self._recover_active_cards()
 
     async def stop(self) -> None:
@@ -2100,6 +2112,7 @@ class DingTalkChannel(BaseChannel):
             await self._http.close()
             self._http = None
         self._client = None
+        self._openapi_client = None
 
     # Note: dingtalk_stream SDK has AICardReplier/CardReplier,
     # but those APIs are request/reply oriented and tied to ChatbotMessage
@@ -2156,7 +2169,7 @@ class DingTalkChannel(BaseChannel):
                 bool(self.robot_code),
             )
             return None
-        token = await self._get_access_token()
+        client = self._get_openapi_client()
         card_instance_id = f"card_{uuid4()}"
         meta = meta or {}
         incoming_message = meta.get("incoming_message")
@@ -2179,10 +2192,6 @@ class DingTalkChannel(BaseChannel):
             "imRobotOpenSpaceModel": {"supportForward": True},
         }
 
-        headers = {
-            "Content-Type": "application/json",
-            "x-acs-dingtalk-access-token": token,
-        }
         create_url = "https://api.dingtalk.com/v1.0/card/instances"
         logger.info(
             "dingtalk create ai card: conversation_id=%s is_group=%s "
@@ -2193,23 +2202,18 @@ class DingTalkChannel(BaseChannel):
             self.card_template_id,
             inbound,
         )
-        async with self._http.post(
-            create_url,
-            json=create_payload,
-            headers=headers,
-        ) as resp:
-            body = await resp.text()
-            logger.info(
-                "dingtalk create ai card response: status=%s body=%s",
-                resp.status,
-                body[:1000],
+        try:
+            create_data = await client.request_json(
+                "POST",
+                create_url,
+                json_body=create_payload,
             )
-            if resp.status >= 400:
-                raise RuntimeError(
-                    "create ai card failed"
-                    f" status={resp.status}"
-                    f" body={body[:500]}",
-                )
+            logger.info(
+                "dingtalk create ai card response: result=%s",
+                str(create_data)[:1000],
+            )
+        except DingTalkOpenAPIError as exc:
+            raise RuntimeError(f"create ai card failed: {exc}") from exc
 
         if is_group:
             open_space_id = f"dtv1.card//IM_GROUP.{conversation_id}"
@@ -2243,28 +2247,19 @@ class DingTalkChannel(BaseChannel):
             conversation_id,
             open_space_id,
         )
-        async with self._http.post(
-            deliver_url,
-            json=deliver_payload,
-            headers=headers,
-        ) as resp:
-            deliver_body = await resp.text()
-            logger.info(
-                "dingtalk deliver ai card response: status=%s body=%s",
-                resp.status,
-                deliver_body[:1000],
-            )
-            if resp.status >= 400:
-                raise RuntimeError(
-                    "deliver ai card failed"
-                    f" status={resp.status}"
-                    f" body={deliver_body[:500]}",
-                )
-
         try:
-            deliver_data = json.loads(deliver_body) if deliver_body else {}
-        except json.JSONDecodeError:
-            deliver_data = {}
+            deliver_data = await client.request_json(
+                "POST",
+                deliver_url,
+                json_body=deliver_payload,
+            )
+            logger.info(
+                "dingtalk deliver ai card response: result=%s",
+                str(deliver_data)[:1000],
+            )
+        except DingTalkOpenAPIError as exc:
+            raise RuntimeError(f"deliver ai card failed: {exc}") from exc
+
         result = (
             deliver_data.get("result")
             if isinstance(deliver_data, dict)
@@ -2560,44 +2555,8 @@ class DingTalkChannel(BaseChannel):
         )
 
     async def _get_access_token(self) -> str:
-        """Get and cache DingTalk accessToken for 1 hour (instance-level)."""
-        if not self.client_id or not self.client_secret:
-            raise RuntimeError("DingTalk client_id/client_secret missing")
-
-        now = asyncio.get_running_loop().time()
-        if self._token_value and now < self._token_expires_at:
-            return self._token_value
-
-        async with self._token_lock:
-            now = asyncio.get_running_loop().time()
-            if self._token_value and now < self._token_expires_at:
-                return self._token_value
-
-            url = "https://api.dingtalk.com/v1.0/oauth2/accessToken"
-            payload = {
-                "appKey": self.client_id,
-                "appSecret": self.client_secret,
-            }
-
-            async with self._http.post(url, json=payload) as resp:
-                data = await resp.json(content_type=None)
-                if resp.status >= 400:
-                    raise RuntimeError(
-                        f"get accessToken failed status={resp.status} "
-                        f"body={data}",
-                    )
-
-            token = data.get("accessToken") or data.get("access_token")
-            if not token:
-                raise RuntimeError(
-                    f"accessToken not found in response: {data}",
-                )
-
-            self._token_value = token
-            self._token_expires_at = (
-                asyncio.get_running_loop().time() + DINGTALK_TOKEN_TTL_SECONDS
-            )
-            return token
+        """Get and cache DingTalk accessToken through the shared client."""
+        return await self._get_openapi_client().get_access_token()
 
     async def _get_message_file_download_url(
         self,
@@ -2610,28 +2569,17 @@ class DingTalkChannel(BaseChannel):
             return None
         if self._http is None:
             return None
-
-        token = await self._get_access_token()
         url = "https://api.dingtalk.com/v1.0/robot/messageFiles/download"
         payload = {"downloadCode": download_code, "robotCode": robot_code}
-        headers = {
-            "Content-Type": "application/json",
-            "x-acs-dingtalk-access-token": token,
-        }
-
-        async with self._http.post(
-            url,
-            json=payload,
-            headers=headers,
-        ) as resp:
-            data = await resp.json(content_type=None)
-            if resp.status >= 400:
-                logger.warning(
-                    "messageFiles/download failed status=%s body=%s",
-                    resp.status,
-                    data,
-                )
-                return None
+        try:
+            data = await self._request_openapi_json(
+                "POST",
+                url,
+                json_body=payload,
+            )
+        except DingTalkOpenAPIError as exc:
+            logger.warning("messageFiles/download failed: %s", exc)
+            return None
 
         logger.debug("messageFiles/download response=%s", data)
         return (

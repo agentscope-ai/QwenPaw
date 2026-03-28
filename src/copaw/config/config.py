@@ -936,6 +936,46 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Get llm token usage",
         ),
+        "dingtalk_ai_table_list_sheets": BuiltinToolConfig(
+            name="dingtalk_ai_table_list_sheets",
+            enabled=True,
+            description="List sheets in a DingTalk AI table",
+        ),
+        "dingtalk_ai_table_get_sheet": BuiltinToolConfig(
+            name="dingtalk_ai_table_get_sheet",
+            enabled=True,
+            description="Get one sheet from a DingTalk AI table",
+        ),
+        "dingtalk_ai_table_create_sheet": BuiltinToolConfig(
+            name="dingtalk_ai_table_create_sheet",
+            enabled=True,
+            description="Create a sheet in a DingTalk AI table",
+        ),
+        "dingtalk_ai_table_get_record": BuiltinToolConfig(
+            name="dingtalk_ai_table_get_record",
+            enabled=True,
+            description="Get one record from a DingTalk AI table sheet",
+        ),
+        "dingtalk_ai_table_list_records": BuiltinToolConfig(
+            name="dingtalk_ai_table_list_records",
+            enabled=True,
+            description="List records from a DingTalk AI table sheet",
+        ),
+        "dingtalk_ai_table_insert_records": BuiltinToolConfig(
+            name="dingtalk_ai_table_insert_records",
+            enabled=True,
+            description="Insert records into a DingTalk AI table sheet",
+        ),
+        "dingtalk_ai_table_update_records": BuiltinToolConfig(
+            name="dingtalk_ai_table_update_records",
+            enabled=True,
+            description="Update records in a DingTalk AI table sheet",
+        ),
+        "dingtalk_ai_table_delete_records": BuiltinToolConfig(
+            name="dingtalk_ai_table_delete_records",
+            enabled=True,
+            description="Delete records from a DingTalk AI table sheet",
+        ),
     }
 
 

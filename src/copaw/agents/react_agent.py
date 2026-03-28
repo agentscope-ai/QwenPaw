@@ -37,6 +37,14 @@ from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
     desktop_screenshot,
+    dingtalk_ai_table_create_sheet,
+    dingtalk_ai_table_delete_records,
+    dingtalk_ai_table_get_record,
+    dingtalk_ai_table_get_sheet,
+    dingtalk_ai_table_insert_records,
+    dingtalk_ai_table_list_records,
+    dingtalk_ai_table_list_sheets,
+    dingtalk_ai_table_update_records,
     edit_file,
     execute_shell_command,
     get_current_time,
@@ -236,6 +244,24 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
+            "dingtalk_ai_table_list_sheets": dingtalk_ai_table_list_sheets,
+            "dingtalk_ai_table_get_sheet": dingtalk_ai_table_get_sheet,
+            "dingtalk_ai_table_create_sheet": (
+                dingtalk_ai_table_create_sheet
+            ),
+            "dingtalk_ai_table_get_record": dingtalk_ai_table_get_record,
+            "dingtalk_ai_table_list_records": (
+                dingtalk_ai_table_list_records
+            ),
+            "dingtalk_ai_table_insert_records": (
+                dingtalk_ai_table_insert_records
+            ),
+            "dingtalk_ai_table_update_records": (
+                dingtalk_ai_table_update_records
+            ),
+            "dingtalk_ai_table_delete_records": (
+                dingtalk_ai_table_delete_records
+            ),
         }
 
         multimodal = get_active_model_supports_multimodal()

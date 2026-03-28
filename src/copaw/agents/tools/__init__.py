@@ -23,6 +23,16 @@ from .view_image import view_image
 from .memory_search import create_memory_search_tool
 from .get_current_time import get_current_time, set_user_timezone
 from .get_token_usage import get_token_usage
+from .dingtalk_tools import (
+    dingtalk_ai_table_create_sheet,
+    dingtalk_ai_table_delete_records,
+    dingtalk_ai_table_get_record,
+    dingtalk_ai_table_get_sheet,
+    dingtalk_ai_table_insert_records,
+    dingtalk_ai_table_list_records,
+    dingtalk_ai_table_list_sheets,
+    dingtalk_ai_table_update_records,
+)
 
 __all__ = [
     "execute_python_code",
@@ -43,4 +53,12 @@ __all__ = [
     "get_current_time",
     "set_user_timezone",
     "get_token_usage",
+    "dingtalk_ai_table_list_sheets",
+    "dingtalk_ai_table_get_sheet",
+    "dingtalk_ai_table_create_sheet",
+    "dingtalk_ai_table_get_record",
+    "dingtalk_ai_table_list_records",
+    "dingtalk_ai_table_insert_records",
+    "dingtalk_ai_table_update_records",
+    "dingtalk_ai_table_delete_records",
 ]
