@@ -38,7 +38,7 @@ _CRON_FIELD_PATTERN = re.compile(
 
 
 def _is_heartbeat_ok(message: str) -> bool:
-    """检查消息是否为心跳确认（HEARTBEAT_OK 出现在开头或结尾）"""
+    """Check if the message is a heartbeat confirmation (starts or ends with HEARTBEAT_OK)."""
     if not message:
         return False
     stripped = message.strip()
