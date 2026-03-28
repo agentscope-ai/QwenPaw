@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -20,6 +21,7 @@ class BaseKnowledgeParser(Protocol):
 
 
 def _all_parsers() -> tuple[BaseKnowledgeParser, ...]:
+    from .docling_parser import DoclingParser
     from .docx_parser import DocxParser
     from .markdown_parser import MarkdownParser
     from .pdf_parser import PdfParser
@@ -30,16 +32,45 @@ def _all_parsers() -> tuple[BaseKnowledgeParser, ...]:
         TextParser(),
         PdfParser(),
         DocxParser(),
+        DoclingParser(),
     )
     return cast(tuple[BaseKnowledgeParser, ...], parsers)
 
 
-def resolve_parser_for_path(path: Path) -> BaseKnowledgeParser:
-    """Resolve parser instance by file suffix."""
+def _resolve_kb_document_loading_engine() -> str:
+    value = os.environ.get(
+        "COPAW_KB_DOCUMENT_LOADING_ENGINE",
+        "DEFAULT",
+    ).strip()
+    upper = value.upper()
+    if upper in {"DEFAULT", "DOCLING"}:
+        return upper
+    return "DEFAULT"
+
+
+def resolve_parsers_for_path(path: Path) -> tuple[BaseKnowledgeParser, ...]:
+    """Resolve parser candidates by file suffix and engine preference."""
+    from .docling_parser import DoclingParser
+
     suffix = path.suffix.lower()
-    for parser in _all_parsers():
-        if suffix in parser.supported_suffixes:
-            return parser
-    raise UnsupportedFileTypeError(
-        f"Unsupported file type: {suffix or '<none>'}",
-    )
+    matched = [p for p in _all_parsers() if suffix in p.supported_suffixes]
+    if not matched:
+        raise UnsupportedFileTypeError(
+            f"Unsupported file type: {suffix or '<none>'}",
+        )
+
+    engine = _resolve_kb_document_loading_engine()
+    docling = [p for p in matched if isinstance(p, DoclingParser)]
+    specialized = [p for p in matched if not isinstance(p, DoclingParser)]
+    if engine != "DOCLING":
+        if specialized:
+            return cast(tuple[BaseKnowledgeParser, ...], tuple(specialized))
+        return cast(tuple[BaseKnowledgeParser, ...], tuple(docling))
+
+    ordered = docling + specialized
+    return cast(tuple[BaseKnowledgeParser, ...], tuple(ordered))
+
+
+def resolve_parser_for_path(path: Path) -> BaseKnowledgeParser:
+    """Resolve primary parser by file suffix and engine preference."""
+    return resolve_parsers_for_path(path)[0]

@@ -13,13 +13,14 @@ from .exceptions import (
     UploadNotFoundError,
 )
 from .models import (
+    ParsedDocument,
     FailedKnowledgeImport,
     KnowledgeImportRequest,
     KnowledgeImportResponse,
     SkippedKnowledgeImport,
 )
 from .normalizer import normalize_document_text
-from .parsers import resolve_parser_for_path
+from .parsers import BaseKnowledgeParser, resolve_parsers_for_path
 from .repository import KnowledgeRepository
 
 
@@ -86,8 +87,8 @@ class KnowledgeImportService:
                     )
                     continue
 
-                parser = resolve_parser_for_path(source_path)
-                parsed = parser.parse(source_path)
+                parsers = resolve_parsers_for_path(source_path)
+                parsed = self._parse_with_fallback(source_path, parsers)
                 normalized_text = normalize_document_text(parsed.raw_text)
                 if not normalized_text:
                     raise EmptyParsedContentError(
@@ -205,3 +206,19 @@ class KnowledgeImportService:
     @staticmethod
     def _hash_text(content: str) -> str:
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _parse_with_fallback(
+        source_path: Path,
+        parsers: tuple[BaseKnowledgeParser, ...],
+    ) -> ParsedDocument:
+        last_exc: Exception | None = None
+        for parser in parsers:
+            try:
+                return parser.parse(source_path)
+            except Exception as exc:  # pragma: no cover - fallback flow
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("No parser candidates resolved for source path")
