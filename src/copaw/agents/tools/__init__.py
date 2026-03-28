@@ -21,6 +21,7 @@ from .browser_control import browser_use
 from .desktop_screenshot import desktop_screenshot
 from .view_image import view_image
 from .memory_search import create_memory_search_tool
+from .knowledge_search import create_knowledge_search_tool
 from .get_current_time import get_current_time, set_user_timezone
 from .get_token_usage import get_token_usage
 
@@ -40,6 +41,7 @@ __all__ = [
     "view_image",
     "browser_use",
     "create_memory_search_tool",
+    "create_knowledge_search_tool",
     "get_current_time",
     "set_user_timezone",
     "get_token_usage",
