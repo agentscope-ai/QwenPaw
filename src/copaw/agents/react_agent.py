@@ -397,8 +397,21 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Register memory_search tool if enabled and available
         if self._enable_memory_manager and self.memory_manager is not None:
+            # Keep the default InMemoryMemory fallback when the configured
+            # backend is unavailable (for example, reme-ai is not installed).
+            runtime_memory = self.memory_manager.get_in_memory_memory()
+            if runtime_memory is None:
+                logger.warning(
+                    "Memory manager returned no in-memory backend; "
+                    "falling back to default InMemoryMemory and disabling "
+                    "memory-manager-only features for this agent.",
+                )
+                self._enable_memory_manager = False
+                self.memory_manager = None
+                return
+
             # update memory manager
-            self.memory = self.memory_manager.get_in_memory_memory()
+            self.memory = runtime_memory
             self.memory_manager.chat_model = self.model
             self.memory_manager.formatter = self.formatter
 

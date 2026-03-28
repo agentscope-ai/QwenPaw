@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+import logging
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,6 +17,7 @@ from .utils import agentscope_msg_to_message
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+logger = logging.getLogger(__name__)
 
 
 async def get_workspace(request: Request):
@@ -165,9 +167,21 @@ async def get_chat(
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:
         return ChatHistory(messages=[], status=status)
-    memories = state.get("agent", {}).get("memory", [])
+
+    memories = state.get("agent", {}).get("memory")
+    if not isinstance(memories, dict):
+        return ChatHistory(messages=[], status=status)
+
     memory = InMemoryMemory()
-    memory.load_state_dict(memories)
+    try:
+        memory.load_state_dict(memories, strict=False)
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning(
+            "Skip malformed chat memory state for chat %s: %s",
+            chat_id,
+            exc,
+        )
+        return ChatHistory(messages=[], status=status)
 
     memories = await memory.get_memory()
     messages = agentscope_msg_to_message(memories)

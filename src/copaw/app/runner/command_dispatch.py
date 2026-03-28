@@ -9,6 +9,7 @@ import logging
 from typing import AsyncIterator
 from typing import TYPE_CHECKING
 
+from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg, TextBlock
 
 from . import control_commands
@@ -227,19 +228,38 @@ async def run_command_path(  # pylint: disable=too-many-statements
         return
 
     # Conversation path: lightweight memory + CommandHandler
-    memory = runner.memory_manager.get_in_memory_memory()
+    memory = None
+    enable_memory_manager = runner.memory_manager is not None
+    if runner.memory_manager is not None:
+        memory = runner.memory_manager.get_in_memory_memory()
+    if memory is None:
+        if enable_memory_manager:
+            logger.warning(
+                "Memory manager returned no in-memory backend in command "
+                "path; using InMemoryMemory fallback.",
+            )
+        memory = InMemoryMemory()
+        enable_memory_manager = False
+
     session_state = await runner.session.get_session_state_dict(
         session_id=session_id,
         user_id=user_id,
     )
     memory_state = session_state.get("agent", {}).get("memory", {})
-    memory.load_state_dict(memory_state, strict=False)
+    if isinstance(memory_state, dict):
+        try:
+            memory.load_state_dict(memory_state, strict=False)
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning(
+                "Skip malformed session memory in command path: %s",
+                exc,
+            )
 
     conv_handler = CommandHandler(
         agent_name="Friday",
         memory=memory,
-        memory_manager=runner.memory_manager,
-        enable_memory_manager=runner.memory_manager is not None,
+        memory_manager=runner.memory_manager if enable_memory_manager else None,
+        enable_memory_manager=enable_memory_manager,
     )
     try:
         response_msg = await conv_handler.handle_conversation_command(query)
