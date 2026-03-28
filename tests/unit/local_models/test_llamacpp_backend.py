@@ -471,3 +471,44 @@ def test_force_shutdown_server_escalates_to_kill_when_needed(
     downloader.force_shutdown_server()
 
     assert signals == [15, 9]
+
+
+def test_is_pid_running_uses_tasklist_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(downloader_module.os, "name", "nt", raising=False)
+
+    def fail_if_called(pid: int, sig: int) -> None:
+        raise AssertionError("os.kill should not be used on Windows")
+
+    monkeypatch.setattr(downloader_module.os, "kill", fail_if_called)
+    monkeypatch.setattr(
+        downloader_module.subprocess,
+        "check_output",
+        lambda *args, **kwargs: (
+            "Image Name                     PID Session Name        "
+            "Session#    Mem Usage\n"
+            "========================= ======== ================ "
+            "========== ============\n"
+            "llama-server.exe              4321 Console        "
+            "         1     12,000 K\n"
+        ),
+    )
+
+    assert LlamaCppBackend._is_pid_running(4321) is True
+
+
+def test_is_pid_running_uses_os_kill_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(downloader_module.os, "name", "posix", raising=False)
+    calls: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        calls.append((pid, sig))
+        raise PermissionError()
+
+    monkeypatch.setattr(downloader_module.os, "kill", fake_kill)
+
+    assert LlamaCppBackend._is_pid_running(1234) is True
+    assert calls == [(1234, 0)]

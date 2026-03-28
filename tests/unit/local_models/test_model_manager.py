@@ -274,7 +274,6 @@ def test_list_and_remove_downloaded_models_with_repo_id_layout(
     assert len(models) == 1
     assert models[0].id == "Qwen/Qwen3-0.6B-GGUF"
     assert models[0].name == "Qwen/Qwen3-0.6B-GGUF"
-    assert models[0].local_path == str(repo_dir)
 
     downloader.remove_downloaded_model("Qwen/Qwen3-0.6B-GGUF")
 

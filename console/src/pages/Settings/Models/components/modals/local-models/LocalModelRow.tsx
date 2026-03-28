@@ -34,8 +34,8 @@ export const LocalModelRow = memo(function LocalModelRow({
   onStopServer,
 }: LocalModelRowProps) {
   const { t } = useTranslation();
-  const isRunning = currentRunningModelName === model.name;
-  const isStarting = startingModelName === model.name;
+  const isRunning = currentRunningModelName === model.id;
+  const isStarting = startingModelName === model.id;
 
   return (
     <div className={styles.modelListItem}>

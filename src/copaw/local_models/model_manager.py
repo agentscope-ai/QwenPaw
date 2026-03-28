@@ -164,14 +164,6 @@ class ModelManager:
             self._cleanup_empty_parent_dirs(model_path.parent)
             return
 
-        for model in self.list_downloaded_models():
-            if model.id != model_id:
-                continue
-            resolved_path = self.get_model_dir(model.id)
-            self._cleanup_path(resolved_path)
-            self._cleanup_empty_parent_dirs(resolved_path.parent)
-            return
-
         raise ValueError(f"Downloaded local model not found: {model_id}")
 
     def download_model(

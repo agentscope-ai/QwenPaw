@@ -8,6 +8,7 @@ import os
 import signal
 import shutil
 import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -496,6 +497,17 @@ class LlamaCppBackend:
 
     @staticmethod
     def _is_pid_running(pid: int) -> bool:
+        if os.name == "nt":
+            try:
+                output = subprocess.check_output(
+                    ["tasklist", "/fi", f"PID eq {pid}"],
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                return False
+            return str(pid) in output
+
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
