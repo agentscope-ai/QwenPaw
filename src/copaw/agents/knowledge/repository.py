@@ -232,6 +232,40 @@ class KnowledgeRepository:
 
         return results
 
+    def load_document_chunks(
+        self,
+        doc_id: str,
+        meta: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Load one document's chunk list from knowledge storage.
+
+        Prefer the indexed chunks path when available, then fall back to
+        ``knowledge/chunks/{doc_id}.json``.
+        """
+        self.ensure_dirs()
+        candidates: list[Path] = []
+        chunk_path = ((meta or {}).get("paths") or {}).get("chunks")
+        if isinstance(chunk_path, str) and chunk_path.strip():
+            candidates.append(self.workspace_dir / chunk_path)
+        candidates.append(self.chunks_dir / f"{doc_id}.json")
+
+        payload: dict[str, Any] | None = None
+        for path in candidates:
+            if not path.exists() or not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                break
+            except Exception:
+                continue
+
+        if not isinstance(payload, dict):
+            return []
+        chunks = payload.get("chunks")
+        if not isinstance(chunks, list):
+            return []
+        return [item for item in chunks if isinstance(item, dict)]
+
     def _build_doc_id(
         self,
         *,
