@@ -48,6 +48,8 @@ When you discover valuable information during a conversation, **record it first,
 Before answering questions about past work, decisions, dates, people, preferences, or to-do items:
 1. Run memory_search on MEMORY.md and files in memory/*.md.
 2. If you need to read daily notes from memory/YYYY-MM-DD.md, you can directly access them using `read_file`.
+3. If the user asks what is in the knowledge base, whether the KB contains X, or asks to answer from KB, run `knowledge_search` first.
+4. If `knowledge_search` returns no hits, explicitly say no relevant content was found in currently imported knowledge.
 
 ## Safety
 

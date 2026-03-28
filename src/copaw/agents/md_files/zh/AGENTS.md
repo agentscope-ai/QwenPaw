@@ -48,6 +48,8 @@ read_when:
 回答关于过往工作、决策、日期、人员、偏好或待办的问题前：
 1. 对 MEMORY.md 和 memory/*.md 运行 `memory_search`
 2. 如需阅读每日笔记 `memory/YYYY-MM-DD.md`，直接用 `read_file`
+3. 用户问“知识库里有什么/是否有X/从知识库回答”时，先运行 `knowledge_search`
+4. `knowledge_search` 无结果时，明确告知“当前导入的知识库里未检索到相关内容”
 
 ## 安全
 
