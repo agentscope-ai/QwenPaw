@@ -63,33 +63,38 @@ export function BroadcastModal({
       width={640}
     >
       <div style={{ display: "grid", gap: 12 }}>
-        <div className={styles.pickerLabel}>{t("skills.selectPoolItem")}</div>
-        <div className={styles.bulkActions}>
-          <Button
-            size="small"
-            onClick={() => setSelectedSkillNames(skills.map((s) => s.name))}
-          >
-            {t("agent.selectAll")}
-          </Button>
-          <Button
-            size="small"
-            onClick={() => setSelectedSkillNames(builtinSkillNames)}
-          >
-            {t("agent.selectBuiltin")}
-          </Button>
-          <Button size="small" onClick={() => setSelectedSkillNames([])}>
-            {t("skills.clearSelection")}
-          </Button>
+        <div className={styles.pickerSection}>
+          <div className={styles.pickerHeader}>
+            <div className={styles.pickerLabel}>{t("skills.selectPoolItem")}</div>
+            <div className={styles.bulkActions}>
+              <Button
+                size="small"
+                onClick={() => setSelectedSkillNames(skills.map((s) => s.name))}
+              >
+                {t("agent.selectAll")}
+              </Button>
+              <Button
+                size="small"
+                onClick={() => setSelectedSkillNames(builtinSkillNames)}
+              >
+                {t("agent.selectBuiltin")}
+              </Button>
+              <Button size="small" onClick={() => setSelectedSkillNames([])}>
+                {t("skills.clearSelection")}
+              </Button>
+            </div>
+          </div>
+
         </div>
+
         <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
           {skills.map((skill) => {
             const selected = selectedSkillNames.includes(skill.name);
             return (
               <div
                 key={skill.name}
-                className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                  selected ? styles.pickerCardSelected : ""
-                }`}
+                className={`${styles.pickerCard} ${styles.compactPickerCard} ${selected ? styles.pickerCardSelected : ""
+                  }`}
                 onClick={() =>
                   setSelectedSkillNames(
                     selected
@@ -114,38 +119,41 @@ export function BroadcastModal({
             );
           })}
         </div>
+        <div className={styles.pickerSection}>
+          <div className={styles.pickerHeader}>
+            <div className={styles.pickerLabel}>
+              {t("skillPool.selectWorkspaces")}
+            </div>
+            <div className={styles.bulkActions}>
+              <Button
+                size="small"
+                onClick={() =>
+                  setSelectedWorkspaceIds(workspaces.map((ws) => ws.agent_id))
+                }
+              >
+                {t("skillPool.allWorkspaces")}
+              </Button>
+              <Button size="small" onClick={() => setSelectedWorkspaceIds([])}>
+                {t("skills.clearSelection")}
+              </Button>
+            </div>
+          </div>
+        </div>
 
-        <div className={styles.pickerLabel}>
-          {t("skillPool.selectWorkspaces")}
-        </div>
-        <div className={styles.bulkActions}>
-          <Button
-            size="small"
-            onClick={() =>
-              setSelectedWorkspaceIds(workspaces.map((ws) => ws.agent_id))
-            }
-          >
-            {t("skillPool.allWorkspaces")}
-          </Button>
-          <Button size="small" onClick={() => setSelectedWorkspaceIds([])}>
-            {t("skills.clearSelection")}
-          </Button>
-        </div>
         <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
           {workspaces.map((workspace) => {
             const selected = selectedWorkspaceIds.includes(workspace.agent_id);
             return (
               <div
                 key={workspace.agent_id}
-                className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                  selected ? styles.pickerCardSelected : ""
-                }`}
+                className={`${styles.pickerCard} ${styles.compactPickerCard} ${selected ? styles.pickerCardSelected : ""
+                  }`}
                 onClick={() =>
                   setSelectedWorkspaceIds(
                     selected
                       ? selectedWorkspaceIds.filter(
-                          (id) => id !== workspace.agent_id,
-                        )
+                        (id) => id !== workspace.agent_id,
+                      )
                       : [...selectedWorkspaceIds, workspace.agent_id],
                   )
                 }
