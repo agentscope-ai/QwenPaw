@@ -17,6 +17,7 @@ from agentscope.message import Msg, TextBlock
 
 from ...constant import WORKING_DIR
 from ...config import load_config
+from ..exceptions import AgentReloadRequiresRestartError
 
 if TYPE_CHECKING:
     from ...config.config import AgentProfileConfig
@@ -140,6 +141,8 @@ async def run_daemon_restart(context: DaemonContext) -> str:
                     "- Agent not currently loaded. "
                     "Will reload on next request."
                 )
+        except AgentReloadRequiresRestartError as e:
+            return f"**Restart requires process restart**\n\n- {e}"
         except Exception as e:
             return f"**Restart failed**\n\n- {e}"
     return (

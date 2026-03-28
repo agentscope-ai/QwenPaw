@@ -94,3 +94,53 @@ def test_workspace_repr():
         assert "test123" in repr_str
         assert "stopped" in repr_str
         assert "Workspace" in repr_str
+
+
+def test_workspace_mcp_manager_is_reusable():
+    """Test that MCP manager is configured as a reusable service."""
+    from copaw.app.workspace import Workspace
+
+    # pylint: disable=protected-access
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace_dir = Path(tmpdir) / "test_agent"
+        workspace = Workspace(
+            agent_id="test123",
+            workspace_dir=str(workspace_dir),
+        )
+
+        descriptor = workspace._service_manager.descriptors["mcp_manager"]
+        assert descriptor.reusable is True
+
+
+@pytest.mark.asyncio
+async def test_reused_service_stops_on_final_shutdown():
+    """Test reused services are still stopped during final shutdown."""
+    from copaw.app.workspace import ServiceDescriptor, ServiceManager
+
+    class DummyWorkspace:
+        agent_id = "test123"
+
+    class DummyService:
+        def __init__(self):
+            self.closed = 0
+
+        async def close(self):
+            self.closed += 1
+
+    service_manager = ServiceManager(DummyWorkspace())
+    service_manager.register(
+        ServiceDescriptor(
+            name="dummy",
+            stop_method="close",
+            reusable=True,
+        ),
+    )
+
+    service = DummyService()
+    await service_manager.set_reusable("dummy", service)
+
+    await service_manager.stop_all(final=False)
+    assert service.closed == 0
+
+    await service_manager.stop_all(final=True)
+    assert service.closed == 1

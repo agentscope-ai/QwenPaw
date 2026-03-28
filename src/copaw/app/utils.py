@@ -5,6 +5,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from .exceptions import AgentReloadRequiresRestartError
+
 if TYPE_CHECKING:
     from fastapi import Request
     from .multi_agent_manager import MultiAgentManager
@@ -49,6 +51,12 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
     async def reload_in_background():
         try:
             await manager.reload_agent(agent_id)
+        except AgentReloadRequiresRestartError as e:
+            logger.info(
+                "Background reload skipped for agent '%s': %s",
+                agent_id,
+                e,
+            )
         except Exception as e:
             logger.warning(
                 f"Background reload failed for agent '{agent_id}': {e}",

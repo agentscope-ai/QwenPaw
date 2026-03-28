@@ -387,9 +387,10 @@ class ServiceManager:
             )
             return
 
-        # Skip services that were reused from previous instance
-        # (they don't belong to this instance)
-        if name in self.reused_services:
+        # Skip services that were reused from previous instance during
+        # zero-downtime reload. On final shutdown, the current workspace is
+        # the active owner and must stop them.
+        if name in self.reused_services and not final:
             logger.debug(
                 f"Skipped stopping reused service '{name}' "
                 f"(from previous instance) for {self.workspace.agent_id}",

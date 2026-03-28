@@ -23,12 +23,17 @@ async def create_mcp_service(ws: "Workspace", mcp):
         mcp: MCPClientManager instance
     """
     # pylint: disable=protected-access
-    if ws._config.mcp:
+    is_reused = "mcp_manager" in ws._service_manager.reused_services
+
+    if ws._config.mcp and not is_reused:
         try:
             await mcp.init_from_config(ws._config.mcp)
-            logger.debug(f"MCP initialized for agent: {ws.agent_id}")
+            logger.debug("MCP initialized for agent: %s", ws.agent_id)
         except Exception as e:
-            logger.warning(f"Failed to init MCP: {e}")
+            logger.warning("Failed to init MCP: %s", e)
+    elif is_reused:
+        logger.debug("Reusing MCP manager for agent: %s", ws.agent_id)
+
     ws._service_manager.services["runner"].set_mcp_manager(mcp)
     # pylint: enable=protected-access
 

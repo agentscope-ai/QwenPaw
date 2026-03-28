@@ -196,6 +196,7 @@ class Workspace:
                 service_class=MCPClientManager,
                 post_init=create_mcp_service,
                 stop_method="close_all",
+                reusable=True,
                 priority=20,
                 concurrent_init=True,
             ),
@@ -297,7 +298,8 @@ class Workspace:
         Args:
             components: Dict mapping component name to instance.
                 Supported keys:
-                - 'memory_manager': BaseMemoryManager instance
+                - 'memory_manager': MemoryManager instance
+                - 'mcp_manager': MCPClientManager instance
                 - 'chat_manager': ChatManager instance
 
         Example:

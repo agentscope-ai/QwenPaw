@@ -8,7 +8,9 @@ import asyncio
 import logging
 from typing import Dict, Set
 
+from .exceptions import AgentReloadRequiresRestartError
 from .workspace import Workspace
+from ..config.config import load_agent_config
 from ..config.utils import load_config
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,18 @@ class MultiAgentManager:
         self._lock = asyncio.Lock()
         self._cleanup_tasks: Set[asyncio.Task] = set()
         logger.debug("MultiAgentManager initialized")
+
+    @staticmethod
+    def _requires_serial_reload(agent_config) -> bool:
+        """Whether this agent has MCP clients unsafe for reload."""
+        mcp = getattr(agent_config, "mcp", None)
+        if not mcp:
+            return False
+
+        for client in mcp.clients.values():
+            if client.enabled and not getattr(client, "hot_reload_safe", True):
+                return True
+        return False
 
     async def get_agent(self, agent_id: str) -> Workspace:
         """Get agent workspace by ID (lazy loading).
@@ -245,6 +259,17 @@ class MultiAgentManager:
             return False
 
         agent_ref = config.agents.profiles[agent_id]
+        agent_config = load_agent_config(agent_id)
+        requires_serial_reload = self._requires_serial_reload(agent_config)
+
+        if requires_serial_reload:
+            message = (
+                "Agent '%s' contains MCP clients marked "
+                "hot_reload_safe=false. Restart CoPaw to apply "
+                "changes safely."
+            )
+            logger.warning(message, agent_id)
+            raise AgentReloadRequiresRestartError(message % agent_id)
 
         # Step 3: Create and start new workspace instance (outside lock)
         # This is the slow part, but doesn't block other agents

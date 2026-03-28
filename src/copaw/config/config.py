@@ -772,6 +772,7 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    hot_reload_safe: bool = True
 
     @model_validator(mode="before")
     @classmethod

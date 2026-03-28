@@ -91,6 +91,14 @@ class MCPClientManager:
             client_config: New client configuration
             timeout: Connection timeout in seconds (default 60s)
         """
+        if not client_config.hot_reload_safe:
+            logger.warning(
+                "Skipping in-process reload for MCP client '%s' because "
+                "hot_reload_safe=false. Restart CoPaw to apply changes.",
+                key,
+            )
+            return
+
         # 1. Create and connect new client outside lock (may be slow)
         logger.debug(f"Connecting new MCP client: {key}")
         new_client = self._build_client(client_config)
@@ -109,12 +117,7 @@ class MCPClientManager:
 
             if old_client is not None:
                 logger.debug(f"Closing old MCP client: {key}")
-                try:
-                    await old_client.close()
-                except Exception as e:
-                    logger.warning(
-                        f"Error closing old MCP client '{key}': {e}",
-                    )
+                await self._close_client(key, old_client)
             else:
                 logger.debug(f"Added new MCP client: {key}")
 
@@ -129,10 +132,7 @@ class MCPClientManager:
 
         if old_client is not None:
             logger.debug(f"Removing MCP client: {key}")
-            try:
-                await old_client.close()
-            except Exception as e:
-                logger.warning(f"Error closing MCP client '{key}': {e}")
+            await self._close_client(key, old_client)
 
     async def close_all(self) -> None:
         """Close all MCP clients.
@@ -146,10 +146,7 @@ class MCPClientManager:
         logger.debug("Closing all MCP clients")
         for key, client in clients_snapshot:
             if client is not None:
-                try:
-                    await client.close()
-                except Exception as e:
-                    logger.warning(f"Error closing MCP client '{key}': {e}")
+                await self._close_client(key, client)
 
     async def _add_client(
         self,
@@ -214,6 +211,20 @@ class MCPClientManager:
                     setattr(client, attr, default)
                 except Exception:
                     pass
+
+    @classmethod
+    async def _close_client(cls, key: str, client: Any) -> None:
+        """Close a client and force cleanup lingering stdio resources."""
+        try:
+            await client.close()
+        except Exception as e:
+            logger.warning(
+                "Error closing MCP client '%s': %s",
+                key,
+                e,
+            )
+        finally:
+            await cls._force_cleanup_client(client)
 
     @staticmethod
     def _build_client(client_config: "MCPClientConfig") -> Any:
