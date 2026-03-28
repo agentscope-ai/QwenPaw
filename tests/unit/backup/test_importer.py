@@ -11,7 +11,6 @@ import pytest
 
 from copaw.backup.errors import (
     IncompatibleVersionError,
-    InsufficientStorageError,
     InvalidAssetPackageError,
 )
 from copaw.backup.importer import (
@@ -300,7 +299,7 @@ class TestImportAssets:
         _build_test_zip(zip_path, {"preferences/config.json": incoming_bytes})
 
         importer = AssetImporter(workspace_dir=ws)
-        result = await importer.import_assets(
+        await importer.import_assets(
             zip_path, ConflictStrategy.OVERWRITE
         )
 

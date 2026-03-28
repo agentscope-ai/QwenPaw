@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, HealthCheck, assume
+from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 
 from copaw.backup.importer import AssetImporter, _sha256
@@ -170,10 +170,10 @@ def test_path_safety_no_traversal(
 
         if has_traversal:
             with pytest.raises(Exception):
-                importer._validate_zip(zip_path)
+                importer._validate_zip(zip_path)  # pylint: disable=protected-access
         else:
             try:
-                importer._validate_zip(zip_path)
+                importer._validate_zip(zip_path)  # pylint: disable=protected-access
             except Exception as exc:
                 assert "traversal" not in str(exc).lower()
                 assert "outside target" not in str(exc).lower()
@@ -226,7 +226,7 @@ def test_resolved_paths_are_children(filename: str) -> None:
             zf.writestr(rel_path, content)
 
         importer = AssetImporter(workspace_dir=ws)
-        manifest = importer._validate_zip(zip_path)
+        manifest = importer._validate_zip(zip_path)  # pylint: disable=protected-access
 
         ws_resolved = ws.resolve()
         for entry in manifest.assets:
@@ -298,7 +298,7 @@ def test_conflict_detection_partition_consistency(
         manifest = _build_zip_from_files(zip_path, files)
 
         importer = AssetImporter(workspace_dir=ws)
-        to_import, to_skip, conflicts = importer._detect_conflicts(
+        to_import, to_skip, _conflicts = importer._detect_conflicts(  # pylint: disable=protected-access
             manifest,
             ws,
             strategy,
@@ -350,7 +350,7 @@ def test_conflict_detection_partition_ask_strategy(
         manifest = _build_zip_from_files(zip_path, files)
 
         importer = AssetImporter(workspace_dir=ws)
-        to_import, to_skip, conflicts = importer._detect_conflicts(
+        to_import, to_skip, conflicts = importer._detect_conflicts(  # pylint: disable=protected-access
             manifest,
             ws,
             ConflictStrategy.ASK,
