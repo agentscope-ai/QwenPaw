@@ -933,7 +933,7 @@
     "embeddingEnableHint": "Fill in both Base URL and Model Name to enable the embedding feature. API Key is optional.",
     "rebuildMemoryIndexOnStart": "Rebuild Memory Index on Start",
     "rebuildMemoryIndexOnStartTooltip": "Clear and rebuild the memory search index when the agent starts. Disable to skip re-indexing and only watch for new file changes (faster startup, but index may be out of sync).",
-    "toolResultCompactRecentGtOld": "Recent messages threshold must be greater than the older messages threshold"
+    "toolResultCompactRecentGtOld": "Recent messages threshold must be greater than or equal to the older messages threshold"
   },
   "tools": {
     "title": "Built-in Tools",
