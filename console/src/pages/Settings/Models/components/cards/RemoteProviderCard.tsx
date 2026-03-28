@@ -1,10 +1,5 @@
 import { useState } from "react";
-import { Card, Button, Tag, Modal, message } from "@agentscope-ai/design";
-import {
-  EditOutlined,
-  DeleteOutlined,
-  AppstoreOutlined,
-} from "@ant-design/icons";
+import { Card, Button, Modal, message } from "@agentscope-ai/design";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../../../api/types";
 import { ProviderConfigModal } from "../modals/ProviderConfigModal";
 import { ModelManageModal } from "../modals/ModelManageModal";
@@ -197,6 +192,17 @@ export function RemoteProviderCard({
           >
             {t("models.settings")}
           </Button>
+          {provider.is_custom && (
+            <Button
+              type="default"
+              size="small"
+              danger
+              onClick={handleDeleteProvider}
+              className={styles.actionBtn}
+            >
+              {t("common.delete")}
+            </Button>
+          )}
         </div>
       )}
 

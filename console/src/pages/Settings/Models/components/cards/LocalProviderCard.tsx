@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { Card, Button, Tag } from "@agentscope-ai/design";
-import { AppstoreOutlined } from "@ant-design/icons";
+import { Card, Button } from "@agentscope-ai/design";
 import type { ProviderInfo } from "../../../../../api/types";
 import { ModelManageModal } from "../modals/ModelManageModal";
 import { useTranslation } from "react-i18next";
