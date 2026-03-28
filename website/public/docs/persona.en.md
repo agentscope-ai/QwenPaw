@@ -188,8 +188,7 @@ This information isn't saved to files but is generated dynamically based on curr
 
 The system prompt also includes tool and Skill descriptions:
 
-- **Built-in tools**: See [MCP & Built-in Tools](./mcp)
-- **MCP tools**: See [MCP & Built-in Tools](./mcp)
+- **Built-in and MCP tools**: See [MCP & Built-in Tools](./mcp)
 - **Skills**: Each enabled Skill loads portions of its `SKILL.md` (name and description fields), informing the agent of the Skill's purpose. See [Skills](./skills)
 
 > The persona management mechanism design was inspired by [OpenClaw](https://github.com/openclaw/openclaw). Special thanks.
