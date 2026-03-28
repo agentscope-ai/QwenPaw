@@ -132,6 +132,8 @@ class LazyGroup(click.Group):
         "auth": ("copaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
         "agents": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
         "agent": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
+        "assets": ("copaw.cli.assets_cmd", "assets_group", ".assets_cmd"),
+        "backup": ("copaw.cli.backup_cmd", "backup_group", ".backup_cmd"),
     },
 )
 @click.version_option(version=__version__, prog_name="CoPaw")
