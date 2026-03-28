@@ -90,6 +90,7 @@ async def _request_dingtalk_json(
     *,
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
+    retry_on_transient: bool | None = None,
 ) -> Any:
     client_id, client_secret = _get_dingtalk_credentials()
     async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
@@ -103,6 +104,7 @@ async def _request_dingtalk_json(
             path,
             params=params,
             json_body=json_body,
+            retry_on_transient=retry_on_transient,
         )
 
 
@@ -218,6 +220,7 @@ async def dingtalk_ai_table_list_records(
             "/records/list",
             params={"operatorId": _require_text(operator_id, "operator_id")},
             json_body=body or None,
+            retry_on_transient=True,
         )
         return _ok_response(data)
     except (ValueError, DingTalkOpenAPIError) as exc:
@@ -299,6 +302,146 @@ async def dingtalk_ai_table_delete_records(
             "/records/delete",
             params={"operatorId": _require_text(operator_id, "operator_id")},
             json_body=body,
+        )
+        return _ok_response(data)
+    except (ValueError, DingTalkOpenAPIError) as exc:
+        return _error_response(str(exc))
+
+
+async def dingtalk_doc_list_workspaces(
+    operator_id: str,
+) -> ToolResponse:
+    """List workspaces that the operator can access."""
+    try:
+        data = await _request_dingtalk_json(
+            "GET",
+            "/v2.0/wiki/mineWorkspaces",
+            params={"operatorId": _require_text(operator_id, "operator_id")},
+        )
+        return _ok_response(data)
+    except (ValueError, DingTalkOpenAPIError) as exc:
+        return _error_response(str(exc))
+
+
+async def dingtalk_doc_get_workspace(
+    workspace_id: str,
+    operator_id: str,
+    with_permission_role: bool = False,
+) -> ToolResponse:
+    """Get one DingTalk document workspace."""
+    try:
+        data = await _request_dingtalk_json(
+            "GET",
+            "/v2.0/wiki/workspaces/"
+            f"{_encode_path_segment(workspace_id, 'workspace_id')}",
+            params={
+                "operatorId": _require_text(operator_id, "operator_id"),
+                "withPermissionRole": with_permission_role,
+            },
+        )
+        return _ok_response(data)
+    except (ValueError, DingTalkOpenAPIError) as exc:
+        return _error_response(str(exc))
+
+
+async def dingtalk_doc_list_directory_entries(
+    space_id: str,
+    operator_id: str,
+    dentry_id: str = "",
+    next_token: str = "",
+    max_results: int = 100,
+) -> ToolResponse:
+    """List directory entries under a DingTalk document workspace node."""
+    try:
+        params = {
+            "operatorId": _require_text(operator_id, "operator_id"),
+            "maxResults": max(1, min(int(max_results), 500)),
+        }
+        if dentry_id.strip():
+            params["dentryId"] = dentry_id.strip()
+        if next_token.strip():
+            params["nextToken"] = next_token.strip()
+        data = await _request_dingtalk_json(
+            "GET",
+            "/v2.0/doc/spaces/"
+            f"{_encode_path_segment(space_id, 'space_id')}/directories",
+            params=params,
+        )
+        return _ok_response(data)
+    except (ValueError, DingTalkOpenAPIError) as exc:
+        return _error_response(str(exc))
+
+
+async def dingtalk_doc_get_dentry(
+    space_id: str,
+    dentry_id: str,
+    operator_id: str,
+    include_space: bool = False,
+) -> ToolResponse:
+    """Get metadata for one DingTalk document node."""
+    try:
+        data = await _request_dingtalk_json(
+            "GET",
+            "/v2.0/doc/spaces/"
+            f"{_encode_path_segment(space_id, 'space_id')}/dentries/"
+            f"{_encode_path_segment(dentry_id, 'dentry_id')}",
+            params={
+                "operatorId": _require_text(operator_id, "operator_id"),
+                "includeSpace": include_space,
+            },
+        )
+        return _ok_response(data)
+    except (ValueError, DingTalkOpenAPIError) as exc:
+        return _error_response(str(exc))
+
+
+async def dingtalk_doc_create_document(
+    workspace_id: str,
+    operator_id: str,
+    body_json: str,
+) -> ToolResponse:
+    """Create a DingTalk knowledge-base document or folder.
+
+    body_json example:
+        {"name":"CoPaw Doc","docType":"DOC","parentNodeId":"xxx"}
+    """
+    try:
+        body = _parse_json_object(body_json, "body_json")
+        body["operatorId"] = _require_text(operator_id, "operator_id")
+        data = await _request_dingtalk_json(
+            "POST",
+            "/v1.0/doc/workspaces/"
+            f"{_encode_path_segment(workspace_id, 'workspace_id')}/docs",
+            json_body=body,
+        )
+        return _ok_response(data)
+    except (ValueError, DingTalkOpenAPIError) as exc:
+        return _error_response(str(exc))
+
+
+async def dingtalk_doc_list_templates(
+    operator_id: str,
+    template_type: str = "",
+    workspace_id: str = "",
+    next_token: str = "",
+    max_results: int = 100,
+) -> ToolResponse:
+    """List DingTalk document templates."""
+    try:
+        params = {
+            "operatorId": _require_text(operator_id, "operator_id"),
+            "maxResults": max(1, min(int(max_results), 500)),
+        }
+        if template_type.strip():
+            params["templateType"] = template_type.strip()
+        if workspace_id.strip():
+            params["workspaceId"] = workspace_id.strip()
+        if next_token.strip():
+            params["nextToken"] = next_token.strip()
+        data = await _request_dingtalk_json(
+            "GET",
+            "/v1.0/doc/templates",
+            params=params,
         )
         return _ok_response(data)
     except (ValueError, DingTalkOpenAPIError) as exc:

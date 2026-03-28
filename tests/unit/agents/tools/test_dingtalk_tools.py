@@ -129,13 +129,21 @@ def test_get_sheet_encodes_sheet_name(monkeypatch):
 def test_list_records_uses_empty_body_when_omitted(monkeypatch):
     calls = []
 
-    async def _fake_request(method, path, *, params=None, json_body=None):
+    async def _fake_request(
+        method,
+        path,
+        *,
+        params=None,
+        json_body=None,
+        retry_on_transient=None,
+    ):
         calls.append(
             {
                 "method": method,
                 "path": path,
                 "params": params,
                 "json_body": json_body,
+                "retry_on_transient": retry_on_transient,
             },
         )
         return {"hasMore": False, "records": []}
@@ -167,6 +175,7 @@ def test_list_records_uses_empty_body_when_omitted(monkeypatch):
             ),
             "params": {"operatorId": "union_id"},
             "json_body": None,
+            "retry_on_transient": True,
         },
     ]
 
