@@ -19,6 +19,8 @@ import logging
 import re
 import sys
 import threading
+import time
+from email.utils import parsedate_to_datetime
 import types
 from collections import OrderedDict
 from pathlib import Path
@@ -48,6 +50,10 @@ from .constants import (
     FEISHU_FILE_MAX_BYTES,
     FEISHU_NICKNAME_CACHE_MAX,
     FEISHU_PROCESSED_IDS_MAX,
+    FEISHU_STALE_MSG_THRESHOLD_MS,
+    FEISHU_WS_BACKOFF_FACTOR,
+    FEISHU_WS_INITIAL_RETRY_DELAY,
+    FEISHU_WS_MAX_RETRY_DELAY,
 )
 from .utils import (
     build_interactive_content_chunks,
@@ -223,6 +229,8 @@ class FeishuChannel(BaseChannel):
         self._closed = False
         self._stop_event = threading.Event()
         self._http_client: Any = None
+        # Clock offset (ms) = server_time - local_time
+        self._clock_offset: int = 0
 
         self._bot_open_id: Optional[str] = None
 
@@ -439,6 +447,20 @@ class FeishuChannel(BaseChannel):
                 },
                 timeout=10.0,
             )
+            # Compute clock offset from server Date header
+            date_str = response.headers.get("Date")
+            if date_str:
+                try:
+                    server_ms = int(
+                        parsedate_to_datetime(date_str).timestamp() * 1000,
+                    )
+                    self._clock_offset = server_ms - int(time.time() * 1000)
+                    logger.debug(
+                        "feishu clock offset: %dms",
+                        self._clock_offset,
+                    )
+                except (ValueError, TypeError) as e:
+                    logger.debug("feishu failed to parse Date header: %s", e)
             data = response.json()
             if data.get("code", -1) != 0:
                 logger.warning(
@@ -542,6 +564,22 @@ class FeishuChannel(BaseChannel):
                 self.app_id,
             )
             return
+
+        # Drop stale messages from Feishu retry mechanism.
+        # Feishu retries failed deliveries at 5s, 5min, 1h, 6h intervals.
+        # Messages older than 20 seconds are likely stale retries.
+        # Use clock_offset to correct local clock skew against server time.
+        create_time = getattr(header, "create_time", None)
+        if create_time:
+            now_ms = int(time.time() * 1000) + self._clock_offset
+            age_ms = now_ms - int(create_time)
+            if age_ms > FEISHU_STALE_MSG_THRESHOLD_MS:
+                logger.debug(
+                    "feishu: drop stale message age=%.1fs (retry)",
+                    age_ms / 1000,
+                )
+                return
+
         if not self._loop:
             logger.warning("feishu: main loop not set, drop message")
             return
@@ -1759,106 +1797,205 @@ class FeishuChannel(BaseChannel):
             )
 
     def _run_ws_forever(self) -> None:
-        self._ws_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._ws_loop)
-        old_ws_client_loop = None
-        _ws_mod: types.ModuleType = types.ModuleType("_ws_mod_placeholder")
-        _orig_select = None
-        # Hold the lock until _connect() finishes so concurrent instances
-        # don't overwrite each other's ws_client.loop.
-        _WS_START_LOCK.acquire()  # pylint: disable=consider-using-with
-        lock_released = False
-        try:
+        """Run WebSocket with automatic reconnection.
+
+        Implements exponential backoff reconnection:
+        - Initial delay: 1 second
+        - Max delay: 60 seconds
+        - Backoff factor: 2x
+
+        Reconnection stops when:
+        - _stop_event is set (explicit stop)
+        - _closed is True (channel closed)
+        """
+        # Reconnection settings
+        retry_delay = FEISHU_WS_INITIAL_RETRY_DELAY
+
+        while not self._stop_event.is_set() and not self._closed:
+            self._ws_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._ws_loop)
+            old_ws_client_loop = None
+            _ws_mod: types.ModuleType = types.ModuleType("_ws_mod_placeholder")
+            _orig_select = None
+            # Hold the lock until _connect() finishes so concurrent instances
+            # don't overwrite each other's ws_client.loop.
+            _WS_START_LOCK.acquire()  # pylint: disable=consider-using-with
+            lock_released = False
+            connection_started = False
             try:
-                import lark_oapi.ws.client as _lark_ws_mod
-
-                _ws_mod = _lark_ws_mod
-                old_ws_client_loop = getattr(_ws_mod, "loop", None)
-                _ws_mod.loop = self._ws_loop
-                # Patch _select to release the lock once _connect() is done.
-                _orig_select = _ws_mod._select
-            except ImportError:
-                pass
-
-            async def _patched_select() -> None:
-                nonlocal lock_released
-                if not lock_released:
-                    _WS_START_LOCK.release()
-                    lock_released = True
-                if _orig_select is not None:
-                    await _orig_select()
-
-            _ws_mod._select = _patched_select
-            try:
-                if self._ws_client:
-                    logger.info(
-                        "feishu WebSocket connecting (long connection)...",
-                    )
-                    self._ws_client.start()
-            except RuntimeError as e:
-                # Normal shutdown: loop.stop() causes run_until_complete
-                # to raise "Event loop stopped before Future completed."
-                if "Event loop stopped" in str(e):
-                    logger.debug("feishu WebSocket stopped normally: %s", e)
-                else:
-                    logger.exception("feishu WebSocket thread failed")
-            except Exception:
-                logger.exception("feishu WebSocket thread failed")
-        finally:
-            # Ensure the lock is always released (covers KeyboardInterrupt).
-            if not lock_released:
                 try:
-                    _WS_START_LOCK.release()
-                except RuntimeError:
+                    import lark_oapi.ws.client as _lark_ws_mod
+
+                    _ws_mod = _lark_ws_mod
+                    old_ws_client_loop = getattr(_ws_mod, "loop", None)
+                    _ws_mod.loop = self._ws_loop
+                    # Patch _select to release lock after _connect().
+                    _orig_select = _ws_mod._select
+                except ImportError:
                     pass
-            try:
-                _ws_mod._select = _orig_select
-            except Exception:
-                pass
-            if self._ws_loop and not self._ws_loop.is_closed():
+
+                async def _patched_select() -> None:
+                    nonlocal lock_released, connection_started
+                    if not lock_released:
+                        _WS_START_LOCK.release()
+                        lock_released = True
+                        connection_started = True
+                    if _orig_select is not None:
+                        await _orig_select()
+
+                async def _monitor_connection_health() -> None:
+                    """Force reconnect if SDK's internal reconnect gives up."""
+                    while not self._stop_event.is_set() and not self._closed:
+                        await asyncio.sleep(30)
+                        if self._stop_event.is_set() or self._closed:
+                            break
+                        if not connection_started:
+                            continue
+                        ws = self._ws_client
+                        if (
+                            ws is not None
+                            and getattr(ws, "_conn", True) is None
+                        ):
+                            logger.warning(
+                                "feishu WebSocket conn lost, "
+                                "forcing reconnect...",
+                            )
+                            if self._ws_loop and not self._ws_loop.is_closed():
+                                self._ws_loop.stop()
+                            break
+
+                _ws_mod._select = _patched_select
                 try:
-                    if self._ws_client and hasattr(
-                        self._ws_client,
-                        "_disconnect",
-                    ):
-                        try:
-                            self._ws_loop.run_until_complete(
-                                self._ws_client._disconnect(),
-                            )
-                            logger.debug(
-                                "feishu WebSocket disconnected gracefully",
-                            )
-                        except Exception:
-                            logger.debug(
-                                "feishu ws disconnect failed",
-                                exc_info=True,
-                            )
-                    pending = [
-                        t
-                        for t in asyncio.all_tasks(self._ws_loop)
-                        if not t.done()
-                    ]
-                    for task in pending:
-                        task.cancel()
-                    if pending:
-                        self._ws_loop.run_until_complete(
-                            asyncio.gather(*pending, return_exceptions=True),
+                    if self._ws_client and not self._stop_event.is_set():
+                        self._ws_loop.create_task(
+                            _monitor_connection_health(),
                         )
-                        logger.debug(f"feishu cancelled {len(pending)} tasks")
+                        logger.info(
+                            "feishu WebSocket connecting (long connection)...",
+                        )
+                        self._ws_client.start()
+                        # If start() returns normally, connection was closed
+                        # by server; reset retry delay and reconnect
+                        if not self._stop_event.is_set() and not self._closed:
+                            logger.info(
+                                "feishu WebSocket disconnected, "
+                                "reconnecting immediately...",
+                            )
+                except RuntimeError as e:
+                    # Normal shutdown: loop.stop() causes run_until_complete
+                    # to raise "Event loop stopped before Future completed."
+                    if "Event loop stopped" in str(e):
+                        logger.debug(
+                            "feishu WebSocket stopped normally: %s",
+                            e,
+                        )
+                        # Check if this was an intentional stop
+                        if self._stop_event.is_set() or self._closed:
+                            break
+                        # Otherwise, treat as disconnection and reconnect
+                        logger.info(
+                            "feishu WebSocket event loop stopped, "
+                            "will attempt to reconnect",
+                        )
+                    else:
+                        logger.exception(
+                            "feishu WebSocket thread failed, "
+                            "will attempt to reconnect",
+                        )
                 except Exception:
-                    logger.debug("feishu ws cleanup failed", exc_info=True)
-            try:
-                if _ws_mod and getattr(_ws_mod, "loop", None) is self._ws_loop:
-                    _ws_mod.loop = old_ws_client_loop
-            except Exception:
-                pass
-            try:
+                    if self._stop_event.is_set() or self._closed:
+                        logger.debug(
+                            "feishu WebSocket stopped during reconnect",
+                        )
+                    else:
+                        logger.exception(
+                            "feishu WebSocket thread failed, "
+                            "will attempt to reconnect",
+                        )
+            finally:
+                # Ensure lock is released (covers KeyboardInterrupt).
+                if not lock_released:
+                    try:
+                        _WS_START_LOCK.release()
+                    except RuntimeError:
+                        pass
+                try:
+                    _ws_mod._select = _orig_select
+                except Exception:
+                    pass
                 if self._ws_loop and not self._ws_loop.is_closed():
-                    self._ws_loop.close()
-            except Exception:
-                logger.debug("feishu ws loop close failed", exc_info=True)
-            self._ws_loop = None
-            self._stop_event.set()
+                    try:
+                        if self._ws_client and hasattr(
+                            self._ws_client,
+                            "_disconnect",
+                        ):
+                            try:
+                                self._ws_loop.run_until_complete(
+                                    self._ws_client._disconnect(),
+                                )
+                                logger.debug(
+                                    "feishu WebSocket disconnected gracefully",
+                                )
+                            except Exception:
+                                logger.debug(
+                                    "feishu ws disconnect failed",
+                                    exc_info=True,
+                                )
+                        pending = [
+                            t
+                            for t in asyncio.all_tasks(self._ws_loop)
+                            if not t.done()
+                        ]
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            self._ws_loop.run_until_complete(
+                                asyncio.gather(
+                                    *pending,
+                                    return_exceptions=True,
+                                ),
+                            )
+                            logger.debug(
+                                f"feishu cancelled {len(pending)} tasks",
+                            )
+                    except Exception:
+                        logger.debug("feishu ws cleanup failed", exc_info=True)
+                try:
+                    if (
+                        _ws_mod
+                        and getattr(_ws_mod, "loop", None) is self._ws_loop
+                    ):
+                        _ws_mod.loop = old_ws_client_loop
+                except Exception:
+                    pass
+                try:
+                    if self._ws_loop and not self._ws_loop.is_closed():
+                        self._ws_loop.close()
+                except Exception:
+                    logger.debug("feishu ws loop close failed", exc_info=True)
+                self._ws_loop = None
+
+            # Wait before reconnecting (if not stopped)
+            if not self._stop_event.is_set() and not self._closed:
+                if connection_started:
+                    # Connection was established, reset retry delay
+                    retry_delay = FEISHU_WS_INITIAL_RETRY_DELAY
+                else:
+                    # Connection failed to establish, use exponential backoff
+                    logger.info(
+                        "feishu WebSocket reconnecting in %.1fs...",
+                        retry_delay,
+                    )
+                    # Use wait with timeout to allow early exit on stop
+                    self._stop_event.wait(timeout=retry_delay)
+                    # Increase delay for next attempt
+                    retry_delay = min(
+                        retry_delay * FEISHU_WS_BACKOFF_FACTOR,
+                        FEISHU_WS_MAX_RETRY_DELAY,
+                    )
+
+        # Final cleanup signal
+        self._stop_event.set()
 
     async def start(self) -> None:
         if not self.enabled:

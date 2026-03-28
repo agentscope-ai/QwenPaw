@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Button, Tag, Tooltip } from "@agentscope-ai/design";
+import { Button, Tooltip } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
   PlayCircleOutlined,
@@ -47,7 +47,9 @@ export const LocalModelRow = memo(function LocalModelRow({
       </div>
       <div className={styles.modelListItemActions}>
         {model.downloaded ? (
-          <Tag color="green">{t("models.localDownloaded")}</Tag>
+          <span className={styles.modelListItemStatusButton}>
+            {t("models.localDownloaded")}
+          </span>
         ) : null}
         {!model.downloaded ? (
           <>

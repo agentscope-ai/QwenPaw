@@ -238,6 +238,53 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 ---
 
+## Control Commands (Immediate Response)
+
+Control commands have the highest priority and are processed immediately without waiting for ongoing tasks to complete. Suitable for urgent operations.
+
+| Command                      | Description                                               |
+| ---------------------------- | --------------------------------------------------------- |
+| `/stop`                      | Immediately terminate the running task in current session |
+| `/stop session=<session_id>` | Terminate task in specified session (optional parameter)  |
+
+### `/stop` - Stop Task
+
+Immediately terminate the Agent task currently executing in the session.
+
+**Usage**:
+
+```
+/stop                       # Stop current session's task
+/stop session=<session_id>  # Stop task in specified session (advanced usage)
+```
+
+**Features**:
+
+- **Immediate response**: Highest priority (priority=0), processes concurrently even when tasks are running
+- **Safe termination**: Gracefully cancels tasks via `task_tracker.request_stop()`
+- **Session isolation**: Only affects target session, doesn't impact other users or sessions
+- **Default to current session**: Without parameters, stops the current session's task
+
+**Use Cases**:
+
+- Agent stuck in a loop or unresponsive for a long time
+- Task execution error requiring immediate interruption
+- Don't want to wait for current task to complete
+
+**Example**:
+
+```
+User: Analyze this 10GB log file for me
+Agent: [Processing...]
+
+User: /stop
+System: **Task Stopped** - Task for session `console:user1` has been terminated.
+```
+
+> ⚠️ **Warning**: `/stop` immediately terminates the task, which may result in partial data loss
+
+---
+
 ## Daemon Commands (Ops)
 
 In chat, send `/daemon <subcommand>` or use short names (e.g., `/status` is equivalent to `/daemon status`). From the terminal, run `copaw daemon <subcommand>`. These run without going through the Agent.

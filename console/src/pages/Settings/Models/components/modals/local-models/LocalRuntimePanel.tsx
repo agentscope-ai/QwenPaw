@@ -1,10 +1,6 @@
 import { memo } from "react";
 import { Button, Tooltip } from "@agentscope-ai/design";
-import {
-  CloseOutlined,
-  DownloadOutlined,
-  StopOutlined,
-} from "@ant-design/icons";
+import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type {
   LocalDownloadProgress,
@@ -27,8 +23,6 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   progress,
   onStart,
   onCancel,
-  onStop,
-  stopping,
 }: LocalRuntimePanelProps) {
   const { t } = useTranslation();
   const installed = Boolean(serverStatus?.installed);
@@ -105,11 +99,6 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             </Tooltip>
           ) : isRunning && serverStatus?.model_name ? (
             <div className={styles.localEngineStatusValue}>
-              <Tooltip title={serverStatus.model_name}>
-                <span className={styles.localEngineStatusModelName}>
-                  {serverStatus.model_name}
-                </span>
-              </Tooltip>
               <span
                 className={`${styles.localStatusBadge} ${runBadge.className}`}
               >
@@ -141,16 +130,6 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
               {t("models.localCancelDownload")}
             </Button>
           </div>
-        ) : installed && isRunning ? (
-          <Button
-            danger
-            size="small"
-            icon={<StopOutlined />}
-            loading={stopping}
-            onClick={onStop}
-          >
-            {t("models.localStopServer")}
-          </Button>
         ) : !installed ? (
           <Button type="primary" icon={<DownloadOutlined />} onClick={onStart}>
             {t("models.localInstallLlamacpp")}

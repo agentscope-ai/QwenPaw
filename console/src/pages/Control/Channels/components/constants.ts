@@ -16,6 +16,7 @@ export const CHANNEL_LABELS: Record<string, string> = {
   voice: "Twilio",
   wecom: "WeCom",
   xiaoyi: "XiaoYi",
+  weixin: "WeChat",
 };
 
 // Get channel label - returns built-in label or formatted custom name

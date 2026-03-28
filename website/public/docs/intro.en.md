@@ -67,7 +67,7 @@ Each term is explained in detail in its chapter.
 1. **[Quick start](./quickstart)** — Get the server running in three commands.
 2. **[Console](./console)** — Once the server is running, **before configuring
    channels**, you can use the Console (open the root URL in your browser) to
-   chat with CoPAW and configure the agent. This helps you see how CoPAW works.
+   chat with CoPaw and configure the agent. This helps you see how CoPaw works.
 3. **Configure and use as needed**:
    - [Channels](./channels) — Connect DingTalk / Feishu / QQ / Discord / iMessage to
      chat with CoPaw in those apps;

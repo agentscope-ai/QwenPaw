@@ -103,17 +103,31 @@ export default function WorkspacePage() {
   };
 
   return (
-    <div className={styles.agentsPage}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>{t("workspace.title")}</h1>
-        <div className={styles.workspaceInfo}>
+    <div className={styles.workspacePage}>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>
+            {t("workspace.title")}
+          </span>
           <p className={styles.workspacePath}>
             {t("workspace.workspacePath")}{" "}
             {workspacePath === null
               ? t("common.loading")
               : workspacePath || t("workspace.noFiles")}
           </p>
+        </div>
+        <div className={styles.workspaceInfo}>
           <div className={styles.actionButtons}>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              style={{ display: "none" }}
+              accept=".zip"
+              title="Select a ZIP file (max 100MB)"
+            />
             <Tooltip
               title={t("workspace.uploadTooltip")}
               placement="top"
@@ -163,18 +177,6 @@ export default function WorkspacePage() {
           onReset={handleReset}
         />
       </div>
-
-      <p className={styles.attribution}>{t("workspace.attribution")}</p>
-
-      {/* Hidden file input - only accepts .zip files up to 100MB */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileUpload}
-        style={{ display: "none" }}
-        accept=".zip"
-        title="Select a ZIP file (max 100MB)"
-      />
     </div>
   );
 }

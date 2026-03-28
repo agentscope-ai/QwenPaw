@@ -20,7 +20,15 @@ import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import styles from "../index.module.less";
 
-export function FileGuardSection() {
+interface FileGuardSectionProps {
+  onSave?: (handlers: {
+    save: () => Promise<void>;
+    reset: () => void;
+    saving: boolean;
+  }) => void;
+}
+
+export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(true);
   const [paths, setPaths] = useState<string[]>([]);
@@ -89,6 +97,10 @@ export function FileGuardSection() {
   const handleReset = useCallback(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    onSave?.({ save: handleSave, reset: handleReset, saving });
+  }, [handleSave, handleReset, saving, onSave]);
 
   const columns = [
     {
@@ -180,24 +192,6 @@ export function FileGuardSection() {
           }}
         />
       </Card>
-
-      <div className={styles.footerButtons}>
-        <Button
-          onClick={handleReset}
-          disabled={saving}
-          style={{ marginRight: 8 }}
-        >
-          {t("common.reset")}
-        </Button>
-        <Button
-          type="primary"
-          onClick={handleSave}
-          loading={saving}
-          disabled={!enabled}
-        >
-          {t("common.save")}
-        </Button>
-      </div>
     </>
   );
 }

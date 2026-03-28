@@ -189,14 +189,18 @@ CoPaw 已开源，官方仓库地址：
 
 ### 最新版本升级内容如何查看
 
-具体版本变更可在 CoPaw GitHub 仓库 [Releases](https://github.com/agentscope-ai/CoPaw/releases) 中查看。
+具体版本变更可在官网 [更新日志](https://copaw.agentscope.io/release-notes/?lang=zh) 或 CoPaw GitHub 仓库 [Releases](https://github.com/agentscope-ai/CoPaw/releases) 中查看。
 
 ### 如何配置模型
 
 在控制台进入 **设置 → 模型** 中进行配置，详情请见文档 [模型](https://copaw.agentscope.io/docs/models)：
 
-- 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商），再选择活跃模型。
-- 本地模型：支持 `llama.cpp`、`MLX` 和 Ollama。下载后可在同页选择活跃模型。
+- 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商）。
+- 本地模型：支持 `llama.cpp`、`MLX` 和 Ollama。
+
+配置好模型后，可在模型页面最上方的 **默认 LLM** 中选择目标提供商和目标模型，保存后即为全局默认模型。
+
+如果想为不同智能体配置单独的模型，可以在 console 页面最上方切换智能体，并在 **聊天** 页面左上角为当前智能体选择单独的模型。
 
 命令行也可使用 `copaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models)。
 
