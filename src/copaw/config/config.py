@@ -1001,11 +1001,6 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Create a DingTalk document or folder",
         ),
-        "dingtalk_doc_list_templates": BuiltinToolConfig(
-            name="dingtalk_doc_list_templates",
-            enabled=True,
-            description="List DingTalk document templates",
-        ),
     }
 
 

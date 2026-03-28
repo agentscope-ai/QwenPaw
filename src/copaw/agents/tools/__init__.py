@@ -36,7 +36,6 @@ from .dingtalk_tools import (
     dingtalk_doc_get_dentry,
     dingtalk_doc_get_workspace,
     dingtalk_doc_list_directory_entries,
-    dingtalk_doc_list_templates,
     dingtalk_doc_list_workspaces,
 )
 
@@ -72,5 +71,4 @@ __all__ = [
     "dingtalk_doc_list_directory_entries",
     "dingtalk_doc_get_dentry",
     "dingtalk_doc_create_document",
-    "dingtalk_doc_list_templates",
 ]

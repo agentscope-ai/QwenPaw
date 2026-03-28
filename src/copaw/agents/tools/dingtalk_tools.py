@@ -417,32 +417,3 @@ async def dingtalk_doc_create_document(
         return _ok_response(data)
     except (ValueError, DingTalkOpenAPIError) as exc:
         return _error_response(str(exc))
-
-
-async def dingtalk_doc_list_templates(
-    operator_id: str,
-    template_type: str = "",
-    workspace_id: str = "",
-    next_token: str = "",
-    max_results: int = 100,
-) -> ToolResponse:
-    """List DingTalk document templates."""
-    try:
-        params = {
-            "operatorId": _require_text(operator_id, "operator_id"),
-            "maxResults": max(1, min(int(max_results), 500)),
-        }
-        if template_type.strip():
-            params["templateType"] = template_type.strip()
-        if workspace_id.strip():
-            params["workspaceId"] = workspace_id.strip()
-        if next_token.strip():
-            params["nextToken"] = next_token.strip()
-        data = await _request_dingtalk_json(
-            "GET",
-            "/v1.0/doc/templates",
-            params=params,
-        )
-        return _ok_response(data)
-    except (ValueError, DingTalkOpenAPIError) as exc:
-        return _error_response(str(exc))

@@ -48,7 +48,6 @@ def test_builtin_tool_defaults_include_dingtalk_ai_table_tools():
         "dingtalk_doc_list_directory_entries",
         "dingtalk_doc_get_dentry",
         "dingtalk_doc_create_document",
-        "dingtalk_doc_list_templates",
     }
 
     assert expected.issubset(builtin_tools)
@@ -468,55 +467,6 @@ def test_doc_create_document_merges_operator_id_into_body(monkeypatch):
                 "docType": "DOC",
                 "operatorId": "union_id",
             },
-        },
-    ]
-
-
-def test_doc_list_templates_builds_query_params(monkeypatch):
-    calls = []
-
-    async def _fake_request(method, path, *, params=None, json_body=None):
-        calls.append(
-            {
-                "method": method,
-                "path": path,
-                "params": params,
-                "json_body": json_body,
-            },
-        )
-        return {"value": [{"templateId": "tpl-1"}]}
-
-    monkeypatch.setattr(
-        dingtalk_tools,
-        "_request_dingtalk_json",
-        _fake_request,
-    )
-
-    response = asyncio.run(
-        dingtalk_tools.dingtalk_doc_list_templates(
-            "union_id",
-            template_type="DOC",
-            workspace_id="workspace-1",
-            next_token="token-1",
-            max_results=9,
-        ),
-    )
-
-    assert json.loads(_tool_text(response)) == {
-        "value": [{"templateId": "tpl-1"}],
-    }
-    assert calls == [
-        {
-            "method": "GET",
-            "path": "/v1.0/doc/templates",
-            "params": {
-                "operatorId": "union_id",
-                "maxResults": 9,
-                "templateType": "DOC",
-                "workspaceId": "workspace-1",
-                "nextToken": "token-1",
-            },
-            "json_body": None,
         },
     ]
 
