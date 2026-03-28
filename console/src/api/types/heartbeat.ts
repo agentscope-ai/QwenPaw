@@ -8,4 +8,5 @@ export interface HeartbeatConfig {
   every: string;
   target: string;
   activeHours?: ActiveHoursConfig | null;
+  heartbeatOkEnabled?: boolean;
 }
