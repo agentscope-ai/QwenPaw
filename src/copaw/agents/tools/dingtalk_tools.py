@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Built-in tools for DingTalk AI table operations."""
+"""Built-in tools for DingTalk AI table and document operations."""
 
 from __future__ import annotations
 

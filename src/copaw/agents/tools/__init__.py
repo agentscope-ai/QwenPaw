@@ -32,6 +32,12 @@ from .dingtalk_tools import (
     dingtalk_ai_table_list_records,
     dingtalk_ai_table_list_sheets,
     dingtalk_ai_table_update_records,
+    dingtalk_doc_create_document,
+    dingtalk_doc_get_dentry,
+    dingtalk_doc_get_workspace,
+    dingtalk_doc_list_directory_entries,
+    dingtalk_doc_list_templates,
+    dingtalk_doc_list_workspaces,
 )
 
 __all__ = [
@@ -61,4 +67,10 @@ __all__ = [
     "dingtalk_ai_table_insert_records",
     "dingtalk_ai_table_update_records",
     "dingtalk_ai_table_delete_records",
+    "dingtalk_doc_list_workspaces",
+    "dingtalk_doc_get_workspace",
+    "dingtalk_doc_list_directory_entries",
+    "dingtalk_doc_get_dentry",
+    "dingtalk_doc_create_document",
+    "dingtalk_doc_list_templates",
 ]

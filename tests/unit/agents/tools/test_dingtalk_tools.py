@@ -43,6 +43,12 @@ def test_builtin_tool_defaults_include_dingtalk_ai_table_tools():
         "dingtalk_ai_table_insert_records",
         "dingtalk_ai_table_update_records",
         "dingtalk_ai_table_delete_records",
+        "dingtalk_doc_list_workspaces",
+        "dingtalk_doc_get_workspace",
+        "dingtalk_doc_list_directory_entries",
+        "dingtalk_doc_get_dentry",
+        "dingtalk_doc_create_document",
+        "dingtalk_doc_list_templates",
     }
 
     assert expected.issubset(builtin_tools)
@@ -249,6 +255,276 @@ def test_invalid_body_json_returns_tool_error():
     response = asyncio.run(
         dingtalk_tools.dingtalk_ai_table_create_sheet(
             "qnYxxx",
+            "union_id",
+            "{bad json",
+        ),
+    )
+
+    assert "valid JSON" in _tool_text(response)
+
+
+def test_doc_list_workspaces_calls_official_endpoint(monkeypatch):
+    calls = []
+
+    async def _fake_request(method, path, *, params=None, json_body=None):
+        calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+            },
+        )
+        return {"value": [{"workspaceId": "ws-1"}]}
+
+    monkeypatch.setattr(
+        dingtalk_tools,
+        "_request_dingtalk_json",
+        _fake_request,
+    )
+
+    response = asyncio.run(
+        dingtalk_tools.dingtalk_doc_list_workspaces("union_id"),
+    )
+
+    assert json.loads(_tool_text(response)) == {"value": [{"workspaceId": "ws-1"}]}
+    assert calls == [
+        {
+            "method": "GET",
+            "path": "/v2.0/wiki/mineWorkspaces",
+            "params": {"operatorId": "union_id"},
+            "json_body": None,
+        },
+    ]
+
+
+def test_doc_get_workspace_includes_with_permission_role(monkeypatch):
+    calls = []
+
+    async def _fake_request(method, path, *, params=None, json_body=None):
+        calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+            },
+        )
+        return {"workspaceId": "ws-1"}
+
+    monkeypatch.setattr(
+        dingtalk_tools,
+        "_request_dingtalk_json",
+        _fake_request,
+    )
+
+    response = asyncio.run(
+        dingtalk_tools.dingtalk_doc_get_workspace(
+            "ws-1",
+            "union_id",
+            True,
+        ),
+    )
+
+    assert json.loads(_tool_text(response)) == {"workspaceId": "ws-1"}
+    assert calls == [
+        {
+            "method": "GET",
+            "path": "/v2.0/wiki/workspaces/ws-1",
+            "params": {
+                "operatorId": "union_id",
+                "withPermissionRole": True,
+            },
+            "json_body": None,
+        },
+    ]
+
+
+def test_doc_list_directory_entries_builds_query_params(monkeypatch):
+    calls = []
+
+    async def _fake_request(method, path, *, params=None, json_body=None):
+        calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+            },
+        )
+        return {"value": []}
+
+    monkeypatch.setattr(
+        dingtalk_tools,
+        "_request_dingtalk_json",
+        _fake_request,
+    )
+
+    response = asyncio.run(
+        dingtalk_tools.dingtalk_doc_list_directory_entries(
+            "space-1",
+            "union_id",
+            dentry_id="dentry-1",
+            next_token="token-1",
+            max_results=42,
+        ),
+    )
+
+    assert json.loads(_tool_text(response)) == {"value": []}
+    assert calls == [
+        {
+            "method": "GET",
+            "path": "/v2.0/doc/spaces/space-1/directories",
+            "params": {
+                "operatorId": "union_id",
+                "maxResults": 42,
+                "dentryId": "dentry-1",
+                "nextToken": "token-1",
+            },
+            "json_body": None,
+        },
+    ]
+
+
+def test_doc_get_dentry_includes_space_flag(monkeypatch):
+    calls = []
+
+    async def _fake_request(method, path, *, params=None, json_body=None):
+        calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+            },
+        )
+        return {"dentryId": "dentry-1"}
+
+    monkeypatch.setattr(
+        dingtalk_tools,
+        "_request_dingtalk_json",
+        _fake_request,
+    )
+
+    response = asyncio.run(
+        dingtalk_tools.dingtalk_doc_get_dentry(
+            "space-1",
+            "dentry-1",
+            "union_id",
+            True,
+        ),
+    )
+
+    assert json.loads(_tool_text(response)) == {"dentryId": "dentry-1"}
+    assert calls == [
+        {
+            "method": "GET",
+            "path": "/v2.0/doc/spaces/space-1/dentries/dentry-1",
+            "params": {
+                "operatorId": "union_id",
+                "includeSpace": True,
+            },
+            "json_body": None,
+        },
+    ]
+
+
+def test_doc_create_document_merges_operator_id_into_body(monkeypatch):
+    calls = []
+
+    async def _fake_request(method, path, *, params=None, json_body=None):
+        calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+            },
+        )
+        return {"id": "doc-1"}
+
+    monkeypatch.setattr(
+        dingtalk_tools,
+        "_request_dingtalk_json",
+        _fake_request,
+    )
+
+    response = asyncio.run(
+        dingtalk_tools.dingtalk_doc_create_document(
+            "workspace-1",
+            "union_id",
+            '{"name":"CoPaw Doc","docType":"DOC"}',
+        ),
+    )
+
+    assert json.loads(_tool_text(response)) == {"id": "doc-1"}
+    assert calls == [
+        {
+            "method": "POST",
+            "path": "/v1.0/doc/workspaces/workspace-1/docs",
+            "params": None,
+            "json_body": {
+                "name": "CoPaw Doc",
+                "docType": "DOC",
+                "operatorId": "union_id",
+            },
+        },
+    ]
+
+
+def test_doc_list_templates_builds_query_params(monkeypatch):
+    calls = []
+
+    async def _fake_request(method, path, *, params=None, json_body=None):
+        calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+            },
+        )
+        return {"value": [{"templateId": "tpl-1"}]}
+
+    monkeypatch.setattr(
+        dingtalk_tools,
+        "_request_dingtalk_json",
+        _fake_request,
+    )
+
+    response = asyncio.run(
+        dingtalk_tools.dingtalk_doc_list_templates(
+            "union_id",
+            template_type="DOC",
+            workspace_id="workspace-1",
+            next_token="token-1",
+            max_results=9,
+        ),
+    )
+
+    assert json.loads(_tool_text(response)) == {
+        "value": [{"templateId": "tpl-1"}],
+    }
+    assert calls == [
+        {
+            "method": "GET",
+            "path": "/v1.0/doc/templates",
+            "params": {
+                "operatorId": "union_id",
+                "maxResults": 9,
+                "templateType": "DOC",
+                "workspaceId": "workspace-1",
+                "nextToken": "token-1",
+            },
+            "json_body": None,
+        },
+    ]
+
+
+def test_doc_create_document_invalid_body_json_returns_tool_error():
+    response = asyncio.run(
+        dingtalk_tools.dingtalk_doc_create_document(
+            "workspace-1",
             "union_id",
             "{bad json",
         ),

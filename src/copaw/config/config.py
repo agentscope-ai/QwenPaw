@@ -976,6 +976,36 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Delete records from a DingTalk AI table sheet",
         ),
+        "dingtalk_doc_list_workspaces": BuiltinToolConfig(
+            name="dingtalk_doc_list_workspaces",
+            enabled=True,
+            description="List DingTalk document workspaces",
+        ),
+        "dingtalk_doc_get_workspace": BuiltinToolConfig(
+            name="dingtalk_doc_get_workspace",
+            enabled=True,
+            description="Get one DingTalk document workspace",
+        ),
+        "dingtalk_doc_list_directory_entries": BuiltinToolConfig(
+            name="dingtalk_doc_list_directory_entries",
+            enabled=True,
+            description="List entries under a DingTalk document directory",
+        ),
+        "dingtalk_doc_get_dentry": BuiltinToolConfig(
+            name="dingtalk_doc_get_dentry",
+            enabled=True,
+            description="Get metadata for one DingTalk document node",
+        ),
+        "dingtalk_doc_create_document": BuiltinToolConfig(
+            name="dingtalk_doc_create_document",
+            enabled=True,
+            description="Create a DingTalk document or folder",
+        ),
+        "dingtalk_doc_list_templates": BuiltinToolConfig(
+            name="dingtalk_doc_list_templates",
+            enabled=True,
+            description="List DingTalk document templates",
+        ),
     }
 
 
