@@ -56,6 +56,23 @@ first, then send text to the model).
 You can attach **files** such as documents, images, and audio/video (follow
 on-screen limits; per-file size caps apply).
 
+**Import current-message uploads into Knowledge Base:**
+
+1. In the chat header, turn on **KB**.
+2. Upload files in the composer (currently supports markdown/text/PDF in the
+   import pipeline).
+3. Send your message. Console will call knowledge import first, then send chat.
+
+If import partially fails, the chat message is still sent. You can fix files
+and retry on the next message.
+
+**Alternative ingestion paths (without UI toggle):**
+
+- API flow: call `POST /console/upload`, then call `POST /knowledge/import`
+  with returned `upload_id`.
+- Direct memory files: write curated knowledge into `MEMORY.md` or
+  `memory/*.md` in the workspace to participate in existing memory retrieval.
+
 **Create a new session:**
 Click the **+ New Chat** button at the top of the chat sidebar to start a new
 conversation. Each session keeps separate history.
