@@ -74,6 +74,36 @@ class KnowledgeDocumentSummary(BaseModel):
     markdown_path: str
 
 
+class KnowledgeSearchRequest(BaseModel):
+    """Request body for knowledge search."""
+
+    query: str = Field(..., min_length=1)
+    max_results: int = Field(default=5, ge=1, le=20)
+    min_score: float = Field(default=0.12, ge=0.0, le=1.0)
+
+
+class KnowledgeSearchHit(BaseModel):
+    """One ranked knowledge chunk in search response."""
+
+    doc_id: str
+    title: str
+    source_file: str
+    source_type: str
+    imported_at: str
+    chunk_id: str
+    chunk_index: int
+    chunk_text: str
+    score: float
+
+
+class KnowledgeSearchResponse(BaseModel):
+    """Response body for knowledge search endpoint."""
+
+    query: str
+    total: int = 0
+    hits: list[KnowledgeSearchHit] = Field(default_factory=list)
+
+
 class ParsedDocument(BaseModel):
     """Normalized parser output used by downstream import pipeline."""
 

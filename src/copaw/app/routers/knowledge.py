@@ -9,7 +9,11 @@ from ...agents.knowledge.models import (
     KnowledgeDocumentSummary,
     KnowledgeImportRequest,
     KnowledgeImportResponse,
+    KnowledgeSearchHit,
+    KnowledgeSearchRequest,
+    KnowledgeSearchResponse,
 )
+from ...agents.knowledge.search_service import KnowledgeSearchService
 from ...agents.knowledge.service import KnowledgeImportService
 from ..agent_context import get_agent_for_request
 
@@ -57,3 +61,40 @@ async def list_knowledge_documents(
     workspace = await get_agent_for_request(request)
     service = KnowledgeImportService(workspace.workspace_dir)
     return service.repo.list_documents()
+
+
+@router.post(
+    "/search",
+    response_model=KnowledgeSearchResponse,
+    summary="Search imported knowledge chunks",
+)
+async def search_knowledge(
+    body: KnowledgeSearchRequest,
+    request: Request,
+) -> KnowledgeSearchResponse:
+    """Search imported knowledge by query and return ranked chunks."""
+    workspace = await get_agent_for_request(request)
+    service = KnowledgeSearchService(workspace.workspace_dir)
+    hits = service.search(
+        body.query,
+        max_results=body.max_results,
+        min_score=body.min_score,
+    )
+    return KnowledgeSearchResponse(
+        query=body.query,
+        total=len(hits),
+        hits=[
+            KnowledgeSearchHit(
+                doc_id=item.doc_id,
+                title=item.title,
+                source_file=item.source_file,
+                source_type=item.source_type,
+                imported_at=item.imported_at,
+                chunk_id=item.chunk_id,
+                chunk_index=item.chunk_index,
+                chunk_text=item.chunk_text,
+                score=item.score,
+            )
+            for item in hits
+        ],
+    )
