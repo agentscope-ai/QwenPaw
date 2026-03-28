@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from copaw.agents.knowledge.models import KnowledgeImportItem, KnowledgeImportRequest
+from copaw.agents.knowledge.models import (
+    KnowledgeImportItem,
+    KnowledgeImportRequest,
+)
 from copaw.agents.knowledge.service import KnowledgeImportService
 
 
