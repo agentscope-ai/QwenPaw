@@ -241,6 +241,7 @@ class HeartbeatConfig(BaseModel):
     heartbeat_ok_enabled: bool = Field(
         default=True,
         description="Whether to use HEARTBEAT_OK confirmation",
+        alias="heartbeatOkEnabled",
     )
 
 
