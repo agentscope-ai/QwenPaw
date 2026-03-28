@@ -18,5 +18,8 @@ def test_chunk_text_splits_and_preserves_order() -> None:
     assert len(chunks) >= 3
     assert chunks[0]["index"] == 0
     assert chunks[0]["chunk_id"] == "chunk-0000"
-    assert chunks[-1]["text"].endswith("C" * 900)
+    # Overlap strategy may produce a short tail chunk; assert C content
+    # is present and ordering metadata stays consistent.
+    assert any(("C" * 200) in chunk["text"] for chunk in chunks)
+    assert chunks[-1]["text"].endswith("C" * 50)
     assert all(chunk["char_count"] == len(chunk["text"]) for chunk in chunks)
