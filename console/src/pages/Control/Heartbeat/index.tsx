@@ -90,6 +90,7 @@ function HeartbeatPage() {
         useActiveHours: !!data.activeHours,
         activeHoursStart: data.activeHours?.start ?? "08:00",
         activeHoursEnd: data.activeHours?.end ?? "22:00",
+        heartbeatOkEnabled: data.heartbeatOkEnabled ?? true,
       });
     } catch (e) {
       console.error("Failed to load heartbeat config:", e);
@@ -125,6 +126,7 @@ function HeartbeatPage() {
               end: values.activeHoursEnd,
             }
           : undefined,
+      heartbeatOkEnabled: values.heartbeatOkEnabled ?? true,
     };
     setSaving(true);
     try {
@@ -226,10 +228,11 @@ function HeartbeatPage() {
 
             <Form.Item
               name="heartbeatOkEnabled"
+              label={t("heartbeat.heartbeatOkEnabled")}
               valuePropName="checked"
               tooltip="启用后，模型回复 HEARTBEAT_OK 时心跳确认将被静默丢弃"
             >
-              <Switch>{t("heartbeat.heartbeatOkEnabled")}</Switch>
+              <Switch />
             </Form.Item>
 
             <Form.Item
