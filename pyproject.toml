@@ -36,6 +36,7 @@ dependencies = [
     "json-repair>=0.30.0",
     "segno>=1.6.6",
     "pypdf>=4.3.0",
+    "python-docx>=1.1.2",
 ]
 
 [tool.setuptools.dynamic]
