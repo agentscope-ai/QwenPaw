@@ -169,21 +169,22 @@ MCP supports three transport protocols, usually auto-detected:
 - **streamable_http** — Remote HTTP services, requires `url` field
 - **sse** — Server-Sent Events, requires `url` and `transport: "sse"`
 
-#### Configuration Fields
+#### Configuration Field Descriptions
 
-- `command` — Launch command (required for stdio)
-- `args` — Command arguments
-- `env` — Environment variables (e.g., API keys)
-- `cwd` — Working directory
-- `url` — Remote service URL (required for HTTP/SSE)
-- `headers` — Request headers (for authentication)
-- `transport` — Transport type (usually auto-detected)
+| Field         | Type     | Default   | Description                                                     |
+| ------------- | -------- | --------- | --------------------------------------------------------------- |
+| `name`        | string   | -         | Client name (required)                                          |
+| `description` | string   | `""`      | Client description                                              |
+| `enabled`     | bool     | `true`    | Whether the client is enabled                                   |
+| `transport`   | string   | `"stdio"` | Transport type: `"stdio"` / `"streamable_http"` / `"sse"`       |
+| `url`         | string   | `""`      | Remote MCP server URL (for HTTP/SSE transport)                  |
+| `headers`     | object   | `{}`      | HTTP request headers (for HTTP/SSE transport)                   |
+| `command`     | string   | `""`      | Launch command (for stdio transport, e.g., `"npx"`, `"python"`) |
+| `args`        | string[] | `[]`      | Command arguments (for stdio transport)                         |
+| `env`         | object   | `{}`      | Client runtime environment variables                            |
+| `cwd`         | string   | `""`      | Working directory (for stdio transport)                         |
 
-#### Configuration Validation Rules
-
-- **stdio transport**: `command` field is required and cannot be empty
-- **streamable_http / sse transport**: `url` field is required and cannot be empty
-- Invalid configurations will return an error when creating the client
+> **Tip:** `transport` is usually auto-detected based on config (has `command` → stdio, has `url` → http/sse), no need to specify manually.
 
 ---
 
@@ -212,24 +213,6 @@ CoPaw provides a set of ready-to-use built-in tools that agents can directly cal
 > For optimal performance, enable only the tools you need to reduce context overhead. Configuration changes are hot-reloaded automatically—no server restart needed.
 
 > **Multi-Agent Support**: Each agent has independent tool configuration. After switching agents in the agent selector at the top of the Console, you'll see that agent's dedicated tool configuration. See [Multi-Agent](./multi-agent) for details.
-
-#### Async Execution
-
-The `execute_shell_command` tool supports async execution mode:
-
-- **Sync execution (default)**: Agent waits for command to complete
-  - Suitable for: Quick commands (ls, cat), commands requiring immediate output
-- **Async execution**: Command runs in background, agent continues immediately
-  - Suitable for: Long-running commands (compilation, tests, downloads), tasks that shouldn't block conversation flow
-
-**Background Task Management:**
-When async execution is enabled, the agent automatically gains the following tools:
-
-- `list_background_tasks` - View all running tasks and their status
-- `get_task_output` - Retrieve task output (stdout and stderr)
-- `cancel_task` - Cancel a running task
-
-Configure this option on the `execute_shell_command` tool card (only this tool supports async execution).
 
 ---
 
@@ -285,7 +268,24 @@ Configure this option on the `execute_shell_command` tool card (only this tool s
   - `command`: Command to execute
   - `timeout`: Timeout in seconds (default 60)
   - `cwd`: Working directory (optional, defaults to workspace directory)
-  - Supports async execution mode
+  - Supports async execution mode (see below)
+
+**Async Execution:**
+
+The `execute_shell_command` tool supports async execution mode:
+
+- **Sync execution (default)**: Agent waits for command to complete
+  - Suitable for: Quick commands (ls, cat), commands requiring immediate output
+- **Async execution**: Command runs in background, agent continues immediately
+  - Suitable for: Long-running commands (compilation, tests, downloads), tasks that shouldn't block conversation flow
+
+When async execution is enabled, the agent automatically gains the following tools:
+
+- `list_background_tasks` - View all running tasks and their status
+- `get_task_output` - Retrieve task output (stdout and stderr)
+- `cancel_task` - Cancel a running task
+
+Configure this option on the `execute_shell_command` tool card (only this tool supports async execution).
 
 **Browser Automation**
 
@@ -326,7 +326,7 @@ The browser tool supports connecting to a running Chrome browser via Chrome DevT
 - `memory_search`: Semantic search in memory files to find relevant past conversations and decisions
   - **Prerequisites**:
     - Enable "Memory Management" in **Agent → Runtime Config**
-    - If not configured, tool calls will return an error message
+    - If not configured, tool calls will return an error
   - `query`: Semantic search query
   - `max_results`: Max number of results (default 5)
   - `min_score`: Minimum similarity threshold (default 0.1)
@@ -344,3 +344,43 @@ The browser tool supports connecting to a running Chrome browser via Chrome DevT
   - `days`: Query past N days (default 30)
   - `model_name`: Filter by model name (optional)
   - `provider_id`: Filter by provider (optional)
+
+---
+
+### Tool Configuration Reference
+
+Built-in tool configurations are stored in the `tools.builtin_tools` field of `agent.json`.
+
+**Configuration example:**
+
+```json
+{
+  "tools": {
+    "builtin_tools": {
+      "execute_shell_command": {
+        "name": "execute_shell_command",
+        "enabled": true,
+        "display_to_user": true,
+        "async_execution": false
+      },
+      "read_file": {
+        "name": "read_file",
+        "enabled": true,
+        "display_to_user": true,
+        "async_execution": false
+      }
+    }
+  }
+}
+```
+
+**Configuration fields for each tool:**
+
+| Field             | Type   | Default | Description                                                                                                                                                       |
+| ----------------- | ------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`            | string | -       | Tool function name                                                                                                                                                |
+| `enabled`         | bool   | `true`  | Whether the tool is enabled                                                                                                                                       |
+| `display_to_user` | bool   | `true`  | Whether tool output is displayed to users. When `false`, output is for internal agent use only and not shown in channels (e.g., `view_image` defaults to `false`) |
+| `async_execution` | bool   | `false` | Whether to execute the tool asynchronously (currently only `execute_shell_command` supports this)                                                                 |
+
+> **Tip:** Tool configuration is typically managed through the Console (**Agent → Tools**) without manually editing `agent.json`.
