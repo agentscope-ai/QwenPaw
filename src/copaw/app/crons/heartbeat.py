@@ -12,7 +12,7 @@ import re
 from datetime import datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ...config import (
@@ -35,6 +35,26 @@ _EVERY_PATTERN = re.compile(
 _CRON_FIELD_PATTERN = re.compile(
     r"^[\d\*\-/,]+$",
 )
+
+
+def _is_heartbeat_ok(message: str) -> bool:
+    """检查消息是否为心跳确认（HEARTBEAT_OK 出现在开头或结尾）"""
+    if not message:
+        return False
+    stripped = message.strip()
+    return stripped.startswith("HEARTBEAT_OK") or stripped.endswith(
+        "HEARTBEAT_OK",
+    )
+
+
+def _get_last_text_message(events: List[Any]) -> str:
+    """从事件列表中获取最后一条文本消息"""
+    for event in reversed(events):
+        if hasattr(event, "content") and isinstance(event.content, str):
+            return event.content
+        if isinstance(event, dict) and "content" in event:
+            return event["content"]
+    return ""
 
 
 def is_cron_expression(every: str) -> bool:
@@ -186,7 +206,9 @@ async def run_heartbeat_once(
         if ld.channel and (ld.user_id or ld.session_id):
 
             async def _run_and_dispatch() -> None:
+                messages = []
                 async for event in runner.stream_query(req):
+                    messages.append(event)
                     await channel_manager.send_event(
                         channel=ld.channel,
                         user_id=ld.user_id,
@@ -194,6 +216,13 @@ async def run_heartbeat_once(
                         event=event,
                         meta={},
                     )
+                # 检测最后一条文本消息是否为 HEARTBEAT_OK
+                if hb.heartbeat_ok_enabled:
+                    last_text = _get_last_text_message(messages)
+                    if _is_heartbeat_ok(last_text):
+                        logger.debug(
+                            "HEARTBEAT_OK confirmed, events already sent",
+                        )
 
             try:
                 await asyncio.wait_for(_run_and_dispatch(), timeout=120)
