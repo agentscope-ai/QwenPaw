@@ -356,7 +356,7 @@ class OpenCodeProvider(Provider):
                     continue
 
                 model_name = model_data.get("name", model_id)
-                display_name = f"{model_name}（{provider_name}）"
+                display_name = f"{model_name} ({provider_name})"
                 full_id = f"{provider_id}/{model_id}"
 
                 if full_id in seen:
