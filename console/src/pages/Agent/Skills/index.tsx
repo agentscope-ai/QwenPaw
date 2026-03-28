@@ -193,11 +193,12 @@ function SkillsPage() {
           source_name: sourceName !== targetName ? sourceName : undefined,
           config: values.config,
         });
+        await api.updateSkillChannels(result.name, values.channels || ["all"]);
         if (result.mode === "noop") {
           setDrawerOpen(false);
+          await refreshSkills();
           return;
         }
-        await api.updateSkillChannels(result.name, values.channels || ["all"]);
         message.success(
           result.mode === "rename"
             ? `${t("common.save")}: ${result.name}`
