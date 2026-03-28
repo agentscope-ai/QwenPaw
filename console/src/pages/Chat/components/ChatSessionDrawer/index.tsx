@@ -5,11 +5,23 @@ import { SparkOperateRightLine } from "@agentscope-ai/icons";
 import {
   useChatAnywhereSessionsState,
   useChatAnywhereSessions,
+  type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import ChatSessionItem from "../ChatSessionItem";
 import styles from "./index.module.less";
+
+/** Sessions from CoPaw backend include extra fields beyond the runtime UI type */
+interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
+  realId?: string;
+  sessionId?: string;
+  userId?: string;
+  channel?: string;
+  createdAt?: string | null;
+  meta?: Record<string, unknown>;
+  status?: "idle" | "running";
+}
 
 interface ChatSessionDrawerProps {
   /** Whether the drawer is visible */
@@ -31,10 +43,10 @@ const formatCreatedAt = (raw: string | null | undefined): string => {
   )}`;
 };
 
-/** Resolve the real backend UUID from an ExtendedSession record (id may be a local timestamp) */
-const getBackendId = (session: Record<string, unknown>): string | null => {
-  if (session.realId) return session.realId as string;
-  const id = session.id as string;
+/** Resolve the real backend UUID from an extended session (id may be a local timestamp) */
+const getBackendId = (session: ExtendedChatSession): string | null => {
+  if (session.realId) return session.realId;
+  const id = session.id;
   if (!/^\d+$/.test(id)) return id;
   return null;
 };
@@ -72,10 +84,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Delete a session: call deleteChat API then refresh the list */
   const handleDelete = useCallback(
     async (sessionId: string) => {
-      const session = sessions.find((s) => s.id === sessionId) as Record<
-        string,
-        unknown
-      >;
+      const session = sessions.find((s) => s.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
       const backendId = session ? getBackendId(session) : null;
 
       if (backendId) {
@@ -110,10 +121,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const handleEditSubmit = useCallback(async () => {
     if (!editingSessionId) return;
 
-    const session = sessions.find((s) => s.id === editingSessionId) as Record<
-      string,
-      unknown
-    >;
+    const session = sessions.find((s) => s.id === editingSessionId) as
+      | ExtendedChatSession
+      | undefined;
     const backendId = session ? getBackendId(session) : null;
     const newName = editValue.trim();
 
@@ -125,9 +135,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         session_id: session.sessionId as string,
         user_id: session.userId as string,
         channel: session.channel as string,
-        created_at: (session.createdAt as string | null) ?? null,
-        meta: session.meta as Record<string, unknown> | undefined,
-        status: session.status as "idle" | "running" | undefined,
+        created_at: session.createdAt ?? null,
+        meta: session.meta,
+        status: session.status,
       });
     }
 
@@ -189,12 +199,12 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         <div className={styles.topGradient} />
         <div className={styles.list}>
           {sessions.map((session) => {
-            const raw = session as Record<string, unknown>;
+            const ext = session as ExtendedChatSession;
             return (
               <ChatSessionItem
                 key={session.id}
                 name={session.name || "New Chat"}
-                time={formatCreatedAt(raw.createdAt as string | null)}
+                time={formatCreatedAt(ext.createdAt ?? null)}
                 active={session.id === currentSessionId}
                 editing={editingSessionId === session.id}
                 editValue={

@@ -362,7 +362,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             agent_id=agent_id,
             heartbeat_enabled=heartbeat_enabled,
         )
-        logger.debug("System prompt:\n%s", sys_prompt)
+        logger.debug("System prompt:\n%s...", sys_prompt[:100])
 
         # Inject multimodal capability awareness
         multimodal_hint = build_multimodal_hint()

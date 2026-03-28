@@ -23,6 +23,7 @@ from typing import Any, TypeVar
 import frontmatter
 from pydantic import BaseModel, Field
 from ..security.skill_scanner import scan_skill_directory
+from .utils.file_handling import read_text_file_with_encoding_fallback
 
 try:
     import fcntl
@@ -154,7 +155,7 @@ def _directory_tree(directory: Path) -> dict[str, Any]:
 
 def _read_frontmatter(skill_dir: Path) -> Any:
     return frontmatter.loads(
-        (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
+        read_text_file_with_encoding_fallback(skill_dir / "SKILL.md"),
     )
 
 
@@ -471,7 +472,9 @@ def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
     if not skill_md.exists():
         return SkillRequirements()
 
-    post = frontmatter.loads(skill_md.read_text(encoding="utf-8"))
+    post = frontmatter.loads(
+        read_text_file_with_encoding_fallback(skill_md),
+    )
     metadata = post.get("metadata") or {}
     if "openclaw" in metadata:
         requires = metadata["openclaw"].get("requires", {})
@@ -1275,7 +1278,7 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
         return None
 
     try:
-        content = skill_md.read_text(encoding="utf-8")
+        content = read_text_file_with_encoding_fallback(skill_md)
         description = ""
         try:
             post = frontmatter.loads(content)
@@ -1969,7 +1972,7 @@ class SkillService:
         full_path = base_dir / normalized
         if not full_path.exists() or not full_path.is_file():
             return None
-        return full_path.read_text(encoding="utf-8")
+        return read_text_file_with_encoding_fallback(full_path)
 
 
 class SkillPoolService:

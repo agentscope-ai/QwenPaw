@@ -1,6 +1,6 @@
 # Quick start
 
-This section describes six ways to run CoPAW:
+This section describes six ways to run CoPaw:
 
 - **Option A — Script install**: run on your machine with no Python setup required.
 - **Option B — pip install**: if you prefer managing Python yourself.
@@ -11,7 +11,7 @@ This section describes six ways to run CoPAW:
 
 > 📖 Read [Introduction](./intro) first; after install see [Console](./console).
 
-> 💡 **After install & start**: Before configuring channels, you can open the [Console](./console) (`http://127.0.0.1:8088/`) to chat with CoPAW and configure the agent. When you're ready to chat in DingTalk, Feishu, QQ, etc., head to [Channels](./channels) to add a channel.
+> 💡 **After install & start**: Before configuring channels, you can open the [Console](./console) (`http://127.0.0.1:8088/`) to chat with CoPaw and configure the agent. When you're ready to chat in DingTalk, Feishu, QQ, etc., head to [Channels](./channels) to add a channel.
 
 ---
 
@@ -248,7 +248,7 @@ Use the same `session_id` for multi-turn.
 
 ## What to do next
 
-- **Chat with CoPAW** — [Channels](./channels): connect one channel
+- **Chat with CoPaw** — [Channels](./channels): connect one channel
   (DingTalk or Feishu is a good first), create the app, fill config, then send a message
   in that app.
 - **Run a scheduled "check-in" or digest** — [Heartbeat](./heartbeat): edit

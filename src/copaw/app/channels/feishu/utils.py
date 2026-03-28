@@ -234,9 +234,9 @@ def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
             "name": col_keys[i],
             "display_name": headers[i],
             "width": "auto",
-            "horizontal_align": alignments[i]
-            if i < len(alignments)
-            else "left",
+            "horizontal_align": (
+                alignments[i] if i < len(alignments) else "left"
+            ),
         }
         for i in range(len(headers))
     ]

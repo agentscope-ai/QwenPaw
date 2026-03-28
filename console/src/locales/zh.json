@@ -955,6 +955,21 @@
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
+    "inputPlaceholder": "输入 / 查看快捷指令；审批时可使用 /approve 或 /deny ...",
+    "commands": {
+      "clear": {
+        "description": "清空对话上下文"
+      },
+      "compact": {
+        "description": "清空对话上下文并生成历史对话摘要"
+      },
+      "approve": {
+        "description": "批准待执行的工具操作并继续执行"
+      },
+      "deny": {
+        "description": "拒绝待执行的工具操作"
+      }
+    },
     "attachments": {
       "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
       "tooltipImageOnly": "当前模型仅支持图片上传，单文件不超过10MB",

@@ -282,9 +282,9 @@ async def test_provider(
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
-            message="Connection successful"
-            if ok
-            else f"Connection failed: {msg}",
+            message=(
+                "Connection successful" if ok else f"Connection failed: {msg}"
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
