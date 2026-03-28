@@ -10,9 +10,11 @@ import type {
 
 /** Response from POST /console/upload. url = filename only; agent_id from header. */
 export interface ChatUploadResponse {
+  upload_id: string;
   url: string;
   file_name: string;
   stored_name?: string;
+  size?: number;
 }
 
 const FILES_PREVIEW = "/files/preview";
