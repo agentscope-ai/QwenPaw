@@ -48,7 +48,7 @@ def _is_heartbeat_ok(message: str) -> bool:
 
 
 def _get_last_text_message(events: List[Any]) -> str:
-    """从事件列表中获取最后一条文本消息"""
+    """Get the last text message from a list of events."""
     for event in reversed(events):
         if hasattr(event, "content") and isinstance(event.content, str):
             return event.content
