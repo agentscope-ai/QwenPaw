@@ -28,10 +28,7 @@ export const localModelApi = {
   listRecommendedLocalModels: () =>
     request<LocalModelInfo[]>("/local-models/models"),
 
-  startLocalModelDownload: (
-    modelName: string,
-    source: LocalDownloadSource,
-  ) =>
+  startLocalModelDownload: (modelName: string, source: LocalDownloadSource) =>
     request<LocalActionResponse>("/local-models/models/download", {
       method: "POST",
       body: JSON.stringify({ model_name: modelName, source }),
