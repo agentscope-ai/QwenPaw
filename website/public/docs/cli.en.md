@@ -143,10 +143,10 @@ copaw models remove-local <model_id>
 copaw models remove-local <model_id> --yes   # skip confirmation
 ```
 
-| Option      | Short | Default       | Description                                                           |
-| ----------- | ----- | ------------- | --------------------------------------------------------------------- |
-| `--source`  | `-s`  | `huggingface` | Download source (`huggingface` or `modelscope`)                       |
-| `--file`    | `-f`  | _(auto)_      | Specific filename. If omitted, auto-selects (prefers Q4_K_M for GGUF) |
+| Option     | Short | Default       | Description                                                           |
+| ---------- | ----- | ------------- | --------------------------------------------------------------------- |
+| `--source` | `-s`  | `huggingface` | Download source (`huggingface` or `modelscope`)                       |
+| `--file`   | `-f`  | _(auto)_      | Specific filename. If omitted, auto-selects (prefers Q4_K_M for GGUF) |
 
 #### Ollama models
 
@@ -569,18 +569,18 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 
 ## Command overview
 
-| Command          | Subcommands                                                                             | Requires server? |
-| ---------------- | --------------------------------------------------------------------------------------- | :--------------: |
-| `copaw init`     | —                                                                                       |        No        |
-| `copaw app`      | —                                                                                       |  — (starts it)   |
-| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local`    |        No        |
-| `copaw env`      | `list` · `set` · `delete`                                                               |        No        |
-| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                               |     **Yes**      |
-| `copaw agents`   | `list` · `chat`                                                                         |     **Yes**      |
-| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`             |     **Yes**      |
-| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                         |     **Yes**      |
-| `copaw skills`   | `list` · `config`                                                                       |        No        |
-| `copaw clean`    | —                                                                                       |        No        |
+| Command          | Subcommands                                                                          | Requires server? |
+| ---------------- | ------------------------------------------------------------------------------------ | :--------------: |
+| `copaw init`     | —                                                                                    |        No        |
+| `copaw app`      | —                                                                                    |  — (starts it)   |
+| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        No        |
+| `copaw env`      | `list` · `set` · `delete`                                                            |        No        |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                            |     **Yes**      |
+| `copaw agents`   | `list` · `chat`                                                                      |     **Yes**      |
+| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
+| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
+| `copaw skills`   | `list` · `config`                                                                    |        No        |
+| `copaw clean`    | —                                                                                    |        No        |
 
 ---
 

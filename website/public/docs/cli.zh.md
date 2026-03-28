@@ -134,10 +134,10 @@ copaw models remove-local <model_id>
 copaw models remove-local <model_id> --yes   # 跳过确认
 ```
 
-| 选项        | 简写 | 默认值        | 说明                                           |
-| ----------- | ---- | ------------- | ---------------------------------------------- |
-| `--source`  | `-s` | `huggingface` | 下载源（`huggingface` 或 `modelscope`）        |
-| `--file`    | `-f` | _（自动）_    | 指定文件名。省略时自动选择（GGUF 优先 Q4_K_M） |
+| 选项       | 简写 | 默认值        | 说明                                           |
+| ---------- | ---- | ------------- | ---------------------------------------------- |
+| `--source` | `-s` | `huggingface` | 下载源（`huggingface` 或 `modelscope`）        |
+| `--file`   | `-f` | _（自动）_    | 指定文件名。省略时自动选择（GGUF 优先 Q4_K_M） |
 
 #### Ollama 模型
 
@@ -555,18 +555,18 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 ## 命令总览
 
-| 命令             | 子命令                                                                                  |  需要服务运行？   |
-| ---------------- | -------------------------------------------------------------------------------------- | :---------------: |
-| `copaw init`     | —                                                                                      |        否         |
-| `copaw app`      | —                                                                                      | —（启动服务本身） |
-| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local`   |        否         |
-| `copaw env`      | `list` · `set` · `delete`                                                              |        否         |
-| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                              |      **是**       |
-| `copaw agents`   | `list` · `chat`                                                                        |      **是**       |
-| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`            |      **是**       |
-| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                        |      **是**       |
-| `copaw skills`   | `list` · `config`                                                                      |        否         |
-| `copaw clean`    | —                                                                                      |        否         |
+| 命令             | 子命令                                                                               |  需要服务运行？   |
+| ---------------- | ------------------------------------------------------------------------------------ | :---------------: |
+| `copaw init`     | —                                                                                    |        否         |
+| `copaw app`      | —                                                                                    | —（启动服务本身） |
+| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        否         |
+| `copaw env`      | `list` · `set` · `delete`                                                            |        否         |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                            |      **是**       |
+| `copaw agents`   | `list` · `chat`                                                                      |      **是**       |
+| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |      **是**       |
+| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                      |      **是**       |
+| `copaw skills`   | `list` · `config`                                                                    |        否         |
+| `copaw clean`    | —                                                                                    |        否         |
 
 ---
 

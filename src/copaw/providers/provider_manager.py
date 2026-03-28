@@ -448,7 +448,7 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     freeze_url=True,
 )
 
-PROVIDER_LLAMACPP = OpenAIProvider(
+PROVIDER_LOCAL = OpenAIProvider(
     id="copaw-local",
     name="CoPaw Local",
     is_local=True,
@@ -597,6 +597,7 @@ class ProviderManager:
                 pass
 
     def _init_builtins(self):
+        self._add_builtin(PROVIDER_LOCAL)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
@@ -611,7 +612,6 @@ class ProviderManager:
         self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
-        self._add_builtin(PROVIDER_LLAMACPP)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider

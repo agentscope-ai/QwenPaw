@@ -69,7 +69,7 @@ class OllamaProvider(OpenAIProvider):
     ) -> tuple[bool, str]:
         raise NotImplementedError(
             "Please delete models directly in Ollama or use "
-            "`ollama remove <model>` CLI command.",
+            "`ollama rm <model>` CLI command.",
         )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:

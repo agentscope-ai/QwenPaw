@@ -520,6 +520,7 @@ class ModelManager:
             response = httpx.get(
                 "https://huggingface.co",
                 follow_redirects=True,
+                timeout=5,
             )
         except httpx.HTTPError:
             return False
