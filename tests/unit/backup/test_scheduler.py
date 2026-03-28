@@ -6,7 +6,6 @@ import json
 import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -187,7 +186,7 @@ def test_list_backups(tmp_path: Path) -> None:
 
 def test_list_backups_empty(tmp_path: Path) -> None:
     scheduler = BackupScheduler()
-    assert scheduler.list_backups(tmp_path / "nope") == []
+    assert not scheduler.list_backups(tmp_path / "nope")
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +204,7 @@ async def test_restore_from_backup(tmp_path: Path) -> None:
     from copaw.backup.models import ExportOptions
 
     exporter = AssetExporter()
-    export_result = await exporter.export_assets(
+    await exporter.export_assets(
         ExportOptions(
             workspace_dir=ws,
             output_path=output,

@@ -116,14 +116,6 @@ def test_sensitive_fields_redacted(config: dict) -> None:
     **Validates: Requirements 7.1, 7.2, 7.3**
     """
     sanitized = sanitize_preferences(config)
-    for key, value in _collect_sensitive_values(sanitized):
-        # If the original value was a non-empty string, it must now be REDACTED
-        # Otherwise (non-string, empty string, dict, list) it may differ
-        original_pairs = _collect_sensitive_values(config)
-        original_map: dict[str, list[object]] = {}
-        for k, v in original_pairs:
-            original_map.setdefault(k, []).append(v)
-
     # Direct check: walk sanitized and verify
     _assert_all_sensitive_redacted(config, sanitized)
 

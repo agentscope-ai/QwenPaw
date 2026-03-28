@@ -22,9 +22,7 @@ from copaw.backup.models import (
 )
 from copaw.backup.version_checker import (
     CURRENT_SCHEMA_VERSION,
-    _MIGRATIONS,
     check_compatibility,
-    get_migration_path,
     migrate_manifest,
     parse_version,
 )
