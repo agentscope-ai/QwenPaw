@@ -58,7 +58,7 @@ CoPaw 由 [AgentScope 团队](https://github.com/agentscope-ai) 基于
 ## 建议的阅读与操作顺序
 
 1. **[快速开始](./quickstart)** — 用三条命令把服务跑起来。
-2. **[控制台](./console)** — 服务启动后，**在配置频道之前**，可以先在这里（浏览器打开服务根地址）与 CoPAW 对话，也可以在这里配置 Agent；先看控制台有助于理解 CoPAW 怎么用。
+2. **[控制台](./console)** — 服务启动后，**在配置频道之前**，可以先在这里（浏览器打开服务根地址）与 CoPaw 对话，也可以在这里配置 Agent；先看控制台有助于理解 CoPaw 怎么用。
 3. **按需配置与使用**：
    - [频道配置](./channels) — 接入钉钉 / 飞书 / QQ / Discord / iMessage，在对应 app 里与 CoPaw 对话；
    - [心跳](./heartbeat) — 配置定时自检或摘要（可选）；

@@ -193,11 +193,12 @@ function SkillsPage() {
           source_name: sourceName !== targetName ? sourceName : undefined,
           config: values.config,
         });
+        await api.updateSkillChannels(result.name, values.channels || ["all"]);
         if (result.mode === "noop") {
           setDrawerOpen(false);
+          await refreshSkills();
           return;
         }
-        await api.updateSkillChannels(result.name, values.channels || ["all"]);
         message.success(
           result.mode === "rename"
             ? `${t("common.save")}: ${result.name}`
@@ -345,12 +346,13 @@ function SkillsPage() {
 
   return (
     <div className={styles.skillsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("skills.title")}</h1>
-          <p className={styles.description}>{t("skills.description")}</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>{t("skills.title")}</span>
         </div>
-        <div className={styles.headerActions}>
+        <div className={styles.headerRight}>
           <input
             type="file"
             accept=".zip"
@@ -361,7 +363,7 @@ function SkillsPage() {
           <div className={styles.headerActionsLeft}>
             <Tooltip title={t("skills.downloadFromPoolHint")}>
               <Button
-                type="primary"
+                type="default"
                 className={styles.primaryTransferButton}
                 onClick={() => setPoolModal("download")}
                 icon={<DownloadOutlined />}
@@ -371,7 +373,7 @@ function SkillsPage() {
             </Tooltip>
             <Tooltip title={t("skills.uploadToPoolHint")}>
               <Button
-                type="primary"
+                type="default"
                 className={styles.primaryTransferButton}
                 onClick={() => setPoolModal("upload")}
                 icon={<SwapOutlined />}
@@ -405,8 +407,8 @@ function SkillsPage() {
             </Tooltip>
             <Tooltip title={t("skills.createSkillHint")}>
               <Button
-                type="default"
-                className={styles.creationActionButton}
+                type="primary"
+                className={styles.primaryActionButton}
                 onClick={handleCreate}
                 icon={<PlusOutlined />}
               >
@@ -441,7 +443,7 @@ function SkillsPage() {
           <p className={styles.emptyStateText}>{t("skills.emptyStateText")}</p>
           <div className={styles.emptyStateActions}>
             <Button
-              type="primary"
+              type="default"
               className={styles.primaryTransferButton}
               onClick={() => setPoolModal("download")}
               icon={<DownloadOutlined />}
@@ -449,8 +451,8 @@ function SkillsPage() {
               {t("skills.emptyStateDownload")}
             </Button>
             <Button
-              type="default"
-              className={styles.creationActionButton}
+              type="primary"
+              className={styles.primaryActionButton}
               onClick={handleCreate}
               icon={<PlusOutlined />}
             >

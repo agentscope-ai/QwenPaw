@@ -72,6 +72,8 @@
     "saveFailed": "保存失败"
   },
   "agent": {
+    "parent": "设置",
+    "agents": "智能体",
     "management": "智能体管理",
     "pageDescription": "创建、配置和管理多个 AI 智能体，支持自定义工作空间和身份。",
     "name": "名称",
@@ -140,6 +142,8 @@
     "invalidSkillUrlSource": "技能 URL 当前需要以 https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/ 或 https://modelscope.cn/skills/ 开头",
     "type": "类型",
     "skillDescription": "描述",
+    "builtin": "内置",
+    "custom": "自定义",
     "createSkill": "创建技能",
     "viewSkill": "查看技能",
     "editSkill": "编辑技能",
@@ -266,7 +270,9 @@
     "statusOutdated": "已过期",
     "statusNotSynced": "未同步",
     "statusConflict": "冲突",
-    "renameEntry": "\"{{name}}\" 的新名称："
+    "renameEntry": "\"{{name}}\" 的新名称：",
+    "builtin": "内置",
+    "custom": "自定义"
   },
   "mcp": {
     "title": "MCP 客户端",
@@ -500,6 +506,8 @@
     "sessionNamePlaceholder": "会话名称"
   },
   "environments": {
+    "parent": "设置",
+    "environments": "环境变量",
     "title": "环境变量",
     "description": "为智能体和技能配置键值环境变量。",
     "key": "键",
@@ -636,6 +644,7 @@
     "providerDeleted": "提供商 \"{{name}}\" 已删除",
     "providerDeleteFailed": "删除提供商失败",
     "manageModels": "模型",
+    "models": "模型",
     "manageModelsTitle": "{{provider}} — 模型管理",
     "userAdded": "用户添加",
     "addModel": "添加模型",
@@ -902,7 +911,10 @@
     "enableAllSuccess": "全部工具已启用",
     "disableAllSuccess": "全部工具已禁用",
     "allEnabled": "所有工具已处于启用状态",
-    "allDisabled": "所有工具已处于禁用状态"
+    "allDisabled": "所有工具已处于禁用状态",
+    "asyncExecution": "异步执行",
+    "asyncExecutionEnabled": "异步执行已启用",
+    "asyncExecutionDisabled": "异步执行已禁用"
   },
   "modelConfig": {
     "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",
@@ -919,7 +931,8 @@
     "docs": "文档",
     "tutorial": "教程",
     "faq": "常见问题",
-    "github": "GitHub"
+    "github": "GitHub",
+    "updateAvailable": "有可用更新"
   },
   "theme": {
     "dark": "深色",
@@ -943,6 +956,21 @@
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
+    "inputPlaceholder": "输入 / 查看快捷指令；审批时可使用 /approve 或 /deny ...",
+    "commands": {
+      "clear": {
+        "description": "清空对话上下文"
+      },
+      "compact": {
+        "description": "清空对话上下文并生成历史对话摘要"
+      },
+      "approve": {
+        "description": "批准待执行的工具操作并继续执行"
+      },
+      "deny": {
+        "description": "拒绝待执行的工具操作"
+      }
+    },
     "attachments": {
       "tooltip": "支持文档、图片、视频、音频等多种格式，单文件不超过10MB",
       "tooltipImageOnly": "当前模型仅支持图片上传，单文件不超过10MB",
@@ -955,6 +983,8 @@
     }
   },
   "security": {
+    "parent": "设置",
+    "security": "安全",
     "title": "安全",
     "description": "管理工具和技能的安全功能。",
     "toolGuardTitle": "工具防护",

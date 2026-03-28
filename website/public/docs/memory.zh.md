@@ -1,6 +1,6 @@
 # 长期记忆
 
-**长期记忆** 让 CoPAW 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
+**长期记忆** 让 CoPaw 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
 
 > 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。
 

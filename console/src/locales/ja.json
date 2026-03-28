@@ -46,6 +46,8 @@
     "agents": "エージェント管理"
   },
   "agent": {
+    "parent": "設定",
+    "agents": "エージェント",
     "management": "エージェント管理",
     "pageDescription": "カスタムワークスペースとアイデンティティを持つ複数の AI エージェントを作成、設定、管理します。",
     "name": "名前",
@@ -128,6 +130,8 @@
     "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/、または https://modelscope.cn/skills/ で始まる必要があります",
     "type": "タイプ",
     "skillDescription": "説明",
+    "builtin": "組み込み",
+    "custom": "カスタム",
     "createSkill": "スキルを作成",
     "viewSkill": "スキルを表示",
     "editSkill": "スキルを編集",
@@ -242,7 +246,9 @@
     "statusOutdated": "古いです",
     "statusNotSynced": "未同期",
     "statusConflict": "競合",
-    "renameEntry": "\"{{name}}\" の新しい名前："
+    "renameEntry": "\"{{name}}\" の新しい名前：",
+    "builtin": "組み込み",
+    "custom": "カスタム"
   },
   "mcp": {
     "title": "MCPクライアント",
@@ -472,6 +478,8 @@
     "sessionNamePlaceholder": "セッション名"
   },
   "environments": {
+    "parent": "設定",
+    "environments": "環境変数",
     "title": "環境変数",
     "description": "エージェントとスキルのキー・バリュー形式の環境変数を設定します。",
     "key": "キー",
@@ -608,6 +616,7 @@
     "providerDeleted": "プロバイダー \"{{name}}\" を削除しました",
     "providerDeleteFailed": "プロバイダーの削除に失敗しました",
     "manageModels": "モデル",
+    "models": "モデル",
     "manageModelsTitle": "{{provider}} — モデル管理",
     "userAdded": "ユーザー追加",
     "addModel": "モデルを追加",
@@ -891,7 +900,8 @@
     "docs": "ドキュメント",
     "tutorial": "チュートリアル",
     "faq": "よくある質問",
-    "github": "GitHub"
+    "github": "GitHub",
+    "updateAvailable": "利用可能な更新"
   },
   "theme": {
     "dark": "ダーク",
@@ -915,6 +925,21 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
+    "inputPlaceholder": "/ を入力してコマンドを表示。承認時は /approve または /deny を使えます...",
+    "commands": {
+      "clear": {
+        "description": "会話のコンテキストをクリア"
+      },
+      "compact": {
+        "description": "会話のコンテキストをクリアし、会話履歴の要約を生成"
+      },
+      "approve": {
+        "description": "保留中のツール操作を承認して実行を続行"
+      },
+      "deny": {
+        "description": "保留中のツール操作を拒否"
+      }
+    },
     "attachments": {
       "tooltip": "ドキュメント、画像、動画、音声など、様々な形式に対応。1ファイルあたり最大10MB",
       "tooltipImageOnly": "現在のモデルは画像アップロードのみ対応、1ファイルあたり最大10MB",
@@ -927,6 +952,8 @@
     }
   },
   "security": {
+    "parent": "設定",
+    "security": "セキュリティ",
     "title": "セキュリティ",
     "description": "ツールとスキルのセキュリティ機能を管理します。",
     "toolGuardTitle": "ツールガード",

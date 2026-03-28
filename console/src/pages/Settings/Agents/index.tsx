@@ -112,8 +112,8 @@ export default function AgentsPage() {
   return (
     <div className={styles.agentsPage}>
       <PageHeader
-        title={t("agent.management")}
-        description={t("agent.pageDescription")}
+        parent={t("agent.parent")}
+        current={t("agent.agents")}
         action={
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
             {t("agent.create")}

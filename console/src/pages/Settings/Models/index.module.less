@@ -1,5 +1,39 @@
 .settingsPage {
-  padding: 24px;
+}
+
+/* ---- Page Header (breadcrumb style) ---- */
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  margin-bottom: 0;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
 }
 
 .loading {
@@ -43,6 +77,7 @@
 
 .providerGroup {
   margin-bottom: 24px;
+  padding: 16px;
 
   &:last-of-type {
     margin-bottom: 0;
@@ -78,16 +113,9 @@
   background: #fff;
   display: flex;
   flex-direction: column;
-
-  &.enabledCard {
-    border: 2px solid #615ced !important;
-    box-shadow: rgba(97, 92, 237, 0.2) 0px 8px 24px !important;
-  }
-
-  &.hover {
-    border: 1px solid #615ced;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
-  }
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 16px;
+  padding-bottom: 16px;
 
   &.normal {
     border: 1px solid rgba(0, 0, 0, 0.04);
@@ -99,7 +127,89 @@
     flex-direction: column;
     flex: 1;
     height: 100%;
+    padding: 0 !important;
   }
+}
+
+/* Card Status Header */
+.cardStatusHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.statusText {
+  font-size: 12px;
+  font-weight: 500;
+
+  &.enabled {
+    color: rgba(20, 184, 166, 1);
+  }
+
+  &.partial {
+    color: #faad14;
+  }
+
+  &.disabled {
+    color: #999;
+  }
+}
+
+/* Card Title Row */
+.cardTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cardName {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+/* Tags */
+.builtinTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background-color: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.customTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background-color: rgba(255, 247, 230, 0.8);
+  color: #ff7f16;
+  border: 1px solid rgba(255, 127, 22, 0.2);
+}
+
+.localTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background-color: rgba(29, 212, 215, 0.15);
+  color: rgba(29, 212, 215, 1);
+  border: 1px solid rgba(29, 212, 215, 0.25);
 }
 
 .statusContainer {
@@ -112,7 +222,7 @@
     font-weight: 500;
 
     &.enabled {
-      color: #52c41a;
+      color: rgba(20, 184, 166, 1);
     }
 
     &.partial {
@@ -155,9 +265,8 @@
 .cardInfo {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 16px;
-  min-height: 66px;
+  gap: 4px;
+  margin-bottom: 12px;
 }
 
 .infoRow {
@@ -165,18 +274,17 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #666;
 }
 
 .infoLabel {
-  color: #999;
-  min-width: 70px;
+  color: rgba(0, 0, 0, 0.45);
+  min-width: 60px;
   flex-shrink: 0;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .infoValue {
-  color: #333;
+  color: rgba(0, 0, 0, 0.65);
   font-family: "SF Mono", "Menlo", monospace;
   font-size: 12px;
   overflow: hidden;
@@ -184,36 +292,33 @@
   white-space: nowrap;
   flex: 1;
   min-width: 0;
-  max-width: calc(100% - 80px);
-  text-align: left;
 }
 
 .infoEmpty {
-  color: #ccc;
+  color: rgba(0, 0, 0, 0.25);
   font-style: italic;
 }
 
+/* Card Actions */
 .cardActions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
-  padding-top: 14px;
-  border-top: 1px solid #f0f0f0;
+  padding-top: 12px;
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  background: #fff;
+  z-index: 10;
 }
 
-.configBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 14px;
-  color: #555;
+.actionBtn {
+  flex: 1;
+  height: 32px;
   font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-  line-height: 1;
-  white-space: nowrap;
+  border-radius: 6px;
 }
 
 /* ---- Modal Footer ---- */
@@ -273,7 +378,7 @@
     box-shadow 0.2s ease;
 
   &:focus-within {
-    border-color: #615ced;
+    border-color: #ff7f16;
     box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.12);
   }
 }
@@ -344,6 +449,7 @@
 
 .slotSection {
   padding: 24px;
+  margin: 20px;
   background: #ffffff;
   border-radius: 16px;
   border: 1px solid #e8e8e8;
@@ -429,9 +535,11 @@
 .sectionHeaderRow {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
   margin-bottom: 0;
+  width: 100%;
+  border-bottom: 1px solid #f0f0f0;
 
   .section {
     flex: 1;
@@ -441,7 +549,7 @@
 
 .addProviderBtn {
   flex-shrink: 0;
-  margin-top: 4px;
+  margin-right: 20px;
 }
 
 /* ---- Search Row ---- */
@@ -450,7 +558,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 16px 0;
+  margin: 16px;
   padding: 0;
 }
 
@@ -538,6 +646,22 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
   .loadingText {
     color: rgba(255, 255, 255, 0.35);
   }
@@ -560,13 +684,30 @@
     }
 
     &.hover {
-      border-color: #615ced !important;
       box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
     }
   }
 
   .cardName {
     color: rgba(255, 255, 255, 0.85);
+  }
+
+  .builtinTag {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .customTag {
+    background-color: rgba(255, 127, 22, 0.15);
+    color: #ff9d4d;
+    border-color: rgba(255, 127, 22, 0.25);
+  }
+
+  .localTag {
+    background-color: rgba(29, 212, 215, 0.15);
+    color: rgba(29, 212, 215, 1);
+    border-color: rgba(29, 212, 215, 0.3);
   }
 
   .infoRow {
@@ -587,10 +728,15 @@
 
   .cardActions {
     border-top-color: rgba(255, 255, 255, 0.08);
+    background: #2a2a2a;
   }
 
   .configBtn {
-    color: rgba(255, 255, 255, 0.55);
+    color: rgba(255, 255, 255, 0.65) !important;
+
+    &:hover {
+      color: #ff7f16 !important;
+    }
   }
 
   .statusContainer .statusText.disabled {
@@ -646,7 +792,7 @@
     background: #1a1a1a;
 
     &:focus-within {
-      border-color: #615ced;
+      border-color: #ff7f16;
     }
   }
 
@@ -686,5 +832,31 @@
   .modelAddForm {
     background: rgba(255, 255, 255, 0.03);
     border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  /* Provider cards */
+  .providerCard {
+    background: #2a2a2a;
+
+    &.normal {
+      border: 1px solid rgba(255, 255, 255, 0.08) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+    }
+  }
+
+  .cardName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .infoLabel {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .infoValue {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .infoEmpty {
+    color: rgba(255, 255, 255, 0.3);
   }
 }

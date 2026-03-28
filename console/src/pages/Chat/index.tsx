@@ -19,9 +19,11 @@ import type { ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
+import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
+import ChatActionGroup from "./components/ChatActionGroup";
+import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
   toDisplayUrl,
   copyText,
@@ -46,6 +48,21 @@ interface CustomWindow extends Window {
 }
 
 declare const window: CustomWindow;
+
+interface CommandSuggestion {
+  command: string;
+  value: string;
+  description: string;
+}
+
+function renderSuggestionLabel(command: string, description: string) {
+  return (
+    <div className={styles.suggestionLabel}>
+      <span className={styles.suggestionCommand}>{command}</span>
+      <span className={styles.suggestionDescription}>{description}</span>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -472,6 +489,28 @@ export default function ChatPage() {
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
+    const commandSuggestions: CommandSuggestion[] = [
+      {
+        command: "/clear",
+        value: "clear",
+        description: t("chat.commands.clear.description"),
+      },
+      {
+        command: "/compact",
+        value: "compact",
+        description: t("chat.commands.compact.description"),
+      },
+      {
+        command: "/approve",
+        value: "approve",
+        description: t("chat.commands.approve.description"),
+      },
+      {
+        command: "/deny",
+        value: "deny",
+        description: t("chat.commands.deny.description"),
+      },
+    ];
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -489,15 +528,18 @@ export default function ChatPage() {
         rightHeader: (
           <>
             <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
+            <ChatHeaderTitle />
+            <span style={{ flex: 1 }} />
             <ModelSelector />
+            <ChatActionGroup />
           </>
         ),
       },
       welcome: {
         ...i18nConfig.welcome,
-        avatar: isDark
-          ? `${import.meta.env.BASE_URL}copaw-dark.png`
-          : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
+        nick: "CoPaw",
+        avatar:
+          "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png",
       },
       sender: {
         ...(i18nConfig as any)?.sender,
@@ -523,8 +565,17 @@ export default function ChatPage() {
           accept: "*/*",
           customRequest: handleFileUpload,
         },
+        placeholder: t("chat.inputPlaceholder"),
+        suggestions: commandSuggestions.map((item) => ({
+          label: renderSuggestionLabel(item.command, item.description),
+          value: item.value,
+        })),
       },
-      session: { multiple: true, api: sessionApi },
+      session: {
+        multiple: true,
+        hideBuiltInSessionList: true,
+        api: sessionApi,
+      },
       api: {
         ...defaultConfig.api,
         fetch: customFetch,

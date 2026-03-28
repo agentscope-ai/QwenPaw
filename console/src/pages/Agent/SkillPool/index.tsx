@@ -10,7 +10,6 @@ import {
   Form,
 } from "@agentscope-ai/design";
 import {
-  DeleteOutlined,
   ImportOutlined,
   PlusOutlined,
   SendOutlined,
@@ -36,7 +35,7 @@ import {
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { ImportBuiltinModal } from "./components/ImportBuiltinModal";
-import styles from "../Skills/index.module.less";
+import styles from "./index.module.less";
 
 type PoolMode = "broadcast" | "create" | "edit";
 
@@ -57,6 +56,7 @@ function SkillPoolPage() {
   const [importBuiltinLoading, setImportBuiltinLoading] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
 
@@ -519,12 +519,13 @@ function SkillPoolPage() {
 
   return (
     <div className={styles.skillsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("nav.skillPool")}</h1>
-          <p className={styles.description}>{t("skillPool.description")}</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>{t("nav.skillPool")}</span>
         </div>
-        <div className={styles.headerActions}>
+        <div className={styles.headerRight}>
           <input
             type="file"
             accept=".zip"
@@ -532,48 +533,57 @@ function SkillPoolPage() {
             onChange={handleZipImport}
             style={{ display: "none" }}
           />
-          <Tooltip title={t("skillPool.broadcastHint")}>
-            <Button
-              type="primary"
-              className={styles.primaryTransferButton}
-              icon={<SendOutlined />}
-              onClick={() => openBroadcast()}
-            >
-              {t("skillPool.broadcast")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("skillPool.importBuiltinHint")}>
-            <Button
-              type="default"
-              icon={<SyncOutlined />}
-              onClick={() => void openImportBuiltin()}
-            >
-              {t("skillPool.importBuiltin")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("skills.importHubHint")}>
-            <Button
-              type="default"
-              icon={<ImportOutlined />}
-              onClick={() => setImportModalOpen(true)}
-            >
-              {t("skills.importHub")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("skills.uploadZipHint")}>
-            <Button
-              type="default"
-              icon={<UploadOutlined />}
-              onClick={() => zipInputRef.current?.click()}
-            >
-              {t("skills.uploadZip")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("skills.createSkillHint")}>
-            <Button type="default" icon={<PlusOutlined />} onClick={openCreate}>
-              {t("skills.createSkill")}
-            </Button>
-          </Tooltip>
+          <div className={styles.headerActionsLeft}>
+            <Tooltip title={t("skillPool.broadcastHint")}>
+              <Button
+                type="default"
+                className={styles.primaryTransferButton}
+                icon={<SendOutlined />}
+                onClick={() => openBroadcast()}
+              >
+                {t("skillPool.broadcast")}
+              </Button>
+            </Tooltip>
+            <Tooltip title={t("skillPool.importBuiltinHint")}>
+              <Button
+                type="default"
+                icon={<SyncOutlined />}
+                onClick={() => void openImportBuiltin()}
+              >
+                {t("skillPool.importBuiltin")}
+              </Button>
+            </Tooltip>
+          </div>
+          <div className={styles.headerActionsRight}>
+            <Tooltip title={t("skills.importHubHint")}>
+              <Button
+                type="default"
+                icon={<ImportOutlined />}
+                onClick={() => setImportModalOpen(true)}
+              >
+                {t("skills.importHub")}
+              </Button>
+            </Tooltip>
+            <Tooltip title={t("skills.uploadZipHint")}>
+              <Button
+                type="default"
+                icon={<UploadOutlined />}
+                onClick={() => zipInputRef.current?.click()}
+              >
+                {t("skills.uploadZip")}
+              </Button>
+            </Tooltip>
+            <Tooltip title={t("skills.createSkillHint")}>
+              <Button
+                type="primary"
+                className={styles.primaryActionButton}
+                icon={<PlusOutlined />}
+                onClick={openCreate}
+              >
+                {t("skills.createSkill")}
+              </Button>
+            </Tooltip>
+          </div>
         </div>
       </div>
 
@@ -588,77 +598,73 @@ function SkillPoolPage() {
               key={skill.name}
               className={styles.skillCard}
               onClick={() => openEdit(skill)}
+              onMouseEnter={() => setHoverKey(skill.name)}
+              onMouseLeave={() => setHoverKey(null)}
               style={{ cursor: "pointer" }}
             >
               <div className={styles.cardBody}>
                 <div className={styles.cardHeader}>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 8 }}
-                  >
+                  <div className={styles.leftSection}>
                     <span className={styles.fileIcon}>
                       {getSkillVisual(skill.name, skill.content)}
                     </span>
-                    <h3 className={styles.skillTitle}>{skill.name}</h3>
+                    <div className={styles.titleRow}>
+                      <h3 className={styles.skillTitle}>{skill.name}</h3>
+                      <span
+                        className={
+                          getSkillDisplaySource(skill.source) === "builtin"
+                            ? styles.builtinTag
+                            : styles.customizedTag
+                        }
+                      >
+                        {getSkillDisplaySource(skill.source) === "builtin"
+                          ? t("skillPool.builtin")
+                          : t("skillPool.custom")}
+                      </span>
+                    </div>
                   </div>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    <span
-                      className={
-                        getSkillDisplaySource(skill.source) === "builtin"
-                          ? styles.builtinTag
-                          : styles.customizedTag
-                      }
-                    >
-                      {getSkillDisplaySource(skill.source)}
+                </div>
+                <div className={styles.descriptionContainer}>
+                  <p className={styles.descriptionLabel}>
+                    {t("skillPool.descriptionLabel")}
+                  </p>
+                  <p className={styles.descriptionText}>
+                    {skill.description || "-"}
+                  </p>
+                </div>
+                <div className={styles.metaContainer}>
+                  <div className={styles.metaItem}>
+                    <span className={styles.metaLabel}>
+                      {t("skillPool.status")}
+                    </span>
+                    <span className={styles.metaValue}>
+                      {getPoolBuiltinStatusLabel(skill.sync_status, t)}
                     </span>
                   </div>
                 </div>
-                <div className={styles.descriptionSection}>
-                  <div className={styles.infoLabel}>
-                    {t("skillPool.descriptionLabel")}
-                  </div>
-                  <div
-                    className={`${styles.infoBlock} ${styles.descriptionContent}`}
+              </div>
+              {hoverKey === skill.name && (
+                <div className={styles.cardFooter}>
+                  <Button
+                    className={styles.actionButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openBroadcast(skill);
+                    }}
                   >
-                    {skill.description || "-"}
-                  </div>
+                    {t("skillPool.broadcast")}
+                  </Button>
+                  <Button
+                    className={styles.deleteButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDelete(skill);
+                    }}
+                  >
+                    {t("skillPool.delete")}
+                  </Button>
                 </div>
-                <div className={styles.descriptionSection}>
-                  <div className={styles.infoLabel}>
-                    {t("skillPool.status")}
-                  </div>
-                  <div className={styles.infoBlock}>
-                    {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-                  </div>
-                </div>
-              </div>
-              <div className={styles.cardFooter}>
-                <Button
-                  type="link"
-                  size="small"
-                  className={styles.accentLinkAction}
-                  icon={<SendOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openBroadcast(skill);
-                  }}
-                >
-                  {t("skillPool.broadcast")}
-                </Button>
-                <Button
-                  type="link"
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDelete(skill);
-                  }}
-                >
-                  {t("skillPool.delete")}
-                </Button>
-              </div>
+              )}
             </Card>
           ))}
         </div>

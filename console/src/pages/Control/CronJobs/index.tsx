@@ -199,10 +199,13 @@ function CronJobsPage() {
 
   return (
     <div className={styles.cronJobsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("cronJobs.title")}</h1>
-          <p className={styles.description}>{t("cronJobs.description")}</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Control</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>
+            {t("cronJobs.title")}
+          </span>
         </div>
         <Button type="primary" onClick={handleCreate}>
           + {t("cronJobs.createJob")}

@@ -140,7 +140,7 @@
 
 3. 在 `config.json` 中填写上述 **App ID** 和 **App Secret**（见下方「填写 config.json」），保存
 
-4. 执行 **`copaw app`** 启动 CoPAW 服务
+4. 执行 **`copaw app`** 启动 CoPaw 服务
 
 5. 回到飞书开放平台，在「能力」中启用 **机器人**
 
@@ -237,7 +237,7 @@
 | 获取与上传图片或文件资源       | im:resource                    | 应用身份     | -              |
 | **以应用身份读取通讯录**       | **contact:user.base:readonly** | **应用身份** | **见下方说明** |
 
-> **获取用户昵称（推荐）**：若希望会话和日志中显示**用户昵称**（如「张三#1d1a」）而非「unknown#1d1a」，需额外开通通讯录只读权限 **以应用身份读取通讯录**（`contact:user.base:readonly`）。未开通时，飞书仅返回 open_id 等身份字段，不返回姓名，CoPAW 无法解析昵称。开通后需重新发布/更新应用版本，权限生效后即可正常显示用户名称。
+> **获取用户昵称（推荐）**：若希望会话和日志中显示**用户昵称**（如「张三#1d1a」）而非「unknown#1d1a」，需额外开通通讯录只读权限 **以应用身份读取通讯录**（`contact:user.base:readonly`）。未开通时，飞书仅返回 open_id 等身份字段，不返回姓名，CoPaw 无法解析昵称。开通后需重新发布/更新应用版本，权限生效后即可正常显示用户名称。
 
 ### 将机器人添加到常用
 
@@ -682,7 +682,7 @@ JSON消息格式
 
 2. 模糊匹配订阅和自动推送
 
-   模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送，OpenClaw处理完后，将会向`/client/client_b/down`推送消息。
+   模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送CoPaw处理完后，将会向`/client/client_b/down`推送消息。
 
    | subscribe_topic | publish_topic           |
    | --------------- | ----------------------- |
@@ -699,7 +699,7 @@ JSON消息格式
    }
    ```
 
-   消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以OpenClaw为核心，根据个人需求，多设备间自主推送消息。
+   消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以CoPaw为核心，根据个人需求，多设备间自主推送消息。
 
 ---
 
@@ -829,7 +829,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 | Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | 🚧       | 🚧       | 🚧       | 🚧       | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
-| 企业微信   | ✓        | ✓        | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 企业微信   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 微信个人   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | Telegram   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
@@ -844,7 +844,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
-- **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收文本、图片、语音和文件；发送媒体暂不支持（SDK 限制，仅支持通过 markdown 发送文本）。
+- **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收和发送文本、图片、语音、视频和文件。
 - **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送当前仅支持文本（iLink API 限制）。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
 - **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。

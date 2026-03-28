@@ -78,10 +78,7 @@ function ModelsPage() {
       ) : (
         <>
           {/* ---- LLM Section (top) ---- */}
-          <PageHeader
-            title={t("models.llmTitle")}
-            description={t("models.llmDescription")}
-          />
+          <PageHeader parent="Settings" current={t("models.llmTitle")} />
           <ModelsSection
             providers={providers}
             activeModels={activeModels}
@@ -91,8 +88,8 @@ function ModelsPage() {
           <div className={styles.providersBlock}>
             <div className={styles.sectionHeaderRow}>
               <PageHeader
-                title={t("models.providersTitle")}
-                description={t("models.providersDescription")}
+                parent="Settings"
+                current={t("models.providersTitle")}
               />
               <Button
                 type="primary"

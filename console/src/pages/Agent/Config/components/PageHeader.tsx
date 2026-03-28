@@ -4,10 +4,13 @@ import styles from "../index.module.less";
 export function PageHeader() {
   const { t } = useTranslation();
   return (
-    <div className={styles.header}>
-      <div>
-        <h1 className={styles.title}>{t("agentConfig.title")}</h1>
-        <p className={styles.description}>{t("agentConfig.description")}</p>
+    <div className={styles.pageHeader}>
+      <div className={styles.breadcrumbHeader}>
+        <span className={styles.breadcrumbParent}>Agent</span>
+        <span className={styles.breadcrumbSeparator}>/</span>
+        <span className={styles.breadcrumbCurrent}>
+          {t("agentConfig.title")}
+        </span>
       </div>
     </div>
   );

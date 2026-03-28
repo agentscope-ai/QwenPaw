@@ -5,6 +5,7 @@ export interface ChatSpec {
   session_id: string; // Session identifier (channel:user_id format)
   user_id: string; // User identifier
   channel: string; // Channel name, default: "default"
+  name?: string; // Chat display name
   created_at: string | null; // Chat creation timestamp (ISO 8601)
   updated_at: string | null; // Chat last update timestamp (ISO 8601)
   meta?: Record<string, unknown>; // Additional metadata

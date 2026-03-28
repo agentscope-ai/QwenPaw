@@ -4,6 +4,7 @@ import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
 import { useTranslation } from "react-i18next";
+import styles from "./index.module.less";
 
 type MCPTransport = "stdio" | "streamable_http" | "sse";
 
@@ -159,22 +160,12 @@ function MCPPage() {
   };
 
   return (
-    <div style={{ padding: 24 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 600, marginBottom: 4 }}>
-            {t("mcp.title")}
-          </h1>
-          <p style={{ margin: 0, color: "#999", fontSize: 14 }}>
-            {t("mcp.description")}
-          </p>
+    <div className={styles.mcpPage}>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>{t("mcp.title")}</span>
         </div>
         <Button type="primary" onClick={() => setCreateModalOpen(true)}>
           {t("mcp.create")}
@@ -182,19 +173,13 @@ function MCPPage() {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: 60 }}>
-          <p style={{ color: "#999" }}>{t("common.loading")}</p>
+        <div className={styles.loading}>
+          <p>{t("common.loading")}</p>
         </div>
       ) : clients.length === 0 ? (
         <Empty description={t("mcp.emptyState")} />
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
-            gap: 20,
-          }}
-        >
+        <div className={styles.mcpGrid}>
           {clients.map((client) => (
             <MCPClientCard
               key={client.key}
@@ -215,7 +200,7 @@ function MCPPage() {
         open={createModalOpen}
         onCancel={() => setCreateModalOpen(false)}
         footer={
-          <div style={{ textAlign: "right" }}>
+          <div className={styles.modalFooter}>
             <Button
               onClick={() => setCreateModalOpen(false)}
               style={{ marginRight: 8 }}
@@ -229,27 +214,18 @@ function MCPPage() {
         }
         width={800}
       >
-        <div style={{ marginBottom: 12 }}>
-          <p style={{ margin: 0, fontSize: 13, color: "#666" }}>
-            {t("mcp.formatSupport")}:
-          </p>
-          <ul
-            style={{
-              margin: "8px 0",
-              padding: "0 0 0 20px",
-              fontSize: 12,
-              color: "#999",
-            }}
-          >
+        <div className={styles.importHint}>
+          <p className={styles.importHintTitle}>{t("mcp.formatSupport")}:</p>
+          <ul className={styles.importHintList}>
             <li>
-              Standard format:{" "}
+              {t("mcp.standardFormat")}:{" "}
               <code>{`{ "mcpServers": { "key": {...} } }`}</code>
             </li>
             <li>
-              Direct format: <code>{`{ "key": {...} }`}</code>
+              {t("mcp.directFormat")}: <code>{`{ "key": {...} }`}</code>
             </li>
             <li>
-              Single format:{" "}
+              {t("mcp.singleFormat")}:{" "}
               <code>{`{ "key": "...", "name": "...", "command": "..." }`}</code>
             </li>
           </ul>
@@ -258,10 +234,7 @@ function MCPPage() {
           value={newClientJson}
           onChange={(e) => setNewClientJson(e.target.value)}
           autoSize={{ minRows: 15, maxRows: 25 }}
-          style={{
-            fontFamily: "Monaco, Courier New, monospace",
-            fontSize: 13,
-          }}
+          className={styles.jsonTextArea}
         />
       </Modal>
     </div>
