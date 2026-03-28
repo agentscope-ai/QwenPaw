@@ -37,6 +37,45 @@ class DownloadCancelled(Exception):
     pass
 
 
+class _ThreadedProcessStdout:
+    """Async adapter for a blocking subprocess stdout stream."""
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    async def readline(self) -> bytes:
+        return await asyncio.to_thread(self._stream.readline)
+
+
+class _ThreadedServerProcess:
+    """Minimal async-compatible wrapper around subprocess.Popen."""
+
+    def __init__(self, process: subprocess.Popen[bytes]) -> None:
+        self._process = process
+        self.stdout = (
+            _ThreadedProcessStdout(process.stdout)
+            if process.stdout is not None
+            else None
+        )
+
+    @property
+    def pid(self) -> int:
+        return self._process.pid
+
+    @property
+    def returncode(self) -> int | None:
+        return self._process.poll()
+
+    async def wait(self) -> int:
+        return await asyncio.to_thread(self._process.wait)
+
+    def terminate(self) -> None:
+        self._process.terminate()
+
+    def kill(self) -> None:
+        self._process.kill()
+
+
 class LlamaCppBackend:
     """
     CoPaw local model backend for managing llama.cpp server installation
@@ -52,7 +91,7 @@ class LlamaCppBackend:
         self.cuda_version = self._resolve_cuda_version()
         self.backend = self._resolve_backend()
         self.target_dir = DEFAULT_LOCAL_PROVIDER_DIR / "bin"
-        self._server_process: asyncio.subprocess.Process | None = None
+        self._server_process: Any | None = None
         self._server_log_task: asyncio.Task[None] | None = None
         self._server_port: int | None = None
         self._server_model_name: str | None = None
@@ -186,19 +225,11 @@ class LlamaCppBackend:
         process_kwargs: dict[str, Any] = {}
         if os.name != "nt":
             process_kwargs["start_new_session"] = True
-        process = await asyncio.create_subprocess_exec(
-            str(self.executable),
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--model",
-            str(resolved_model_path),
-            "--alias",
-            model_name,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            **process_kwargs,
+        process = await self._create_server_process(
+            resolved_model_path=resolved_model_path,
+            model_name=model_name,
+            port=port,
+            process_kwargs=process_kwargs,
         )
 
         self._server_process = process
@@ -222,6 +253,54 @@ class LlamaCppBackend:
             model_name,
         )
         return port
+
+    async def _create_server_process(
+        self,
+        resolved_model_path: Path,
+        model_name: str,
+        port: int,
+        process_kwargs: dict[str, Any],
+    ) -> Any:
+        command = [
+            str(self.executable),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--model",
+            str(resolved_model_path),
+            "--alias",
+            model_name,
+        ]
+        try:
+            return await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                **process_kwargs,
+            )
+        except NotImplementedError:
+            if os.name != "nt":
+                raise
+            logger.warning(
+                "Async subprocess creation is unavailable on this Windows "
+                "event loop; falling back to threaded subprocess launch.",
+            )
+            return await asyncio.to_thread(
+                self._create_threaded_server_process,
+                command,
+            )
+
+    def _create_threaded_server_process(
+        self,
+        command: list[str],
+    ) -> _ThreadedServerProcess:
+        process = subprocess.Popen(  # pylint: disable=consider-using-with
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        return _ThreadedServerProcess(process)
 
     async def shutdown_server(self) -> None:
         """Shutdown the llama.cpp server if it's running."""

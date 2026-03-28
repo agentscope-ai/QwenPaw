@@ -32,6 +32,35 @@ class _FakeServerProcess:
         self.returncode = -9
 
 
+class _FakeBlockingStdout:
+    def readline(self) -> bytes:
+        return b""
+
+
+class _FakePopen:
+    def __init__(self, pid: int = 2468) -> None:
+        self.pid = pid
+        self.stdout = _FakeBlockingStdout()
+        self._returncode: int | None = None
+        self.terminated = False
+        self.killed = False
+
+    def poll(self) -> int | None:
+        return self._returncode
+
+    def wait(self) -> int:
+        self._returncode = 0
+        return 0
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self._returncode = -15
+
+    def kill(self) -> None:
+        self.killed = True
+        self._returncode = -9
+
+
 class _FakeResponse:
     def __init__(
         self,
@@ -411,6 +440,78 @@ async def test_download_flattens_single_top_level_archive_dir(
     assert progress["local_path"] == str(dest)
     assert (dest / "bin" / "server").read_text() == "tar-binary"
     assert not (dest / "llama-b1234").exists()
+
+
+@pytest.mark.asyncio
+async def test_setup_server_falls_back_on_windows_not_implemented(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_path = tmp_path / "demo.gguf"
+    model_path.write_text("gguf")
+    fake_popen = _FakePopen()
+    popen_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    async def fail_create_subprocess_exec(*args, **kwargs):
+        raise NotImplementedError
+
+    def fake_popen_factory(*args, **kwargs):
+        popen_calls.append((args, kwargs))
+        return fake_popen
+
+    async def fake_server_ready(*_args, **_kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(downloader_module.os, "name", "nt", raising=False)
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        downloader_module.asyncio,
+        "create_subprocess_exec",
+        fail_create_subprocess_exec,
+    )
+    monkeypatch.setattr(
+        downloader_module.subprocess,
+        "Popen",
+        fake_popen_factory,
+    )
+    monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
+
+    port = await downloader.setup_server(model_path, "demo-model")
+    await asyncio.sleep(0)
+
+    assert port == downloader.get_server_status()["port"]
+    assert downloader.get_server_status() == {
+        "running": True,
+        "port": port,
+        "model_name": "demo-model",
+        "pid": fake_popen.pid,
+    }
+    assert popen_calls == [
+        (
+            (
+                [
+                    str(downloader.executable),
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(port),
+                    "--model",
+                    str(model_path.resolve()),
+                    "--alias",
+                    "demo-model",
+                ],
+            ),
+            {
+                "stdout": downloader_module.subprocess.PIPE,
+                "stderr": downloader_module.subprocess.STDOUT,
+            },
+        ),
+    ]
 
 
 def test_force_shutdown_server_kills_process_group_on_posix(
