@@ -151,10 +151,36 @@
   -webkit-box-orient: vertical;
 }
 
+.settingLabel {
+  font-size: 12px;
+  color: #999;
+}
+
+.inlineSettingItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  padding: 2px 10px 2px 8px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 16px;
+
+  :global {
+    .copaw-switch.copaw-switch-checked {
+      background: #f59e0b;
+    }
+
+    .copaw-switch.copaw-switch-checked:hover {
+      background: #d97706;
+    }
+  }
+}
+
 .cardFooter {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  gap: 12px;
   padding-top: 12px;
   border-top: 1px solid #f0f0f0;
 }

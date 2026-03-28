@@ -13,6 +13,7 @@ from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+from agentscope_runtime.engine.schemas.exception import AgentException
 from dotenv import load_dotenv
 
 from .command_dispatch import (
@@ -34,7 +35,7 @@ from ...constant import (
 from ...security.tool_guard.approval import ApprovalDecision
 
 if TYPE_CHECKING:
-    from ...agents.memory import MemoryManager
+    from ...agents.memory import BaseMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class AgentRunner(Runner):
         self,
         agent_id: str = "default",
         workspace_dir: Path | None = None,
+        task_tracker: Any | None = None,
     ) -> None:
         super().__init__()
         self.framework_type = "agentscope"
@@ -72,7 +74,9 @@ class AgentRunner(Runner):
         )
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
-        self.memory_manager: MemoryManager | None = None
+        self._workspace: Any = None  # Workspace instance for control commands
+        self.memory_manager: BaseMemoryManager | None = None
+        self._task_tracker = task_tracker  # Task tracker for background tasks
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -89,6 +93,14 @@ class AgentRunner(Runner):
             mcp_manager: MCPClientManager instance
         """
         self._mcp_manager = mcp_manager
+
+    def set_workspace(self, workspace):
+        """Set workspace for control command handlers.
+
+        Args:
+            workspace: Workspace instance
+        """
+        self._workspace = workspace
 
     _APPROVAL_TIMEOUT_SECONDS = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 
@@ -296,6 +308,7 @@ class AgentRunner(Runner):
                     ),
                 },
                 workspace_dir=self.workspace_dir,
+                task_tracker=self._task_tracker,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
@@ -367,7 +380,7 @@ class AgentRunner(Runner):
             logger.info(f"query_handler: {session_id} cancelled!")
             if agent is not None:
                 await agent.interrupt()
-            raise RuntimeError("Task has been cancelled!") from exc
+            raise AgentException("Task has been cancelled!") from exc
         except Exception as e:
             debug_dump_path = write_query_error_dump(
                 request=request,

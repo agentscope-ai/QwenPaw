@@ -4,7 +4,7 @@
 Each Workspace represents a standalone agent workspace with its own:
 - Runner (request processing)
 - ChannelManager (communication channels)
-- MemoryManager (conversation memory)
+- BaseMemoryManager (conversation memory)
 - MCPClientManager (MCP tool clients)
 - CronManager (scheduled tasks)
 
@@ -27,7 +27,6 @@ from ..runner.task_tracker import TaskTracker
 from ..mcp import MCPClientManager
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
-from ...agents.memory import MemoryManager
 from ...config.config import load_agent_config
 
 if TYPE_CHECKING:
@@ -36,13 +35,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _resolve_memory_class(backend: str) -> type:
+    """Return the memory manager class for the given backend name."""
+    from ...agents.memory import ReMeLightMemoryManager
+
+    if backend == "remelight":
+        return ReMeLightMemoryManager
+    raise ValueError(f"Unsupported memory manager backend: '{backend}'")
+
+
 class Workspace:
     """Single agent workspace with complete runtime components.
 
     Each Workspace is an independent agent instance with its own:
     - Runner: Processes agent requests
     - ChannelManager: Manages communication channels
-    - MemoryManager: Manages conversation memory
+    - BaseMemoryManager: Manages conversation memory
     - MCPClientManager: Manages MCP tool clients
     - CronManager: Manages scheduled tasks
 
@@ -150,6 +158,7 @@ class Workspace:
                 init_args=lambda ws: {
                     "agent_id": ws.agent_id,
                     "workspace_dir": ws.workspace_dir,
+                    "task_tracker": ws._task_tracker,
                 },
                 stop_method="stop",
                 priority=10,
@@ -161,7 +170,9 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="memory_manager",
-                service_class=MemoryManager,
+                service_class=lambda ws: _resolve_memory_class(
+                    ws._config.running.memory_manager_backend,
+                ),
                 init_args=lambda ws: {
                     "working_dir": str(ws.workspace_dir),
                     "agent_id": ws.agent_id,
@@ -286,7 +297,7 @@ class Workspace:
         Args:
             components: Dict mapping component name to instance.
                 Supported keys:
-                - 'memory_manager': MemoryManager instance
+                - 'memory_manager': BaseMemoryManager instance
                 - 'chat_manager': ChatManager instance
 
         Example:
@@ -315,6 +326,17 @@ class Workspace:
             return
 
         logger.info(f"Starting workspace: {self.agent_id}")
+
+        from ...agents.skills_manager import (
+            ensure_skill_pool_initialized,
+        )
+
+        try:
+            ensure_skill_pool_initialized()
+        except Exception as e:
+            logger.warning(
+                f"Skill pool initialization failed (non-fatal): {e}",
+            )
 
         try:
             # 1. Load agent configuration

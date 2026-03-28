@@ -34,6 +34,8 @@
 >
 > **由你掌控** — 记忆与个性化由你掌控，本地或云端均可；定时与协作发往指定频道。
 >
+> **多智能体** — 创建多个独立智能体，各司其职；启用协作技能，智能体间可互相通信协作。
+>
 > **Skills 扩展** — 内置定时任务，自定义技能目录，CoPaw 自动加载，无绑定。
 >
 > <details>
@@ -87,6 +89,7 @@
 - [本地模型](#本地模型)
 - [文档](#文档)
 - [常见问题](#常见问题)
+- [掌握最新动态](#掌握最新动态)
 - [路线图](#路线图)
 - [参与贡献](#参与贡献)
 - [从源码安装](#从源码安装)
@@ -378,6 +381,7 @@ copaw app # 启动服务
 | [上下文](https://copaw.agentscope.io/docs/context)       | 上下文管理机制                       |
 | [魔法命令](https://copaw.agentscope.io/docs/commands)           | 控制对话状态，无需等待AI理解        |
 | [心跳](https://copaw.agentscope.io/docs/heartbeat)        | 定时自检与摘要                       |
+| [多智能体](https://copaw.agentscope.io/docs/multi-agent)  | 创建多个智能体并启用协作             |
 | [配置与工作目录](https://copaw.agentscope.io/docs/config) | 工作目录与配置文件                   |
 | [CLI](https://copaw.agentscope.io/docs/cli)               | 初始化、定时任务、Skills、清理       |
 | [FAQ 常见问题](https://copaw.agentscope.io/docs/faq)               | 常见问题与报错排查                   |
@@ -392,6 +396,16 @@ copaw app # 启动服务
 
 ---
 
+## 掌握最新动态
+
+<a href="https://github.com/agentscope-ai/CoPaw">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />
+</a>
+
+在 GitHub 上 Star CoPaw，第一时间收到新版本发布通知。
+
+---
+
 ## 路线图
 
 | 方向                   | 事项                                                                                                        | 状态     |
@@ -399,27 +413,22 @@ copaw app # 启动服务
 | **横向拓展**           | 更多频道、模型、技能、MCP 等 — **欢迎社区贡献**                                                             | 征集中   |
 | **已有功能扩展与完善** | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献**                                                   | 征集中   |
 | **控制台 Web UI**      | 在控制台中透出更多信息与配置                                                                                | 进行中   |
-| **自愈**               | 魔法命令与 Daemon 能力（CLI、status、restart、logs）                                                        | 进行中   |
-|                        | DaemonAgent：自诊断、自愈与恢复                                                                             | 计划中   |
+| **自愈**               | DaemonAgent：自诊断、自愈与恢复                                                                             | 进行中   |
 | **多智能体**           | 后台任务支持                                                                                                | 进行中   |
-|                        | 多智能体隔离                                                                                                | 计划中   |
+|                        | 异步任务                                                                                                    | 计划中   |
 |                        | 智能体间竞争与冲突的解决                                                                                    | 计划中   |
-|                        | 多智能体通信                                                                                                | 计划中   |
 | **多模态**             | 语音/视频通话与实时交互                                                                                     | 进行中   |
-| **大小模型协同**       | 针对 CoPaw 工作流与敏感数据场景的本地小模型训练与微调                                                       | 进行中   |
-|                        | 多模型路由。本地模型处理敏感数据，云端模型负责规划与编码；兼顾隐私、性能与能力                              | 计划中   |
+| **大小模型协同**       | 针对 CoPaw 工作流的本地小模型训练与微调                                                                     | 进行中   |
+|                        | 多模型路由，不同模型处理不同任务                                                                            | 进行中   |
 | **记忆系统**           | 经验沉淀技能提炼                                                                                            | 进行中   |
+|                        | 记忆机制切换                                                                                                | 计划中   |
 |                        | 多模态记忆融合增强                                                                                          | 计划中   |
 |                        | 场景感知主动推送                                                                                            | 计划中   |
-| **安全**               | Shell 执行确认                                                                                              | 计划中   |
-|                        | 工具/技能安全性                                                                                             | 计划中   |
-|                        | 可配置安全等级                                                                                              | 计划中   |
-| **版本发布与贡献规范** | Vibe Coding 等 Agent 的贡献引导                                                                             | 计划中   |
-| **沙箱**               | 与 AgentScope Runtime 沙箱深度集成                                                                          | 长期规划 |
-| **云原生**             | 与 AgentScope Runtime 深度集成，充分利用云端算力、存储与工具生态                                            | 长期规划 |
-| **技能生态**           | 丰富 [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) 仓库，提升优质技能的发现与使用 | 长期规划 |
+| **沙箱**               | 与 AgentScope Runtime 沙箱深度集成                                                                          | 进行中   |
+| **云原生**             | 与 AgentScope Runtime 深度集成，充分利用云端算力、存储与工具生态                                            | 计划中   |
+| **技能生态**           | 丰富 [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) 仓库，提升优质技能的发现与使用 | 计划中   |
 
-*状态说明：进行中 — 正在推进；计划中 — 已排期或设计中，也**欢迎贡献**；**征集中** — 我们**非常欢迎**社区参与；长期规划 — 中长期路线。*
+_状态说明：**进行中** — 正在推进；**计划中** — 已排期或设计中，也欢迎贡献；**征集中** — 我们非常欢迎社区参与。_
 
 ### 参与贡献
 
@@ -452,6 +461,8 @@ pip install -e .
 
 - **开发**（测试、格式化）：`pip install -e ".[dev,full]"`
 - **然后**：运行 `copaw init --defaults`，再运行 `copaw app`。
+
+> **版本更新提示：** 当执行 `git pull` 更新到大版本后，请重新构建前端、重新安装 Python 包（`pip install -e .`）、重启 `copaw app`，并清除浏览器缓存（`Ctrl+Shift+R` 或 macOS 上 `Cmd+Shift+R`）。
 
 ---
 

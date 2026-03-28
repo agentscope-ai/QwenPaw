@@ -46,9 +46,18 @@ export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
 }
 
+export type ActiveModelScope = "effective" | "global" | "agent";
+
+export interface GetActiveModelsRequest {
+  scope?: ActiveModelScope;
+  agent_id?: string;
+}
+
 export interface ModelSlotRequest {
   provider_id: string;
   model: string;
+  scope: Exclude<ActiveModelScope, "effective">;
+  agent_id?: string;
 }
 
 /* ---- Custom provider CRUD ---- */

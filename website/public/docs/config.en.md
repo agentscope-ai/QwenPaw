@@ -16,7 +16,7 @@ By default, all config and data live in one folder — the **working directory**
 
 - **`~/.copaw`** (the `.copaw` folder under your home directory)
 
-Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run `copaw init`, the new structure looks like:
+Starting from **v0.1.0**, CoPaw supports **multi-agent**. When you run `copaw init`, the new structure looks like:
 
 ```
 ~/.copaw/
@@ -28,11 +28,14 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
     │   ├── jobs.json        # Cron jobs
     │   ├── AGENTS.md        # Detailed workflows, rules, and guidelines
     │   ├── SOUL.md          # Core identity and behavioral principles
-    │   ├── active_skills/   # Enabled skills
-    │   ├── customized_skills/ # Custom skills
+    │   ├── skills/          # Workspace-local skills
+    │   ├── skill.json       # Per-workspace skill state
     │   └── memory/          # Memory files
     └── abc123/              # Other agent workspace
         └── ...
+├── skill_pool/              # Local shared skill pool
+│   ├── skill.json           # Pool metadata
+│   └── ...
 ```
 
 ### Directory Explanation
@@ -46,17 +49,18 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
 
 **Agent Workspace (`~/.copaw/workspaces/{agent_id}/`)**
 
-| File / Directory     | Purpose                                                      |
-| -------------------- | ------------------------------------------------------------ |
-| `agent.json`         | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
-| `chats.json`         | Conversation history                                         |
-| `jobs.json`          | Cron job list                                                |
-| `token_usage.json`   | Token usage records                                          |
-| `AGENTS.md`          | _(required)_ Detailed workflows, rules, and guidelines       |
-| `SOUL.md`            | _(required)_ Core identity and behavioral principles         |
-| `active_skills/`     | Currently enabled skills                                     |
-| `customized_skills/` | User-created custom skills                                   |
-| `memory/`            | Memory files (auto-managed)                                  |
+| File / Directory   | Purpose                                                      |
+| ------------------ | ------------------------------------------------------------ |
+| `agent.json`       | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
+| `chats.json`       | Conversation history                                         |
+| `jobs.json`        | Cron job list                                                |
+| `token_usage.json` | Token usage records                                          |
+| `AGENTS.md`        | _(required)_ Detailed workflows, rules, and guidelines       |
+| `SOUL.md`          | _(required)_ Core identity and behavioral principles         |
+| `skills/`          | Skills available in this workspace                           |
+| `skill.json`       | Per-workspace enabled state, channels, and skill metadata    |
+| `memory/`          | Memory files (auto-managed)                                  |
+| `browser/`         | Browser user data (cookies, cache, localStorage, etc.)       |
 
 > **Tip:** `SOUL.md` and `AGENTS.md` are the minimum required Markdown files
 > for the agent's system prompt. Without them, the agent falls back to a
@@ -64,7 +68,7 @@ Starting from **v0.1.0**, CoPaw supports **multi-agent workspace**. When you run
 > them based on your language choice (`zh` / `en` / `ru`). You can also
 > change the language later via the Console (Agent → Configuration).
 
-> **Multi-Agent Workspace:** See the [Multi-Agent Workspace](./multi-agent) documentation for details.
+> **Multi-Agent:** See the [Multi-Agent](./multi-agent) documentation for details.
 
 ---
 
@@ -428,16 +432,22 @@ can read them via `os.environ`.
 
 ## Skills
 
-Skills extend the agent's capabilities. They live in three directories:
+Skills extend the agent's capabilities. In the current model they live in two places:
 
-| Directory                     | Purpose                                                             |
-| ----------------------------- | ------------------------------------------------------------------- |
-| Built-in (in source code)     | Shipped with CoPaw — docx, pdf, pptx, xlsx, news, email, cron, etc. |
-| `~/.copaw/customized_skills/` | User-created skills                                                 |
-| `~/.copaw/active_skills/`     | Currently active skills (synced from built-in + customized)         |
+| Directory                                | Purpose                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| Built-in (in source code)                | Shipped with CoPaw — docx, pdf, pptx, xlsx, news, email, cron, etc. |
+| `~/.copaw/skill_pool/`                   | Local shared pool for built-ins and shared skills                   |
+| `~/.copaw/workspaces/{agent_id}/skills/` | Skills present in one workspace                                     |
 
 Each skill is a directory with a `SKILL.md` file (YAML front matter with `name`
 and `description`), and optional `references/` and `scripts/` subdirectories.
+Skills may also declare `metadata.requires.bins` and `metadata.requires.env`;
+CoPaw surfaces those as `require_bins` and `require_envs` metadata instead of
+using them as a hard enable/disable gate.
+
+Whether a workspace skill is active is controlled by
+`~/.copaw/workspaces/{agent_id}/skill.json`.
 
 Manage skills via:
 
@@ -500,7 +510,7 @@ Recommended to configure in `agent.json` under `running.embedding_config`, which
 - [Introduction](./intro) — What the project can do
 - [Channels](./channels) — How to fill in channels in config
 - [Heartbeat](./heartbeat) — How to fill in heartbeat in config
-- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration
 
 ---
 
