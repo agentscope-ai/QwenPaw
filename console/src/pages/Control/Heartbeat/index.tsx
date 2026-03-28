@@ -56,6 +56,7 @@ type HeartbeatFormValues = Omit<HeartbeatConfig, "every"> & {
   useActiveHours?: boolean;
   activeHoursStart?: string;
   activeHoursEnd?: string;
+  heartbeatOkEnabled?: boolean;
 };
 
 const TARGET_OPTIONS = [
@@ -167,6 +168,7 @@ function HeartbeatPage() {
               useActiveHours: false,
               activeHoursStart: "08:00",
               activeHoursEnd: "22:00",
+              heartbeatOkEnabled: true,
             }}
           >
             <Form.Item
@@ -220,6 +222,14 @@ function HeartbeatPage() {
                   label: t(opt.labelKey),
                 }))}
               />
+            </Form.Item>
+
+            <Form.Item
+              name="heartbeatOkEnabled"
+              valuePropName="checked"
+              tooltip="启用后，模型回复 HEARTBEAT_OK 时心跳确认将被静默丢弃"
+            >
+              <Switch>{t("heartbeat.heartbeatOkEnabled")}</Switch>
             </Form.Item>
 
             <Form.Item
