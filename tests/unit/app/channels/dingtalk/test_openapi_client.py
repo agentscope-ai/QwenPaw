@@ -182,6 +182,41 @@ def test_request_json_success_injects_access_token(monkeypatch):
     assert headers["x-acs-dingtalk-access-token"] == "token-xyz"
 
 
+def test_request_json_normalizes_bool_query_params(monkeypatch):
+    module = _load_module()
+    fake_session = _FakeSession(
+        [
+            _FakeResponse(200, {"ok": True}),
+        ],
+    )
+    client = _new_client(module, http_session=fake_session)
+
+    async def _fake_get_access_token():
+        return "token-xyz"
+
+    monkeypatch.setattr(client, "get_access_token", _fake_get_access_token)
+
+    result = asyncio.run(
+        client.request_json(
+            "GET",
+            "/v1/test/resource",
+            params={
+                "withPermissionRole": True,
+                "includeSpace": False,
+                "operatorId": "union-id",
+                "empty": None,
+            },
+        ),
+    )
+
+    assert result == {"ok": True}
+    assert fake_session.calls[0]["params"] == {
+        "withPermissionRole": "true",
+        "includeSpace": "false",
+        "operatorId": "union-id",
+    }
+
+
 def test_request_json_retries_retryable_status_and_succeeds(monkeypatch):
     module = _load_module()
     delays = _patch_sleep(monkeypatch, module)

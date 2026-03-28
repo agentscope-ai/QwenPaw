@@ -196,6 +196,7 @@ class DingTalkOpenAPIClient:
             )
 
         method_name = (method or "GET").upper()
+        normalized_params = self._normalize_params(params)
         should_retry = (
             method_name in _IDEMPOTENT_RETRYABLE_METHODS
             if retry_on_transient is None
@@ -207,7 +208,7 @@ class DingTalkOpenAPIClient:
                 method_name,
                 resolved_url,
                 json=json_body,
-                params=params,
+                params=normalized_params,
                 headers=request_headers,
             ) as resp:
                 body_text = await resp.text()
@@ -330,6 +331,23 @@ class DingTalkOpenAPIClient:
                 body=body_text,
             ) from exc
         return payload if isinstance(payload, dict) else {"result": payload}
+
+    @staticmethod
+    def _normalize_params(
+        params: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not params:
+            return params
+
+        normalized: dict[str, Any] = {}
+        for key, value in params.items():
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                normalized[key] = "true" if value else "false"
+            else:
+                normalized[key] = value
+        return normalized
 
     @staticmethod
     def _make_error(
