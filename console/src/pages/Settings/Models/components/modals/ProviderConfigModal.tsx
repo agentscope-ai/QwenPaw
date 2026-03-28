@@ -286,6 +286,11 @@ export function ProviderConfigModal({
   const selectedChatModel = Form.useWatch("chat_model", form);
   const canEditBaseUrl = !provider.freeze_url;
   const isOauthProvider = provider.supports_oauth_login;
+  const onSavedRef = useRef(onSaved);
+
+  useEffect(() => {
+    onSavedRef.current = onSaved;
+  }, [onSaved]);
 
   const parseGenerateConfig = (value?: string) => {
     const trimmed = value?.trim();
@@ -408,50 +413,71 @@ export function ProviderConfigModal({
     }
 
     let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setAuthPolling(true);
-      try {
-        const result = await api.pollDeviceAuth(provider.id, authSession.session_id);
+    let timer: number | undefined;
+
+    const schedulePoll = (intervalSeconds: number) => {
+      timer = window.setTimeout(async () => {
         if (cancelled) {
           return;
         }
-        if (result.status === "authorized") {
-          setAuthSession(null);
-          setAuthPolling(false);
-          try {
-            await api.discoverModels(provider.id);
-          } catch {
-            // Ignore model discovery failure here; auth already succeeded.
-          }
-          await onSaved();
-          message.success(result.message || t("models.githubAuthSuccess"));
-          return;
-        }
-        if (result.status === "pending") {
-          setAuthPolling(false);
-          return;
-        }
-        setAuthSession(null);
-        setAuthPolling(false);
-        message.warning(result.message || t("models.githubAuthFailed"));
-      } catch (error) {
-        if (!cancelled) {
-          setAuthPolling(false);
-          setAuthSession(null);
-          message.error(
-            error instanceof Error
-              ? error.message
-              : t("models.githubAuthFailed"),
+        setAuthPolling(true);
+        try {
+          const result = await api.pollDeviceAuth(
+            provider.id,
+            authSession.session_id,
           );
+          if (cancelled) {
+            return;
+          }
+          if (result.status === "authorized") {
+            setAuthSession(null);
+            setAuthPolling(false);
+            try {
+              await api.discoverModels(provider.id);
+            } catch {
+              // Ignore model discovery failure here; auth already succeeded.
+            }
+            await onSavedRef.current();
+            message.success(result.message || t("models.githubAuthSuccess"));
+            return;
+          }
+          if (result.status === "pending") {
+            setAuthPolling(false);
+            let nextInterval = result.interval ?? intervalSeconds;
+            if (result.slow_down && result.interval == null) {
+              nextInterval += 5;
+            }
+            if (!cancelled) {
+              schedulePoll(nextInterval);
+            }
+            return;
+          }
+          setAuthSession(null);
+          setAuthPolling(false);
+          message.warning(result.message || t("models.githubAuthFailed"));
+        } catch (error) {
+          if (!cancelled) {
+            setAuthPolling(false);
+            setAuthSession(null);
+            message.error(
+              error instanceof Error
+                ? error.message
+                : t("models.githubAuthFailed"),
+            );
+          }
         }
-      }
-    }, Math.max(authSession.interval, 2) * 1000);
+      }, Math.max(intervalSeconds, 2) * 1000);
+    };
+
+    schedulePoll(authSession.interval);
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      if (typeof timer === "number") {
+        window.clearTimeout(timer);
+      }
     };
-  }, [authSession, isOauthProvider, onSaved, open, provider.id, t]);
+  }, [authSession, isOauthProvider, open, provider.id, t]);
 
   const handleStartOauthLogin = async () => {
     setAuthStarting(true);

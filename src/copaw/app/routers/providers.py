@@ -136,6 +136,8 @@ class DeviceAuthPollResponse(BaseModel):
         "missing",
     ] = Field(...)
     message: str = Field(default="")
+    interval: int | None = Field(default=None)
+    slow_down: bool = Field(default=False)
     provider: ProviderInfo | None = Field(default=None)
 
 
@@ -254,7 +256,6 @@ async def start_provider_device_auth(
 ) -> DeviceAuthStartResponse:
     provider = _get_github_copilot_provider(manager, provider_id)
     session = await provider.start_device_authorization()
-    manager.update_provider(provider_id, {})
     return DeviceAuthStartResponse(
         session_id=session.session_id,
         user_code=session.user_code,
@@ -275,14 +276,15 @@ async def poll_provider_device_auth(
     session_id: str = Path(...),
 ) -> DeviceAuthPollResponse:
     provider = _get_github_copilot_provider(manager, provider_id)
-    status, message = await provider.poll_device_authorization(session_id)
-    manager.update_provider(provider_id, {})
+    result = await provider.poll_device_authorization(session_id)
     provider_info = None
-    if status == "authorized":
+    if result.status == "authorized":
         provider_info = await manager.get_provider_info(provider_id)
     return DeviceAuthPollResponse(
-        status=status,
-        message=message,
+        status=result.status,
+        message=result.message,
+        interval=result.interval,
+        slow_down=result.slow_down,
         provider=provider_info,
     )
 
@@ -298,7 +300,6 @@ async def logout_provider_auth(
 ) -> ProviderInfo:
     provider = _get_github_copilot_provider(manager, provider_id)
     provider.logout()
-    manager.update_provider(provider_id, {})
     provider_info = await manager.get_provider_info(provider_id)
     if provider_info is None:
         raise HTTPException(

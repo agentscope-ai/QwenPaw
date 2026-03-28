@@ -193,6 +193,10 @@ class Provider(ProviderInfo, ABC):
         ):
             self.generate_kwargs = config["generate_kwargs"]
 
+    def to_persisted_dict(self) -> Dict[str, Any]:
+        """Return the provider payload that should be written to disk."""
+        return self.model_dump()
+
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
         import agentscope.model

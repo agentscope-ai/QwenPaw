@@ -39,6 +39,13 @@ class DeviceAuthorizationSession(BaseModel):
     last_message: str = ""
 
 
+class DeviceAuthorizationPollResult(BaseModel):
+    status: str
+    message: str = ""
+    interval: int | None = None
+    slow_down: bool = False
+
+
 class GitHubCopilotProvider(OpenAIProvider):
     """OpenAI-compatible provider backed by GitHub Copilot."""
 
@@ -58,6 +65,32 @@ class GitHubCopilotProvider(OpenAIProvider):
     _device_sessions: dict[str, DeviceAuthorizationSession] = PrivateAttr(
         default_factory=dict,
     )
+
+    _PERSIST_EXCLUDES = {
+        "api_key",
+        "supports_oauth_login",
+        "is_authenticated",
+        "auth_method",
+        "auth_account_label",
+        "auth_expires_at",
+        "github_oauth_token",
+        "github_token_type",
+        "github_scope",
+        "github_user_login",
+        "github_user_id",
+        "copilot_access_token",
+        "copilot_token_expires_at",
+    }
+
+    def _cleanup_expired_device_sessions(self, now: int | None = None) -> None:
+        current_time = int(time.time()) if now is None else now
+        expired_ids = [
+            session_id
+            for session_id, session in self._device_sessions.items()
+            if session.expires_at <= current_time
+        ]
+        for session_id in expired_ids:
+            self._device_sessions.pop(session_id, None)
 
     def _copilot_api_headers(self) -> dict[str, str]:
         return {
@@ -169,6 +202,8 @@ class GitHubCopilotProvider(OpenAIProvider):
         self,
         timeout: float = 10,
     ) -> DeviceAuthorizationSession:
+        self._cleanup_expired_device_sessions()
+
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
@@ -199,14 +234,20 @@ class GitHubCopilotProvider(OpenAIProvider):
         self,
         session_id: str,
         timeout: float = 10,
-    ) -> tuple[str, str]:
+    ) -> DeviceAuthorizationPollResult:
         session = self._device_sessions.get(session_id)
         if session is None:
-            return "missing", "Authorization session not found"
+            return DeviceAuthorizationPollResult(
+                status="missing",
+                message="Authorization session not found",
+            )
 
         if session.expires_at <= int(time.time()):
             self._device_sessions.pop(session_id, None)
-            return "expired", "Device code expired"
+            return DeviceAuthorizationPollResult(
+                status="expired",
+                message="Device code expired",
+            )
 
         async with httpx.AsyncClient(
             timeout=timeout,
@@ -227,12 +268,14 @@ class GitHubCopilotProvider(OpenAIProvider):
             payload = response.json()
 
         if "error" in payload:
-            status, message = self._map_device_flow_error(payload)
-            session.status = status
-            session.last_message = message
-            if status in {"expired", "denied", "error"}:
+            result = self._map_device_flow_error(payload, session.interval)
+            session.status = result.status
+            session.last_message = result.message
+            if result.interval is not None:
+                session.interval = result.interval
+            if result.status in {"expired", "denied", "error"}:
                 self._device_sessions.pop(session_id, None)
-            return status, message
+            return result
 
         self.github_oauth_token = str(payload.get("access_token", ""))
         self.github_token_type = str(payload.get("token_type", "bearer"))
@@ -241,22 +284,46 @@ class GitHubCopilotProvider(OpenAIProvider):
         await self._populate_github_user(timeout=timeout)
         await self._refresh_copilot_token_async(timeout=timeout)
         self._device_sessions.pop(session_id, None)
-        return "authorized", "GitHub authorization completed"
+        return DeviceAuthorizationPollResult(
+            status="authorized",
+            message="GitHub authorization completed",
+        )
 
     @staticmethod
-    def _map_device_flow_error(payload: dict[str, Any]) -> tuple[str, str]:
+    def _map_device_flow_error(
+        payload: dict[str, Any],
+        interval: int,
+    ) -> DeviceAuthorizationPollResult:
         error = str(payload.get("error", ""))
         description = str(payload.get("error_description", "")).strip()
         message = description or error or "Unknown device authorization error"
         if error == "authorization_pending":
-            return "pending", message
+            return DeviceAuthorizationPollResult(
+                status="pending",
+                message=message,
+                interval=interval,
+            )
         if error == "slow_down":
-            return "pending", message
+            return DeviceAuthorizationPollResult(
+                status="pending",
+                message=message,
+                interval=interval + 5,
+                slow_down=True,
+            )
         if error == "expired_token":
-            return "expired", message
+            return DeviceAuthorizationPollResult(
+                status="expired",
+                message=message,
+            )
         if error == "access_denied":
-            return "denied", message
-        return "error", message
+            return DeviceAuthorizationPollResult(
+                status="denied",
+                message=message,
+            )
+        return DeviceAuthorizationPollResult(
+            status="error",
+            message=message,
+        )
 
     async def _populate_github_user(self, timeout: float = 10) -> None:
         if not self.github_oauth_token:
@@ -443,7 +510,12 @@ class GitHubCopilotProvider(OpenAIProvider):
         self.copilot_access_token = ""
         self.copilot_token_expires_at = None
         self.api_key = ""
+        self.base_url = GITHUB_COPILOT_API_URL
         self._device_sessions.clear()
+
+    def to_persisted_dict(self) -> dict[str, Any]:
+        """Persist only user configuration and discovered models."""
+        return self.model_dump(exclude=self._PERSIST_EXCLUDES)
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         self.is_authenticated = bool(self.github_oauth_token)

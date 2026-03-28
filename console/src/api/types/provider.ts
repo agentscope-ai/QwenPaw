@@ -183,5 +183,7 @@ export interface DeviceAuthPollResponse {
     | "error"
     | "missing";
   message: string;
+  interval?: number | null;
+  slow_down?: boolean;
   provider?: ProviderInfo | null;
 }

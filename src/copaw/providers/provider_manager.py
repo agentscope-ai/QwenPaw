@@ -898,7 +898,12 @@ class ProviderManager:
         if skip_if_exists and provider_path.exists():
             return
         with open(provider_path, "w", encoding="utf-8") as f:
-            json.dump(provider.model_dump(), f, ensure_ascii=False, indent=2)
+            json.dump(
+                provider.to_persisted_dict(),
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
         try:
             os.chmod(provider_path, 0o600)
         except OSError:

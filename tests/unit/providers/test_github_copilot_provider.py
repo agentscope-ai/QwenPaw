@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from copaw.providers.github_copilot_provider import GitHubCopilotProvider
+from copaw.providers.github_copilot_provider import (
+    GitHubCopilotProvider,
+    DeviceAuthorizationSession,
+)
 from copaw.providers.openai_responses_chat_model_compat import (
     OpenAIResponsesChatModelCompat,
 )
@@ -22,6 +25,14 @@ def _make_provider() -> GitHubCopilotProvider:
 
 async def test_start_device_authorization_stores_session(monkeypatch) -> None:
     provider = _make_provider()
+    provider._device_sessions["expired-session"] = DeviceAuthorizationSession(
+        session_id="expired-session",
+        device_code="expired-code",
+        user_code="EXPIRED",
+        verification_uri="https://github.com/login/device",
+        expires_at=1,
+        interval=5,
+    )
 
     class FakeResponse:
         def raise_for_status(self) -> None:
@@ -60,6 +71,7 @@ async def test_start_device_authorization_stores_session(monkeypatch) -> None:
 
     assert session.user_code == "ABCD-EFGH"
     assert session.interval == 5
+    assert "expired-session" not in provider._device_sessions
     assert (
         provider._device_sessions[session.session_id].device_code
         == "device-code-1"
@@ -127,14 +139,65 @@ async def test_poll_device_authorization_authorized(monkeypatch) -> None:
         fake_refresh_copilot,
     )
 
-    status, message = await provider.poll_device_authorization("session-1")
+    result = await provider.poll_device_authorization("session-1")
 
-    assert status == "authorized"
-    assert message == "GitHub authorization completed"
+    assert result.status == "authorized"
+    assert result.message == "GitHub authorization completed"
     assert provider.github_oauth_token == "gho_test_token"
     assert provider.github_user_login == "octocat"
     assert provider.api_key == "copilot_token"
     assert "session-1" not in provider._device_sessions
+
+
+async def test_poll_device_authorization_slow_down_updates_interval(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider._device_sessions["session-1"] = DeviceAuthorizationSession(
+        session_id="session-1",
+        device_code="device-code-1",
+        user_code="ABCD-EFGH",
+        verification_uri="https://github.com/login/device",
+        expires_at=4_102_444_800,
+        interval=5,
+    )
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return {
+                "error": "slow_down",
+                "error_description": "Slow down",
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            _ = args, kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            _ = exc_type, exc, tb
+            return False
+
+        async def post(self, *args, **kwargs):
+            _ = args, kwargs
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "copaw.providers.github_copilot_provider.httpx.AsyncClient",
+        FakeAsyncClient,
+    )
+
+    result = await provider.poll_device_authorization("session-1")
+
+    assert result.status == "pending"
+    assert result.slow_down is True
+    assert result.interval == 10
+    assert provider._device_sessions["session-1"].interval == 10
 
 
 async def test_get_info_reports_auth_state() -> None:
@@ -170,7 +233,27 @@ def test_logout_clears_auth_state() -> None:
     assert provider.copilot_access_token == ""
     assert provider.copilot_token_expires_at is None
     assert provider.api_key == ""
+    assert provider.base_url == "https://api.individual.githubcopilot.com"
     assert provider._device_sessions == {}
+
+
+def test_to_persisted_dict_excludes_runtime_auth_state() -> None:
+    provider = _make_provider()
+    provider.is_authenticated = True
+    provider.auth_account_label = "octocat"
+    provider.auth_expires_at = 4_102_444_800
+    provider.github_oauth_token = "gho_test"
+    provider.copilot_access_token = "copilot-token"
+    provider.copilot_token_expires_at = 4_102_444_800
+    provider.api_key = "copilot-token"
+
+    persisted = provider.to_persisted_dict()
+
+    assert "api_key" not in persisted
+    assert "is_authenticated" not in persisted
+    assert "auth_account_label" not in persisted
+    assert "github_oauth_token" not in persisted
+    assert "copilot_access_token" not in persisted
 
 
 async def test_fetch_models_requires_and_uses_auth(monkeypatch) -> None:

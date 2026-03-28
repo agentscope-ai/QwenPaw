@@ -403,6 +403,31 @@ def test_provider_from_data_dispatch_to_github_copilot(
     assert isinstance(provider, GitHubCopilotProvider)
 
 
+def test_save_provider_for_github_copilot_excludes_runtime_auth_state(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("github-copilot")
+
+    assert isinstance(provider, GitHubCopilotProvider)
+
+    provider.is_authenticated = True
+    provider.auth_account_label = "octocat"
+    provider.github_oauth_token = "gho_test"
+    provider.copilot_access_token = "copilot-token"
+    provider.api_key = "copilot-token"
+
+    manager._save_provider(provider, is_builtin=True)
+
+    persisted_path = manager.builtin_path / "github-copilot.json"
+    persisted = json.loads(persisted_path.read_text(encoding="utf-8"))
+
+    assert "api_key" not in persisted
+    assert "is_authenticated" not in persisted
+    assert "github_oauth_token" not in persisted
+    assert "copilot_access_token" not in persisted
+
+
 def test_init_from_storage_migrates_with_different_provider(
     isolated_secret_dir,
 ) -> None:
