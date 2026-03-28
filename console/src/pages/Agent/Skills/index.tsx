@@ -362,7 +362,7 @@ function SkillsPage() {
           <div className={styles.headerActionsLeft}>
             <Tooltip title={t("skills.downloadFromPoolHint")}>
               <Button
-                type="primary"
+                type="default"
                 className={styles.primaryTransferButton}
                 onClick={() => setPoolModal("download")}
                 icon={<DownloadOutlined />}
@@ -372,7 +372,7 @@ function SkillsPage() {
             </Tooltip>
             <Tooltip title={t("skills.uploadToPoolHint")}>
               <Button
-                type="primary"
+                type="default"
                 className={styles.primaryTransferButton}
                 onClick={() => setPoolModal("upload")}
                 icon={<SwapOutlined />}
@@ -406,8 +406,8 @@ function SkillsPage() {
             </Tooltip>
             <Tooltip title={t("skills.createSkillHint")}>
               <Button
-                type="default"
-                className={styles.creationActionButton}
+                type="primary"
+                className={styles.primaryActionButton}
                 onClick={handleCreate}
                 icon={<PlusOutlined />}
               >
@@ -442,7 +442,7 @@ function SkillsPage() {
           <p className={styles.emptyStateText}>{t("skills.emptyStateText")}</p>
           <div className={styles.emptyStateActions}>
             <Button
-              type="primary"
+              type="default"
               className={styles.primaryTransferButton}
               onClick={() => setPoolModal("download")}
               icon={<DownloadOutlined />}
@@ -450,8 +450,8 @@ function SkillsPage() {
               {t("skills.emptyStateDownload")}
             </Button>
             <Button
-              type="default"
-              className={styles.creationActionButton}
+              type="primary"
+              className={styles.primaryActionButton}
               onClick={handleCreate}
               icon={<PlusOutlined />}
             >

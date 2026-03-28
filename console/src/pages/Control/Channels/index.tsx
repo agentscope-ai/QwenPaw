@@ -120,8 +120,9 @@ function ChannelsPage() {
           {FILTER_TABS.map(({ key, label }) => (
             <button
               key={key}
-              className={`${styles.filterTab} ${filter === key ? styles.filterTabActive : ""
-                }`}
+              className={`${styles.filterTab} ${
+                filter === key ? styles.filterTabActive : ""
+              }`}
               onClick={() => setFilter(key)}
             >
               {label}
@@ -161,7 +162,6 @@ function ChannelsPage() {
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />
-
     </div>
   );
 }

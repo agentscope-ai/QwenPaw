@@ -44,6 +44,13 @@ function SecurityPage() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("toolGuard");
 
+  // FileGuard handlers exposed from child component
+  const [fileGuardHandlers, setFileGuardHandlers] = useState<{
+    save: () => Promise<void>;
+    reset: () => void;
+    saving: boolean;
+  } | null>(null);
+
   const {
     config,
     customRules,
@@ -318,7 +325,6 @@ function SecurityPage() {
                       />
                     </Card>
                   </div>
-
                 </div>
               ),
             },
@@ -335,7 +341,9 @@ function SecurityPage() {
                     <p className={styles.tabDescription}>
                       {t("security.fileGuard.description")}
                     </p>
-                    <FileGuardSection />
+                    <FileGuardSection
+                      onSave={(handlers) => setFileGuardHandlers(handlers)}
+                    />
                   </div>
                 </div>
               ),
@@ -371,10 +379,25 @@ function SecurityPage() {
           >
             {t("common.reset")}
           </Button>
+          <Button type="primary" onClick={handleSave} loading={saving}>
+            {t("common.save")}
+          </Button>
+        </div>
+      )}
+
+      {activeTab === "fileGuard" && fileGuardHandlers && (
+        <div className={styles.footerButtons}>
+          <Button
+            onClick={fileGuardHandlers.reset}
+            disabled={fileGuardHandlers.saving}
+            style={{ marginRight: 8 }}
+          >
+            {t("common.reset")}
+          </Button>
           <Button
             type="primary"
-            onClick={handleSave}
-            loading={saving}
+            onClick={fileGuardHandlers.save}
+            loading={fileGuardHandlers.saving}
           >
             {t("common.save")}
           </Button>

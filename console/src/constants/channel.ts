@@ -14,7 +14,7 @@ export const CHANNELS = {
   xiaoyi: "xiaoyi",
 };
 
-export const CHANNEL_COLORS = {
+export const CHANNEL_COLORS: Record<string, string> = {
   imessage: "geekblue",
   discord: "blue",
   dingtalk: "green",

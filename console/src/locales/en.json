@@ -176,6 +176,8 @@
     "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/, or https://modelscope.cn/skills/",
     "type": "Type",
     "skillDescription": "Description",
+    "builtin": "Built-in",
+    "custom": "Custom",
     "createSkill": "Create Skill",
     "viewSkill": "View Skill",
     "editSkill": "Edit Skill",
@@ -305,7 +307,9 @@
     "statusOutdated": "Outdated",
     "statusNotSynced": "Not synced",
     "statusConflict": "Conflict",
-    "renameEntry": "New name for \"{{name}}\":"
+    "renameEntry": "New name for \"{{name}}\":",
+    "builtin": "Built-in",
+    "custom": "Custom"
   },
   "mcp": {
     "title": "MCP Clients",

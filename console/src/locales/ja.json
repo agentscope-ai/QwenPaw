@@ -130,6 +130,8 @@
     "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/、または https://modelscope.cn/skills/ で始まる必要があります",
     "type": "タイプ",
     "skillDescription": "説明",
+    "builtin": "組み込み",
+    "custom": "カスタム",
     "createSkill": "スキルを作成",
     "viewSkill": "スキルを表示",
     "editSkill": "スキルを編集",
@@ -244,7 +246,9 @@
     "statusOutdated": "古いです",
     "statusNotSynced": "未同期",
     "statusConflict": "競合",
-    "renameEntry": "\"{{name}}\" の新しい名前："
+    "renameEntry": "\"{{name}}\" の新しい名前：",
+    "builtin": "組み込み",
+    "custom": "カスタム"
   },
   "mcp": {
     "title": "MCPクライアント",

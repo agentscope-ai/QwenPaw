@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Button, Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
@@ -32,33 +31,8 @@ function AgentConfigPage() {
     handleTimezoneChange,
   } = useAgentConfig();
 
-  // Force re-render when form values change to refresh derived threshold values
-  const [, forceUpdate] = useState({});
-  const handleValuesChange = () => forceUpdate({});
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
   const maxInputLength = Form.useWatch("max_input_length", form) ?? 0;
-
-  const getCalculatedValues = () => {
-    const values = form.getFieldsValue([
-      "max_input_length",
-      "memory_compact_ratio",
-      "memory_reserve_ratio",
-    ]);
-    const maxInputLengthVal = values.max_input_length ?? 0;
-    const memoryCompactRatio = values.memory_compact_ratio ?? 0;
-    const memoryReserveRatio = values.memory_reserve_ratio ?? 0;
-    return {
-      contextCompactThreshold: Math.floor(
-        maxInputLengthVal * memoryCompactRatio,
-      ),
-      contextCompactReserveThreshold: Math.floor(
-        maxInputLengthVal * memoryReserveRatio,
-      ),
-    };
-  };
-
-  const { contextCompactThreshold, contextCompactReserveThreshold } =
-    getCalculatedValues();
 
   if (loading) {
     return (
@@ -88,12 +62,7 @@ function AgentConfigPage() {
       <PageHeader />
       <div className={styles.pageContent}>
         <div className={styles.formContainer}>
-          <Form
-            form={form}
-            layout="vertical"
-            className={styles.form}
-            onValuesChange={handleValuesChange}
-          >
+          <Form form={form} layout="vertical" className={styles.form}>
             <ReactAgentCard
               language={language}
               savingLang={savingLang}
@@ -107,10 +76,7 @@ function AgentConfigPage() {
 
             <LlmRateLimiterCard />
 
-            <ContextManagementCard
-              contextCompactThreshold={contextCompactThreshold}
-              contextCompactReserveThreshold={contextCompactReserveThreshold}
-            />
+            <ContextManagementCard />
 
             <ContextCompactCard maxInputLength={maxInputLength} />
 

@@ -103,7 +103,6 @@
     }
 
     :global {
-
       /* Center icon in collapsed menu items */
       .copaw-menu-item,
       .copaw-menu-submenu .copaw-menu-item {
@@ -116,8 +115,8 @@
 
       /* Hide label text in collapsed mode */
       .copaw-menu-title-content,
-      .copaw-menu-item>span:not([role]),
-      .copaw-menu-item-only-child>span {
+      .copaw-menu-item > span:not([role]),
+      .copaw-menu-item-only-child > span {
         display: none !important;
       }
 
@@ -151,7 +150,7 @@
 
     /* Always expand submenus */
     .copaw-menu-submenu {
-      >.copaw-menu {
+      > .copaw-menu {
         display: block !important;
       }
     }
@@ -293,7 +292,7 @@
   justify-content: center;
 }
 
-.authBtn+.authBtn {
+.authBtn + .authBtn {
   margin-top: 4px;
 }
 
@@ -390,7 +389,8 @@
 }
 
 .updateModalBanner {
-  background: url("https://gw.alicdn.com/imgextra/i3/O1CN013Tuw5Y1sFbMMVSqt7_!!6000000005737-2-tps-960-146.png") no-repeat center top;
+  background: url("https://gw.alicdn.com/imgextra/i3/O1CN013Tuw5Y1sFbMMVSqt7_!!6000000005737-2-tps-960-146.png")
+    no-repeat center top;
   background-size: contain;
   padding: 48px 28px 0px;
   display: flex;

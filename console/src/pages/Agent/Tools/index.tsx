@@ -61,9 +61,11 @@ export default function ToolsPage() {
             {tools.map((tool) => (
               <Card
                 key={tool.name}
-                className={`${styles.toolCard} ${tool.enabled ? styles.enabledCard : ""
-                  } ${hoverKey === tool.name ? styles.hoverCard : styles.normalCard
-                  }`}
+                className={`${styles.toolCard} ${
+                  tool.enabled ? styles.enabledCard : ""
+                } ${
+                  hoverKey === tool.name ? styles.hoverCard : styles.normalCard
+                }`}
                 onMouseEnter={() => setHoverKey(tool.name)}
                 onMouseLeave={() => setHoverKey(null)}
               >
@@ -72,7 +74,9 @@ export default function ToolsPage() {
                   <div className={styles.statusContainer}>
                     <span className={styles.statusDot} />
                     <span className={styles.statusText}>
-                      {tool.enabled ? t("common.enabled") : t("common.disabled")}
+                      {tool.enabled
+                        ? t("common.enabled")
+                        : t("common.disabled")}
                     </span>
                   </div>
                 </div>

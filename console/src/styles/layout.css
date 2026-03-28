@@ -821,3 +821,32 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   margin-right: auto !important;
   margin-left: 0 !important;
 }
+
+/* ─── Global disabled button styles ────────────────────────────────────────── */
+/* Primary button disabled state - must show border and gray background */
+.ant-btn-primary:disabled,
+.ant-btn-primary[disabled],
+.ant-btn-primary.ant-btn-disabled,
+.copaw-btn-primary:disabled,
+.copaw-btn-primary[disabled],
+.copaw-btn-primary.copaw-btn-disabled {
+  background-color: #f5f5f5 !important;
+  background: #f5f5f5 !important;
+  color: rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid #d9d9d9 !important;
+  box-shadow: none !important;
+}
+
+/* Dark mode - disabled primary button */
+html.dark-mode .ant-btn-primary:disabled,
+html.dark-mode .ant-btn-primary[disabled],
+html.dark-mode .ant-btn-primary.ant-btn-disabled,
+html.dark-mode .copaw-btn-primary:disabled,
+html.dark-mode .copaw-btn-primary[disabled],
+html.dark-mode .copaw-btn-primary.copaw-btn-disabled {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: none !important;
+}

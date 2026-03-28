@@ -78,10 +78,7 @@ function ModelsPage() {
       ) : (
         <>
           {/* ---- LLM Section (top) ---- */}
-          <PageHeader
-            parent="Settings"
-            current={t("models.llmTitle")}
-          />
+          <PageHeader parent="Settings" current={t("models.llmTitle")} />
           <ModelsSection
             providers={providers}
             activeModels={activeModels}

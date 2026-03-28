@@ -11,7 +11,9 @@ interface AgentSelectorProps {
   collapsed?: boolean;
 }
 
-export default function AgentSelector({ collapsed = false }: AgentSelectorProps) {
+export default function AgentSelector({
+  collapsed = false,
+}: AgentSelectorProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { selectedAgent, agents, setSelectedAgent, setAgents } =

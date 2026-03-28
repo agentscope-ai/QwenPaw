@@ -95,7 +95,9 @@ function VoiceTranscriptionPage() {
         <div className={styles.breadcrumbHeader}>
           <span className={styles.breadcrumbParent}>Settings</span>
           <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>{t("voiceTranscription.title")}</span>
+          <span className={styles.breadcrumbCurrent}>
+            {t("voiceTranscription.title")}
+          </span>
         </div>
       </div>
       <Alert
@@ -109,7 +111,6 @@ function VoiceTranscriptionPage() {
         }
       />
       <div className={styles.content}>
-
         <Card className={styles.card}>
           <h3 className={styles.cardTitle}>
             {t("voiceTranscription.audioModeLabel")}
@@ -266,7 +267,6 @@ function VoiceTranscriptionPage() {
           </>
         )}
       </div>
-
 
       <div className={styles.footerButtons}>
         <Button
