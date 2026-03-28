@@ -65,7 +65,9 @@ export function BroadcastModal({
       <div style={{ display: "grid", gap: 12 }}>
         <div className={styles.pickerSection}>
           <div className={styles.pickerHeader}>
-            <div className={styles.pickerLabel}>{t("skills.selectPoolItem")}</div>
+            <div className={styles.pickerLabel}>
+              {t("skills.selectPoolItem")}
+            </div>
             <div className={styles.bulkActions}>
               <Button
                 size="small"
@@ -84,7 +86,6 @@ export function BroadcastModal({
               </Button>
             </div>
           </div>
-
         </div>
 
         <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
@@ -93,8 +94,9 @@ export function BroadcastModal({
             return (
               <div
                 key={skill.name}
-                className={`${styles.pickerCard} ${styles.compactPickerCard} ${selected ? styles.pickerCardSelected : ""
-                  }`}
+                className={`${styles.pickerCard} ${styles.compactPickerCard} ${
+                  selected ? styles.pickerCardSelected : ""
+                }`}
                 onClick={() =>
                   setSelectedSkillNames(
                     selected
@@ -146,14 +148,15 @@ export function BroadcastModal({
             return (
               <div
                 key={workspace.agent_id}
-                className={`${styles.pickerCard} ${styles.compactPickerCard} ${selected ? styles.pickerCardSelected : ""
-                  }`}
+                className={`${styles.pickerCard} ${styles.compactPickerCard} ${
+                  selected ? styles.pickerCardSelected : ""
+                }`}
                 onClick={() =>
                   setSelectedWorkspaceIds(
                     selected
                       ? selectedWorkspaceIds.filter(
-                        (id) => id !== workspace.agent_id,
-                      )
+                          (id) => id !== workspace.agent_id,
+                        )
                       : [...selectedWorkspaceIds, workspace.agent_id],
                   )
                 }

@@ -69,9 +69,7 @@ export function LocalProviderCard({
       <div className={styles.cardInfo}>
         <div className={styles.infoRow}>
           <span className={styles.infoLabel}>{t("models.localType")}:</span>
-          <span className={styles.infoValue}>
-            {t("models.localEmbedded")}
-          </span>
+          <span className={styles.infoValue}>{t("models.localEmbedded")}</span>
         </div>
         <div className={styles.infoRow}>
           <span className={styles.infoLabel}>{t("models.model")}:</span>

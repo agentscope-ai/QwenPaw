@@ -30,7 +30,6 @@ const CHANNEL_ICON_MAP: Record<string, string> = {
     "https://gw.alicdn.com/imgextra/i1/O1CN01HWtzmr1hkK9beQICJ_!!6000000004315-2-tps-400-400.png",
   weixin:
     "https://gw.alicdn.com/imgextra/i1/O1CN01HWtzmr1hkK9beQICJ_!!6000000004315-2-tps-400-400.png",
-
 };
 
 const DEFAULT_ICON =
@@ -87,12 +86,14 @@ export function ChannelCard({
         <div className={styles.channelIcon}>{getChannelIcon()}</div>
         <div className={styles.statusIndicator}>
           <div
-            className={`${styles.statusDot} ${enabled ? styles.enabled : styles.disabled
-              }`}
+            className={`${styles.statusDot} ${
+              enabled ? styles.enabled : styles.disabled
+            }`}
           />
           <span
-            className={`${styles.statusText} ${enabled ? styles.enabled : styles.disabled
-              }`}
+            className={`${styles.statusText} ${
+              enabled ? styles.enabled : styles.disabled
+            }`}
           >
             {enabled ? t("common.enabled") : t("common.disabled")}
           </span>
