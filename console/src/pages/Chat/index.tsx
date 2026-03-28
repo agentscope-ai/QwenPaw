@@ -5,13 +5,21 @@ import {
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, Tooltip, message } from "antd";
-import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
+import {
+  BookOutlined,
+  ExclamationCircleOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
-import { chatApi } from "../../api/modules/chat";
+import {
+  chatApi,
+  knowledgeApi,
+  type KnowledgeImportItem,
+} from "../../api/modules/chat";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
@@ -269,6 +277,8 @@ export default function ChatPage() {
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
+  const [knowledgeImportEnabled, setKnowledgeImportEnabled] = useState(false);
+  const pendingKnowledgeUploadsRef = useRef<KnowledgeImportItem[]>([]);
 
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
@@ -372,6 +382,48 @@ export default function ChatPage() {
     [t],
   );
 
+  const resetKnowledgeImportState = useCallback(() => {
+    pendingKnowledgeUploadsRef.current = [];
+    setKnowledgeImportEnabled(false);
+  }, []);
+
+  const importPendingKnowledgeUploads = useCallback(async () => {
+    if (!knowledgeImportEnabled) {
+      return;
+    }
+
+    const uploads = pendingKnowledgeUploadsRef.current;
+    if (uploads.length === 0) {
+      message.warning(t("chat.knowledgeImport.noPendingFiles"));
+      return;
+    }
+
+    try {
+      const result = await knowledgeApi.importUploads({
+        uploads,
+        mode: "current_message",
+      });
+      if (result.failed_count > 0) {
+        message.warning(
+          t("chat.knowledgeImport.partialWarning", {
+            failed: result.failed_count,
+          }),
+        );
+        return;
+      }
+      if (result.imported_count > 0) {
+        message.success(
+          t("chat.knowledgeImport.success", {
+            count: result.imported_count,
+          }),
+        );
+      }
+    } catch (error) {
+      console.warn("Knowledge import failed:", error);
+      message.warning(t("chat.knowledgeImport.failed"));
+    }
+  }, [knowledgeImportEnabled, t]);
+
   const customFetch = useCallback(
     async (data: {
       input?: Array<Record<string, unknown>>;
@@ -438,16 +490,26 @@ export default function ChatPage() {
         }
       }
 
-      const response = await fetch(getApiUrl("/console/chat"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: data.signal,
-      });
+      try {
+        await importPendingKnowledgeUploads();
 
-      return response;
+        const response = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: data.signal,
+        });
+
+        return response;
+      } finally {
+        resetKnowledgeImportState();
+      }
     },
-    [selectedAgent],
+    [
+      importPendingKnowledgeUploads,
+      resetKnowledgeImportState,
+      selectedAgent,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -485,6 +547,15 @@ export default function ChatPage() {
         }
 
         const res = await chatApi.uploadFile(file);
+        pendingKnowledgeUploadsRef.current = [
+          ...pendingKnowledgeUploadsRef.current.filter(
+            (item) => item.upload_id !== res.upload_id,
+          ),
+          {
+            upload_id: res.upload_id,
+            file_name: res.file_name || file.name,
+          },
+        ];
         onProgress?.({ percent: 100 });
         onSuccess({ url: chatApi.filePreviewUrl(res.url) });
       } catch (e) {
@@ -537,6 +608,24 @@ export default function ChatPage() {
             <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
+            <Tooltip
+              title={t(
+                knowledgeImportEnabled
+                  ? "chat.knowledgeImport.toggleOnTooltip"
+                  : "chat.knowledgeImport.toggleOffTooltip",
+              )}
+            >
+              <Button
+                size="small"
+                icon={<BookOutlined />}
+                type={knowledgeImportEnabled ? "primary" : "default"}
+                onClick={() =>
+                  setKnowledgeImportEnabled((enabled) => !enabled)
+                }
+              >
+                {t("chat.knowledgeImport.toggleLabel")}
+              </Button>
+            </Tooltip>
             <ModelSelector />
             <ChatActionGroup />
           </>
@@ -633,7 +722,15 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
+  }, [
+    customFetch,
+    copyResponse,
+    handleFileUpload,
+    t,
+    isDark,
+    multimodalCaps,
+    knowledgeImportEnabled,
+  ]);
 
   return (
     <div

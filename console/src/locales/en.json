@@ -1074,6 +1074,15 @@
       "multimodalWarning": "No multimodal capability detected for current model, images or videos may not be processed correctly",
       "imageOnlyAccept": "Current model only supports image files",
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
+    },
+    "knowledgeImport": {
+      "toggleLabel": "KB",
+      "toggleOnTooltip": "Enabled: import current message uploads into Knowledge Base before sending",
+      "toggleOffTooltip": "Disabled: do not import current message uploads into Knowledge Base",
+      "success": "Imported {{count}} file(s) into Knowledge Base",
+      "partialWarning": "Knowledge import finished with {{failed}} failed file(s); message was still sent",
+      "failed": "Knowledge import failed; message was still sent without KB import",
+      "noPendingFiles": "Knowledge import is enabled, but no uploaded files were found"
     }
   },
   "security": {
