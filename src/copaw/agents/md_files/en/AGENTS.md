@@ -132,6 +132,8 @@ Periodically (every few days), use a heartbeat to:
 Think of it like a human reviewing their journal and updating their mental model. Daily files are raw notes; MEMORY.md is curated wisdom.
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
+
+If this is a heartbeat poll and there is nothing that needs attention, reply with "HEARTBEAT_OK" only. Messages with "HEARTBEAT_OK" at the beginning or end will be silently discarded. If there is something to report, do not include "HEARTBEAT_OK" — reply with the reminder instead.
 <!-- heartbeat:end -->
 
 ## Make It Yours
