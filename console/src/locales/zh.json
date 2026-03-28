@@ -644,6 +644,7 @@
     "providerDeleted": "提供商 \"{{name}}\" 已删除",
     "providerDeleteFailed": "删除提供商失败",
     "manageModels": "模型",
+    "models": "模型",
     "manageModelsTitle": "{{provider}} — 模型管理",
     "userAdded": "用户添加",
     "addModel": "添加模型",

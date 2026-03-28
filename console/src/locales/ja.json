@@ -616,6 +616,7 @@
     "providerDeleted": "プロバイダー \"{{name}}\" を削除しました",
     "providerDeleteFailed": "プロバイダーの削除に失敗しました",
     "manageModels": "モデル",
+    "models": "モデル",
     "manageModelsTitle": "{{provider}} — モデル管理",
     "userAdded": "ユーザー追加",
     "addModel": "モデルを追加",

@@ -93,7 +93,6 @@ export default function ToolsPage() {
                         checked={tool.async_execution}
                         onChange={() => toggleAsyncExecution(tool)}
                         disabled={!tool.enabled}
-                        size="small"
                       />
                     </div>
                   )}

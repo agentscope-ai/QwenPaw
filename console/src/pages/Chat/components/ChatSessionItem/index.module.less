@@ -112,3 +112,37 @@
   pointer-events: none;
   transition: opacity 0.2s;
 }
+
+/* Dark mode */
+:global(.dark-mode) {
+  .chatSessionItem {
+    background-color: #1f1f1f;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    &.active {
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+
+  .iconPlaceholder {
+    &::before {
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+
+    &::after {
+      background-color: #1f1f1f;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+  }
+
+  .name {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .time {
+    color: rgba(255, 255, 255, 0.5);
+  }
+}

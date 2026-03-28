@@ -25,13 +25,16 @@ const CHANNEL_ICON_MAP: Record<string, string> = {
   matrix:
     "https://gw.alicdn.com/imgextra/i4/O1CN01LF8Tv61tAqrsI5yMY_!!6000000005862-2-tps-400-400.png",
   console:
-    "https://gw.alicdn.com/imgextra/i1/O1CN016W3YGS1GdSapUmDqI_!!6000000000645-2-tps-400-400.png",
+    "https://gw.alicdn.com/imgextra/i4/O1CN01eeLWyo1ZgBePACyWf_!!6000000003223-2-tps-320-320.png",
   wecom:
     "https://gw.alicdn.com/imgextra/i1/O1CN01HWtzmr1hkK9beQICJ_!!6000000004315-2-tps-400-400.png",
+  weixin:
+    "https://gw.alicdn.com/imgextra/i1/O1CN01HWtzmr1hkK9beQICJ_!!6000000004315-2-tps-400-400.png",
+
 };
 
 const DEFAULT_ICON =
-  "https://gw.alicdn.com/imgextra/i3/O1CN01edxvlz1L2t2mcDJEr_!!6000000001242-2-tps-400-400.png";
+  "https://gw.alicdn.com/imgextra/i3/O1CN01CQSF5R29JaGuuzZ5X_!!6000000008047-2-tps-320-320.png";
 
 interface ChannelCardProps {
   channelKey: ChannelKey;
@@ -84,14 +87,12 @@ export function ChannelCard({
         <div className={styles.channelIcon}>{getChannelIcon()}</div>
         <div className={styles.statusIndicator}>
           <div
-            className={`${styles.statusDot} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
+            className={`${styles.statusDot} ${enabled ? styles.enabled : styles.disabled
+              }`}
           />
           <span
-            className={`${styles.statusText} ${
-              enabled ? styles.enabled : styles.disabled
-            }`}
+            className={`${styles.statusText} ${enabled ? styles.enabled : styles.disabled
+              }`}
           >
             {enabled ? t("common.enabled") : t("common.disabled")}
           </span>

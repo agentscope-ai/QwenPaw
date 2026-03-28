@@ -681,6 +681,7 @@
     "providerDeleted": "Provider \"{{name}}\" deleted",
     "providerDeleteFailed": "Failed to delete provider",
     "manageModels": "Models",
+    "models": "Models",
     "manageModelsTitle": "{{provider}} — Model Management",
     "userAdded": "User-added",
     "addModel": "Add Model",

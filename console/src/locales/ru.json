@@ -621,6 +621,7 @@
     "providerDeleted": "Провайдер «{{name}}» удалён",
     "providerDeleteFailed": "Не удалось удалить провайдера",
     "manageModels": "Модели",
+    "models": "Модели",
     "manageModelsTitle": "{{provider}} — Управление моделями",
     "userAdded": "Добавлено пользователем",
     "addModel": "Добавить модель",

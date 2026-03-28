@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Form, message } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-
 import api from "../../../api";
 import {
   ChannelCard,
