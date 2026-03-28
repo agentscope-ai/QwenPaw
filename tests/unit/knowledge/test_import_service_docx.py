@@ -11,6 +11,7 @@ import pytest
 from copaw.agents.knowledge.models import (
     KnowledgeImportItem,
     KnowledgeImportRequest,
+    ParsedDocument,
 )
 from copaw.agents.knowledge.service import KnowledgeImportService
 
@@ -69,12 +70,29 @@ async def test_import_docx_upload_success(tmp_path: Path) -> None:
     )
 
 
-async def test_import_doc_upload_is_unsupported(tmp_path: Path) -> None:
+async def test_import_doc_upload_success(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     media_dir = tmp_path / "media"
     media_dir.mkdir(parents=True, exist_ok=True)
 
     upload_id = "legacy.doc"
     (media_dir / upload_id).write_bytes(b"legacy-doc-bytes")
+
+    def _fake_parse(_self, path: Path) -> ParsedDocument:
+        return ParsedDocument(
+            title="Legacy DOC",
+            source_path=str(path),
+            source_type="doc",
+            raw_text="Legacy DOC content is searchable.",
+            metadata={"engine": "fake-doc-parser"},
+        )
+
+    monkeypatch.setattr(
+        "copaw.agents.knowledge.parsers.doc_parser.DocParser.parse",
+        _fake_parse,
+    )
 
     service = KnowledgeImportService(tmp_path, media_dir=media_dir)
     request = KnowledgeImportRequest(
@@ -88,7 +106,17 @@ async def test_import_doc_upload_is_unsupported(tmp_path: Path) -> None:
 
     response = await service.import_uploads(request)
 
-    assert response.success is False
-    assert response.imported_count == 0
-    assert response.failed_count == 1
-    assert response.failed[0].code == "UNSUPPORTED_FILE_TYPE"
+    assert response.success is True
+    assert response.imported_count == 1
+    assert response.failed_count == 0
+    imported = response.imported[0]
+    assert imported.source_type == "doc"
+
+    index = service.repo.load_index()
+    doc_state = index["documents"][imported.doc_id]
+    assert doc_state["source_type"] == "doc"
+
+    markdown_path = tmp_path / doc_state["paths"]["markdown"]
+    assert markdown_path.exists()
+    markdown_body = markdown_path.read_text(encoding="utf-8")
+    assert "Legacy DOC content is searchable." in markdown_body

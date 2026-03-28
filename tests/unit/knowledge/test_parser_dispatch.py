@@ -12,7 +12,9 @@ from copaw.agents.knowledge.parsers.base import resolve_parsers_for_path
 
 
 def _parser_names(path: Path) -> list[str]:
-    return [parser.__class__.__name__ for parser in resolve_parsers_for_path(path)]
+    return [
+        parser.__class__.__name__ for parser in resolve_parsers_for_path(path)
+    ]
 
 
 def test_default_engine_uses_specialized_parser_only(
@@ -22,6 +24,7 @@ def test_default_engine_uses_specialized_parser_only(
 
     assert _parser_names(Path("paper.pdf")) == ["PdfParser"]
     assert _parser_names(Path("notes.docx")) == ["DocxParser"]
+    assert _parser_names(Path("legacy.doc")) == ["DocParser"]
     assert _parser_names(Path("notes.md")) == ["MarkdownParser"]
 
 
@@ -31,6 +34,7 @@ def test_docling_engine_prioritizes_docling_with_fallback(
     monkeypatch.setenv("COPAW_KB_DOCUMENT_LOADING_ENGINE", "DOCLING")
 
     assert _parser_names(Path("paper.pdf")) == ["DoclingParser", "PdfParser"]
+    assert _parser_names(Path("legacy.doc")) == ["DocParser"]
     assert _parser_names(Path("notes.docx")) == [
         "DoclingParser",
         "DocxParser",

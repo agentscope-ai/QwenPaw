@@ -6,6 +6,7 @@ from .base import (
     resolve_parser_for_path,
     resolve_parsers_for_path,
 )
+from .doc_parser import DocParser
 from .docling_parser import DoclingParser
 from .docx_parser import DocxParser
 from .markdown_parser import MarkdownParser
@@ -16,6 +17,7 @@ __all__ = [
     "BaseKnowledgeParser",
     "resolve_parser_for_path",
     "resolve_parsers_for_path",
+    "DocParser",
     "DoclingParser",
     "DocxParser",
     "MarkdownParser",

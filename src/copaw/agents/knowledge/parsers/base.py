@@ -21,6 +21,7 @@ class BaseKnowledgeParser(Protocol):
 
 
 def _all_parsers() -> tuple[BaseKnowledgeParser, ...]:
+    from .doc_parser import DocParser
     from .docling_parser import DoclingParser
     from .docx_parser import DocxParser
     from .markdown_parser import MarkdownParser
@@ -31,6 +32,7 @@ def _all_parsers() -> tuple[BaseKnowledgeParser, ...]:
         MarkdownParser(),
         TextParser(),
         PdfParser(),
+        DocParser(),
         DocxParser(),
         DoclingParser(),
     )
