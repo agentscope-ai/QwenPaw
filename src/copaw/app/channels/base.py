@@ -52,6 +52,8 @@ if TYPE_CHECKING:
         Event,
     )
 
+    from ..runner.task_tracker import TaskTracker
+
 # process: accepts AgentRequest, streams Event
 # (including message events with status completed)
 ProcessHandler = Callable[[Any], AsyncIterator["Event"]]
@@ -124,6 +126,11 @@ class BaseChannel(ABC):
         self._debounce_seconds: float = 0.0
         self._debounce_pending: Dict[str, List[Any]] = {}
         self._debounce_timers: Dict[str, asyncio.Task[None]] = {}
+        self._task_tracker: Optional["TaskTracker"] = None
+
+    def set_task_tracker(self, tracker: "TaskTracker") -> None:
+        """Allow ChannelManager to inject a TaskTracker reference."""
+        self._task_tracker = tracker
 
     def _is_native_payload(self, payload: Any) -> bool:
         """True if payload is a native dict that can be time-debounced."""
@@ -748,6 +755,7 @@ class BaseChannel(ABC):
                 return
 
         request = self._payload_to_request(payload)
+
         # Build meta from payload so session_webhook is never lost when
         # request has no channel_meta (e.g. AgentRequest schema has no field).
         if isinstance(payload, dict):
@@ -828,21 +836,41 @@ class BaseChannel(ABC):
                     await self.on_event_response(request, event)
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
-                await self._on_consume_error(
-                    request,
-                    to_handle,
-                    f"Error: {err_msg}",
-                )
+                # Suppress the "Task has been cancelled!" error that
+                # agentscope_runtime returns as a response event after
+                # /stop cancellation — user already got "Task stopped."
+                if "cancelled" not in err_msg.lower():
+                    await self._on_consume_error(
+                        request,
+                        to_handle,
+                        f"Error: {err_msg}",
+                    )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
-        except Exception:
-            logger.exception("channel consume_one failed")
-            await self._on_consume_error(
-                request,
-                to_handle,
-                "An error occurred while processing your request.",
-            )
+        except asyncio.CancelledError:
+            # Task was cancelled (e.g. by /stop command) — don't send
+            # error to user; the CommandRouter already sent "Task stopped."
+            logger.info("channel consume_one cancelled (likely /stop)")
+        except Exception as exc:
+            # Suppress the "Task has been cancelled!" RuntimeError that
+            # query_handler raises after catching CancelledError — the
+            # CommandRouter already notified the user via "Task stopped."
+            if (
+                isinstance(exc, RuntimeError)
+                and "cancelled" in str(exc).lower()
+            ):
+                logger.info(
+                    "channel consume_one: task cancelled via /stop: %s",
+                    exc,
+                )
+            else:
+                logger.exception("channel consume_one failed")
+                await self._on_consume_error(
+                    request,
+                    to_handle,
+                    "An error occurred while processing your request.",
+                )
 
     def _get_response_error_message(self, last_response: Any) -> Optional[str]:
         """

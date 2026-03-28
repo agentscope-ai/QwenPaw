@@ -1,0 +1,137 @@
+# -*- coding: utf-8 -*-
+"""Property-based and unit tests for /stop command."""
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+from copaw.app.runner.daemon_commands import (
+    parse_daemon_query,
+)
+from copaw.app.runner.task_tracker import TaskTracker, _RunState
+
+
+# Feature: stop-magic-command, Property 3: parse_daemon_query 正确解析 /stop
+# Validates: Requirements 5.3, 1.4
+class TestParseDaemonQueryStopProperty:
+    """Property: parse_daemon_query correctly parses /stop variants."""
+
+    @given(
+        args=st.lists(
+            st.from_regex(r"[A-Za-z0-9_-]+", fullmatch=True),
+            min_size=0,
+            max_size=5,
+        ),
+    )
+    @settings(max_examples=100)
+    def test_slash_stop_with_args(self, args: list[str]) -> None:
+        """parse_daemon_query('/stop ...') returns ('stop', args)."""
+        query = "/stop" + ("" if not args else " " + " ".join(args))
+        result = parse_daemon_query(query)
+        assert result is not None
+        sub, parsed_args = result
+        assert sub == "stop"
+        assert parsed_args == args
+
+    @given(
+        args=st.lists(
+            st.from_regex(r"[A-Za-z0-9_-]+", fullmatch=True),
+            min_size=0,
+            max_size=5,
+        ),
+    )
+    @settings(max_examples=100)
+    def test_daemon_stop_with_args(self, args: list[str]) -> None:
+        """parse_daemon_query('/daemon stop ...') returns ('stop', args)."""
+        query = "/daemon stop" + ("" if not args else " " + " ".join(args))
+        result = parse_daemon_query(query)
+        assert result is not None
+        sub, parsed_args = result
+        assert sub == "stop"
+        assert parsed_args == args
+
+    @given(padding=st.from_regex(r"[ \t]*", fullmatch=True))
+    @settings(max_examples=100)
+    def test_slash_stop_with_whitespace_padding(
+        self,
+        padding: str,
+    ) -> None:
+        """parse_daemon_query with whitespace still returns ('stop', [])."""
+        query = padding + "/stop" + padding
+        result = parse_daemon_query(query)
+        assert result is not None
+        sub, parsed_args = result
+        assert sub == "stop"
+        assert parsed_args == []
+
+
+# Unit tests for parse_daemon_query with /stop
+# Validates: Requirements 5.3, 1.4
+class TestParseDaemonQueryStopUnit:
+    """Unit tests for parse_daemon_query with /stop."""
+
+    def test_slash_stop(self):
+        result = parse_daemon_query("/stop")
+        assert result == ("stop", [])
+
+    def test_daemon_stop(self):
+        result = parse_daemon_query("/daemon stop")
+        assert result == ("stop", [])
+
+    def test_stop_with_arg(self):
+        result = parse_daemon_query("/stop arg1")
+        assert result == ("stop", ["arg1"])
+
+
+# Feature: stop-magic-command, Property 2: 停止活跃任务返回成功
+# Validates: Requirements 2.3, 3.3, 4.2, 6.1
+class TestRequestStopActiveTaskProperty:
+    """Property: request_stop on active task returns True and cancels."""
+
+    @given(key=st.text(min_size=1, max_size=50))
+    @settings(max_examples=100)
+    @pytest.mark.asyncio
+    async def test_request_stop_active_returns_true(
+        self,
+        key: str,
+    ) -> None:
+        """request_stop(key) returns True and cancels the future."""
+        tracker = TaskTracker()
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        # pylint: disable=protected-access
+        tracker._runs[key] = _RunState(task=future)
+
+        result = await tracker.request_stop(key)
+
+        assert result is True
+        assert future.cancelled() is True
+
+
+# Feature: stop-magic-command, Property 4: 重复停止的幂等性
+# Validates: Requirements 7.2
+class TestRequestStopIdempotencyProperty:
+    """Property: request_stop twice returns True then False."""
+
+    @given(key=st.text(min_size=1, max_size=50))
+    @settings(max_examples=100)
+    @pytest.mark.asyncio
+    async def test_repeated_stop_true_then_false(
+        self,
+        key: str,
+    ) -> None:
+        """request_stop(key) twice: True then False."""
+        tracker = TaskTracker()
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        # pylint: disable=protected-access
+        tracker._runs[key] = _RunState(task=future)
+
+        first = await tracker.request_stop(key)
+        second = await tracker.request_stop(key)
+
+        assert first is True
+        assert second is False

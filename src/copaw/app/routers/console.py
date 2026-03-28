@@ -15,7 +15,6 @@ from starlette.responses import StreamingResponse
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ..agent_context import get_agent_for_request
 
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
@@ -112,6 +111,34 @@ async def post_console_chat(
     is_reconnect = False
     if isinstance(request_data, dict):
         is_reconnect = request_data.get("reconnect") is True
+
+    # --- Command detection: route commands through CommandQueue ---
+    is_command = False
+    if not is_reconnect:
+        # pylint: disable=protected-access
+        classified = workspace.channel_manager._classify_command(
+            console_channel,
+            native_payload,
+        )
+        if classified is not None:
+            is_command = True
+
+    if is_command:
+        # Enqueue into ChannelManager so CommandClassifier routes to
+        # CommandQueue → _consume_command_loop → CommandRouter → channel.send.
+        workspace.channel_manager.enqueue("console", native_payload)
+
+        async def command_event_generator() -> AsyncGenerator[str, None]:
+            yield f"data: {json.dumps({'command': True})}\n\n"
+
+        return StreamingResponse(
+            command_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
 
     if is_reconnect:
         queue = await tracker.attach(chat.id)

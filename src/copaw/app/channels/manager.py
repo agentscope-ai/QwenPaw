@@ -10,22 +10,26 @@ import logging
 from pathlib import Path
 
 from typing import (
-    Any,
     Callable,
-    Dict,
     List,
     Optional,
+    Any,
+    Dict,
+    Set,
+    Tuple,
     TYPE_CHECKING,
 )
 
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
-from .command_registry import CommandRegistry
 from .registry import get_channel_registry
-from .unified_queue_manager import UnifiedQueueManager
 from ...config import get_available_channels
+from ..runner.daemon_commands import parse_daemon_query
+from ..runner.command_router import PrioritizedPayload
+from ...agents.command_handler import CommandHandler as ConvCommandHandler
 
 if TYPE_CHECKING:
     from ....config.config import Config
+    from ..runner.command_router import CommandRouter
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,54 @@ OnLastDispatch = Optional[Callable[[str, str, str], None]]
 
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000
+
+# Workers per channel: drain same-session from queue and process in parallel
+_CONSUMER_WORKERS_PER_CHANNEL = 4
+
+
+def _extract_text_from_payload(ch: BaseChannel, payload: Any) -> str:
+    """Extract first text content from a payload for /stop detection."""
+    try:
+        request = ch._payload_to_request(payload)
+        if not request.input:
+            return ""
+        contents = list(
+            getattr(request.input[0], "content", None) or [],
+        )
+        for c in contents:
+            ctype = getattr(c, "type", None)
+            if ctype in (ContentType.TEXT, "text"):
+                return getattr(c, "text", "") or ""
+        return ""
+    except Exception:
+        logger.debug(
+            "Failed to extract text from payload for /stop detection",
+            exc_info=True,
+        )
+        return ""
+
+
+def _drain_same_key(
+    q: asyncio.Queue,
+    ch: BaseChannel,
+    key: str,
+    first_payload: Any,
+) -> List[Any]:
+    """Drain queue of payloads with same debounce key; return batch."""
+    batch = [first_payload]
+    put_back: List[Any] = []
+    while True:
+        try:
+            p = q.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        if ch.get_debounce_key(p) == key:
+            batch.append(p)
+        else:
+            put_back.append(p)
+    for p in put_back:
+        q.put_nowait(p)
+    return batch
 
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
@@ -65,6 +117,26 @@ async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
         await ch.consume_one(batch[0])
 
 
+def _put_pending_merged(
+    ch: BaseChannel,
+    q: asyncio.Queue,
+    pending: List[Any],
+) -> None:
+    """Merge pending items if multiple and put one or more on queue."""
+    if not pending:
+        return
+    merged = None
+    if len(pending) > 1 and ch._is_native_payload(pending[0]):
+        merged = ch.merge_native_items(pending)
+    elif len(pending) > 1:
+        merged = ch.merge_requests(pending)
+    if merged is not None:
+        q.put_nowait(merged)
+    else:
+        for p in pending:
+            q.put_nowait(p)
+
+
 class ChannelManager:
     """Owns queues and consumer loops; channels define how to consume via
     consume_one(). Enqueue via enqueue(channel_id, payload) (thread-safe).
@@ -73,15 +145,99 @@ class ChannelManager:
     def __init__(self, channels: List[BaseChannel]):
         self.channels = channels
         self._lock = asyncio.Lock()
+        self._queues: Dict[str, asyncio.Queue] = {}
+        self._consumer_tasks: List[asyncio.Task[None]] = []
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        # Session in progress: (channel_id, debounce_key) -> True while worker
+        # is processing. New payloads for that key go to _pending, merged
+        # when worker finishes.
+        self._in_progress: Set[Tuple[str, str]] = set()
+        self._pending: Dict[Tuple[str, str], List[Any]] = {}
+        # Per-key lock: same session is claimed by one worker for drain so
+        # [image1, text] are not split across workers (avoids no-text
+        # debounce reordering and duplicate content in AgentRequest).
+        self._key_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
+        # Track active processing tasks per session key for /stop cancellation
+        self._active_process_tasks: Dict[
+            Tuple[str, str],
+            asyncio.Task,
+        ] = {}
+        # -- Dual-queue: command queue attributes -----------------------
+        self._command_queues: Dict[str, asyncio.PriorityQueue] = {}
+        self._command_router: CommandRouter | None = None
+        self._command_seq: int = 0
 
-        # New unified queue system
-        self._command_registry = CommandRegistry()
-        self._queue_manager: UnifiedQueueManager | None = None
-        self._workspace = None
+    # ------------------------------------------------------------------
+    # Dual-queue: command router wiring
+    # ------------------------------------------------------------------
 
-        # Track enqueue tasks for graceful shutdown
-        self._enqueue_tasks: set[asyncio.Task] = set()
+    def set_command_router(self, router: CommandRouter) -> None:
+        """Attach a :class:`CommandRouter` for classification."""
+        self._command_router = router
+
+    # pylint: disable=too-many-return-statements
+    def _classify_command(
+        self,
+        ch: BaseChannel,
+        payload: Any,
+    ) -> tuple[str, list[str]] | None:
+        """Extract payload text and check if it is a registered command.
+
+        Returns:
+            ``(command_name, command_args)`` when the payload matches a
+            registered command, or ``None`` for normal messages.
+        """
+        if self._command_router is None:
+            return None
+
+        # 1. Extract text from payload
+        try:
+            text = _extract_text_from_payload(ch, payload)
+        except Exception:
+            logger.debug(
+                "classify_command: failed to extract text from payload",
+                exc_info=True,
+            )
+            return None
+
+        if not text or not text.strip().startswith("/"):
+            return None
+
+        registered = self._command_router.get_registered_commands()
+
+        # 2. Try daemon command parsing
+        #    (handles /daemon <sub> and short aliases)
+        parsed = parse_daemon_query(text)
+        if parsed is not None:
+            cmd_name, cmd_args = parsed
+            if cmd_name in registered:
+                return (cmd_name, cmd_args)
+            # /daemon <sub> resolves to sub; check if
+            # "daemon" itself is registered
+            if "daemon" in registered:
+                # Re-parse: the raw text was /daemon <sub>,
+                # route via "daemon" handler
+                raw = text.strip()
+                parts = raw.lstrip("/").split()
+                if parts and parts[0].lower() == "daemon":
+                    return ("daemon", parts[1:] if len(parts) > 1 else [])
+
+        # 3. Try conversation command parsing
+        stripped = text.strip()
+        cmd_candidate = (
+            stripped.lstrip("/").split()[0] if stripped.startswith("/") else ""
+        )
+        if cmd_candidate in ConvCommandHandler.SYSTEM_COMMANDS:
+            if cmd_candidate in registered:
+                args = stripped.lstrip("/").split()[1:]
+                return (cmd_candidate, args)
+
+        # 4. Generic fallback: check if first word after / is registered
+        if cmd_candidate and cmd_candidate in registered:
+            args = stripped.lstrip("/").split()[1:]
+            return (cmd_candidate, args)
+
+        return None
 
     @classmethod
     def from_env(
@@ -220,136 +376,71 @@ class ChannelManager:
 
         return cb
 
-    def _extract_session_id(
-        self,
-        ch: BaseChannel,
-        payload: Any,
-    ) -> str:
-        """Extract normalized session_id from payload.
-
-        Args:
-            ch: Channel instance
-            payload: Native dict or AgentRequest
-
-        Returns:
-            Normalized session_id (e.g. "console:user1")
-
-        Note:
-            Uses same logic as ch.get_debounce_key for consistency
-        """
-        # Check if payload already has normalized session_id
-        # (e.g. from batch merge or previous processing)
-        if isinstance(payload, dict):
-            existing_sid = payload.get("session_id")
-            if existing_sid:
-                return existing_sid
-
-        if hasattr(payload, "session_id"):
-            existing_sid = payload.session_id
-            if existing_sid:
-                return existing_sid
-
-        # Use channel's debounce key (delegates to resolve_session_id)
-        return ch.get_debounce_key(payload)
-
     def _enqueue_one(self, channel_id: str, payload: Any) -> None:
-        """Run on event loop: classify priority and route to queue manager.
-
-        Note:
-            This is the new routing layer using UnifiedQueueManager
+        """Run on event loop: classify message and route to CommandQueue or
+        DataQueue. Command messages bypass the in_progress/pending mechanism.
         """
-        if self._queue_manager is None:
-            logger.warning(
-                "enqueue: queue_manager not initialized for channel=%s",
-                channel_id,
-            )
+        q = self._queues.get(channel_id)
+        if not q:
+            logger.debug("enqueue: no queue for channel=%s", channel_id)
             return
-
-        # Get channel instance
         ch = next(
             (c for c in self.channels if c.channel == channel_id),
             None,
         )
         if not ch:
-            logger.warning(
-                "enqueue: channel not found: channel_id=%s",
-                channel_id,
-            )
+            q.put_nowait(payload)
             return
 
-        # Extract query text for priority classification
-        query = ch._extract_query_from_payload(payload)
+        # --- CommandClassifier: route commands to CommandQueue ---
+        classified = self._classify_command(ch, payload)
+        if classified is not None and channel_id in self._command_queues:
+            command_name, command_args = classified
+            priority = (
+                self._command_router.get_priority(command_name)
+                if self._command_router is not None
+                else 2  # NORMAL fallback
+            )
+            self._command_seq += 1
+            item = PrioritizedPayload(
+                priority=priority,
+                sequence=self._command_seq,
+                payload=payload,
+                command_name=command_name,
+                command_args=command_args,
+            )
+            self._command_queues[channel_id].put_nowait(item)
+            return
 
-        # Get priority level
-        priority_level = self._command_registry.get_priority_level(query)
-
-        # Extract normalized session_id
-        session_id = self._extract_session_id(ch, payload)
-
-        # Route to unified queue manager with task tracking
-        task = asyncio.create_task(
-            self._enqueue_with_timeout(
-                channel_id,
-                session_id,
-                priority_level,
-                payload,
-                query,
-            ),
-        )
-        self._enqueue_tasks.add(task)
-        task.add_done_callback(self._enqueue_tasks.discard)
-
-    async def _enqueue_with_timeout(
-        self,
-        channel_id: str,
-        session_id: str,
-        priority_level: int,
-        payload: Any,
-        query: str,
-    ) -> None:
-        """Enqueue with timeout protection to prevent unbounded blocking.
-
-        Args:
-            channel_id: Channel identifier
-            session_id: Normalized session ID
-            priority_level: Priority level
-            payload: Message payload
-            query: Extracted query text for logging
-        """
-        try:
-            await asyncio.wait_for(
-                self._queue_manager.enqueue(
-                    channel_id,
-                    session_id,
-                    priority_level,
-                    payload,
+        # --- Normal message: DataQueue logic (in_progress/pending) ---
+        key = ch.get_debounce_key(payload)
+        if channel_id == "dingtalk" and isinstance(payload, dict):
+            logger.info(
+                "manager _enqueue_one dingtalk: key=%s in_progress=%s "
+                "payload_has_sw=%s -> %s",
+                key,
+                (channel_id, key) in self._in_progress,
+                bool(payload.get("session_webhook")),
+                (
+                    "pending"
+                    if (channel_id, key) in self._in_progress
+                    else "queue"
                 ),
-                timeout=30.0,
             )
-            logger.debug(
-                f"Enqueued: channel={channel_id} "
-                f"session={session_id[:30]} "
-                f"priority={priority_level} "
-                f"query={query[:40] if query else '(empty)'}",
-            )
-        except asyncio.TimeoutError:
-            pass
-        except asyncio.CancelledError:
-            logger.debug(
-                f"Enqueue cancelled: channel={channel_id} "
-                f"session={session_id[:30]}",
-            )
-            raise
-        except Exception as e:
-            logger.exception(
-                f"Enqueue failed: channel={channel_id} "
-                f"session={session_id[:30]} error={e}",
-            )
+        if (channel_id, key) in self._in_progress:
+            self._pending.setdefault((channel_id, key), []).append(payload)
+            return
+        q.put_nowait(payload)
 
     def enqueue(self, channel_id: str, payload: Any) -> None:
         """Enqueue a payload for the channel. Thread-safe (e.g. from sync
-        WebSocket or polling thread). Call after start_all().
+        WebSocket or polling thread). If this session is already being
+        processed, payload is held in pending and merged when the worker
+        finishes. Call after start_all().
         """
+        if not self._queues.get(channel_id):
+            logger.debug("enqueue: no queue for channel=%s", channel_id)
+            return
         if self._loop is None:
             logger.warning("enqueue: loop not set for channel=%s", channel_id)
             return
@@ -359,117 +450,202 @@ class ChannelManager:
             payload,
         )
 
-    async def _consume_queue(
+    async def _consume_channel_loop(
         self,
-        queue: asyncio.Queue,
         channel_id: str,
-        session_id: str,
-        priority_level: int,
+        worker_index: int,
     ) -> None:
-        """Consumer function for UnifiedQueueManager.
-
-        This implements the per-queue consumer loop with batch merging.
-
-        Args:
-            queue: The queue to consume from
-            channel_id: Channel identifier
-            session_id: Normalized session ID
-            priority_level: Priority level
-
-        Note:
-            Preserves original batch merging logic (drain + merge)
         """
-        logger.info(
-            f"Consumer started: channel={channel_id} "
-            f"session={session_id[:30]} "
-            f"priority={priority_level}",
-        )
-
-        # Get channel instance
-        ch = await self.get_channel(channel_id)
-        if not ch:
-            logger.error(
-                f"Consumer: channel not found: channel_id={channel_id}",
-            )
+        Run one consumer worker: pop payload, drain queue of same session,
+        mark session in progress, merge batch (native or requests), process
+        once, then flush any pending for this session (merged) back to queue.
+        Multiple workers per channel allow different sessions in parallel.
+        """
+        q = self._queues.get(channel_id)
+        if not q:
             return
-
         while True:
             try:
-                # Get first payload
-                payload = await queue.get()
+                payload = await q.get()
+                ch = await self.get_channel(channel_id)
+                if not ch:
+                    continue
+                key = ch.get_debounce_key(payload)
 
-                # Drain queue for same-key payloads (batch merge logic)
-                # Note: In new architecture, same-key means same QueueKey,
-                # so all payloads in this queue already have same
-                # (channel_id, session_id, priority_level).
-                # We still drain to merge rapid-fire messages (e.g. images)
-                batch = [payload]
-                while True:
-                    try:
-                        next_payload = queue.get_nowait()
-                        batch.append(next_payload)
-                    except asyncio.QueueEmpty:
-                        break
-
-                # Process batch (with merge logic)
-                await _process_batch(ch, batch)
-
-                # Update processed count
-                if self._queue_manager is not None:
-                    await self._queue_manager.increment_processed(
-                        channel_id,
-                        session_id,
-                        priority_level,
-                        count=len(batch),
+                key_lock = self._key_locks.setdefault(
+                    (channel_id, key),
+                    asyncio.Lock(),
+                )
+                try:
+                    async with key_lock:
+                        self._in_progress.add((channel_id, key))
+                        batch = _drain_same_key(q, ch, key, payload)
+                    process_task = asyncio.create_task(
+                        _process_batch(ch, batch),
                     )
-
-                logger.debug(
-                    f"Processed batch: channel={channel_id} "
-                    f"session={session_id[:30]} "
-                    f"priority={priority_level} "
-                    f"batch_size={len(batch)}",
-                )
-
+                    self._active_process_tasks[(channel_id, key)] = (
+                        process_task
+                    )
+                    try:
+                        await process_task
+                    except asyncio.CancelledError:
+                        logger.info(
+                            "/stop: task cancelled for key=%s",
+                            key,
+                        )
+                finally:
+                    self._active_process_tasks.pop((channel_id, key), None)
+                    self._in_progress.discard((channel_id, key))
+                    pending = self._pending.pop((channel_id, key), [])
+                    _put_pending_merged(ch, q, pending)
             except asyncio.CancelledError:
-                logger.debug(
-                    f"Consumer cancelled: channel={channel_id} "
-                    f"session={session_id[:30]} "
-                    f"priority={priority_level}",
-                )
                 break
             except Exception:
                 logger.exception(
-                    f"Consumer failed: channel={channel_id} "
-                    f"session={session_id[:30]} "
-                    f"priority={priority_level}",
+                    "channel consume_one failed: channel=%s worker=%s",
+                    channel_id,
+                    worker_index,
+                )
+
+    # ------------------------------------------------------------------
+    # Dual-queue: command consume loop
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_msg_text(msg: Any) -> str:
+        """Extract the first text block from a ``Msg`` response."""
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            for block in content:
+                # Handle both dict (Msg serializes TextBlock
+                # to dict) and objects
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        return block.get("text", "") or ""
+                elif getattr(block, "type", None) == "text":
+                    return getattr(block, "text", "") or ""
+            return ""
+        return str(content) if content else ""
+
+    async def _consume_command_loop(self, channel_id: str) -> None:
+        """Command consume loop: dequeue from PriorityQueue by priority and
+        dispatch via CommandRouter.
+
+        Each channel has exactly one command consumer (single worker) to
+        avoid concurrency issues with command processing.
+        """
+        from ..runner.command_router import CommandContext
+
+        cq = self._command_queues.get(channel_id)
+        if not cq:
+            return
+        while True:
+            try:
+                item: PrioritizedPayload = await cq.get()
+
+                # Find the channel instance
+                ch = next(
+                    (c for c in self.channels if c.channel == channel_id),
+                    None,
+                )
+                if not ch:
+                    logger.warning(
+                        "command consume: channel not found: %s",
+                        channel_id,
+                    )
+                    continue
+
+                if self._command_router is None:
+                    logger.warning(
+                        "command consume: no command router set",
+                    )
+                    continue
+
+                # Build CommandContext from PrioritizedPayload
+                try:
+                    request = ch._payload_to_request(item.payload)
+                    session_id = getattr(request, "session_id", "") or ""
+                    user_id = getattr(request, "user_id", "") or ""
+                except Exception:
+                    logger.debug(
+                        "command consume: failed to parse payload for "
+                        "context, using defaults",
+                        exc_info=True,
+                    )
+                    session_id = ""
+                    user_id = ""
+                    request = None
+
+                raw_query = f"/{item.command_name}" + (
+                    " " + " ".join(item.command_args)
+                    if item.command_args
+                    else ""
+                )
+
+                context = CommandContext(
+                    channel=ch,
+                    channel_id=channel_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                    command_name=item.command_name,
+                    command_args=item.command_args,
+                    raw_query=raw_query,
+                    payload=item.payload,
+                    task_tracker=getattr(ch, "_task_tracker", None),
+                    runner=getattr(self._command_router, "_runner", None),
+                )
+
+                # Dispatch via CommandRouter
+                result_msg = await self._command_router.dispatch(context)
+
+                # Send result back via channel
+                if request is not None:
+                    to_handle = ch.get_to_handle_from_request(request)
+                else:
+                    to_handle = ""
+                text = self._extract_msg_text(result_msg)
+                await ch.send(to_handle, text)
+
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception(
+                    "command consume failed: channel=%s",
+                    channel_id,
                 )
 
     async def start_all(self) -> None:
-        """Start all channels and queue manager."""
         self._loop = asyncio.get_running_loop()
-
-        # Initialize UnifiedQueueManager with consumer function
-        self._queue_manager = UnifiedQueueManager(
-            consumer_fn=self._consume_queue,
-            queue_maxsize=_CHANNEL_QUEUE_MAXSIZE,
-        )
-
-        # Start cleanup loop
-        self._queue_manager.start_cleanup_loop()
-
-        # Set enqueue callback for each channel
         async with self._lock:
             snapshot = list(self.channels)
-
         for ch in snapshot:
             if getattr(ch, "uses_manager_queue", True):
+                self._queues[ch.channel] = asyncio.Queue(
+                    maxsize=_CHANNEL_QUEUE_MAXSIZE,
+                )
                 ch.set_enqueue(self._make_enqueue_cb(ch.channel))
-
+        for ch in snapshot:
+            if ch.channel in self._queues:
+                for w in range(_CONSUMER_WORKERS_PER_CHANNEL):
+                    task = asyncio.create_task(
+                        self._consume_channel_loop(ch.channel, w),
+                        name=f"channel_consumer_{ch.channel}_{w}",
+                    )
+                    self._consumer_tasks.append(task)
+                # -- CommandQueue: one PriorityQueue + one consumer --
+                self._command_queues[ch.channel] = asyncio.PriorityQueue()
+                cmd_task = asyncio.create_task(
+                    self._consume_command_loop(ch.channel),
+                    name=f"command_consumer_{ch.channel}",
+                )
+                self._consumer_tasks.append(cmd_task)
         logger.debug(
-            f"Starting channels: {[g.channel for g in snapshot]}",
+            "starting channels=%s queues=%s",
+            [g.channel for g in snapshot],
+            list(self._queues.keys()),
         )
-
-        # Start each channel
         for g in snapshot:
             try:
                 await g.start()
@@ -477,38 +653,27 @@ class ChannelManager:
                 logger.exception(f"failed to start channels={g.channel}")
 
     async def stop_all(self) -> None:
-        """Stop all channels and queue manager."""
-        # Cancel all pending enqueue tasks
-        if self._enqueue_tasks:
-            logger.info(
-                f"Cancelling {len(self._enqueue_tasks)} pending enqueue tasks",
+        self._in_progress.clear()
+        self._pending.clear()
+        for task in self._consumer_tasks:
+            task.cancel()
+        if self._consumer_tasks:
+            _, pending = await asyncio.wait(
+                self._consumer_tasks,
+                timeout=5.0,
+                return_when=asyncio.ALL_COMPLETED,
             )
-            for task in self._enqueue_tasks:
-                task.cancel()
-
-            # Wait for tasks to finish cancellation
-            if self._enqueue_tasks:
-                _, pending = await asyncio.wait(
-                    self._enqueue_tasks,
-                    timeout=2.0,
-                    return_when=asyncio.ALL_COMPLETED,
+            if pending:
+                logger.warning(
+                    "stop_all: %s consumer task(s) still pending after 5s",
+                    len(pending),
                 )
-                if pending:
-                    logger.warning(
-                        f"stop_all: {len(pending)} enqueue task(s) "
-                        f"still pending after 2s",
-                    )
-            self._enqueue_tasks.clear()
-
-        # Stop queue manager (stops all consumers and cleanup task)
-        if self._queue_manager is not None:
-            await self._queue_manager.stop_all()
-            self._queue_manager = None
-
-        # Stop channels
+        self._consumer_tasks.clear()
+        self._queues.clear()
+        self._command_queues.clear()
+        self._command_seq = 0
         async with self._lock:
             snapshot = list(self.channels)
-
         for ch in snapshot:
             ch.set_enqueue(None)
 
@@ -522,8 +687,6 @@ class ChannelManager:
 
         await asyncio.gather(*[_stop(g) for g in reversed(snapshot)])
 
-        logger.info("ChannelManager stopped")
-
     async def get_channel(self, channel: str) -> Optional[BaseChannel]:
         async with self._lock:
             for ch in self.channels:
@@ -531,66 +694,35 @@ class ChannelManager:
                     return ch
             return None
 
-    def set_workspace(self, workspace) -> None:
-        """Set workspace and inject to all channels.
-
-        Args:
-            workspace: Workspace instance with task_tracker and chat_manager
-        """
-        self._workspace = workspace
-        for ch in self.channels:
-            ch.set_workspace(workspace, self._command_registry)
-        logger.info(
-            f"Injected workspace into {len(self.channels)} channels",
-        )
-
-    async def clear_queue(
-        self,
-        channel_id: str,
-        session_id: str,
-        priority_level: int,
-    ) -> int:
-        """Clear a specific queue.
-
-        Args:
-            channel_id: Channel identifier
-            session_id: Session identifier
-            priority_level: Priority level
-
-        Returns:
-            Number of messages cleared
-        """
-        if self._queue_manager is None:
-            return 0
-        return await self._queue_manager.clear_queue(
-            channel_id,
-            session_id,
-            priority_level,
-        )
-
     async def replace_channel(
         self,
         new_channel: BaseChannel,
     ) -> None:
         """Replace a single channel by name.
 
-        Flow: set enqueue callback → start new (outside lock)
+        Flow: ensure queue+enqueue for new channel → start new (outside lock)
         → swap + stop old (inside lock). Lock only guards the swap+stop.
 
         Args:
             new_channel: New channel instance to replace with
-
-        Note:
-            Queue and consumer are created on-demand by UnifiedQueueManager
         """
         new_channel_name = new_channel.channel
+        # 1) Ensure queue and enqueue callback before start() so the channel
+        #    (e.g. DingTalk) registers its handler with a valid callback.
+        if new_channel_name not in self._queues:
+            if getattr(new_channel, "uses_manager_queue", True):
+                self._queues[new_channel_name] = asyncio.Queue(
+                    maxsize=_CHANNEL_QUEUE_MAXSIZE,
+                )
+                for w in range(_CONSUMER_WORKERS_PER_CHANNEL):
+                    task = asyncio.create_task(
+                        self._consume_channel_loop(new_channel_name, w),
+                        name=f"channel_consumer_{new_channel_name}_{w}",
+                    )
+                    self._consumer_tasks.append(task)
+        new_channel.set_enqueue(self._make_enqueue_cb(new_channel_name))
 
-        # 1) Set enqueue callback before start() so the channel
-        #    (e.g. DingTalk) can register its handler
-        if getattr(new_channel, "uses_manager_queue", True):
-            new_channel.set_enqueue(self._make_enqueue_cb(new_channel_name))
-
-        # 2) Start new channel outside lock (may be slow, e.g. DingTalk)
+        # 2) Start new channel outside lock (may be slow, e.g. DingTalk stream)
         logger.info(f"Pre-starting new channel: {new_channel_name}")
         try:
             await new_channel.start()

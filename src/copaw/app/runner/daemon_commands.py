@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Daemon command execution layer and DaemonCommandHandlerMixin.
+"""Daemon command execution layer.
 
-Shared by in-chat /daemon <sub> and CLI `copaw daemon <sub>`.
-Logs: tail WORKING_DIR / "copaw.log". Restart: in-process reload of channels,
-cron and MCP (no process exit); works on Mac/Windows without a process manager.
+Individual command functions (run_daemon_status, run_daemon_restart, etc.)
+are called by :class:`~copaw.app.runner.command_router.CommandRouter`.
+Logs: tail WORKING_DIR / "copaw.log". Restart: in-process reload of
+channels, cron and MCP (no process exit).
 """
 # pylint: disable=too-many-return-statements
 from __future__ import annotations
@@ -13,7 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, TYPE_CHECKING
 
-from agentscope.message import Msg, TextBlock
 
 from ...constant import WORKING_DIR
 from ...config import load_config
@@ -31,7 +31,15 @@ class RestartInProgressError(Exception):
 
 DAEMON_PREFIX = "/daemon"
 DAEMON_SUBCOMMANDS = frozenset(
-    {"status", "restart", "reload-config", "version", "logs", "approve"},
+    {
+        "status",
+        "restart",
+        "reload-config",
+        "version",
+        "logs",
+        "approve",
+        "stop",
+    },
 )
 # Short names: /restart -> /daemon restart, etc.
 DAEMON_SHORT_ALIASES = {
@@ -42,6 +50,7 @@ DAEMON_SHORT_ALIASES = {
     "version": "version",
     "logs": "logs",
     "approve": "approve",
+    "stop": "stop",
 }
 
 
@@ -249,54 +258,3 @@ def parse_daemon_query(query: str) -> Optional[tuple[str, list[str]]]:
         sub = DAEMON_SHORT_ALIASES[first]
         return (sub, parts[1:] if len(parts) > 1 else [])
     return None
-
-
-class DaemonCommandHandlerMixin:
-    """Mixin for daemon commands: /daemon status, restart, logs, etc."""
-
-    def is_daemon_command(self, query: str | None) -> bool:
-        """True if query is /daemon <sub> or short name (/restart, etc.)."""
-        return parse_daemon_query(query or "") is not None
-
-    async def handle_daemon_command(
-        self,
-        query: str,
-        context: DaemonContext,
-    ) -> Msg:
-        """Run daemon subcommand; return a single assistant Msg."""
-        parsed = parse_daemon_query(query)
-        if not parsed:
-            return Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(type="text", text="Unknown daemon command."),
-                ],
-            )
-        sub, args = parsed
-        if sub == "status":
-            text = run_daemon_status(context)
-        elif sub == "restart":
-            text = await run_daemon_restart(context)
-        elif sub == "reload-config":
-            text = run_daemon_reload_config(context)
-        elif sub == "version":
-            text = run_daemon_version(context)
-        elif sub == "logs":
-            n = 100
-            for a in args:
-                if a.isdigit():
-                    n = max(1, min(int(a), 2000))
-                    break
-            text = run_daemon_logs(context, lines=n)
-        elif sub == "approve":
-            session_id = getattr(context, "session_id", "") or ""
-            text = await run_daemon_approve(context, session_id=session_id)
-        else:
-            text = "Unknown daemon subcommand."
-        logger.info("handle_daemon_command %s completed", query)
-        return Msg(
-            name="Friday",
-            role="assistant",
-            content=[TextBlock(type="text", text=text)],
-        )
