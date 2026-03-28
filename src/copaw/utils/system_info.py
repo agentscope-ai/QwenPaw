@@ -198,7 +198,7 @@ def _get_total_memory_bytes_from_windows_api() -> int:
             ("ullAvailPageFile", ctypes.c_ulonglong),
             ("ullTotalVirtual", ctypes.c_ulonglong),
             ("ullAvailVirtual", ctypes.c_ulonglong),
-            ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
         ]
 
     kernel32 = getattr(getattr(ctypes, "windll", None), "kernel32", None)
