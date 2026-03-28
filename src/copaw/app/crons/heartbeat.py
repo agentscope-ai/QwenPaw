@@ -52,7 +52,7 @@ def _get_last_text_message(events: List[Any]) -> str:
     for event in reversed(events):
         if hasattr(event, "content") and isinstance(event.content, str):
             return event.content
-        if isinstance(event, dict) and "content" in event:
+        if isinstance(event, dict) and "content" in event and isinstance(event["content"], str):
             return event["content"]
     return ""
 
