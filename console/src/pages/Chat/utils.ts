@@ -70,13 +70,9 @@ export function extractUserMessageText(m: any): string {
 }
 
 export function extractTextFromMessage(msg: any): string {
-  const content = msg?.cards?.[0]?.data?.input?.[0]?.content;
-  if (!Array.isArray(content)) return "";
-
-  return content
-    .filter((p: any) => p?.type === "text" && p?.text)
-    .map((p: any) => p.text)
-    .join("\n");
+  const innerMessage = msg?.cards?.[0]?.data?.input?.[0];
+  if (!innerMessage) return "";
+  return extractUserMessageText(innerMessage);
 }
 
 // ---------------------------------------------------------------------------
