@@ -39,6 +39,8 @@ import styles from "./index.module.less";
 
 type PoolMode = "broadcast" | "create" | "edit";
 
+const SKILL_POOL_ZIP_MAX_MB = 100;
+
 function SkillPoolPage() {
   const { t } = useTranslation();
   const [skills, setSkills] = useState<PoolSkillSpec[]>([]);
@@ -434,6 +436,22 @@ function SkillPoolPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      message.warning(t("skills.zipOnly"));
+      return;
+    }
+
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > SKILL_POOL_ZIP_MAX_MB) {
+      message.warning(
+        t("skills.fileSizeExceeded", {
+          limit: SKILL_POOL_ZIP_MAX_MB,
+          size: sizeMB.toFixed(1),
+        }),
+      );
+      return;
+    }
 
     let renameMap: Record<string, string> | undefined;
     while (true) {

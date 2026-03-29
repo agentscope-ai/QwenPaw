@@ -65,10 +65,12 @@ export default function WorkspacePage() {
       return;
     }
 
-    const maxSize = 100 * 1024 * 1024;
+    const maxSizeMb = 100;
+    const maxSize = maxSizeMb * 1024 * 1024;
     if (file.size > maxSize) {
       message.error(
         t("workspace.fileSizeExceeded", {
+          limit: maxSizeMb,
           size: (file.size / (1024 * 1024)).toFixed(2),
         }),
       );
