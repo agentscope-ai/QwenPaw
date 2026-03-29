@@ -270,7 +270,9 @@ class KnowledgeRepository:
                 break
             except Exception:
                 logger.warning(
-                    "Failed to load chunk file %s, skipping.", path, exc_info=True
+                    "Failed to load chunk file %s, skipping.",
+                    path,
+                    exc_info=True,
                 )
                 continue
 

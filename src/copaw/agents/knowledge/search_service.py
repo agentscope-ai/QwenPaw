@@ -27,6 +27,7 @@ _LISTING_PATTERNS = (
     "show documents",
 )
 
+
 class KnowledgeSearchService:
     """Performs lightweight lexical retrieval on imported knowledge chunks."""
 
