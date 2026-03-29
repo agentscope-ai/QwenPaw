@@ -9,7 +9,6 @@ from ...agents.knowledge.models import (
     KnowledgeDocumentSummary,
     KnowledgeImportRequest,
     KnowledgeImportResponse,
-    KnowledgeSearchHit,
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
 )
@@ -86,18 +85,5 @@ async def search_knowledge(
     return KnowledgeSearchResponse(
         query=body.query,
         total=len(hits),
-        hits=[
-            KnowledgeSearchHit(
-                doc_id=item.doc_id,
-                title=item.title,
-                source_file=item.source_file,
-                source_type=item.source_type,
-                imported_at=item.imported_at,
-                chunk_id=item.chunk_id,
-                chunk_index=item.chunk_index,
-                chunk_text=item.chunk_text,
-                score=item.score,
-            )
-            for item in hits
-        ],
+        hits=hits,
     )

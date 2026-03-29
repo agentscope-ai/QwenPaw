@@ -8,7 +8,7 @@ import type {
   Session,
 } from "../types";
 
-/** Response from POST /console/upload. url = filename only; agent_id from header. */
+/** Response from POST /console/upload. */
 export interface ChatUploadResponse {
   upload_id: string;
   url: string;

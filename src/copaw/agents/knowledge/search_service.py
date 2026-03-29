@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 import re
 from typing import Any
 
+from .models import KnowledgeSearchHit
 from .repository import KnowledgeRepository
 
 _SPACE_RE = re.compile(r"\s+")
@@ -26,22 +26,6 @@ _LISTING_PATTERNS = (
     "list documents",
     "show documents",
 )
-
-
-@dataclass(slots=True)
-class KnowledgeSearchHit:
-    """One ranked chunk hit in knowledge search results."""
-
-    doc_id: str
-    title: str
-    source_file: str
-    source_type: str
-    imported_at: str
-    chunk_id: str
-    chunk_index: int
-    chunk_text: str
-    score: float
-
 
 class KnowledgeSearchService:
     """Performs lightweight lexical retrieval on imported knowledge chunks."""
