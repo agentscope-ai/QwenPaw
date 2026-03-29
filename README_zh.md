@@ -120,6 +120,8 @@ copaw app
 - 命令只执行导入并返回统计结果，不会在同一轮继续普通 LLM 回复。
 - 当前支持格式：`.md`、`.txt`、`.pdf`、`.docx`、`.doc`、`.xlsx`、`.pptx`。
 - 其中 `.doc` 依赖 LibreOffice `soffice` 转换。
+- 如启用 `COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING`，将按 Docling 官方格式集合处理
+  更多格式（如 Office、Markdown/AsciiDoc/HTML/CSV、图片、音视频、VTT、XML、JSON）。
 
 ![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
 

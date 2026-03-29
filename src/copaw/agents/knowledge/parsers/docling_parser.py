@@ -14,12 +14,40 @@ class DoclingParser:
     """Generic document parser backed by Docling."""
 
     supported_suffixes = (
-        ".md",
-        ".markdown",
-        ".txt",
-        ".text",
         ".pdf",
         ".docx",
+        ".xlsx",
+        ".pptx",
+        ".md",
+        ".markdown",
+        ".adoc",
+        ".asciidoc",
+        ".tex",
+        ".html",
+        ".htm",
+        ".xhtml",
+        ".csv",
+        ".txt",
+        ".text",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".bmp",
+        ".webp",
+        ".wav",
+        ".mp3",
+        ".m4a",
+        ".aac",
+        ".ogg",
+        ".flac",
+        ".mp4",
+        ".avi",
+        ".mov",
+        ".vtt",
+        ".xml",
+        ".json",
     )
 
     def parse(self, path: Path) -> ParsedDocument:
@@ -29,7 +57,7 @@ class DoclingParser:
             )  # lazy import to keep optional dependency
         except ImportError as exc:
             raise KnowledgeError(
-                "docling is required for DOCLING knowledge import engine. "
+                "docling is required for this knowledge import file type. "
                 "Install with: pip install 'copaw[docling]'",
             ) from exc
 
@@ -55,13 +83,17 @@ class DoclingParser:
         )
 
 
-def _map_source_type(suffix: str) -> Literal["md", "txt", "pdf", "docx"]:
-    if suffix in {".md", ".markdown"}:
-        return "md"
-    if suffix in {".txt", ".text"}:
-        return "txt"
-    if suffix == ".pdf":
-        return "pdf"
-    if suffix == ".docx":
-        return "docx"
-    return "txt"
+def _map_source_type(
+    suffix: str,
+) -> Literal["md", "txt", "pdf", "docx", "xlsx", "pptx"]:
+    mapping: dict[str, Literal["md", "txt", "pdf", "docx", "xlsx", "pptx"]] = {
+        ".md": "md",
+        ".markdown": "md",
+        ".txt": "txt",
+        ".text": "txt",
+        ".pdf": "pdf",
+        ".docx": "docx",
+        ".xlsx": "xlsx",
+        ".pptx": "pptx",
+    }
+    return mapping.get(suffix, "txt")

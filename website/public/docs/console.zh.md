@@ -57,6 +57,8 @@ LibreOffice 后重试。
 如需启用可选的 Docling 引擎，可先安装
 `pip install 'copaw[docling]'`，并在启动 CoPaw 前设置
 `COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING`。
+该模式下会按 Docling 官方格式集合处理文件（Office、Markdown/AsciiDoc/HTML/CSV、
+图片、音视频、VTT、XML、JSON）。
 
 **新建会话：**
 点击聊天页面侧边栏顶部的 **+ New Chat** 按钮，开始一段全新的对话。每个会话独立保存各自的对话记录。

@@ -122,8 +122,12 @@ export COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING
 copaw app
 ```
 
-With `DOCLING`, KB import prioritizes Docling for `.md`, `.txt`, `.pdf`,
-and `.docx`. Specialized parsers still handle `.doc`, `.xlsx`, and `.pptx`.
+With `DOCLING`, KB import prioritizes Docling for its official format set,
+including `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.md`, `.adoc`, `.html`, `.csv`,
+images (`.png/.jpg/.tiff/.bmp/.webp`), audio (`.wav/.mp3/.m4a/.aac/.ogg/.flac`),
+video (`.mp4/.avi/.mov`), `.vtt`, `.xml`, and `.json`.
+Specialized parsers still handle `.doc` via `soffice`, and remain fallback for
+`.docx`, `.xlsx`, and `.pptx`.
 
 Knowledge Base import in chat is command-driven:
 

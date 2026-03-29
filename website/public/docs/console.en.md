@@ -67,6 +67,8 @@ already contains cached calculated values.
 To use the optional Docling engine, install it with
 `pip install 'copaw[docling]'` and set
 `COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING` before starting CoPaw.
+In this mode, Docling follows its official format support set (Office, Markdown/
+AsciiDoc/HTML/CSV, images, audio/video, VTT, XML, JSON).
 
 **Create a new session:**
 Click the **+ New Chat** button at the top of the chat sidebar to start a new

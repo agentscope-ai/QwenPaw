@@ -17,6 +17,27 @@ from copaw.agents.knowledge.exceptions import (
 from copaw.agents.knowledge.parsers.docling_parser import DoclingParser
 
 
+def test_docling_parser_declares_official_supported_suffixes() -> None:
+    parser = DoclingParser()
+    expected = {
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".md",
+        ".adoc",
+        ".html",
+        ".csv",
+        ".png",
+        ".mp3",
+        ".mp4",
+        ".vtt",
+        ".xml",
+        ".json",
+    }
+    assert expected.issubset(set(parser.supported_suffixes))
+
+
 def _install_fake_docling(
     monkeypatch: pytest.MonkeyPatch,
     markdown: str,
