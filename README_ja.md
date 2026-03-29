@@ -482,7 +482,7 @@ pip install -e .
 
 ## 参加方法
 
-CoPaw はオープンな協働により進化を続けており、あらゆる形の参加を歓迎しています！上記の[ロードマップ](#ロードマップ)（特に**貢献者募集中**の項目）から興味のある領域を選び、[CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING_zh.md)を読んで始めてください。特に歓迎するのは：
+CoPaw はオープンな協働により進化を続けており、あらゆる形の参加を歓迎しています！上記の[ロードマップ](#ロードマップ)（特に**貢献者募集中**の項目）から興味のある領域を選び、[CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md)を読んで始めてください。特に歓迎するのは：
 
 - **横展開** — 新規チャネル、モデルプロバイダー、スキル、MCP。
 - **既存機能の拡張・改善** — 表示と操作の最適化、ダウンロードヒント、Windowsパス互換性など。
