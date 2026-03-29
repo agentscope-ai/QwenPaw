@@ -1011,10 +1011,10 @@
     "inputPlaceholder": "输入 / 查看快捷指令；审批时可使用 /approve 或 /deny ...",
     "commands": {
       "clear": {
-        "description": "清空聊天上下文"
+        "description": "清空对话上下文"
       },
       "compact": {
-        "description": "清空聊天上下文并生成聊天历史摘要"
+        "description": "清空对话上下文并生成历史对话摘要"
       },
       "approve": {
         "description": "批准待执行的工具操作并继续执行"

@@ -1049,10 +1049,10 @@
     "inputPlaceholder": "Type / to see commands; use /approve or /deny during approval...",
     "commands": {
       "clear": {
-        "description": "Clear the chat context"
+        "description": "Clear the conversation context"
       },
       "compact": {
-        "description": "Clear the chat context and generate a summary of the chat history"
+        "description": "Clear the conversation context and generate a summary of the conversation history"
       },
       "approve": {
         "description": "Approve the pending tool action and continue execution"

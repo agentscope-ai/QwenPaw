@@ -980,10 +980,10 @@
     "inputPlaceholder": "/ を入力してコマンドを表示。承認時は /approve または /deny を使えます...",
     "commands": {
       "clear": {
-        "description": "チャットのコンテキストをクリア"
+        "description": "会話のコンテキストをクリア"
       },
       "compact": {
-        "description": "チャットのコンテキストをクリアし、チャット履歴の要約を生成"
+        "description": "会話のコンテキストをクリアし、会話履歴の要約を生成"
       },
       "approve": {
         "description": "保留中のツール操作を承認して実行を続行"
