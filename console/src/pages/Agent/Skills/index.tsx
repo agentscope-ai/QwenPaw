@@ -87,7 +87,10 @@ function SkillsPage() {
     const sizeMB = file.size / (1024 * 1024);
     if (sizeMB > MAX_UPLOAD_SIZE_MB) {
       message.warning(
-        t("skills.fileSizeExceeded", { size: sizeMB.toFixed(1) }),
+        t("skills.fileSizeExceeded", {
+          limit: MAX_UPLOAD_SIZE_MB,
+          size: sizeMB.toFixed(1),
+        }),
       );
       return;
     }
