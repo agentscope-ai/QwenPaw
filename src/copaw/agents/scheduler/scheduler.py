@@ -33,28 +33,26 @@ class AgentScheduler:
 
     Example:
         >>> scheduler = AgentScheduler()
-        >>> await scheduler.register_agent("agent-1", execute_func)
-        >>> await scheduler.dispatch(message, MessagePriority.HIGH)
+        >>> await scheduler.register_agent("agent_1", agent_executor)
+        >>> task_id = await scheduler.dispatch(msg, MessagePriority.HIGH)
     """
 
-    def __init__(self, max_queue_size: int = 1000) -> None:
-        """Initialize the scheduler.
-
-        Args:
-            max_queue_size: Maximum pending tasks in queue.
-        """
-        self._queue = PriorityMessageQueue(maxsize=max_queue_size)
+    def __init__(self) -> None:
+        """Initialize the scheduler."""
         self._state_manager = AgentStateManager()
+        self._queue = PriorityMessageQueue()
         self._agent_executors: Dict[str, Callable] = {}
-        self._paused_tasks: Dict[str, PausedTask] = {}  # agent_id -> paused task
-        self._current_tasks: Dict[str, Task] = {}  # agent_id -> current task
+        self._current_tasks: Dict[str, Task] = {}
+        self._paused_tasks: Dict[str, PausedTask] = {}
         self._lock = asyncio.Lock()
-        self._running = False
-        self._dispatch_task: Optional[asyncio.Task] = None
+        self._running = True
 
-    @property
-    def queue_stats(self) -> Dict[str, int]:
-        """Get current queue statistics (sync, for quick status check)."""
+    def get_queue_stats(self) -> Dict[str, int]:
+        """Get current queue statistics.
+
+        Returns:
+            Dictionary with counts per priority level.
+        """
         stats = self._queue.get_stats()
         return {
             "critical": stats.critical,
@@ -79,17 +77,16 @@ class AgentScheduler:
     async def register_agent(
         self,
         agent_id: str,
-        execute_func: Callable[[Msg, Optional[Dict]], Any],
+        executor: Callable[[Msg], Any],
     ) -> None:
         """Register an agent with the scheduler.
 
         Args:
             agent_id: Unique identifier for the agent.
-            execute_func: Async function to execute messages.
-                         Signature: async def execute(msg: Msg, context: Optional[Dict]) -> Any
+            executor: Async function to execute messages.
         """
         await self._state_manager.register(agent_id)
-        self._agent_executors[agent_id] = execute_func
+        self._agent_executors[agent_id] = executor
         logger.info(f"Registered agent: {agent_id}")
 
     async def deregister_agent(self, agent_id: str) -> None:
@@ -139,12 +136,19 @@ class AgentScheduler:
                 await self._assign_task(agent_id, task)
                 return task.task_id
 
-            # No idle agents - must interrupt
+            # No idle agents - try to interrupt a working agent
             working_agents = await self._state_manager.find_working_agents()
             if working_agents:
                 agent_id = self._select_agent(working_agents)
                 await self._interrupt_agent(agent_id, task)
                 return task.task_id
+
+            # No agents available at all - queue for later (don't drop critical task)
+            await self._queue.put_task(task)
+            logger.warning(
+                f"No agents available for CRITICAL task {task.task_id}, queued"
+            )
+            return task.task_id
 
         # Non-CRITICAL: Try idle agents first, then queue
         idle_agents = await self._state_manager.find_idle_agents()
@@ -153,49 +157,24 @@ class AgentScheduler:
             await self._assign_task(agent_id, task)
             return task.task_id
 
-        # No idle agents - queue for later
+        # No idle agents - queue for later (do NOT assign directly)
         await self._queue.put_task(task)
         logger.info(f"Queued task {task.task_id}, no idle agents")
         return task.task_id
 
-    async def _handle_critical_task(self, task: Task) -> None:
-        """Handle a CRITICAL priority task.
-
-        Tries to find an idle agent first, then interrupts
-        a working agent if necessary.
-
-        Args:
-            task: The CRITICAL task to handle.
-        """
-        # Try idle agents first
-        idle_agents = await self._state_manager.find_idle_agents()
-        if idle_agents:
-            agent_id = self._select_agent(idle_agents)
-            await self._assign_task(agent_id, task)
-            return
-
-        # No idle agents - must interrupt
-        working_agents = await self._state_manager.find_working_agents()
-        if working_agents:
-            agent_id = self._select_agent(working_agents)
-            await self._interrupt_agent(agent_id, task)
-            return
-
-        # No agents at all - queue
-        await self._queue.put_task(task)
-        logger.warning("No agents available for CRITICAL task, queuing")
-
-    async def _interrupt_agent(self, agent_id: str, new_task: Task) -> None:
-        """Interrupt an agent's current task for a CRITICAL task.
+    async def _interrupt_agent(
+        self, agent_id: str, new_task: Task
+    ) -> None:
+        """Interrupt a running agent with a CRITICAL task.
 
         Args:
             agent_id: Agent to interrupt.
-            new_task: The interrupting CRITICAL task.
+            new_task: CRITICAL task to assign.
         """
         async with self._lock:
             current_task = self._current_tasks.get(agent_id)
             if not current_task:
-                logger.warning(f"Agent {agent_id} has no task to interrupt")
+                # Task finished, just assign new one
                 await self._assign_task(agent_id, new_task)
                 return
 
@@ -229,7 +208,7 @@ class AgentScheduler:
         asyncio.create_task(self._execute_task(agent_id, task))
 
     async def _execute_task(self, agent_id: str, task: Task) -> None:
-        """Execute a task on an agent.
+        """Execute a task and handle completion.
 
         Args:
             agent_id: Agent executing the task.
@@ -238,47 +217,42 @@ class AgentScheduler:
         executor = self._agent_executors.get(agent_id)
         if not executor:
             logger.error(f"No executor for agent {agent_id}")
-            await self._state_manager.set_state(agent_id, AgentState.IDLE)
             return
 
         try:
-            logger.info(f"Agent {agent_id} executing task {task.task_id}")
-
-            # Check for resume context
-            context = None
-            if task.metadata.get("resumed_from"):
-                context = task.context
-
-            result = await executor(task.message, context)
-            logger.info(f"Agent {agent_id} completed task {task.task_id}")
-
-        except asyncio.CancelledError:
-            logger.info(f"Agent {agent_id} task {task.task_id} was cancelled")
-            # Don't clean up here - the interrupting task will handle state
-            raise
+            await executor(task.message)
+            logger.info(f"Task {task.task_id} completed by {agent_id}")
         except Exception as e:
             logger.error(
-                f"Agent {agent_id} failed task {task.task_id}: {e}",
-                exc_info=True,
+                f"Task {task.task_id} failed on {agent_id}: {e}"
             )
         finally:
-            async with self._lock:
-                self._current_tasks.pop(agent_id, None)
+            await self._task_completed(agent_id)
+
+    async def _task_completed(self, agent_id: str) -> None:
+        """Handle task completion, potentially resume paused task.
+
+        Args:
+            agent_id: Agent that completed a task.
+        """
+        async with self._lock:
+            # Clear current task
+            self._current_tasks.pop(agent_id, None)
 
             # Check for paused task to resume
             paused = self._paused_tasks.pop(agent_id, None)
-            if paused and paused.can_resume:
-                logger.info(
-                    f"Resuming paused task for agent {agent_id}"
-                )
-                resume_task = paused.create_resume_task()
-                await self._assign_task(agent_id, resume_task)
-            else:
-                # Check queue for more tasks
-                try:
-                    next_task = await self._queue.get_nowait_async()
-                    await self._assign_task(agent_id, next_task)
-                except QueueEmpty:
+
+            # Check for queued tasks first (respect priority)
+            try:
+                next_task = await self._queue.get_nowait_async()
+                await self._assign_task(agent_id, next_task)
+            except QueueEmpty:
+                # No queued tasks
+                if paused:
+                    # Resume paused task
+                    await self._assign_task(agent_id, paused.original_task)
+                else:
+                    # No more work
                     await self._state_manager.set_state(agent_id, AgentState.IDLE)
 
     def _select_agent(self, agent_ids: Set[str]) -> str:
@@ -313,18 +287,11 @@ class AgentScheduler:
             agent_id: Agent to pause.
 
         Returns:
-            True if successful.
+            True if paused, False if already paused or not found.
         """
-        state = await self._state_manager.get_state(agent_id)
-        if state == AgentState.WORKING:
-            # Pause current task
-            current = self._current_tasks.get(agent_id)
-            if current:
-                paused = PausedTask(original_task=current)
-                paused.pause_reason = "manual_pause"
-                self._paused_tasks[agent_id] = paused
-
-        return await self._state_manager.set_state(agent_id, AgentState.PAUSED)
+        return await self._state_manager.set_state(
+            agent_id, AgentState.PAUSED
+        )
 
     async def resume_agent(self, agent_id: str) -> bool:
         """Resume a paused agent.
@@ -333,64 +300,71 @@ class AgentScheduler:
             agent_id: Agent to resume.
 
         Returns:
-            True if successful.
+            True if resumed, False if not paused.
         """
         state = await self._state_manager.get_state(agent_id)
         if state != AgentState.PAUSED:
             return False
 
-        # Check for paused task
-        paused = self._paused_tasks.pop(agent_id, None)
-        if paused and paused.can_resume:
-            resume_task = paused.create_resume_task()
-            await self._assign_task(agent_id, resume_task)
-        else:
-            await self._state_manager.set_state(agent_id, AgentState.IDLE)
+        await self._state_manager.set_state(agent_id, AgentState.IDLE)
+
+        # Try to assign queued work
+        try:
+            task = await self._queue.get_nowait_async()
+            await self._assign_task(agent_id, task)
+        except QueueEmpty:
+            pass
 
         return True
 
-    async def start(self) -> None:
-        """Start the scheduler's background processing."""
-        if self._running:
+    async def get_paused_task(self, agent_id: str) -> Optional[PausedTask]:
+        """Get the paused task for an agent.
+
+        Args:
+            agent_id: Agent to query.
+
+        Returns:
+            PausedTask if exists, None otherwise.
+        """
+        return self._paused_tasks.get(agent_id)
+
+    async def get_current_task(self, agent_id: str) -> Optional[Task]:
+        """Get the current task for an agent.
+
+        Args:
+            agent_id: Agent to query.
+
+        Returns:
+            Current Task if exists, None otherwise.
+        """
+        return self._current_tasks.get(agent_id)
+
+    async def shutdown(self) -> None:
+        """Gracefully shutdown the scheduler."""
+        self._running = False
+        logger.info("Scheduler shutdown initiated")
+
+    async def process_queued_tasks(self) -> None:
+        """Process any queued tasks if idle agents available.
+
+        This method can be called periodically to ensure
+        queued tasks get dispatched when agents become idle.
+        """
+        idle_agents = await self._state_manager.find_idle_agents()
+        if not idle_agents:
             return
 
-        self._running = True
-        self._dispatch_task = asyncio.create_task(self._process_queue())
-        logger.info("AgentScheduler started")
-
-    async def stop(self) -> None:
-        """Stop the scheduler."""
-        self._running = False
-        if self._dispatch_task:
-            self._dispatch_task.cancel()
+        for agent_id in idle_agents:
             try:
-                await self._dispatch_task
-            except asyncio.CancelledError:
-                pass
-        logger.info("AgentScheduler stopped")
-
-    async def _process_queue(self) -> None:
-        """Background task to process queued messages."""
-        while self._running:
-            try:
-                # Wait for message with timeout to allow periodic checks
-                task = await self._queue.get(timeout=1.0)
-
-                # Find idle agent
-                idle_agents = await self._state_manager.find_idle_agents()
-                if idle_agents:
-                    agent_id = self._select_agent(idle_agents)
-                    await self._assign_task(agent_id, task)
-                else:
-                    # Put back in queue - no idle agents
-                    # This preserves queue ordering
-                    await self._queue.put_task(task)
-
+                task = await self._queue.get_nowait_async()
+                await self._assign_task(agent_id, task)
+                logger.info(
+                    f"Dispatched queued task {task.task_id} to idle agent {agent_id}"
+                )
             except QueueEmpty:
-                # No messages, continue polling
-                continue
-            except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.error(f"Error processing queue: {e}", exc_info=True)
-                await asyncio.sleep(0.1)
+
+    @property
+    def is_running(self) -> bool:
+        """Check if scheduler is running."""
+        return self._running
