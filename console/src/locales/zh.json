@@ -998,6 +998,11 @@
     }
   },
   "chat": {
+    "modelSelectTooltip": "模型选择",
+    "newChatTooltip": "新建聊天",
+    "chatHistoryTooltip": "聊天历史",
+    "allChats": "全部聊天",
+    "createNewChat": "创建新聊天",
     "disclaimer": "懂你所需，伴你左右",
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",
@@ -1006,10 +1011,10 @@
     "inputPlaceholder": "输入 / 查看快捷指令；审批时可使用 /approve 或 /deny ...",
     "commands": {
       "clear": {
-        "description": "清空对话上下文"
+        "description": "清空聊天上下文"
       },
       "compact": {
-        "description": "清空对话上下文并生成历史对话摘要"
+        "description": "清空聊天上下文并生成聊天历史摘要"
       },
       "approve": {
         "description": "批准待执行的工具操作并继续执行"

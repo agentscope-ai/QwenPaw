@@ -967,6 +967,11 @@
     }
   },
   "chat": {
+    "modelSelectTooltip": "モデルを選択",
+    "newChatTooltip": "新しいチャット",
+    "chatHistoryTooltip": "チャット履歴",
+    "allChats": "すべてのチャット",
+    "createNewChat": "新しいチャットを作成",
     "disclaimer": "あなたのために働き、あなたと共に成長します",
     "greeting": "こんにちは、今日はどんなお手伝いができますか？",
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
@@ -975,10 +980,10 @@
     "inputPlaceholder": "/ を入力してコマンドを表示。承認時は /approve または /deny を使えます...",
     "commands": {
       "clear": {
-        "description": "会話のコンテキストをクリア"
+        "description": "チャットのコンテキストをクリア"
       },
       "compact": {
-        "description": "会話のコンテキストをクリアし、会話履歴の要約を生成"
+        "description": "チャットのコンテキストをクリアし、チャット履歴の要約を生成"
       },
       "approve": {
         "description": "保留中のツール操作を承認して実行を続行"

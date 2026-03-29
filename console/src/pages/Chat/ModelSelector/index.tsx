@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Dropdown, message, Spin } from "antd";
+import { Dropdown, message, Spin, Tooltip } from "antd";
 import {
   CheckOutlined,
   LoadingOutlined,
@@ -224,20 +224,24 @@ export default function ModelSelector() {
       trigger={["click"]}
       placement="bottomLeft"
     >
-      <div
-        className={[styles.trigger, open ? styles.triggerActive : ""].join(" ")}
-      >
-        {saving && (
-          <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
-        )}
-        <span className={styles.triggerName}>{activeModelName}</span>
-        <SparkDownLine
-          className={[
-            styles.triggerArrow,
-            open ? styles.triggerArrowOpen : "",
-          ].join(" ")}
-        />
-      </div>
+      <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
+        <div
+          className={[styles.trigger, open ? styles.triggerActive : ""].join(
+            " ",
+          )}
+        >
+          {saving && (
+            <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
+          )}
+          <span className={styles.triggerName}>{activeModelName}</span>
+          <SparkDownLine
+            className={[
+              styles.triggerArrow,
+              open ? styles.triggerArrowOpen : "",
+            ].join(" ")}
+          />
+        </div>
+      </Tooltip>
     </Dropdown>
   );
 }
