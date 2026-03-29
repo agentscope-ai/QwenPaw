@@ -29,6 +29,7 @@ import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import {
   getSkillDisplaySource,
   getPoolBuiltinStatusLabel,
+  getPoolBuiltinStatusTone,
   getSkillVisual,
   parseFrontmatter,
   useConflictRenameModal,
@@ -595,15 +596,6 @@ function SkillPoolPage() {
             </Tooltip>
           </div>
           <div className={styles.headerActionsRight}>
-            <Tooltip title={t("skillPool.importHubHint")}>
-              <Button
-                type="default"
-                icon={<ImportOutlined />}
-                onClick={() => setImportModalOpen(true)}
-              >
-                {t("skills.importHub")}
-              </Button>
-            </Tooltip>
             <Tooltip title={t("skillPool.uploadZipHint")}>
               <Button
                 type="default"
@@ -611,6 +603,15 @@ function SkillPoolPage() {
                 onClick={() => zipInputRef.current?.click()}
               >
                 {t("skills.uploadZip")}
+              </Button>
+            </Tooltip>
+            <Tooltip title={t("skillPool.importHubHint")}>
+              <Button
+                type="default"
+                icon={<ImportOutlined />}
+                onClick={() => setImportModalOpen(true)}
+              >
+                {t("skills.importHub")}
               </Button>
             </Tooltip>
             <Tooltip title={t("skills.createSkillHint")}>
@@ -666,7 +667,11 @@ function SkillPoolPage() {
                       <span className={styles.statusLabel}>
                         {t("skillPool.status")}:
                       </span>
-                      <span className={styles.statusValue}>
+                      <span
+                        className={`${styles.statusValue} ${
+                          styles[getPoolBuiltinStatusTone(skill.sync_status)]
+                        }`}
+                      >
                         {getPoolBuiltinStatusLabel(skill.sync_status, t)}
                       </span>
                     </div>
@@ -757,7 +762,11 @@ function SkillPoolPage() {
           <div className={styles.metaStack} style={{ marginBottom: 16 }}>
             <div className={styles.infoSection}>
               <div className={styles.infoLabel}>{t("skillPool.status")}</div>
-              <div className={styles.infoBlock}>
+              <div
+                className={`${styles.infoBlock} ${
+                  styles[getPoolBuiltinStatusTone(activeSkill.sync_status)]
+                }`}
+              >
                 {getPoolBuiltinStatusLabel(activeSkill.sync_status, t)}
               </div>
             </div>

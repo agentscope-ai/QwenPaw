@@ -45,6 +45,18 @@ const normalizeSkillIconKey = (value: string) =>
 
 export const getFileIcon = (filePath: string) => {
   const skillKey = normalizeSkillIconKey(filePath);
+  const textSkillIcons = new Set([
+    "news",
+    "file_reader",
+    "browser_visible",
+    "guidance",
+    "himalaya",
+    "dingtalk_channel",
+  ]);
+
+  if (textSkillIcons.has(skillKey)) {
+    return <FileTextFilled style={{ color: "#1890ff" }} />;
+  }
 
   switch (skillKey) {
     case "docx":
@@ -57,13 +69,6 @@ export const getFileIcon = (filePath: string) => {
       return <FilePdfFilled style={{ color: "#f5222d" }} />;
     case "cron":
       return <CalendarFilled style={{ color: "#13c2c2" }} />;
-    case "news":
-    case "file_reader":
-    case "browser_visible":
-    case "guidance":
-    case "himalaya":
-    case "dingtalk_channel":
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
     default:
       break;
   }

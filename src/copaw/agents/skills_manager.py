@@ -61,7 +61,13 @@ _MAX_ZIP_BYTES = 200 * 1024 * 1024
 
 
 class SkillInfo(BaseModel):
-    """Workspace or hub skill details returned to callers."""
+    """Workspace or hub skill details returned to callers.
+
+    ``name`` is the stable runtime identifier: the directory / manifest key
+    used by APIs, sync state, and channel routing. It is intentionally not
+    derived from frontmatter because frontmatter can drift while the on-disk
+    workspace identity must remain stable.
+    """
 
     name: str
     description: str = ""
@@ -445,6 +451,13 @@ def _create_files_from_tree(base_dir: Path, tree: dict[str, Any]) -> None:
 
 
 def _resolve_skill_name(skill_dir: Path) -> str:
+    """Resolve the import-time target name for one concrete skill directory.
+
+    This helper is intentionally import-oriented. Runtime registration inside a
+    workspace still keys skills by directory name; we only consult frontmatter
+    here so zip imports behave consistently whether a skill is packed at the
+    archive root or nested under a folder.
+    """
     try:
         post = _read_frontmatter(skill_dir)
         name = str(post.get("name") or "").strip()
@@ -1025,6 +1038,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         skills = payload["skills"]
 
         discovered = {
+            # Workspace identity is the directory name on disk. Frontmatter is
+            # metadata/validation, but the manifest key must stay stable even
+            # if a user edits ``name:`` inside ``SKILL.md``.
             path.name: path
             for path in workspace_skills_dir.iterdir()
             if path.is_dir() and (path / "SKILL.md").exists()
@@ -1292,6 +1308,7 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
     try:
         content = read_text_file_with_encoding_fallback(skill_md)
         description = ""
+        post: Any = {}
         try:
             post = frontmatter.loads(content)
             description = str(post.get("description", "") or "")
@@ -1379,6 +1396,12 @@ def _extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
     """Extract and validate a skill zip.
 
     Returns ``(tmp_dir, found_skills)``.
+
+    Naming rule:
+    - single-skill zips use the skill frontmatter ``name`` when present
+    - multi-skill zips apply the same rule per top-level skill directory
+
+    This keeps import results consistent across different zip layouts.
     """
     if not zipfile.is_zipfile(io.BytesIO(data)):
         raise ValueError("Uploaded file is not a valid zip archive")
@@ -1396,7 +1419,7 @@ def _extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
         found = [(extract_root, _resolve_skill_name(extract_root))]
     else:
         found = [
-            (path, path.name)
+            (path, _resolve_skill_name(path))
             for path in sorted(extract_root.iterdir())
             if not _is_hidden(path.name)
             and path.is_dir()
@@ -2300,6 +2323,17 @@ class SkillPoolService:
                     "name": skill_name,
                 }
 
+            if not is_rename and _is_pool_builtin_entry(entry):
+                return {
+                    "success": False,
+                    "reason": "conflict",
+                    "mode": "rename",
+                    "suggested_name": suggest_conflict_name(
+                        skill_name,
+                        set(manifest.get("skills", {}).keys()),
+                    ),
+                }
+
             if is_rename or content_changed:
                 _copy_skill_dir(staged_dir, skill_dir)
 
@@ -2463,7 +2497,7 @@ class SkillPoolService:
                 protected=False,
             )
             payload["skills"][final_name] = {
-                "enabled": False,
+                "enabled": True,
                 "channels": ["all"],
                 "source": metadata["source"],
                 "config": pool_config,
