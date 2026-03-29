@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -24,6 +25,8 @@ from .models import (
 from .normalizer import normalize_document_text
 from .parsers import BaseKnowledgeParser, resolve_parsers_for_path
 from .repository import KnowledgeRepository
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeImportService:
@@ -339,6 +342,12 @@ class KnowledgeImportService:
             try:
                 return parser.parse(source_path)
             except Exception as exc:  # pragma: no cover - fallback flow
+                logger.debug(
+                    "Parser %s failed for path %s, trying next parser.",
+                    parser.__class__.__name__,
+                    source_path,
+                    exc_info=True,
+                )
                 last_exc = exc
                 continue
         if last_exc is not None:

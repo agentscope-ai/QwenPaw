@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 from datetime import datetime, timezone
@@ -12,6 +13,8 @@ from typing import Any
 
 from .chunker import KnowledgeChunk
 from .models import ImportedKnowledgeDoc, KnowledgeDocumentSummary
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeRepository:
