@@ -262,7 +262,7 @@ Send `/daemon <subcommand>` or short names (e.g., `/status`) in chat, or run `co
 | `/stop`                             | Immediately terminate the running task in current session                               | ✅   | ❌       |
 | `/stop session=<session_id>`        | Terminate task in specified session                                                     | ✅   | ❌       |
 | `/daemon status` or `/status`       | Show runtime status (config, working directory, memory service)                         | ✅   | ✅       |
-| `/daemon restart` or `/restart`     | Zero-downtime reload (reload channels, cron, MCP without interrupting process)          | ✅   | ✅       |
+| `/daemon restart` or `/restart`     | Zero-downtime reload (chat); prints instructions (terminal)                             | ✅   | ✅       |
 | `/daemon reload-config`             | Re-read and validate configuration file                                                 | ✅   | ✅       |
 | `/daemon version`                   | Version number, working directory, and log path                                         | ✅   | ✅       |
 | `/daemon logs` or `/daemon logs 50` | View last N lines of log (default 100, max 2000, from `copaw.log` in working directory) | ✅   | ✅       |
