@@ -252,9 +252,11 @@
   },
   "mcp": {
     "title": "MCPクライアント",
-    "description": "エージェントの機能を拡張するためのMCP（Model Context Protocol）クライアントを管理します。",
     "create": "クライアントを作成",
     "formatSupport": "サポートされているフォーマット",
+    "standardFormat": "標準（mcpServers でラップ）",
+    "directFormat": "直接（キー → 設定オブジェクト）",
+    "singleFormat": "単一クライアント（フラットなフィールド）",
     "emptyState": "MCPクライアントがまだ設定されていません",
     "loadError": "MCPクライアントの読み込みに失敗しました",
     "createSuccess": "MCPクライアントを作成しました",

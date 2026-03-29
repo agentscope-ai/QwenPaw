@@ -276,9 +276,11 @@
   },
   "mcp": {
     "title": "MCP 客户端",
-    "description": "管理模型上下文协议（MCP）客户端以扩展智能体能力。",
     "create": "创建客户端",
     "formatSupport": "支持的格式",
+    "standardFormat": "标准（mcpServers 包裹）",
+    "directFormat": "直连（键 → 配置对象）",
+    "singleFormat": "单客户端（平铺字段）",
     "emptyState": "暂无配置的 MCP 客户端",
     "loadError": "加载 MCP 客户端失败",
     "createSuccess": "MCP 客户端创建成功",

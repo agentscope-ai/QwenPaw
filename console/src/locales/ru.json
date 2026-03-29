@@ -257,9 +257,11 @@
   },
   "mcp": {
     "title": "MCP-клиенты",
-    "description": "Управляйте клиентами Model Context Protocol (MCP) для расширения возможностей агента.",
     "create": "Создать клиент",
     "formatSupport": "Поддерживаемые форматы",
+    "standardFormat": "Стандартный (обёртка mcpServers)",
+    "directFormat": "Прямой (ключ → объект конфигурации)",
+    "singleFormat": "Один клиент (плоские поля)",
     "emptyState": "MCP-клиенты пока не настроены",
     "loadError": "Не удалось загрузить MCP-клиентов",
     "createSuccess": "MCP-клиент успешно создан",

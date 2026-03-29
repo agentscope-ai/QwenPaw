@@ -83,7 +83,7 @@
     "transcriptionInfoDescLocal": "Local Whisper transcription runs the openai-whisper library directly on your machine. It requires both ffmpeg (for audio decoding) and the openai-whisper Python package to be installed. No API key or network connection is needed. Install with: uv pip install 'copaw[whisper]'."
   },
   "workspace": {
-    "title": "WorkSpace",
+    "title": "Workspace",
     "workspacePath": "Workspace:",
     "noFiles": "No files",
     "coreFiles": "Core Files",
@@ -96,7 +96,7 @@
     "downloadSuccess": "Workspace downloaded successfully",
     "downloadFailed": "Workspace download failed",
     "zipOnly": "Only .zip files are supported for upload",
-    "fileSizeLimit": "File size exceeds 100MB limit. Current file: {{size}}MB",
+    "fileSizeExceeded": "File size exceeds 100MB limit. Current file: {{size}}MB",
     "systemPromptToggleTooltip": "Enable/disable this file in system prompt",
     "memoryFileWarning": "MEMORY.md is typically queried on-demand by the agent using tools. Loading it into the system prompt may cause the context to become too long.",
     "configUpdated": "System prompt configuration updated",
@@ -313,9 +313,11 @@
   },
   "mcp": {
     "title": "MCP Clients",
-    "description": "Manage Model Context Protocol (MCP) clients for extending agent capabilities.",
     "create": "Create Client",
     "formatSupport": "Supported formats",
+    "standardFormat": "Standard (mcpServers wrapper)",
+    "directFormat": "Direct (key → config object)",
+    "singleFormat": "Single client (flat fields)",
     "emptyState": "No MCP clients configured yet",
     "loadError": "Failed to load MCP clients",
     "createSuccess": "MCP client created successfully",
