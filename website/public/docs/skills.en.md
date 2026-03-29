@@ -6,7 +6,9 @@ imports, or files you add yourself.
 Two ways to manage skills:
 
 - **Console:** Use the [Console](./console) under **Agent → Skills**.
-- **Working directory:** Follow the steps below to edit files directly.
+- **Working directory:** Edit skill files directly under `$COPAW_WORKING_DIR`
+  (default `~/.copaw`), including `$COPAW_WORKING_DIR/skill_pool/` and each
+  workspace's `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`.
 
 > If you're new to channels, heartbeat, or cron, read [Introduction](./intro) first.
 
@@ -19,12 +21,14 @@ copies. The structure and creation paths are described below.
 
 CoPaw skills are organized in two layers:
 
-- **Skill Pool:** Shared local repository under `~/.copaw/skill_pool/`.
-- **Workspace Skills:** The local runtime copy under
-  `~/.copaw/workspaces/{agent_id}/skills/`.
+- **Skill Pool:** Shared local repository at `$COPAW_WORKING_DIR/skill_pool/`
+  (default `~/.copaw/skill_pool/`).
+- **Workspace Skills:** The local runtime copy at
+  `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`
+  (default `~/.copaw/workspaces/{agent_id}/skills/`).
 
 ```
-~/.copaw/
+$COPAW_WORKING_DIR/                      # Default ~/.copaw
   skill_pool/                # Shared pool
     skill.json               # Pool manifest
     pdf/
@@ -108,7 +112,7 @@ Adding skills to the pool:
 "synced"`.
 
 6. **Manual filesystem changes**.
-   You can place folders directly under `~/.copaw/skill_pool/`, but this is not
+   You can place folders directly under `$COPAW_WORKING_DIR/skill_pool/`, but this is not
    recommended. Direct pool edits can be lost or overwritten more easily,
    especially for customized skills. Be careful and treat this as an advanced
    workflow.
@@ -116,7 +120,7 @@ Adding skills to the pool:
 ### Workspace Skills
 
 Every workspace runs from its own local copies under
-`~/.copaw/workspaces/{agent_id}/skills/`. Those copies are what the agent
+`$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`. Those copies are what the agent
 actually loads at runtime.
 
 The workspace tracks the relationship to the pool via `sync_to_pool`:
@@ -179,7 +183,7 @@ Environments. See GitHub docs:
 ### 5. Create manually in the workspace
 
 You can also create a workspace skill directly by writing files under
-`~/.copaw/workspaces/{agent_id}/skills/`, including using CoPaw itself to help
+`$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, including using CoPaw itself to help
 generate those files.
 
 This is flexible, but the write location and resulting skill quality are not
@@ -187,7 +191,7 @@ always fully controlled. You should supervise the creation process carefully,
 verify that files land in the right workspace path, and review the skill
 content before relying on it.
 
-Create a directory under `~/.copaw/workspaces/{agent_id}/skills/`, add a
+Create a directory under `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, add a
 `SKILL.md`, and make sure it includes YAML front matter with `name` and
 `description`. If the skill depends on external binaries or environment
 variables, declare them in `metadata.requires`; CoPaw exposes them as

@@ -6,7 +6,9 @@
 管理 Skill 有两种方式：
 
 - **控制台：** 在 [控制台](./console) 的 **Agent → Skills** 页面操作。
-- **工作目录：** 按本文步骤直接编辑文件。
+- **工作目录：** 直接在 `$COPAW_WORKING_DIR`（默认 `~/.copaw`）下编辑技能文件，
+  包括 `$COPAW_WORKING_DIR/skill_pool/` 和各工作区下的
+  `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`。
 
 > 若尚未了解「频道」「心跳」「定时任务」等概念，建议先阅读 [项目介绍](./intro)。
 
@@ -18,12 +20,14 @@
 
 CoPaw 的 skills 分为两层：
 
-- **技能池：** 共享本地仓库，路径是 `~/.copaw/skill_pool/`。
+- **技能池：** 共享本地仓库，路径是 `$COPAW_WORKING_DIR/skill_pool/`
+  （默认 `~/.copaw/skill_pool/`）。
 - **工作区技能副本：** 某个工作区真正运行时使用的本地副本，路径是
-  `~/.copaw/workspaces/{agent_id}/skills/`。
+  `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`
+  （默认 `~/.copaw/workspaces/{agent_id}/skills/`）。
 
 ```
-~/.copaw/
+$COPAW_WORKING_DIR/                      # 默认 ~/.copaw
   skill_pool/                # 共享池
     skill.json               # 池清单
     pdf/
@@ -102,7 +106,7 @@ CoPaw 的 skills 分为两层：
    上传后，工作区条目会写成 `sync_to_pool.status = "synced"`。
 
 6. **手动在技能池目录中操作**。
-   可以直接往 `~/.copaw/skill_pool/` 下放目录，但**不推荐**。技能池上的直接文件操作
+   可以直接往 `$COPAW_WORKING_DIR/skill_pool/` 下放目录，但**不推荐**。技能池上的直接文件操作
    更容易被后续同步、重导入或人工误操作影响，尤其是自定义技能，要格外小心。
 
 ### 工作区技能副本
@@ -157,19 +161,19 @@ CoPaw 的 skills 分为两层：
 工作区技能页支持从受支持的 Hub / GitHub URL 导入。这和 ZIP 类似，只是 skill
 包由系统远程拉取。导入后 skill **默认启用**。
 
-若遇到 GitHub 限流，建议在 [控制台 → 设置 → 环境变量](./console#环境变量) 中添加
+若遇到 GitHub 限流，建议在控制台 → 设置 → 环境变量中添加
 `GITHUB_TOKEN`；获取方式可参考 GitHub 官方文档：
 [管理个人访问令牌（PAT）](https://docs.github.com/zh/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)。
 
 ### 5. 手动创建
 
-也可以直接在 `~/.copaw/workspaces/{agent_id}/skills/` 下创建 skill 文件，包括让
+也可以直接在 `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/` 下创建 skill 文件，包括让
 CoPaw 帮你写这些文件。
 
 这种方式更灵活，但写入位置和 skill 质量不一定总是可控。你需要监督创建过程，
 确认文件确实写进了正确的工作区目录，并检查 skill 内容质量后再使用。
 
-在 `~/.copaw/workspaces/{agent_id}/skills/` 下新建目录，并放入 `SKILL.md`。
+在 `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/` 下新建目录，并放入 `SKILL.md`。
 `SKILL.md` 必须包含带 `name` 和 `description` 的 YAML front matter。若 Skill
 依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；CoPaw 会将其透出为
 `require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
