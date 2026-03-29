@@ -97,3 +97,4 @@ src/.hypothesis/
 
 # Kiro IDE
 .kiro/
+.venv2/
