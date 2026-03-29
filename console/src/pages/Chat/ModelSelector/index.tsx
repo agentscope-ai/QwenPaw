@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Dropdown, message, Spin } from "antd";
 import {
-  DownOutlined,
   CheckOutlined,
   LoadingOutlined,
   RightOutlined,
 } from "@ant-design/icons";
+import { SparkDownLine } from "@agentscope-ai/icons";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
@@ -81,7 +81,6 @@ export default function ModelSelector() {
       const hasModels =
         (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
       if (!hasModels) return false;
-      if (p.is_local) return true;
       if (p.require_api_key === false) return !!p.base_url;
       if (p.is_custom) return !!p.base_url;
       if (p.require_api_key ?? true) return !!p.api_key;
@@ -229,10 +228,10 @@ export default function ModelSelector() {
         className={[styles.trigger, open ? styles.triggerActive : ""].join(" ")}
       >
         {saving && (
-          <LoadingOutlined style={{ fontSize: 11, color: "#615ced" }} />
+          <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
         )}
         <span className={styles.triggerName}>{activeModelName}</span>
-        <DownOutlined
+        <SparkDownLine
           className={[
             styles.triggerArrow,
             open ? styles.triggerArrowOpen : "",

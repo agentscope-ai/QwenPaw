@@ -10,6 +10,7 @@ import {
   ToolResultCompactCard,
   MemorySummaryCard,
   EmbeddingConfigCard,
+  ContextManagementCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -59,29 +60,34 @@ function AgentConfigPage() {
   return (
     <div className={styles.configPage}>
       <PageHeader />
+      <div className={styles.pageContent}>
+        <div className={styles.formContainer}>
+          <Form form={form} layout="vertical" className={styles.form}>
+            <ReactAgentCard
+              language={language}
+              savingLang={savingLang}
+              onLanguageChange={handleLanguageChange}
+              timezone={timezone}
+              savingTimezone={savingTimezone}
+              onTimezoneChange={handleTimezoneChange}
+            />
 
-      <Form form={form} layout="vertical" className={styles.form}>
-        <ReactAgentCard
-          language={language}
-          savingLang={savingLang}
-          onLanguageChange={handleLanguageChange}
-          timezone={timezone}
-          savingTimezone={savingTimezone}
-          onTimezoneChange={handleTimezoneChange}
-        />
+            <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
 
-        <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+            <LlmRateLimiterCard />
 
-        <LlmRateLimiterCard />
+            <ContextManagementCard />
 
-        <ContextCompactCard maxInputLength={maxInputLength} />
+            <ContextCompactCard maxInputLength={maxInputLength} />
 
-        <ToolResultCompactCard />
+            <ToolResultCompactCard />
 
-        <MemorySummaryCard />
+            <MemorySummaryCard />
 
-        <EmbeddingConfigCard />
-      </Form>
+            <EmbeddingConfigCard />
+          </Form>
+        </div>
+      </div>
 
       <div className={styles.footerActions}>
         <Button

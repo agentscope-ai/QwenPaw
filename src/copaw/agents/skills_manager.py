@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import io
 import json
@@ -23,6 +24,7 @@ from typing import Any, TypeVar
 import frontmatter
 from pydantic import BaseModel, Field
 from ..security.skill_scanner import scan_skill_directory
+from .utils.file_handling import read_text_file_with_encoding_fallback
 
 try:
     import fcntl
@@ -154,7 +156,7 @@ def _directory_tree(directory: Path) -> dict[str, Any]:
 
 def _read_frontmatter(skill_dir: Path) -> Any:
     return frontmatter.loads(
-        (skill_dir / "SKILL.md").read_text(encoding="utf-8"),
+        read_text_file_with_encoding_fallback(skill_dir / "SKILL.md"),
     )
 
 
@@ -471,7 +473,9 @@ def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
     if not skill_md.exists():
         return SkillRequirements()
 
-    post = frontmatter.loads(skill_md.read_text(encoding="utf-8"))
+    post = frontmatter.loads(
+        read_text_file_with_encoding_fallback(skill_md),
+    )
     metadata = post.get("metadata") or {}
     if "openclaw" in metadata:
         requires = metadata["openclaw"].get("requires", {})
@@ -1101,6 +1105,8 @@ def list_workspaces() -> list[dict[str, str]]:
         from ..config.config import load_agent_config
 
         config = load_config()
+        # Only return agents that are still in the configuration
+        # This ensures deleted agents are not included
         for agent_id, profile in sorted(config.agents.profiles.items()):
             agent_name = agent_id
             try:
@@ -1119,24 +1125,9 @@ def list_workspaces() -> list[dict[str, str]]:
     except Exception as exc:
         logger.warning("Failed to load configured workspaces: %s", exc)
 
-    seen = {item["workspace_dir"] for item in workspaces}
-    from ..constant import WORKING_DIR
-
-    root = Path(WORKING_DIR) / "workspaces"
-    if root.exists():
-        for workspace_dir in sorted(root.iterdir()):
-            if not workspace_dir.is_dir():
-                continue
-            text = str(workspace_dir)
-            if text in seen:
-                continue
-            workspaces.append(
-                {
-                    "agent_id": workspace_dir.name,
-                    "agent_name": workspace_dir.name,
-                    "workspace_dir": text,
-                },
-            )
+    # Note: We intentionally do NOT scan the workspaces/ directory
+    # for unlisted workspaces, as those may belong to deleted agents
+    # and should not appear in the broadcast list
 
     return workspaces
 
@@ -1195,8 +1186,9 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
         _default_pool_manifest(),
     )
     pool_skills = manifest.get("skills", {})
-    result: dict[str, dict[str, Any]] = {}
 
+    # Collect all skill directories that need checking
+    skill_dirs_to_check = []
     for skill_dir in sorted(builtin_dir.iterdir()):
         if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
             continue
@@ -1206,20 +1198,43 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
             continue
         if not _is_pool_builtin_entry(pool_entry):
             continue
+        skill_dirs_to_check.append((name, skill_dir, pool_entry))
 
+    # Process skills in parallel
+    result: dict[str, dict[str, Any]] = {}
+
+    def _check_single_skill(item):
+        name, skill_dir, pool_entry = item
         builtin_sig = _build_signature(skill_dir)
         pool_sig = str(pool_entry.get("signature", ""))
         if pool_sig and pool_sig != builtin_sig:
             post = _read_frontmatter(skill_dir)
-            result[name] = {
+            return name, {
                 "sync_status": "outdated",
                 "latest_version_text": _extract_version(post),
             }
         else:
-            result[name] = {
+            return name, {
                 "sync_status": "synced",
                 "latest_version_text": "",
             }
+
+    # Use ThreadPoolExecutor for parallel I/O operations
+    # For I/O-bound tasks, use more threads than CPU count
+    max_workers = min(32, (os.cpu_count() or 1) + 4)
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers,
+    ) as executor:
+        futures = [
+            executor.submit(_check_single_skill, item)
+            for item in skill_dirs_to_check
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                name, status_info = future.result()
+                result[name] = status_info
+            except Exception as exc:
+                logger.warning("Failed to check skill sync status: %s", exc)
 
     return result
 
@@ -1275,7 +1290,7 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
         return None
 
     try:
-        content = skill_md.read_text(encoding="utf-8")
+        content = read_text_file_with_encoding_fallback(skill_md)
         description = ""
         try:
             post = frontmatter.loads(content)
@@ -1969,7 +1984,7 @@ class SkillService:
         full_path = base_dir / normalized
         if not full_path.exists() or not full_path.is_file():
             return None
-        return full_path.read_text(encoding="utf-8")
+        return read_text_file_with_encoding_fallback(full_path)
 
 
 class SkillPoolService:

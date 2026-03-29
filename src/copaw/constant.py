@@ -88,6 +88,9 @@ SECRET_DIR = (
 # Default media directory for channels (cross-platform)
 DEFAULT_MEDIA_DIR = WORKING_DIR / "media"
 
+# Default local provider directory
+DEFAULT_LOCAL_PROVIDER_DIR = WORKING_DIR / "local_models"
+
 JOBS_FILE = EnvVarLoader.get_str("COPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("COPAW_CHATS_FILE", "chats.json")
@@ -256,10 +259,11 @@ except (TypeError, ValueError):
 # Marker prepended to every truncation notice.
 # Format:
 #   <<<TRUNCATED>>>
-#   File: <path>
-#   Starting at start_line=X, next N bytes.
-#   Total lines: Z
-#   Use start_line=Y to continue.
+#   The output above was truncated.
+#   The full content is saved to the file and contains Z lines in total.
+#   This excerpt starts at line X and covers the next N bytes.
+#   If the current content is not enough, call `read_file` with
+#   file_path=<path> start_line=Y to read more.
 #
 # Split output on this marker to recover the original (untruncated) portion:
 #   original = output.split(TRUNCATION_NOTICE_MARKER)[0]

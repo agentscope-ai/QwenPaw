@@ -47,6 +47,7 @@ In the [Console](./console), go to **Agent → Skills** to:
 - **Enable or disable** a skill with a toggle;
 - **Create** a custom skill by entering a name and content (no need to create a directory);
 - **Edit** an existing skill's name or content.
+- **Import** skills from Skills Hub
 
 Changes are written to the workspace `skills/` directory and `skill.json`, and
 take effect for that workspace. Handy if you prefer not to edit files directly.
@@ -70,7 +71,7 @@ Common operations:
 
 ## Skill Pool
 
-The **Skill Pool** is a shared, local skill repository at `~/.copaw/skill_pool/`.
+The **Skill Pool** is a shared, local skill repository at `$COPAW_WORKING_DIR/skill_pool/` (default: `~/.copaw/skill_pool/`).
 It stores built-in skills and any custom skills you choose to share across
 workspaces.
 
@@ -119,11 +120,17 @@ will report a conflict and suggest a renamed alternative.
 
 The workspace tracks the relationship via `sync_to_pool`:
 
-| Status       | Meaning                                                         |
-| ------------ | --------------------------------------------------------------- |
-| `synced`     | Workspace copy matches the pool version                         |
-| `not_synced` | No corresponding pool entry (e.g. created locally)              |
-| `conflict`   | Both exist but content differs (locally edited after broadcast) |
+| Status       | Meaning                                                                        |
+| ------------ | ------------------------------------------------------------------------------ |
+| `synced`     | Workspace copy matches the pool version (content hash matches)                 |
+| `not_synced` | No corresponding pool entry (typically a locally created custom skill)         |
+| `conflict`   | Both exist but content differs (typically edited in workspace after broadcast) |
+
+**Handling `conflict` state:**
+
+- If the workspace version is correct, **Upload** it to overwrite the pool version
+- If the pool version is correct, **Broadcast** again to overwrite the workspace version
+- You can also keep both independent without syncing
 
 ### Upload to pool (workspace → pool)
 
@@ -179,7 +186,7 @@ You can import skills from these URL sources in the Console:
 
    ![skill](https://img.alicdn.com/imgextra/i2/O1CN01gQN4gv1HCj5HVBeq1_!!6000000000722-2-tps-3410-1978.png)
 
-2. Paste a skill URL in the pop-up window (see the **URL acquisition example** below for the acquisition method).
+2. Paste a skill URL in the pop-up window (see **URL acquisition examples** below).
 
    ![url](https://img.alicdn.com/imgextra/i1/O1CN01YSoLHy1dZ5yWnMM3N_!!6000000003749-2-tps-3410-1978.png)
 
@@ -219,7 +226,7 @@ You can import skills from these URL sources in the Console:
 ## Channel routing
 
 Each skill can be restricted to specific channels. By default, skills apply to
-**all channels** (`channels: ["all"]`).
+**all channels** (`channels: ["*"]`).
 
 To limit a skill to certain channels:
 
@@ -228,7 +235,7 @@ To limit a skill to certain channels:
    `telegram`, `console`).
 
 When the agent runs on a given channel, only skills whose `channels` list
-includes that channel (or `"all"`) are loaded. This lets you have
+includes that channel (or `"*"`) are loaded. This lets you have
 channel-specific skills — for example, a DingTalk-only onboarding skill that
 doesn't appear on Discord.
 
@@ -269,7 +276,7 @@ to `skill.json` as **disabled**. Enable them in the Console or CLI.
 
 ---
 
-## Skill config
+## Skill Config Runtime Injection
 
 Each skill can have a `config` object stored in its manifest entry. This config
 is not just stored metadata — when a skill is effective for the current
@@ -347,6 +354,52 @@ When a skill runs, the effective config follows this priority (highest wins):
 3. **Pool config** — when downloading a pool skill to a workspace, the pool's `config` is copied as the initial workspace config. Subsequent workspace edits take precedence.
 
 For `requires` metadata, the parser checks keys in order: `metadata.openclaw.requires` → `metadata.copaw.requires` → `metadata.requires`. The first one found is used.
+
+---
+
+## Configuration File Reference
+
+### `skill.json` Structure
+
+Each agent workspace's `skill.json` (e.g., `~/.copaw/workspaces/default/skill.json`) controls which skills are enabled for that agent, which channels they apply to, and the skill configuration parameters.
+
+**Configuration example:**
+
+```json
+{
+  "pdf": {
+    "enabled": true,
+    "channels": ["*"],
+    "config": {},
+    "sync_to_pool": "synced"
+  },
+  "cron": {
+    "enabled": true,
+    "channels": ["console"],
+    "config": {
+      "cron_user": "admin"
+    },
+    "sync_to_pool": "synced"
+  },
+  "my_custom_skill": {
+    "enabled": false,
+    "channels": ["dingtalk", "feishu"],
+    "config": {
+      "api_key": "sk-xxx"
+    },
+    "sync_to_pool": "not_synced"
+  }
+}
+```
+
+**Field descriptions for each skill entry:**
+
+| Field          | Type     | Default        | Description                                                                                                                                         |
+| -------------- | -------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`      | bool     | `false`        | Whether the skill is enabled                                                                                                                        |
+| `channels`     | string[] | `["*"]`        | List of channels where the skill is effective. `["*"]` = all channels; `["console"]` = console only; `["dingtalk", "feishu"]` = only these channels |
+| `config`       | object   | `{}`           | Skill configuration parameters (injected as environment variables at runtime, see "Skill Config" above)                                             |
+| `sync_to_pool` | string   | `"not_synced"` | Sync status with skill pool: `"synced"` (matches pool) / `"not_synced"` (locally created) / `"conflict"` (content differs)                          |
 
 ---
 

@@ -138,8 +138,15 @@ function HeartbeatPage() {
   if (loading) {
     return (
       <div className={styles.heartbeatPage}>
-        <h1 className={styles.title}>{t("heartbeat.title")}</h1>
-        <p className={styles.description}>{t("heartbeat.description")}</p>
+        <div className={styles.pageHeader}>
+          <div className={styles.breadcrumbHeader}>
+            <span className={styles.breadcrumbParent}>Control</span>
+            <span className={styles.breadcrumbSeparator}>/</span>
+            <span className={styles.breadcrumbCurrent}>
+              {t("heartbeat.title")}
+            </span>
+          </div>
+        </div>
         <span className={styles.description}>{t("common.loading")}</span>
       </div>
     );
@@ -147,118 +154,126 @@ function HeartbeatPage() {
 
   return (
     <div className={styles.heartbeatPage}>
-      <h1 className={styles.title}>{t("heartbeat.title")}</h1>
-      <p className={styles.description}>{t("heartbeat.description")}</p>
-
-      <Card className={styles.card}>
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={onFinish}
-          initialValues={{
-            enabled: false,
-            everyNumber: 6,
-            everyUnit: "h",
-            target: "main",
-            useActiveHours: false,
-            activeHoursStart: "08:00",
-            activeHoursEnd: "22:00",
-          }}
-        >
-          <Form.Item
-            name="enabled"
-            label={t("heartbeat.enabled")}
-            valuePropName="checked"
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Control</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>
+            {t("heartbeat.title")}
+          </span>
+        </div>
+      </div>
+      <div className={styles.heartbeatContent}>
+        <Card className={styles.card}>
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={onFinish}
+            initialValues={{
+              enabled: false,
+              everyNumber: 6,
+              everyUnit: "h",
+              target: "main",
+              useActiveHours: false,
+              activeHoursStart: "08:00",
+              activeHoursEnd: "22:00",
+            }}
           >
-            <Switch />
-          </Form.Item>
+            <Form.Item
+              name="enabled"
+              label={t("heartbeat.enabled")}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
 
-          <Form.Item
-            label={t("heartbeat.every")}
-            required
-            className={styles.everyField}
-          >
-            <div className={styles.everyRow}>
-              <Form.Item
-                name="everyNumber"
-                rules={[
-                  { required: true, message: t("heartbeat.everyRequired") },
-                  {
-                    type: "number",
-                    min: 1,
-                    message: t("heartbeat.everyMin"),
-                  },
-                ]}
-                noStyle
-              >
-                <InputNumber min={1} className={styles.everyNumber} />
-              </Form.Item>
-              <Form.Item name="everyUnit" noStyle>
-                <Select
-                  options={EVERY_UNIT_OPTIONS.map((opt) => ({
-                    value: opt.value,
-                    label: t(opt.labelKey),
-                  }))}
-                  className={styles.everyUnit}
-                />
-              </Form.Item>
-            </div>
-          </Form.Item>
+            <Form.Item
+              label={t("heartbeat.every")}
+              required
+              className={styles.everyField}
+            >
+              <div className={styles.everyRow}>
+                <Form.Item
+                  name="everyNumber"
+                  rules={[
+                    { required: true, message: t("heartbeat.everyRequired") },
+                    {
+                      type: "number",
+                      min: 1,
+                      message: t("heartbeat.everyMin"),
+                    },
+                  ]}
+                  noStyle
+                >
+                  <InputNumber min={1} className={styles.everyNumber} />
+                </Form.Item>
+                <Form.Item name="everyUnit" noStyle>
+                  <Select
+                    options={EVERY_UNIT_OPTIONS.map((opt) => ({
+                      value: opt.value,
+                      label: t(opt.labelKey),
+                    }))}
+                    className={styles.everyUnit}
+                  />
+                </Form.Item>
+              </div>
+            </Form.Item>
 
-          <Form.Item
-            name="target"
-            label={t("heartbeat.target")}
-            rules={[{ required: true }]}
-          >
-            <Select
-              options={TARGET_OPTIONS.map((opt) => ({
-                value: opt.value,
-                label: t(opt.labelKey),
-              }))}
-            />
-          </Form.Item>
+            <Form.Item
+              name="target"
+              label={t("heartbeat.target")}
+              rules={[{ required: true }]}
+            >
+              <Select
+                options={TARGET_OPTIONS.map((opt) => ({
+                  value: opt.value,
+                  label: t(opt.labelKey),
+                }))}
+              />
+            </Form.Item>
 
-          <Form.Item
-            name="useActiveHours"
-            label={t("heartbeat.activeHours")}
-            valuePropName="checked"
-          >
-            <Switch />
-          </Form.Item>
+            <Form.Item
+              name="useActiveHours"
+              label={t("heartbeat.activeHours")}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
 
-          <Form.Item
-            noStyle
-            shouldUpdate={(prev, cur) =>
-              prev.useActiveHours !== cur.useActiveHours
-            }
-          >
-            {({ getFieldValue }) =>
-              getFieldValue("useActiveHours") ? (
-                <div className={styles.activeHoursRow}>
-                  <Form.Item
-                    name="activeHoursStart"
-                    label={t("heartbeat.activeStart")}
-                  >
-                    <TimePickerHHmm />
-                  </Form.Item>
-                  <Form.Item
-                    name="activeHoursEnd"
-                    label={t("heartbeat.activeEnd")}
-                  >
-                    <TimePickerHHmm />
-                  </Form.Item>
-                </div>
-              ) : null
-            }
-          </Form.Item>
+            <Form.Item
+              noStyle
+              shouldUpdate={(prev, cur) =>
+                prev.useActiveHours !== cur.useActiveHours
+              }
+            >
+              {({ getFieldValue }) =>
+                getFieldValue("useActiveHours") ? (
+                  <div className={styles.activeHoursRow}>
+                    <Form.Item
+                      name="activeHoursStart"
+                      label={t("heartbeat.activeStart")}
+                    >
+                      <TimePickerHHmm />
+                    </Form.Item>
+                    <Form.Item
+                      name="activeHoursEnd"
+                      label={t("heartbeat.activeEnd")}
+                    >
+                      <TimePickerHHmm />
+                    </Form.Item>
+                  </div>
+                ) : null
+              }
+            </Form.Item>
 
-          <Form.Item className={styles.formActions}>
-            <Button type="primary" htmlType="submit" loading={saving}>
-              {t("common.save")}
-            </Button>
-          </Form.Item>
-        </Form>
-      </Card>
+            <Form.Item className={styles.formActions}>
+              <Button type="primary" htmlType="submit" loading={saving}>
+                {t("common.save")}
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
+      </div>
     </div>
   );
 }

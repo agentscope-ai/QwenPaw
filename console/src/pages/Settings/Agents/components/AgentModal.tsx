@@ -12,6 +12,7 @@ import {
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
+import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
 import { skillApi } from "@/api/modules/skill";
 import styles from "../index.module.less";
@@ -104,7 +105,9 @@ export function AgentModal({
     <Modal
       title={
         editingAgent
-          ? t("agent.editTitle", { name: editingAgent.name })
+          ? t("agent.editTitle", {
+              name: getAgentDisplayName(editingAgent, t),
+            })
           : t("agent.createTitle")
       }
       open={open}

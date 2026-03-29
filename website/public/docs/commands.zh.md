@@ -52,6 +52,11 @@
 [3] **user** (text_tokens=28)
     content: [text(tokens=28)]
     preview: 能不能加上错误处理？
+
+---
+
+- Use /message <index> to view full message content
+- Use /compact_str to view full compact summary
 ```
 
 > 💡 **提示**：建议多使用 `/history` 命令了解当前上下文占用情况。
@@ -76,7 +81,7 @@
 
 - `index` - 消息索引号（从 1 开始）
 
-**返回示例：**
+**示例：**
 
 ```
 /message 1
@@ -200,7 +205,7 @@
 **History Dumped!**
 
 - Messages saved: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 ```
 
@@ -222,7 +227,7 @@
 **History Loaded!**
 
 - Messages loaded: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 - Memory cleared before loading
 ```
@@ -235,6 +240,53 @@
 - 加载前会**清空当前内存**，请确保已备份重要内容
 
 > ⚠️ **警告**：`/load_history` 会清空当前内存后再加载，现有对话将丢失！
+
+---
+
+## 控制命令（即时响应）
+
+控制命令具有最高优先级，会立即处理，无需等待正在运行的任务完成。适用于紧急操作场景。
+
+| 命令                         | 说明                           |
+| ---------------------------- | ------------------------------ |
+| `/stop`                      | 立即终止当前会话的运行中任务   |
+| `/stop session=<session_id>` | 终止指定会话的任务（可选参数） |
+
+### `/stop` - 停止任务
+
+立即终止当前会话中正在执行的 Agent 任务。
+
+**用法**：
+
+```
+/stop                       # 停止当前会话的任务
+/stop session=<session_id>  # 停止指定会话的任务（高级用法）
+```
+
+**特性**：
+
+- **立即响应**：优先级最高（priority=0），即使有任务正在执行也能并发处理
+- **安全终止**：通过 `task_tracker.request_stop()` 优雅地取消任务
+- **会话隔离**：只影响目标会话，不影响其他用户或会话
+- **默认当前会话**：不带参数时终止当前会话的任务
+
+**使用场景**：
+
+- Agent 陷入循环或长时间无响应
+- 任务执行错误需要立即中断
+- 不想等待当前任务完成
+
+**示例**：
+
+```
+用户：帮我分析这个 10GB 的日志文件
+Agent：[开始处理...]
+
+用户：/stop
+系统：**Task Stopped** - Task for session `console:user1` has been terminated.
+```
+
+> ⚠️ **警告**：`/stop` 会立即终止任务，可能导致部分结果丢失。
 
 ---
 

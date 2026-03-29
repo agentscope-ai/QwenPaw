@@ -158,6 +158,7 @@ class Workspace:
                 init_args=lambda ws: {
                     "agent_id": ws.agent_id,
                     "workspace_dir": ws.workspace_dir,
+                    "task_tracker": ws._task_tracker,
                 },
                 stop_method="stop",
                 priority=10,

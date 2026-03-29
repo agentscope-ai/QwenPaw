@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_REME_VERSION = "0.3.1.4"
+_EXPECTED_REME_VERSION = "0.3.1.6"
 
 
 class ReMeLightMemoryManager(BaseMemoryManager):

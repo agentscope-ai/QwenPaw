@@ -1,34 +1,26 @@
 # -*- coding: utf-8 -*-
 """Local model management and inference."""
 
-from .schema import (
-    BackendType,
-    DownloadSource,
-    LocalModelInfo,
+from .download_manager import (
+    apply_download_result,
+    begin_download_task,
     DownloadProgress,
+    DownloadTaskResult,
+    DownloadTaskStatus,
 )
-from .manager import (
-    LocalModelManager,
-    list_local_models,
-    get_local_model,
-    delete_local_model,
-)
-from .factory import (
-    create_local_chat_model,
-    unload_active_model,
-    get_active_local_model,
-)
+from .manager import LocalModelManager
+from .model_manager import ModelManager, LocalModelInfo, DownloadSource
+from .llamacpp import LlamaCppBackend
 
 __all__ = [
-    "BackendType",
     "DownloadSource",
+    "apply_download_result",
+    "begin_download_task",
     "LocalModelInfo",
     "DownloadProgress",
+    "DownloadTaskResult",
+    "DownloadTaskStatus",
     "LocalModelManager",
-    "list_local_models",
-    "get_local_model",
-    "delete_local_model",
-    "create_local_chat_model",
-    "unload_active_model",
-    "get_active_local_model",
+    "ModelManager",
+    "LlamaCppBackend",
 ]

@@ -52,6 +52,11 @@ Display a list of all uncompressed messages in the current conversation, along w
 [3] **user** (text_tokens=28)
     content: [text(tokens=28)]
     preview: Can you add error handling?
+
+---
+
+- Use /message <index> to view full message content
+- Use /compact_str to view full compact summary
 ```
 
 > 💡 **Tip**: Use `/history` frequently to monitor your context usage.
@@ -142,7 +147,7 @@ User requested help building a user authentication system, login endpoint implem
 - Summary task started in background
 ```
 
-> Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
+> 💡 Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
 
 ---
 
@@ -200,7 +205,7 @@ Save current conversation history (including compressed summary) to a JSONL file
 **History Dumped!**
 
 - Messages saved: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 ```
 
@@ -222,7 +227,7 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 **History Loaded!**
 
 - Messages loaded: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 - Memory cleared before loading
 ```
@@ -235,6 +240,53 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 - Current memory is **cleared before loading** — make sure to backup important content
 
 > ⚠️ **Warning**: `/load_history` clears current memory before loading. Existing conversation will be lost!
+
+---
+
+## Control Commands (Immediate Response)
+
+Control commands have the highest priority and are processed immediately without waiting for ongoing tasks to complete. Suitable for urgent operations.
+
+| Command                      | Description                                               |
+| ---------------------------- | --------------------------------------------------------- |
+| `/stop`                      | Immediately terminate the running task in current session |
+| `/stop session=<session_id>` | Terminate task in specified session (optional parameter)  |
+
+### `/stop` - Stop Task
+
+Immediately terminate the Agent task currently executing in the session.
+
+**Usage**:
+
+```
+/stop                       # Stop current session's task
+/stop session=<session_id>  # Stop task in specified session (advanced usage)
+```
+
+**Features**:
+
+- **Immediate response**: Highest priority (priority=0), processes concurrently even when tasks are running
+- **Safe termination**: Gracefully cancels tasks via `task_tracker.request_stop()`
+- **Session isolation**: Only affects target session, doesn't impact other users or sessions
+- **Default to current session**: Without parameters, stops the current session's task
+
+**Use Cases**:
+
+- Agent stuck in a loop or unresponsive for a long time
+- Task execution error requiring immediate interruption
+- Don't want to wait for current task to complete
+
+**Example**:
+
+```
+User: Analyze this 10GB log file for me
+Agent: [Processing...]
+
+User: /stop
+System: **Task Stopped** - Task for session `console:user1` has been terminated.
+```
+
+> ⚠️ **Warning**: `/stop` immediately terminates the task, which may result in partial data loss
 
 ---
 

@@ -51,9 +51,9 @@ export default function MainLayout() {
 
   return (
     <Layout className={styles.mainLayout}>
-      <Sidebar selectedKey={selectedKey} />
+      <Header />
       <Layout>
-        <Header selectedKey={selectedKey} />
+        <Sidebar selectedKey={selectedKey} />
         <Content className="page-container">
           <ConsoleCronBubble />
           <div className="page-content">

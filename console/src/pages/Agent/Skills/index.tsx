@@ -20,6 +20,7 @@ import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import api from "../../../api";
+import { invalidateSkillCache } from "../../../api/modules/skill";
 import { parseErrorDetail } from "../../../utils/error";
 import styles from "./index.module.less";
 
@@ -54,12 +55,15 @@ function SkillsPage() {
 
   const MAX_UPLOAD_SIZE_MB = 100;
 
+  // Only fetch pool skills when pool modal is opened, not on page load
   useEffect(() => {
-    void api
-      .listSkillPoolSkills()
-      .then(setPoolSkills)
-      .catch(() => undefined);
-  }, [loading]);
+    if (poolModal === "upload" || poolModal === "download") {
+      void api
+        .listSkillPoolSkills()
+        .then(setPoolSkills)
+        .catch(() => undefined);
+    }
+  }, [poolModal]);
 
   const closePoolModal = () => {
     setPoolModal(null);
@@ -83,7 +87,10 @@ function SkillsPage() {
     const sizeMB = file.size / (1024 * 1024);
     if (sizeMB > MAX_UPLOAD_SIZE_MB) {
       message.warning(
-        t("skills.fileSizeExceeded", { size: sizeMB.toFixed(1) }),
+        t("skills.fileSizeExceeded", {
+          limit: MAX_UPLOAD_SIZE_MB,
+          size: sizeMB.toFixed(1),
+        }),
       );
       return;
     }
@@ -174,7 +181,7 @@ function SkillsPage() {
   const handleDelete = async (skill: SkillSpec, e?: React.MouseEvent) => {
     e?.stopPropagation();
     await deleteSkill(skill);
-    await refreshSkills();
+    // No need to refresh again as deleteSkill already calls fetchSkills
   };
 
   const handleDrawerClose = () => {
@@ -193,17 +200,19 @@ function SkillsPage() {
           source_name: sourceName !== targetName ? sourceName : undefined,
           config: values.config,
         });
+        await api.updateSkillChannels(result.name, values.channels || ["all"]);
         if (result.mode === "noop") {
           setDrawerOpen(false);
+          await refreshSkills();
           return;
         }
-        await api.updateSkillChannels(result.name, values.channels || ["all"]);
         message.success(
           result.mode === "rename"
             ? `${t("common.save")}: ${result.name}`
             : t("common.save"),
         );
         setDrawerOpen(false);
+        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
         await refreshSkills();
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -238,6 +247,7 @@ function SkillsPage() {
       if (result.success) {
         await api.updateSkillChannels(submitName, values.channels || ["all"]);
         setDrawerOpen(false);
+        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after updating channels
         await refreshSkills();
         return;
       }
@@ -289,6 +299,7 @@ function SkillsPage() {
       }
       message.success(t("skills.uploadedToPool"));
       closePoolModal();
+      invalidateSkillCache({ agentId: selectedAgent, pool: true }); // Clear current agent and pool cache
       await refreshSkills();
       setPoolSkills(await api.listSkillPoolSkills());
     } catch (error) {
@@ -333,6 +344,7 @@ function SkillsPage() {
       }
       message.success(t("skills.downloadedToWorkspace"));
       closePoolModal();
+      invalidateSkillCache({ agentId: selectedAgent, pool: true }); // Clear current agent and pool cache
       await refreshSkills();
     } catch (error) {
       message.error(
@@ -345,12 +357,13 @@ function SkillsPage() {
 
   return (
     <div className={styles.skillsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("skills.title")}</h1>
-          <p className={styles.description}>{t("skills.description")}</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>{t("skills.title")}</span>
         </div>
-        <div className={styles.headerActions}>
+        <div className={styles.headerRight}>
           <input
             type="file"
             accept=".zip"
@@ -361,22 +374,22 @@ function SkillsPage() {
           <div className={styles.headerActionsLeft}>
             <Tooltip title={t("skills.downloadFromPoolHint")}>
               <Button
-                type="primary"
+                type="default"
                 className={styles.primaryTransferButton}
                 onClick={() => setPoolModal("download")}
                 icon={<DownloadOutlined />}
               >
-                {t("common.download")}
+                {t("skills.downloadFromPool")}
               </Button>
             </Tooltip>
             <Tooltip title={t("skills.uploadToPoolHint")}>
               <Button
-                type="primary"
+                type="default"
                 className={styles.primaryTransferButton}
                 onClick={() => setPoolModal("upload")}
                 icon={<SwapOutlined />}
               >
-                {t("common.upload")}
+                {t("skills.uploadToPool")}
               </Button>
             </Tooltip>
           </div>
@@ -405,8 +418,8 @@ function SkillsPage() {
             </Tooltip>
             <Tooltip title={t("skills.createSkillHint")}>
               <Button
-                type="default"
-                className={styles.creationActionButton}
+                type="primary"
+                className={styles.primaryActionButton}
                 onClick={handleCreate}
                 icon={<PlusOutlined />}
               >
@@ -441,7 +454,7 @@ function SkillsPage() {
           <p className={styles.emptyStateText}>{t("skills.emptyStateText")}</p>
           <div className={styles.emptyStateActions}>
             <Button
-              type="primary"
+              type="default"
               className={styles.primaryTransferButton}
               onClick={() => setPoolModal("download")}
               icon={<DownloadOutlined />}
@@ -449,8 +462,8 @@ function SkillsPage() {
               {t("skills.emptyStateDownload")}
             </Button>
             <Button
-              type="default"
-              className={styles.creationActionButton}
+              type="primary"
+              className={styles.primaryActionButton}
               onClick={handleCreate}
               icon={<PlusOutlined />}
             >
