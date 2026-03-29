@@ -12,7 +12,8 @@ import { TimePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
-import { TIMEZONE_OPTIONS, DEFAULT_FORM_VALUES } from "./constants";
+import { DEFAULT_FORM_VALUES } from "./constants";
+import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
 
 type CronJob = CronJobSpecOutput;
@@ -230,7 +231,7 @@ export function JobDrawer({
                 .toLowerCase()
                 .includes(input.toLowerCase())
             }
-            options={TIMEZONE_OPTIONS}
+            options={useTimezoneOptions()}
           />
         </Form.Item>
 
