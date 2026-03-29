@@ -129,14 +129,12 @@ class MCPConfigWatcher:
         config = self._config_loader()
         # Support both Config object with .mcp or direct MCPConfig
         if hasattr(config, "mcp"):
-            return config.mcp if config.mcp is not None else MCPConfig()
-        return config if config is not None else MCPConfig()
+            return config.mcp or MCPConfig()
+        return config or MCPConfig()
 
     @staticmethod
-    def _mcp_hash(mcp_config: Optional[MCPConfig]) -> int:
+    def _mcp_hash(mcp_config: MCPConfig) -> int:
         """Fast hash of MCP config for quick change detection."""
-        if mcp_config is None:
-            return hash(str({}))
         return hash(str(mcp_config.model_dump(mode="json")))
 
     async def _poll_loop(self) -> None:
