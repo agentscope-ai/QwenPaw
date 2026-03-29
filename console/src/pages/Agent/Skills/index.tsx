@@ -212,7 +212,7 @@ function SkillsPage() {
             : t("common.save"),
         );
         setDrawerOpen(false);
-        invalidateSkillCache(); // Clear cache after mutation
+        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
         await refreshSkills();
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -247,7 +247,7 @@ function SkillsPage() {
       if (result.success) {
         await api.updateSkillChannels(submitName, values.channels || ["all"]);
         setDrawerOpen(false);
-        invalidateSkillCache(); // Clear cache after updating channels
+        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after updating channels
         await refreshSkills();
         return;
       }
@@ -299,7 +299,7 @@ function SkillsPage() {
       }
       message.success(t("skills.uploadedToPool"));
       closePoolModal();
-      invalidateSkillCache(); // Clear cache after mutation
+      invalidateSkillCache({ agentId: selectedAgent, pool: true }); // Clear current agent and pool cache
       await refreshSkills();
       setPoolSkills(await api.listSkillPoolSkills());
     } catch (error) {
@@ -344,7 +344,7 @@ function SkillsPage() {
       }
       message.success(t("skills.downloadedToWorkspace"));
       closePoolModal();
-      invalidateSkillCache(); // Clear cache after mutation
+      invalidateSkillCache({ agentId: selectedAgent, pool: true }); // Clear current agent and pool cache
       await refreshSkills();
     } catch (error) {
       message.error(

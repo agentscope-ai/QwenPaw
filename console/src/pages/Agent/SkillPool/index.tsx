@@ -263,7 +263,7 @@ function SkillPoolPage() {
       }
       message.success(t("skillPool.broadcastSuccess"));
       closeModal();
-      invalidateSkillCache(); // Clear cache after mutation
+      invalidateSkillCache({ pool: true, workspaces: true }); // Clear pool and workspaces cache
       await loadData(true);
     } catch (error) {
       message.error(
@@ -301,7 +301,7 @@ function SkillPoolPage() {
         );
       }
       closeImportBuiltin();
-      invalidateSkillCache(); // Clear cache after mutation
+      invalidateSkillCache({ pool: true }); // Clear pool cache
       await loadData(true);
     } catch (error) {
       const detail = parseErrorDetail(error);
@@ -399,7 +399,7 @@ function SkillPoolPage() {
           : t("common.create"),
       );
       closeDrawer();
-      invalidateSkillCache(); // Clear cache after mutation
+      invalidateSkillCache({ pool: true }); // Clear pool cache
       await loadData(true);
     } catch (error) {
       const detail = parseErrorDetail(error);
@@ -438,7 +438,7 @@ function SkillPoolPage() {
       onOk: async () => {
         await api.deleteSkillPoolSkill(skill.name);
         message.success(t("skillPool.deletedFromPool"));
-        invalidateSkillCache(); // Clear cache after mutation
+        invalidateSkillCache({ pool: true }); // Clear pool cache
         await loadData(true);
       },
     });
@@ -479,7 +479,7 @@ function SkillPoolPage() {
         } else {
           message.info(t("skillPool.noNewImports"));
         }
-        invalidateSkillCache(); // Clear cache after mutation
+        invalidateSkillCache({ pool: true }); // Clear pool cache
         await loadData(true);
         break;
       } catch (error) {
@@ -520,7 +520,7 @@ function SkillPoolPage() {
       });
       message.success(`${t("common.create")}: ${result.name}`);
       closeImportModal();
-      invalidateSkillCache(); // Clear cache after mutation
+      invalidateSkillCache({ pool: true }); // Clear pool cache
       await loadData(true);
     } catch (error) {
       const detail = parseErrorDetail(error);

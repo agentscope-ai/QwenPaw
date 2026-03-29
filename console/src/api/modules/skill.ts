@@ -31,10 +31,30 @@ function setCache<T>(key: string, data: T): void {
   apiCache.set(key, { data, timestamp: Date.now() });
 }
 
-export function invalidateSkillCache(): void {
+export function invalidateSkillCache(options?: {
+  agentId?: string;
+  workspaces?: boolean;
+  pool?: boolean;
+}): void {
   // Clear all skill-related cache entries
   for (const key of Array.from(apiCache.keys())) {
-    if (key.startsWith("/skills")) {
+    if (!key.startsWith("/skills")) continue;
+
+    // If no specific options provided, clear all
+    if (!options) {
+      apiCache.delete(key);
+      continue;
+    }
+
+    // Targeted invalidation based on options
+    if (options.pool && key === "/skills/pool") {
+      apiCache.delete(key);
+    } else if (options.workspaces && key === "/skills/workspaces") {
+      apiCache.delete(key);
+    } else if (options.agentId && key === `/skills?agent=${options.agentId}`) {
+      apiCache.delete(key);
+    } else if (options.agentId && key === "/skills") {
+      // Also clear generic /skills cache when specific agent cache is invalidated
       apiCache.delete(key);
     }
   }

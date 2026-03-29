@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import io
 import json
@@ -1176,8 +1177,6 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
     - ``synced``: pool copy matches the packaged builtin exactly
     - ``outdated``: pool copy differs from the packaged builtin
     """
-    import concurrent.futures
-
     builtin_dir = get_builtin_skills_dir()
     if not builtin_dir.exists():
         return {}
@@ -1221,7 +1220,11 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
             }
 
     # Use ThreadPoolExecutor for parallel I/O operations
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    # For I/O-bound tasks, use more threads than CPU count
+    max_workers = min(32, (os.cpu_count() or 1) + 4)
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers,
+    ) as executor:
         futures = [
             executor.submit(_check_single_skill, item)
             for item in skill_dirs_to_check
