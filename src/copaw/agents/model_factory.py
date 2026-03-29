@@ -10,9 +10,12 @@ Example:
 """
 
 
+import base64
 import logging
+import os
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
 
+import agentscope._utils._common as agentscope_common
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
 
@@ -50,6 +53,71 @@ def _file_url_to_path(url: str) -> str:
     if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
         s = s[1:]
     return s
+
+
+# ----------------------------------------------------------------------
+# Monkeypatch AgentScope's URL fetcher to support local paths.
+# This fixes cases where absolute Windows paths (e.g. D:\...) are
+# treated as web URLs and passed to requests.get(), causing crashes.
+# ----------------------------------------------------------------------
+
+_original_get_bytes_from_web_url = agentscope_common._get_bytes_from_web_url
+
+# A tiny 1x1 transparent PNG to use as a fallback instead of crashing
+_TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+
+def _patched_get_bytes_from_web_url(url: str, max_retries: int = 3) -> str:
+    """A patched version that handles local paths before falling back to requests."""
+    # 1. Handle explicit file:// URLs
+    if url.startswith("file://"):
+        path = _file_url_to_path(url)
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                return base64.b64encode(f.read()).decode("ascii")
+        logger.warning(f"Local file not found (from file://): {path}")
+        return _TINY_PNG
+
+    # 2. Handle absolute local paths (e.g. Windows D:\...)
+    # Check if it's a real file on disk.
+    if os.path.isfile(url):
+        with open(url, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
+
+    # 3. If it looks like a local path but file is missing, avoid requests.get
+    # because it will crash with 'No connection adapters found' for drive letters.
+    is_likely_local = (
+        ":" in url
+        and not url.lower().startswith(
+            ("http://", "https://", "ftp://", "data:"),
+        )
+    ) or (not url.lower().startswith("http") and url.startswith(("/", "\\")))
+
+    if is_likely_local:
+        logger.warning(f"Local file not found or invalid URL: {url}")
+        return _TINY_PNG
+
+    # 4. Fall back to original for real web URLs
+    return _original_get_bytes_from_web_url(url, max_retries)
+
+
+agentscope_common._get_bytes_from_web_url = _patched_get_bytes_from_web_url
+
+# Also patch the formatters if they were already imported to ensure they use
+# the patched version even if they did 'from .._utils._common import ...'
+if GeminiChatFormatter is not None:
+    try:
+        import agentscope.formatter._gemini_formatter as gemini_fmt
+        gemini_fmt._get_bytes_from_web_url = _patched_get_bytes_from_web_url
+    except ImportError:
+        pass
+
+if AnthropicChatModel is not None:
+    try:
+        import agentscope.formatter._anthropic_formatter as anthropic_fmt
+        anthropic_fmt._get_bytes_from_web_url = _patched_get_bytes_from_web_url
+    except ImportError:
+        pass
 
 
 logger = logging.getLogger(__name__)
@@ -112,8 +180,10 @@ def _create_file_block_support_formatter(
             ``extra_content`` on tool_use blocks (e.g. Gemini
             thought_signature) is carried through to the API request.
             """
+            # 1. Sanitize tool messages
             msgs = _sanitize_tool_messages(msgs)
 
+            # 2. Extract reasoning and extra content
             reasoning_contents = {}
             extra_contents: dict[str, Any] = {}
             for msg in msgs:
@@ -132,20 +202,59 @@ def _create_file_block_support_formatter(
                     ):
                         extra_contents[block["id"]] = block["extra_content"]
 
-            # Convert file:// URLs to paths,
-            # TODO: remove this after AgentScope updated
+            # 3. Handle media blocks with local file references
+            # Convert file:// URLs to paths and prevent crashes from missing files
             for msg in msgs:
-                for block in msg.get_content_blocks():
-                    if block.get("type") == "audio":
+                if not isinstance(msg.content, list):
+                    continue
+                new_content = []
+                for block in msg.content:
+                    if (
+                        isinstance(block, dict)
+                        and block.get("type") in ("audio", "image", "video")
+                    ):
                         source = block.get("source")
                         if (
                             isinstance(source, dict)
                             and source.get("type") == "url"
                             and isinstance(source.get("url"), str)
-                            and source["url"].startswith("file://")
                         ):
-                            source["url"] = _file_url_to_path(source["url"])
+                            url = source["url"]
+                            if url.startswith("file://"):
+                                url = _file_url_to_path(url)
+                                source["url"] = url
 
+                            # Check if it's a local path (Windows drive letter
+                            # or no scheme)
+                            is_local = (
+                                ":" in url
+                                and not url.lower().startswith(
+                                    ("http://", "https://", "ftp://", "data:"),
+                                )
+                            ) or (
+                                not url.lower().startswith(
+                                    ("http://", "https://", "ftp://", "data:"),
+                                )
+                                and url.startswith("/")
+                            )
+
+                            if is_local and not os.path.exists(url):
+                                logger.warning(
+                                    f"Media file not found: {url}. "
+                                    "Replacing with placeholder to "
+                                    "avoid crash.",
+                                )
+                                new_content.append(
+                                    {
+                                        "type": "text",
+                                        "text": f"[Media file not found: {url}]",
+                                    },
+                                )
+                                continue
+                    new_content.append(block)
+                msg.content = new_content
+
+            # 4. Delegate to base formatter
             messages = await super()._format(msgs)
 
             if extra_contents:
@@ -195,38 +304,74 @@ def _create_file_block_support_formatter(
         def convert_tool_result_to_string(
             output: Union[str, List[dict]],
         ) -> tuple[str, Sequence[Tuple[str, dict]]]:
-            """Extend parent class to support file blocks.
-
-            Uses try-first strategy for compatibility with parent class.
-
-            Args:
-                output: Tool result output (string or list of blocks)
-
-            Returns:
-                Tuple of (text_representation, multimodal_data)
-            """
+            """Extend parent class to support file blocks and filter missing local files."""
             if isinstance(output, str):
                 return output, []
 
-            # Try parent class method first
+            # Pre-filter: if any media block points to a missing local file,
+            # we should skip it or convert it to text to prevent downstream
+            # promotion logic from crashing.
+            filtered_output = []
+            for block in output:
+                if isinstance(block, dict):
+                    media_path = (
+                        block.get("path")
+                        or block.get("url")
+                        or (
+                            block.get("source", {}).get("url")
+                            if isinstance(block.get("source"), dict)
+                            else None
+                        )
+                    )
+                    if isinstance(media_path, str):
+                        # Detect local but missing file
+                        path = (
+                            _file_url_to_path(media_path)
+                            if media_path.startswith("file://")
+                            else media_path
+                        )
+                        is_local = (
+                            ":" in path
+                            and not path.lower().startswith(
+                                ("http://", "https://", "ftp://", "data:"),
+                            )
+                        ) or (
+                            not path.lower().startswith("http")
+                            and path.startswith(("/", "\\"))
+                        )
+
+                        if is_local and not os.path.exists(path):
+                            logger.warning(
+                                f"Skipping missing tool result file: {path}",
+                            )
+                            # Convert to text representation instead of media block
+                            filtered_output.append(
+                                {
+                                    "type": "text",
+                                    "text": f"[Missing file: {path}]",
+                                },
+                            )
+                            continue
+                filtered_output.append(block)
+
+            output = filtered_output
+
+            # Try parent class method
             try:
                 return base_formatter_class.convert_tool_result_to_string(
                     output,
                 )
             except ValueError as e:
+                # Same custom logic for 'file' type as before...
                 if "Unsupported block type: file" not in str(e):
                     raise
 
-                # Handle output containing file blocks
                 textual_output = []
                 multimodal_data = []
 
                 for block in output:
                     if not isinstance(block, dict) or "type" not in block:
-                        raise ValueError(
-                            f"Invalid block: {block}, "
-                            "expected a dict with 'type' key",
-                        ) from e
+                        continue
 
                     if block["type"] == "file":
                         file_path = block.get("path", "") or block.get(
@@ -234,22 +379,23 @@ def _create_file_block_support_formatter(
                             "",
                         )
                         file_name = block.get("name", file_path)
-
                         textual_output.append(
                             f"The returned file '{file_name}' "
                             f"can be found at: {file_path}",
                         )
                         multimodal_data.append((file_path, block))
                     else:
-                        # Delegate other block types to parent class
-                        (
-                            text,
-                            data,
-                        ) = base_formatter_class.convert_tool_result_to_string(
-                            [block],
-                        )
-                        textual_output.append(text)
-                        multimodal_data.extend(data)
+                        try:
+                            (
+                                text,
+                                data,
+                            ) = base_formatter_class.convert_tool_result_to_string(
+                                [block],
+                            )
+                            textual_output.append(text)
+                            multimodal_data.extend(data)
+                        except Exception:
+                            pass
 
                 if len(textual_output) == 0:
                     return "", multimodal_data
