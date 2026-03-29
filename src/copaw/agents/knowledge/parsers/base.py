@@ -71,7 +71,9 @@ def resolve_parsers_for_path(path: Path) -> tuple[BaseKnowledgeParser, ...]:
     if engine != "DOCLING":
         if specialized:
             return cast(tuple[BaseKnowledgeParser, ...], tuple(specialized))
-        return cast(tuple[BaseKnowledgeParser, ...], tuple(docling))
+        raise UnsupportedFileTypeError(
+            f"Unsupported file type without DOCLING engine: {suffix}",
+        )
 
     ordered = docling + specialized
     return cast(tuple[BaseKnowledgeParser, ...], tuple(ordered))
