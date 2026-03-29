@@ -29,7 +29,8 @@ class DoclingParser:
             )  # lazy import to keep optional dependency
         except ImportError as exc:
             raise KnowledgeError(
-                "docling is required for DOCLING knowledge import engine",
+                "docling is required for DOCLING knowledge import engine. "
+                "Install with: pip install 'copaw[docling]'",
             ) from exc
 
         converter = DocumentConverter()

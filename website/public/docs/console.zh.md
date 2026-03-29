@@ -54,6 +54,9 @@
 `soffice`，导入会失败。可先执行 `soffice --version` 检查，若命令不存在请安装
 LibreOffice 后重试。
 对于 `.xlsx`，公式单元格默认以公式文本导入；只有工作簿已包含预计算缓存值时才会读到计算结果。
+如需启用可选的 Docling 引擎，可先安装
+`pip install 'copaw[docling]'`，并在启动 CoPaw 前设置
+`COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING`。
 
 **新建会话：**
 点击聊天页面侧边栏顶部的 **+ New Chat** 按钮，开始一段全新的对话。每个会话独立保存各自的对话记录。

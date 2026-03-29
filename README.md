@@ -113,6 +113,18 @@ copaw app
 
 Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with CoPaw, configure the agent). To talk in DingTalk, Feishu, QQ, etc., add a channel in the [docs](https://copaw.agentscope.io/docs/channels).
 
+Optional (Docling KB engine): install Docling and enable it via environment
+variable before starting CoPaw.
+
+```bash
+pip install 'copaw[docling]'
+export COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING
+copaw app
+```
+
+With `DOCLING`, KB import prioritizes Docling for `.md`, `.txt`, `.pdf`,
+and `.docx`. Specialized parsers still handle `.doc` and `.xlsx`.
+
 ![Console](https://img.alicdn.com/imgextra/i3/O1CN01VYsFVo23aAvIM3GXB_!!6000000007271-2-tps-3328-1860.png)
 
 ### Script install
