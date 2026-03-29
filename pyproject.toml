@@ -37,6 +37,7 @@ dependencies = [
     "segno>=1.6.6",
     "pypdf>=4.3.0",
     "python-docx>=1.1.2",
+    "openpyxl>=3.1.5",
 ]
 
 [tool.setuptools.dynamic]
