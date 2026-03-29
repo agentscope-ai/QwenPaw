@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-检查所有 Channel 子类是否有 Contract 测试覆盖。
+Check that all Channel subclasses have Contract test coverage.
 
-用法:
+Usage:
     python scripts/check_channel_contracts.py
 
-说明:
-    - 静态扫描，无需安装依赖（包括 pytest）
-    - 对比 src/ 中的 Channel 类和 tests/contract/ 中的测试文件
+Notes:
+    - Static scan, no dependencies required (including pytest)
+    - Compares Channel classes in src/ with test files in tests/contract/
 
-CI 集成（未来）:
-    - 在 PR 时运行，确保新 Channel 有 contract 测试
+CI Integration (future):
+    - Run on PR to ensure new Channels have contract tests
 """
 from __future__ import annotations
 
@@ -21,16 +21,17 @@ from pathlib import Path
 
 
 def get_all_channel_classes() -> set[str]:
-    """从源码中扫描所有 Channel 子类（非运行时）."""
+    """Scan all Channel subclasses from source code (non-runtime)."""
     src_dir = Path(__file__).parent.parent / "src"
     channels_dir = src_dir / "copaw" / "app" / "channels"
     classes = set()
 
     for channel_file in channels_dir.rglob("channel.py"):
         content = channel_file.read_text()
-        # 匹配 class XXXChannel(BaseChannel)
+        # Match class XXXChannel(BaseChannel)
         matches = re.findall(
-            r"class\s+(\w+Channel)\s*\(\s*BaseChannel\s*\)", content
+            r"class\s+(\w+Channel)\s*\(\s*BaseChannel\s*\)",
+            content,
         )
         classes.update(matches)
 
@@ -38,7 +39,7 @@ def get_all_channel_classes() -> set[str]:
 
 
 def get_tested_channels_from_content() -> set[str]:
-    """从测试文件中读取实际测试的 channel 类名."""
+    """Read actual tested channel class names from test files."""
     contract_dir = (
         Path(__file__).parent.parent / "tests" / "contract" / "channels"
     )
@@ -49,14 +50,14 @@ def get_tested_channels_from_content() -> set[str]:
 
     for test_file in contract_dir.glob("test_*_contract.py"):
         content = test_file.read_text()
-        # 查找 from XXXXX import YYYYChannel
-        # 或查找 create_instance 中的 return XXXXChannel(...)
-        # 匹配常见的 channel 导入模式
+        # Find from XXXXX import YYYYChannel
+        # Or find in create_instance return XXXXChannel(...)
+        # Match common channel import patterns
         import_matches = re.findall(
             r"from\s+[\w.]+\s+import\s+(\w+Channel)",
             content,
         )
-        # 还有可能在 create_instance 中直接实例化
+        # Also directly instantiated in create_instance
         instance_matches = re.findall(
             r"return\s+(\w+Channel)\s*\(",
             content,
@@ -72,7 +73,7 @@ def main() -> int:
     tested = get_tested_channels_from_content()
     untested = all_channels - tested
 
-    print(f"\n📊 Channel Contract Coverage")
+    print("\n📊 Channel Contract Coverage")
     print(f"   Total channels: {len(all_channels)}")
     print(f"   With tests:     {len(tested)}")
     print(f"   Missing:        {len(untested)}")
@@ -81,9 +82,9 @@ def main() -> int:
         print(f"\n✅ Tested: {', '.join(sorted(tested))}")
 
     if untested:
-        print(f"\n❌ Missing contract tests:")
+        print("\n❌ Missing contract tests:")
         for name in sorted(untested):
-            # 转换为 snake_case 用于文件名建议
+            # Convert to snake_case for filename suggestion
             snake = (
                 re.sub(r"(?<!^)(?=[A-Z])", "_", name)
                 .lower()
@@ -92,11 +93,12 @@ def main() -> int:
             print(f"   - {name}")
             print(f"     👉 tests/contract/channels/test_{snake}_contract.py")
         print(
-            f"\n💡 基于现有模式，复制 tests/contract/channels/test_dingtalk_contract.py"
+            "\n💡 Based on existing patterns, copy "
+            "tests/contract/channels/test_console_contract.py",
         )
         return 1
 
-    print(f"\n🎉 All channels have contract tests!")
+    print("\n🎉 All channels have contract tests!")
     return 0
 
 
