@@ -497,6 +497,12 @@ def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
     else:
         requires = metadata.get("requires", {})
 
+    if isinstance(requires, list):
+        return SkillRequirements(
+            require_bins=list(requires),
+            require_envs=[],
+        )
+
     return SkillRequirements(
         require_bins=list(requires.get("bins", [])),
         require_envs=list(requires.get("env", [])),
