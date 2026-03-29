@@ -13,8 +13,14 @@ from copaw.app.routers import knowledge as knowledge_router
 
 
 class _FakeWorkspace:
-    def __init__(self, workspace_dir: Path):
+    def __init__(
+        self,
+        workspace_dir: Path,
+        *,
+        channel_manager=None,
+    ):
         self.workspace_dir = workspace_dir
+        self.channel_manager = channel_manager
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -128,3 +134,32 @@ def test_search_endpoint_validates_query(
     )
 
     assert response.status_code == 422
+
+
+def test_import_endpoint_returns_503_when_console_channel_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    async def _fake_get_agent_for_request(_request):
+        return _FakeWorkspace(tmp_path, channel_manager=None)
+
+    monkeypatch.setattr(
+        knowledge_router,
+        "get_agent_for_request",
+        _fake_get_agent_for_request,
+    )
+
+    app = FastAPI()
+    app.include_router(knowledge_router.router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/knowledge/import",
+        json={
+            "uploads": [],
+            "mode": "current_message",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Channel Console not found"

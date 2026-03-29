@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from ...agents.knowledge.models import (
     KnowledgeDocumentSummary,
@@ -32,19 +32,22 @@ async def import_knowledge_uploads(
     """Import current-message uploads into knowledge workspace."""
     workspace = await get_agent_for_request(request)
     channel_manager = workspace.channel_manager
-    console_channel = (
-        await channel_manager.get_channel("console")
-        if channel_manager is not None
-        else None
-    )
-    media_dir = (
-        console_channel.media_dir
-        if console_channel is not None
-        else workspace.workspace_dir / "media"
-    )
+    if channel_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+
+    console_channel = await channel_manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+
     service = KnowledgeImportService(
         workspace.workspace_dir,
-        media_dir=media_dir,
+        media_dir=console_channel.media_dir,
     )
     return await service.import_uploads(body)
 
