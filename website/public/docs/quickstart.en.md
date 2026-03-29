@@ -72,7 +72,7 @@ Then open a new terminal (the installer adds CoPaw to your PATH automatically).
 >
 > Due to **Constrained Language Mode**, the script may fail to automatically download `uv`.
 >
-> - **Manually install uv**: Refer to [GitHub Release](https://github.com/astral-sh/uv/releases) to download `uv.exe` and place it in `%USERPROFILE%\.local\bin` or `%USERPROFILE%\AppData\Local\uv`; or ensure Python is installed and run `python -m pip install -U uv`
+> - **Manually install uv**: Refer to [GitHub Release](https://github.com/astral-sh/uv/releases) to download `uv.exe` and place it in `%USERPROFILE%\.local\bin` or `%USERPROFILE%\AppData\Local\uv`; or ensure Python is installed and run `python -m pip install -U uv`.
 > - **Configure `uv` environment variables**: Add the `uv` directory and `%USERPROFILE%\.copaw\bin` to your system's `Path` variable.
 > - **Re-run the installation**: Open a new terminal and execute the installation script again to complete the `CoPaw` installation.
 > - **Configure the `CoPaw` environment variable**: Add `%USERPROFILE%\.copaw\bin` to your system's `Path` variable.
