@@ -51,6 +51,17 @@ function SecurityPage() {
     saving: boolean;
   } | null>(null);
 
+  const onFileGuardHandlersReady = useCallback(
+    (handlers: {
+      save: () => Promise<void>;
+      reset: () => void;
+      saving: boolean;
+    }) => {
+      setFileGuardHandlers(handlers);
+    },
+    [],
+  );
+
   const {
     config,
     customRules,
@@ -341,9 +352,7 @@ function SecurityPage() {
                     <p className={styles.tabDescription}>
                       {t("security.fileGuard.description")}
                     </p>
-                    <FileGuardSection
-                      onSave={(handlers) => setFileGuardHandlers(handlers)}
-                    />
+                    <FileGuardSection onSave={onFileGuardHandlersReady} />
                   </div>
                 </div>
               ),
