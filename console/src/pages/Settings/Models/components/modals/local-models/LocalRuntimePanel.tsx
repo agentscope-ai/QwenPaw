@@ -8,7 +8,11 @@ import type {
   LocalServerStatus,
 } from "../../../../../../api/types";
 import styles from "../../../index.module.less";
-import { formatProgressText, getProgressPercent } from "./shared";
+import {
+  formatProgressText,
+  getProgressPercent,
+  isDownloadActive,
+} from "./shared";
 
 interface LocalRuntimePanelProps {
   serverStatus: LocalServerStatus | null;
@@ -27,8 +31,8 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
 }: LocalRuntimePanelProps) {
   const { t } = useTranslation();
   const installed = Boolean(serverStatus?.installed);
-  const isDownloading =
-    progress?.status === "pending" || progress?.status === "downloading";
+  const isDownloading = isDownloadActive(progress);
+  const isCanceling = progress?.status === "canceling";
   const isRunning = Boolean(serverStatus?.model_name);
   const installBadge = installed
     ? {
@@ -141,6 +145,8 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
                   danger
                   size="small"
                   icon={<CloseOutlined />}
+                  loading={isCanceling}
+                  disabled={isCanceling}
                   onClick={onCancel}
                 />
               </Tooltip>

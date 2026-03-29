@@ -13,9 +13,15 @@ import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
 import { LocalModelRow } from "./local-models/LocalModelRow";
 import { LocalRuntimePanel } from "./local-models/LocalRuntimePanel";
-import { formatProgressText, getProgressPercent } from "./local-models/shared";
+import {
+  formatProgressText,
+  getProgressPercent,
+  isDownloadActive,
+} from "./local-models/shared";
 
 const POLL_INTERVAL_MS = 3000;
+
+type LocalDownloadStatus = LocalDownloadProgress["status"];
 
 function isSameServerStatus(
   left: LocalServerStatus | null,
@@ -49,6 +55,12 @@ interface LocalStatusSnapshot {
   server: LocalServerStatus;
   llamacpp: LocalDownloadProgress;
   model: LocalDownloadProgress;
+}
+
+function isBusyDownloadStatus(status: LocalDownloadStatus | null | undefined) {
+  return (
+    status === "pending" || status === "downloading" || status === "canceling"
+  );
 }
 
 interface LocalModelManageModalProps {
@@ -192,10 +204,8 @@ export function LocalModelManageModal({
         previousModelStatusRef.current = nextModelDownload.status;
 
         if (
-          nextLlamacppDownload.status !== "pending" &&
-          nextLlamacppDownload.status !== "downloading" &&
-          nextModelDownload.status !== "pending" &&
-          nextModelDownload.status !== "downloading"
+          !isBusyDownloadStatus(nextLlamacppDownload.status) &&
+          !isBusyDownloadStatus(nextModelDownload.status)
         ) {
           stopPolling();
         }
@@ -230,10 +240,8 @@ export function LocalModelManageModal({
       ([, statuses]) => {
         if (
           statuses &&
-          (statuses.llamacpp.status === "pending" ||
-            statuses.llamacpp.status === "downloading" ||
-            statuses.model.status === "pending" ||
-            statuses.model.status === "downloading")
+          (isBusyDownloadStatus(statuses.llamacpp.status) ||
+            isBusyDownloadStatus(statuses.model.status))
         ) {
           startPolling();
         }
@@ -244,19 +252,38 @@ export function LocalModelManageModal({
   }, [fetchLocalModels, open, refreshStatus, startPolling, stopPolling]);
 
   const handleStartLlamacppDownload = useCallback(async () => {
+    const previousLlamacppDownload = llamacppDownload;
+    const previousLlamacppStatus = previousLlamacppStatusRef.current;
+
+    setLlamacppDownload({
+      status: "pending",
+      model_name: t("models.localLlamacppName"),
+      downloaded_bytes: 0,
+      total_bytes: null,
+      speed_bytes_per_sec: 0,
+      source: null,
+      error: null,
+      local_path: null,
+    });
+    previousLlamacppStatusRef.current = "pending";
+
     try {
       await api.startLlamacppDownload();
       message.success(t("models.localLlamacppInstallStarted"));
       await refreshStatus();
       startPolling();
     } catch (error) {
+      setLlamacppDownload(previousLlamacppDownload);
+      previousLlamacppStatusRef.current = previousLlamacppStatus;
+      await refreshStatus();
+      startPolling();
       const errMsg =
         error instanceof Error
           ? error.message
           : t("models.localLlamacppInstallFailed");
       message.error(errMsg);
     }
-  }, [refreshStatus, startPolling, t]);
+  }, [llamacppDownload, refreshStatus, startPolling, t]);
 
   const handleCancelLlamacppDownload = useCallback(() => {
     Modal.confirm({
@@ -269,9 +296,18 @@ export function LocalModelManageModal({
       cancelText: t("common.close"),
       onOk: async () => {
         try {
+          setLlamacppDownload((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: "canceling",
+                }
+              : prev,
+          );
           await api.cancelLlamacppDownload();
           message.success(t("models.localDownloadCancelled"));
           await refreshStatus();
+          startPolling();
         } catch (error) {
           const errMsg =
             error instanceof Error
@@ -281,7 +317,7 @@ export function LocalModelManageModal({
         }
       },
     });
-  }, [refreshStatus, t]);
+  }, [refreshStatus, startPolling, t]);
 
   const handleStartModelDownload = useCallback(
     async (model: LocalModelInfo) => {
@@ -327,9 +363,18 @@ export function LocalModelManageModal({
         cancelText: t("common.close"),
         onOk: async () => {
           try {
+            setModelDownloadState((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    status: "canceling",
+                  }
+                : prev,
+            );
             await api.cancelLocalModelDownload();
             message.success(t("models.localDownloadCancelled"));
             await refreshStatus();
+            startPolling();
           } catch (error) {
             const errMsg =
               error instanceof Error
@@ -340,7 +385,7 @@ export function LocalModelManageModal({
         },
       });
     },
-    [refreshStatus, t],
+    [refreshStatus, setModelDownloadState, startPolling, t],
   );
 
   const handleStartServer = useCallback(
@@ -408,9 +453,7 @@ export function LocalModelManageModal({
     onClose();
   };
 
-  const isModelDownloading =
-    modelDownload?.status === "pending" ||
-    modelDownload?.status === "downloading";
+  const isModelDownloading = isDownloadActive(modelDownload);
   const isServerBusy = stoppingServer || startingModelName !== null;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
   const downloadedModelCount = localModels.filter(

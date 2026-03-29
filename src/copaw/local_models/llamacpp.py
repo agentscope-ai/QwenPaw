@@ -153,7 +153,7 @@ class LlamaCppBackend:
             if self._download_cancel_event is None:
                 return
             self._download_cancel_event.set()
-            self._progress.mark_cancelled()
+            self._progress.mark_canceling()
             thread = self._download_thread
 
         if thread is not None:

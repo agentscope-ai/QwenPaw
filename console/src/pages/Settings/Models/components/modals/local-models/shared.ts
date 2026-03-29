@@ -1,5 +1,15 @@
 import type { LocalDownloadProgress } from "../../../../../../api/types";
 
+export function isDownloadActive(
+  progress: LocalDownloadProgress | null,
+): boolean {
+  return (
+    progress?.status === "pending" ||
+    progress?.status === "downloading" ||
+    progress?.status === "canceling"
+  );
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

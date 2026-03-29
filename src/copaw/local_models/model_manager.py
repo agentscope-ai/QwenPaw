@@ -254,7 +254,7 @@ class ModelManager:
             active = self._is_download_active()
             if not active:
                 return
-            self._progress.mark_cancelled()
+            self._progress.mark_canceling()
 
         if process is not None and process.is_alive():
             process.terminate()
@@ -277,6 +277,8 @@ class ModelManager:
         with self._lock:
             self._clear_download_state()
 
+        self._progress.mark_cancelled()
+
     def _is_download_active(self) -> bool:
         """Return whether a download process is still active."""
         return self._process is not None and self._process.is_alive()
@@ -291,7 +293,10 @@ class ModelManager:
                 final_dir = self._final_dir
                 status = self._progress.get_status()
 
-            if status == DownloadTaskStatus.CANCELLED:
+            if status in {
+                DownloadTaskStatus.CANCELING,
+                DownloadTaskStatus.CANCELLED,
+            }:
                 return
 
             if staging_dir is not None:
