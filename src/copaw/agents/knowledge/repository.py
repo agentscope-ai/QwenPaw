@@ -50,6 +50,11 @@ class KnowledgeRepository:
         try:
             data = json.loads(self.index_path.read_text(encoding="utf-8"))
         except Exception:
+            logger.warning(
+                "Failed to load knowledge index from %s, returning default.",
+                self.index_path,
+                exc_info=True,
+            )
             return {
                 "version": 1,
                 "updated_at": _utc_now_iso(),
