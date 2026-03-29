@@ -51,6 +51,11 @@ class IMessageChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[list] = None,
+        deny_message: str = "",
+        require_mention: bool = False,
     ):
         super().__init__(
             process,
@@ -58,6 +63,11 @@ class IMessageChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=dm_policy,
+            group_policy=group_policy,
+            allow_from=allow_from,
+            deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.db_path = os.path.expanduser(db_path)
@@ -121,6 +131,11 @@ class IMessageChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=config.dm_policy,
+            group_policy=config.group_policy,
+            allow_from=config.allow_from,
+            deny_message=config.deny_message,
+            require_mention=config.require_mention,
         )
 
     def _ensure_imsg(self) -> str:
@@ -209,6 +224,18 @@ ORDER BY m.ROWID ASC
                             continue
                         sender = (r["sender"] or "").strip()
                         if not sender:
+                            continue
+
+                        # Check allowlist policy
+                        allowed, error_msg = self._check_allowlist(sender, is_group=False)
+                        if not allowed:
+                            logger.info(
+                                "imessage allowlist blocked: sender=%s",
+                                sender,
+                            )
+                            if error_msg:
+                                # Send deny message to the blocked sender synchronously
+                                self._send_sync(sender, error_msg)
                             continue
 
                         content_parts = [
