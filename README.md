@@ -125,6 +125,13 @@ copaw app
 With `DOCLING`, KB import prioritizes Docling for `.md`, `.txt`, `.pdf`,
 and `.docx`. Specialized parsers still handle `.doc` and `.xlsx`.
 
+Knowledge Base import in chat is command-driven:
+
+- Attach file(s) and send `/kb` or `/kb import`.
+- Works in Console and other connected channels (when attachments are available).
+- The command imports files and returns an import summary only (it does not
+  continue the same turn with a normal LLM reply).
+
 ![Console](https://img.alicdn.com/imgextra/i3/O1CN01VYsFVo23aAvIM3GXB_!!6000000007271-2-tps-3328-1860.png)
 
 ### Script install

@@ -113,6 +113,12 @@ copaw app
 
 在浏览器打开 **http://127.0.0.1:8088/** 即可使用控制台（与 CoPaw 对话、配置 Agent）。若要在钉钉、飞书、QQ 等 app 内对话，请参考 [文档](https://copaw.agentscope.io/docs/channels) 接入频道。
 
+会话内知识库导入采用命令触发：
+
+- 上传附件后发送 `/kb` 或 `/kb import`。
+- 控制台与其他已接入频道（支持附件时）都可用。
+- 命令只执行导入并返回统计结果，不会在同一轮继续普通 LLM 回复。
+
 ![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
 
 ### 脚本安装
