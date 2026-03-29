@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Literal
 
 from .chunker import chunk_text
 from .exceptions import (
@@ -13,10 +14,11 @@ from .exceptions import (
     UploadNotFoundError,
 )
 from .models import (
-    ParsedDocument,
     FailedKnowledgeImport,
+    ImportedKnowledgeDoc,
     KnowledgeImportRequest,
     KnowledgeImportResponse,
+    ParsedDocument,
     SkippedKnowledgeImport,
 )
 from .normalizer import normalize_document_text
@@ -67,115 +69,122 @@ class KnowledgeImportService:
 
             try:
                 source_path = self._resolve_upload_path(item.upload_id)
-                source_hash = self._hash_bytes(source_path.read_bytes())
-
-                existing_by_source = self.repo.find_doc_by_source_hash(
+                status, result = self._import_single_source(
                     index,
-                    source_hash,
-                )
-                if existing_by_source:
-                    skipped.append(
-                        SkippedKnowledgeImport(
-                            upload_id=item.upload_id,
-                            file_name=item.file_name,
-                            code="DUPLICATE_SOURCE",
-                            reason=(
-                                "Source file already imported as "
-                                f"{existing_by_source}"
-                            ),
-                        ),
-                    )
-                    continue
-
-                parsers = resolve_parsers_for_path(source_path)
-                parsed = self._parse_with_fallback(source_path, parsers)
-                normalized_text = normalize_document_text(parsed.raw_text)
-                if not normalized_text:
-                    raise EmptyParsedContentError(
-                        "Parsed content is empty after normalization",
-                    )
-
-                content_hash = self._hash_text(normalized_text)
-                existing_by_content = self.repo.find_doc_by_content_hash(
-                    index,
-                    content_hash,
-                )
-                if existing_by_content:
-                    skipped.append(
-                        SkippedKnowledgeImport(
-                            upload_id=item.upload_id,
-                            file_name=item.file_name,
-                            code="DUPLICATE_CONTENT",
-                            reason=(
-                                "Equivalent content already imported as "
-                                f"{existing_by_content}"
-                            ),
-                        ),
-                    )
-                    continue
-
-                chunks = chunk_text(normalized_text)
-                imported_doc = self.repo.persist_document(
-                    index=index,
                     source_path=source_path,
                     upload_id=item.upload_id,
                     source_file_name=item.file_name,
-                    title=parsed.title,
-                    source_type=parsed.source_type,
-                    normalized_text=normalized_text,
-                    chunks=chunks,
-                    source_hash=source_hash,
-                    content_hash=content_hash,
                 )
-                imported.append(imported_doc)
+                if status == "imported":
+                    imported.append(result)
+                else:
+                    skipped.append(result)
 
-            except UploadNotFoundError as exc:
+            except (
+                UploadNotFoundError,
+                UnsupportedFileTypeError,
+                EmptyParsedContentError,
+            ) as exc:
                 failed.append(
-                    FailedKnowledgeImport(
+                    self._build_failed_import(
                         upload_id=item.upload_id,
                         file_name=item.file_name,
-                        code="UPLOAD_NOT_FOUND",
-                        message=str(exc),
-                    ),
-                )
-            except UnsupportedFileTypeError as exc:
-                failed.append(
-                    FailedKnowledgeImport(
-                        upload_id=item.upload_id,
-                        file_name=item.file_name,
-                        code="UNSUPPORTED_FILE_TYPE",
-                        message=str(exc),
-                    ),
-                )
-            except EmptyParsedContentError as exc:
-                failed.append(
-                    FailedKnowledgeImport(
-                        upload_id=item.upload_id,
-                        file_name=item.file_name,
-                        code="EMPTY_PARSED_CONTENT",
-                        message=str(exc),
+                        error=exc,
                     ),
                 )
             except Exception as exc:  # pragma: no cover - guard rail
                 failed.append(
-                    FailedKnowledgeImport(
+                    self._build_failed_import(
                         upload_id=item.upload_id,
                         file_name=item.file_name,
-                        code="IMPORT_FAILED",
-                        message=str(exc),
+                        error=exc,
                     ),
                 )
 
-        self.repo.save_index(index)
-        return KnowledgeImportResponse(
-            success=len(failed) == 0,
+        return self._finalize_response(
             requested=len(request.uploads),
-            imported_count=len(imported),
-            skipped_count=len(skipped),
-            failed_count=len(failed),
             imported=imported,
             skipped=skipped,
             failed=failed,
+            index=index,
+        )
+
+    async def import_local_files(
+        self,
+        source_paths: list[Path],
+    ) -> KnowledgeImportResponse:
+        """Import local file paths (non-console channels) into knowledge."""
+        imported = []
+        skipped = []
+        failed = []
+        index = self.repo.load_index()
+        seen_local_paths: set[str] = set()
+
+        for raw_path in source_paths:
+            source_path = Path(raw_path).expanduser()
+            file_name = source_path.name or str(source_path)
+            upload_id = file_name
+            try:
+                path_key = str(source_path.resolve())
+            except Exception:
+                path_key = str(source_path)
+
+            if path_key in seen_local_paths:
+                skipped.append(
+                    SkippedKnowledgeImport(
+                        upload_id=upload_id,
+                        file_name=file_name,
+                        code="DUPLICATE_LOCAL_FILE_IN_REQUEST",
+                        reason="Duplicate local file path in the same request",
+                    ),
+                )
+                continue
+            seen_local_paths.add(path_key)
+
+            try:
+                if not source_path.exists() or not source_path.is_file():
+                    raise UploadNotFoundError(
+                        f"Local file not found: {source_path}",
+                    )
+
+                resolved_path = source_path.resolve()
+                status, result = self._import_single_source(
+                    index=index,
+                    source_path=resolved_path,
+                    upload_id=upload_id,
+                    source_file_name=file_name,
+                )
+                if status == "imported":
+                    imported.append(result)
+                else:
+                    skipped.append(result)
+            except (
+                UploadNotFoundError,
+                UnsupportedFileTypeError,
+                EmptyParsedContentError,
+            ) as exc:
+                failed.append(
+                    self._build_failed_import(
+                        upload_id=upload_id,
+                        file_name=file_name,
+                        error=exc,
+                    ),
+                )
+            except Exception as exc:  # pragma: no cover - guard rail
+                failed.append(
+                    self._build_failed_import(
+                        upload_id=upload_id,
+                        file_name=file_name,
+                        error=exc,
+                    ),
+                )
+
+        return self._finalize_response(
+            requested=len(source_paths),
+            imported=imported,
+            skipped=skipped,
+            failed=failed,
+            index=index,
         )
 
     def _resolve_upload_path(self, upload_id: str) -> Path:
@@ -206,6 +215,116 @@ class KnowledgeImportService:
     @staticmethod
     def _hash_text(content: str) -> str:
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _import_single_source(
+        self,
+        index: dict,
+        source_path: Path,
+        upload_id: str,
+        source_file_name: str,
+    ) -> tuple[
+        Literal["imported", "skipped"],
+        ImportedKnowledgeDoc | SkippedKnowledgeImport,
+    ]:
+        source_hash = self._hash_bytes(source_path.read_bytes())
+        existing_by_source = self.repo.find_doc_by_source_hash(index, source_hash)
+        if existing_by_source:
+            return (
+                "skipped",
+                SkippedKnowledgeImport(
+                    upload_id=upload_id,
+                    file_name=source_file_name,
+                    code="DUPLICATE_SOURCE",
+                    reason=(
+                        "Source file already imported as "
+                        f"{existing_by_source}"
+                    ),
+                ),
+            )
+
+        parsers = resolve_parsers_for_path(source_path)
+        parsed = self._parse_with_fallback(source_path, parsers)
+        normalized_text = normalize_document_text(parsed.raw_text)
+        if not normalized_text:
+            raise EmptyParsedContentError(
+                "Parsed content is empty after normalization",
+            )
+
+        content_hash = self._hash_text(normalized_text)
+        existing_by_content = self.repo.find_doc_by_content_hash(
+            index,
+            content_hash,
+        )
+        if existing_by_content:
+            return (
+                "skipped",
+                SkippedKnowledgeImport(
+                    upload_id=upload_id,
+                    file_name=source_file_name,
+                    code="DUPLICATE_CONTENT",
+                    reason=(
+                        "Equivalent content already imported as "
+                        f"{existing_by_content}"
+                    ),
+                ),
+            )
+
+        chunks = chunk_text(normalized_text)
+        imported_doc = self.repo.persist_document(
+            index=index,
+            source_path=source_path,
+            upload_id=upload_id,
+            source_file_name=source_file_name,
+            title=parsed.title,
+            source_type=parsed.source_type,
+            normalized_text=normalized_text,
+            chunks=chunks,
+            source_hash=source_hash,
+            content_hash=content_hash,
+        )
+        return ("imported", imported_doc)
+
+    @staticmethod
+    def _build_failed_import(
+        upload_id: str,
+        file_name: str,
+        error: Exception,
+    ) -> FailedKnowledgeImport:
+        if isinstance(error, UploadNotFoundError):
+            code = "UPLOAD_NOT_FOUND"
+        elif isinstance(error, UnsupportedFileTypeError):
+            code = "UNSUPPORTED_FILE_TYPE"
+        elif isinstance(error, EmptyParsedContentError):
+            code = "EMPTY_PARSED_CONTENT"
+        else:
+            code = "IMPORT_FAILED"
+        return FailedKnowledgeImport(
+            upload_id=upload_id,
+            file_name=file_name,
+            code=code,
+            message=str(error),
+        )
+
+    def _finalize_response(
+        self,
+        *,
+        requested: int,
+        imported: list[ImportedKnowledgeDoc],
+        skipped: list[SkippedKnowledgeImport],
+        failed: list[FailedKnowledgeImport],
+        index: dict,
+    ) -> KnowledgeImportResponse:
+        self.repo.save_index(index)
+        return KnowledgeImportResponse(
+            success=len(failed) == 0,
+            requested=requested,
+            imported_count=len(imported),
+            skipped_count=len(skipped),
+            failed_count=len(failed),
+            imported=imported,
+            skipped=skipped,
+            failed=failed,
+        )
 
     @staticmethod
     def _parse_with_fallback(
