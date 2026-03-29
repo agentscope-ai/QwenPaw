@@ -109,14 +109,6 @@ class ParsedDocument(BaseModel):
 
     title: str
     source_path: str
-    source_type: Literal[
-        "md",
-        "txt",
-        "pdf",
-        "docx",
-        "doc",
-        "xlsx",
-        "pptx",
-    ]
+    source_type: str
     raw_text: str
     metadata: dict = Field(default_factory=dict)

@@ -119,3 +119,17 @@ def test_docling_parser_raises_for_empty_output(
 
     with pytest.raises(EmptyParsedContentError):
         DoclingParser().parse(source)
+
+
+def test_docling_parser_preserves_non_core_source_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_docling(monkeypatch, "# HTML Doc\n\ncontent")
+    source = tmp_path / "index.html"
+    source.write_text("<html></html>", encoding="utf-8")
+
+    parsed = DoclingParser().parse(source)
+
+    assert parsed.source_type == "html"
+    assert parsed.metadata["source_suffix"] == ".html"

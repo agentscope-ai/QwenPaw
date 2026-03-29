@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 from ..exceptions import EmptyParsedContentError, KnowledgeError
 from ..models import ParsedDocument
@@ -85,8 +84,8 @@ class DoclingParser:
 
 def _map_source_type(
     suffix: str,
-) -> Literal["md", "txt", "pdf", "docx", "xlsx", "pptx"]:
-    mapping: dict[str, Literal["md", "txt", "pdf", "docx", "xlsx", "pptx"]] = {
+) -> str:
+    mapping: dict[str, str] = {
         ".md": "md",
         ".markdown": "md",
         ".txt": "txt",
@@ -96,4 +95,11 @@ def _map_source_type(
         ".xlsx": "xlsx",
         ".pptx": "pptx",
     }
-    return mapping.get(suffix, "txt")
+    source_type = mapping.get(suffix)
+    if source_type is not None:
+        return source_type
+
+    normalized_suffix = suffix.strip().lower()
+    if normalized_suffix.startswith(".") and len(normalized_suffix) > 1:
+        return normalized_suffix[1:]
+    return "txt"
