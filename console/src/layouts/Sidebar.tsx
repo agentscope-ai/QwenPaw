@@ -278,11 +278,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           icon: <Sparkles size={16} />,
         },
         {
-          key: "skill-pool",
-          label: collapsed ? null : t("nav.skillPool", "Skill Pool"),
-          icon: <Sparkles size={16} />,
-        },
-        {
           key: "tools",
           label: collapsed ? null : t("nav.tools"),
           icon: <Wrench size={16} />,
@@ -312,6 +307,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "models",
           label: collapsed ? null : t("nav.models"),
           icon: <Box size={16} />,
+        },
+        {
+          key: "skill-pool",
+          label: collapsed ? null : t("nav.skillPool", "Skill Pool"),
+          icon: <Sparkles size={16} />,
         },
         {
           key: "environments",

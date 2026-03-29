@@ -1,10 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Modal, Tooltip, message } from "@agentscope-ai/design";
-import { CloseOutlined } from "@ant-design/icons";
+import {
+  Button,
+  Input,
+  Modal,
+  Select,
+  Tooltip,
+  message,
+} from "@agentscope-ai/design";
+import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import { Progress } from "antd";
 import type {
   ProviderInfo,
   LocalDownloadProgress,
+  LocalDownloadSource,
   LocalModelInfo,
   LocalServerStatus,
 } from "../../../../../api/types";
@@ -13,9 +21,15 @@ import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
 import { LocalModelRow } from "./local-models/LocalModelRow";
 import { LocalRuntimePanel } from "./local-models/LocalRuntimePanel";
-import { formatProgressText, getProgressPercent } from "./local-models/shared";
+import {
+  formatProgressText,
+  getProgressPercent,
+  isDownloadActive,
+} from "./local-models/shared";
 
 const POLL_INTERVAL_MS = 3000;
+
+type LocalDownloadStatus = LocalDownloadProgress["status"];
 
 function isSameServerStatus(
   left: LocalServerStatus | null,
@@ -51,6 +65,12 @@ interface LocalStatusSnapshot {
   model: LocalDownloadProgress;
 }
 
+function isBusyDownloadStatus(status: LocalDownloadStatus | null | undefined) {
+  return (
+    status === "pending" || status === "downloading" || status === "canceling"
+  );
+}
+
 interface LocalModelManageModalProps {
   provider: ProviderInfo;
   open: boolean;
@@ -66,6 +86,9 @@ export function LocalModelManageModal({
 }: LocalModelManageModalProps) {
   const { t } = useTranslation();
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
+  const [customModelRepoId, setCustomModelRepoId] = useState("");
+  const [customModelSource, setCustomModelSource] =
+    useState<LocalDownloadSource>("huggingface");
   const [loadingLocal, setLoadingLocal] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [serverStatus, setServerStatus] = useState<LocalServerStatus | null>(
@@ -192,10 +215,8 @@ export function LocalModelManageModal({
         previousModelStatusRef.current = nextModelDownload.status;
 
         if (
-          nextLlamacppDownload.status !== "pending" &&
-          nextLlamacppDownload.status !== "downloading" &&
-          nextModelDownload.status !== "pending" &&
-          nextModelDownload.status !== "downloading"
+          !isBusyDownloadStatus(nextLlamacppDownload.status) &&
+          !isBusyDownloadStatus(nextModelDownload.status)
         ) {
           stopPolling();
         }
@@ -230,10 +251,8 @@ export function LocalModelManageModal({
       ([, statuses]) => {
         if (
           statuses &&
-          (statuses.llamacpp.status === "pending" ||
-            statuses.llamacpp.status === "downloading" ||
-            statuses.model.status === "pending" ||
-            statuses.model.status === "downloading")
+          (isBusyDownloadStatus(statuses.llamacpp.status) ||
+            isBusyDownloadStatus(statuses.model.status))
         ) {
           startPolling();
         }
@@ -244,19 +263,38 @@ export function LocalModelManageModal({
   }, [fetchLocalModels, open, refreshStatus, startPolling, stopPolling]);
 
   const handleStartLlamacppDownload = useCallback(async () => {
+    const previousLlamacppDownload = llamacppDownload;
+    const previousLlamacppStatus = previousLlamacppStatusRef.current;
+
+    setLlamacppDownload({
+      status: "pending",
+      model_name: t("models.localLlamacppName"),
+      downloaded_bytes: 0,
+      total_bytes: null,
+      speed_bytes_per_sec: 0,
+      source: null,
+      error: null,
+      local_path: null,
+    });
+    previousLlamacppStatusRef.current = "pending";
+
     try {
       await api.startLlamacppDownload();
       message.success(t("models.localLlamacppInstallStarted"));
       await refreshStatus();
       startPolling();
     } catch (error) {
+      setLlamacppDownload(previousLlamacppDownload);
+      previousLlamacppStatusRef.current = previousLlamacppStatus;
+      await refreshStatus();
+      startPolling();
       const errMsg =
         error instanceof Error
           ? error.message
           : t("models.localLlamacppInstallFailed");
       message.error(errMsg);
     }
-  }, [refreshStatus, startPolling, t]);
+  }, [llamacppDownload, refreshStatus, startPolling, t]);
 
   const handleCancelLlamacppDownload = useCallback(() => {
     Modal.confirm({
@@ -269,9 +307,18 @@ export function LocalModelManageModal({
       cancelText: t("common.close"),
       onOk: async () => {
         try {
+          setLlamacppDownload((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: "canceling",
+                }
+              : prev,
+          );
           await api.cancelLlamacppDownload();
           message.success(t("models.localDownloadCancelled"));
           await refreshStatus();
+          startPolling();
         } catch (error) {
           const errMsg =
             error instanceof Error
@@ -281,7 +328,7 @@ export function LocalModelManageModal({
         }
       },
     });
-  }, [refreshStatus, t]);
+  }, [refreshStatus, startPolling, t]);
 
   const handleStartModelDownload = useCallback(
     async (model: LocalModelInfo) => {
@@ -317,6 +364,23 @@ export function LocalModelManageModal({
     [refreshStatus, setModelDownloadState, startPolling, t],
   );
 
+  const handleStartCustomModelDownload = useCallback(async () => {
+    const trimmedRepoId = customModelRepoId.trim();
+
+    if (!trimmedRepoId) {
+      message.warning(t("models.localRepoIdRequired"));
+      return;
+    }
+
+    await handleStartModelDownload({
+      id: trimmedRepoId,
+      name: trimmedRepoId,
+      size_bytes: 0,
+      downloaded: false,
+      source: customModelSource,
+    });
+  }, [customModelRepoId, customModelSource, handleStartModelDownload, t]);
+
   const handleCancelModelDownload = useCallback(
     (modelName: string) => {
       Modal.confirm({
@@ -327,9 +391,18 @@ export function LocalModelManageModal({
         cancelText: t("common.close"),
         onOk: async () => {
           try {
+            setModelDownloadState((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    status: "canceling",
+                  }
+                : prev,
+            );
             await api.cancelLocalModelDownload();
             message.success(t("models.localDownloadCancelled"));
             await refreshStatus();
+            startPolling();
           } catch (error) {
             const errMsg =
               error instanceof Error
@@ -340,7 +413,7 @@ export function LocalModelManageModal({
         },
       });
     },
-    [refreshStatus, t],
+    [refreshStatus, setModelDownloadState, startPolling, t],
   );
 
   const handleStartServer = useCallback(
@@ -408,11 +481,11 @@ export function LocalModelManageModal({
     onClose();
   };
 
-  const isModelDownloading =
-    modelDownload?.status === "pending" ||
-    modelDownload?.status === "downloading";
+  const isModelDownloading = isDownloadActive(modelDownload);
   const isServerBusy = stoppingServer || startingModelName !== null;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
+  const isCustomDownloadDisabled =
+    customModelRepoId.trim().length === 0 || isModelDownloading || isServerBusy;
   const downloadedModelCount = localModels.filter(
     (model) => model.downloaded,
   ).length;
@@ -536,21 +609,79 @@ export function LocalModelManageModal({
               <div className={styles.modelListEmpty}>
                 {t("models.localNoRecommendedModels")}
               </div>
-            ) : serverStatus?.installed ? (
-              localModels.map((model) => (
-                <LocalModelRow
-                  key={model.id}
-                  model={model}
-                  currentRunningModelName={currentRunningModelName}
-                  isModelDownloading={isModelDownloading}
-                  isServerBusy={isServerBusy}
-                  startingModelName={startingModelName}
-                  stoppingServer={stoppingServer}
-                  onStartDownload={handleStartModelDownload}
-                  onStartServer={handleStartServer}
-                  onStopServer={handleStopServer}
-                />
-              ))
+            ) : null}
+
+            {serverStatus?.installed
+              ? localModels.map((model) => (
+                  <LocalModelRow
+                    key={model.id}
+                    model={model}
+                    currentRunningModelName={currentRunningModelName}
+                    isModelDownloading={isModelDownloading}
+                    isServerBusy={isServerBusy}
+                    startingModelName={startingModelName}
+                    stoppingServer={stoppingServer}
+                    onStartDownload={handleStartModelDownload}
+                    onStartServer={handleStartServer}
+                    onStopServer={handleStopServer}
+                  />
+                ))
+              : null}
+
+            {serverStatus?.installed ? (
+              <div
+                className={`${styles.modelListItem} ${styles.customModelListItem}`}
+              >
+                <div className={styles.customModelHeader}>
+                  <div className={styles.customModelListItemInfo}>
+                    <span className={styles.modelListItemName}>
+                      {t("models.localCustomModelTitle")}
+                    </span>
+                    <span className={styles.customModelHint}>
+                      {t("models.localCustomModelHint")}
+                    </span>
+                  </div>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    onClick={() => {
+                      void handleStartCustomModelDownload();
+                    }}
+                    disabled={isCustomDownloadDisabled}
+                  >
+                    {t("common.download")}
+                  </Button>
+                </div>
+                <div className={styles.customModelInputRow}>
+                  <Input
+                    value={customModelRepoId}
+                    onChange={(e) => setCustomModelRepoId(e.target.value)}
+                    onPressEnter={() => {
+                      void handleStartCustomModelDownload();
+                    }}
+                    placeholder={t("models.localRepoIdPlaceholder")}
+                    className={styles.customModelRepoInput}
+                  />
+                  <Select
+                    value={customModelSource}
+                    onChange={(value) =>
+                      setCustomModelSource(value as LocalDownloadSource)
+                    }
+                    className={styles.customModelSourceSelect}
+                    options={[
+                      {
+                        value: "huggingface",
+                        label: t("models.localSourceHuggingFace"),
+                      },
+                      {
+                        value: "modelscope",
+                        label: t("models.localSourceModelScope"),
+                      },
+                    ]}
+                  />
+                </div>
+              </div>
             ) : null}
           </div>
         )}

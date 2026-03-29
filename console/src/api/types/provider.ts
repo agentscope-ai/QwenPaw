@@ -101,6 +101,7 @@ export interface LocalDownloadProgress {
     | "idle"
     | "pending"
     | "downloading"
+    | "canceling"
     | "completed"
     | "failed"
     | "cancelled";

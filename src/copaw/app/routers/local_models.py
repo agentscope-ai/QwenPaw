@@ -264,13 +264,18 @@ async def stop_llamacpp_server(
 @router.get(
     "/models",
     response_model=List[LocalModelInfo],
-    summary="List recommended local models",
+    summary="List recommended and downloaded local models",
 )
 async def list_local(
     manager: LocalModelManager = Depends(get_local_model_manager),
 ) -> List[LocalModelInfo]:
-    """List all recommended local models."""
-    return manager.get_recommended_models()
+    """List recommended models plus downloaded local models."""
+    models_by_id = {
+        model.id: model for model in manager.get_recommended_models()
+    }
+    for model in manager.list_downloaded_models():
+        models_by_id.setdefault(model.id, model)
+    return list(models_by_id.values())
 
 
 @router.post(

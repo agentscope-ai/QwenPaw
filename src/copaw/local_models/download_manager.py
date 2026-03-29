@@ -16,6 +16,7 @@ class DownloadTaskStatus(str, Enum):
     IDLE = "idle"
     PENDING = "pending"
     DOWNLOADING = "downloading"
+    CANCELING = "canceling"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -123,6 +124,7 @@ class DownloadProgressTracker:
             )
             next_speed = self._progress.speed_bytes_per_sec
             if status in {
+                DownloadTaskStatus.CANCELING,
                 DownloadTaskStatus.CANCELLED,
                 DownloadTaskStatus.COMPLETED,
                 DownloadTaskStatus.FAILED,
@@ -181,6 +183,10 @@ class DownloadProgressTracker:
     def mark_cancelled(self) -> DownloadProgress:
         """Transition to cancelled state."""
         return self.set_status(DownloadTaskStatus.CANCELLED)
+
+    def mark_canceling(self) -> DownloadProgress:
+        """Transition to canceling state."""
+        return self.set_status(DownloadTaskStatus.CANCELING)
 
     def mark_failed(
         self,

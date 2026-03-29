@@ -1,3 +1,4 @@
+import React from "react";
 import { Card, Button } from "@agentscope-ai/design";
 import {
   CalendarFilled,
@@ -124,7 +125,7 @@ export const getSkillVisual = (name: string, content?: string) => {
   return getFileIcon(name);
 };
 
-export function SkillCard({
+export const SkillCard = React.memo(function SkillCard({
   skill,
   isHover,
   onClick,
@@ -171,6 +172,25 @@ export function SkillCard({
               {isBuiltin ? t("skills.builtin") : t("skills.custom")}
             </span>
           </div>
+          {/* Meta Info: Channels, Pool Sync - moved here */}
+          <div className={styles.metaContainer}>
+            <div className={styles.metaItem}>
+              <span className={styles.metaLabel}>{t("skills.channels")}</span>
+              <span className={styles.metaValue}>
+                {(skill.channels || ["all"])
+                  .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
+                  .join(", ")}
+              </span>
+            </div>
+            {skill.sync_to_pool && (
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
+                <span className={styles.metaValue}>
+                  {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
         <div className={styles.statusContainer}>
           <span
@@ -194,24 +214,6 @@ export function SkillCard({
           {t("skills.skillDescription")}
         </p>
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
-      </div>
-
-      {/* Meta Info: Type, Channels, Pool Sync */}
-      <div className={styles.metaContainer}>
-        <div className={styles.metaItem}>
-          <span className={styles.metaLabel}>{t("skills.channels")}</span>
-          <span className={styles.metaValue}>
-            {(skill.channels || ["all"]).join(", ")}
-          </span>
-        </div>
-        {skill.sync_to_pool && (
-          <div className={styles.metaItem}>
-            <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
-            <span className={styles.metaValue}>
-              {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Footer with buttons - only show on hover */}
@@ -238,4 +240,4 @@ export function SkillCard({
       )}
     </Card>
   );
-}
+});

@@ -279,3 +279,24 @@ def test_list_and_remove_downloaded_models_with_repo_id_layout(
 
     assert not repo_dir.exists()
     assert not (tmp_path / "models" / "Qwen").exists()
+
+
+def test_list_downloaded_models_ignores_temporary_download_dirs(
+    tmp_path: Path,
+) -> None:
+    downloader = ModelManager()
+    downloader.__dict__["_model_dir"] = tmp_path / "models"
+
+    completed_dir = downloader.get_model_dir("Qwen/Qwen3-0.6B-GGUF")
+    completed_dir.mkdir(parents=True)
+    (completed_dir / "model.gguf").write_bytes(b"123")
+
+    staging_dir = (
+        completed_dir.parent / ".Qwen3-0.6B-GGUF.1234abcd.downloading"
+    )
+    staging_dir.mkdir(parents=True)
+    (staging_dir / "partial.gguf").write_bytes(b"12")
+
+    models = downloader.list_downloaded_models()
+
+    assert [model.id for model in models] == ["Qwen/Qwen3-0.6B-GGUF"]

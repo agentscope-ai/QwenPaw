@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { message, Modal } from "@agentscope-ai/design";
 import React from "react";
 import api from "../../../api";
+import { invalidateSkillCache } from "../../../api/modules/skill";
 import type { SkillSpec } from "../../../api/types";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { useTranslation } from "react-i18next";
@@ -187,7 +188,7 @@ export function useSkills() {
   const fetchSkills = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.listSkills();
+      const data = await api.listSkills(selectedAgent);
       setSkills(data || []);
     } catch (error) {
       console.error("Failed to load skills", error);
@@ -195,9 +196,11 @@ export function useSkills() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedAgent]);
 
+  // Invalidate cache when agent changes
   useEffect(() => {
+    invalidateSkillCache({ agentId: selectedAgent });
     void fetchSkills();
   }, [selectedAgent, fetchSkills]);
 
@@ -210,6 +213,7 @@ export function useSkills() {
     try {
       const result = await api.createSkill(name, content, config, enable);
       message.success("Created successfully");
+      invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
       await fetchSkills();
       await checkScanWarnings(result.name);
       return { success: true, name: result.name };
@@ -240,6 +244,7 @@ export function useSkills() {
         message.success(
           t("skills.uploadSuccess") + `: ${result.imported.join(", ")}`,
         );
+        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
         await fetchSkills();
         for (const name of result.imported) {
           await checkScanWarnings(name);
@@ -297,6 +302,7 @@ export function useSkills() {
 
         if (status.status === "completed" && status.result?.installed) {
           message.success(`Imported skill: ${status.result.name}`);
+          invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
           await fetchSkills();
           if (status.result.name) {
             await checkScanWarnings(status.result.name);
@@ -372,6 +378,7 @@ export function useSkills() {
         message.success("Enabled successfully");
         await checkScanWarnings(skill.name);
       }
+      invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
       return true;
     } catch (error) {
       handleError(error, "Operation failed");
@@ -398,6 +405,7 @@ export function useSkills() {
       const result = await api.deleteSkill(skill.name);
       if (result.deleted) {
         message.success("Deleted successfully");
+        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
         await fetchSkills();
         return true;
       }

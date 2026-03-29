@@ -169,6 +169,7 @@ export function ModelsSection({
           </Button>
         </div>
       </div>
+      <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import {
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
   BuiltinImportSpec,
   PoolSkillSpec,
@@ -68,7 +69,13 @@ function SkillPoolPage() {
   const [drawerContent, setDrawerContent] = useState("");
   const [showMarkdown, setShowMarkdown] = useState(true);
 
-  const loadData = useCallback(async () => {
+  // Use ref to cache data and avoid unnecessary reloads
+  const dataLoadedRef = useRef(false);
+
+  const loadData = useCallback(async (forceReload = false) => {
+    // Skip if already loaded and not forcing reload
+    if (dataLoadedRef.current && !forceReload) return;
+
     setLoading(true);
     try {
       const [poolSkills, workspaceSummaries] = await Promise.all([
@@ -77,6 +84,7 @@ function SkillPoolPage() {
       ]);
       setSkills(poolSkills);
       setWorkspaces(workspaceSummaries);
+      dataLoadedRef.current = true;
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : "Failed to load skill pool",
@@ -263,7 +271,8 @@ function SkillPoolPage() {
       }
       message.success(t("skillPool.broadcastSuccess"));
       closeModal();
-      await loadData();
+      invalidateSkillCache({ pool: true, workspaces: true }); // Clear pool and workspaces cache
+      await loadData(true);
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : t("skillPool.broadcastFailed"),
@@ -300,7 +309,8 @@ function SkillPoolPage() {
         );
       }
       closeImportBuiltin();
-      await loadData();
+      invalidateSkillCache({ pool: true }); // Clear pool cache
+      await loadData(true);
     } catch (error) {
       const detail = parseErrorDetail(error);
       const conflicts = Array.isArray(detail?.conflicts)
@@ -397,7 +407,8 @@ function SkillPoolPage() {
           : t("common.create"),
       );
       closeDrawer();
-      await loadData();
+      invalidateSkillCache({ pool: true }); // Clear pool cache
+      await loadData(true);
     } catch (error) {
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
@@ -435,7 +446,8 @@ function SkillPoolPage() {
       onOk: async () => {
         await api.deleteSkillPoolSkill(skill.name);
         message.success(t("skillPool.deletedFromPool"));
-        await loadData();
+        invalidateSkillCache({ pool: true }); // Clear pool cache
+        await loadData(true);
       },
     });
   };
@@ -475,7 +487,8 @@ function SkillPoolPage() {
         } else {
           message.info(t("skillPool.noNewImports"));
         }
-        await loadData();
+        invalidateSkillCache({ pool: true }); // Clear pool cache
+        await loadData(true);
         break;
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -515,7 +528,8 @@ function SkillPoolPage() {
       });
       message.success(`${t("common.create")}: ${result.name}`);
       closeImportModal();
-      await loadData();
+      invalidateSkillCache({ pool: true }); // Clear pool cache
+      await loadData(true);
     } catch (error) {
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
@@ -547,7 +561,7 @@ function SkillPoolPage() {
     <div className={styles.skillsPage}>
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbParent}>{t("nav.settings")}</span>
           <span className={styles.breadcrumbSeparator}>/</span>
           <span className={styles.breadcrumbCurrent}>{t("nav.skillPool")}</span>
         </div>
@@ -581,7 +595,7 @@ function SkillPoolPage() {
             </Tooltip>
           </div>
           <div className={styles.headerActionsRight}>
-            <Tooltip title={t("skills.importHubHint")}>
+            <Tooltip title={t("skillPool.importHubHint")}>
               <Button
                 type="default"
                 icon={<ImportOutlined />}
@@ -590,7 +604,7 @@ function SkillPoolPage() {
                 {t("skills.importHub")}
               </Button>
             </Tooltip>
-            <Tooltip title={t("skills.uploadZipHint")}>
+            <Tooltip title={t("skillPool.uploadZipHint")}>
               <Button
                 type="default"
                 icon={<UploadOutlined />}
@@ -648,6 +662,14 @@ function SkillPoolPage() {
                           : t("skillPool.custom")}
                       </span>
                     </div>
+                    <div className={styles.statusRow}>
+                      <span className={styles.statusLabel}>
+                        {t("skillPool.status")}:
+                      </span>
+                      <span className={styles.statusValue}>
+                        {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div className={styles.descriptionContainer}>
@@ -657,16 +679,6 @@ function SkillPoolPage() {
                   <p className={styles.descriptionText}>
                     {skill.description || "-"}
                   </p>
-                </div>
-                <div className={styles.metaContainer}>
-                  <div className={styles.metaItem}>
-                    <span className={styles.metaLabel}>
-                      {t("skillPool.status")}
-                    </span>
-                    <span className={styles.metaValue}>
-                      {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-                    </span>
-                  </div>
                 </div>
               </div>
               {hoverKey === skill.name && (
