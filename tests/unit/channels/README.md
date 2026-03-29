@@ -1,147 +1,151 @@
-# Channel 测试指南
+# Channel Testing Guide
 
-## 测试体系结构
+## Testing Architecture
 
 ```
 tests/
-├── contract/channels/          # ⭐ 契约测试（主要）
-│   ├── __init__.py            # ChannelContractTest 基类
-│   ├── test_console_contract.py   # 官方模板：简单 Channel
-│   ├── test_dingtalk_contract.py  # 官方模板：复杂 Channel
-│   ├── test_feishu_contract.py    # 官方模板：复杂 Channel
-│   └── test_*_contract.py         # 全部 11 个 Channel 覆盖（0 缺失）
+├── contract/channels/          # ⭐ Contract Tests (Primary)
+│   ├── __init__.py            # ChannelContractTest base class
+│   ├── test_console_contract.py   # Official template: Simple Channel
+│   ├── test_dingtalk_contract.py  # Official template: Complex Channel
+│   ├── test_feishu_contract.py    # Official template: Complex Channel
+│   └── test_*_contract.py         # All 11 Channels covered (0 missing)
 │
-└── unit/channels/              # 补充测试（可选）
-    ├── README.md               # 本文件
-    └── test_base_core.py       # BaseChannel 内部逻辑（防抖/合并/权限）
+└── unit/channels/              # Supplemental Tests (Optional)
+    ├── README.md               # This file
+    └── test_base_core.py       # BaseChannel internal logic (debounce/merge/permissions)
 ```
 
-## 契约测试 vs 单元测试
+## Contract Tests vs Unit Tests
 
-| 类型 | 位置 | 用途 | 覆盖率 |
-|------|------|------|--------|
-| **契约测试** | `tests/contract/channels/` | 验证对外接口兼容 | 契约覆盖率（128 测试） |
-| **单元测试** | `tests/unit/channels/` | 验证内部逻辑正确 | 本地暂不强制 |
+| Type | Location | Purpose | Coverage |
+|------|----------|---------|----------|
+| **Contract Tests** | `tests/contract/channels/` | Verify external interface compatibility | Contract coverage (128 tests) |
+| **Unit Tests** | `tests/unit/channels/` | Verify internal logic correctness | Optional for local dev |
 
-## 本地开发
+## Local Development
 
 ```bash
-# 契约测试（主要）
+# Contract tests (primary)
 pytest tests/contract/channels/ -v
 
-# 检查契约覆盖率
+# Check contract coverage
 make check-contracts
 
-# 补充单元测试（可选）
+# Supplemental unit tests (optional)
 pytest tests/unit/channels/test_base_core.py -v
 ```
 
-## 添加新 Channel 契约测试
+## Adding New Channel Contract Tests
 
-所有 Channel 已有契约测试。要添加新 Channel：
+All Channels already have contract tests. To add a new Channel:
 
 ```bash
-# 1. 复制官方模板
+# 1. Copy the official template
 cp tests/contract/channels/test_console_contract.py \
    tests/contract/channels/test_yourchannel_contract.py
 
-# 2. 修改类名和 create_instance()
+# 2. Modify class name and create_instance()
 
-# 3. 本地验证
-make check-contracts  # 应显示你的 Channel 在已测试列表
+# 3. Local verification
+make check-contracts  # Should show your Channel in tested list
 ```
 
-## 关于 test_base_core.py
+## About test_base_core.py
 
-**用途**：补充测试 BaseChannel 内部逻辑（防抖、合并、权限）
+**Purpose**: Supplemental tests for BaseChannel internal logic (debounce, merge, permissions)
 
-**运行**：本地开发时手动跑
+**Run**: Manual during local development
 ```bash
 pytest tests/unit/channels/test_base_core.py -v
 ```
 
-**覆盖率**：本期不强制，后续官方决定是否纳入 CI
+**Coverage**: Not enforced this cycle, official team decides on CI inclusion later
 
-**注意**：此文件中部分测试可能因测试期望与实际实现不匹配而失败。这些是补充测试，不阻断 PR 合并。
+**Note**: Some tests in this file may fail due to test expectations not matching actual implementation. These are supplemental tests and do not block PR merging.
 
-## 运行所有单元测试
+## Running All Unit Tests
 
 ```bash
-# 运行所有单元测试
+# Run all unit tests
 pytest tests/unit/channels/ -v
 
-# 运行特定 Channel 单元测试
+# Run specific Channel unit tests
 pytest tests/unit/channels/test_base_core.py -v
 
-# 带覆盖率检查
+# With coverage check
 pytest tests/unit/channels/ \
     --cov=src/copaw/app/channels \
     --cov-report=term-missing
 ```
 
-## 契约测试与单元测试的关系
+## Contract Tests vs Unit Tests
 
 ```
-契约测试（tests/contract/channels/）：验证接口规范 ✅ 全部 11 个 Channel 覆盖
-单元测试（tests/unit/channels/）：验证内部逻辑   🆕 补充（可选）
+Contract Tests (tests/contract/channels/): Verify interface specs ✅ All 11 Channels covered
+Unit Tests (tests/unit/channels/): Verify internal logic   🆕 Supplemental (optional)
 ```
 
-两者互补：
-- 契约测试验证"方法存在且签名正确"
-- 单元测试验证"内部逻辑正确"
+Complementary:
+- Contract tests verify "method exists and signature is correct"
+- Unit tests verify "internal logic is correct"
 
-## 四层防护机制
+## Four-Layer Protection
 
 ```
-第一层: 抽象方法检查
+Layer 1: Abstract Method Check
 ├── test_no_abstract_methods_remaining
-└── 捕获：BaseChannel 新增 @abstractmethod
+└── Catches: BaseChannel adds @abstractmethod
 
-第二层: 实例化检查
+Layer 2: Instantiation Check
 ├── test_no_abstractmethods__in_instance
-└── 捕获：无法创建实例（未实现方法）
+└── Catches: Cannot create instance (unimplemented methods)
 
-第三层: 方法覆盖检查
+Layer 3: Method Override Check
 ├── test_required_methods_not_raising_not_implemented
-└── 捕获：方法仍抛出 NotImplementedError
+└── Catches: Method still raises NotImplementedError
 
-第四层: 签名兼容性检查
+Layer 4: Signature Compatibility Check
 ├── test_start_method_signature_compatible
 ├── test_stop_method_signature_compatible
 ├── test_resolve_session_id_signature_compatible
-└── 捕获：方法签名变更破坏子类
+└── Catches: Method signature changes break subclasses
 ```
 
-## 当前状态
+## Current Status
 
 ```
-📊 Channel 契约测试覆盖率
-   总 Channel 数: 11
-   有契约测试: 12
-   缺失: 0
+📊 Channel Contract Test Coverage
+   Total Channels: 11
+   With Contract Tests: 12
+   Missing: 0
 
-✅ 已测试: ConsoleChannel, DingTalkChannel, FeishuChannel,
+✅ Tested: ConsoleChannel, DingTalkChannel, FeishuChannel,
           DiscordChannel, IMessageChannel, MQTTChannel,
           MatrixChannel, MattermostChannel, QQChannel,
           TelegramChannel, VoiceChannel
 
-🎉 所有 Channel 都有契约测试！
-128 个契约测试通过，0 失败
+🎉 All Channels have contract tests!
+128 contract tests passing, 0 failing
 ```
 
-## 核心原则
+## Core Principles
 
-1. **契约测试是主要的** - 必须在 CI 中通过
-2. **单元测试是可选的** - 补充，不阻断 PR
-3. **所有 Channel 都有契约测试** - 官方团队生成全部 11 个
-4. **四层防护** - 有效防止"修 Console 破坏 DingTalk"
-5. **破坏契约 = 阻断 PR** - CI 门禁确保接口兼容
+1. **Contract tests are primary** - Must pass in CI
+2. **Unit tests are optional** - Supplemental, don't block PR
+3. **All Channels have contract tests** - Official team generated all 11
+4. **Four-layer protection** - Effective prevention against "fix Console breaks DingTalk"
+5. **Breaking contract = blocking PR** - CI gate ensures interface compatibility
 
-## 快速参考
+## Quick Reference
 
-| 命令 | 用途 |
-|------|------|
-| `make check-contracts` | 显示契约覆盖率状态 |
-| `pytest tests/contract/channels/ -v` | 运行所有契约测试 |
-| `pytest tests/unit/channels/test_base_core.py -v` | 运行可选单元测试 |
-| `pytest tests/contract/channels/test_console_contract.py -v` | 运行特定 Channel |
+| Command | Purpose |
+|---------|---------|
+| `make check-contracts` | Show contract coverage status |
+| `pytest tests/contract/channels/ -v` | Run all contract tests |
+| `pytest tests/unit/channels/test_base_core.py -v` | Run optional unit tests |
+| `pytest tests/contract/channels/test_console_contract.py -v` | Run specific Channel |
+
+---
+
+📖 [中文版本](README_zh.md)
