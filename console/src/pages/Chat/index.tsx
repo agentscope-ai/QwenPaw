@@ -252,7 +252,7 @@ function useMessageHistoryNavigation(
   const findMessageInDirection = (
     messages: string[],
     startIndex: number,
-    direction: 1 | -1
+    direction: 1 | -1,
   ): MessageResult | null => {
     const MAX_LOOKUP = 100;
     let lookupIndex = startIndex;
@@ -321,7 +321,11 @@ function useMessageHistoryNavigation(
         if (textAfterCursor.includes("\n")) return;
 
         const startIndex = historyIndexRef.current - 1;
-        const messageText = findMessageInDirection(userMessages, startIndex, -1);
+        const messageText = findMessageInDirection(
+          userMessages,
+          startIndex,
+          -1,
+        );
 
         if (messageText) {
           e.preventDefault();
