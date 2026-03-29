@@ -17,58 +17,6 @@ export interface ChatUploadResponse {
   size?: number;
 }
 
-export interface KnowledgeImportItem {
-  upload_id: string;
-  file_name: string;
-}
-
-export interface KnowledgeImportRequest {
-  uploads: KnowledgeImportItem[];
-  mode?: "current_message";
-}
-
-export interface KnowledgeImportSkippedItem {
-  upload_id: string;
-  file_name: string;
-  reason: string;
-  code: string;
-}
-
-export interface KnowledgeImportFailedItem {
-  upload_id: string;
-  file_name: string;
-  message: string;
-  code: string;
-}
-
-export interface KnowledgeImportedDoc {
-  doc_id: string;
-  file_name: string;
-  source_type: string;
-  markdown_path: string;
-  indexed: boolean;
-}
-
-export interface KnowledgeImportResponse {
-  success: boolean;
-  requested: number;
-  imported_count: number;
-  skipped_count: number;
-  failed_count: number;
-  imported: KnowledgeImportedDoc[];
-  skipped: KnowledgeImportSkippedItem[];
-  failed: KnowledgeImportFailedItem[];
-}
-
-export interface KnowledgeDocumentSummary {
-  doc_id: string;
-  title: string;
-  source_file: string;
-  source_type: string;
-  imported_at: string;
-  markdown_path: string;
-}
-
 const FILES_PREVIEW = "/files/preview";
 
 export const chatApi = {
@@ -147,20 +95,6 @@ export const chatApi = {
     request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {
       method: "POST",
     }),
-};
-
-export const knowledgeApi = {
-  importUploads: (payload: KnowledgeImportRequest) =>
-    request<KnowledgeImportResponse>("/knowledge/import", {
-      method: "POST",
-      body: JSON.stringify({
-        uploads: payload.uploads,
-        mode: payload.mode || "current_message",
-      }),
-    }),
-
-  listDocuments: () =>
-    request<KnowledgeDocumentSummary[]>("/knowledge/documents"),
 };
 
 export const sessionApi = {

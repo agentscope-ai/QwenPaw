@@ -1063,6 +1063,9 @@
       },
       "deny": {
         "description": "Deny the pending tool action"
+      },
+      "kb": {
+        "description": "Import attached files into Knowledge Base (/kb or /kb import)"
       }
     },
     "attachments": {
