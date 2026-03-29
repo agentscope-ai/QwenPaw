@@ -11,6 +11,7 @@ from .docling_parser import DoclingParser
 from .docx_parser import DocxParser
 from .markdown_parser import MarkdownParser
 from .pdf_parser import PdfParser
+from .pptx_parser import PptxParser
 from .text_parser import TextParser
 from .xlsx_parser import XlsxParser
 
@@ -22,6 +23,7 @@ __all__ = [
     "DoclingParser",
     "DocxParser",
     "XlsxParser",
+    "PptxParser",
     "MarkdownParser",
     "TextParser",
     "PdfParser",

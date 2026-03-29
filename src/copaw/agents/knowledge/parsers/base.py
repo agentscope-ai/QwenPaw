@@ -26,6 +26,7 @@ def _all_parsers() -> tuple[BaseKnowledgeParser, ...]:
     from .docx_parser import DocxParser
     from .markdown_parser import MarkdownParser
     from .pdf_parser import PdfParser
+    from .pptx_parser import PptxParser
     from .text_parser import TextParser
     from .xlsx_parser import XlsxParser
 
@@ -36,6 +37,7 @@ def _all_parsers() -> tuple[BaseKnowledgeParser, ...]:
         DocParser(),
         DocxParser(),
         XlsxParser(),
+        PptxParser(),
         DoclingParser(),
     )
     return cast(tuple[BaseKnowledgeParser, ...], parsers)
