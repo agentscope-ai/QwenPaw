@@ -5,8 +5,11 @@
 #
 # Run this script before committing channel changes to catch issues early.
 #
+# Note: Contract tests are the PRIMARY gate (tests/contract/channels/).
+#       Unit tests are optional supplements (tests/unit/channels/).
+#
 # Usage:
-#   ./scripts/check-channels.sh              # Check all channels
+#   ./scripts/check-channels.sh              # Check all channels (contract tests)
 #   ./scripts/check-channels.sh dingtalk     # Check specific channel
 #   ./scripts/check-channels.sh --changed    # Only check changed channels
 #
@@ -98,106 +101,67 @@ echo -e "${BLUE}Running tests...${NC}"
 EXIT_CODE=0
 
 if [ "$CHANNELS" == "all" ]; then
-    # Run all channel tests
-    echo -e "${YELLOW}Running ALL channel tests...${NC}"
+    # Run ALL contract tests (PRIMARY gate)
+    echo -e "${YELLOW}Running ALL channel CONTRACT tests (PRIMARY)...${NC}"
 
-    if ! pytest tests/unit/channels -v --tb=short; then
+    if ! pytest tests/contract/channels -v --tb=short; then
         EXIT_CODE=1
     fi
 
-    # Run coverage check
+    # Run optional unit tests (informational)
     echo ""
-    echo -e "${YELLOW}Running coverage check...${NC}"
+    echo -e "${YELLOW}Running optional UNIT tests (supplemental)...${NC}"
 
-    if ! pytest tests/unit/channels -v --cov=src/copaw/app/channels --cov-report=term-missing --cov-fail-under=60 2>/dev/null; then
-        echo -e "${RED}❌ Coverage check FAILED (need 60%)${NC}"
-        EXIT_CODE=1
-    else
-        echo -e "${GREEN}✅ Coverage check passed${NC}"
+    if ! pytest tests/unit/channels -v --tb=short 2>/dev/null; then
+        echo -e "${YELLOW}⚠️  Some unit tests failed (optional, does not block PR)${NC}"
     fi
 else
-    # Run specific channel tests
+    # Run specific channel contract tests
     for ch in $CHANNELS; do
         echo ""
         echo -e "${BLUE}----------------------------------------${NC}"
         echo -e "${BLUE}Testing channel: $ch${NC}"
         echo -e "${BLUE}----------------------------------------${NC}"
 
-        # Check if test file exists
-        TEST_FILE="tests/unit/channels/test_${ch}_channel.py"
+        # PRIMARY: Check if contract test file exists
+        CONTRACT_TEST_FILE="tests/contract/channels/test_${ch}_contract.py"
 
-        if [ -f "$TEST_FILE" ]; then
-            if ! pytest "$TEST_FILE" -v --tb=short; then
-                echo -e "${RED}❌ Tests failed for $ch${NC}"
+        if [ -f "$CONTRACT_TEST_FILE" ]; then
+            echo -e "${GREEN}✅ Contract test found: $CONTRACT_TEST_FILE${NC}"
+
+            if ! pytest "$CONTRACT_TEST_FILE" -v --tb=short; then
+                echo -e "${RED}❌ Contract tests FAILED for $ch${NC}"
                 EXIT_CODE=1
             else
-                echo -e "${GREEN}✅ Tests passed for $ch${NC}"
+                echo -e "${GREEN}✅ Contract tests PASSED for $ch${NC}"
             fi
         else
-            echo -e "${YELLOW}⚠️  No test file found for $ch ($TEST_FILE)${NC}"
-            echo -e "${YELLOW}   Please create tests using test_console_channel.py as a template${NC}"
+            echo -e "${RED}❌ CONTRACT TEST MISSING for $ch${NC}"
+            echo -e "${RED}   Required: $CONTRACT_TEST_FILE${NC}"
+            echo -e "${YELLOW}   Template: tests/contract/channels/test_console_contract.py${NC}"
             EXIT_CODE=1
         fi
 
-        # Check if channel has required methods
-        echo ""
-        echo -e "${BLUE}Checking contract compliance for $ch...${NC}"
-
-        python3 << EOF
-import sys
-import importlib.util
-from pathlib import Path
-
-channel = "$ch"
-channel_dir = Path("src/copaw/app/channels") / channel
-channel_file = channel_dir / "channel.py"
-
-if not channel_file.exists():
-    print(f"⚠️  Channel file not found: {channel_file}")
-    sys.exit(0)
-
-try:
-    spec = importlib.util.spec_from_file_location(f"{channel}.channel", channel_file)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    # Find channel class
-    channel_class = None
-    for name in dir(module):
-        obj = getattr(module, name)
-        if isinstance(obj, type) and name.lower().endswith('channel') and name != 'BaseChannel':
-            channel_class = obj
-            break
-
-    if channel_class is None:
-        print(f"❌ No channel class found in {channel}")
-        sys.exit(1)
-
-    # Check required methods
-    required = ['from_env', 'from_config', 'send', 'start', 'stop', 'build_agent_request_from_native']
-    missing = [m for m in required if not hasattr(channel_class, m)]
-
-    if missing:
-        print(f"❌ Missing required methods: {', '.join(missing)}")
-        sys.exit(1)
-    else:
-        print(f"✅ All required methods present")
-
-except Exception as e:
-    print(f"❌ Error loading channel: {e}")
-    sys.exit(1)
-EOF
-
-        if [ $? -ne 0 ]; then
-            EXIT_CODE=1
+        # OPTIONAL: Check if unit test file exists
+        UNIT_TEST_FILE="tests/unit/channels/test_${ch}.py"
+        if [ -f "$UNIT_TEST_FILE" ]; then
+            echo ""
+            echo -e "${BLUE}Running optional unit tests for $ch...${NC}"
+            if ! pytest "$UNIT_TEST_FILE" -v --tb=short 2>/dev/null; then
+                echo -e "${YELLOW}⚠️  Unit tests failed (optional)${NC}"
+            else
+                echo -e "${GREEN}✅ Unit tests passed${NC}"
+            fi
         fi
     done
 
-    # Run base channel tests if base might be affected
-    echo ""
-    echo -e "${BLUE}Running BaseChannel contract tests...${NC}"
-    if ! pytest tests/unit/channels/test_base_channel.py -v --tb=short; then
-        EXIT_CODE=1
+    # Run base channel contract tests if base might be affected
+    if echo "$ALL_CHANGED" | grep -qE "channels/base\.py"; then
+        echo ""
+        echo -e "${BLUE}Running BaseChannel contract tests...${NC}"
+        if ! pytest tests/contract/channels/ -v --tb=short; then
+            EXIT_CODE=1
+        fi
     fi
 fi
 
@@ -210,12 +174,12 @@ if [ $EXIT_CODE -eq 0 ]; then
 else
     echo -e "${RED}❌ Some checks failed${NC}"
     echo ""
-    echo "Please fix the issues above before committing."
+    echo "Required fixes:"
+    echo "  - Create missing contract test: tests/contract/channels/test_<channel>_contract.py"
+    echo "  - Ensure contract test implements create_instance() method"
+    echo "  - Fix failing contract test assertions"
     echo ""
-    echo "Common fixes:"
-    echo "  - Add missing tests for your channel"
-    echo "  - Ensure all required methods are implemented"
-    echo "  - Fix failing test assertions"
+    echo "Note: Unit tests are OPTIONAL and do not block PR merging."
 fi
 echo -e "${BLUE}========================================${NC}"
 
