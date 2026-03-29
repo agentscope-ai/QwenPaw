@@ -266,6 +266,9 @@ class KnowledgeRepository:
                 payload = json.loads(path.read_text(encoding="utf-8"))
                 break
             except Exception:
+                logger.warning(
+                    "Failed to load chunk file %s, skipping.", path, exc_info=True
+                )
                 continue
 
         if not isinstance(payload, dict):
