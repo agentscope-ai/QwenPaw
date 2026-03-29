@@ -46,7 +46,7 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 > - **Social**: daily digest of hot posts (Xiaohongshu, Zhihu, Reddit), Bilibili/YouTube summaries.
 > - **Productivity**: newsletter digests to DingTalk/Feishu/QQ, contacts from email/calendar.
 > - **Creative**: describe your goal, run overnight, get a draft next day.
-> - **Research**: track tech/AI news, personal knowledge base (KB import supports `.md`, `.txt`, `.pdf`, `.docx`, `.doc`; `.doc` import requires LibreOffice `soffice`).
+> - **Research**: track tech/AI news, personal knowledge base (KB import supports `.md`, `.txt`, `.pdf`, `.docx`, `.doc`, `.xlsx`; `.doc` import requires LibreOffice `soffice`).
 > - **Desktop**: organize files, read/summarize docs, request files in chat.
 > - **Explore**: combine Skills and cron into your own agentic app.
 >

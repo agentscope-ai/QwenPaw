@@ -58,10 +58,12 @@ on-screen limits; per-file size caps apply).
 
 **Knowledge base import note:**
 KB import from current-message uploads supports `.md`, `.txt`, `.pdf`, `.docx`,
-and `.doc`.
+`.doc`, and `.xlsx`.
 Legacy `.doc` files are converted via LibreOffice `soffice`. If `soffice` is
 missing, import fails. Run `soffice --version` to verify, then install
 LibreOffice and retry.
+For `.xlsx`, formula cells are imported as formula text unless the workbook
+already contains cached calculated values.
 
 **Create a new session:**
 Click the **+ New Chat** button at the top of the chat sidebar to start a new
