@@ -999,7 +999,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         "dingtalk_doc_create_document": BuiltinToolConfig(
             name="dingtalk_doc_create_document",
             enabled=True,
-            description="Create a DingTalk document or folder",
+            description="Create an empty DingTalk document or folder",
         ),
     }
 

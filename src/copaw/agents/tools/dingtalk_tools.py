@@ -400,7 +400,7 @@ async def dingtalk_doc_create_document(
     operator_id: str,
     body_json: str,
 ) -> ToolResponse:
-    """Create a DingTalk knowledge-base document or folder.
+    """Create an empty DingTalk knowledge-base document or folder.
 
     body_json example:
         {"name":"CoPaw Doc","docType":"DOC","parentNodeId":"xxx"}
