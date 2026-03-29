@@ -1047,15 +1047,6 @@
       "multimodalWarning": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理",
       "imageOnlyAccept": "当前模型仅支持图片文件",
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
-    },
-    "knowledgeImport": {
-      "toggleLabel": "知识库",
-      "toggleOnTooltip": "已启用：发送前会将本条消息上传的文件导入知识库",
-      "toggleOffTooltip": "未启用：本条消息上传的文件不会导入知识库",
-      "success": "已导入 {{count}} 个文件到知识库",
-      "partialWarning": "知识库导入有 {{failed}} 个文件失败，但消息仍已发送",
-      "failed": "知识库导入失败，消息已继续发送（未导入知识库）",
-      "noPendingFiles": "已启用知识库导入，但当前消息没有可导入的上传文件"
     }
   },
   "security": {
