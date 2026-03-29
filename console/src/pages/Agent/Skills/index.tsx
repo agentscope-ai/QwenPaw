@@ -20,6 +20,7 @@ import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import api from "../../../api";
+import { invalidateSkillCache } from "../../../api/modules/skill";
 import { parseErrorDetail } from "../../../utils/error";
 import styles from "./index.module.less";
 
@@ -54,12 +55,15 @@ function SkillsPage() {
 
   const MAX_UPLOAD_SIZE_MB = 100;
 
+  // Only fetch pool skills when pool modal is opened, not on page load
   useEffect(() => {
-    void api
-      .listSkillPoolSkills()
-      .then(setPoolSkills)
-      .catch(() => undefined);
-  }, [loading]);
+    if (poolModal === "upload" || poolModal === "download") {
+      void api
+        .listSkillPoolSkills()
+        .then(setPoolSkills)
+        .catch(() => undefined);
+    }
+  }, [poolModal]);
 
   const closePoolModal = () => {
     setPoolModal(null);
@@ -174,7 +178,7 @@ function SkillsPage() {
   const handleDelete = async (skill: SkillSpec, e?: React.MouseEvent) => {
     e?.stopPropagation();
     await deleteSkill(skill);
-    await refreshSkills();
+    // No need to refresh again as deleteSkill already calls fetchSkills
   };
 
   const handleDrawerClose = () => {
@@ -205,6 +209,7 @@ function SkillsPage() {
             : t("common.save"),
         );
         setDrawerOpen(false);
+        invalidateSkillCache(); // Clear cache after mutation
         await refreshSkills();
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -239,6 +244,7 @@ function SkillsPage() {
       if (result.success) {
         await api.updateSkillChannels(submitName, values.channels || ["all"]);
         setDrawerOpen(false);
+        invalidateSkillCache(); // Clear cache after updating channels
         await refreshSkills();
         return;
       }
@@ -290,6 +296,7 @@ function SkillsPage() {
       }
       message.success(t("skills.uploadedToPool"));
       closePoolModal();
+      invalidateSkillCache(); // Clear cache after mutation
       await refreshSkills();
       setPoolSkills(await api.listSkillPoolSkills());
     } catch (error) {
@@ -334,6 +341,7 @@ function SkillsPage() {
       }
       message.success(t("skills.downloadedToWorkspace"));
       closePoolModal();
+      invalidateSkillCache(); // Clear cache after mutation
       await refreshSkills();
     } catch (error) {
       message.error(
@@ -368,7 +376,7 @@ function SkillsPage() {
                 onClick={() => setPoolModal("download")}
                 icon={<DownloadOutlined />}
               >
-                {t("common.download")}
+                {t("skills.downloadFromPool")}
               </Button>
             </Tooltip>
             <Tooltip title={t("skills.uploadToPoolHint")}>
@@ -378,7 +386,7 @@ function SkillsPage() {
                 onClick={() => setPoolModal("upload")}
                 icon={<SwapOutlined />}
               >
-                {t("common.upload")}
+                {t("skills.uploadToPool")}
               </Button>
             </Tooltip>
           </div>

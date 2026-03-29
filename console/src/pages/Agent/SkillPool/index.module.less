@@ -100,7 +100,7 @@
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
-  padding-bottom: 16px;
+  padding-bottom: 56px; /* 增加底部padding，为按钮留出空间 */
 
   :global {
     .ant-card-body {
@@ -163,6 +163,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.statusLabel {
+  color: rgba(26, 23, 22, 0.65);
+  font-weight: normal;
+}
+
+.statusValue {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background-color: rgba(239, 240, 243, 0.8);
+  color: #52c41a;
+  border: 1px solid rgba(82, 196, 26, 0.2);
 }
 
 /* ─── Tags ────────────────────────────────────────────────────────────────── */
@@ -344,6 +366,16 @@
 
   .metaValue {
     color: rgba(255, 255, 255, 0.85);
+  }
+
+  .statusLabel {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .statusValue {
+    background-color: rgba(82, 196, 26, 0.15);
+    color: #95de64;
+    border-color: rgba(82, 196, 26, 0.3);
   }
 
   /* Action button */
