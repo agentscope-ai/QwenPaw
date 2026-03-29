@@ -14,22 +14,18 @@ const ChatActionGroup: React.FC = () => {
   return (
     <Flex gap={8} align="center">
       <Tooltip title={t("chat.newChatTooltip")} mouseEnterDelay={0.5}>
-        <span>
-          <IconButton
-            bordered={false}
-            icon={<SparkNewChatFill />}
-            onClick={() => createSession()}
-          />
-        </span>
+        <IconButton
+          bordered={false}
+          icon={<SparkNewChatFill />}
+          onClick={() => createSession()}
+        />
       </Tooltip>
       <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
-        <span>
-          <IconButton
-            bordered={false}
-            icon={<SparkHistoryLine />}
-            onClick={() => setOpen(true)}
-          />
-        </span>
+        <IconButton
+          bordered={false}
+          icon={<SparkHistoryLine />}
+          onClick={() => setOpen(true)}
+        />
       </Tooltip>
       <ChatSessionDrawer open={open} onClose={() => setOpen(false)} />
     </Flex>
