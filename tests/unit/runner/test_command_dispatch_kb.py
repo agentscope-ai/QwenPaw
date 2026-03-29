@@ -48,7 +48,9 @@ async def test_kb_command_imports_files(tmp_path: Path) -> None:
 
     request = _make_request(text="/kb", file_paths=[source])
     runner = SimpleNamespace(workspace_dir=tmp_path)
-    result = await _collect(run_command_path(request, _make_msgs("/kb"), runner))
+    result = await _collect(
+        run_command_path(request, _make_msgs("/kb"), runner),
+    )
 
     assert len(result) == 1
     msg, is_last = result[0]
@@ -80,7 +82,9 @@ async def test_kb_import_alias_imports_files(tmp_path: Path) -> None:
 async def test_kb_command_without_attachments(tmp_path: Path) -> None:
     request = _make_request(text="/kb", file_paths=[])
     runner = SimpleNamespace(workspace_dir=tmp_path)
-    result = await _collect(run_command_path(request, _make_msgs("/kb"), runner))
+    result = await _collect(
+        run_command_path(request, _make_msgs("/kb"), runner),
+    )
 
     assert len(result) == 1
     msg, is_last = result[0]

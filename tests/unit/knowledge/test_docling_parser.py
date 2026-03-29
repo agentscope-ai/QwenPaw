@@ -10,7 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from copaw.agents.knowledge.exceptions import EmptyParsedContentError, KnowledgeError
+from copaw.agents.knowledge.exceptions import (
+    EmptyParsedContentError,
+    KnowledgeError,
+)
 from copaw.agents.knowledge.parsers.docling_parser import DoclingParser
 
 
@@ -33,9 +36,15 @@ def _install_fake_docling(
 
             return _FakeResult()
 
-    converter_module.DocumentConverter = _FakeConverter  # type: ignore[attr-defined]
+    converter_module.DocumentConverter = (  # type: ignore[attr-defined]
+        _FakeConverter
+    )
     monkeypatch.setitem(sys.modules, "docling", docling_module)
-    monkeypatch.setitem(sys.modules, "docling.document_converter", converter_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "docling.document_converter",
+        converter_module,
+    )
 
 
 def test_docling_parser_extracts_content_with_mocked_engine(
@@ -62,10 +71,16 @@ def test_docling_parser_raises_when_docling_is_missing(
     source.write_bytes(b"fake")
     real_import = builtins.__import__
 
-    def _fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+    def _fake_import(
+        name,
+        globalns=None,
+        localns=None,
+        fromlist=(),
+        level=0,
+    ):
         if name == "docling.document_converter":
             raise ImportError("docling is not installed")
-        return real_import(name, globals, locals, fromlist, level)
+        return real_import(name, globalns, localns, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", _fake_import)
 

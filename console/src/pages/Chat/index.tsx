@@ -636,14 +636,7 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [
-    customFetch,
-    copyResponse,
-    handleFileUpload,
-    t,
-    isDark,
-    multimodalCaps,
-  ]);
+  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
 
   return (
     <div

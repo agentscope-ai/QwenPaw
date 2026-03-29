@@ -155,6 +155,160 @@ def _format_kb_import_summary(response) -> str:
     return "\n".join(lines)
 
 
+async def _handle_kb_command(
+    query: str,
+    request,
+    runner: AgentRunner,
+) -> Msg | None:
+    """Handle `/kb` command namespace and return a response message."""
+    if not _is_kb_command(query):
+        return None
+
+    action = _extract_kb_command_action(query)
+    if action == "invalid":
+        return Msg(
+            name="Friday",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=("**Usage**\n\n" "- `/kb`\n" "- `/kb import`"),
+                ),
+            ],
+        )
+
+    del action  # reserved for future subcommands
+    local_files = _extract_local_files_for_kb(request)
+    if not local_files:
+        return Msg(
+            name="Friday",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "**Knowledge Import**\n\n"
+                        "- No importable file attachments found in "
+                        "this message."
+                    ),
+                ),
+            ],
+        )
+
+    workspace_dir = Path(runner.workspace_dir or WORKING_DIR).expanduser()
+    service = KnowledgeImportService(workspace_dir)
+    response = await service.import_local_files(local_files)
+    logger.info(
+        "kb import completed: requested=%s imported=%s failed=%s",
+        response.requested,
+        response.imported_count,
+        response.failed_count,
+    )
+    return Msg(
+        name="Friday",
+        role="assistant",
+        content=[
+            TextBlock(
+                type="text",
+                text=_format_kb_import_summary(response),
+            ),
+        ],
+    )
+
+
+async def _handle_control_command(
+    query: str,
+    request,
+    runner: AgentRunner,
+    session_id: str,
+    user_id: str,
+) -> Msg | None:
+    """Handle control command path (/stop, etc.).
+
+    Return the generated response message when matched.
+    """
+    if not _is_control_command(query):
+        return None
+
+    workspace = runner._workspace  # pylint: disable=protected-access
+    if workspace is None:
+        logger.error(
+            "run_command_path: control command but workspace not set",
+        )
+        return Msg(
+            name="Friday",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "**Error**\n\n"
+                        "Control command unavailable "
+                        "(workspace not initialized)"
+                    ),
+                ),
+            ],
+        )
+
+    channel_id = getattr(request, "channel", "")
+    channel = None
+    channel_manager = workspace.channel_manager
+    if channel_manager is not None:
+        channel = await channel_manager.get_channel(channel_id)
+
+    if channel is None:
+        logger.error(
+            "run_command_path: channel not found: %s",
+            channel_id,
+        )
+        return Msg(
+            name="Friday",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"**Error**\n\nChannel not found: {channel_id}",
+                ),
+            ],
+        )
+
+    control_ctx = control_commands.ControlContext(
+        workspace=workspace,
+        payload=request,
+        channel=channel,
+        session_id=session_id,
+        user_id=user_id,
+        args={},
+    )
+
+    try:
+        response_text = await control_commands.handle_control_command(
+            query,
+            control_ctx,
+        )
+        logger.info("handle_control_command %s completed", query)
+        return Msg(
+            name="Friday",
+            role="assistant",
+            content=[TextBlock(type="text", text=response_text)],
+        )
+    except Exception as e:
+        logger.exception(
+            "Control command failed: %s",
+            query,
+        )
+        return Msg(
+            name="Friday",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"**Command Failed**\n\n{str(e)}",
+                ),
+            ],
+        )
+
+
 async def run_command_path(  # pylint: disable=too-many-statements
     request,
     msgs,
@@ -217,159 +371,20 @@ async def run_command_path(  # pylint: disable=too-many-statements
         logger.info("handle_daemon_command %s completed", query)
         return
 
-    if _is_kb_command(query):
-        action = _extract_kb_command_action(query)
-        if action == "invalid":
-            usage_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            "**Usage**\n\n"
-                            "- `/kb`\n"
-                            "- `/kb import`"
-                        ),
-                    ),
-                ],
-            )
-            yield usage_msg, True
-            return
-
-        del action  # reserved for future subcommands
-        local_files = _extract_local_files_for_kb(request)
-        if not local_files:
-            no_files_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            "**Knowledge Import**\n\n"
-                            "- No importable file attachments found in "
-                            "this message."
-                        ),
-                    ),
-                ],
-            )
-            yield no_files_msg, True
-            return
-
-        workspace_dir = Path(runner.workspace_dir or WORKING_DIR).expanduser()
-        service = KnowledgeImportService(workspace_dir)
-        response = await service.import_local_files(local_files)
-        summary_msg = Msg(
-            name="Friday",
-            role="assistant",
-            content=[
-                TextBlock(
-                    type="text",
-                    text=_format_kb_import_summary(response),
-                ),
-            ],
-        )
-        yield summary_msg, True
-        logger.info(
-            "kb import completed: requested=%s imported=%s failed=%s",
-            response.requested,
-            response.imported_count,
-            response.failed_count,
-        )
+    kb_msg = await _handle_kb_command(query, request, runner)
+    if kb_msg is not None:
+        yield kb_msg, True
         return
 
-    # Control command path (e.g. /stop)
-    if _is_control_command(query):
-        workspace = runner._workspace  # pylint: disable=protected-access
-        if workspace is None:
-            logger.error(
-                "run_command_path: control command but workspace not set",
-            )
-            error_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            "**Error**\n\n"
-                            "Control command unavailable "
-                            "(workspace not initialized)"
-                        ),
-                    ),
-                ],
-            )
-            yield error_msg, True
-            return
-
-        # Get channel instance from request
-        channel_id = getattr(request, "channel", "")
-        channel = None
-
-        # Get channel_manager from workspace
-        channel_manager = workspace.channel_manager
-        if channel_manager is not None:
-            channel = await channel_manager.get_channel(channel_id)
-
-        if channel is None:
-            logger.error(
-                f"run_command_path: channel not found: {channel_id}",
-            )
-            error_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=f"**Error**\n\nChannel not found: {channel_id}",
-                    ),
-                ],
-            )
-            yield error_msg, True
-            return
-
-        # Extract user_id from request
-        user_id = getattr(request, "user_id", "")
-
-        # Build control context
-        control_ctx = control_commands.ControlContext(
-            workspace=workspace,
-            payload=request,
-            channel=channel,
-            session_id=session_id,
-            user_id=user_id,
-            args={},
-        )
-
-        # Handle control command
-        try:
-            response_text = await control_commands.handle_control_command(
-                query,
-                control_ctx,
-            )
-            response_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[TextBlock(type="text", text=response_text)],
-            )
-            yield response_msg, True
-            logger.info("handle_control_command %s completed", query)
-        except Exception as e:
-            logger.exception(
-                f"Control command failed: {query}",
-            )
-            error_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=f"**Command Failed**\n\n{str(e)}",
-                    ),
-                ],
-            )
-            yield error_msg, True
+    control_msg = await _handle_control_command(
+        query=query,
+        request=request,
+        runner=runner,
+        session_id=session_id,
+        user_id=user_id,
+    )
+    if control_msg is not None:
+        yield control_msg, True
         return
 
     # Conversation path: lightweight memory + CommandHandler

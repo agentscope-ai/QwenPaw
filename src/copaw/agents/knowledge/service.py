@@ -227,7 +227,10 @@ class KnowledgeImportService:
         ImportedKnowledgeDoc | SkippedKnowledgeImport,
     ]:
         source_hash = self._hash_bytes(source_path.read_bytes())
-        existing_by_source = self.repo.find_doc_by_source_hash(index, source_hash)
+        existing_by_source = self.repo.find_doc_by_source_hash(
+            index,
+            source_hash,
+        )
         if existing_by_source:
             return (
                 "skipped",
