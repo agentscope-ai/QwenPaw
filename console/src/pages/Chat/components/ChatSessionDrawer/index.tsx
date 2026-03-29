@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import ChatSessionItem from "../ChatSessionItem";
+import { getChannelLabel } from "../../../Control/Channels/components";
 import styles from "./index.module.less";
 
 /** Sessions from CoPaw backend include extra fields beyond the runtime UI type */
@@ -202,11 +203,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         <div className={styles.list}>
           {sessions.map((session) => {
             const ext = session as ExtendedChatSession;
+            const channelKey = ext.channel?.trim() || "";
+            const channelLabel = channelKey
+              ? getChannelLabel(channelKey, t)
+              : undefined;
             return (
               <ChatSessionItem
                 key={session.id}
                 name={session.name || "New Chat"}
                 time={formatCreatedAt(ext.createdAt ?? null)}
+                channelKey={channelKey || undefined}
+                channelLabel={channelLabel}
                 active={session.id === currentSessionId}
                 editing={editingSessionId === session.id}
                 editValue={

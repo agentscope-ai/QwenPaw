@@ -2,7 +2,11 @@
 
 魔法命令是一组以 `/` 开头的特殊指令，让你可以**直接控制对话状态**，而不需要等 AI 理解你的意图。
 
-### 上下文管理
+---
+
+## 对话管理命令
+
+控制对话上下文的命令。
 
 | 命令       | 需要等待 | 压缩摘要      | 长期记忆    | 返回内容             |
 | ---------- | -------- | ------------- | ----------- | -------------------- |
@@ -10,7 +14,74 @@
 | `/new`     | ⚡ 否    | 🗑️ 清空       | ✅ 后台保存 | ✅ 新对话开始提示    |
 | `/clear`   | ⚡ 否    | 🗑️ 清空       | ❌ 不保存   | ✅ 历史清空提示      |
 
-### 上下文调试
+---
+
+### /compact - 压缩当前对话
+
+手动触发对话压缩，将当前对话消息浓缩成摘要（**需要等待**），同时后台保存到长期记忆。
+
+```
+/compact
+```
+
+**返回示例：**
+
+```
+**Compact Complete!**
+
+- Messages compacted: 12
+**Compressed Summary:**
+用户请求帮助构建用户认证系统，已完成登录接口的实现...
+- Summary task started in background
+```
+
+> 💡 与自动压缩不同，`/compact` 会压缩**所有**当前消息，而不是只压缩超出阈值的部分。
+
+---
+
+### /new - 清空上下文并保存记忆
+
+**立即清空当前上下文**，开始全新对话。后台同时保存历史到长期记忆。
+
+```
+/new
+```
+
+**返回示例：**
+
+```
+**New Conversation Started!**
+
+- Summary task started in background
+- Ready for new conversation
+```
+
+---
+
+### /clear - 清空上下文（不保存记忆）
+
+**立即清空当前上下文**，包括消息历史和压缩摘要。**不会**保存到长期记忆。
+
+```
+/clear
+```
+
+**返回示例：**
+
+```
+**History Cleared!**
+
+- Compressed summary reset
+- Memory is now empty
+```
+
+> ⚠️ **警告**：`/clear` 是**不可逆**的！与 `/new` 不同，清除的内容不会被保存。
+
+---
+
+## 对话调试命令
+
+查看和管理对话历史的命令。
 
 | 命令            | 返回内容                 |
 | --------------- | ------------------------ |
@@ -22,7 +93,7 @@
 
 ---
 
-## /history - 查看当前对话历史
+### /history - 查看当前对话历史
 
 显示当前对话中所有未压缩的消息列表，以及详细的**上下文占用情况**。
 
@@ -69,7 +140,7 @@
 
 ---
 
-## /message - 查看单条消息
+### /message - 查看单条消息
 
 查看当前对话中指定索引的消息详细内容。
 
@@ -101,7 +172,7 @@
 
 ---
 
-## /compact_str - 查看压缩摘要
+### /compact_str - 查看压缩摘要
 
 显示当前的压缩摘要内容。
 
@@ -128,70 +199,7 @@
 
 ---
 
-## /compact - 压缩当前对话
-
-手动触发对话压缩，将当前对话消息浓缩成摘要（**需要等待**），同时后台保存到长期记忆。
-
-```
-/compact
-```
-
-**返回示例：**
-
-```
-**Compact Complete!**
-
-- Messages compacted: 12
-**Compressed Summary:**
-用户请求帮助构建用户认证系统，已完成登录接口的实现...
-- Summary task started in background
-```
-
-> 💡 与自动压缩不同，`/compact` 会压缩**所有**当前消息，而不是只压缩超出阈值的部分。
-
----
-
-## /new - 清空上下文并保存记忆
-
-**立即清空当前上下文**，开始全新对话。后台同时保存历史到长期记忆。
-
-```
-/new
-```
-
-**返回示例：**
-
-```
-**New Conversation Started!**
-
-- Summary task started in background
-- Ready for new conversation
-```
-
----
-
-## /clear - 清空上下文（不保存记忆）
-
-**立即清空当前上下文**，包括消息历史和压缩摘要。**不会**保存到长期记忆。
-
-```
-/clear
-```
-
-**返回示例：**
-
-```
-**History Cleared!**
-
-- Compressed summary reset
-- Memory is now empty
-```
-
-> ⚠️ **警告**：`/clear` 是**不可逆**的！与 `/new` 不同，清除的内容不会被保存。
-
----
-
-## /dump_history - 导出对话历史
+### /dump_history - 导出对话历史
 
 将当前对话历史（包括压缩摘要）保存到 JSONL 文件，便于调试和备份。
 
@@ -213,7 +221,7 @@
 
 ---
 
-## /load_history - 加载对话历史
+### /load_history - 加载对话历史
 
 从 JSONL 文件加载对话历史到当前内存，**会先清空现有内存**。
 
@@ -243,70 +251,139 @@
 
 ---
 
-## 控制命令（即时响应）
+## 系统控制命令
 
-控制命令具有最高优先级，会立即处理，无需等待正在运行的任务完成。适用于紧急操作场景。
+控制和监控 CoPaw 运行状态的命令，无需通过 Agent 理解意图，直接执行。
 
-| 命令                         | 说明                           |
-| ---------------------------- | ------------------------------ |
-| `/stop`                      | 立即终止当前会话的运行中任务   |
-| `/stop session=<session_id>` | 终止指定会话的任务（可选参数） |
+可在对话中发送 `/daemon <子命令>` 或短名（如 `/status`），也可在终端执行 `copaw daemon <子命令>`。
+
+| 命令                                | 说明                                                                       | 对话 | 终端 |
+| ----------------------------------- | -------------------------------------------------------------------------- | ---- | ---- |
+| `/stop`                             | 立即终止当前会话的运行中任务                                               | ✅   | ❌   |
+| `/stop session=<session_id>`        | 终止指定会话的任务                                                         | ✅   | ❌   |
+| `/daemon status` 或 `/status`       | 查看运行状态（配置、工作目录、记忆服务）                                   | ✅   | ✅   |
+| `/daemon restart` 或 `/restart`     | 零停机重载（对话中）；终端中打印说明                                       | ✅   | ✅   |
+| `/daemon reload-config`             | 重新读取并校验配置文件                                                     | ✅   | ✅   |
+| `/daemon version`                   | 版本号、工作目录与日志路径                                                 | ✅   | ✅   |
+| `/daemon logs` 或 `/daemon logs 50` | 查看最近 N 行日志（默认 100 行，最大 2000 行，来自工作目录下 `copaw.log`） | ✅   | ✅   |
+| `/daemon approve`                   | 批准待审的工具调用（工具审批场景）                                         | ✅   | ❌   |
+
+---
 
 ### `/stop` - 停止任务
 
-立即终止当前会话中正在执行的 Agent 任务。
+立即终止当前会话中正在执行的任务。优先级最高，即使有任务正在执行也能并发处理。
 
-**用法**：
+**用法：**
 
 ```
 /stop                       # 停止当前会话的任务
-/stop session=<session_id>  # 停止指定会话的任务（高级用法）
-```
-
-**特性**：
-
-- **立即响应**：优先级最高（priority=0），即使有任务正在执行也能并发处理
-- **安全终止**：通过 `task_tracker.request_stop()` 优雅地取消任务
-- **会话隔离**：只影响目标会话，不影响其他用户或会话
-- **默认当前会话**：不带参数时终止当前会话的任务
-
-**使用场景**：
-
-- Agent 陷入循环或长时间无响应
-- 任务执行错误需要立即中断
-- 不想等待当前任务完成
-
-**示例**：
-
-```
-用户：帮我分析这个 10GB 的日志文件
-Agent：[开始处理...]
-
-用户：/stop
-系统：**Task Stopped** - Task for session `console:user1` has been terminated.
+/stop session=<session_id>  # 停止指定会话的任务
 ```
 
 > ⚠️ **警告**：`/stop` 会立即终止任务，可能导致部分结果丢失。
 
 ---
 
-## Daemon 命令（运维）
+### `/daemon status` 或 `/status` - 查看运行状态
 
-在对话中发送 `/daemon <子命令>` 或在终端执行 `copaw daemon <子命令>`，可查看状态、最近日志、版本等，无需经过 Agent。支持短名（如
-`/status` 等价于 `/daemon status`）。
+显示当前运行状态，包括配置加载情况、工作目录、记忆服务状态等。
 
-| 命令                                | 说明                                                                   |
-| ----------------------------------- | ---------------------------------------------------------------------- |
-| `/daemon status` 或 `/status`       | 查看运行状态（配置、工作目录、记忆服务等）                             |
-| `/daemon restart` 或 `/restart`     | 在对话中为进程内重启（频道、定时任务、MCP）；在 CLI 下仅打印说明       |
-| `/daemon reload-config`             | 重新读取并校验配置（频道/MCP 变更需 /daemon restart 或重启进程后生效） |
-| `/daemon version`                   | 版本号与工作目录、日志路径                                             |
-| `/daemon logs` 或 `/daemon logs 50` | 查看最近 N 行控制台日志（默认 100 行，来自工作目录下 `copaw.log`）     |
+**用法：**
 
-终端中可直接使用：
+```
+/status                    # 在对话中
+copaw daemon status        # 在终端
+```
+
+---
+
+### `/daemon restart` 或 `/restart` - 零停机重载
+
+在对话中使用时，执行零停机重载：重新加载 channels、cron、MCP 配置，但不中断进程。适用于修改频道、MCP 配置后使其生效。
+
+**用法：**
+
+```
+/restart                   # 在对话中
+copaw daemon restart       # 在终端（仅打印说明）
+```
+
+> 💡 **提示**：修改频道或 MCP 配置后，先用 `/daemon reload-config` 验证配置正确性，再用 `/daemon restart` 使其生效。
+
+---
+
+### `/daemon reload-config` - 重载配置文件
+
+重新读取配置文件并校验语法，但不重载运行时组件（channels、cron、MCP）。适用于验证配置文件修改是否正确。
+
+**用法：**
+
+```
+/daemon reload-config           # 在对话中
+copaw daemon reload-config      # 在终端
+```
+
+---
+
+### `/daemon version` - 版本信息
+
+显示 CoPaw 版本号、工作目录路径、日志文件路径。
+
+**用法：**
+
+```
+/daemon version            # 在对话中
+copaw daemon version       # 在终端
+```
+
+---
+
+### `/daemon logs` - 查看日志
+
+查看工作目录下 `copaw.log` 的最近 N 行日志。默认 100 行，最大 2000 行。
+
+**用法：**
+
+```
+/daemon logs               # 默认 100 行
+/daemon logs 50            # 指定 50 行
+copaw daemon logs -n 200   # 在终端指定 200 行
+```
+
+> 💡 **提示**：日志文件较大时，此命令只读取文件末尾最多 512KB 内容，确保响应速度。
+
+---
+
+### `/daemon approve` - 批准工具调用
+
+快速批准待审的工具调用。当工具调用需要人工审批时（tool-guard 场景），使用此命令批准执行。
+
+**用法：**
+
+```
+/daemon approve            # 在对话中
+```
+
+> 💡 **提示**：此命令仅在对话中有效。当 Agent 提示需要批准工具调用时，发送此命令即可快速批准。
+
+---
+
+### 终端使用
+
+所有 daemon 命令都支持在终端中使用（除 `/stop` 和 `/daemon approve` 仅在对话中有效）：
 
 ```bash
 copaw daemon status
+copaw daemon restart
+copaw daemon reload-config
 copaw daemon version
 copaw daemon logs -n 50
+```
+
+**多智能体支持：** 所有终端命令都支持 `--agent-id` 参数（默认为 `default`）。
+
+```bash
+copaw daemon status --agent-id abc123
+copaw daemon version --agent-id abc123
 ```
