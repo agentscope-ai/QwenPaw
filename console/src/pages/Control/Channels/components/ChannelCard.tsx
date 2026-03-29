@@ -52,14 +52,10 @@ export function ChannelCard({
   onMouseEnter,
   onMouseLeave,
 }: ChannelCardProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const enabled = Boolean(config.enabled);
   const isBuiltin = Boolean(config.isBuiltin);
-  const label = getChannelLabel(
-    channelKey,
-    t,
-    i18n.resolvedLanguage || i18n.language,
-  );
+  const label = getChannelLabel(channelKey, t);
   const getConfigString = (key: string) =>
     typeof config[key] === "string" ? config[key] : "";
   const botPrefix = getConfigString("bot_prefix");

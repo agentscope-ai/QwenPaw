@@ -131,9 +131,7 @@ export function ChannelDrawer({
   const { t, i18n } = useTranslation();
   const { isDark } = useTheme();
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
-  const label = activeKey
-    ? getChannelLabel(activeKey, t, i18n.resolvedLanguage || i18n.language)
-    : activeLabel;
+  const label = activeKey ? getChannelLabel(activeKey, t) : activeLabel;
   const sdkLoadedRef = useRef(false);
 
   // WeChat QR code state

@@ -28,19 +28,10 @@ function formatCustomChannelKey(key: string): string {
     .join(" ");
 }
 
-function isChineseUiLanguage(language?: string): boolean {
-  return Boolean(language?.toLowerCase()?.startsWith("zh"));
-}
-
-// Chinese UI: `channels.channelNames.*` in zh.json. Other locales: English from CHANNEL_LABELS.
-// Pass `uiLanguage` from `i18n.resolvedLanguage || i18n.language` — `t` from useTranslation often has no `.i18n` attached.
-export function getChannelLabel(
-  key: string,
-  t?: TFunction,
-  uiLanguage?: string,
-): string {
+// Per-locale strings under `channels.channelNames.*`; missing keys use `defaultValue` (English labels).
+export function getChannelLabel(key: string, t?: TFunction): string {
   const english = CHANNEL_LABELS[key] ?? formatCustomChannelKey(key);
-  if (t && isChineseUiLanguage(uiLanguage)) {
+  if (t) {
     return t(`channels.channelNames.${key}`, { defaultValue: english });
   }
   return english;
