@@ -262,7 +262,7 @@
 | `/stop`                             | 立即终止当前会话的运行中任务                                               | ✅   | ❌   |
 | `/stop session=<session_id>`        | 终止指定会话的任务                                                         | ✅   | ❌   |
 | `/daemon status` 或 `/status`       | 查看运行状态（配置、工作目录、记忆服务）                                   | ✅   | ✅   |
-| `/daemon restart` 或 `/restart`     | 零停机重载（重新加载 channels、cron、MCP，不中断进程）                     | ✅   | ✅   |
+| `/daemon restart` 或 `/restart`     | 零停机重载（对话中）；终端中打印说明                                       | ✅   | ✅   |
 | `/daemon reload-config`             | 重新读取并校验配置文件                                                     | ✅   | ✅   |
 | `/daemon version`                   | 版本号、工作目录与日志路径                                                 | ✅   | ✅   |
 | `/daemon logs` 或 `/daemon logs 50` | 查看最近 N 行日志（默认 100 行，最大 2000 行，来自工作目录下 `copaw.log`） | ✅   | ✅   |
