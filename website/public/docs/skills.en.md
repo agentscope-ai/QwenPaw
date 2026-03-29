@@ -97,6 +97,13 @@ Adding skills to the pool:
    **out-of-date**. Use **Import Builtin** to add missing built-ins, and
    **Update** to refresh an out-of-date builtin from packaged source.
 
+   The **Cron** built-in provides scheduled job management. Use the
+   [CLI](./cli) (`copaw cron`) or Console **Control → Cron Jobs**:
+
+   - Create: `copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
+   - List: `copaw cron list`
+   - Check state: `copaw cron state <job_id>`
+
 2. **Create directly in the pool UI**.
    This creates a shared pool skill without first creating it in a workspace.
 
@@ -172,13 +179,64 @@ skills are **enabled by default**.
 
 ### 4. Import from URL
 
-The workspace skill page also supports supported Hub / GitHub URLs. This is
-similar to zip import, but the source bundle is fetched remotely. Imported
-skills are **enabled by default**.
+The workspace skill page supports importing from the following URL sources:
 
-If GitHub rate-limits requests, add `GITHUB_TOKEN` in Console → Settings →
-Environments. See GitHub docs:
-[Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+- `https://skills.sh/...`
+- `https://clawhub.ai/...`
+- `https://skillsmp.com/...`
+- `https://lobehub.com/...`
+- `https://market.lobehub.com/...` (LobeHub direct download endpoint)
+- `https://github.com/...`
+- `https://modelscope.cn/skills/...`
+
+#### Steps
+
+1. In [Console](./console) → **Agent → Skills**, click **Import Hub**.
+
+   ![skill](https://img.alicdn.com/imgextra/i2/O1CN01gQN4gv1HCj5HVBeq1_!!6000000000722-2-tps-3410-1978.png)
+
+2. Paste a skill URL in the pop-up window (see **URL acquisition example**
+   below).
+
+   ![url](https://img.alicdn.com/imgextra/i1/O1CN01YSoLHy1dZ5yWnMM3N_!!6000000003749-2-tps-3410-1978.png)
+
+3. Confirm and wait for import to finish.
+
+   ![click](https://img.alicdn.com/imgextra/i4/O1CN013idFsl1CiGHBEIWx2_!!6000000000114-2-tps-3410-1978.png)
+
+4. After a successful import, the skill appears in the skill list and is
+   **enabled by default**.
+
+   ![check](https://img.alicdn.com/imgextra/i1/O1CN014LNdGd1wFNcq6JWbY_!!6000000006278-2-tps-3410-1978.png)
+
+#### URL acquisition example
+
+1. Open a supported marketplace page (e.g. `skills.sh`; the same flow applies
+   to `clawhub.ai`, `skillsmp.com`, `lobehub.com`, `modelscope.cn`).
+2. Pick the skill you need (e.g. `find-skills`).
+
+   ![find](https://img.alicdn.com/imgextra/i4/O1CN015bgbAR1ph8JbtTsIY_!!6000000005391-2-tps-3410-2064.png)
+
+3. Copy the URL from the address bar — this is the Skill URL used for import.
+
+   ![url](https://img.alicdn.com/imgextra/i2/O1CN01d1l5kO1wgrODXukNV_!!6000000006338-2-tps-3410-2064.png)
+
+   LobeHub also exposes a direct download endpoint on
+   `https://market.lobehub.com/...`, which is accepted as well.
+
+4. To import from GitHub, open a page containing `SKILL.md` (e.g.
+   `skill-creator` in the anthropics skills repo) and copy the URL.
+
+   ![github](https://img.alicdn.com/imgextra/i2/O1CN0117GbZa1lLN24GNpqI_!!6000000004802-2-tps-3410-2064.png)
+
+#### Notes
+
+- If a skill with the same name already exists, import does not overwrite.
+  Check the existing one first.
+- If import fails, check URL completeness, supported domains, and outbound
+  network access. If GitHub rate-limits requests, add `GITHUB_TOKEN` in
+  Console → Settings → Environments. See GitHub docs:
+  [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 
 ### 5. Create manually in the workspace
 
@@ -197,6 +255,25 @@ Create a directory under `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, add
 variables, declare them in `metadata.requires`; CoPaw exposes them as
 `require_bins` and `require_envs` metadata, but does not disable the skill
 automatically.
+
+#### Example SKILL.md
+
+```markdown
+---
+name: my_skill
+description: My custom capability
+metadata:
+  requires:
+    bins: [ffmpeg]
+    env: [MY_SKILL_API_KEY]
+---
+
+# Usage
+
+This skill is used for…
+```
+
+`name` and `description` are **required**. `metadata` is optional.
 
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
@@ -340,13 +417,9 @@ workspace skill across agents, upload it to the skill pool manually via the UI.
 
 ## Related pages
 
-Related pages:
-
-- [Introduction](./intro) explains what the project can do.
-- [Console](./console) covers skill and channel management in the Console.
-- [Channels](./channels) explains how to connect DingTalk, Feishu, iMessage,
-  Discord, and QQ.
-- [Heartbeat](./heartbeat) covers scheduled check-ins and digests.
-- [CLI](./cli) explains cron commands in detail.
-- [Config & working dir](./config) describes the working directory and
-  configuration.
+- [Introduction](./intro) — What the project can do
+- [Console](./console) — Manage skills and channels in the Console
+- [Channels](./channels) — Connect DingTalk, Feishu, iMessage, Discord, QQ
+- [Heartbeat](./heartbeat) — Scheduled check-in / digest
+- [CLI](./cli) — Cron commands in detail
+- [Config & working dir](./config) — Working dir and config
