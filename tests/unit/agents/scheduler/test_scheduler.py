@@ -263,13 +263,25 @@ class TestPriorityMessageQueue:
         with pytest.raises(QueueFull):
             await queue.put(Msg(name="user", role="user", content="3"))
 
+    @pytest.mark.asyncio
+    async def test_put_task(self):
+        """Test re-queuing an existing Task object."""
+        queue = PriorityMessageQueue()
+        msg = Msg(name="user", role="user", content="test")
+        task = Task(message=msg, priority=int(MessagePriority.HIGH))
+
+        await queue.put_task(task)
+        
+        result = await queue.get()
+        assert result.task_id == task.task_id
+
     def test_get_stats(self):
         """Test queue statistics."""
         queue = PriorityMessageQueue()
 
-        queue.put_nowait(Msg(name="user", role="user", content="1"), MessagePriority.HIGH)
-        queue.put_nowait(Msg(name="user", role="user", content="2"), MessagePriority.HIGH)
-        queue.put_nowait(Msg(name="user", role="user", content="3"), MessagePriority.LOW)
+        asyncio.run(queue.put(Msg(name="user", role="user", content="1"), MessagePriority.HIGH))
+        asyncio.run(queue.put(Msg(name="user", role="user", content="2"), MessagePriority.HIGH))
+        asyncio.run(queue.put(Msg(name="user", role="user", content="3"), MessagePriority.LOW))
 
         stats = queue.get_stats()
         assert stats.high == 2
@@ -298,7 +310,7 @@ class TestAgentScheduler:
         executor = AsyncMock(return_value="result")
 
         await scheduler.register_agent("agent-1", executor)
-        
+
         msg = Msg(name="user", role="user", content="test message")
         task_id = await scheduler.dispatch(msg, MessagePriority.HIGH)
 
@@ -308,10 +320,34 @@ class TestAgentScheduler:
         executor.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_dispatch_queues_when_no_idle(self):
+        """Test dispatching queues task when no idle agents."""
+        scheduler = AgentScheduler()
+        
+        # Create slow executor that never finishes
+        async def slow_executor(msg, context=None):
+            await asyncio.sleep(100)
+
+        await scheduler.register_agent("agent-1", slow_executor)
+
+        # Start a task to make agent busy
+        msg1 = Msg(name="user", role="user", content="first task")
+        await scheduler.dispatch(msg1, MessagePriority.NORMAL)
+        await asyncio.sleep(0.05)  # Let task start
+
+        # Second task should be queued
+        msg2 = Msg(name="user", role="user", content="second task")
+        task_id2 = await scheduler.dispatch(msg2, MessagePriority.NORMAL)
+
+        # Check queue stats
+        stats = scheduler.queue_stats
+        assert stats["total"] >= 1
+
+    @pytest.mark.asyncio
     async def test_critical_interrupts_working(self):
         """Test CRITICAL task interrupts working agent."""
         scheduler = AgentScheduler()
-        
+
         # Create slow executor
         async def slow_executor(msg, context=None):
             await asyncio.sleep(1.0)
@@ -322,7 +358,7 @@ class TestAgentScheduler:
         # Start a normal task
         normal_msg = Msg(name="user", role="user", content="normal task")
         await scheduler.dispatch(normal_msg, MessagePriority.NORMAL)
-        
+
         await asyncio.sleep(0.05)  # Let task start
         state = await scheduler.get_agent_state("agent-1")
         assert state == AgentState.WORKING
@@ -332,7 +368,20 @@ class TestAgentScheduler:
         await scheduler.dispatch(critical_msg, MessagePriority.CRITICAL)
 
     @pytest.mark.asyncio
-    async def test_queue_stats(self):
+    async def test_get_agent_states(self):
+        """Test getting all agent states (async method)."""
+        scheduler = AgentScheduler()
+        executor = AsyncMock()
+
+        await scheduler.register_agent("agent-1", executor)
+        await scheduler.register_agent("agent-2", executor)
+
+        states = await scheduler.get_agent_states()
+        assert states["agent-1"] == "idle"
+        assert states["agent-2"] == "idle"
+
+    @pytest.mark.asyncio
+    async def test_queue_stats_property(self):
         """Test queue statistics property."""
         scheduler = AgentScheduler()
 

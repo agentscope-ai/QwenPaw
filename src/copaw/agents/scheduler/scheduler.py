@@ -33,7 +33,7 @@ class AgentScheduler:
 
     Example:
         >>> scheduler = AgentScheduler()
-        >>> scheduler.register_agent("agent-1", execute_func)
+        >>> await scheduler.register_agent("agent-1", execute_func)
         >>> await scheduler.dispatch(message, MessagePriority.HIGH)
     """
 
@@ -54,7 +54,7 @@ class AgentScheduler:
 
     @property
     def queue_stats(self) -> Dict[str, int]:
-        """Get current queue statistics."""
+        """Get current queue statistics (sync, for quick status check)."""
         stats = self._queue.get_stats()
         return {
             "critical": stats.critical,
@@ -64,14 +64,16 @@ class AgentScheduler:
             "total": stats.total,
         }
 
-    @property
-    def agent_states(self) -> Dict[str, str]:
-        """Get all agent states."""
+    async def get_agent_states(self) -> Dict[str, str]:
+        """Get all agent states (async version).
+
+        Returns:
+            Dictionary mapping agent IDs to their state values.
+        """
+        all_states = await self._state_manager.get_all_states()
         return {
             aid: state.value
-            for aid, state in asyncio.get_event_loop().run_until_complete(
-                self._state_manager.get_all_states()
-            )
+            for aid, state in all_states.items()
         }
 
     async def register_agent(
@@ -112,7 +114,7 @@ class AgentScheduler:
         For CRITICAL priority:
         1. If idle agent exists, execute immediately
         2. Otherwise, interrupt a working agent
-        
+
         For other priorities:
         1. If idle agent exists, execute immediately
         2. Otherwise, queue the message
@@ -124,21 +126,36 @@ class AgentScheduler:
         Returns:
             Task ID for tracking.
         """
-        task = await self._queue.put(message, priority)
+        task = Task(message=message, priority=int(priority))
         logger.info(
-            f"Dispatched task {task.task_id} with priority {priority.name}"
+            f"Dispatching task {task.task_id} with priority {priority.name}"
         )
 
-        # CRITICAL: Try immediate dispatch
+        # CRITICAL: Try immediate dispatch or interrupt
         if priority == MessagePriority.CRITICAL:
-            await self._handle_critical_task(task)
-        else:
-            # Try to find idle agent
             idle_agents = await self._state_manager.find_idle_agents()
             if idle_agents:
                 agent_id = self._select_agent(idle_agents)
                 await self._assign_task(agent_id, task)
+                return task.task_id
 
+            # No idle agents - must interrupt
+            working_agents = await self._state_manager.find_working_agents()
+            if working_agents:
+                agent_id = self._select_agent(working_agents)
+                await self._interrupt_agent(agent_id, task)
+                return task.task_id
+
+        # Non-CRITICAL: Try idle agents first, then queue
+        idle_agents = await self._state_manager.find_idle_agents()
+        if idle_agents:
+            agent_id = self._select_agent(idle_agents)
+            await self._assign_task(agent_id, task)
+            return task.task_id
+
+        # No idle agents - queue for later
+        await self._queue.put_task(task)
+        logger.info(f"Queued task {task.task_id}, no idle agents")
         return task.task_id
 
     async def _handle_critical_task(self, task: Task) -> None:
@@ -165,6 +182,7 @@ class AgentScheduler:
             return
 
         # No agents at all - queue
+        await self._queue.put_task(task)
         logger.warning("No agents available for CRITICAL task, queuing")
 
     async def _interrupt_agent(self, agent_id: str, new_task: Task) -> None:
@@ -225,7 +243,7 @@ class AgentScheduler:
 
         try:
             logger.info(f"Agent {agent_id} executing task {task.task_id}")
-            
+
             # Check for resume context
             context = None
             if task.metadata.get("resumed_from"):
@@ -234,6 +252,10 @@ class AgentScheduler:
             result = await executor(task.message, context)
             logger.info(f"Agent {agent_id} completed task {task.task_id}")
 
+        except asyncio.CancelledError:
+            logger.info(f"Agent {agent_id} task {task.task_id} was cancelled")
+            # Don't clean up here - the interrupting task will handle state
+            raise
         except Exception as e:
             logger.error(
                 f"Agent {agent_id} failed task {task.task_id}: {e}",
@@ -242,7 +264,7 @@ class AgentScheduler:
         finally:
             async with self._lock:
                 self._current_tasks.pop(agent_id, None)
-            
+
             # Check for paused task to resume
             paused = self._paused_tasks.pop(agent_id, None)
             if paused and paused.can_resume:
@@ -254,7 +276,7 @@ class AgentScheduler:
             else:
                 # Check queue for more tasks
                 try:
-                    next_task = self._queue.get_nowait()
+                    next_task = await self._queue.get_nowait_async()
                     await self._assign_task(agent_id, next_task)
                 except QueueEmpty:
                     await self._state_manager.set_state(agent_id, AgentState.IDLE)
@@ -351,7 +373,7 @@ class AgentScheduler:
         """Background task to process queued messages."""
         while self._running:
             try:
-                # Wait for message
+                # Wait for message with timeout to allow periodic checks
                 task = await self._queue.get(timeout=1.0)
 
                 # Find idle agent
@@ -361,9 +383,8 @@ class AgentScheduler:
                     await self._assign_task(agent_id, task)
                 else:
                     # Put back in queue - no idle agents
-                    # This creates a busy-wait pattern, but queue ordering
-                    # is preserved for same-priority items
-                    self._queue.put_nowait(task.message, MessagePriority(task.priority))
+                    # This preserves queue ordering
+                    await self._queue.put_task(task)
 
             except QueueEmpty:
                 # No messages, continue polling

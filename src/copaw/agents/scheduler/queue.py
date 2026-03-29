@@ -8,7 +8,7 @@ by priority level, supporting concurrent producers and consumers.
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 from agentscope.message import Msg
 
@@ -53,10 +53,11 @@ class PriorityMessageQueue:
     with higher priority messages being dequeued first.
 
     Features:
-    - Thread-safe operations
+    - Thread-safe operations with proper synchronization
     - Fair queuing within same priority (FIFO)
-    - Bounded queue support
+    - Bounded queue support with timeout
     - Statistics tracking
+    - Support for re-queueing Task objects
 
     Example:
         >>> queue = PriorityMessageQueue()
@@ -80,7 +81,13 @@ class PriorityMessageQueue:
         self._lock = asyncio.Lock()
         self._maxsize = maxsize
         self._total_items = 0
-        self._not_empty = asyncio.Event()
+        # Use Condition for proper wait/notify semantics
+        self._not_empty = asyncio.Condition(self._lock)
+        self._not_full = asyncio.Condition(self._lock)
+
+    def _has_space(self) -> bool:
+        """Check if queue has space for new items."""
+        return self._maxsize == 0 or self._total_items < self._maxsize
 
     async def put(
         self,
@@ -93,7 +100,7 @@ class PriorityMessageQueue:
         Args:
             message: The message to queue.
             priority: Priority level for the message.
-            timeout: Optional timeout in seconds.
+            timeout: Optional timeout in seconds. None means wait forever.
 
         Returns:
             Task object wrapping the message.
@@ -104,31 +111,63 @@ class PriorityMessageQueue:
         """
         task = Task(message=message, priority=int(priority))
 
-        async with self._lock:
-            # Check capacity
-            if self._maxsize > 0 and self._total_items >= self._maxsize:
+        async with self._not_full:
+            # Wait for space if at capacity
+            while not self._has_space():
                 if timeout is None:
                     raise QueueFull(
                         f"Queue at capacity ({self._maxsize})"
                     )
-                # Wait for space (simplified - full impl would use Event)
-                raise QueueFull("Queue full with timeout not fully implemented")
+                try:
+                    await asyncio.wait_for(
+                        self._not_full.wait(),
+                        timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    raise QueueFull(
+                        f"Queue still full after {timeout}s timeout"
+                    )
 
+            # Add to queue
             await self._queues[priority].put(task)
             self._total_items += 1
-            self._not_empty.set()
+            self._not_empty.notify()
 
             logger.debug(
                 f"Enqueued task {task.task_id} with priority {priority.name}"
             )
             return task
 
-    def put_nowait(
+    async def put_task(self, task: Task) -> None:
+        """Re-queue an existing Task object (preserves task_id and metadata).
+
+        Args:
+            task: The Task object to re-queue.
+
+        Raises:
+            QueueFull: If the queue is at capacity.
+        """
+        async with self._not_full:
+            if not self._has_space():
+                raise QueueFull(
+                    f"Queue at capacity ({self._maxsize})"
+                )
+
+            priority = MessagePriority(task.priority)
+            await self._queues[priority].put(task)
+            self._total_items += 1
+            self._not_empty.notify()
+
+            logger.debug(
+                f"Re-queued task {task.task_id} with priority {priority.name}"
+            )
+
+    async def put_nowait_async(
         self,
         message: Msg,
         priority: MessagePriority = MessagePriority.NORMAL,
     ) -> Task:
-        """Add a message without waiting (non-async version).
+        """Add a message without waiting (async version with proper locking).
 
         Args:
             message: The message to queue.
@@ -140,15 +179,15 @@ class PriorityMessageQueue:
         Raises:
             QueueFull: If the queue is at capacity.
         """
-        if self._maxsize > 0 and self._total_items >= self._maxsize:
-            raise QueueFull(f"Queue at capacity ({self._maxsize})")
+        async with self._lock:
+            if not self._has_space():
+                raise QueueFull(f"Queue at capacity ({self._maxsize})")
 
-        task = Task(message=message, priority=int(priority))
-        self._queues[priority].put_nowait(task)
-        self._total_items += 1
-        self._not_empty.set()
+            task = Task(message=message, priority=int(priority))
+            await self._queues[priority].put(task)
+            self._total_items += 1
 
-        return task
+            return task
 
     async def get(self, timeout: Optional[float] = None) -> Task:
         """Get the highest priority message from the queue.
@@ -157,58 +196,51 @@ class PriorityMessageQueue:
         returning the first available message.
 
         Args:
-            timeout: Optional timeout in seconds.
+            timeout: Optional timeout in seconds. None means wait forever.
+
+        Returns:
+            Highest priority Task available.
+
+        Raises:
+            QueueEmpty: If no message is available within timeout.
+        """
+        async with self._not_empty:
+            # Use loop to handle spurious wakeups and race conditions
+            while True:
+                # Try to get from any queue
+                for priority in MessagePriority:
+                    queue = self._queues[priority]
+                    if not queue.empty():
+                        task = queue.get_nowait()
+                        self._total_items -= 1
+                        self._not_full.notify()
+                        logger.debug(
+                            f"Dequeued task {task.task_id} from {priority.name} queue"
+                        )
+                        return task
+
+                # No task available, wait or timeout
+                if timeout is not None:
+                    try:
+                        await asyncio.wait_for(
+                            self._not_empty.wait(),
+                            timeout=timeout
+                        )
+                    except asyncio.TimeoutError:
+                        raise QueueEmpty(
+                            f"No message available within {timeout}s timeout"
+                        )
+                else:
+                    await self._not_empty.wait()
+
+    async def get_nowait_async(self) -> Task:
+        """Get message without waiting (async version with proper locking).
 
         Returns:
             Highest priority Task available.
 
         Raises:
             QueueEmpty: If no message is available.
-            asyncio.TimeoutError: If timeout expires.
-        """
-        # Try to get immediately
-        task = await self._try_get()
-        if task:
-            return task
-
-        # Wait for message
-        if timeout:
-            try:
-                await asyncio.wait_for(self._not_empty.wait(), timeout)
-            except asyncio.TimeoutError:
-                raise QueueEmpty("Timeout waiting for message")
-        else:
-            await self._not_empty.wait()
-
-        task = await self._try_get()
-        if task:
-            return task
-
-        raise QueueEmpty("Queue is empty")
-
-    def get_nowait(self) -> Task:
-        """Get message without waiting (non-async version).
-
-        Returns:
-            Highest priority Task available.
-
-        Raises:
-            QueueEmpty: If no message is available.
-        """
-        for priority in MessagePriority:
-            queue = self._queues[priority]
-            if not queue.empty():
-                task = queue.get_nowait()
-                self._total_items -= 1
-                return task
-
-        raise QueueEmpty("All queues are empty")
-
-    async def _try_get(self) -> Optional[Task]:
-        """Try to get a task without blocking.
-
-        Returns:
-            Task if available, None otherwise.
         """
         async with self._lock:
             for priority in MessagePriority:
@@ -216,14 +248,9 @@ class PriorityMessageQueue:
                 if not queue.empty():
                     task = queue.get_nowait()
                     self._total_items -= 1
-                    logger.debug(
-                        f"Dequeued task {task.task_id} from {priority.name} queue"
-                    )
-                    # Reset event if all queues empty
-                    if self._total_items == 0:
-                        self._not_empty.clear()
                     return task
-            return None
+
+            raise QueueEmpty("All queues are empty")
 
     def get_stats(self) -> QueueStats:
         """Get current queue statistics.
@@ -239,21 +266,23 @@ class PriorityMessageQueue:
             total=self._total_items,
         )
 
-    def empty(self) -> bool:
-        """Check if all queues are empty.
+    async def empty_async(self) -> bool:
+        """Check if all queues are empty (async version).
 
         Returns:
             True if no messages are queued.
         """
-        return self._total_items == 0
+        async with self._lock:
+            return self._total_items == 0
 
-    def qsize(self) -> int:
-        """Get total number of queued messages.
+    async def qsize_async(self) -> int:
+        """Get total number of queued messages (async version).
 
         Returns:
             Total messages across all priority levels.
         """
-        return self._total_items
+        async with self._lock:
+            return self._total_items
 
     async def clear(self) -> int:
         """Clear all messages from all queues.
@@ -270,5 +299,5 @@ class PriorityMessageQueue:
                     except asyncio.QueueEmpty:
                         break
             self._total_items = 0
-            self._not_empty.clear()
+            self._not_full.notify_all()
             return count
