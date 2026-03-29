@@ -42,7 +42,7 @@ async def _collect(stream):
 
 
 async def test_kb_command_imports_files(tmp_path: Path) -> None:
-    source = tmp_path / "incoming" / "kb-note.txt"
+    source = tmp_path / "media" / "kb-note.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("KB command import content.", encoding="utf-8")
 
@@ -61,7 +61,7 @@ async def test_kb_command_imports_files(tmp_path: Path) -> None:
 
 
 async def test_kb_import_alias_imports_files(tmp_path: Path) -> None:
-    source = tmp_path / "incoming" / "kb-note-alias.txt"
+    source = tmp_path / "media" / "kb-note-alias.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("KB alias import content.", encoding="utf-8")
 
@@ -81,6 +81,26 @@ async def test_kb_import_alias_imports_files(tmp_path: Path) -> None:
 
 async def test_kb_command_without_attachments(tmp_path: Path) -> None:
     request = _make_request(text="/kb", file_paths=[])
+    runner = SimpleNamespace(workspace_dir=tmp_path)
+    result = await _collect(
+        run_command_path(request, _make_msgs("/kb"), runner),
+    )
+
+    assert len(result) == 1
+    msg, is_last = result[0]
+    assert is_last is True
+    text = msg.get_text_content() or ""
+    assert "No importable file attachments found" in text
+
+
+async def test_kb_command_rejects_attachments_outside_media_dir(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "incoming" / "outside.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("outside media dir", encoding="utf-8")
+
+    request = _make_request(text="/kb", file_paths=[source])
     runner = SimpleNamespace(workspace_dir=tmp_path)
     result = await _collect(
         run_command_path(request, _make_msgs("/kb"), runner),

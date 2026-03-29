@@ -100,8 +100,13 @@ def _extract_kb_command_action(query: str) -> str:
     return "invalid"
 
 
-def _extract_local_files_for_kb(request) -> list[Path]:
+def _extract_local_files_for_kb(
+    request,
+    *,
+    media_root: Path,
+) -> list[Path]:
     """Extract local attachment paths from request input content."""
+    safe_media_root = media_root.expanduser().resolve()
     attachments: list[Path] = []
     seen_paths: set[str] = set()
     inputs = getattr(request, "input", None) or []
@@ -123,7 +128,17 @@ def _extract_local_files_for_kb(request) -> list[Path]:
         local_path = file_url_to_local_path(file_url)
         if not local_path:
             continue
-        path = Path(local_path).expanduser()
+        path = Path(local_path).expanduser().resolve()
+        try:
+            path.relative_to(safe_media_root)
+        except ValueError:
+            logger.warning(
+                "skip non-media attachment in /kb import: %s (media_root=%s)",
+                path,
+                safe_media_root,
+            )
+            continue
+
         path_key = str(path)
         if path_key in seen_paths:
             continue
@@ -178,7 +193,23 @@ async def _handle_kb_command(
         )
 
     del action  # reserved for future subcommands
-    local_files = _extract_local_files_for_kb(request)
+    workspace_dir = Path(runner.workspace_dir or WORKING_DIR).expanduser()
+    media_root = workspace_dir / "media"
+    workspace = getattr(runner, "_workspace", None)
+    if workspace is not None:
+        channel_manager = getattr(workspace, "channel_manager", None)
+        channel_id = getattr(request, "channel", None) or "console"
+        if channel_manager is not None:
+            channel = await channel_manager.get_channel(channel_id)
+            if channel is not None:
+                channel_media_dir = getattr(channel, "media_dir", None)
+                if channel_media_dir is not None:
+                    media_root = Path(channel_media_dir).expanduser()
+
+    local_files = _extract_local_files_for_kb(
+        request,
+        media_root=media_root,
+    )
     if not local_files:
         return Msg(
             name="Friday",
@@ -189,13 +220,12 @@ async def _handle_kb_command(
                     text=(
                         "**Knowledge Import**\n\n"
                         "- No importable file attachments found in "
-                        "this message."
+                        "this message (media directory only)."
                     ),
                 ),
             ],
         )
 
-    workspace_dir = Path(runner.workspace_dir or WORKING_DIR).expanduser()
     service = KnowledgeImportService(workspace_dir)
     response = await service.import_local_files(local_files)
     logger.info(
