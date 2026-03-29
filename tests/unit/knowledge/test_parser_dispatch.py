@@ -26,6 +26,7 @@ def test_default_engine_uses_specialized_parser_only(
     assert _parser_names(Path("notes.docx")) == ["DocxParser"]
     assert _parser_names(Path("legacy.doc")) == ["DocParser"]
     assert _parser_names(Path("sheet.xlsx")) == ["XlsxParser"]
+    assert _parser_names(Path("deck.pptx")) == ["PptxParser"]
     assert _parser_names(Path("notes.md")) == ["MarkdownParser"]
 
 
@@ -37,6 +38,7 @@ def test_docling_engine_prioritizes_docling_with_fallback(
     assert _parser_names(Path("paper.pdf")) == ["DoclingParser", "PdfParser"]
     assert _parser_names(Path("legacy.doc")) == ["DocParser"]
     assert _parser_names(Path("sheet.xlsx")) == ["XlsxParser"]
+    assert _parser_names(Path("deck.pptx")) == ["PptxParser"]
     assert _parser_names(Path("notes.docx")) == [
         "DoclingParser",
         "DocxParser",
