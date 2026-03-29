@@ -6,6 +6,7 @@ Yields (Msg, last) compatible with query_handler stream.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import AsyncIterator
 from typing import TYPE_CHECKING
 
@@ -18,7 +19,10 @@ from .daemon_commands import (
     parse_daemon_query,
 )
 from ...agents.command_handler import CommandHandler
+from ...agents.knowledge.service import KnowledgeImportService
 from ...config.config import load_agent_config
+from ...constant import WORKING_DIR
+from ..channels.utils import file_url_to_local_path
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,14 @@ def _is_conversation_command(query: str | None) -> bool:
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 
+def _is_kb_command(query: str | None) -> bool:
+    """True if query starts with /kb command namespace."""
+    if not query or not query.startswith("/"):
+        return False
+    token = query.strip().split()[0].lower() if query.strip() else ""
+    return token == "/kb"
+
+
 def _is_control_command(query: str | None) -> bool:
     """True if query is a control command (/stop, etc.)."""
     return control_commands.is_control_command(query)
@@ -68,7 +80,79 @@ def _is_command(query: str | None) -> bool:
         return True
     if _is_control_command(query):
         return True
+    if _is_kb_command(query):
+        return True
     return _is_conversation_command(query)
+
+
+def _extract_kb_command_action(query: str) -> str:
+    """Parse /kb command action.
+
+    Returns:
+        "import" for supported actions.
+        "invalid" for unsupported subcommands.
+    """
+    parts = [p.strip().lower() for p in query.strip().split() if p.strip()]
+    if len(parts) == 1:
+        return "import"
+    if len(parts) == 2 and parts[1] == "import":
+        return "import"
+    return "invalid"
+
+
+def _extract_local_files_for_kb(request) -> list[Path]:
+    """Extract local attachment paths from request input content."""
+    attachments: list[Path] = []
+    seen_paths: set[str] = set()
+    inputs = getattr(request, "input", None) or []
+    if not inputs:
+        return attachments
+
+    message = inputs[-1]
+    contents = getattr(message, "content", None) or []
+    for part in contents:
+        if isinstance(part, dict):
+            ptype = str(part.get("type") or "").lower()
+            file_url = part.get("file_url")
+        else:
+            ptype = str(getattr(part, "type", "")).lower()
+            file_url = getattr(part, "file_url", None)
+        if ptype != "file" or not isinstance(file_url, str):
+            continue
+
+        local_path = file_url_to_local_path(file_url)
+        if not local_path:
+            continue
+        path = Path(local_path).expanduser()
+        path_key = str(path)
+        if path_key in seen_paths:
+            continue
+        seen_paths.add(path_key)
+        attachments.append(path)
+    return attachments
+
+
+def _format_kb_import_summary(response) -> str:
+    """Build markdown summary text for KB import command result."""
+    header = "**Knowledge Import Complete**"
+    lines = [
+        header,
+        "",
+        f"- Requested: {response.requested}",
+        f"- Imported: {response.imported_count}",
+        f"- Skipped: {response.skipped_count}",
+        f"- Failed: {response.failed_count}",
+    ]
+    if response.failed_count > 0 and response.failed:
+        first_failed = response.failed[0]
+        lines.extend(
+            [
+                "",
+                f"- First failure: `{first_failed.file_name}`",
+                f"  `{first_failed.code}`: {first_failed.message}",
+            ],
+        )
+    return "\n".join(lines)
 
 
 async def run_command_path(  # pylint: disable=too-many-statements
@@ -131,6 +215,68 @@ async def run_command_path(  # pylint: disable=too-many-statements
         msg = await handler.handle_daemon_command(query, daemon_ctx)
         yield msg, True
         logger.info("handle_daemon_command %s completed", query)
+        return
+
+    if _is_kb_command(query):
+        action = _extract_kb_command_action(query)
+        if action == "invalid":
+            usage_msg = Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "**Usage**\n\n"
+                            "- `/kb`\n"
+                            "- `/kb import`"
+                        ),
+                    ),
+                ],
+            )
+            yield usage_msg, True
+            return
+
+        del action  # reserved for future subcommands
+        local_files = _extract_local_files_for_kb(request)
+        if not local_files:
+            no_files_msg = Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "**Knowledge Import**\n\n"
+                            "- No importable file attachments found in "
+                            "this message."
+                        ),
+                    ),
+                ],
+            )
+            yield no_files_msg, True
+            return
+
+        workspace_dir = Path(runner.workspace_dir or WORKING_DIR).expanduser()
+        service = KnowledgeImportService(workspace_dir)
+        response = await service.import_local_files(local_files)
+        summary_msg = Msg(
+            name="Friday",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=_format_kb_import_summary(response),
+                ),
+            ],
+        )
+        yield summary_msg, True
+        logger.info(
+            "kb import completed: requested=%s imported=%s failed=%s",
+            response.requested,
+            response.imported_count,
+            response.failed_count,
+        )
         return
 
     # Control command path (e.g. /stop)
