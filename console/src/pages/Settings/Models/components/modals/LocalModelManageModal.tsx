@@ -1,10 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Modal, Tooltip, message } from "@agentscope-ai/design";
-import { CloseOutlined } from "@ant-design/icons";
+import {
+  Button,
+  Input,
+  Modal,
+  Select,
+  Tooltip,
+  message,
+} from "@agentscope-ai/design";
+import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import { Progress } from "antd";
 import type {
   ProviderInfo,
   LocalDownloadProgress,
+  LocalDownloadSource,
   LocalModelInfo,
   LocalServerStatus,
 } from "../../../../../api/types";
@@ -78,6 +86,9 @@ export function LocalModelManageModal({
 }: LocalModelManageModalProps) {
   const { t } = useTranslation();
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
+  const [customModelRepoId, setCustomModelRepoId] = useState("");
+  const [customModelSource, setCustomModelSource] =
+    useState<LocalDownloadSource>("huggingface");
   const [loadingLocal, setLoadingLocal] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [serverStatus, setServerStatus] = useState<LocalServerStatus | null>(
@@ -353,6 +364,23 @@ export function LocalModelManageModal({
     [refreshStatus, setModelDownloadState, startPolling, t],
   );
 
+  const handleStartCustomModelDownload = useCallback(async () => {
+    const trimmedRepoId = customModelRepoId.trim();
+
+    if (!trimmedRepoId) {
+      message.warning(t("models.localRepoIdRequired"));
+      return;
+    }
+
+    await handleStartModelDownload({
+      id: trimmedRepoId,
+      name: trimmedRepoId,
+      size_bytes: 0,
+      downloaded: false,
+      source: customModelSource,
+    });
+  }, [customModelRepoId, customModelSource, handleStartModelDownload, t]);
+
   const handleCancelModelDownload = useCallback(
     (modelName: string) => {
       Modal.confirm({
@@ -456,6 +484,8 @@ export function LocalModelManageModal({
   const isModelDownloading = isDownloadActive(modelDownload);
   const isServerBusy = stoppingServer || startingModelName !== null;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
+  const isCustomDownloadDisabled =
+    customModelRepoId.trim().length === 0 || isModelDownloading || isServerBusy;
   const downloadedModelCount = localModels.filter(
     (model) => model.downloaded,
   ).length;
@@ -579,21 +609,79 @@ export function LocalModelManageModal({
               <div className={styles.modelListEmpty}>
                 {t("models.localNoRecommendedModels")}
               </div>
-            ) : serverStatus?.installed ? (
-              localModels.map((model) => (
-                <LocalModelRow
-                  key={model.id}
-                  model={model}
-                  currentRunningModelName={currentRunningModelName}
-                  isModelDownloading={isModelDownloading}
-                  isServerBusy={isServerBusy}
-                  startingModelName={startingModelName}
-                  stoppingServer={stoppingServer}
-                  onStartDownload={handleStartModelDownload}
-                  onStartServer={handleStartServer}
-                  onStopServer={handleStopServer}
-                />
-              ))
+            ) : null}
+
+            {serverStatus?.installed
+              ? localModels.map((model) => (
+                  <LocalModelRow
+                    key={model.id}
+                    model={model}
+                    currentRunningModelName={currentRunningModelName}
+                    isModelDownloading={isModelDownloading}
+                    isServerBusy={isServerBusy}
+                    startingModelName={startingModelName}
+                    stoppingServer={stoppingServer}
+                    onStartDownload={handleStartModelDownload}
+                    onStartServer={handleStartServer}
+                    onStopServer={handleStopServer}
+                  />
+                ))
+              : null}
+
+            {serverStatus?.installed ? (
+              <div
+                className={`${styles.modelListItem} ${styles.customModelListItem}`}
+              >
+                <div className={styles.customModelHeader}>
+                  <div className={styles.customModelListItemInfo}>
+                    <span className={styles.modelListItemName}>
+                      {t("models.localCustomModelTitle")}
+                    </span>
+                    <span className={styles.customModelHint}>
+                      {t("models.localCustomModelHint")}
+                    </span>
+                  </div>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    onClick={() => {
+                      void handleStartCustomModelDownload();
+                    }}
+                    disabled={isCustomDownloadDisabled}
+                  >
+                    {t("common.download")}
+                  </Button>
+                </div>
+                <div className={styles.customModelInputRow}>
+                  <Input
+                    value={customModelRepoId}
+                    onChange={(e) => setCustomModelRepoId(e.target.value)}
+                    onPressEnter={() => {
+                      void handleStartCustomModelDownload();
+                    }}
+                    placeholder={t("models.localRepoIdPlaceholder")}
+                    className={styles.customModelRepoInput}
+                  />
+                  <Select
+                    value={customModelSource}
+                    onChange={(value) =>
+                      setCustomModelSource(value as LocalDownloadSource)
+                    }
+                    className={styles.customModelSourceSelect}
+                    options={[
+                      {
+                        value: "huggingface",
+                        label: t("models.localSourceHuggingFace"),
+                      },
+                      {
+                        value: "modelscope",
+                        label: t("models.localSourceModelScope"),
+                      },
+                    ]}
+                  />
+                </div>
+              </div>
             ) : null}
           </div>
         )}

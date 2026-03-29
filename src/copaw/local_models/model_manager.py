@@ -93,12 +93,6 @@ class ModelManager:
                     name="CoPaw-flash-2B-Q8_0",
                     size_bytes=2552356320,
                 ),
-                LocalModelInfo(
-                    id="Qwen/Qwen3-0.6B-GGUF",
-                    name="Qwen3-0.6B-GGUF",
-                    size_bytes=639446688,
-                    source=DownloadSource.MODELSCOPE,
-                ),
             ]
         elif memory_gb <= 16:
             models = [
@@ -112,12 +106,6 @@ class ModelManager:
                     name="CoPaw-flash-4B-Q8_0",
                     size_bytes=5157833056,
                 ),
-                LocalModelInfo(
-                    id="Qwen/Qwen3-0.6B-GGUF",
-                    name="Qwen3-0.6B-GGUF",
-                    size_bytes=639446688,
-                    source=DownloadSource.MODELSCOPE,
-                ),
             ]
         else:
             models = [
@@ -130,12 +118,6 @@ class ModelManager:
                     id="AgentScope/CoPaw-flash-9B-Q8_0",
                     name="CoPaw-flash-9B-Q8_0",
                     size_bytes=10590617600,
-                ),
-                LocalModelInfo(
-                    id="Qwen/Qwen3-0.6B-GGUF",
-                    name="Qwen3-0.6B-GGUF",
-                    size_bytes=639446688,
-                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
 
@@ -652,6 +634,8 @@ class ModelManager:
         for entry in entries:
             if not entry.is_dir():
                 continue
+            if self._is_temporary_download_dir(entry):
+                continue
             if not any(entry.rglob("*.gguf")):
                 continue
             if not self._looks_like_model_root(entry):
@@ -664,6 +648,13 @@ class ModelManager:
                 continue
             selected.append(candidate)
         return selected
+
+    def _is_temporary_download_dir(self, path: Path) -> bool:
+        relative_parts = path.relative_to(self._model_dir).parts
+        return any(
+            part.startswith(".") or part.endswith(".downloading")
+            for part in relative_parts
+        )
 
     def _looks_like_model_root(self, path: Path) -> bool:
         visible_children = [
