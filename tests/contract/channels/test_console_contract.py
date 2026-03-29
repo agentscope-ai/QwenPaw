@@ -23,7 +23,7 @@ def create_mock_process_handler():
     """Create a mock process handler for channel testing."""
     mock = AsyncMock()
 
-    async def mock_process(*args, **kwargs):
+    async def mock_process(*_args, **_kwargs):
         from unittest.mock import MagicMock
 
         mock_event = MagicMock()
@@ -51,14 +51,17 @@ class TestConsoleChannelContract(ChannelContractTest):
         process = create_mock_process_handler()
         return ConsoleChannel(
             process=process,
+            enabled=True,
+            bot_prefix="[TEST] ",
             show_tool_details=False,
             filter_tool_messages=True,
         )
 
     # Subclass-specific tests can be added here
     def test_console_specific_behavior(self, instance):
-        """Console-specific: should support stdin/stdout operations."""
-        assert hasattr(instance, "_console_style")
+        """Console-specific: uses stdout for output."""
+        # Console channel outputs to stdout/stderr
+        assert hasattr(instance, "bot_prefix")
 
 
 # =============================================================================

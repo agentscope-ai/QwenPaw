@@ -1,6 +1,6 @@
 # CoPaw Test & Coverage Makefile
 
-.PHONY: test test-unit test-contract test-integration coverage-sa coverage-html clean
+.PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-sa coverage-html clean
 
 # Python path
 PYTHON := ./venv/bin/python
@@ -50,3 +50,16 @@ clean:
 # Quick check (fast feedback)
 quick:
 	$(PYTEST) tests/unit/ -x -q --tb=line
+
+# Channel-specific tests
+test-channel:
+	@echo "Running Channel unit tests..."
+	$(PYTEST) tests/unit/channels/ -v --tb=short
+
+test-channel-contract:
+	@echo "Running Channel contract tests..."
+	$(PYTEST) tests/contract/channels/ -v --tb=short
+
+# BaseChannel core unit tests (optional, not enforced)
+test-base-core:
+	$(PYTEST) tests/unit/channels/test_base_core.py -v

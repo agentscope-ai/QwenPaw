@@ -34,6 +34,17 @@
 - [ ] Documentation updated (if needed)
 - [ ] Ready for review
 
+### For Channel Changes (DingTalk, Feishu, QQ, Console, etc.)
+
+- [ ] I ran `./scripts/check-channels.sh` (or `./scripts/check-channels.sh --changed`) and it passes
+- [ ] New/modified channels have unit tests in `tests/unit/channels/test_<channel>_channel.py`
+- [ ] BaseChannel contract methods are tested (if applicable):
+  - [ ] `from_env()` factory method
+  - [ ] `from_config()` factory method
+  - [ ] `build_agent_request_from_native()` parsing
+  - [ ] `send()` and `send_content_parts()` output path
+  - [ ] `start()` and `stop()` lifecycle
+
 ## Testing
 
 [How to test these changes]
