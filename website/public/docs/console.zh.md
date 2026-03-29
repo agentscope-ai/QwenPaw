@@ -49,7 +49,7 @@
 发送区支持上传**附件**，包括文档、图片、音视频等（以界面提示为准，单文件有大小上限）。
 
 **知识库导入说明：**
-当前消息上传文件可导入知识库，支持 `.md`、`.txt`、`.pdf`、`.docx`、`.doc`、`.xlsx`。
+当前消息上传文件可导入知识库，支持 `.md`、`.txt`、`.pdf`、`.docx`、`.doc`、`.xlsx`、`.pptx`。
 其中 `.doc` 会通过 LibreOffice `soffice` 转换后再导入；如果缺少
 `soffice`，导入会失败。可先执行 `soffice --version` 检查，若命令不存在请安装
 LibreOffice 后重试。

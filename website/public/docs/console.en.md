@@ -58,7 +58,7 @@ on-screen limits; per-file size caps apply).
 
 **Knowledge base import note:**
 KB import from current-message uploads supports `.md`, `.txt`, `.pdf`, `.docx`,
-`.doc`, and `.xlsx`.
+`.doc`, `.xlsx`, and `.pptx`.
 Legacy `.doc` files are converted via LibreOffice `soffice`. If `soffice` is
 missing, import fails. Run `soffice --version` to verify, then install
 LibreOffice and retry.
