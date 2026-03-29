@@ -10,12 +10,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Callable, Optional, TYPE_CHECKING, Dict
+from typing import Callable, Optional, Dict
 
 from .manager import MCPClientManager
-
-if TYPE_CHECKING:
-    from ...config.config import MCPConfig
+from ...config.config import MCPConfig
 
 logger = logging.getLogger(__name__)
 
@@ -126,17 +124,19 @@ class MCPConfigWatcher:
             self._last_mcp = None
             self._last_mcp_hash = None
 
-    def _load_mcp_config(self) -> "MCPConfig":
+    def _load_mcp_config(self) -> MCPConfig:
         """Load MCP config using the provided loader."""
         config = self._config_loader()
         # Support both Config object with .mcp or direct MCPConfig
         if hasattr(config, "mcp"):
-            return config.mcp
-        return config
+            return config.mcp if config.mcp is not None else MCPConfig()
+        return config if config is not None else MCPConfig()
 
     @staticmethod
-    def _mcp_hash(mcp_config: "MCPConfig") -> int:
+    def _mcp_hash(mcp_config: Optional[MCPConfig]) -> int:
         """Fast hash of MCP config for quick change detection."""
+        if mcp_config is None:
+            return hash(str({}))
         return hash(str(mcp_config.model_dump(mode="json")))
 
     async def _poll_loop(self) -> None:
