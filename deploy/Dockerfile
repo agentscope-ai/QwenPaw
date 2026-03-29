@@ -29,9 +29,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Use Aliyun Debian mirror for faster downloads in China
 RUN echo 'deb http://mirrors.aliyun.com/debian bookworm main' > /etc/apt/sources.list && \
     echo 'deb http://mirrors.aliyun.com/debian bookworm-updates main' >> /etc/apt/sources.list && \
-    echo 'deb http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list
-
-RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
+    echo 'deb http://mirrors.aliyun.com/debian-security bookworm-security main' >> /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends --fix-missing \
     curl \
     python3 \
     python3-pip \
@@ -39,7 +38,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
     build-essential \
     libssl-dev \
     git \
-    gettext-base \
     chromium \
     chromium-sandbox \
     libx11-xcb1 \
@@ -72,15 +70,15 @@ WORKDIR ${WORKSPACE_DIR}
 RUN python3 -m venv venv
 ENV PATH="/app/venv/bin:$PATH"
 
-# Use Aliyun PyPI mirror for pip
-RUN pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
-    pip3 config set global.trusted-host mirrors.aliyun.com
-
 COPY pyproject.toml setup.py README.md ./
 COPY src ./src
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/copaw/console/
-RUN pip install --no-cache-dir .[ollama]
+
+# Use Aliyun PyPI mirror for pip
+RUN pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip3 config set global.trusted-host mirrors.aliyun.com && \
+    pip install --no-cache-dir .[ollama]
 
 # Init working dir with default config.json and HEARTBEAT.md (build time).
 RUN copaw init --defaults --accept-security
@@ -88,7 +86,6 @@ RUN copaw init --defaults --accept-security
 # CoPaw app port (default 8088). Override at runtime with -e COPAW_PORT=3000.
 ENV COPAW_PORT=8088
 
-COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
 COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh
 
 EXPOSE 8088
