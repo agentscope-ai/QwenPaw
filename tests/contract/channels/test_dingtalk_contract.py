@@ -9,11 +9,11 @@ Run:
     pytest tests/contract/channels/test_dingtalk_contract.py -v
     pytest tests/contract/channels/ -v  # Run all channel contract tests
 """
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
 import asyncio
-import threading
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
@@ -73,25 +73,30 @@ class TestDingTalkChannelContract(ChannelContractTest):
     def test_has_dingtalk_specific_attributes(self, instance):
         """DingTalk-specific: must have session webhook store."""
         assert hasattr(
-            instance, "_session_webhook_store"
+            instance,
+            "_session_webhook_store",
         ), "DingTalkChannel missing _session_webhook_store"
         assert isinstance(
-            instance._session_webhook_store, dict
+            instance._session_webhook_store,
+            dict,
         ), "_session_webhook_store must be a dict"
 
     def test_has_token_caching_attributes(self, instance):
         """DingTalk-specific: must have token caching mechanism."""
         assert hasattr(
-            instance, "_token_value"
+            instance,
+            "_token_value",
         ), "DingTalkChannel missing _token_value"
         assert hasattr(
-            instance, "_token_expires_at"
+            instance,
+            "_token_expires_at",
         ), "DingTalkChannel missing _token_expires_at"
 
     def test_has_media_directory_attribute(self, instance):
         """DingTalk-specific: must have media directory for file uploads."""
         assert hasattr(
-            instance, "_media_dir"
+            instance,
+            "_media_dir",
         ), "DingTalkChannel missing _media_dir"
 
     def test_channel_type_is_dingtalk(self, instance):
@@ -103,7 +108,8 @@ class TestDingTalkChannelContract(ChannelContractTest):
     def test_has_file_upload_capability(self, instance):
         """DingTalk-specific: must support file upload methods."""
         assert hasattr(
-            instance, "send_media"
+            instance,
+            "send_media",
         ), "DingTalkChannel should have send_media for file uploads"
 
     @pytest.mark.asyncio
@@ -132,10 +138,12 @@ class TestDingTalkChannelContract(ChannelContractTest):
         and proactive (cron) sends.
         """
         assert hasattr(
-            instance, "_session_webhook_lock"
+            instance,
+            "_session_webhook_lock",
         ), "Missing _session_webhook_lock for thread safety"
         assert isinstance(
-            instance._session_webhook_lock, asyncio.Lock
+            instance._session_webhook_lock,
+            asyncio.Lock,
         ), "_session_webhook_lock must be asyncio.Lock"
 
     def test_dedup_mechanism_exists(self, instance):
@@ -145,33 +153,34 @@ class TestDingTalkChannelContract(ChannelContractTest):
         DingTalk can deliver the same message multiple times.
         """
         assert hasattr(
-            instance, "_processing_message_ids"
+            instance,
+            "_processing_message_ids",
         ), "Missing _processing_message_ids for deduplication"
         assert hasattr(
-            instance, "_processing_message_ids_lock"
+            instance,
+            "_processing_message_ids_lock",
         ), "Missing _processing_message_ids_lock for thread safety"
-        assert isinstance(
-            instance._processing_message_ids_lock, threading.Lock
-        ), "_processing_message_ids_lock must be threading.Lock"
+        # threading.Lock() returns a lock object, check by type name
+        lock_type = type(instance._processing_message_ids_lock).__name__
+        assert (
+            "lock" in lock_type.lower()
+        ), f"_processing_message_ids_lock must be a Lock, got {lock_type}"
 
 
 # =============================================================================
 # Regression Prevention Example
 # =============================================================================
-
-"""
-Scenario: Developer fixes DingTalk file upload by modifying BaseChannel
-
-Before contract tests:
-    - Dev modifies BaseChannel.send_media() signature
-    - DingTalk tests pass (dev tested locally)
-    - Feishu, Telegram, Discord tests fail in production!
-
-With contract tests:
-    - Dev modifies BaseChannel.send_media() signature
-    - Run: pytest tests/contract/channels/ -v
-    - TestConsoleChannelContract::test_has_send_method PASSES
-    - TestDingTalkChannelContract::test_has_file_upload_capability PASSES
-    - TestFeishuChannelContract (not yet added) would FAIL
-    - Dev realizes the breaking change and fixes it before merge
-"""
+# Scenario: Developer fixes DingTalk file upload by modifying BaseChannel
+#
+# Before contract tests:
+#   - Dev modifies BaseChannel.send_media() signature
+#   - DingTalk tests pass (dev tested locally)
+#   - Feishu, Telegram, Discord tests fail in production!
+#
+# With contract tests:
+#   - Dev modifies BaseChannel.send_media() signature
+#   - Run: pytest tests/contract/channels/ -v
+#   - TestConsoleChannelContract::test_has_send_method PASSES
+#   - TestDingTalkChannelContract::test_has_file_upload_capability PASSES
+#   - TestFeishuChannelContract (not yet added) would FAIL
+#   - Dev realizes the breaking change and fixes it before merge
