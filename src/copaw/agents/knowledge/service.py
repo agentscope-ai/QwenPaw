@@ -11,6 +11,7 @@ from typing import Literal
 from .chunker import chunk_text
 from .exceptions import (
     EmptyParsedContentError,
+    KnowledgeError,
     UnsupportedFileTypeError,
     UploadNotFoundError,
 )
@@ -83,11 +84,7 @@ class KnowledgeImportService:
                 else:
                     skipped.append(result)
 
-            except (
-                UploadNotFoundError,
-                UnsupportedFileTypeError,
-                EmptyParsedContentError,
-            ) as exc:
+            except KnowledgeError as exc:
                 failed.append(
                     self._build_failed_import(
                         upload_id=item.upload_id,
@@ -161,11 +158,7 @@ class KnowledgeImportService:
                     imported.append(result)
                 else:
                     skipped.append(result)
-            except (
-                UploadNotFoundError,
-                UnsupportedFileTypeError,
-                EmptyParsedContentError,
-            ) as exc:
+            except KnowledgeError as exc:
                 failed.append(
                     self._build_failed_import(
                         upload_id=upload_id,
@@ -302,6 +295,8 @@ class KnowledgeImportService:
             code = "UNSUPPORTED_FILE_TYPE"
         elif isinstance(error, EmptyParsedContentError):
             code = "EMPTY_PARSED_CONTENT"
+        elif isinstance(error, KnowledgeError):
+            code = "PARSER_ERROR"
         else:
             code = "IMPORT_FAILED"
         return FailedKnowledgeImport(

@@ -77,3 +77,65 @@ async def test_import_service_falls_back_to_next_parser(
     assert failing.calls == 1
     assert successful.calls == 1
     assert response.imported[0].source_type == "txt"
+
+
+async def test_import_uploads_maps_knowledge_error_to_parser_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    media_dir = tmp_path / "media"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    upload_id = "broken.txt"
+    (media_dir / upload_id).write_text("hello", encoding="utf-8")
+
+    failing = _FailingParser()
+
+    monkeypatch.setattr(
+        "copaw.agents.knowledge.service.resolve_parsers_for_path",
+        lambda _path: (failing,),
+    )
+
+    service = KnowledgeImportService(tmp_path, media_dir=media_dir)
+    request = KnowledgeImportRequest(
+        uploads=[
+            KnowledgeImportItem(
+                upload_id=upload_id,
+                file_name="broken.txt",
+            ),
+        ],
+    )
+
+    response = await service.import_uploads(request)
+
+    assert response.success is False
+    assert response.imported_count == 0
+    assert response.failed_count == 1
+    assert response.failed[0].code == "PARSER_ERROR"
+    assert response.failed[0].message == "primary parser failed"
+    assert failing.calls == 1
+
+
+async def test_import_local_files_maps_knowledge_error_to_parser_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source = tmp_path / "incoming" / "broken.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("hello", encoding="utf-8")
+
+    failing = _FailingParser()
+
+    monkeypatch.setattr(
+        "copaw.agents.knowledge.service.resolve_parsers_for_path",
+        lambda _path: (failing,),
+    )
+
+    service = KnowledgeImportService(tmp_path)
+    response = await service.import_local_files([source])
+
+    assert response.success is False
+    assert response.imported_count == 0
+    assert response.failed_count == 1
+    assert response.failed[0].code == "PARSER_ERROR"
+    assert response.failed[0].message == "primary parser failed"
+    assert failing.calls == 1
