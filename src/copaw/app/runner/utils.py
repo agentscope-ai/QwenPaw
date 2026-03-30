@@ -81,7 +81,11 @@ def build_env_context(
             "Consult the relevant skill documentation if unsure.\n"
             "  2. When using write_file, if you want to avoid overwriting "
             "existing content, use read_file first to inspect the file, "
-            "then use edit_file for partial updates or appending.",
+            "then use edit_file for partial updates or appending.\n"
+            "  3. Use tool calls to perform actions. A response without a "
+            "tool call indicates the task is complete. To continue a task, "
+            "you must generate a tool call or provide useful feedback if "
+            "you are blocked.\n",
         )
 
     return (
