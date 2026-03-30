@@ -1,52 +1,131 @@
 .configPage {
-  padding: 24px;
   height: 100%;
-  overflow-y: auto;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :global {
+    .copaw-slider-track {
+      background-color: #ff7f16;
+    }
+
+    .copaw-slider .copaw-slider-handle::after {
+      box-shadow: 0 0 0 2px #ff7f16;
+    }
+  }
 }
 
-.header {
+.pageContent {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pageHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  margin-bottom: 0;
 }
 
-.headerActions {
+.breadcrumbHeader {
   display: flex;
+  align-items: center;
   gap: 8px;
-  flex-shrink: 0;
-  margin-top: 34px;
+  font-size: 16px;
+  flex: 1;
 }
 
-.title {
-  font-size: 24px;
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
   font-weight: 600;
-  margin: 0 0 8px 0;
-  color: #000;
-}
-
-.description {
-  font-size: 14px;
-  color: #666;
-  margin: 0;
+  font-size: 20px;
 }
 
 .formCard {
   width: 100%;
-
-  &:hover {
-    border: 1px solid #615ced;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
-  }
 }
 
 .form {
+  flex: 1;
+  min-height: 0;
+
   :global {
     .ant-form-item-label > label {
       font-weight: 500;
     }
   }
+}
+
+/* ReAct Agent row layout */
+.reactAgentRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.reactAgentField {
+  margin-bottom: 0 !important;
+}
+
+/* LLM Retry row layout */
+.llmRetryRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.llmRetryField {
+  margin-bottom: 0 !important;
+}
+
+/* Slider overrides - remove theme color */
+:global {
+  .ant-slider-rail {
+    background-color: rgba(20, 20, 19, 0.15) !important;
+  }
+
+  .ant-slider-track {
+    background-color: rgba(20, 20, 19, 0.25) !important;
+  }
+
+  .ant-slider-handle::after {
+    box-shadow: 0 0 0 2px rgba(20, 20, 19, 0.25) !important;
+    background-color: #fff !important;
+  }
+}
+
+:global(.dark-mode) {
+  .ant-slider-rail {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+  }
+
+  .ant-slider-track {
+    background-color: rgba(255, 255, 255, 0.25) !important;
+  }
+
+  .ant-slider-handle::after {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) !important;
+    background-color: #fff !important;
+  }
+}
+
+.formContainer {
+  padding: 16px;
 }
 
 .buttonGroup {
@@ -81,4 +160,31 @@
   justify-content: flex-end;
   align-items: center;
   padding: 16px 24px;
+  border-top: 1px solid #eae9e7;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .footerActions {
+    background: #1f1f1f;
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
 }

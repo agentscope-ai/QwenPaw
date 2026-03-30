@@ -20,9 +20,7 @@ export default function ThemeToggleButton() {
         aria-label={t(isDark ? "theme.switchToLight" : "theme.switchToDark")}
         type="text"
         icon={isDark ? <SunOutlined /> : <MoonOutlined />}
-      >
-        {t(isDark ? "theme.light" : "theme.dark")}
-      </Button>
+      />
     </Tooltip>
   );
 }
