@@ -135,14 +135,13 @@ def compress_image_for_wecom(
         Tuple of (compressed image bytes, new filename).
         Returns original bytes if already under limit or compression fails.
     """
+    path = Path(image_path)
     try:
         from PIL import Image
     except ImportError:
         logger.warning("PIL not available, skipping image compression")
-        path = Path(image_path)
         return path.read_bytes(), path.name
 
-    path = Path(image_path)
     original_data = path.read_bytes()
     original_size = len(original_data)
 
