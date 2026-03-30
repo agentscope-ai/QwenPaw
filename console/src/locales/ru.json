@@ -495,6 +495,12 @@
     "enableSuccess": "MCP-клиент успешно включён",
     "disableSuccess": "MCP-клиент успешно отключён",
     "toggleError": "Не удалось переключить статус MCP-клиента",
+    "probeStatus": "Проверить статус",
+    "probing": "Проверка...",
+    "probeDone": "Проверка статуса завершена",
+    "noEnabledClients": "Нет включённых MCP-клиентов для проверки",
+    "runtimeConnected": "Подключён",
+    "runtimeDisconnected": "Отключён",
     "deleteConfirm": "Вы уверены, что хотите удалить этот MCP-клиент?",
     "deleteSuccess": "MCP-клиент успешно удалён",
     "deleteError": "Не удалось удалить MCP-клиент"

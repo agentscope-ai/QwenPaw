@@ -11,6 +11,8 @@ interface MCPClientCardProps {
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onUpdate: (key: string, updates: any) => Promise<boolean>;
+  isRefreshing: boolean;
+  isQueued: boolean;
   isHovered: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -21,6 +23,8 @@ export function MCPClientCard({
   onToggle,
   onDelete,
   onUpdate,
+  isRefreshing,
+  isQueued,
   isHovered,
   onMouseEnter,
   onMouseLeave,
@@ -36,6 +40,20 @@ export function MCPClientCard({
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
+  const runtimeKnown = typeof client.active === "boolean";
+  const runtimeConnected = client.active === true;
+  const probing = isRefreshing || isQueued;
+  const statusEnabled =
+    client.enabled && (probing || !runtimeKnown || runtimeConnected);
+  const statusText = !client.enabled
+    ? t("common.disabled")
+    : probing
+      ? t("mcp.probing")
+      : runtimeKnown
+        ? runtimeConnected
+          ? t("mcp.runtimeConnected")
+          : t("mcp.runtimeDisconnected")
+        : t("common.enabled");
 
   // Check if command is npx to show special icon
   const isNpxCommand = client.command?.includes("npx");
@@ -123,15 +141,15 @@ export function MCPClientCard({
           <div className={styles.statusContainer}>
             <span
               className={`${styles.statusDot} ${
-                client.enabled ? styles.enabled : styles.disabled
+                statusEnabled ? styles.enabled : styles.disabled
               }`}
             />
             <span
               className={`${styles.statusText} ${
-                client.enabled ? styles.enabled : styles.disabled
+                statusEnabled ? styles.enabled : styles.disabled
               }`}
             >
-              {client.enabled ? t("common.enabled") : t("common.disabled")}
+              {statusText}
             </span>
           </div>
         </div>

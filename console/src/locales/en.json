@@ -529,6 +529,12 @@
     "enableSuccess": "MCP client enabled successfully",
     "disableSuccess": "MCP client disabled successfully",
     "toggleError": "Failed to toggle MCP client status",
+    "probeStatus": "Probe Status",
+    "probing": "Probing...",
+    "probeDone": "Status probing completed",
+    "noEnabledClients": "No enabled MCP clients to probe",
+    "runtimeConnected": "Connected",
+    "runtimeDisconnected": "Disconnected",
     "deleteConfirm": "Are you sure you want to delete this MCP client?",
     "deleteSuccess": "MCP client deleted successfully",
     "deleteError": "Failed to delete MCP client"

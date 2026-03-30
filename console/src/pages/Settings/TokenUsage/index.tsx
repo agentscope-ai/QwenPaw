@@ -182,7 +182,7 @@ function TokenUsagePage() {
                   <Card
                     className={styles.tableCard}
                     title={t("tokenUsage.byModel")}
-                    bodyStyle={{ padding: 0 }}
+                    styles={{ body: { padding: 0 } }}
                   >
                     <Table<ByModelRow>
                       columns={byModelColumns}
@@ -197,7 +197,7 @@ function TokenUsagePage() {
                   <Card
                     className={styles.tableCard}
                     title={t("tokenUsage.byDate")}
-                    bodyStyle={{ padding: 0 }}
+                    styles={{ body: { padding: 0 } }}
                   >
                     <Table<ByDateRow>
                       columns={byDateColumns}

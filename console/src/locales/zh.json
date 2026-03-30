@@ -495,6 +495,12 @@
     "enableSuccess": "MCP 客户端启用成功",
     "disableSuccess": "MCP 客户端禁用成功",
     "toggleError": "切换 MCP 客户端状态失败",
+    "probeStatus": "状态探测",
+    "probing": "探测中...",
+    "probeDone": "状态探测完成",
+    "noEnabledClients": "没有可探测的已启用 MCP 客户端",
+    "runtimeConnected": "已连接",
+    "runtimeDisconnected": "未连接",
     "deleteConfirm": "确定要删除此 MCP 客户端吗？",
     "deleteSuccess": "MCP 客户端删除成功",
     "deleteError": "MCP 客户端删除失败"

@@ -495,6 +495,12 @@
     "enableSuccess": "MCPクライアントを有効化しました",
     "disableSuccess": "MCPクライアントを無効化しました",
     "toggleError": "MCPクライアントのステータス変更に失敗しました",
+    "probeStatus": "状態プローブ",
+    "probing": "プローブ中...",
+    "probeDone": "状態プローブが完了しました",
+    "noEnabledClients": "プローブ可能な有効化済みMCPクライアントがありません",
+    "runtimeConnected": "接続済み",
+    "runtimeDisconnected": "未接続",
     "deleteConfirm": "このMCPクライアントを削除してもよろしいですか？",
     "deleteSuccess": "MCPクライアントを削除しました",
     "deleteError": "MCPクライアントの削除に失敗しました"

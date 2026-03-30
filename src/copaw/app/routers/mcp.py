@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, List, Optional, Literal
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
@@ -12,6 +13,7 @@ from ..utils import schedule_agent_reload
 from ...config.config import MCPClientConfig
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
+logger = logging.getLogger(__name__)
 
 
 class MCPClientInfo(BaseModel):
@@ -273,7 +275,17 @@ async def refresh_mcp_client_status(
     if mcp_manager is None:
         raise HTTPException(503, detail="MCP manager is unavailable")
 
-    await mcp_manager.refresh_client_status(client_key, client)
+    try:
+        await mcp_manager.refresh_client_status(client_key, client)
+    except BaseException as exc:
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+        logger.warning(
+            "Failed to refresh MCP client '%s' status: %s",
+            client_key,
+            exc,
+            exc_info=True,
+        )
     active_keys = _get_active_keys(mcp_manager)
     return _build_client_info(client_key, client, active=client_key in active_keys)
 

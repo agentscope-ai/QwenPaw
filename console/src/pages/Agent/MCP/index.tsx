@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Empty, Modal, Input } from "@agentscope-ai/design";
+import { Button, Empty, Modal, Input, message } from "@agentscope-ai/design";
 import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
@@ -56,6 +56,9 @@ function MCPPage() {
   const {
     clients,
     loading,
+    refreshStatuses,
+    queuedRefreshKeys,
+    refreshingKeys,
     toggleEnabled,
     deleteClient,
     createClient,
@@ -63,6 +66,8 @@ function MCPPage() {
   } = useMCP();
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const probingCount = queuedRefreshKeys.length + refreshingKeys.length;
+  const hasEnabledClients = clients.some((client) => client.enabled);
   const [newClientJson, setNewClientJson] = useState(`{
   "mcpServers": {
     "example-client": {
@@ -86,6 +91,15 @@ function MCPPage() {
   const handleDelete = async (client: MCPClientInfo, e?: React.MouseEvent) => {
     e?.stopPropagation();
     await deleteClient(client);
+  };
+
+  const handleProbeStatuses = async () => {
+    if (!hasEnabledClients) {
+      message.info(t("mcp.noEnabledClients"));
+      return;
+    }
+    await refreshStatuses();
+    message.success(t("mcp.probeDone"));
   };
 
   const handleCreateClient = async () => {
@@ -165,9 +179,20 @@ function MCPPage() {
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("mcp.title") }]}
         extra={
-          <Button type="primary" onClick={() => setCreateModalOpen(true)}>
-            {t("mcp.create")}
-          </Button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button
+              onClick={() => {
+                void handleProbeStatuses();
+              }}
+              loading={probingCount > 0}
+              disabled={loading || !hasEnabledClients}
+            >
+              {probingCount > 0 ? t("mcp.probing") : t("mcp.probeStatus")}
+            </Button>
+            <Button type="primary" onClick={() => setCreateModalOpen(true)}>
+              {t("mcp.create")}
+            </Button>
+          </div>
         }
       />
 
@@ -186,6 +211,8 @@ function MCPPage() {
               onToggle={handleToggleEnabled}
               onDelete={handleDelete}
               onUpdate={updateClient}
+              isRefreshing={refreshingKeys.includes(client.key)}
+              isQueued={queuedRefreshKeys.includes(client.key)}
               isHovered={hoverKey === client.key}
               onMouseEnter={() => setHoverKey(client.key)}
               onMouseLeave={() => setHoverKey(null)}
