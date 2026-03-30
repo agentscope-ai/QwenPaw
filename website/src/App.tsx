@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { loadSiteConfig, type SiteConfig } from "@/config";
 import { SiteConfigProvider } from "@/config-context";
 import { SiteLayout } from "@/components/SiteLayout";
-import { Home } from "./pages/Home/indext";
+import { Home } from "@/pages/Home";
 import { Docs } from "@/pages/Docs";
 import { ReleaseNotes } from "@/pages/ReleaseNotes";
 import { Downloads } from "@/pages/Downloads";
