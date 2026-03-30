@@ -37,7 +37,7 @@ CoPaw 的安全系统由三个核心安全层组成:
 
 ### 工作原理
 
-1. 当 Agent 调用工具时,工具守卫会检查相关参数。内置正则规则主要针对 **`execute_shell_command`**；对 **`write_file` / `read_file` 等路径类参数**的敏感访问由**文件防护**等机制覆盖,也可通过**自定义规则**扩展检测范围。
+1. 当 Agent 调用工具时,工具守卫会检查相关参数。内置正则规则主要针对 **`execute_shell_command`**。
 2. 使用正则表达式规则检测危险模式,例如:
    - `rm -rf /` — 危险的文件删除
    - SQL 注入相关片段
@@ -47,7 +47,7 @@ CoPaw 的安全系统由三个核心安全层组成:
    - 反向 Shell、Fork 炸弹等
      (具体覆盖范围以内置规则与自定义规则为准。)
 3. 每条规则有独立的严重级别(CRITICAL、HIGH、MEDIUM、LOW、INFO)
-4. 当发现 **CRITICAL** 或 **HIGH** 级别问题时:在**控制台等带会话的交互环境**中,工具调用会进入**待审批**流程,由你选择批准或拒绝;在**无会话上下文**的场景下,发现会记入日志,**调用仍可能继续执行** — 若需更严格限制,可使用 `denied_tools` 禁止特定工具或调整规则。
+4. 当发现 CRITICAL 或 HIGH 级别问题时:在控制台等带会话的交互环境中,工具调用会进入待审批流程,由你选择批准或拒绝;在无会话上下文的场景下,发现会记入日志,调用仍可能继续执行 — 若需更严格限制,可使用 `denied_tools` 禁止特定工具或调整规则。
 
 ### 配置
 
@@ -402,7 +402,7 @@ scanner = SkillScanner(policy=policy)
 - `hardcoded_secrets` — 硬编码密钥
 - `prompt_injection` — 提示词注入
 - `social_engineering` — 社会工程
-- `supply_chain_attack` — 供应链攻击(与内置 YAML 中 `category` 字段一致)
+- `supply_chain_attack` — 供应链攻击
 - `obfuscation` — 代码混淆
 - `resource_abuse` — 资源滥用
 - `unauthorized_tool_use` — 未授权工具使用
