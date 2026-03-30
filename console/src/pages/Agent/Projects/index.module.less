@@ -171,6 +171,7 @@
 }
 
 .runToolbar {
+  --run-button-width: 72px;
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
@@ -186,13 +187,15 @@
 }
 
 .templateSelect {
-  width: min(100%, 320px);
-  max-width: 320px;
+  width: calc(100% - var(--run-button-width) - 8px);
+  max-width: none;
+  min-width: 0;
 }
 
 .runButton {
-  flex-shrink: 0;
-  min-width: 72px;
+  flex: 0 0 var(--run-button-width);
+  width: var(--run-button-width);
+  min-width: var(--run-button-width);
 }
 
 .importTemplateSelect {
