@@ -23,11 +23,13 @@ CoPaw 已开源，项目仓库托管于 GitHub：
 我们遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范，以保持清晰的历史记录。
 
 **格式：**
+
 ```
 <type>(<scope>): <subject>
 ```
 
 **类型：**
+
 - `feat:` 新功能
 - `fix:` Bug 修复
 - `docs:` 仅文档
@@ -38,6 +40,7 @@ CoPaw 已开源，项目仓库托管于 GitHub：
 - `chore:` 构建、工具或维护
 
 **示例：**
+
 ```bash
 feat(channels): 添加 Telegram 频道支持
 fix(skills): 修复 SKILL.md 前置元数据解析
@@ -57,6 +60,7 @@ PR 标题应遵循相同的约定：
 - 保持描述简短且具有描述性
 
 **示例：**
+
 ```
 feat(models): 为 Azure OpenAI 添加自定义提供商
 fix(channels): 处理 Discord 中的空 content_parts
@@ -82,7 +86,6 @@ docs(skills): 记录 Skills Hub 导入
 - **文档：** 当你添加或更改面向用户的行为时更新文档。文档位于 `website/public/docs/` 目录
 
 ---
-
 
 ## 💬 获取帮助
 

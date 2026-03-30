@@ -8,11 +8,12 @@ Welcome to the CoPaw community! Whether you want to report bugs, seek help, shar
 
 For all CoPaw users: questions, discussions, feature suggestions, and more.
 
-| [Discord](https://discord.gg/eYMpfnkG8h) | [X (Twitter)](https://x.com/agentscope_ai) | [DingTalk](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
-| ----------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| ![Discord](https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png) | ![X](https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white) | ![DingTalk](https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png) |
+| [Discord](https://discord.gg/eYMpfnkG8h)                                                                | [X (Twitter)](https://x.com/agentscope_ai)                            | [DingTalk](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| ![Discord](https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png) | ![X](https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white) | ![DingTalk](https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png)                               |
 
 ### Great for:
+
 - **Ask questions and get help** - Installation, configuration, usage issues
 - **Share experiences** - Your CoPaw use cases and tips
 - **Feature suggestions** - New features you'd like to see
@@ -25,9 +26,9 @@ For all CoPaw users: questions, discussions, feature suggestions, and more.
 
 For contributors focused on development: if you have submitted a PR, claimed a feature, or would like to contribute to CoPaw development, you are welcome to join the following developer channels (mainly for development collaboration and technical discussions).
 
-| [Discord (Developers)](https://discord.gg/4jpsveW6) | [DingTalk Developer Group](https://qr.dingtalk.com/action/joingroup?code=v1,k1,+SpJ3xFo3kyf+jluVHIPnlImW0zNNx1GlxBBTPiFXiE=&_dt_no_comment=1&origin=11) |
+| [Discord (Developers)](https://discord.gg/4jpsveW6)                                                      | [DingTalk Developer Group](https://qr.dingtalk.com/action/joingroup?code=v1,k1,+SpJ3xFo3kyf+jluVHIPnlImW0zNNx1GlxBBTPiFXiE=&_dt_no_comment=1&origin=11) |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ![Discord](https://img.alicdn.com/imgextra/i4/O1CN01EKYIrm1jxiyJYYX0w_!!6000000004615-2-tps-314-312.png) | ![DingTalk Developer Group Invite QR](https://img.alicdn.com/imgextra/i3/O1CN01KQaksU1jtbPIwpgbi_!!6000000004606-2-tps-229-226.png) |
+| ![Discord](https://img.alicdn.com/imgextra/i4/O1CN01EKYIrm1jxiyJYYX0w_!!6000000004615-2-tps-314-312.png) | ![DingTalk Developer Group Invite QR](https://img.alicdn.com/imgextra/i3/O1CN01KQaksU1jtbPIwpgbi_!!6000000004606-2-tps-229-226.png)                     |
 
 ### Requirements to join:
 
@@ -36,6 +37,7 @@ For contributors focused on development: if you have submitted a PR, claimed a f
 - **Discord (Developers)**: Please first post one of the three items above in the CoPaw Discord community. After admin confirmation, you will be invited to the private developer channel.
 
 ### Great for discussing:
+
 - **Technical implementation** - Architecture design, code implementation
 - **Collaboration & task claiming** - Coordinating development work
 - **Testing & quality** - Test strategies, bug fixes
@@ -46,18 +48,22 @@ For contributors focused on development: if you have submitted a PR, claimed a f
 ## 📢 GitHub Channels
 
 ### [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions)
+
 For in-depth technical discussions, feature proposals, and experience sharing.
 
 **Great for:**
+
 - Technical Q&A
 - Feature proposals and discussions
 - Tutorials and best practices
 - Polls and feedback collection
 
 ### [GitHub Issues](https://github.com/agentscope-ai/CoPaw/issues)
+
 For bug reports and feature requests.
 
 **Great for:**
+
 - Bug reports (please use the Bug template)
 - Feature requests (please use the Feature Request template)
 - Documentation improvement suggestions

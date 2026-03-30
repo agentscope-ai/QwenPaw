@@ -23,11 +23,13 @@ Before starting:
 We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for clear history and tooling.
 
 **Format:**
+
 ```
 <type>(<scope>): <subject>
 ```
 
 **Types:**
+
 - `feat:` New feature
 - `fix:` Bug fix
 - `docs:` Documentation only
@@ -38,6 +40,7 @@ We follow the [Conventional Commits](https://www.conventionalcommits.org/) speci
 - `chore:` Build, tooling, or maintenance
 
 **Examples:**
+
 ```bash
 feat(channels): add Telegram channel support
 fix(skills): correct SKILL.md front matter parsing
@@ -57,6 +60,7 @@ PR titles should follow the same convention:
 - Keep the description short and descriptive
 
 **Examples:**
+
 ```
 feat(models): add custom provider for Azure OpenAI
 fix(channels): handle empty content_parts in Discord
@@ -82,7 +86,6 @@ docs(skills): document Skills Hub import
 - **Documentation:** Update docs when you add or change user-facing behavior. The docs live under `website/public/docs/`
 
 ---
-
 
 ## 💬 Getting Help
 

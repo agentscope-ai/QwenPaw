@@ -8,11 +8,12 @@
 
 适合所有 CoPaw 用户：问题咨询、使用交流、功能建议等。
 
-| [Discord](https://discord.gg/eYMpfnkG8h) | [X (Twitter)](https://x.com/agentscope_ai) | [钉钉群](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
-| ----------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| ![Discord](https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png) | ![X](https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white) | ![钉钉](https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png) |
+| [Discord](https://discord.gg/eYMpfnkG8h)                                                                | [X (Twitter)](https://x.com/agentscope_ai)                            | [钉钉群](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| ![Discord](https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png) | ![X](https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white) | ![钉钉](https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png)                                 |
 
 ### 适合用于：
+
 - **提问和寻求帮助** - 安装、配置、使用问题
 - **分享经验** - 你的 CoPaw 使用案例和技巧
 - **功能建议** - 你希望看到的新功能
@@ -25,9 +26,9 @@
 
 面向参与开发的贡献者：如果你提交过 PR、认领了功能开发，或希望参与 CoPaw 开发，欢迎加入开发者交流渠道（主要用于开发协作与技术讨论）。
 
-| [Discord（开发者）](https://discord.gg/4jpsveW6) | [钉钉开发者群](https://qr.dingtalk.com/action/joingroup?code=v1,k1,+SpJ3xFo3kyf+jluVHIPnlImW0zNNx1GlxBBTPiFXiE=&_dt_no_comment=1&origin=11) |
+| [Discord（开发者）](https://discord.gg/4jpsveW6)                                                         | [钉钉开发者群](https://qr.dingtalk.com/action/joingroup?code=v1,k1,+SpJ3xFo3kyf+jluVHIPnlImW0zNNx1GlxBBTPiFXiE=&_dt_no_comment=1&origin=11) |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| ![Discord](https://img.alicdn.com/imgextra/i4/O1CN01EKYIrm1jxiyJYYX0w_!!6000000004615-2-tps-314-312.png) | ![钉钉开发者群邀请码](https://img.alicdn.com/imgextra/i3/O1CN01KQaksU1jtbPIwpgbi_!!6000000004606-2-tps-229-226.png) |
+| ![Discord](https://img.alicdn.com/imgextra/i4/O1CN01EKYIrm1jxiyJYYX0w_!!6000000004615-2-tps-314-312.png) | ![钉钉开发者群邀请码](https://img.alicdn.com/imgextra/i3/O1CN01KQaksU1jtbPIwpgbi_!!6000000004606-2-tps-229-226.png)                         |
 
 ### 加入条件：
 
@@ -36,6 +37,7 @@
 - **Discord（开发者）**：请先在 CoPaw Discord 社区中发送上述三项信息之一，管理员确认后会邀请你进入 private 开发者 channel。
 
 ### 适合讨论：
+
 - **技术实现细节** - 架构设计、代码实现
 - **协作与任务认领** - 协调开发工作
 - **测试与质量** - 测试策略、Bug 修复
@@ -46,18 +48,22 @@
 ## 📢 GitHub 渠道
 
 ### [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions)
+
 适合深入的技术讨论、功能提案、使用经验分享。
 
 **适合：**
+
 - 技术问答
 - 功能提案和讨论
 - 教程和最佳实践分享
 - 投票和意见征集
 
 ### [GitHub Issues](https://github.com/agentscope-ai/CoPaw/issues)
+
 报告 Bug 和追踪功能请求。
 
 **适合：**
+
 - Bug 报告（请使用 Bug 模板）
 - 功能请求（请使用 Feature Request 模板）
 - 文档改进建议
