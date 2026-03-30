@@ -60,14 +60,22 @@ interface OutputMessage extends Omit<Message, "role"> {
  * but our backend / window globals require.
  */
 interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
+  /** Session identifier (channel:user_id format) */
   sessionId: string;
+  /** User identifier */
   userId: string;
+  /** Channel name */
   channel: string;
+  /** Additional metadata */
   meta: Record<string, unknown>;
   /** Real backend UUID, used when id is overridden with a local timestamp. */
   realId?: string;
   /** Conversation status from backend. */
   status?: ChatStatus;
+  /** ISO 8601 creation timestamp from backend. */
+  createdAt?: string | null;
+  /** Whether the backend is still generating a response for this session. */
+  generating?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,13 +252,14 @@ const convertMessages = (
 const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
   ({
     id: chat.id,
-    name: (chat as ChatSpec & { name?: string }).name || DEFAULT_SESSION_NAME,
+    name: chat.name || DEFAULT_SESSION_NAME,
     sessionId: chat.session_id,
     userId: chat.user_id,
     channel: chat.channel,
     messages: [],
     meta: chat.meta || {},
     status: chat.status ?? "idle",
+    createdAt: chat.created_at ?? null,
   }) as ExtendedSession;
 
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */

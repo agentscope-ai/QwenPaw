@@ -1,9 +1,9 @@
 # Long-term Memory
 
-**Long-term Memory** gives CoPAW persistent memory across conversations: writes key information to Markdown files for
+**Long-term Memory** gives CoPaw persistent memory across conversations: writes key information to Markdown files for
 long-term storage, with semantic search for recall at any time.
 
-> The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented by [ReMe](https://github.com/agentscope-ai/ReMe).
+> The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe) — a file-based memory backend where memories are plain Markdown files that can be read, edited, and migrated directly.
 
 ---
 
@@ -110,7 +110,7 @@ When not set in config file, these environment variables serve as fallback:
 | `EMBEDDING_BASE_URL`   | URL of the Embedding service      | ``      |
 | `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
 
-> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval.
+> `base_url` and `model_name` must both be non-empty to enable vector search in hybrid retrieval (`api_key` is not required).
 
 ### Full-text Search Configuration
 
@@ -121,6 +121,20 @@ Control BM25 full-text search via the `FTS_ENABLED` environment variable:
 | `FTS_ENABLED`        | Whether to enable full-text search | `true`  |
 
 > Even without Embedding configured, enabling full-text search allows keyword search via BM25.
+
+### Memory Summarization Configuration
+
+Configure in `agent.json` under `running.memory_summary`:
+
+| Config Field                     | Description                                                                                                                             | Default |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `memory_summary_enabled`         | Whether to save long-term memory in the background during context compaction (via `summary_memory`)                                     | `true`  |
+| `force_memory_search` **(BETA)** | Whether to force a memory search on every conversation turn and inject results into context                                             | `false` |
+| `force_max_results`              | Maximum number of results to return when force memory search is enabled                                                                 | `1`     |
+| `force_min_score`                | Minimum relevance score threshold when force memory search is enabled (0.0 ~ 1.0)                                                       | `0.3`   |
+| `rebuild_memory_index_on_start`  | Whether to clear and rebuild the memory search index on startup; set to `false` to skip re-indexing and only watch for new file changes | `false` |
+
+---
 
 ### Underlying Database
 

@@ -442,6 +442,9 @@ button {
 .docs-content .docs-table-wrap table:has(th:nth-child(2):last-child) td {
   width: 50%;
   box-sizing: border-box;
+  /* Symmetric two-column tables (e.g. community QR): center both columns.
+     Global td:first-child was left-aligned while column 2 was centered. */
+  text-align: center;
 }
 
 .docs-content

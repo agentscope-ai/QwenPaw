@@ -16,12 +16,12 @@ import { agentApi } from "./modules/agent";
 import { agentsApi } from "./modules/agents";
 import { workspaceApi } from "./modules/workspace";
 import { localModelApi } from "./modules/localModel";
-import { ollamaModelApi } from "./modules/ollamaModel";
 import { mcpApi } from "./modules/mcp";
 import { tokenUsageApi } from "./modules/tokenUsage";
 import { toolsApi } from "./modules/tools";
 import { securityApi } from "./modules/security";
 import { userTimezoneApi } from "./modules/userTimezone";
+import { languageApi } from "./modules/language";
 
 export const api = {
   // Root
@@ -60,9 +60,6 @@ export const api = {
   // Local Models
   ...localModelApi,
 
-  // Ollama Models
-  ...ollamaModelApi,
-
   // MCP Clients
   ...mcpApi,
 
@@ -76,6 +73,9 @@ export const api = {
 
   // User Timezone
   ...userTimezoneApi,
+
+  // Language
+  ...languageApi,
 };
 
 export default api;

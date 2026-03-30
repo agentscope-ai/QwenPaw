@@ -28,9 +28,10 @@ from .prompt import (
     get_active_model_supports_multimodal,
 )
 from .skills_manager import (
+    apply_skill_config_env_overrides,
     ensure_skills_initialized,
-    get_working_skills_dir,
-    list_available_skills,
+    get_workspace_skills_dir,
+    resolve_effective_skills,
 )
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
@@ -94,6 +95,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         request_context: Optional[dict[str, str]] = None,
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
+        task_tracker: Any | None = None,
     ):
         """Initialize CoPawAgent.
 
@@ -121,6 +123,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
         self._workspace_dir = workspace_dir
+        self._task_tracker = task_tracker
 
         # Extract configuration from agent_config
         running_config = agent_config.running
@@ -194,6 +197,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Check which tools are enabled from agent config
         enabled_tools = {}
+        async_execution_tools = {}
         try:
             if hasattr(self._agent_config, "tools") and hasattr(
                 self._agent_config.tools,
@@ -202,6 +206,14 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 builtin_tools = self._agent_config.tools.builtin_tools
                 enabled_tools = {
                     name: tool.enabled for name, tool in builtin_tools.items()
+                }
+                # Only execute_shell_command supports async_execution
+                async_execution_tools = {
+                    "execute_shell_command": builtin_tools.get(
+                        "execute_shell_command",
+                    ).async_execution
+                    if "execute_shell_command" in builtin_tools
+                    else False,
                 }
         except Exception as e:
             logger.warning(
@@ -241,29 +253,77 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 )
                 continue
 
+            # Get async_execution setting (default to False for backward
+            # compatibility)
+            async_exec = async_execution_tools.get(tool_name, False)
+
             toolkit.register_tool_function(
                 tool_func,
                 namesake_strategy=namesake_strategy,
+                async_execution=async_exec,
             )
-            logger.debug("Registered tool: %s", tool_name)
+            logger.debug(
+                "Registered tool: %s (async_execution=%s)",
+                tool_name,
+                async_exec,
+            )
+
+        # Auto-register background task management tools if any *enabled*
+        # tool has async_execution set
+        has_async_tools = any(
+            async_execution_tools.get(name, False)
+            for name in tool_functions
+            if enabled_tools.get(name, True)
+        )
+        if has_async_tools:
+            try:
+                toolkit.register_tool_function(
+                    toolkit.view_task,
+                    namesake_strategy=namesake_strategy,
+                )
+                toolkit.register_tool_function(
+                    toolkit.wait_task,
+                    namesake_strategy=namesake_strategy,
+                )
+                toolkit.register_tool_function(
+                    toolkit.cancel_task,
+                    namesake_strategy=namesake_strategy,
+                )
+                logger.debug(
+                    "Registered background task management tools "
+                    "(view_task, wait_task, cancel_task)",
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register task management tools: {e}",
+                )
 
         return toolkit
 
     def _register_skills(self, toolkit: Toolkit) -> None:
         """Load and register skills from workspace directory.
 
+        Uses the registry-backed skill resolver to determine effective
+        skills for the current channel.
+
         Args:
             toolkit: Toolkit to register skills to
         """
         workspace_dir = self._workspace_dir or WORKING_DIR
 
-        # Check skills initialization
         ensure_skills_initialized(workspace_dir)
 
-        working_skills_dir = get_working_skills_dir(workspace_dir)
-        available_skills = list_available_skills(workspace_dir)
+        request_context = getattr(self, "_request_context", {})
+        channel_name = request_context.get("channel", "console")
 
-        for skill_name in available_skills:
+        effective_skills = resolve_effective_skills(
+            workspace_dir,
+            channel_name,
+        )
+
+        working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
+
+        for skill_name in effective_skills:
             skill_dir = working_skills_dir / skill_name
             if skill_dir.exists():
                 try:
@@ -302,7 +362,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             agent_id=agent_id,
             heartbeat_enabled=heartbeat_enabled,
         )
-        logger.debug("System prompt:\n%s", sys_prompt)
+        logger.debug("System prompt:\n%s...", sys_prompt[:100])
 
         # Inject multimodal capability awareness
         multimodal_hint = build_multimodal_hint()
@@ -937,9 +997,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                         timeout=1,
                     )
                     self.memory._long_term_memory = "\n".join(
-                        block.text
+                        block["text"]
                         for block in (result.content or [])
-                        if hasattr(block, "text")
+                        if isinstance(block, dict) and block.get("text")
                     )
                 except BaseException as e:
                     logger.warning(
@@ -950,7 +1010,14 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             else:
                 self.memory._long_term_memory = ""
 
-        return await super().reply(msg=msg, structured_model=structured_model)
+        request_context = getattr(self, "_request_context", {}) or {}
+        channel_name = request_context.get("channel", "console")
+        workspace_dir = Path(self._workspace_dir or WORKING_DIR)
+        with apply_skill_config_env_overrides(workspace_dir, channel_name):
+            return await super().reply(
+                msg=msg,
+                structured_model=structured_model,
+            )
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
