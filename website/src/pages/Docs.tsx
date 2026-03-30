@@ -172,6 +172,7 @@ const DOC_GROUPS: DocGroup[] = [
   {
     titleKey: "docs.groupAgent",
     children: [
+      { slug: "persona", titleKey: "docs.agentPersona" },
       { slug: "multi-agent", titleKey: "docs.multiAgent" },
       { slug: "skills", titleKey: "docs.skills" },
       { slug: "mcp", titleKey: "docs.mcp" },

@@ -258,11 +258,11 @@
     "quickstart": "Quick start",
     "desktop": "Desktop App",
     "console": "Console",
-    "multiAgent": "Multi-Agent Workspace",
+    "multiAgent": "Multi-Agent",
     "models": "Models",
     "channels": "Channels",
     "skills": "Skills",
-    "mcp": "MCP",
+    "mcp": "MCP & Built-in Tools",
     "memory": "Memory",
     "context": "Context",
     "commands": "Magic commands",
@@ -291,7 +291,8 @@
     "searchNoResults": "No results",
     "searchResultsTitle": "Search results",
     "searchResultsTitleEmpty": "Search docs",
-    "searchHint": "Enter a keyword and press Enter to search."
+    "searchHint": "Enter a keyword and press Enter to search.",
+    "agentPersona": "Agent Persona"
   },
   "releaseNotes": {
     "title": "Release Notes",

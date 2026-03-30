@@ -258,11 +258,11 @@
     "quickstart": "快速开始",
     "desktop": "桌面应用",
     "console": "控制台",
-    "multiAgent": "多智能体工作区",
+    "multiAgent": "多智能体",
     "models": "模型",
     "channels": "频道配置",
     "skills": "Skills",
-    "mcp": "MCP",
+    "mcp": "MCP 与内置工具",
     "memory": "记忆",
     "context": "上下文",
     "commands": "魔法命令",
@@ -291,7 +291,8 @@
     "searchNoResults": "无结果",
     "searchResultsTitle": "搜索结果",
     "searchResultsTitleEmpty": "搜索文档",
-    "searchHint": "在左侧输入关键词后按回车搜索。"
+    "searchHint": "在左侧输入关键词后按回车搜索。",
+    "agentPersona": "智能体的人设"
   },
   "releaseNotes": {
     "title": "更新日志",
