@@ -333,7 +333,7 @@ To run CoPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [CoP
 
 ## API Key
 
-If you use a **cloud LLM API** (e.g., Qianwen, Gemini, OpenAI), you must configure an API key before chatting. CoPaw will not work until a valid key is set. See the [official docs](https://copaw.agentscope.io/docs/models#configure-cloud-providers) for details.
+If you use a **cloud LLM API** (e.g., Qianwen, Gemini, OpenAI), you must configure an API key before chatting. CoPaw will not work until a valid key is set. See the [official docs](https://copaw.agentscope.io/docs/models) for details.
 
 **How to configure:**
 
@@ -347,7 +347,7 @@ Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in 
 
 ## Local Models
 
-CoPaw can run LLMs entirely on your machine — no API keys or cloud services required. See the [official docs](https://copaw.agentscope.io/docs/models#local-provider-configuration) for details.
+CoPaw can run LLMs entirely on your machine — no API keys or cloud services required. See the [official docs](https://copaw.agentscope.io/docs/models) for details.
 
 | Backend       | Best for                                 | Install                                                              |
 | ------------- | ---------------------------------------- | -------------------------------------------------------------------- |

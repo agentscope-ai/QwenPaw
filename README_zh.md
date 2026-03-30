@@ -336,7 +336,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ## API Key
 
-若使用**云端大模型 API**（如通义千问、Gemini、OpenAI），在开始对话前必须配置 API Key。未配置有效 Key 前，CoPaw 无法正常工作。详情请参考[官方文档](https://copaw.agentscope.io/docs/models#%E9%85%8D%E7%BD%AE%E4%BA%91%E6%8F%90%E4%BE%9B%E5%95%86)。
+若使用**云端大模型 API**（如通义千问、Gemini、OpenAI），在开始对话前必须配置 API Key。未配置有效 Key 前，CoPaw 无法正常工作。详情请参考[官方文档](https://copaw.agentscope.io/docs/models)。
 
 **配置方式：**
 
@@ -352,7 +352,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ## 本地模型
 
-CoPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见[官方文档](https://copaw.agentscope.io/docs/models#local-provider-configuration)
+CoPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见[官方文档](https://copaw.agentscope.io/docs/models)
 
 | 后端          | 适用场景                          | 安装                                                                 |
 | ------------- | --------------------------------- | -------------------------------------------------------------------- |

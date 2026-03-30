@@ -155,7 +155,7 @@ All provider configurations in CoPaw are saved in the `$COPAW_SECRET_DIR/provide
 
 ### Local Models
 
-If you use the CoPaw Local (llama.cpp) provider, CoPaw will save the llama.cpp runtime and model files in the `$COPAW_WORKING_DIR/local_models` folder (default `~/.copaw/local_models`). The runtime is saved in the `$COPAW_WORKING_DIR/local_models/bin` directory, and downloaded models are saved in the `$COPAW_WORKING_DIR/local_models/models` directory. Each model has a corresponding folder named after its ID, e.g., the folder for the model ID `Qwen/Qwen3-0.6B-GGUF` is `$COPAW_WORKING_DIR/local_models/Qwen/Qwen3-0.6B-GGUF`. The model folder contains the GGUF file and some model metadata files.
+If you use the CoPaw Local (llama.cpp) provider, CoPaw will save the llama.cpp runtime and model files in the `$COPAW_WORKING_DIR/local_models` folder (default `~/.copaw/local_models`). The runtime is saved in the `$COPAW_WORKING_DIR/local_models/bin` directory, and downloaded models are saved in the `$COPAW_WORKING_DIR/local_models/models` directory. Each model has a corresponding folder named after its ID, e.g., the folder for the model ID `Qwen/Qwen3-0.6B-GGUF` is `$COPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. The model folder contains the GGUF file and some model metadata files.
 
 If you need more advanced usage of llama.cpp (such as using hardware-specific acceleration), you can compile your own version of llama.cpp and replace the `llama-server` file in the `bin` directory.
 
