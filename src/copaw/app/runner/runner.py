@@ -215,6 +215,13 @@ def _is_transient_upstream_error(exc: Exception) -> bool:
     if status in _TRANSIENT_UPSTREAM_STATUS_CODES:
         return True
 
+    # Some upstream OpenAI-compatible providers may return generic
+    # `APIError: Compute error.` without HTTP status details.
+    # Treat this as transient so the UI shows a clear provider failure
+    # message instead of falling back to AGENT_UNKNOWN_ERROR.
+    if exc.__class__.__name__ == "APIError" and "compute error" in str(exc).lower():
+        return True
+
     return exc.__class__.__name__ in {
         "InternalServerError",
         "RateLimitError",

@@ -19,6 +19,7 @@ import {
   UsersRound,
   CalendarClock,
   Activity,
+  BookOpen,
   Sparkles,
   Briefcase,
   Box,
@@ -167,6 +168,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.workspace"),
     },
     {
+      key: "knowledge",
+      icon: <BookOpen size={18} />,
+      path: "/knowledge",
+      label: t("nav.knowledge"),
+    },
+    {
       key: "skills",
       icon: <Sparkles size={18} />,
       path: "/skills",
@@ -271,6 +278,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "workspace",
           label: collapsed ? null : t("nav.workspace"),
           icon: <Briefcase size={16} />,
+        },
+        {
+          key: "knowledge",
+          label: collapsed ? null : t("nav.knowledge"),
+          icon: <BookOpen size={16} />,
         },
         {
           key: "skills",

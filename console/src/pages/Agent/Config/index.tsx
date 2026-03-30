@@ -11,6 +11,7 @@ import {
   MemorySummaryCard,
   EmbeddingConfigCard,
   ContextManagementCard,
+  KnowledgeMaintenanceCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -77,6 +78,8 @@ function AgentConfigPage() {
             <LlmRateLimiterCard />
 
             <ContextManagementCard />
+
+            <KnowledgeMaintenanceCard />
 
             <ContextCompactCard maxInputLength={maxInputLength} />
 
