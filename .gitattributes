@@ -1,1 +1,36 @@
+# Auto detect text files
+* text=auto
+
+# Windows batch files keep CRLF
 *.bat text eol=crlf
+
+# Shell scripts use LF
+*.sh text eol=lf
+*.ps1 text eol=lf
+
+# Python files use LF (Black formatter default)
+*.py text eol=lf
+
+# TypeScript/JavaScript use LF
+*.{ts,tsx,js,jsx} text eol=lf
+
+# Binary files
+*.{png,jpg,jpeg,gif,ico,icns} binary
+*.svg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.whl binary
+
+# Large XSD Schema files as binary (avoid diff computation)
+*.xsd binary
+
+# Exclude third-party/generated directories from diff
+node_modules/ -text
+console/node_modules/ -text
+website/node_modules/ -text
+.venv/ -text
+__pycache__/ -text
