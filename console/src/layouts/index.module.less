@@ -10,7 +10,7 @@
 // ─── Header ───────────────────────────────────────────────────────────────────
 .header {
   height: 64px;
-  padding: 0 20px;
+  padding: 0 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -141,6 +141,7 @@
       line-height: 32px !important;
       letter-spacing: normal !important;
       color: rgba(26, 23, 22, 0.25) !important;
+      padding-left: 8px !important;
     }
 
     /* Hide submenu arrow */
@@ -155,9 +156,14 @@
       }
     }
 
+    /* Menu item padding - align all items */
+    .copaw-menu-item {
+      padding-left: 8px !important;
+    }
+
     /* Remove submenu indent - align with parent */
     .copaw-menu-submenu .copaw-menu-item {
-      padding-left: 24px !important;
+      padding-left: 8px !important;
     }
 
     /* Selected item */
