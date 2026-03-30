@@ -98,6 +98,7 @@ copaw daemon logs -n 50
 | `copaw models config-key [provider]`   | 单独配置某个提供商的 API Key           |
 | `copaw models set-llm`                 | 只切换活跃模型（不改 API Key）         |
 | `copaw models local`                   | 查看已下载的本地模型                   |
+| `copaw models download <repo_id>`      | 下载一个本地模型（llama.cpp）          |
 | `copaw models remove-local <model_id>` | 删除已下载的本地模型                   |
 
 ```bash
