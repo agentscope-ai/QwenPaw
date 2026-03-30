@@ -19,7 +19,12 @@ import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
 
 import { languageApi } from "./api/modules/language";
-import { getApiUrl, getApiToken, clearAuthToken,setAuthToken } from "./api/config";
+import {
+  getApiUrl,
+  getApiToken,
+  clearAuthToken,
+  setAuthToken,
+} from "./api/config";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -57,7 +62,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       setAuthToken(urlToken);
       urlParams.delete("token");
       const newSearch = urlParams.toString();
-      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "") + window.location.hash;
+      const newUrl =
+        window.location.pathname +
+        (newSearch ? `?${newSearch}` : "") +
+        window.location.hash;
       window.history.replaceState(null, "", newUrl);
     }
 
