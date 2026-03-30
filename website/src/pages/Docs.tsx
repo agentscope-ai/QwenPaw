@@ -524,7 +524,7 @@ export function Docs() {
           <nav className="flex flex-col gap-3 pt-1">
             {DOC_GROUPS.map((group) => (
               <section key={group.titleKey}>
-                <h3 className="mb-1 px-2 text-[1rem] leading-6 font-semibold text-(--color-text)">
+                <h3 className="mb-1 text-[1rem] leading-6 font-semibold text-(--color-text)">
                   {t(group.titleKey)}
                 </h3>
                 <div className="flex flex-col gap-0.5">
