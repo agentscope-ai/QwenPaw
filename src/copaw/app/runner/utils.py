@@ -81,7 +81,11 @@ def build_env_context(
             "Consult the relevant skill documentation if unsure.\n"
             "  2. When using write_file, if you want to avoid overwriting "
             "existing content, use read_file first to inspect the file, "
-            "then use edit_file for partial updates or appending.",
+            "then use edit_file for partial updates or appending.\n"
+            "  3. If you don't produce any tool calls, it means you have "
+            "completed the task and are ready to terminate. During task "
+            "execution, you must generate tool calls unless you have "
+            "completed the task or have clear feedback.",
         )
 
     return (
