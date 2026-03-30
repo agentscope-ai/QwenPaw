@@ -211,16 +211,30 @@ export function MCPClientCard({
         }
         width={700}
       >
+        <div
+          style={{
+            marginBottom: 8,
+            padding: "6px 12px",
+            backgroundColor: isDark
+              ? "rgba(255,165,0,0.12)"
+              : "rgba(255,165,0,0.08)",
+            borderRadius: 6,
+            fontSize: 12,
+            color: isDark ? "rgba(255,255,255,0.65)" : "rgba(0,0,0,0.55)",
+          }}
+        >
+          {t("mcp.maskedFieldHint")}
+        </div>
         {isEditing ? (
-          <Input.TextArea
-            value={editedJson}
-            onChange={(e) => setEditedJson(e.target.value)}
-            autoSize={{ minRows: 15, maxRows: 25 }}
-            style={{
+            <Input.TextArea
+              value={editedJson}
+              onChange={(e) => setEditedJson(e.target.value)}
+              autoSize={{ minRows: 15, maxRows: 25 }}
+              style={{
               fontFamily: "Monaco, Courier New, monospace",
               fontSize: 13,
             }}
-          />
+            />
         ) : (
           <pre
             style={{

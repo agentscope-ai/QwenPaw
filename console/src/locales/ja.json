@@ -274,7 +274,8 @@
     "toggleError": "MCPクライアントのステータス変更に失敗しました",
     "deleteConfirm": "このMCPクライアントを削除してもよろしいですか？",
     "deleteSuccess": "MCPクライアントを削除しました",
-    "deleteError": "MCPクライアントの削除に失敗しました"
+    "deleteError": "MCPクライアントの削除に失敗しました",
+    "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。"
   },
   "heartbeat": {
     "title": "ハートビート",
