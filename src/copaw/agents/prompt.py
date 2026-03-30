@@ -9,6 +9,8 @@ import logging
 import re
 from pathlib import Path
 
+from .utils.file_handling import read_text_file_with_encoding_fallback
+
 logger = logging.getLogger(__name__)
 
 # Default fallback prompt
@@ -76,7 +78,7 @@ class PromptBuilder:
             return
 
         try:
-            content = file_path.read_text(encoding="utf-8").strip()
+            content = read_text_file_with_encoding_fallback(file_path).strip()
 
             # Remove YAML frontmatter if present
             if content.startswith("---"):

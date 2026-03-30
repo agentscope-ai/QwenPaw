@@ -1,13 +1,22 @@
-import { Select, message, Badge, Tag } from "antd";
+import { Select, message, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
-import { Bot, Layers, CheckCircle, EyeOff } from "lucide-react";
+import { Bot, CheckCircle, EyeOff, ChevronRight } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
 import { agentsApi } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
+import { getAgentDisplayName } from "../../utils/agentDisplayName";
+import { useNavigate } from "react-router-dom";
 import styles from "./index.module.less";
 
-export default function AgentSelector() {
+interface AgentSelectorProps {
+  collapsed?: boolean;
+}
+
+export default function AgentSelector({
+  collapsed = false,
+}: AgentSelectorProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { selectedAgent, agents, setSelectedAgent, setAgents } =
     useAgentStore();
   const [loading, setLoading] = useState(false);
@@ -60,29 +69,36 @@ export default function AgentSelector() {
   const enabledCount = agents?.filter((a) => a.enabled).length ?? 0;
   const agentCount = enabledCount;
 
-  const renderProjectSummary = (agent: {
-    project_count?: number;
-    projects?: Array<{ name: string }>;
-  }) => {
-    const count = agent.project_count ?? agent.projects?.length ?? 0;
-    const names = (agent.projects ?? [])
-      .slice(0, 3)
-      .map((item) => item.name)
-      .join(", ");
-    if (count <= 0) {
-      return t("agent.noProjects");
-    }
-    if (!names) {
-      return t("agent.projectsCount", { count });
-    }
-    return t("agent.projectsPreview", { count, names });
-  };
+  const currentAgentInfo = agents?.find((a) => a.id === selectedAgent);
+
+  // Collapsed: show just the Bot icon with Tooltip
+  if (collapsed) {
+    return (
+      <Tooltip
+        title={
+          currentAgentInfo
+            ? getAgentDisplayName(currentAgentInfo, t)
+            : selectedAgent
+        }
+        placement="right"
+        overlayInnerStyle={{ background: "rgba(0,0,0,0.75)", color: "#fff" }}
+      >
+        <div className={styles.agentSelectorCollapsed}>
+          <Bot size={18} strokeWidth={2} />
+        </div>
+      </Tooltip>
+    );
+  }
 
   return (
     <div className={styles.agentSelectorWrapper}>
       <div className={styles.agentSelectorLabel}>
-        <Layers size={14} strokeWidth={2} />
-        <span>{t("agent.currentWorkspace")}</span>
+        <span>
+          {t("agent.currentWorkspace")}
+          {agentCount > 0 && (
+            <span className={styles.agentCountBadge}> ({agentCount})</span>
+          )}
+        </span>
       </div>
       <Select
         value={selectedAgent}
@@ -91,12 +107,24 @@ export default function AgentSelector() {
         className={styles.agentSelector}
         placeholder={t("agent.selectAgent")}
         optionLabelProp="label"
-        classNames={{ popup: { root: styles.agentSelectorDropdown } }}
-        suffixIcon={
-          <div className={styles.agentSelectorSuffix}>
-            <Badge count={agentCount} showZero className={styles.agentBadge} />
-          </div>
-        }
+        popupClassName={styles.agentSelectorDropdown}
+        dropdownRender={(menu) => (
+          <>
+            <div className={styles.dropdownHeader}>
+              <span className={styles.dropdownHeaderTitle}>
+                {t("agent.currentWorkspace")}
+              </span>
+              <button
+                className={styles.managementLink}
+                onClick={() => navigate("/agents")}
+              >
+                {t("agent.management")}
+                <ChevronRight size={12} strokeWidth={2.5} />
+              </button>
+            </div>
+            {menu}
+          </>
+        )}
       >
         {agents?.map((agent) => (
           <Select.Option
@@ -106,7 +134,7 @@ export default function AgentSelector() {
             label={
               <div className={styles.selectedAgentLabel}>
                 <Bot size={14} strokeWidth={2} />
-                <span>{agent.name}</span>
+                <span>{getAgentDisplayName(agent, t)}</span>
                 {!agent.enabled && <EyeOff size={12} strokeWidth={2} />}
               </div>
             }
@@ -122,7 +150,7 @@ export default function AgentSelector() {
                 <div className={styles.agentOptionContent}>
                   <div className={styles.agentOptionName}>
                     <span className={styles.agentOptionNameText}>
-                      {agent.name}
+                      {getAgentDisplayName(agent, t)}
                     </span>
                     {agent.id === selectedAgent && (
                       <CheckCircle
@@ -132,9 +160,7 @@ export default function AgentSelector() {
                       />
                     )}
                     {!agent.enabled && (
-                      <Tag color="error" style={{ margin: 0 }}>
-                        {t("agent.disabled")}
-                      </Tag>
+                      <Tag style={{ margin: 0 }}>{t("agent.disabled")}</Tag>
                     )}
                   </div>
                   {agent.description && (
@@ -142,9 +168,6 @@ export default function AgentSelector() {
                       {agent.description}
                     </div>
                   )}
-                  <div className={styles.agentProjectSummary}>
-                    {renderProjectSummary(agent)}
-                  </div>
                 </div>
               </div>
               <div className={styles.agentOptionId}>ID: {agent.id}</div>

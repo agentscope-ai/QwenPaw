@@ -1,62 +1,106 @@
-.mcpCard {
-  border-radius: 12px;
-  transition: all 0.2s ease-in-out;
-  cursor: pointer;
-  padding: 16px;
-  height: 100%;
+.mcpPage {
+}
 
-  :global(.ant-card-body) {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  margin-bottom: 0;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.mcpCard {
+  height: 178px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: var(--border-radius, 8px);
+  background: var(--color-bg-base, #ffffff);
+  border: 1px solid var(--color-border-secondary, #eae8e7);
+  box-sizing: border-box;
+  transition: all 0.2s ease-in-out;
+  position: relative;
+
+  :global {
+    .ant-card-body {
+      padding: 0 !important;
+    }
+
+    .copaw-spark-card-wrapper {
+      padding: 16px !important;
+    }
   }
 
   &.enabledCard {
-    border: 2px solid #615ced !important;
-    box-shadow: rgba(97, 92, 237, 0.2) 0px 4px 12px !important;
+    .statusDot {
+      background-color: rgba(20, 184, 166, 1);
+    }
+
+    .statusText {
+      color: rgba(20, 184, 166, 1);
+    }
   }
 
   &.hover {
-    border: 1px solid #615ced;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+    border-color: var(--color-border, #d9d9d9);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
 
   &.normal {
-    border: 1px solid rgba(0, 0, 0, 0.04);
+    border-color: var(--color-border-secondary, #eae8e7);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
 }
 
 .cardHeader {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: 12px;
 }
 
-.titleRow {
+.leftSection {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.titleMain {
-  display: flex;
+  flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  min-width: 0;
   flex: 1;
 }
 
 .mcpTitle {
   margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  color: #1a1a1a;
-  line-height: 1.4;
-  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(20, 20, 19, 0.88);
+  font-family: Inter;
+  line-height: 24px;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -68,17 +112,16 @@
   border-radius: 3px;
   font-weight: 500;
   flex-shrink: 0;
+  margin-left: 8px;
 
   &.local {
-    background-color: #e6f7ff;
-    color: #1890ff;
-    border: 1px solid #91d5ff;
+    background-color: rgba(239, 240, 243, 0.8);
+    color: #8e8c99;
   }
 
   &.remote {
-    background-color: #fff7e6;
-    color: #fa8c16;
-    border: 1px solid #ffd591;
+    background-color: rgba(255, 247, 230, 0.8);
+    color: rgba(255, 255, 255, 0.85);
   }
 }
 
@@ -86,182 +129,140 @@
   font-size: 20px;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
-.description {
+.descriptionContainer {
+  margin-top: 12px;
+}
+
+.descriptionLabel {
+  margin: 0 0 4px 0;
   font-size: 12px;
-  color: var(--skills-text-secondary);
-  line-height: 1.5;
-  margin-bottom: 3px;
-  height: 64px;
-  flex: 0 0 auto;
+  color: rgba(20, 20, 19, 0.45);
+  font-weight: normal;
+}
+
+.descriptionText {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.65);
+  line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  line-clamp: 2;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
 
 .cardFooter {
+  position: absolute;
+  bottom: 16px;
+  left: 0;
+  right: 0;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   gap: 8px;
-  padding-top: 16px;
-  margin-top: auto;
-  border-top: 1px solid #f0f0f0;
+  padding: 0 16px;
 }
 
 .actionButton {
-  padding: 0;
-  font-size: 12px;
+  flex: 1;
+  height: 32px;
+  font-size: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background-color: #ffffff;
+  color: rgba(20, 20, 19, 0.88);
+  cursor: pointer;
+
+  &:hover {
+    border-color: rgba(20, 20, 19, 0.88);
+    background-color: #ffffff;
+  }
 }
 
-.deleteButton {
+.deleteButtonLarge {
+  flex: 1;
+  height: 32px;
+  font-size: 14px;
+  background-color: rgba(255, 77, 79, 0.06);
+  color: #ff4d4f;
+  border: 1px solid transparent;
+  cursor: pointer;
+
+  &:hover {
+    background-color: rgba(255, 77, 79, 0.15);
+    border-color: #ff4d4f;
+  }
+}
+
+.enableLink {
+  padding: 0;
+  font-size: 14px;
+  color: #40a9ff;
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  &:hover {
+    color: #69b1ff;
+  }
+}
+
+.deleteIconButton {
   padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: rgba(255, 255, 255, 0.65);
+  background: none;
+  border: none;
+  cursor: pointer;
 
   &:hover {
-    background-color: #ff4d4f;
-    color: #fff;
-    border-color: #ff4d4f;
+    color: #ff7875;
+    background-color: rgba(255, 77, 79, 0.15);
+    border-radius: 4px;
   }
 }
 
 .statusContainer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  min-width: 0;
-}
-
-.statusRight {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: flex-end;
-  margin-left: auto;
-  min-width: 0;
-}
-
-.statusBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #f5f5f5;
+  gap: 4px;
+  font-size: 11px;
+  flex-shrink: 0;
 }
 
 .statusDot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  flex-shrink: 0;
 
   &.enabled {
-    background-color: #52c41a;
+    background-color: rgba(20, 184, 166, 1);
   }
 
   &.disabled {
-    background-color: #d9d9d9;
-  }
-
-  &.runtimeActive {
-    background-color: #1677ff;
-  }
-
-  &.runtimeUnavailable {
-    background-color: #faad14;
-  }
-
-  &.runtimeUnknown {
-    background-color: #722ed1;
-  }
-
-  &.runtimeChecking {
-    background-color: #13c2c2;
-  }
-
-  &.runtimeQueued {
-    background-color: #8c8c8c;
-  }
-
-  &.runtimeDisabled {
-    background-color: #bfbfbf;
+    background-color: rgba(255, 255, 255, 0.25);
   }
 }
 
 .statusText {
+  font-family: Lato;
   font-size: 12px;
+  font-weight: normal;
+  line-height: 19px;
+  letter-spacing: normal;
 
   &.enabled {
-    color: #52c41a;
+    color: rgba(20, 184, 166, 1);
   }
 
   &.disabled {
-    color: #999;
-  }
-
-  &.runtimeActive {
-    color: #1677ff;
-  }
-
-  &.runtimeUnavailable {
-    color: #ad6800;
-  }
-
-  &.runtimeUnknown {
-    color: #531dab;
-  }
-
-  &.runtimeChecking {
-    color: #006d75;
-  }
-
-  &.runtimeQueued {
-    color: #595959;
-  }
-
-  &.runtimeDisabled {
-    color: #8c8c8c;
-  }
-}
-
-.statusBadge {
-  &.enabled {
-    background: #f6ffed;
-  }
-
-  &.disabled {
-    background: #fafafa;
-  }
-
-  &.runtimeActive {
-    background: #e6f4ff;
-  }
-
-  &.runtimeUnavailable {
-    background: #fff7e6;
-  }
-
-  &.runtimeUnknown {
-    background: #f9f0ff;
-  }
-
-  &.runtimeChecking {
-    background: #e6fffb;
-  }
-
-  &.runtimeQueued {
-    background: #f5f5f5;
-  }
-
-  &.runtimeDisabled {
-    background: #fafafa;
+    color: rgba(255, 255, 255, 0.65);
   }
 }
 
@@ -288,4 +289,101 @@
   border-radius: 8px;
   max-height: 500px;
   overflow: auto;
+}
+
+.mcpGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  padding: 16px;
+}
+
+.loading {
+  text-align: center;
+  padding: 60px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.modalFooter {
+  text-align: right;
+}
+
+.importHint {
+  margin-bottom: 12px;
+}
+
+.importHintTitle {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.65);
+}
+
+.importHintList {
+  margin: 8px 0;
+  padding: 0 0 0 20px;
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.jsonTextArea {
+  font-family:
+    Monaco,
+    Courier New,
+    monospace;
+  font-size: 13px;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .mcpTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .descriptionLabel {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .descriptionText {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .statusText.disabled {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .statusDot.disabled {
+    background-color: rgba(255, 255, 255, 0.25);
+  }
+
+  .mcpCard {
+    background: #2d2d2d;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Action buttons - Enable/Disable link */
+  .enableLink {
+    color: rgba(255, 255, 255, 0.85) !important;
+
+    &:hover {
+      color: #ff7f16 !important;
+    }
+  }
+
+  /* Action buttons - Delete icon */
+  .deleteIconButton {
+    color: rgba(255, 255, 255, 0.65) !important;
+
+    &:hover {
+      color: #ff7875 !important;
+      background-color: rgba(255, 77, 79, 0.15);
+    }
+  }
 }

@@ -23,9 +23,12 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder.js";
 import { AgentScopeRuntimeRunStatus } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types.js";
-import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
-import { IconButton } from "@agentscope-ai/design";
 import { trackNavigation } from "../../utils/navigationTelemetry";
+import { useChatAnywhereInput } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereInputContext.js";
+import styles from "./index.module.less";
+import { IconButton } from "@agentscope-ai/design";
+import ChatActionGroup from "./components/ChatActionGroup";
+import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
   toDisplayUrl,
   copyText,
@@ -67,6 +70,8 @@ type StreamResponseData = {
     content?: unknown[];
   }>;
 };
+
+const CHAT_ATTACHMENT_MAX_MB = 10;
 
 interface SessionInfo {
   session_id?: string;
@@ -130,6 +135,21 @@ interface CustomWindow extends Window {
 }
 
 declare const window: CustomWindow;
+
+interface CommandSuggestion {
+  command: string;
+  value: string;
+  description: string;
+}
+
+function renderSuggestionLabel(command: string, description: string) {
+  return (
+    <div className={styles.suggestionLabel}>
+      <span className={styles.suggestionCommand}>{command}</span>
+      <span className={styles.suggestionDescription}>{description}</span>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -355,7 +375,10 @@ function RuntimeLoadingBridge({
   bridgeRef: { current: RuntimeLoadingBridgeApi | null };
 }) {
   const { setLoading, getLoading } = useChatAnywhereInput(
-    (value) =>
+    (value: {
+      setLoading?: (loading: boolean | string) => void;
+      getLoading?: () => boolean | string;
+    }) =>
       ({
         setLoading: value.setLoading,
         getLoading: value.getLoading,
@@ -1271,12 +1294,17 @@ export default function ChatPage() {
           // Warn (not block) when only image is supported
           message.warning(t("chat.attachments.imageOnlyWarning"));
         }
-        // Check file size limit (10MB)
-        const isLt10M = file.size / 1024 / 1024 < 10;
+        const sizeMb = file.size / 1024 / 1024;
+        const isWithinLimit = sizeMb < CHAT_ATTACHMENT_MAX_MB;
 
-        if (!isLt10M) {
-          message.error(t("chat.attachments.fileSizeLimit"));
-          onError?.(new Error("File size exceeds 10MB"));
+        if (!isWithinLimit) {
+          message.error(
+            t("chat.attachments.fileSizeExceeded", {
+              limit: CHAT_ATTACHMENT_MAX_MB,
+              size: sizeMb.toFixed(2),
+            }),
+          );
+          onError?.(new Error(`File size exceeds ${CHAT_ATTACHMENT_MAX_MB}MB`));
           return;
         }
 
@@ -1293,6 +1321,28 @@ export default function ChatPage() {
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
     const senderConfig = (i18nConfig as SenderConfigShape).sender || {};
+    const commandSuggestions: CommandSuggestion[] = [
+      {
+        command: "/clear",
+        value: "clear",
+        description: t("chat.commands.clear.description"),
+      },
+      {
+        command: "/compact",
+        value: "compact",
+        description: t("chat.commands.compact.description"),
+      },
+      {
+        command: "/approve",
+        value: "approve",
+        description: t("chat.commands.approve.description"),
+      },
+      {
+        command: "/deny",
+        value: "deny",
+        description: t("chat.commands.deny.description"),
+      },
+    ];
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -1310,15 +1360,18 @@ export default function ChatPage() {
         rightHeader: (
           <>
             <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
+            <ChatHeaderTitle />
+            <span style={{ flex: 1 }} />
             <ModelSelector />
+            <ChatActionGroup />
           </>
         ),
       },
       welcome: {
         ...i18nConfig.welcome,
-        avatar: isDark
-          ? `${import.meta.env.BASE_URL}copaw-dark.png`
-          : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
+        nick: "CoPaw",
+        avatar:
+          "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png",
       },
       sender: {
         ...senderConfig,
@@ -1332,7 +1385,7 @@ export default function ChatPage() {
                 : "chat.attachments.tooltip"
               : "chat.attachments.tooltipNoMultimodal";
             return (
-              <Tooltip title={t(tooltipKey)}>
+              <Tooltip title={t(tooltipKey, { limit: CHAT_ATTACHMENT_MAX_MB })}>
                 <IconButton
                   disabled={props?.disabled}
                   icon={<SparkAttachmentLine />}
@@ -1344,8 +1397,17 @@ export default function ChatPage() {
           accept: "*/*",
           customRequest: handleFileUpload,
         },
+        placeholder: t("chat.inputPlaceholder"),
+        suggestions: commandSuggestions.map((item) => ({
+          label: renderSuggestionLabel(item.command, item.description),
+          value: item.value,
+        })),
       },
-      session: { multiple: true, api: wrappedSessionApi },
+      session: {
+        multiple: true,
+        hideBuiltInSessionList: true,
+        api: wrappedSessionApi,
+      },
       api: {
         ...defaultConfig.api,
         fetch: customFetch,

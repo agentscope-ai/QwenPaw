@@ -293,7 +293,7 @@ class ContextCompactConfig(BaseModel):
     )
 
     token_count_estimate_divisor: float = Field(
-        default=3.75,
+        default=4,
         ge=2,
         le=5,
         description=(
@@ -890,6 +890,10 @@ class BuiltinToolConfig(BaseModel):
     display_to_user: bool = Field(
         True,
         description="Whether tool output is rendered to user channels",
+    )
+    async_execution: bool = Field(
+        False,
+        description="Whether to execute the tool asynchronously in background",
     )
 
 

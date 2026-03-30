@@ -275,7 +275,7 @@ class ConsoleChannel(BaseChannel):
         request.channel_meta = meta
         return request
 
-    async def _extract_media_message(self, message: Message) -> Message:
+    async def _extract_media_message(self, message: Message) -> Message | None:
         """Extract media message from message."""
         parts = self._message_to_content_parts(message)
         media_message = None

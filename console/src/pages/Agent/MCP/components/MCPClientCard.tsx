@@ -1,5 +1,4 @@
 import { Card, Button, Modal, Tooltip, Input } from "@agentscope-ai/design";
-import { DeleteOutlined } from "@ant-design/icons";
 import { Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
@@ -10,9 +9,8 @@ import styles from "../index.module.less";
 interface MCPClientCardProps {
   client: MCPClientInfo;
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
-  onDelete: (client: MCPClientInfo, e?: React.MouseEvent) => void;
-  onUpdate: (key: string, updates: Record<string, unknown>) => Promise<boolean>;
-  runtimeStateOverride?: "queued" | "checking";
+  onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
+  onUpdate: (key: string, updates: any) => Promise<boolean>;
   isHovered: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -23,7 +21,6 @@ export function MCPClientCard({
   onToggle,
   onDelete,
   onUpdate,
-  runtimeStateOverride,
   isHovered,
   onMouseEnter,
   onMouseLeave,
@@ -39,30 +36,9 @@ export function MCPClientCard({
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
-  const runtimeStatusKey =
-    runtimeStateOverride === "checking"
-      ? "mcp.runtimeChecking"
-      : runtimeStateOverride === "queued"
-      ? "mcp.runtimeQueued"
-      : !client.enabled
-      ? "mcp.runtimeDisabled"
-      : client.active === undefined
-      ? "mcp.runtimeUnknown"
-      : client.active
-      ? "mcp.runtimeActive"
-      : "mcp.runtimeUnavailable";
-  const runtimeStatusClass =
-    runtimeStateOverride === "checking"
-      ? styles.runtimeChecking
-      : runtimeStateOverride === "queued"
-      ? styles.runtimeQueued
-      : !client.enabled
-      ? styles.runtimeDisabled
-      : client.active === undefined
-      ? styles.runtimeUnknown
-      : client.active
-      ? styles.runtimeActive
-      : styles.runtimeUnavailable;
+
+  // Check if command is npx to show special icon
+  const isNpxCommand = client.command?.includes("npx");
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -76,7 +52,7 @@ export function MCPClientCard({
 
   const confirmDelete = () => {
     setDeleteModalOpen(false);
-    onDelete(client);
+    onDelete(client, null as any);
   };
 
   const handleCardClick = () => {
@@ -88,10 +64,8 @@ export function MCPClientCard({
 
   const handleSaveJson = async () => {
     try {
-      const parsed = JSON.parse(editedJson) as Record<string, unknown>;
-      const updates = { ...parsed };
-      delete updates.key;
-      delete updates.active;
+      const parsed = JSON.parse(editedJson);
+      const { key, ...updates } = parsed;
 
       // Send all updates directly to backend, let backend handle env masking check
       const success = await onUpdate(client.key, updates);
@@ -99,7 +73,7 @@ export function MCPClientCard({
         setJsonModalOpen(false);
         setIsEditing(false);
       }
-    } catch {
+    } catch (error) {
       alert("Invalid JSON format");
     }
   };
@@ -118,77 +92,86 @@ export function MCPClientCard({
         } ${isHovered ? styles.hover : styles.normal}`}
       >
         <div className={styles.cardHeader}>
-          <div className={styles.titleRow}>
-            <div className={styles.titleMain}>
-              <span className={styles.fileIcon}>
-                <Server style={{ color: "#1890ff", fontSize: 20 }} />
-              </span>
-              <Tooltip title={client.name}>
-                <h3 className={styles.mcpTitle}>{client.name}</h3>
-              </Tooltip>
-            </div>
-            <span
-              className={`${styles.typeBadge} ${
-                isRemote ? styles.remote : styles.local
-              }`}
-            >
-              {clientType}
-            </span>
-          </div>
-          <div className={styles.statusContainer}>
-            <div className={styles.statusRight}>
-              <span
-                className={`${styles.statusBadge} ${
-                  client.enabled ? styles.enabled : styles.disabled
-                }`}
-              >
-                <span
-                  className={`${styles.statusDot} ${
-                    client.enabled ? styles.enabled : styles.disabled
-                  }`}
+          {/* Left section: icon, name, badge */}
+          <div className={styles.leftSection}>
+            <span className={styles.fileIcon}>
+              {isNpxCommand ? (
+                <img
+                  src="https://gw.alicdn.com/imgextra/i4/O1CN01iz3wMQ1u1yoImSYTX_!!6000000005978-2-tps-160-160.png"
+                  alt="npx"
+                  style={{ width: 40, height: 40 }}
                 />
+              ) : (
+                <Server style={{ color: "#1890ff", fontSize: 20 }} />
+              )}
+            </span>
+            <Tooltip title={client.name}>
+              <h3 className={styles.mcpTitle}>
+                <span>{client.name}</span>
                 <span
-                  className={`${styles.statusText} ${
-                    client.enabled ? styles.enabled : styles.disabled
+                  className={`${styles.typeBadge} ${
+                    isRemote ? styles.remote : styles.local
                   }`}
                 >
-                  {client.enabled ? t("common.enabled") : t("common.disabled")}
+                  {clientType}
                 </span>
-              </span>
-              <span className={`${styles.statusBadge} ${runtimeStatusClass}`}>
-                <span className={`${styles.statusDot} ${runtimeStatusClass}`} />
-                <span className={`${styles.statusText} ${runtimeStatusClass}`}>
-                  {t(runtimeStatusKey)}
-                </span>
-              </span>
-            </div>
+              </h3>
+            </Tooltip>
+          </div>
+
+          {/* Right section: status */}
+          <div className={styles.statusContainer}>
+            <span
+              className={`${styles.statusDot} ${
+                client.enabled ? styles.enabled : styles.disabled
+              }`}
+            />
+            <span
+              className={`${styles.statusText} ${
+                client.enabled ? styles.enabled : styles.disabled
+              }`}
+            >
+              {client.enabled ? t("common.enabled") : t("common.disabled")}
+            </span>
           </div>
         </div>
 
-        <div className={styles.description}>
-          {client.description || "\u00A0"}
+        {/* Description - only show when exists */}
+
+        <div className={styles.descriptionContainer}>
+          <p className={styles.descriptionLabel}>Introduction</p>
+          <p className={styles.descriptionText}>{client.description || "-"}</p>
         </div>
 
-        <div className={styles.cardFooter}>
-          <Button
-            type="link"
-            size="small"
-            onClick={handleToggleClick}
-            className={styles.actionButton}
-          >
-            {client.enabled ? t("common.disable") : t("common.enable")}
-          </Button>
+        {/* Footer with buttons - only show on hover */}
+        {isHovered && (
+          <div className={styles.cardFooter}>
+            {
+              <>
+                <Button
+                  className={styles.actionButton}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleClick(e);
+                  }}
+                >
+                  {client.enabled ? "Disable" : "Enable"}
+                </Button>
 
-          <Button
-            type="text"
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            className={styles.deleteButton}
-            onClick={handleDeleteClick}
-            disabled={client.enabled}
-          />
-        </div>
+                <Button
+                  danger
+                  className={styles.deleteButtonLarge}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteClick(e);
+                  }}
+                >
+                  Delete
+                </Button>
+              </>
+            }
+          </div>
+        )}
       </Card>
 
       <Modal

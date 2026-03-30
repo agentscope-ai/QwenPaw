@@ -47,17 +47,15 @@ export function ModelsSection({
   const eligible = useMemo(
     () =>
       providers.filter((p) => {
-        const isCurrentActiveProvider = p.id === currentSlot?.provider_id;
         const hasModels =
           (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
-        if (!hasModels && !isCurrentActiveProvider) return false;
-        if (p.is_local) return true;
+        if (!hasModels) return false;
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
         if (p.require_api_key ?? true) return !!p.api_key;
         return true;
       }),
-    [providers, currentSlot?.provider_id],
+    [providers],
   );
 
   useEffect(() => {
@@ -66,27 +64,13 @@ export function ModelsSection({
       setSelectedModel(currentSlot.model || undefined);
     }
     setDirty(false);
-  }, [currentSlot]);
+  }, [currentSlot?.provider_id, currentSlot?.model]);
 
   const chosenProvider = providers.find((p) => p.id === selectedProviderId);
   const modelOptions = [
     ...(chosenProvider?.models ?? []),
     ...(chosenProvider?.extra_models ?? []),
   ];
-  const hasCurrentActiveModelOption =
-    !!currentSlot?.model &&
-    modelOptions.some((model) => model.id === currentSlot.model);
-  if (
-    selectedProviderId &&
-    currentSlot?.provider_id === selectedProviderId &&
-    currentSlot.model &&
-    !hasCurrentActiveModelOption
-  ) {
-    modelOptions.unshift({
-      id: currentSlot.model,
-      name: currentSlot.model,
-    });
-  }
   const hasModels = modelOptions.length > 0;
 
   const handleProviderChange = (pid: string) => {
@@ -185,6 +169,7 @@ export function ModelsSection({
           </Button>
         </div>
       </div>
+      <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
     </div>
   );
 }

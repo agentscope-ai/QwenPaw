@@ -1,16 +1,21 @@
 import styles from "../index.module.less";
 
 interface PageHeaderProps {
-  title: string;
-  description: string;
+  parent?: string;
+  current?: string;
   className?: string;
 }
 
-export function PageHeader({ title, description, className }: PageHeaderProps) {
+export function PageHeader({ parent, current, className }: PageHeaderProps) {
   return (
-    <section className={`${styles.section} ${className ?? ""}`}>
-      <h2 className={styles.sectionTitle}>{title}</h2>
-      <p className={styles.sectionDesc}>{description}</p>
-    </section>
+    <div className={`${styles.pageHeader} ${className ?? ""}`}>
+      <div className={styles.breadcrumbHeader}>
+        {parent && <span className={styles.breadcrumbParent}>{parent}</span>}
+        {parent && current && (
+          <span className={styles.breadcrumbSeparator}>/</span>
+        )}
+        {current && <span className={styles.breadcrumbCurrent}>{current}</span>}
+      </div>
+    </div>
   );
 }

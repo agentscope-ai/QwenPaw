@@ -691,7 +691,7 @@ class ToolGuardMixin:
 
     async def _reasoning(
         self,
-        tool_choice: (Literal["auto", "none", "required"] | None) = None,
+        tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
         """Short-circuit reasoning when awaiting guard approval.
 

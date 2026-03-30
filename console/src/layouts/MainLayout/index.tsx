@@ -12,6 +12,7 @@ import HeartbeatPage from "../../pages/Control/Heartbeat";
 import AgentConfigPage from "../../pages/Agent/Config";
 import KnowledgePage from "../../pages/Agent/Knowledge";
 import SkillsPage from "../../pages/Agent/Skills";
+import SkillPoolPage from "../../pages/Agent/SkillPool";
 import ToolsPage from "../../pages/Agent/Tools";
 import WorkspacePage from "../../pages/Agent/Workspace";
 import ProjectsPage from "../../pages/Agent/Projects";
@@ -34,6 +35,7 @@ const pathToKey: Record<string, string> = {
   "/heartbeat": "heartbeat",
   "/knowledge": "knowledge",
   "/skills": "skills",
+  "/skill-pool": "skill-pool",
   "/tools": "tools",
   "/mcp": "mcp",
   "/workspace": "workspace",
@@ -55,9 +57,9 @@ export default function MainLayout() {
 
   return (
     <Layout className={styles.mainLayout}>
-      <Sidebar selectedKey={selectedKey} />
+      <Header />
       <Layout>
-        <Header selectedKey={selectedKey} />
+        <Sidebar selectedKey={selectedKey} />
         <Content className="page-container">
           <ConsoleCronBubble />
           <div className="page-content">
@@ -70,6 +72,7 @@ export default function MainLayout() {
               <Route path="/heartbeat" element={<HeartbeatPage />} />
               <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="/skills" element={<SkillsPage />} />
+              <Route path="/skill-pool" element={<SkillPoolPage />} />
               <Route path="/tools" element={<ToolsPage />} />
               <Route path="/mcp" element={<MCPPage />} />
               <Route path="/workspace" element={<WorkspacePage />} />
