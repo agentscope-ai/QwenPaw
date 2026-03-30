@@ -28,27 +28,27 @@ const itemVariants = {
 const AVATARS = [
   {
     key: "a1",
-    src: "/communityIcon/community1.png",
+    src: "/communityIcon/1.svg",
     alt: "CoPaw user avatar 1",
   },
   {
     key: "a2",
-    src: "/communityIcon/community2.png",
+    src: "/communityIcon/2.svg",
     alt: "CoPaw user avatar 2",
   },
   {
     key: "a3",
-    src: "/communityIcon/community3.png",
+    src: "/communityIcon/3.svg",
     alt: "CoPaw user avatar 3",
   },
   {
     key: "a4",
-    src: "/communityIcon/community4.png",
+    src: "/communityIcon/4.svg",
     alt: "CoPaw user avatar 4",
   },
   {
     key: "a5",
-    src: "/communityIcon/community5.png",
+    src: "/communityIcon/5.svg",
     alt: "CoPaw user avatar 5",
   },
 ] as const;
@@ -57,37 +57,37 @@ const TESTIMONIALS = [
   {
     key: "t1",
     name: "@Shidan Guo",
-    avatarSrc: "/communityIcon/community1.png",
+    avatarSrc: "/communityIcon/1.svg",
     avatarAlt: "Shidan Guo avatar",
   },
   {
     key: "t2",
     name: "@Hubm",
-    avatarSrc: "/communityIcon/community1.png",
+    avatarSrc: "/communityIcon/2.svg",
     avatarAlt: "Hubm avatar",
   },
   {
     key: "t3",
     name: "@ends of the earth",
-    avatarSrc: "/communityIcon/community2.png",
+    avatarSrc: "/communityIcon/3.svg",
     avatarAlt: "ends of the earth avatar",
   },
   {
     key: "t4",
     name: "@FortiCore",
-    avatarSrc: "/communityIcon/community1.png",
+    avatarSrc: "/communityIcon/4.svg",
     avatarAlt: "FortiCore avatar",
   },
   {
     key: "t5",
     name: "@soro",
-    avatarSrc: "/communityIcon/community1.png",
+    avatarSrc: "/communityIcon/5.svg",
     avatarAlt: "soro avatar",
   },
   {
     key: "t6",
     name: "@xiangli",
-    avatarSrc: "/communityIcon/community3.png",
+    avatarSrc: "/communityIcon/6.svg",
     avatarAlt: "xiangli avatar",
   },
 ] as const;

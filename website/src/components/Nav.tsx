@@ -12,7 +12,7 @@ import { CopawMascot } from "@/components/CopawMascot";
 import { useTranslation } from "react-i18next";
 import { useSiteLanguage } from "@/i18n/SiteLanguageContext";
 import { useSiteConfig } from "@/config-context";
-import { GitHubIcon, SelectTextIcon } from "./Icon";
+import { GitHubIcon, SelectTextIcon, NoteIcon } from "./Icon";
 
 const AGENTSCOPE_LOGO_SIZE = 22;
 
@@ -125,7 +125,7 @@ export function Nav() {
             role="menuitem"
             className={navLinkClass}
           >
-            <FileText size={16} strokeWidth={navIconStroke} aria-hidden />
+            <NoteIcon />
             <span>{t("nav.releaseNotes")}</span>
           </Link>
           <Link
@@ -197,7 +197,7 @@ export function Nav() {
           className={navLinkClass}
           onClick={() => setOpen(false)}
         >
-          <FileText size={18} strokeWidth={navIconStroke} />
+          <NoteIcon />
           {t("nav.releaseNotes")}
         </Link>
         <Link
