@@ -321,7 +321,7 @@ class TestCardClose:
             return_value={"Authorization": "Bearer t"},
         )
 
-        await channel._card_close("card_123", "final text")
+        await channel._card_close("card_123")
 
         mock_http.patch.assert_awaited_once()
 
@@ -448,3 +448,150 @@ class TestProcessLoopRouting:
                 send_meta={},
             )
             mock_streaming.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# _run_process_loop_streaming integration
+# ---------------------------------------------------------------------------
+
+
+class TestProcessLoopStreaming:
+    """Integration tests for _run_process_loop_streaming core flow.
+
+    Tests the interaction between the main event loop and the background
+    updater task, state transitions (card creation, updates, closing),
+    and fallback mechanisms on API failure.
+    """
+
+    @pytest.mark.asyncio
+    async def test_card_create_send_close_lifecycle(self, channel, mock_http, monkeypatch):
+        """Full lifecycle: _card_create → _card_send → updater → _card_close."""
+        monkeypatch.setattr(channel, "_streaming_auth_headers",
+                            lambda: {"Authorization": "Bearer t"})
+        monkeypatch.setattr(channel, "_get_receive_for_send",
+                            AsyncMock(return_value=("open_id", "ou_123")))
+        monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
+        monkeypatch.setattr(channel, "_feishu_base_url",
+                            lambda: "https://open.feishu.cn")
+
+        # _card_create → success
+        mock_http.post.return_value = _ok_feishu(data={"card_id": "c1"})
+        # _card_send → success
+        mock_http.put.return_value = _ok_feishu(data={"message_id": "m1"})
+        # _card_update_text + _card_close → success
+        mock_http.patch.return_value = _ok_feishu()
+
+        monkeypatch.setattr(channel, "_card_update_text",
+                            AsyncMock(return_value=True))
+
+        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+
+        async def fake_process(req):
+            # InProgress event with text
+            ev1 = MagicMock()
+            ev1.object = "response.delta"
+            ev1.status = RunStatus.InProgress
+            yield ev1
+
+            # Completed event
+            ev2 = MagicMock()
+            ev2.object = "message"
+            ev2.status = RunStatus.Completed
+            yield ev2
+
+        # _extract_streaming_text: always return text for InProgress, final for Completed
+        def fake_extract(ev, is_streaming=True):
+            if not is_streaming:
+                return "Hello world"
+            return "Hello world"
+
+        monkeypatch.setattr(channel, "_process", fake_process)
+        monkeypatch.setattr(channel, "_extract_streaming_text", fake_extract)
+
+        # Mock _message_to_content_parts for Completed fallback
+        content_part = MagicMock()
+        content_part.type = "text"
+        content_part.text = "Hello world"
+        monkeypatch.setattr(channel, "_message_to_content_parts",
+                            lambda ev: [content_part])
+        monkeypatch.setattr(channel, "send_content_parts",
+                            AsyncMock(return_value="m_normal"))
+
+        monkeypatch.setattr(channel, "_get_response_error_message",
+                            lambda r: None)
+        monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
+        monkeypatch.setattr(channel, "get_on_reply_sent_args",
+                            lambda r, t: (r, t))
+        monkeypatch.setattr(channel, "_on_reply_sent", None)
+
+        await channel._run_process_loop_streaming(
+            request=MagicMock(),
+            to_handle="test_user",
+            send_meta={},
+        )
+
+        # Card should have been created (POST to cardkit)
+        assert mock_http.post.await_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_card_create_falls_back_on_failure(self, channel, mock_http, monkeypatch):
+        """Card creation fails → should fall back to normal send."""
+        monkeypatch.setattr(channel, "_streaming_auth_headers",
+                            lambda: {"Authorization": "Bearer t"})
+        monkeypatch.setattr(channel, "_get_receive_for_send",
+                            AsyncMock(return_value=("open_id", "ou_123")))
+        monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
+        monkeypatch.setattr(channel, "_feishu_base_url",
+                            lambda: "https://open.feishu.cn")
+
+        # Card create fails
+        mock_http.post.return_value = _fail_http(500, "Internal Server Error")
+        mock_http.patch.return_value = _ok_feishu()
+        mock_http.put.return_value = _ok_feishu(data={"message_id": "m1"})
+
+        monkeypatch.setattr(channel, "_card_update_text",
+                            AsyncMock(return_value=True))
+
+        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+
+        async def fake_process(req):
+            ev1 = MagicMock()
+            ev1.object = "response.delta"
+            ev1.status = RunStatus.InProgress
+            yield ev1
+
+            ev2 = MagicMock()
+            ev2.object = "message"
+            ev2.status = RunStatus.Completed
+            yield ev2
+
+        def fake_extract(ev, is_streaming=True):
+            return "Hello"
+
+        monkeypatch.setattr(channel, "_process", fake_process)
+        monkeypatch.setattr(channel, "_extract_streaming_text", fake_extract)
+
+        content_part = MagicMock()
+        content_part.type = "text"
+        content_part.text = "Hello"
+        monkeypatch.setattr(channel, "_message_to_content_parts",
+                            lambda ev: [content_part])
+        monkeypatch.setattr(channel, "send_content_parts",
+                            AsyncMock(return_value="m_fallback"))
+
+        monkeypatch.setattr(channel, "_get_response_error_message",
+                            lambda r: None)
+        monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
+        monkeypatch.setattr(channel, "get_on_reply_sent_args",
+                            lambda r, t: (r, t))
+        monkeypatch.setattr(channel, "_on_reply_sent", None)
+
+        await channel._run_process_loop_streaming(
+            request=MagicMock(),
+            to_handle="test_user",
+            send_meta={},
+        )
+
+        # Should have fallen back to send_content_parts
+        channel.send_content_parts.assert_awaited()
+

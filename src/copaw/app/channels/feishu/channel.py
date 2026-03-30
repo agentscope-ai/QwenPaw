@@ -157,6 +157,7 @@ logger = logging.getLogger(__name__)
 
 # Streaming card constants
 _STREAMING_ELEMENT_ID = "content"
+_STREAMING_UPDATE_INTERVAL_SEC = 0.06
 _STREAMING_ENV_KEY = "FEISHU_STREAMING_ENABLED"
 # module-level variable that concurrent start() calls would overwrite.
 _WS_START_LOCK: threading.Lock = threading.Lock()
@@ -1856,7 +1857,7 @@ class FeishuChannel(BaseChannel):
             logger.exception("card update error")
             return False
 
-    async def _card_close(self, card_id: str, final_text: str = "") -> None:
+    async def _card_close(self, card_id: str) -> None:
         """Step 4: turn off streaming mode (finalize card)."""
         try:
             seq = self._next_stream_seq()
@@ -2014,8 +2015,8 @@ class FeishuChannel(BaseChannel):
             """Background task: push accumulated text to card periodically."""
             nonlocal text_acc, card_id, streaming_active
             last_pushed = ""
-            while streaming_active and card_id and card_id != "":
-                await asyncio.sleep(0.06)
+            while streaming_active and card_id:
+                await asyncio.sleep(_STREAMING_UPDATE_INTERVAL_SEC)
                 if text_acc != last_pushed and card_id:
                     ok = await self._card_update_text(card_id, text_acc)
                     if ok:
@@ -2024,16 +2025,6 @@ class FeishuChannel(BaseChannel):
                         card_id = ""
                         streaming_active = False
                         return
-
-        async def _stop_updater():
-            nonlocal updater_task
-            if updater_task and not updater_task.done():
-                updater_task.cancel()
-                try:
-                    await updater_task
-                except asyncio.CancelledError:
-                    pass
-                updater_task = None
 
         async def _close_current_card(final_text: str) -> None:
             nonlocal card_id, updater_task, streaming_active
@@ -2047,7 +2038,7 @@ class FeishuChannel(BaseChannel):
             if card_id:
                 if final_text:
                     await self._card_update_text(card_id, final_text)
-                await self._card_close(card_id, final_text)
+                await self._card_close(card_id)
             card_id = None
             streaming_active = True
 
@@ -2092,7 +2083,7 @@ class FeishuChannel(BaseChannel):
                 if obj == "message" and status == RunStatus.Completed:
                     final_text = text or ""
                     # If we had an active card, finalize it
-                    if card_id and card_id != "":
+                    if card_id:
                         await _close_current_card(final_text)
                     else:
                         # No card (creation failed or no delta), send normally
