@@ -58,22 +58,25 @@
 
 ## ニュース
 
-[2026-03-24] v0.2.0をリリースしました！詳細は [v0.2.0 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
+[2026-03-30] v1.0.0をリリースしました！詳細は [v1.0.0 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
-- **[v0.2.0] 追加:** エージェント間通信; 内蔵 QA Agent; LLM 自動リトライ設定; ファイルアクセスガード（機密パス保護）; コンソールでの音声・動画・音声入力; ページ更新後のストリーム再接続; モデルプロバイダー検索; マルチモーダル機能検出と UI タグ; 強化された grep と glob 検索; 設定ファイル自動修復; 要約の最適化。
-- **[v0.2.0] 変更:** 安定したプロンプトで KV Cache ヒット率向上; CLI 起動高速化; QQ チャネルリファクタリング; QQ と企業 WeChat のスマート分割; QQ WebSocket 再接続設定; ダークモード全面最適化。
-- **[v0.2.0] 修正:** Windows Shell コマンドハング; Windows ファイルパス処理; macOS デスクトップビルド; チャネルメッセージ処理ロックリーク; エージェントリストのクラッシュと更新; コンソール再接続オーバーフロー; 定期タスクのキャンセル。
-- **[v0.2.0] 貢献者:** 新規貢献者の皆さんに感謝します: [@ixiadao](https://github.com/ixiadao)、[@leoleils](https://github.com/leoleils)、[@ltzu929](https://github.com/ltzu929)、[@emoubarak](https://github.com/emoubarak)、[@f3125472](https://github.com/f3125472)、[@shiweijiezero](https://github.com/shiweijiezero)、[@Yaohua-Leo](https://github.com/Yaohua-Leo)、[@finenter-molei](https://github.com/finenter-molei)、[@lizeruicq](https://github.com/lizeruicq)、[@hbsjmsjwj](https://github.com/hbsjmsjwj)、[@aquamarine-bot](https://github.com/aquamarine-bot)、[@sanfran1068](https://github.com/sanfran1068)、[@x1n95c](https://github.com/x1n95c)、[@saschabuehrle](https://github.com/saschabuehrle)。
+- **[v1.0.0] 追加:**
+  - **マルチエージェントシステム**: CLI `--background` フラグによるバックグラウンドタスクサポートとタスク追跡; コンソールと API によるエージェントの有効化/無効化トグル; タスクキャンセル用の `/stop` コマンド付き統一優先度キューシステム
+  - **プロバイダーとモデル**: llama.cpp を使用した CoPaw ローカルモデルプロバイダー; QPM スライディングウィンドウによるグローバル LLM レートリミッター
+  - **セキュリティ**: システム再起動・サービス制御保護用のツールガードルール; スキルスキャナーでの中国語プロンプトインジェクション検出
+  - **コンソールと UI**: ミラーサイト付きデスクトップインストーラー用ダウンロードページ; コンソールチャットでのマルチモーダルプレビュー（画像、音声、動画、ファイル）
+  - **チャネル**: WeChat iLink Bot チャネル; Webhook 用カスタムチャネル HTTP ルート
+  - **ツールとスキル**: バックグラウンドタスクヘルパー付き非同期ツール実行; 2 層スキルプールアーキテクチャ; Chrome 自動化用ブラウザ CDP サポート
+- **[v1.0.0] 変更:** ネスト化された設定モデル、新しいコンパクション フック、ツール結果のコンパクション、プロアクティブメモリ検索を含むコンテキスト管理 v2.0; トランケーションロジックの改善; ストリーミング grep 検索。
+- **[v1.0.0] 修正:** Feishu WebSocket 再接続とマルチインスタンス メッセージルーティング; Discord 重複メッセージ; QQ ボイスメッセージ変換; マルチエージェント モデル設定; クロスプラットフォーム ファイルエンコーディング。
+- **[v1.0.0] ドキュメント:** マルチエージェント、インストール・CLI、モデルプロバイダー、プロジェクト構造ガイドライン、コンテキスト管理、セキュリティ、MCP・ツール、スキル、マジックコマンドなど包括的なドキュメント更新。
+- **[v1.0.0] 貢献者:** 新規貢献者の皆さんに感謝します: [@qzcpl](https://github.com/qzcpl)、[@livehl](https://github.com/livehl)、[@carlos999-hqsama](https://github.com/carlos999-hqsama)、[@bowenliang123](https://github.com/bowenliang123)、[@jinglinpeng](https://github.com/jinglinpeng)。
+
+[2026-03-24] v0.2.0をリリースしました！詳細は [v0.2.0 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
 [2026-03-18] v0.1.0をリリースしました！詳細は [v0.1.0 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
 [2026-03-12] v0.0.7をリリースしました！詳細は [v0.0.7 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
-
-[2026-03-09] v0.0.6をリリースしました！詳細は [v0.0.6 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
-
-[2026-03-06] v0.0.5をリリースしました！詳細は [v0.0.5 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
-
-[2026-03-02] v0.0.4をリリースしました！詳細は [v0.0.4 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
 ---
 

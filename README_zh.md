@@ -58,22 +58,25 @@
 
 ## 新闻
 
-[2026-03-24] 我们发布了 v0.2.0！完整更新说明见 [v0.2.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+[2026-03-30] 我们发布了 v1.0.0！完整更新说明见 [v1.0.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
-- **[v0.2.0] 新增：** Agent 间通信；内置 QA Agent；LLM 自动重试配置；文件访问守卫（敏感路径防护）；控制台音视频与语音输入；页面刷新后流式重连；模型供应商搜索；多模态能力探测与 UI 标签；增强的 grep 和 glob 搜索；配置文件自动修复；摘要优化。
-- **[v0.2.0] 变更：** 稳定的提示词提升 KV Cache 命中率；CLI 启动加速；QQ 通道重构；QQ 和企业微信智能分块；QQ WebSocket 重连配置；暗色模式全面优化。
-- **[v0.2.0] 修复：** Windows Shell 命令挂起；Windows 文件路径处理；macOS 桌面端构建；通道消息处理锁泄漏；Agent 列表崩溃和刷新；控制台重连溢出；定时任务取消。
-- **[v0.2.0] 贡献者：** 感谢新贡献者：[@ixiadao](https://github.com/ixiadao)、[@leoleils](https://github.com/leoleils)、[@ltzu929](https://github.com/ltzu929)、[@emoubarak](https://github.com/emoubarak)、[@f3125472](https://github.com/f3125472)、[@shiweijiezero](https://github.com/shiweijiezero)、[@Yaohua-Leo](https://github.com/Yaohua-Leo)、[@finenter-molei](https://github.com/finenter-molei)、[@lizeruicq](https://github.com/lizeruicq)、[@hbsjmsjwj](https://github.com/hbsjmsjwj)、[@aquamarine-bot](https://github.com/aquamarine-bot)、[@sanfran1068](https://github.com/sanfran1068)、[@x1n95c](https://github.com/x1n95c)、[@saschabuehrle](https://github.com/saschabuehrle)。
+- **[v1.0.0] 新增：**
+  - **多 Agent 系统**：支持通过 CLI `--background` 标志执行后台任务并追踪；通过控制台和 API 启用/禁用 Agent；统一优先级队列系统（含 `/stop` 命令用于任务取消）
+  - **模型供应商**：CoPaw 本地模型供应商（基于 llama.cpp）；全局 LLM 流控器（QPM 滑动窗口）
+  - **安全**：工具守卫规则（保护系统重启与服务控制）；技能扫描器中的中文提示词注入检测
+  - **控制台与界面**：下载页面（提供桌面安装包及镜像站点）；控制台聊天中的多模态预览（图片、音频、视频、文件）
+  - **频道**：微信 iLink Bot 频道；自定义频道 HTTP 路由（用于 Webhook）
+  - **工具与技能**：异步工具执行（含后台任务辅助工具）；双层技能池架构；浏览器 CDP 支持（Chrome 自动化）
+- **[v1.0.0] 变更：** 上下文管理 v2.0（包含嵌套配置模型、新增压缩钩子、工具结果压缩和主动记忆搜索）；优化截断逻辑；流式 Grep 搜索。
+- **[v1.0.0] 修复：** 飞书 WebSocket 重连和多实例消息路由；Discord 重复消息；QQ 语音消息转换；多 Agent 模型配置；跨平台文件编码。
+- **[v1.0.0] 文档：** 全面更新文档，包括多 Agent、安装与 CLI、模型供应商、项目结构指南、上下文管理、安全、MCP 与工具、技能和魔法命令。
+- **[v1.0.0] 贡献者：** 感谢新贡献者：[@qzcpl](https://github.com/qzcpl)、[@livehl](https://github.com/livehl)、[@carlos999-hqsama](https://github.com/carlos999-hqsama)、[@bowenliang123](https://github.com/bowenliang123)、[@jinglinpeng](https://github.com/jinglinpeng)。
+
+[2026-03-24] 我们发布了 v0.2.0！完整更新说明见 [v0.2.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-18] 我们发布了 v0.1.0！完整更新说明见 [v0.1.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-12] 我们发布了 v0.0.7！完整更新说明见 [v0.0.7 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
-
-[2026-03-09] 我们发布了 v0.0.6！完整更新说明见 [v0.0.6 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
-
-[2026-03-06] 我们发布了 v0.0.5！完整更新说明见 [v0.0.5 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
-
-[2026-03-02] 我们发布了 v0.0.4！完整更新说明见 [v0.0.4 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 ---
 
