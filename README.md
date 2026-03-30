@@ -105,7 +105,23 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## Quick Start
 
-### Script install
+### Option 1: pip install
+
+If you prefer managing Python yourself:
+
+```bash
+pip install copaw
+copaw init --defaults
+copaw app
+```
+
+Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Feishu, WeChat, etc., see the [Channel setup](https://copaw.agentscope.io/docs/channels) documentation.
+
+![Console](https://img.alicdn.com/imgextra/i4/O1CN01URgadi22cdR9S6q1v_!!6000000007141-2-tps-3822-2144.png)
+
+---
+
+### Option 2: Script install
 
 No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.
 
@@ -213,73 +229,7 @@ copaw uninstall --purge  # removes everything
 
 ---
 
-### pip install
-
-If you prefer managing Python yourself:
-
-```bash
-pip install copaw
-copaw init --defaults
-copaw app
-```
-
-Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Feishu, WeChat, etc., see the [Channel setup](https://copaw.agentscope.io/docs/channels) documentation.
-
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
-
----
-
-### Desktop Application (Beta)
-
-> **Beta Notice**: The desktop application is currently in Beta testing phase with the following known limitations:
-> - **Incomplete compatibility testing**: Not fully tested across all system versions and hardware configurations
-> - **Potential performance issues**: Startup time, memory usage, and other performance aspects may need further optimization
-> - **Features under development**: Some features may be unstable or missing
-
-If you're not comfortable with command-line tools, you can download and use CoPaw's desktop application without manually configuring Python environments or running commands.
-
-#### Download
-
-Download the desktop app from [GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases):
-- **Windows**: `CoPaw-Setup-<version>.exe`
-- **macOS**: `CoPaw-<version>-macOS.zip` (Apple Silicon recommended)
-
-#### Features
-
-- ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
-- ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+
-- ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
-- ⚠️ **Beta stage**: Features are continuously being improved, feedback welcome
-
-#### First Launch
-
-**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the browser window to open automatically.
-
-#### macOS: Bypass System Security Restrictions
-
-When you download the CoPaw macOS app from Releases, macOS may show: *"Apple cannot verify that 'CoPaw' contains no malicious software"*. This happens because the app is not notarized. You can still open it as follows:
-
-- **Right-click to open (recommended)**
-  Right-click (or Control+click) the CoPaw app → **Open** → in the dialog click **Open** again. This tells Gatekeeper you trust the app; after that you can double-click to launch as usual.
-
-- **Allow in System Settings**
-  If it is still blocked, go to **System Settings → Privacy & Security**, scroll to the message like *"CoPaw was blocked because it is from an unidentified developer"*, and click **Open Anyway** or **Allow**.
-
-- **Remove quarantine attribute (not recommended for most users)**
-  In Terminal run:
-  `xattr -cr /Applications/CoPaw.app`
-  (or use the path to the `.app` after unzipping). This clears the "downloaded from the internet" quarantine flag so the warning usually does not appear, but is less safe and controllable than using **Right-click → Open**.
-
-For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://copaw.agentscope.io/docs/desktop).
-
-### Using ModelScope
-
-**No local install?** [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) one-click cloud setup. Set your Studio to **non-public** so others cannot control your CoPaw.
-
-
----
-
-### Using Docker
+### Option 3: Docker
 
 Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable); `pre` (PyPI pre-release).
 
@@ -322,12 +272,62 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 
 The image is built from scratch. To build the image yourself, please refer to the [Build Docker image](scripts/README.md#build-docker-image) section in `scripts/README.md`, and then push to your registry.
 
+---
+
+### Option 4: Deploy on Alibaba Cloud ECS
+
+To run CoPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [CoPaw on Alibaba Cloud (ECS) deployment link](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) and follow the prompts. For step-by-step instructions, see [Alibaba Cloud Developer: Deploy your AI assistant in 3 minutes](https://developer.aliyun.com/article/1713682).
 
 ---
 
-### Deploy on Alibaba Cloud ECS
+### Option 5: Using ModelScope
 
-To run CoPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [CoPaw on Alibaba Cloud (ECS) deployment link](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) and follow the prompts. For step-by-step instructions, see [Alibaba Cloud Developer: Deploy your AI assistant in 3 minutes](https://developer.aliyun.com/article/1713682).
+**No local install?** [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) one-click cloud setup. Set your Studio to **non-public** so others cannot control your CoPaw.
+
+---
+
+### Option 6: Desktop Application (Beta)
+
+> **Beta Notice**: The desktop application is currently in Beta testing phase with the following known limitations:
+> - **Incomplete compatibility testing**: Not fully tested across all system versions and hardware configurations
+> - **Potential performance issues**: Startup time, memory usage, and other performance aspects may need further optimization
+> - **Features under development**: Some features may be unstable or missing
+
+If you're not comfortable with command-line tools, you can download and use CoPaw's desktop application without manually configuring Python environments or running commands.
+
+#### Download
+
+Download the desktop app from [GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases):
+- **Windows**: `CoPaw-Setup-<version>.exe`
+- **macOS**: `CoPaw-<version>-macOS.zip` (Apple Silicon recommended)
+
+#### Features
+
+- ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
+- ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+
+- ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
+- ⚠️ **Beta stage**: Features are continuously being improved, feedback welcome
+
+#### First Launch
+
+**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the browser window to open automatically.
+
+#### macOS: Bypass System Security Restrictions
+
+When you download the CoPaw macOS app from Releases, macOS may show: *"Apple cannot verify that 'CoPaw' contains no malicious software"*. This happens because the app is not notarized. You can still open it as follows:
+
+- **Right-click to open (recommended)**
+  Right-click (or Control+click) the CoPaw app → **Open** → in the dialog click **Open** again. This tells Gatekeeper you trust the app; after that you can double-click to launch as usual.
+
+- **Allow in System Settings**
+  If it is still blocked, go to **System Settings → Privacy & Security**, scroll to the message like *"CoPaw was blocked because it is from an unidentified developer"*, and click **Open Anyway** or **Allow**.
+
+- **Remove quarantine attribute (not recommended for most users)**
+  In Terminal run:
+  `xattr -cr /Applications/CoPaw.app`
+  (or use the path to the `.app` after unzipping). This clears the "downloaded from the internet" quarantine flag so the warning usually does not appear, but is less safe and controllable than using **Right-click → Open**.
+
+For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://copaw.agentscope.io/docs/desktop).
 
 ---
 
@@ -417,19 +417,15 @@ Star CoPaw on GitHub and be instantly notified of new releases.
 | **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
 | **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
 | **Console Web UI**                    | Expose more info/config in the Console                                                                                                           | In Progress          |
-| **Self-healing**                      | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | In Progress          |
-| **Multi-agent**                       | Background task support                                                                                                                          | In Progress          |
-|                                       | Async tasks                                                                                                                                      | Planned              |
-|                                       | Inter-agent contention resolution                                                                                                                | Planned              |
+| **Multi-agent**                      | Agentic Ralph Loop                                                                                  | In Progress          |
 | **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
-| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows                                                                                               | In Progress          |
-|                                       | Multi-model routing; different models for different tasks                                                                                          | In Progress          |
+| **Small + Large Model Collaboration** | Multi-model routing; different models for different tasks                                                                                          | In Progress          |
 | **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
-|                                       | Memory mechanism switching                                                                                                                       | Planned              |
+|                                       | Memory mechanism switching                                                                                                                       | In Progress             |
 |                                       | Multimodal memory fusion                                                                                                                         | Planned              |
 |                                       | Context-aware proactive delivery                                                                                                                 | Planned              |
 | **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | In Progress          |
-| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Planned              |
+| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, tools, and skills                                                         | In Progress              |
 | **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Planned              |
 
 

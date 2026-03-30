@@ -262,7 +262,7 @@ When you deploy a local model with Ollama or LM Studio, if the model's
 
 In Console, go to **Control -> Cron Jobs** to create and manage scheduled tasks.
 
-![cron](https://img.alicdn.com/imgextra/i2/O1CN01sL8ZYj1QJtpXs9iKE_!!6000000001956-2-tps-3814-1954.png)
+![cron](https://img.alicdn.com/imgextra/i3/O1CN01duPPPB1R0x495tRdY_!!6000000002050-2-tps-3822-2064.png)
 
 The easiest way to create a cron job is to talk to CoPaw in the channel where you want the results. For example, say: “Create a scheduled task that reminds me to drink water every five minutes.” You can then see the enabled job in Console.
 
@@ -272,27 +272,27 @@ If a scheduled task does not run as expected, try the following:
 
 2. Check that the task **Status** is **Enabled**.
 
-   ![enable](https://img.alicdn.com/imgextra/i4/O1CN01oggNyG1yQwrWKCnN7_!!6000000006574-2-tps-3020-762.png)
+   ![enable](https://img.alicdn.com/imgextra/i3/O1CN01XsJiIH1bIUOD4j9sF_!!6000000003442-2-tps-3236-880.png)
 
 3. Check that **Dispatch Channel** is set to the channel where you want the result (e.g. console, dingtalk, feishu, discord, imessage).
 
-   ![channel](https://img.alicdn.com/imgextra/i1/O1CN01RnjX7z1MHpZvVpjJq_!!6000000001410-2-tps-3020-762.png)
+   ![channel](https://img.alicdn.com/imgextra/i2/O1CN01JN4bq61WKFpzXrIcZ_!!6000000002769-2-tps-3230-876.png)
 
 4. Check that **Dispatch Target User ID** and **Dispatch Target Session ID** are correct.
 
-   ![id](https://img.alicdn.com/imgextra/i4/O1CN01QgvEDv290o1p3oaTv_!!6000000008006-2-tps-3020-762.png)
+   ![id](https://img.alicdn.com/imgextra/i2/O1CN014BLaOC1YwO2onZK8U_!!6000000003123-2-tps-3236-874.png)
 
    In Console, go to **Control -> Sessions** and find the session you used when creating the task. To have the task reply in that session, the **User ID** and **Session ID** there must match the task’s **Dispatch Target User ID** and **Dispatch Target Session ID**.
 
-   ![id](https://img.alicdn.com/imgextra/i3/O1CN01aqsLLR1eRb6m6WaGl_!!6000000003868-2-tps-3020-928.png)
+   ![id](https://img.alicdn.com/imgextra/i2/O1CN01iZZhHZ1VeZnMzjlMm_!!6000000002678-2-tps-3236-1068.png)
 
 5. If the task runs at the wrong time, check the **Schedule (Cron)** for the task.
 
-   ![cron](https://img.alicdn.com/imgextra/i2/O1CN01iNoLp229bRiIdvJKK_!!6000000008086-2-tps-3020-778.png)
+   ![cron](https://img.alicdn.com/imgextra/i4/O1CN01TSodVd21msgJQvHkI_!!6000000007028-2-tps-3234-876.png)
 
 6. To verify that the task was created and can run, click **Execute Now**. If it works, you should see the reply in the target channel. You can also ask CoPaw: “Trigger the ‘drink water reminder’ task I just created.”
 
-   ![exec](https://img.alicdn.com/imgextra/i3/O1CN01nGtc3p1o5kN0d01mf_!!6000000005174-2-tps-3020-778.png)
+   ![exec](https://img.alicdn.com/imgextra/i4/O1CN01MkrSYn1mJpJshAO8n_!!6000000004934-2-tps-3224-878.png)
 
 ### How to manage Skills
 

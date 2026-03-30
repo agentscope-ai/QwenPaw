@@ -106,7 +106,24 @@
 
 ## 快速开始
 
-### 脚本安装
+### 方式一：pip 安装
+
+如果你习惯自行管理 Python 环境：
+
+```bash
+pip install copaw
+copaw init --defaults
+copaw app
+```
+
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/**，配置模型后即可开始对话。
+若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://copaw.agentscope.io/docs/channels) 文档。
+
+![Console](https://img.alicdn.com/imgextra/i2/O1CN01h8X6HZ1g2z3lhP0uP_!!6000000004085-2-tps-3822-2144.png)
+
+---
+
+### 方式二：脚本安装
 
 无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 CoPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。
 
@@ -215,24 +232,64 @@ copaw uninstall --purge  # 删除所有内容
 
 ---
 
-### pip 安装
+### 方式三：使用 Docker
 
-如果你习惯自行管理 Python 环境：
+镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。
 
 ```bash
-pip install copaw
-copaw init --defaults
-copaw app
+docker pull agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
 ```
 
-然后在浏览器中打开控制台：**http://127.0.0.1:8088/**，配置模型后即可开始对话。
-若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://copaw.agentscope.io/docs/channels) 文档。
+国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/**。配置、记忆与 Skills 保存在 `copaw-data` 卷中；模型配置与 API Key 保存在 `copaw-secrets` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+
+> **从容器内连接宿主机上的 Ollama 或其他模型服务**
+>
+> Docker 容器内的 `localhost` 指向容器自身，而非宿主机。如果 Ollama（或其他模型服务）运行在宿主机上，可通过以下方式让容器内的 CoPaw 访问：
+>
+> **方式 A** — 显式绑定宿主机地址（全平台通用）：
+> ```bash
+> docker run -p 127.0.0.1:8088:8088 \
+>   --add-host=host.docker.internal:host-gateway \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
+> ```
+> 然后在 CoPaw **设置 → 模型** 中，将 Base URL 改为 `http://host.docker.internal:<端口>` — 例如 Ollama 填 `http://host.docker.internal:11434`，LM Studio 填 `http://host.docker.internal:1234/v1`。
+>
+> **方式 B** — 使用宿主机网络（仅限 Linux）：
+> ```bash
+> docker run --network=host \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
+> ```
+> 无需端口映射（`-p`），容器直接共享宿主机网络。注意这会将容器的所有端口暴露在宿主机上，可能与已占用的端口产生冲突。
+>
+> **提示：** 如果你只挂载了 `/app/working` 而没有单独挂载 `/app/working.secret`，入口脚本会自动将 secrets 重定向到 `/app/working/.secret`，使其也保存在同一个 volume 中。
+
+镜像从零构建。若需自行构建镜像，请参阅 [scripts/README.md](scripts/README.md#build-docker-image) 中的「Build Docker image」小节，构建后推送到你的镜像仓库。
 
 ---
 
-### 桌面应用（Beta）
+### 方式四：部署到阿里云 ECS
+
+若希望将 CoPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：打开 [CoPaw 阿里云 ECS 部署链接](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) 按页面提示操作即可。详细步骤见 [阿里云开发者社区：CoPaw 3 分钟部署你的 AI 助理](https://developer.aliyun.com/article/1713682)。
+
+---
+
+### 方式五：使用魔搭创空间
+
+**不想本地安装？** 使用 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 一键云端配置。请将创空间设为 **非公开**，否则他人可能操纵你的 CoPaw。
+
+---
+
+### 方式六：桌面应用（Beta）
 
 > **Beta 版本说明**：桌面应用目前处于 Beta 测试阶段，存在以下已知限制：
 > - **兼容性测试不完整**：未在所有系统版本和硬件配置上进行充分测试
@@ -424,22 +481,18 @@ CoPaw 内置多层安全防护机制，保障你的数据与系统安全：
 | **横向拓展**           | 更多频道、模型、技能、MCP 等 — **欢迎社区贡献**                                                             | 征集中   |
 | **已有功能扩展与完善** | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献**                                                   | 征集中   |
 | **控制台 Web UI**      | 在控制台中透出更多信息与配置                                                                                | 进行中   |
-| **自愈**               | DaemonAgent：自诊断、自愈与恢复                                                                             | 进行中   |
-| **多智能体**           | 后台任务支持                                                                                                | 进行中   |
-|                        | 异步任务                                                                                                    | 计划中   |
-|                        | 智能体间竞争与冲突的解决                                                                                    | 计划中   |
+| **多智能体**           | Agentic Ralph Loop                                                                                          | 进行中   |
 | **多模态**             | 语音/视频通话与实时交互                                                                                     | 进行中   |
-| **大小模型协同**       | 针对 CoPaw 工作流的本地小模型训练与微调                                                                     | 进行中   |
-|                        | 多模型路由，不同模型处理不同任务                                                                            | 进行中   |
-| **记忆系统**           | 经验沉淀技能提炼                                                                                            | 进行中   |
-|                        | 记忆机制切换                                                                                                | 计划中   |
-|                        | 多模态记忆融合增强                                                                                          | 计划中   |
+| **大小模型协同**       | 多模型路由，不同任务使用不同模型                                                                            | 进行中   |
+| **记忆系统**           | 经验沉淀与技能提炼                                                                                          | 进行中   |
+|                        | 记忆机制切换                                                                                                | 进行中   |
+|                        | 多模态记忆融合                                                                                              | 计划中   |
 |                        | 场景感知主动推送                                                                                            | 计划中   |
 | **沙箱**               | 与 AgentScope Runtime 沙箱深度集成                                                                          | 进行中   |
-| **云原生**             | 与 AgentScope Runtime 深度集成，充分利用云端算力、存储与工具生态                                            | 计划中   |
+| **云原生**             | 与 AgentScope Runtime 深度集成；利用云端算力、存储、工具与技能                                              | 进行中   |
 | **技能生态**           | 丰富 [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) 仓库，提升优质技能的发现与使用 | 计划中   |
 
-_状态说明：**进行中** — 正在推进；**计划中** — 已排期或设计中，也欢迎贡献；**征集中** — 我们非常欢迎社区参与。_
+_状态说明：**进行中** — 正在积极开发；**计划中** — 已排队或设计中，也欢迎贡献；**征集中** — 我们强烈鼓励社区参与。_
 
 ---
 

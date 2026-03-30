@@ -334,7 +334,8 @@
     "toggleError": "Failed to toggle MCP client status",
     "deleteConfirm": "Are you sure you want to delete this MCP client?",
     "deleteSuccess": "MCP client deleted successfully",
-    "deleteError": "Failed to delete MCP client"
+    "deleteError": "Failed to delete MCP client",
+    "maskedFieldHint": "Sensitive fields are masked with ***. In-place edits on masked values are not supported — replace with the full new value to modify."
   },
   "heartbeat": {
     "title": "Heartbeat",
