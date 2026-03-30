@@ -91,38 +91,39 @@ function ModelsPage() {
           <div className={styles.providersBlock}>
             <div className={styles.sectionHeaderRow}>
               <PageHeader
-                parent={t("nav.settings")}
                 current={t("models.providersTitle")}
+                className={styles.providersPageHeader}
               />
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setAddProviderOpen(true)}
-                className={styles.addProviderBtn}
-              >
-                {t("models.addProvider")}
-              </Button>
-            </div>
-
-            {/* ---- Search Row ---- */}
-            <div className={styles.searchRow}>
-              <Input
-                placeholder={t("models.searchPlaceholder")}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onPressEnter={() => {}}
-                className={styles.searchInput}
-                prefix={<SearchOutlined />}
-                allowClear
-              />
-              <Button
-                type="primary"
-                icon={<SearchOutlined />}
-                onClick={() => fetchAll()}
-                className={styles.searchBtn}
-              >
-                {t("models.search")}
-              </Button>
+              <div className={styles.headerRight}>
+                {/* ---- Search ---- */}
+                <div className={styles.searchRow}>
+                  <Input
+                    placeholder={t("models.searchPlaceholder")}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onPressEnter={() => {}}
+                    className={styles.searchInput}
+                    prefix={<SearchOutlined />}
+                    allowClear
+                  />
+                  <Button
+                    type="primary"
+                    icon={<SearchOutlined />}
+                    onClick={() => fetchAll()}
+                    className={styles.searchBtn}
+                  >
+                    {t("models.search")}
+                  </Button>
+                </div>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setAddProviderOpen(true)}
+                  className={styles.addProviderBtn}
+                >
+                  {t("models.addProvider")}
+                </Button>
+              </div>
             </div>
 
             {localProviders.length > 0 && (
