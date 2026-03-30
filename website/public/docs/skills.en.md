@@ -207,7 +207,7 @@ The workspace skill page supports importing from the following URL sources:
 4. After a successful import, the skill appears in the skill list and is
    **enabled by default**.
 
-   ![check](https://img.alicdn.com/imgextra/i2/O1CN01Sl15xw1DhAxSYijuN_!!6000000000247-0-tps-2940-1556.jpg)
+   ![check](https://img.alicdn.com/imgextra/i1/O1CN01Dk2bKZ1kitllHcWDl_!!6000000004718-2-tps-2940-1556.png)
 
 #### URL acquisition example
 
