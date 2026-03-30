@@ -17,6 +17,7 @@ import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
+import { languageApi } from "./api/modules/language";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
 import "./styles/layout.css";
 import "./styles/form-override.css";
@@ -113,6 +114,22 @@ function AppInner() {
   );
 
   useEffect(() => {
+    if (!localStorage.getItem("language")) {
+      languageApi
+        .getLanguage()
+        .then(({ language }) => {
+          if (language && language !== i18n.language) {
+            i18n.changeLanguage(language);
+            localStorage.setItem("language", language);
+          }
+        })
+        .catch((err) =>
+          console.error("Failed to fetch language preference:", err),
+        );
+    }
+  }, []);
+
+  useEffect(() => {
     const handleLanguageChanged = (lng: string) => {
       const shortLng = lng.split("-")[0];
       setAntdLocale(antdLocaleMap[shortLng] ?? enUS);
@@ -141,6 +158,9 @@ function AppInner() {
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
+          token: {
+            colorPrimary: "#FF7F16",
+          },
         }}
       >
         <Routes>

@@ -35,6 +35,8 @@ import {
   type RuntimeLoadingBridgeApi,
 } from "./utils";
 
+const CHAT_ATTACHMENT_MAX_MB = 10;
+
 interface SessionInfo {
   session_id?: string;
   user_id?: string;
@@ -468,12 +470,17 @@ export default function ChatPage() {
           // Warn (not block) when only image is supported
           message.warning(t("chat.attachments.imageOnlyWarning"));
         }
-        // Check file size limit (10MB)
-        const isLt10M = file.size / 1024 / 1024 < 10;
+        const sizeMb = file.size / 1024 / 1024;
+        const isWithinLimit = sizeMb < CHAT_ATTACHMENT_MAX_MB;
 
-        if (!isLt10M) {
-          message.error(t("chat.attachments.fileSizeLimit"));
-          onError?.(new Error("File size exceeds 10MB"));
+        if (!isWithinLimit) {
+          message.error(
+            t("chat.attachments.fileSizeExceeded", {
+              limit: CHAT_ATTACHMENT_MAX_MB,
+              size: sizeMb.toFixed(2),
+            }),
+          );
+          onError?.(new Error(`File size exceeds ${CHAT_ATTACHMENT_MAX_MB}MB`));
           return;
         }
 
@@ -538,9 +545,8 @@ export default function ChatPage() {
       welcome: {
         ...i18nConfig.welcome,
         nick: "CoPaw",
-        avatar: isDark
-          ? `${import.meta.env.BASE_URL}copaw-dark.png`
-          : `${import.meta.env.BASE_URL}copaw-symbol.svg`,
+        avatar:
+          "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png",
       },
       sender: {
         ...(i18nConfig as any)?.sender,
@@ -554,7 +560,7 @@ export default function ChatPage() {
                 : "chat.attachments.tooltip"
               : "chat.attachments.tooltipNoMultimodal";
             return (
-              <Tooltip title={t(tooltipKey)}>
+              <Tooltip title={t(tooltipKey, { limit: CHAT_ATTACHMENT_MAX_MB })}>
                 <IconButton
                   disabled={props?.disabled}
                   icon={<SparkAttachmentLine />}

@@ -417,9 +417,8 @@ automatically when models are added/removed via Ollama CLI or Console.
 - Model list is auto-synced with Ollama
 - Popular model examples: `mistral:7b`, `qwen3:8b`
 
-> You can also manage Ollama models via CLI: `copaw models ollama-pull`,
-> `copaw models ollama-list`, `copaw models ollama-remove`. See
-> [CLI](./cli#ollama-models).
+> You can also manage Ollama models via Ollama CLI: `ollama pull`,
+> `ollama list`, `ollama rm`. See [Ollama CLI](https://docs.ollama.com/cli).
 
 > ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
 >

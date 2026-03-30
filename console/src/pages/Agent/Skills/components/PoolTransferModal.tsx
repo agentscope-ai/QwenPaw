@@ -45,121 +45,96 @@ export function PoolTransferModal({
     }
   };
 
+  const isUpload = mode === "upload";
+  const selectedNames = isUpload ? workspaceSkillNames : poolSkillNames;
+  const setSelectedNames = isUpload
+    ? setWorkspaceSkillNames
+    : setPoolSkillNames;
+  const items = isUpload ? skills : poolSkills;
+  const hasSelection = selectedNames.length > 0;
+
   return (
     <Modal
       open={mode !== null}
       onCancel={handleCancel}
-      onOk={handleOk}
-      title={
-        mode === "upload"
-          ? t("skills.uploadToPool")
-          : t("skills.downloadFromPool")
+      title={isUpload ? t("skills.uploadToPool") : t("skills.downloadFromPool")}
+      footer={
+        <div className={styles.modalFooter}>
+          <Button onClick={handleCancel} className={styles.modalCancelButton}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="primary"
+            onClick={handleOk}
+            disabled={!hasSelection}
+            className={styles.modalOkButton}
+          >
+            {t("common.confirm")}
+          </Button>
+        </div>
       }
+      width={600}
+      className={styles.poolTransferModal}
     >
-      <div style={{ display: "grid", gap: 12 }}>
-        {mode === "upload" ? (
-          <>
-            <div className={styles.pickerLabel}>
-              {t("skills.selectWorkspaceSkill")}
-            </div>
-            <div className={styles.bulkActions}>
-              <Button
-                size="small"
+      <div className={styles.pickerSection}>
+        <div className={styles.pickerHeader}>
+          <div className={styles.pickerLabel}>
+            {isUpload
+              ? t("skills.selectWorkspaceSkill")
+              : t("skills.selectPoolItem")}
+          </div>
+          <div className={styles.bulkActions}>
+            <Button
+              size="small"
+              onClick={() => setSelectedNames([])}
+              className={styles.bulkActionButton}
+            >
+              {t("skills.clearSelection")}
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => setSelectedNames(items.map((s) => s.name))}
+              className={styles.bulkActionButton}
+            >
+              {t("skills.selectAll")}
+            </Button>
+          </div>
+        </div>
+
+        <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
+          {items.map((skill) => {
+            const selected = selectedNames.includes(skill.name);
+            return (
+              <div
+                key={skill.name}
+                className={`${styles.pickerCard} ${
+                  selected ? styles.pickerCardSelected : ""
+                }`}
                 onClick={() =>
-                  setWorkspaceSkillNames(skills.map((s) => s.name))
+                  setSelectedNames(
+                    selected
+                      ? selectedNames.filter((n) => n !== skill.name)
+                      : [...selectedNames, skill.name],
+                  )
                 }
               >
-                {t("skills.selectAll")}
-              </Button>
-              <Button size="small" onClick={() => setWorkspaceSkillNames([])}>
-                {t("skills.clearSelection")}
-              </Button>
-            </div>
-            <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
-              {skills.map((skill) => {
-                const selected = workspaceSkillNames.includes(skill.name);
-                return (
-                  <div
-                    key={skill.name}
-                    className={`${styles.pickerCard} ${
-                      styles.compactPickerCard
-                    } ${selected ? styles.pickerCardSelected : ""}`}
-                    onClick={() =>
-                      setWorkspaceSkillNames(
-                        selected
-                          ? workspaceSkillNames.filter((n) => n !== skill.name)
-                          : [...workspaceSkillNames, skill.name],
-                      )
-                    }
+                {selected && (
+                  <span
+                    className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
                   >
-                    {selected && (
-                      <span
-                        className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
-                      >
-                        <CheckOutlined />
-                      </span>
-                    )}
-                    <div
-                      className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
-                    >
-                      {skill.name}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        ) : (
-          <>
-            <div className={styles.pickerLabel}>
-              {t("skills.selectPoolItem")}
-            </div>
-            <div className={styles.bulkActions}>
-              <Button
-                size="small"
-                onClick={() => setPoolSkillNames(poolSkills.map((s) => s.name))}
-              >
-                {t("skills.selectAll")}
-              </Button>
-              <Button size="small" onClick={() => setPoolSkillNames([])}>
-                {t("skills.clearSelection")}
-              </Button>
-            </div>
-            <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
-              {poolSkills.map((skill) => {
-                const selected = poolSkillNames.includes(skill.name);
-                return (
-                  <div
-                    key={skill.name}
-                    className={`${styles.pickerCard} ${
-                      styles.compactPickerCard
-                    } ${selected ? styles.pickerCardSelected : ""}`}
-                    onClick={() =>
-                      setPoolSkillNames(
-                        selected
-                          ? poolSkillNames.filter((n) => n !== skill.name)
-                          : [...poolSkillNames, skill.name],
-                      )
-                    }
-                  >
-                    {selected && (
-                      <span
-                        className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
-                      >
-                        <CheckOutlined />
-                      </span>
-                    )}
-                    <div
-                      className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
-                    >
-                      {skill.name}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
+                    <CheckOutlined />
+                  </span>
+                )}
+                <div
+                  className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
+                >
+                  {skill.name}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </Modal>
   );

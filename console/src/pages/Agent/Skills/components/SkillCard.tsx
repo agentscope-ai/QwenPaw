@@ -1,7 +1,7 @@
-import { Card, Button, Tooltip } from "@agentscope-ai/design";
+import React from "react";
+import { Card, Button } from "@agentscope-ai/design";
 import {
   CalendarFilled,
-  DeleteOutlined,
   FileTextFilled,
   FileZipFilled,
   FilePdfFilled,
@@ -10,6 +10,8 @@ import {
   FilePptFilled,
   FileImageFilled,
   CodeFilled,
+  EyeOutlined,
+  EyeInvisibleOutlined,
 } from "@ant-design/icons";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
@@ -44,6 +46,18 @@ const normalizeSkillIconKey = (value: string) =>
 
 export const getFileIcon = (filePath: string) => {
   const skillKey = normalizeSkillIconKey(filePath);
+  const textSkillIcons = new Set([
+    "news",
+    "file_reader",
+    "browser_visible",
+    "guidance",
+    "himalaya",
+    "dingtalk_channel",
+  ]);
+
+  if (textSkillIcons.has(skillKey)) {
+    return <FileTextFilled style={{ color: "#1890ff" }} />;
+  }
 
   switch (skillKey) {
     case "docx":
@@ -56,13 +70,6 @@ export const getFileIcon = (filePath: string) => {
       return <FilePdfFilled style={{ color: "#f5222d" }} />;
     case "cron":
       return <CalendarFilled style={{ color: "#13c2c2" }} />;
-    case "news":
-    case "file_reader":
-    case "browser_visible":
-    case "guidance":
-    case "himalaya":
-    case "dingtalk_channel":
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
     default:
       break;
   }
@@ -124,7 +131,7 @@ export const getSkillVisual = (name: string, content?: string) => {
   return getFileIcon(name);
 };
 
-export function SkillCard({
+export const SkillCard = React.memo(function SkillCard({
   skill,
   isHover,
   onClick,
@@ -136,10 +143,11 @@ export function SkillCard({
   const { t } = useTranslation();
   const displaySource = getSkillDisplaySource(skill.source);
   const isBuiltin = displaySource === "builtin";
-  const syncStatusLabel = getSkillSyncStatusLabel(
-    skill.sync_to_pool?.status,
-    t,
-  );
+
+  const handleToggleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleEnabled(e);
+  };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -158,91 +166,82 @@ export function SkillCard({
         skill.enabled ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
     >
-      <div className={styles.cardBody}>
-        <div className={styles.cardHeader}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className={styles.fileIcon}>
-              {getSkillVisual(skill.name, skill.content)}
-            </span>
+      {/* Header: Icon + Title + Badge + Status */}
+      <div className={styles.cardHeader}>
+        <div className={styles.leftSection}>
+          <span className={styles.fileIcon}>
+            {getSkillVisual(skill.name, skill.content)}
+          </span>
+          <div className={styles.titleRow}>
             <h3 className={styles.skillTitle}>{skill.name}</h3>
-          </div>
-          <div className={styles.statusContainer}>
-            <span
-              className={`${styles.statusDot} ${
-                skill.enabled ? styles.enabled : styles.disabled
-              }`}
-            />
-            <span
-              className={`${styles.statusText} ${
-                skill.enabled ? styles.enabled : styles.disabled
-              }`}
-            >
-              {skill.enabled ? t("common.enabled") : t("common.disabled")}
+            <span className={styles.typeBadge}>
+              {isBuiltin ? t("skills.builtin") : t("skills.custom")}
             </span>
           </div>
-        </div>
-
-        <div className={styles.descriptionSection}>
-          <div className={styles.infoLabel}>{t("skills.skillDescription")}</div>
-          <Tooltip
-            title={skill.description || "-"}
-            placement="top"
-            overlayStyle={{ maxWidth: 360 }}
-          >
-            <div className={`${styles.infoBlock} ${styles.descriptionContent}`}>
-              {skill.description || "-"}
-            </div>
-          </Tooltip>
-        </div>
-
-        <div className={styles.metaStack}>
-          <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.type")}</div>
-            <div>
-              <span
-                className={isBuiltin ? styles.builtinTag : styles.customizedTag}
-              >
-                {displaySource}
+          {/* Meta Info: Channels, Pool Sync - moved here */}
+          <div className={styles.metaContainer}>
+            <div className={styles.metaItem}>
+              <span className={styles.metaLabel}>{t("skills.channels")}</span>
+              <span className={styles.metaValue}>
+                {(skill.channels || ["all"])
+                  .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
+                  .join(", ")}
               </span>
             </div>
+            {skill.sync_to_pool && (
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
+                <span className={styles.metaValue}>
+                  {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
+                </span>
+              </div>
+            )}
           </div>
-
-          <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.channels")}</div>
-            <div className={styles.infoBlock}>
-              {(skill.channels || ["all"]).join(", ")}
-            </div>
-          </div>
-
-          <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.poolSync")}</div>
-            <div className={styles.infoBlock}>{syncStatusLabel}</div>
-          </div>
+        </div>
+        <div className={styles.statusContainer}>
+          <span
+            className={`${styles.statusDot} ${
+              skill.enabled ? styles.enabled : styles.disabled
+            }`}
+          />
+          <span
+            className={`${styles.statusText} ${
+              skill.enabled ? styles.enabled : styles.disabled
+            }`}
+          >
+            {skill.enabled ? t("common.enabled") : t("common.disabled")}
+          </span>
         </div>
       </div>
 
+      {/* Description Section */}
+      <div className={styles.descriptionContainer}>
+        <p className={styles.descriptionLabel}>
+          {t("skills.skillDescription")}
+        </p>
+        <p className={styles.descriptionText}>{skill.description || "-"}</p>
+      </div>
+
+      {/* Footer with buttons - always show */}
       <div className={styles.cardFooter}>
         <Button
-          type="link"
-          size="small"
-          onClick={onToggleEnabled}
           className={styles.actionButton}
+          onClick={handleToggleClick}
+          icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
         >
           {skill.enabled ? t("common.disable") : t("common.enable")}
         </Button>
-
         {onDelete && (
           <Button
-            type="text"
-            size="small"
             danger
-            icon={<DeleteOutlined />}
             className={styles.deleteButton}
             onClick={handleDeleteClick}
             disabled={skill.enabled}
-          />
+          >
+            {t("common.delete")}
+          </Button>
         )}
       </div>
     </Card>
   );
-}
+});

@@ -106,3 +106,22 @@
 :global(.dark) .suggestionDescription {
   color: rgba(255, 255, 255, 0.45);
 }
+
+/* Prompt star icon - use theme color */
+:global {
+  .chat-anywhere-prompt-icon,
+  [class*="prompt-icon"],
+  [class*="PromptIcon"] {
+    color: #ff7f16 !important;
+  }
+}
+
+/* Dark mode scrollbar for disabled overlay */
+:global(.dark) {
+  .chatDisabledOverlay :global([class*="chat-anywhere-input"]),
+  .chatDisabledOverlay :global([class*="chat-input"]),
+  .chatDisabledOverlay :global(textarea),
+  .chatDisabledOverlay :global(input[type="text"]) {
+    background-color: #2a2a2a !important;
+  }
+}
