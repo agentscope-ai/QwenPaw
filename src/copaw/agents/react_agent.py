@@ -37,6 +37,19 @@ from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
     desktop_screenshot,
+    dingtalk_ai_table_create_sheet,
+    dingtalk_ai_table_delete_records,
+    dingtalk_ai_table_get_record,
+    dingtalk_ai_table_get_sheet,
+    dingtalk_ai_table_insert_records,
+    dingtalk_ai_table_list_records,
+    dingtalk_ai_table_list_sheets,
+    dingtalk_ai_table_update_records,
+    dingtalk_doc_create_document,
+    dingtalk_doc_get_dentry,
+    dingtalk_doc_get_workspace,
+    dingtalk_doc_list_directory_entries,
+    dingtalk_doc_list_workspaces,
     edit_file,
     execute_shell_command,
     get_current_time,
@@ -236,6 +249,33 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
+            "dingtalk_ai_table_list_sheets": dingtalk_ai_table_list_sheets,
+            "dingtalk_ai_table_get_sheet": dingtalk_ai_table_get_sheet,
+            "dingtalk_ai_table_create_sheet": (
+                dingtalk_ai_table_create_sheet
+            ),
+            "dingtalk_ai_table_get_record": dingtalk_ai_table_get_record,
+            "dingtalk_ai_table_list_records": (
+                dingtalk_ai_table_list_records
+            ),
+            "dingtalk_ai_table_insert_records": (
+                dingtalk_ai_table_insert_records
+            ),
+            "dingtalk_ai_table_update_records": (
+                dingtalk_ai_table_update_records
+            ),
+            "dingtalk_ai_table_delete_records": (
+                dingtalk_ai_table_delete_records
+            ),
+            "dingtalk_doc_list_workspaces": dingtalk_doc_list_workspaces,
+            "dingtalk_doc_get_workspace": dingtalk_doc_get_workspace,
+            "dingtalk_doc_list_directory_entries": (
+                dingtalk_doc_list_directory_entries
+            ),
+            "dingtalk_doc_get_dentry": dingtalk_doc_get_dentry,
+            "dingtalk_doc_create_document": (
+                dingtalk_doc_create_document
+            ),
         }
 
         multimodal = get_active_model_supports_multimodal()
@@ -397,8 +437,21 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Register memory_search tool if enabled and available
         if self._enable_memory_manager and self.memory_manager is not None:
+            # Keep the default InMemoryMemory fallback when the configured
+            # backend is unavailable (for example, reme-ai is not installed).
+            runtime_memory = self.memory_manager.get_in_memory_memory()
+            if runtime_memory is None:
+                logger.warning(
+                    "Memory manager returned no in-memory backend; "
+                    "falling back to default InMemoryMemory and disabling "
+                    "memory-manager-only features for this agent.",
+                )
+                self._enable_memory_manager = False
+                self.memory_manager = None
+                return
+
             # update memory manager
-            self.memory = self.memory_manager.get_in_memory_memory()
+            self.memory = runtime_memory
             self.memory_manager.chat_model = self.model
             self.memory_manager.formatter = self.formatter
 

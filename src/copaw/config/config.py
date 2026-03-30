@@ -936,6 +936,71 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Get llm token usage",
         ),
+        "dingtalk_ai_table_list_sheets": BuiltinToolConfig(
+            name="dingtalk_ai_table_list_sheets",
+            enabled=True,
+            description="List sheets in a DingTalk AI table",
+        ),
+        "dingtalk_ai_table_get_sheet": BuiltinToolConfig(
+            name="dingtalk_ai_table_get_sheet",
+            enabled=True,
+            description="Get one sheet from a DingTalk AI table",
+        ),
+        "dingtalk_ai_table_create_sheet": BuiltinToolConfig(
+            name="dingtalk_ai_table_create_sheet",
+            enabled=True,
+            description="Create a sheet in a DingTalk AI table",
+        ),
+        "dingtalk_ai_table_get_record": BuiltinToolConfig(
+            name="dingtalk_ai_table_get_record",
+            enabled=True,
+            description="Get one record from a DingTalk AI table sheet",
+        ),
+        "dingtalk_ai_table_list_records": BuiltinToolConfig(
+            name="dingtalk_ai_table_list_records",
+            enabled=True,
+            description="List records from a DingTalk AI table sheet",
+        ),
+        "dingtalk_ai_table_insert_records": BuiltinToolConfig(
+            name="dingtalk_ai_table_insert_records",
+            enabled=True,
+            description="Insert records into a DingTalk AI table sheet",
+        ),
+        "dingtalk_ai_table_update_records": BuiltinToolConfig(
+            name="dingtalk_ai_table_update_records",
+            enabled=True,
+            description="Update records in a DingTalk AI table sheet",
+        ),
+        "dingtalk_ai_table_delete_records": BuiltinToolConfig(
+            name="dingtalk_ai_table_delete_records",
+            enabled=True,
+            description="Delete records from a DingTalk AI table sheet",
+        ),
+        "dingtalk_doc_list_workspaces": BuiltinToolConfig(
+            name="dingtalk_doc_list_workspaces",
+            enabled=True,
+            description="List DingTalk document workspaces",
+        ),
+        "dingtalk_doc_get_workspace": BuiltinToolConfig(
+            name="dingtalk_doc_get_workspace",
+            enabled=True,
+            description="Get one DingTalk document workspace",
+        ),
+        "dingtalk_doc_list_directory_entries": BuiltinToolConfig(
+            name="dingtalk_doc_list_directory_entries",
+            enabled=True,
+            description="List entries under a DingTalk document directory",
+        ),
+        "dingtalk_doc_get_dentry": BuiltinToolConfig(
+            name="dingtalk_doc_get_dentry",
+            enabled=True,
+            description="Get metadata for one DingTalk document node",
+        ),
+        "dingtalk_doc_create_document": BuiltinToolConfig(
+            name="dingtalk_doc_create_document",
+            enabled=True,
+            description="Create an empty DingTalk document or folder",
+        ),
     }
 
 
