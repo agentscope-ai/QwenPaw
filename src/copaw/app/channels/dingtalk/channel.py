@@ -1753,29 +1753,6 @@ class DingTalkChannel(BaseChannel):
                 )
                 use_ai_card = False
 
-        # Store sessionWebhook (keyed by conversation).
-        if session_webhook:
-            fallback_sid = f"{self.channel}:{request.user_id}"
-            webhook_key = self.to_handle_from_target(
-                user_id=request.user_id or "",
-                session_id=request.session_id or fallback_sid,
-            )
-            logger.info(
-                "dingtalk _process_one_request: storing webhook "
-                "session_id=%s conversation_id=%s webhook_key=%s",
-                getattr(request, "session_id", None),
-                meta.get("conversation_id"),
-                webhook_key,
-            )
-            await self._save_session_webhook(
-                webhook_key,
-                session_webhook,
-                expired_time=meta.get("session_webhook_expired_time"),
-                conversation_id=meta.get("conversation_id"),
-                conversation_type=meta.get("conversation_type"),
-                sender_staff_id=meta.get("sender_staff_id"),
-            )
-
         async for event in self._process(request):
             event_count += 1
             obj = getattr(event, "object", None)
