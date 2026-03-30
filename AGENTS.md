@@ -34,7 +34,7 @@ pre-commit install
 # Run all checks (required before commit)
 pre-commit run --all-files
 
-# Run specific check
+# Run checks for a specific file
 pre-commit run --files src/copaw/cli/main.py
 ```
 
