@@ -23,7 +23,7 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   meta?: Record<string, unknown>;
-  status?: "idle" | "running" | string;
+  status?: ChatStatus;
   generating?: boolean;
 }
 
@@ -79,13 +79,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setSessions(list);
   }, [setSessions]);
 
-  /** Each time the history drawer opens: refetch chat list only (no per-chat messages). */
+  /** Open drawer → refresh session list (same deduped fetch as getSessionList). */
   useEffect(() => {
     if (!props.open) return;
     let cancelled = false;
     void (async () => {
       try {
-        const list = await sessionApi.refreshSessionListFromChats();
+        const list = await sessionApi.getSessionList();
         if (!cancelled) setSessions(list);
       } catch {
         if (!cancelled) await refreshSessions();
@@ -159,7 +159,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         channel: session.channel as string,
         created_at: session.createdAt ?? null,
         meta: session.meta,
-        status: session.status as ChatStatus | undefined,
+        status: session.status,
       });
     }
 

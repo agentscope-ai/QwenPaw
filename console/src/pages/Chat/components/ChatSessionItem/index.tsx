@@ -19,9 +19,7 @@ interface ChatSessionItemProps {
   channelKey?: string;
   /** Localized channel label (e.g. Console, DingTalk) */
   channelLabel?: string;
-  /** Backend conversation status (idle / running) */
-  chatStatus?: ChatStatus | string;
-  /** True when a reply is being generated (from history probe) */
+  chatStatus?: ChatStatus;
   generating?: boolean;
   /** Whether this is the currently selected session */
   active?: boolean;
@@ -46,7 +44,6 @@ interface ChatSessionItemProps {
 
 const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
   const { t } = useTranslation();
-  /** Visible text is announced by the reader; icon is decorative. No text → icon needs a name. */
   const hasVisibleChannelLabel = Boolean(props.channelLabel?.trim());
   const channelIconAlt =
     hasVisibleChannelLabel || !props.channelKey

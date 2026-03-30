@@ -472,7 +472,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return s?.realId ?? null;
   }
 
-  /** Merge `listChats` results into `sessionList`, preserving local id/realId overrides. */
+  /** Apply listChats to sessionList; merge realId and generating by session_id. */
   private applyChatsToSessionList(
     chats: ChatSpec[],
   ): IAgentScopeRuntimeWebUISession[] {
@@ -486,9 +486,16 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         (e) =>
           (e as ExtendedSession).sessionId === (s as ExtendedSession).sessionId,
       ) as ExtendedSession | undefined;
-      return existing?.realId
-        ? { ...s, id: existing.id, realId: existing.realId }
-        : s;
+      if (!existing) return s;
+      const next = { ...s } as ExtendedSession;
+      if (existing.realId) {
+        next.id = existing.id;
+        next.realId = existing.realId;
+      }
+      if (existing.generating !== undefined) {
+        next.generating = existing.generating;
+      }
+      return next as IAgentScopeRuntimeWebUISession;
     });
 
     return [...this.sessionList];
@@ -507,17 +514,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     })();
 
     return this.sessionListRequest;
-  }
-
-  /**
-   * Reload sessions from `listChats` only (no per-chat `getChat`).
-   * Used when opening chat history; status comes from each ChatSpec.
-   */
-  async refreshSessionListFromChats(): Promise<
-    IAgentScopeRuntimeWebUISession[]
-  > {
-    const chats = await api.listChats();
-    return this.applyChatsToSessionList(chats);
   }
 
   /** Track the last session ID that triggered onSessionSelected to avoid duplicate calls. */
