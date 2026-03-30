@@ -80,7 +80,7 @@ After setup completes, BOOTSTRAP.md is deleted, so it only exists during initial
 
 In the Console's **Agent → Workspace** page, you can:
 
-<!-- TODO: Add screenshot - Show Workspace page with file list on the left and editor on the right -->
+![files](https://img.alicdn.com/imgextra/i3/O1CN0152o7PT1oniOiMVRfK_!!6000000005270-2-tps-3822-2064.png)
 
 1. **View all persona files**: Left panel lists all Markdown files in the workspace (shows only `.md` files)
 2. **Edit content online**: Click a file to edit it in the right-side editor, then click "Save" to apply changes
@@ -132,7 +132,7 @@ If using `copaw init --defaults`, the default language is `zh` (Chinese).
 
 You can switch the agent's language in the Console's **Agent → Runtime Config** page. After switching:
 
-<!-- TODO: Add screenshot - Show language dropdown in Agent → Runtime Config page -->
+![language](https://img.alicdn.com/imgextra/i2/O1CN01i3Xsd31HbusBN0MzC_!!6000000000777-2-tps-3822-2064.png)
 
 1. The system will **overwrite** existing persona files (AGENTS.md, SOUL.md, PROFILE.md) with new language templates
 2. This is the **agent's own language** setting that determines the system prompt language
