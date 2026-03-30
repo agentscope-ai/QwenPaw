@@ -354,7 +354,7 @@
         "li2Prefix": "本地模型：支持",
         "li2Suffix": "以及 Ollama。",
         "p2": "配置完成后，在 Models 页面顶部的 Default LLM 选择目标供应商与模型并保存，即成为全局默认模型。",
-        "p3": "若希望为不同 Agent 使用不同模型，可在 Console 顶部切换 Agent，然后在 Chat 页右上角为该 Agent 选择模型。",
+        "p3": "若希望为不同 Agent 使用不同模型，可在 Console 左上角切换 Agent，然后在 Chat 页右上角为该 Agent 选择模型。",
         "p4Prefix": "你也可以使用",
         "p4Mid": "进行配置、下载与切换。详见",
         "cliLink": "CLI → Models and environment variables → copaw models",

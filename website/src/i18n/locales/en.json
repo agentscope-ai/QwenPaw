@@ -354,7 +354,7 @@
         "li2Prefix": "Local models: supports",
         "li2Suffix": "and Ollama.",
         "p2": "After configuration, choose the target provider and model under Default LLM at the top of the Models page and Save — that becomes the global default.",
-        "p3": "To use a different model per agent, switch the agent with the selector at the top of Console, then pick a model in the top-right of the Chat page for that agent.",
+        "p3": "To use a different model per agent, switch the agent with the selector at the top-left of Console, then pick a model in the top-right of the Chat page for that agent.",
         "p4Prefix": "You can also use",
         "p4Mid": "for setup, downloads, and switching. See",
         "cliLink": "CLI → Models and environment variables → copaw models",
