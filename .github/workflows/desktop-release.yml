@@ -275,7 +275,14 @@ jobs:
 
           # Download existing desktop/index.json if exists
           ossutil cp "oss://copaw-download/metadata/apps/desktop/index.json" \
-            desktop-index.json 2>/dev/null || echo '{}' > desktop-index.json
+            desktop-index.json 2>/dev/null || cat > desktop-index.json << 'EOF'
+          {
+            "product": "desktop",
+            "updated_at": "",
+            "platforms": {},
+            "files": {}
+          }
+          EOF
 
           # Merge Windows metadata if exists
           if [ -f "win-metadata.json" ]; then

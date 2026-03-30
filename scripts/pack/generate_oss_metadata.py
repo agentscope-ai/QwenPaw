@@ -123,6 +123,13 @@ def merge_desktop_index(
             "files": {},
         }
 
+    if "platforms" not in index:
+        index["platforms"] = {}
+    if "files" not in index:
+        index["files"] = {}
+    if "product" not in index:
+        index["product"] = "desktop"
+
     index["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     if platform not in index["platforms"]:

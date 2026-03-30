@@ -614,11 +614,34 @@ export function QuickStart({ config, lang }: QuickStartProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="quickstart-link quickstart-link-primary"
+                style={{ position: "relative" }}
               >
                 <Download size={16} strokeWidth={1.5} />
                 {t(lang, "quickstart.desktop.downloadGithub")}
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    padding: "0.125rem 0.5rem",
+                    background: "rgba(16, 185, 129, 0.15)",
+                    color: "#10b981",
+                    borderRadius: "0.25rem",
+                    fontSize: "0.6875rem",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  {t(lang, "quickstart.desktop.recommended")}
+                </span>
                 <ExternalLink size={14} strokeWidth={1.5} />
               </a>
+              <Link
+                to="/downloads"
+                className="quickstart-link quickstart-link-secondary"
+              >
+                <Download size={16} strokeWidth={1.5} />
+                {t(lang, "quickstart.desktop.downloadCDN")}
+              </Link>
               <Link
                 to={`${docsBase}/desktop`}
                 className="quickstart-link quickstart-link-secondary"
