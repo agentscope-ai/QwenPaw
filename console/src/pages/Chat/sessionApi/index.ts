@@ -472,35 +472,52 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return s?.realId ?? null;
   }
 
+  /** Merge `listChats` results into `sessionList`, preserving local id/realId overrides. */
+  private applyChatsToSessionList(
+    chats: ChatSpec[],
+  ): IAgentScopeRuntimeWebUISession[] {
+    const newList = chats
+      .filter((c) => c.id && c.id !== "undefined" && c.id !== "null")
+      .map(chatSpecToSession)
+      .reverse();
+
+    this.sessionList = newList.map((s) => {
+      const existing = this.sessionList.find(
+        (e) =>
+          (e as ExtendedSession).sessionId === (s as ExtendedSession).sessionId,
+      ) as ExtendedSession | undefined;
+      return existing?.realId
+        ? { ...s, id: existing.id, realId: existing.realId }
+        : s;
+    });
+
+    return [...this.sessionList];
+  }
+
   async getSessionList() {
     if (this.sessionListRequest) return this.sessionListRequest;
 
     this.sessionListRequest = (async () => {
       try {
         const chats = await api.listChats();
-        const newList = chats
-          .filter((c) => c.id && c.id !== "undefined" && c.id !== "null")
-          .map(chatSpecToSession)
-          .reverse();
-
-        this.sessionList = newList.map((s) => {
-          const existing = this.sessionList.find(
-            (e) =>
-              (e as ExtendedSession).sessionId ===
-              (s as ExtendedSession).sessionId,
-          ) as ExtendedSession | undefined;
-          return existing?.realId
-            ? { ...s, id: existing.id, realId: existing.realId }
-            : s;
-        });
-
-        return [...this.sessionList];
+        return this.applyChatsToSessionList(chats);
       } finally {
         this.sessionListRequest = null;
       }
     })();
 
     return this.sessionListRequest;
+  }
+
+  /**
+   * Reload sessions from `listChats` only (no per-chat `getChat`).
+   * Used when opening chat history; status comes from each ChatSpec.
+   */
+  async refreshSessionListFromChats(): Promise<
+    IAgentScopeRuntimeWebUISession[]
+  > {
+    const chats = await api.listChats();
+    return this.applyChatsToSessionList(chats);
   }
 
   /** Track the last session ID that triggered onSessionSelected to avoid duplicate calls. */

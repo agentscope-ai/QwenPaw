@@ -1015,6 +1015,8 @@
     "chatHistoryTooltip": "聊天历史",
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",
+    "statusIdle": "空闲",
+    "statusInProgress": "进行中",
     "disclaimer": "懂你所需，伴你左右",
     "greeting": "你好，我今天能帮你做什么？",
     "description": "我是一个智能助手，可以帮助你解答问题。",

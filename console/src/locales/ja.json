@@ -978,6 +978,8 @@
     "chatHistoryTooltip": "チャット履歴",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
+    "statusIdle": "待機",
+    "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",
     "greeting": "こんにちは、今日はどんなお手伝いができますか？",
     "description": "私はあなたの質問をサポートするAIアシスタントです。",

@@ -1045,6 +1045,8 @@
     "chatHistoryTooltip": "Chat history",
     "allChats": "All Chats",
     "createNewChat": "Create New Chat",
+    "statusIdle": "Idle",
+    "statusInProgress": "In progress",
     "disclaimer": "Works for you, grows with you",
     "greeting": "Hello, how can I help you today?",
     "description": "I am a helpful assistant that can help you with your questions.",
