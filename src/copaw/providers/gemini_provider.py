@@ -9,9 +9,15 @@ import time
 from typing import Any, List
 
 from agentscope.model import ChatModelBase
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types as genai_types
+
+try:
+    from google import genai
+    from google.genai import errors as genai_errors
+    from google.genai import types as genai_types
+except ImportError:  # pragma: no cover - depends on optional extra
+    genai = None
+    genai_errors = None
+    genai_types = None
 
 from copaw.providers.multimodal_prober import (
     ProbeResult,
@@ -27,7 +33,16 @@ logger = logging.getLogger(__name__)
 class GeminiProvider(Provider):
     """Provider implementation for Google Gemini API."""
 
+    @staticmethod
+    def _require_genai() -> None:
+        if genai is None or genai_errors is None or genai_types is None:
+            raise ImportError(
+                "google-genai is not installed. Install the Gemini provider "
+                "dependency to use Google Gemini models.",
+            )
+
     def _client(self, timeout: float = 10) -> Any:
+        self._require_genai()
         return genai.Client(
             api_key=self.api_key,
             http_options=genai_types.HttpOptions(timeout=int(timeout * 1000)),
@@ -130,6 +145,7 @@ class GeminiProvider(Provider):
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        self._require_genai()
         from agentscope.model import GeminiChatModel
 
         return GeminiChatModel(

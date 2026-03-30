@@ -21,7 +21,7 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   userId?: string;
   channel?: string;
   createdAt?: string | null;
-  meta?: Record<string, unknown>;
+  meta?: Record<string, {} | undefined>;
   status?: "idle" | "running";
 }
 

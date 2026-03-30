@@ -256,6 +256,13 @@ try:
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 600.0
 
+ACP_DRAIN_MAX_ATTEMPTS = EnvVarLoader.get_int(
+    "COPAW_ACP_DRAIN_MAX_ATTEMPTS",
+    50,
+    min_value=10,
+    max_value=200,
+)
+
 # Marker prepended to every truncation notice.
 # Format:
 #   <<<TRUNCATED>>>

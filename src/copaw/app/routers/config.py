@@ -18,6 +18,7 @@ from ...config import (
     ToolGuardConfig,
     ToolGuardRuleConfig,
 )
+from ...acp.config import ACPConfig
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ...config.config import (
     AgentsLLMRoutingConfig,
@@ -37,6 +38,7 @@ from ...config.config import (
     VoiceChannelConfig,
     WecomConfig,
 )
+from ...acp.types import parse_external_agent_text
 
 from .schemas_config import HeartbeatBody
 
@@ -423,6 +425,64 @@ async def put_agents_llm_routing(
     config.agents.llm_routing = body
     save_config(config)
     return body
+
+
+class ParseExternalAgentRequest(BaseModel):
+    text: str
+
+
+class ParseExternalAgentResponse(BaseModel):
+    enabled: bool = False
+    harness: str | None = None
+    keep_session: bool = False
+    cwd: str | None = None
+    existing_session_id: str | None = None
+    prompt: str | None = None
+
+
+@router.get(
+    "/acp",
+    response_model=ACPConfig,
+    summary="Get ACP config",
+)
+async def get_acp() -> ACPConfig:
+    config = load_config()
+    return config.acp
+
+
+@router.put(
+    "/acp",
+    response_model=ACPConfig,
+    summary="Update ACP config",
+)
+async def put_acp(
+    body: ACPConfig = Body(...),
+) -> ACPConfig:
+    config = load_config()
+    config.acp = body
+    save_config(config)
+    return body
+
+
+@router.post(
+    "/acp/parse-text",
+    response_model=ParseExternalAgentResponse,
+    summary="Parse ACP command-like text",
+)
+async def parse_acp_text(
+    body: ParseExternalAgentRequest = Body(...),
+) -> ParseExternalAgentResponse:
+    parsed = parse_external_agent_text(body.text)
+    if parsed is None:
+        return ParseExternalAgentResponse(enabled=False)
+    return ParseExternalAgentResponse(
+        enabled=parsed.enabled,
+        harness=parsed.harness,
+        keep_session=parsed.keep_session,
+        cwd=parsed.cwd,
+        existing_session_id=parsed.existing_session_id,
+        prompt=parsed.prompt,
+    )
 
 
 # ── User Timezone ────────────────────────────────────────────────────

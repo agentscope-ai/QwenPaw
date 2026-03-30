@@ -38,6 +38,8 @@ class TaskTracker:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._runs: dict[str, _RunState] = {}
+        self._serial_locks: dict[str, asyncio.Lock] = {}
+        self._serial_waiters: dict[str, int] = {}
 
     @property
     def lock(self) -> asyncio.Lock:
@@ -206,6 +208,100 @@ class TaskTracker:
 
             run.task = asyncio.create_task(_producer())
             return my_queue, True
+
+    # pylint: disable=protected-access
+    # pylint: disable=too-many-branches,too-many-statements
+    async def start_or_queue(
+        self,
+        run_key: str,
+        payload: Any,
+        stream_fn: Callable[..., Coroutine],
+    ) -> asyncio.Queue:
+        """Start a run, or queue it behind the active run for *run_key*.
+
+        Unlike :meth:`attach_or_start`, this never treats a normal request as
+        a reconnect. Each caller receives a dedicated queue whose stream starts
+        once earlier work for the same *run_key* completes.
+        """
+        async with self._lock:
+            serial_lock = self._serial_locks.get(run_key)
+            if serial_lock is None:
+                serial_lock = asyncio.Lock()
+                self._serial_locks[run_key] = serial_lock
+            self._serial_waiters[run_key] = (
+                self._serial_waiters.get(run_key, 0) + 1
+            )
+
+        my_queue: asyncio.Queue = asyncio.Queue()
+        tracker_ref = weakref.ref(self)
+
+        async def _producer() -> None:
+            async with serial_lock:
+                tracker = tracker_ref()
+                if tracker is None:
+                    return
+
+                current_task = asyncio.current_task()
+                run = _RunState(
+                    task=current_task
+                    if current_task is not None
+                    else asyncio.Future(),
+                    queues=[my_queue],
+                    buffer=[],
+                )
+
+                async with tracker.lock:
+                    tracker._runs[run_key] = run
+
+                try:
+                    async for sse in stream_fn(payload):
+                        tracker = tracker_ref()
+                        if tracker is None:
+                            return
+                        async with tracker.lock:
+                            current = tracker._runs.get(run_key)
+                            if current is not run:
+                                continue
+                            run.buffer.append(sse)
+                            for q in run.queues:
+                                q.put_nowait(sse)
+                except asyncio.CancelledError:
+                    logger.debug("queued run cancelled run_key=%s", run_key)
+                except Exception:
+                    logger.exception("queued run error run_key=%s", run_key)
+                    err_sse = (
+                        "data: "
+                        f"{json.dumps({'error': 'internal server error'})}\n\n"
+                    )
+                    tracker = tracker_ref()
+                    if tracker is not None:
+                        async with tracker.lock:
+                            current = tracker._runs.get(run_key)
+                            if current is run:
+                                run.buffer.append(err_sse)
+                            for q in run.queues:
+                                q.put_nowait(err_sse)
+                finally:
+                    tracker = tracker_ref()
+                    if tracker is not None:
+                        async with tracker.lock:
+                            for q in run.queues:
+                                q.put_nowait(_SENTINEL)
+                            current = tracker._runs.get(run_key)
+                            if current is run:
+                                tracker._runs.pop(run_key, None)
+
+                            remaining = (
+                                tracker._serial_waiters.get(run_key, 0) - 1
+                            )
+                            if remaining <= 0:
+                                tracker._serial_waiters.pop(run_key, None)
+                                tracker._serial_locks.pop(run_key, None)
+                            else:
+                                tracker._serial_waiters[run_key] = remaining
+
+        asyncio.create_task(_producer())
+        return my_queue
 
     async def stream_from_queue(
         self,

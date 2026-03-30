@@ -1,0 +1,188 @@
+// Global Settings Card
+.globalSettingsCard {
+  margin-bottom: 24px;
+  border-radius: 12px;
+
+  :global(.ant-card-head) {
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  :global(.ant-card-head-title) {
+    font-weight: 600;
+    font-size: 16px;
+  }
+}
+
+// Harness Card
+.harnessCard {
+  border-radius: 12px;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+  padding: 16px;
+
+  &.enabledCard {
+    border: 2px solid #615ced !important;
+    box-shadow: rgba(97, 92, 237, 0.2) 0px 4px 12px !important;
+  }
+
+  &.hover {
+    border: 1px solid #615ced;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  }
+
+  &.normal {
+    border: 1px solid rgba(0, 0, 0, 0.04);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.harnessTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #1a1a1a;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileIcon {
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+}
+
+// Status
+.statusContainer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+
+  &.enabled {
+    background-color: #52c41a;
+  }
+
+  &.disabled {
+    background-color: #d9d9d9;
+  }
+}
+
+.statusText {
+  font-size: 12px;
+
+  &.enabled {
+    color: #52c41a;
+  }
+
+  &.disabled {
+    color: #999;
+  }
+}
+
+// Harness Details
+.harnessDetails {
+  margin-bottom: 16px;
+}
+
+.detailRow {
+  display: flex;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.detailLabel {
+  color: #666;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.detailValue {
+  color: #1a1a1a;
+  word-break: break-all;
+  font-family: "Monaco", "Courier New", monospace;
+}
+
+// Card Footer
+.cardFooter {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.actionButton {
+  padding: 0;
+  font-size: 12px;
+}
+
+.deleteButton {
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background-color: #ff4d4f;
+    color: #fff;
+    border-color: #ff4d4f;
+  }
+}
+
+// Environment Variables in Drawer
+.envContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.envRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.envTag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.envKey {
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.envSeparator {
+  color: #999;
+  margin: 0 4px;
+}
+
+.envValue {
+  color: #666;
+  font-family: "Monaco", "Courier New", monospace;
+}
+
+.newEnvRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,6 +17,21 @@ from .utils import agentscope_msg_to_message
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+def _message_sort_key(msg, fallback_index: int) -> tuple[int, str, int]:
+    """Return a stable ordering key for mixed agent/ACP history."""
+    timestamp = getattr(msg, "timestamp", None)
+    normalized = ""
+    if timestamp is not None:
+        raw = str(timestamp).strip()
+        if raw:
+            try:
+                normalized = datetime.fromisoformat(raw).isoformat()
+            except ValueError:
+                normalized = raw
+
+    return (0 if normalized else 1, normalized, fallback_index)
 
 
 async def get_workspace(request: Request):
@@ -162,15 +178,36 @@ async def get_chat(
         chat_spec.session_id,
         chat_spec.user_id,
     )
-    status = await workspace.task_tracker.get_status(chat_id)
+    status = "idle"
+    tracker = getattr(workspace, "task_tracker", None)
+    if tracker is not None:
+        status = await tracker.get_status(chat_id)
     if not state:
         return ChatHistory(messages=[], status=status)
-    memories = state.get("agent", {}).get("memory", [])
-    memory = InMemoryMemory()
-    memory.load_state_dict(memories)
 
-    memories = await memory.get_memory()
-    messages = agentscope_msg_to_message(memories)
+    merged_memories = []
+
+    agent_memory = state.get("agent", {}).get("memory", {})
+    if isinstance(agent_memory, dict):
+        memory = InMemoryMemory()
+        memory.load_state_dict(agent_memory, strict=False)
+        merged_memories.extend(await memory.get_memory())
+
+    external_agent_memory = state.get("external_agent_memory", {})
+    if isinstance(external_agent_memory, dict):
+        memory = InMemoryMemory()
+        memory.load_state_dict(external_agent_memory, strict=False)
+        merged_memories.extend(await memory.get_memory())
+
+    merged_memories = [
+        msg
+        for _, msg in sorted(
+            enumerate(merged_memories),
+            key=lambda item: _message_sort_key(item[1], item[0]),
+        )
+    ]
+
+    messages = agentscope_msg_to_message(merged_memories)
     return ChatHistory(messages=messages, status=status)
 
 

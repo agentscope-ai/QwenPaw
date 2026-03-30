@@ -27,6 +27,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   "skill-pool": "/skill-pool",
   tools: "/tools",
   mcp: "/mcp",
+  acp: "/acp",
   workspace: "/workspace",
   agents: "/agents",
   models: "/models",

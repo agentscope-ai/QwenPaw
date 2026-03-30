@@ -17,6 +17,21 @@ export type CopyableResponse = {
   output?: CopyableMessage[];
 };
 
+export type ChatTextContentPart = {
+  type?: string;
+  text?: string;
+};
+
+export type ChatInputMessage = {
+  role?: string;
+  content?: string | ChatTextContentPart[];
+  session?: {
+    session_id?: string;
+    user_id?: string;
+    channel?: string;
+  };
+};
+
 export type RuntimeLoadingBridgeApi = {
   getLoading?: () => boolean | string;
   setLoading?: (loading: boolean | string) => void;
@@ -60,12 +75,12 @@ export function extractCopyableText(response: CopyableResponse): string {
 }
 
 /** Extract plain text from user message content. */
-export function extractUserMessageText(m: any): string {
+export function extractUserMessageText(m: ChatInputMessage): string {
   if (typeof m.content === "string") return m.content;
   if (!Array.isArray(m.content)) return "";
   return m.content
-    .filter((p: any) => p.type === "text")
-    .map((p: any) => p.text || "")
+    .filter((part) => part.type === "text")
+    .map((part) => part.text || "")
     .join("\n");
 }
 
@@ -116,6 +131,28 @@ export function buildModelError(): Response {
   );
 }
 
+/** Build a synthetic runtime error response the chat UI can render. */
+export function buildRuntimeErrorResponse(
+  message: string,
+  options?: {
+    status?: number;
+    error?: string;
+    detail?: string;
+  },
+): Response {
+  return new Response(
+    JSON.stringify({
+      error: options?.error || "Runtime request failed",
+      message,
+      detail: options?.detail || message,
+    }),
+    {
+      status: options?.status || 502,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // URL normalization utilities
 // ---------------------------------------------------------------------------
@@ -157,8 +194,19 @@ export function toStoredName(v: string): string {
 }
 
 /** Convert content part URLs to stored name format. */
-export function normalizeContentUrls(part: any): any {
-  const p = { ...part };
+type NormalizedContentPart = {
+  type?: string;
+  image_url?: string;
+  file_url?: string;
+  data?: string;
+  video_url?: string;
+  [key: string]: unknown;
+};
+
+export function normalizeContentUrls(
+  part: Record<string, unknown>,
+): NormalizedContentPart {
+  const p: NormalizedContentPart = { ...part };
   if (p.type === "image" && typeof p.image_url === "string")
     p.image_url = toStoredName(p.image_url);
   if (p.type === "file" && typeof p.file_url === "string")

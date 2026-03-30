@@ -36,6 +36,7 @@ class ConversationCommandHandlerMixin:
             "compact_str",
             "await_summary",
             "message",
+            "acp",
             "dump_history",
             "load_history",
             "long_term_memory",
@@ -489,6 +490,22 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
         return await self._make_system_msg(
             f"**Long-Term Memory**\n\n{long_term_memory}",
+        )
+
+    async def _process_acp(
+        self,
+        _messages: list[Msg],
+        args: str = "",
+    ) -> Msg:
+        """Explain that ACP slash commands are handled by the chat runtime."""
+        suffix = f" `{args.strip()}`" if args.strip() else ""
+        return await self._make_system_msg(
+            "ACP `/acp` 现在是兼容入口，不再走系统命令处理。\n\n"
+            "请直接把整条消息发送到聊天运行时，例如：\n"
+            "- `/acp opencode 简单分析一下 CONTRIBUTING_zh.md`\n"
+            "- `/acp opencode --cwd . --keep-session 分析当前仓库`\n"
+            "- `用 opencode 分析当前仓库`\n\n"
+            f"当前输入不会在命令模式执行{suffix}。",
         )
 
     async def handle_conversation_command(self, query: str) -> Msg:

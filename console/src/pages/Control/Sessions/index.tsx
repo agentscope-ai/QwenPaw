@@ -74,7 +74,7 @@ function SessionsPage() {
 
   const handleEdit = (session: Session) => {
     setEditingSession(session);
-    form.setFieldsValue(session as any);
+    form.setFieldsValue(session as Parameters<typeof form.setFieldsValue>[0]);
     setDrawerOpen(true);
   };
 

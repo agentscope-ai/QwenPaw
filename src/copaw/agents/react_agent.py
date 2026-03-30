@@ -54,6 +54,7 @@ from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     WORKING_DIR,
 )
+from ..config import load_config
 from ..agents.memory import BaseMemoryManager
 
 if TYPE_CHECKING:
@@ -298,7 +299,38 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                     f"Failed to register task management tools: {e}",
                 )
 
+        # Register ACP sessions_spawn tool if ACP is enabled
+        self._register_acp_tool(toolkit, namesake_strategy)
+
         return toolkit
+
+    def _register_acp_tool(
+        self,
+        toolkit: Toolkit,
+        namesake_strategy: NamesakeStrategy = "skip",
+    ) -> None:
+        """Register ACP sessions_spawn tool if ACP is enabled.
+
+        Args:
+            toolkit: Toolkit to register to
+            namesake_strategy: Strategy for handling namesake tools
+        """
+        try:
+            config = load_config()
+            if (
+                hasattr(config, "acp")
+                and config.acp.enabled
+                and config.acp.has_enabled_harness
+            ):
+                from .tools.sessions_spawn import sessions_spawn
+
+                toolkit.register_tool_function(
+                    sessions_spawn,
+                    namesake_strategy=namesake_strategy,
+                )
+                logger.info("Registered ACP sessions_spawn tool")
+        except Exception as e:
+            logger.warning("Failed to register ACP tool: %s", e)
 
     def _register_skills(self, toolkit: Toolkit) -> None:
         """Load and register skills from workspace directory.
@@ -973,6 +1005,11 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         if self.command_handler.is_command(query):
             logger.info(f"Received command: {query}")
             msg = await self.command_handler.handle_command(query)
+            if isinstance(msg, list):
+                final_msg = msg[-1]
+                for item in msg:
+                    await self.print(item)
+                return final_msg
             await self.print(msg)
             return msg
 

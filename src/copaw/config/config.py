@@ -7,6 +7,7 @@ from typing import Optional, Union, Dict, List, Literal
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
 
+from ..acp.config import ACPConfig
 from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
@@ -1078,6 +1079,7 @@ class Config(BaseModel):
         description="User IANA timezone (e.g. Asia/Shanghai). "
         "Defaults to the system timezone.",
     )
+    acp: ACPConfig = Field(default_factory=ACPConfig)
 
 
 ChannelConfigUnion = Union[

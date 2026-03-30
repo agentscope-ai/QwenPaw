@@ -13,6 +13,7 @@ from typing import Any, Iterable
 from ....config.context import get_current_workspace_dir
 from ....constant import SECRET_DIR, WORKING_DIR
 from ..models import GuardFinding, GuardSeverity, GuardThreatCategory
+from ..path_utils import is_within_root, normalize_guard_path
 from . import BaseToolGuardian
 
 # Tool -> parameter names that carry file paths.
@@ -43,14 +44,6 @@ def _workspace_root() -> Path:
     return Path(get_current_workspace_dir() or WORKING_DIR)
 
 
-def _normalize_path(raw_path: str) -> str:
-    """Normalize *raw_path* to a canonical absolute path string."""
-    p = Path(raw_path).expanduser()
-    if not p.is_absolute():
-        p = _workspace_root() / p
-    return str(p.resolve(strict=False))
-
-
 def _is_file_guard_enabled() -> bool:
     """Check ``security.file_guard.enabled`` from config."""
     try:
@@ -61,7 +54,7 @@ def _is_file_guard_enabled() -> bool:
         return True
 
 
-def _load_sensitive_files_from_config() -> list[str]:
+def load_sensitive_files_from_config() -> list[str]:
     """Load ``security.file_guard.sensitive_files`` from config.json.
 
     When the configured list is empty (fresh install), fall back to
@@ -170,7 +163,7 @@ class FilePathToolGuardian(BaseToolGuardian):
         self._enabled: bool = _is_file_guard_enabled()
         self._sensitive_files: set[str] = set()
         self._sensitive_dirs: set[str] = set()
-        self.set_sensitive_files(_load_sensitive_files_from_config())
+        self.set_sensitive_files(load_sensitive_files_from_config())
         if sensitive_files is not None:
             for path in sensitive_files:
                 self.add_sensitive_file(path)
@@ -187,7 +180,7 @@ class FilePathToolGuardian(BaseToolGuardian):
         for path in paths:
             if not path:
                 continue
-            normalized = _normalize_path(path)
+            normalized = normalize_guard_path(path, _workspace_root())
             p = Path(normalized)
             # Existing directories and explicit slash-terminated entries are
             # both treated as directory guards.
@@ -200,7 +193,7 @@ class FilePathToolGuardian(BaseToolGuardian):
 
     def add_sensitive_file(self, path: str) -> None:
         """Add one sensitive file path to block list."""
-        normalized = _normalize_path(path)
+        normalized = normalize_guard_path(path, _workspace_root())
         p = Path(normalized)
         if p.is_dir() or path.endswith(("/", "\\")):
             self._sensitive_dirs.add(normalized)
@@ -209,7 +202,7 @@ class FilePathToolGuardian(BaseToolGuardian):
 
     def remove_sensitive_file(self, path: str) -> bool:
         """Remove one sensitive file path. Returns True if it existed."""
-        normalized = _normalize_path(path)
+        normalized = normalize_guard_path(path, _workspace_root())
         if normalized in self._sensitive_files:
             self._sensitive_files.remove(normalized)
             return True
@@ -221,15 +214,14 @@ class FilePathToolGuardian(BaseToolGuardian):
     def reload(self) -> None:
         """Reload enabled state and sensitive-file set from config."""
         self._enabled = _is_file_guard_enabled()
-        self.set_sensitive_files(_load_sensitive_files_from_config())
+        self.set_sensitive_files(load_sensitive_files_from_config())
 
     def _is_sensitive(self, abs_path: str) -> bool:
         """Return True when *abs_path* hits sensitive file/dir constraints."""
-        path_obj = Path(abs_path)
         if abs_path in self._sensitive_files:
             return True
         return any(
-            path_obj.is_relative_to(Path(dir_path))
+            is_within_root(abs_path, dir_path)
             for dir_path in self._sensitive_dirs
         )
 
@@ -275,7 +267,7 @@ class FilePathToolGuardian(BaseToolGuardian):
         snippet: str | None = None,
     ) -> None:
         """Check a single string value against sensitive paths."""
-        abs_path = _normalize_path(raw_value)
+        abs_path = normalize_guard_path(raw_value, _workspace_root())
         if self._is_sensitive(abs_path):
             findings.append(
                 self._make_finding(

@@ -288,6 +288,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           icon: <Plug size={16} />,
         },
         {
+          key: "acp",
+          label: collapsed ? null : t("nav.acp"),
+          icon: <Bot size={16} />,
+        },
+        {
           key: "agent-config",
           label: collapsed ? null : t("nav.agentConfig"),
           icon: <Settings size={16} />,

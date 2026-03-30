@@ -9,6 +9,7 @@ import logging
 from typing import AsyncIterator
 from typing import TYPE_CHECKING
 
+from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg, TextBlock
 
 from . import control_commands
@@ -17,10 +18,13 @@ from .daemon_commands import (
     DaemonCommandHandlerMixin,
     parse_daemon_query,
 )
+from ...acp import parse_external_agent_text
 from ...agents.command_handler import CommandHandler
 from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
+
+ReMeInMemoryMemory = InMemoryMemory
 
 if TYPE_CHECKING:
     from .runner import AgentRunner
@@ -49,6 +53,8 @@ def _is_conversation_command(query: str | None) -> bool:
     if not query or not query.startswith("/"):
         return False
     cmd = query.strip().lstrip("/").split()[0] if query.strip() else ""
+    if cmd == "acp" and parse_external_agent_text(query) is not None:
+        return False
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 
@@ -72,6 +78,7 @@ def _is_command(query: str | None) -> bool:
 
 
 async def run_command_path(  # pylint: disable=too-many-statements
+    # pylint: disable=too-many-branches
     request,
     msgs,
     runner: AgentRunner,
@@ -227,13 +234,20 @@ async def run_command_path(  # pylint: disable=too-many-statements
         return
 
     # Conversation path: lightweight memory + CommandHandler
-    memory = runner.memory_manager.get_in_memory_memory()
+    memory = (
+        runner.memory_manager.get_in_memory_memory()
+        if runner.memory_manager is not None
+        else ReMeInMemoryMemory()
+    )
     session_state = await runner.session.get_session_state_dict(
         session_id=session_id,
         user_id=user_id,
     )
     memory_state = session_state.get("agent", {}).get("memory", {})
-    memory.load_state_dict(memory_state, strict=False)
+    try:
+        memory.load_state_dict(memory_state, strict=False)
+    except TypeError:
+        memory.load_state_dict(memory_state)
 
     conv_handler = CommandHandler(
         agent_name="Friday",
@@ -249,7 +263,15 @@ async def run_command_path(  # pylint: disable=too-many-statements
             role="assistant",
             content=[TextBlock(type="text", text=str(e))],
         )
-    yield response_msg, True
+    response_msgs = (
+        response_msg if isinstance(response_msg, list) else [response_msg]
+    )
+    last_index = len(response_msgs) - 1
+    for index, msg in enumerate(response_msgs):
+        yield msg, index == last_index
+
+    if response_msgs:
+        await memory.add(response_msgs)
 
     # Update memory key with session_id & user_id to session,
     # but only if identifiers are present

@@ -1,6 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeWebUISenderOptions,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,13 +25,16 @@ import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
+import { parseRuntimeResponseChunk } from "./runtimeI18n";
 import {
   toDisplayUrl,
   copyText,
   extractCopyableText,
   buildModelError,
+  buildRuntimeErrorResponse,
   normalizeContentUrls,
   extractUserMessageText,
+  type ChatInputMessage,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
@@ -56,6 +60,10 @@ interface CommandSuggestion {
   value: string;
   description: string;
 }
+
+type ImeKeyboardEvent = KeyboardEvent & {
+  isComposing?: boolean;
+};
 
 function renderSuggestionLabel(command: string, description: string) {
   return (
@@ -96,13 +104,13 @@ function useIMEComposition(isChatActive: () => boolean) {
       }, 200);
     };
 
-    const suppressImeEnter = (e: KeyboardEvent) => {
+    const suppressImeEnter = (e: ImeKeyboardEvent) => {
       if (!isChatActive()) return;
       const target = e.target as HTMLElement;
       if (target?.tagName === "TEXTAREA" && e.key === "Enter" && !e.shiftKey) {
         // e.isComposing is the standard flag; isComposingRef covers the
         // post-compositionend grace period needed by Safari.
-        if (isComposingRef.current || (e as any).isComposing) {
+        if (isComposingRef.current || e.isComposing) {
           e.stopPropagation();
           e.stopImmediatePropagation();
           e.preventDefault();
@@ -256,6 +264,10 @@ function RuntimeLoadingBridge({
   return null;
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 export default function ChatPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -374,7 +386,7 @@ export default function ChatPage() {
 
   const customFetch = useCallback(
     async (data: {
-      input?: Array<Record<string, unknown>>;
+      input?: ChatInputMessage[];
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
@@ -429,7 +441,7 @@ export default function ChatPage() {
         requestBody.session_id;
       if (backendChatId) {
         const userText = rewrittenInput
-          .filter((m: any) => m.role === "user")
+          .filter((message) => message.role === "user")
           .map(extractUserMessageText)
           .join("\n")
           .trim();
@@ -438,26 +450,47 @@ export default function ChatPage() {
         }
       }
 
-      const response = await fetch(getApiUrl("/console/chat"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: data.signal,
-      });
+      try {
+        return await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: data.signal,
+        });
+      } catch (error) {
+        if (isAbortError(error) || data.signal?.aborted) {
+          runtimeLoadingBridgeRef.current?.setLoading?.(false);
+          return new Response(null, { status: 204 });
+        }
 
-      return response;
+        const detail =
+          error instanceof Error ? error.message : String(error ?? "");
+        return buildRuntimeErrorResponse(t("chat.runtimeRequestFailed"), {
+          detail,
+        });
+      }
     },
-    [selectedAgent],
+    [selectedAgent, t],
   );
 
   const handleFileUpload = useCallback(
     async (options: {
-      file: File;
-      onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+      file: File | string | Blob;
+      onSuccess?: (body: { url?: string; thumbUrl?: string }) => void;
       onError?: (e: Error) => void;
       onProgress?: (e: { percent?: number }) => void;
     }) => {
       const { file, onSuccess, onError, onProgress } = options;
+      if (typeof file === "string") {
+        onError?.(new Error("File path not supported"));
+        return;
+      }
+      const uploadFile =
+        file instanceof File
+          ? file
+          : new File([file], "attachment", {
+              type: file.type || "application/octet-stream",
+            });
       try {
         // Warn when model has no multimodal support
         if (!multimodalCaps.supportsMultimodal) {
@@ -484,9 +517,9 @@ export default function ChatPage() {
           return;
         }
 
-        const res = await chatApi.uploadFile(file);
+        const res = await chatApi.uploadFile(uploadFile);
         onProgress?.({ percent: 100 });
-        onSuccess({ url: chatApi.filePreviewUrl(res.url) });
+        onSuccess?.({ url: chatApi.filePreviewUrl(res.url) });
       } catch (e) {
         onError?.(e instanceof Error ? e : new Error(String(e)));
       }
@@ -524,6 +557,41 @@ export default function ChatPage() {
       return true;
     };
 
+    const senderOptions: IAgentScopeRuntimeWebUISenderOptions = {
+      ...(i18nConfig.sender ?? {}),
+      beforeSubmit: handleBeforeSubmit,
+      allowSpeech: true,
+      attachments: {
+        trigger: function AttachmentTrigger({
+          disabled,
+        }: {
+          disabled?: boolean;
+        }) {
+          const tooltipKey = multimodalCaps.supportsMultimodal
+            ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
+              ? "chat.attachments.tooltipImageOnly"
+              : "chat.attachments.tooltip"
+            : "chat.attachments.tooltipNoMultimodal";
+          return (
+            <Tooltip title={t(tooltipKey, { limit: CHAT_ATTACHMENT_MAX_MB })}>
+              <IconButton
+                disabled={disabled}
+                icon={<SparkAttachmentLine />}
+                bordered={false}
+              />
+            </Tooltip>
+          );
+        },
+        accept: "*/*",
+        customRequest: handleFileUpload,
+      },
+      placeholder: t("chat.inputPlaceholder"),
+      suggestions: commandSuggestions.map((item) => ({
+        label: renderSuggestionLabel(item.command, item.description),
+        value: item.value,
+      })),
+    };
+
     return {
       ...i18nConfig,
       theme: {
@@ -548,36 +616,7 @@ export default function ChatPage() {
         avatar:
           "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png",
       },
-      sender: {
-        ...(i18nConfig as any)?.sender,
-        beforeSubmit: handleBeforeSubmit,
-        allowSpeech: true,
-        attachments: {
-          trigger: function (props: any) {
-            const tooltipKey = multimodalCaps.supportsMultimodal
-              ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
-                ? "chat.attachments.tooltipImageOnly"
-                : "chat.attachments.tooltip"
-              : "chat.attachments.tooltipNoMultimodal";
-            return (
-              <Tooltip title={t(tooltipKey, { limit: CHAT_ATTACHMENT_MAX_MB })}>
-                <IconButton
-                  disabled={props?.disabled}
-                  icon={<SparkAttachmentLine />}
-                  bordered={false}
-                />
-              </Tooltip>
-            );
-          },
-          accept: "*/*",
-          customRequest: handleFileUpload,
-        },
-        placeholder: t("chat.inputPlaceholder"),
-        suggestions: commandSuggestions.map((item) => ({
-          label: renderSuggestionLabel(item.command, item.description),
-          value: item.value,
-        })),
-      },
+      sender: senderOptions,
       session: {
         multiple: true,
         hideBuiltInSessionList: true,
@@ -604,18 +643,32 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          return fetch(getApiUrl("/console/chat"), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: window.currentSessionId || data.session_id,
-              user_id: window.currentUserId || DEFAULT_USER_ID,
-              channel: window.currentChannel || DEFAULT_CHANNEL,
-            }),
-            signal: data.signal,
-          });
+          try {
+            return await fetch(getApiUrl("/console/chat"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                reconnect: true,
+                session_id: window.currentSessionId || data.session_id,
+                user_id: window.currentUserId || DEFAULT_USER_ID,
+                channel: window.currentChannel || DEFAULT_CHANNEL,
+              }),
+              signal: data.signal,
+            });
+          } catch (error) {
+            if (isAbortError(error) || data.signal?.aborted) {
+              runtimeLoadingBridgeRef.current?.setLoading?.(false);
+              return new Response(null, { status: 204 });
+            }
+
+            const detail =
+              error instanceof Error ? error.message : String(error ?? "");
+            return buildRuntimeErrorResponse(t("chat.runtimeReconnectFailed"), {
+              detail,
+            });
+          }
         },
+        responseParser: parseRuntimeResponseChunk,
       },
       actions: {
         list: [
@@ -633,7 +686,15 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
+  }, [
+    customFetch,
+    copyResponse,
+    handleFileUpload,
+    t,
+    isDark,
+    multimodalCaps,
+    isComposingRef,
+  ]);
 
   return (
     <div

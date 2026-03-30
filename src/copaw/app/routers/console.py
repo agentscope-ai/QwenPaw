@@ -121,7 +121,7 @@ async def post_console_chat(
                 detail="No running chat for this session",
             )
     else:
-        queue, _ = await tracker.attach_or_start(
+        queue = await tracker.start_or_queue(
             chat.id,
             native_payload,
             console_channel.stream_one,

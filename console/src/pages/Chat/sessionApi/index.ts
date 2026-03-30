@@ -10,6 +10,7 @@ import api, {
   type Message,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
+import { localizeRuntimeValue } from "../runtimeI18n";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -138,9 +139,15 @@ function contentToRequestParts(
   return parts;
 }
 function normalizeOutputMessageContent(content: unknown): unknown {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return content;
-  return (content as ContentItem[]).map(resolveContentItemUrl);
+  if (typeof content === "string") {
+    return localizeRuntimeValue(content);
+  }
+  if (!Array.isArray(content)) {
+    return localizeRuntimeValue(content);
+  }
+  return localizeRuntimeValue(
+    (content as ContentItem[]).map(resolveContentItemUrl),
+  );
 }
 
 /**
