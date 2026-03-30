@@ -60,7 +60,13 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 [2026-03-30] We released v1.0.0! See the [v1.0.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
-- **[v1.0.0] Added:** Background task support with task tracking; agent enable/disable toggle; unified priority queue system with `/stop` command; CoPaw local model provider; global LLM rate limiter; system reboot & service protection; Chinese prompt injection detection; download page with desktop installers, local models, and dependency packages; multimodal preview in console; WeChat iLink Bot; custom channel HTTP routes; async tool execution; skill pool architecture; browser CDP support.
+- **[v1.0.0] Added:**
+  - **Multi-Agent System**: Background task support with CLI `--background` flag and task tracking; agent enable/disable toggle via console and API; unified priority queue system with `/stop` command for task cancellation
+  - **Providers and Models**: CoPaw local model provider with llama.cpp; global LLM rate limiter with QPM sliding window
+  - **Security**: Tool guard rules for system reboot & service protection; Chinese prompt injection detection in skill scanner
+  - **Console & UI**: Download page for desktop installers with mirror sites; multimodal preview (image, audio, video, files) in console chat
+  - **Channels**: WeChat iLink Bot channel; custom channel HTTP routes for webhooks
+  - **Tools & Skills**: Async tool execution with background task helpers; two-layer skill pool architecture; browser CDP support for Chrome automation
 - **[v1.0.0] Changed:** Context management v2.0 with nested configuration models, new compaction hooks, tool result compaction, and proactive memory search; improved truncation logic; streaming grep search.
 - **[v1.0.0] Fixed:** Feishu WebSocket reconnection and multi-instance message routing; Discord duplicate messages; QQ voice message conversion; multi-agent model configuration; cross-platform file encoding.
 - **[v1.0.0] Documentation:** Comprehensive documentation update including multi-agent, installation & CLI docs, model provider docs, project structure guidelines, context management, security, MCP & tools, skills, and magic commands.
