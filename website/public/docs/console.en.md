@@ -586,25 +586,25 @@ model (same settings apply to voice input in chat and channel voice messages).
 
 ## Quick Reference
 
-| Page                  | Sidebar path                     | What you can do                                |
-| --------------------- | -------------------------------- | ---------------------------------------------- |
-| Chat                  | Chat → Chat                      | Chat, voice, attachments, sessions             |
-| Channels              | Control → Channels               | Enable/disable, credentials                    |
-| Sessions              | Control → Sessions               | Filter, rename, delete                         |
-| Cron Jobs             | Control → Cron Jobs              | Create/edit/delete, run now                    |
-| Heartbeat             | Control → Heartbeat              | Interval, delivery target, active hours        |
-| Files                 | Workspace → Files                | Persona files, memory, upload/download         |
-| Skills                | Workspace → Skills               | Enable/disable, Hub/upload/custom              |
-| Tools                 | Workspace → Tools                | Toggle built-in tools by name                  |
-| MCP                   | Workspace → MCP                  | MCP clients                                    |
-| Configuration         | Workspace → Configuration        | Iterations, context, retries, compaction, etc. |
-| Agent management      | Settings → Agent management      | CRUD agents, enable/disable                    |
-| Models                | Settings → Models                | Providers, local models, active model          |
-| Skill pool            | Settings → Skill pool            | Built-in and shared reusable skills            |
-| Environment Variables | Settings → Environments          | Keys for tools/skills                          |
-| Security              | Settings → Security              | Tool guard, skill scan, file guard             |
-| Token Usage           | Settings → Token Usage           | Usage by date/model                            |
-| Voice transcription   | Settings → Voice transcription   | Audio mode, Whisper API/local                  |
+| Page                  | Sidebar path                   | What you can do                                |
+| --------------------- | ------------------------------ | ---------------------------------------------- |
+| Chat                  | Chat → Chat                    | Chat, voice, attachments, sessions             |
+| Channels              | Control → Channels             | Enable/disable, credentials                    |
+| Sessions              | Control → Sessions             | Filter, rename, delete                         |
+| Cron Jobs             | Control → Cron Jobs            | Create/edit/delete, run now                    |
+| Heartbeat             | Control → Heartbeat            | Interval, delivery target, active hours        |
+| Files                 | Workspace → Files              | Persona files, memory, upload/download         |
+| Skills                | Workspace → Skills             | Enable/disable, Hub/upload/custom              |
+| Tools                 | Workspace → Tools              | Toggle built-in tools by name                  |
+| MCP                   | Workspace → MCP                | MCP clients                                    |
+| Configuration         | Workspace → Configuration      | Iterations, context, retries, compaction, etc. |
+| Agent management      | Settings → Agent management    | CRUD agents, enable/disable                    |
+| Models                | Settings → Models              | Providers, local models, active model          |
+| Skill pool            | Settings → Skill pool          | Built-in and shared reusable skills            |
+| Environment Variables | Settings → Environments        | Keys for tools/skills                          |
+| Security              | Settings → Security            | Tool guard, skill scan, file guard             |
+| Token Usage           | Settings → Token Usage         | Usage by date/model                            |
+| Voice transcription   | Settings → Voice transcription | Audio mode, Whisper API/local                  |
 
 ---
 

@@ -335,7 +335,7 @@ Alert records include:
 
 ### Whitelist
 
-**Where to add:** In the Console, go to **Settings → Security → Skill Scanner**, open the **Scan Alerts** tab, and click the shield icon (**Add to Whitelist**) on the row for that skill’s alert. Entries appear under the **Whitelist** tab for review and removal (see **Scan Alerts** and **Console management** above).  
+**Where to add:** In the Console, go to **Settings → Security → Skill Scanner**, open the **Scan Alerts** tab, and click the shield icon (**Add to Whitelist**) on the row for that skill’s alert. Entries appear under the **Whitelist** tab for review and removal (see **Scan Alerts** and **Console management** above).
 **Prerequisite:** The skill must have been scanned and show up as **blocked** or **warned** before it appears in Scan Alerts; you cannot add a whitelist entry from the Console with no prior alert. Advanced: edit `security.skill_scanner.whitelist` in `config.json` (see **Configuration** below).
 
 Whitelisted skills bypass the security scan. The whitelist mechanism is based on **content hash verification**:
