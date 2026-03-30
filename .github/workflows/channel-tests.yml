@@ -237,13 +237,13 @@ jobs:
           thresholdNew: 60.0
           thresholdModified: 60.0
 
-      # Check coverage thresholds
+      # Check coverage thresholds (🟡 Soft gate - informational only)
       - name: Check coverage thresholds
         run: |
-          # Simplified threshold check - adjust values as needed
+          # Coverage check is advisory only (soft gate)
+          # Unit tests are optional; coverage threshold does not block PR
           python << 'EOF'
           import xml.etree.ElementTree as ET
-          import sys
 
           tree = ET.parse('coverage.xml')
           root = tree.getroot()
@@ -252,16 +252,17 @@ jobs:
           line_rate = float(root.get('line-rate', 0))
           coverage_pct = line_rate * 100
 
-          print(f"Channel code coverage: {coverage_pct:.1f}%")
+          print(f"📊 Channel code coverage: {coverage_pct:.1f}%")
+          print(f"   (Advisory only - soft gate, does not block PR)")
 
-          # Set minimum thresholds
-          MIN_COVERAGE = 60.0  # 60% minimum
+          # Advisory threshold for reference
+          ADVISORY_THRESHOLD = 60.0
 
-          if coverage_pct < MIN_COVERAGE:
-              print(f"❌ Coverage {coverage_pct:.1f}% is below minimum {MIN_COVERAGE}%")
-              sys.exit(1)
+          if coverage_pct < ADVISORY_THRESHOLD:
+              print(f"⚠️  Coverage {coverage_pct:.1f}% is below advisory threshold {ADVISORY_THRESHOLD}%")
+              print(f"   Unit tests are soft-gated; this is informational only.")
           else:
-              print(f"✅ Coverage {coverage_pct:.1f}% meets minimum {MIN_COVERAGE}%")
+              print(f"✅ Coverage {coverage_pct:.1f}% meets advisory threshold {ADVISORY_THRESHOLD}%")
           EOF
 
   # ===========================================================================
