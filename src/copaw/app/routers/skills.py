@@ -807,6 +807,20 @@ async def get_markets() -> SkillsMarketPayload:
     return _market_config_to_payload(_load_current_market_config())
 
 
+@router.put("/markets", response_model=SkillsMarketPayload)
+async def save_markets(payload: SkillsMarketPayload) -> SkillsMarketPayload:
+    cfg = _payload_to_market_config(payload)
+    current = load_config()
+    current.skills_market = cfg
+    save_config(current)
+
+    normalized_payload = _market_config_to_payload(cfg)
+    _write_market_payload_to_path(normalized_payload, _SKILLS_MARKET_CONFIG_PATH)
+    with _MARKETPLACE_CACHE_LOCK:
+        _MARKETPLACE_CACHE["expires_at"] = 0.0
+    return normalized_payload
+
+
 @router.get("/markets/defaults", response_model=SkillsMarketPayload)
 async def get_market_defaults() -> SkillsMarketPayload:
     return _load_market_payload_from_path(_SKILLS_MARKET_DEFAULT_PATH)
@@ -860,12 +874,37 @@ async def install_marketplace_skill(
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+
+    overwrite = payload.overwrite or bool(cfg.install.overwrite_default)
+    try:
+        result = install_skill_from_hub(
+            workspace_dir=workspace_dir,
+            bundle_url=selected.install_url,
+            enable=payload.enable,
+            overwrite=overwrite,
+        )
+    except SkillScanError as exc:
+        return _scan_error_response(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SkillConflictError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    reconcile_workspace_manifest(workspace_dir)
+    if payload.enable and result.enabled:
+        schedule_agent_reload(request, workspace.agent_id)
+
     return {
-        "installed": False,
+        "installed": True,
         "workspace_dir": str(workspace.workspace_dir),
         "market_id": payload.market_id,
         "skill_id": payload.skill_id,
-        "detail": "MARKET_INSTALL_NOT_IMPLEMENTED_IN_COMPAT_LAYER",
+        "name": result.name,
+        "enabled": result.enabled,
+        "source_url": result.source_url,
     }
 
 

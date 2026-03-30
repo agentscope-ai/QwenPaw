@@ -5,8 +5,13 @@ import type {
   BuiltinImportSpec,
   HubInstallTaskResponse,
   HubSkillSpec,
+  InstallMarketplacePayload,
+  InstallSkillResult,
+  MarketplaceResponse,
   PoolSkillSpec,
   SkillSpec,
+  SkillsMarketsPayload,
+  ValidateMarketResponse,
   WorkspaceSkillSummary,
 } from "../types";
 
@@ -146,6 +151,44 @@ export const skillApi = {
     request<HubSkillSpec[]>(
       `/skills/hub/search?q=${encodeURIComponent(q)}&limit=${limit}`,
     ),
+
+  getSkillMarkets: () => request<SkillsMarketsPayload>("/skills/markets"),
+
+  saveSkillMarkets: (payload: SkillsMarketsPayload) =>
+    request<SkillsMarketsPayload>("/skills/markets", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  resetSkillMarkets: () =>
+    request<SkillsMarketsPayload>("/skills/markets/reset", {
+      method: "POST",
+    }),
+
+  validateSkillMarket: (payload: {
+    id: string;
+    name: string;
+    url: string;
+    branch?: string;
+    path: string;
+    enabled: boolean;
+    order: number;
+  }) =>
+    request<ValidateMarketResponse>("/skills/markets/validate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  listMarketplace: (refresh: boolean = false) =>
+    request<MarketplaceResponse>(
+      `/skills/marketplace${refresh ? "?refresh=true" : ""}`,
+    ),
+
+  installMarketplaceSkill: (payload: InstallMarketplacePayload) =>
+    request<InstallSkillResult>("/skills/marketplace/install", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   createSkill: (
     skillName: string,

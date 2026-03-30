@@ -1,19 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Form, Tooltip, message } from "@agentscope-ai/design";
 import {
+  AppstoreAddOutlined,
   DownloadOutlined,
   ImportOutlined,
   PlusOutlined,
   SwapOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import type { PoolSkillSpec, SkillSpec } from "../../../api/types";
+import type {
+  MarketError,
+  MarketplaceItem,
+  MarketplaceMeta,
+  PoolSkillSpec,
+  SkillSpec,
+  SkillsMarketSpec,
+} from "../../../api/types";
 import {
   SkillCard,
   SkillDrawer,
   type SkillDrawerFormValues,
   useConflictRenameModal,
   ImportHubModal,
+  MarketplaceDrawer,
   PoolTransferModal,
 } from "./components";
 import { useSkills } from "./useSkills";
@@ -50,10 +59,34 @@ function SkillsPage() {
   const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(
     null,
   );
+  const [marketDrawerOpen, setMarketDrawerOpen] = useState(false);
+  const [marketDrafts, setMarketDrafts] = useState<SkillsMarketSpec[]>([]);
+  const [marketCacheTtl, setMarketCacheTtl] = useState(600);
+  const [marketOverwriteDefault, setMarketOverwriteDefault] = useState(false);
+  const [marketConfigLoaded, setMarketConfigLoaded] = useState(false);
+  const [savingMarkets, setSavingMarkets] = useState(false);
+  const [marketplace, setMarketplace] = useState<MarketplaceItem[]>([]);
+  const [marketErrors, setMarketErrors] = useState<MarketError[]>([]);
+  const [marketMeta, setMarketMeta] = useState<MarketplaceMeta | null>(null);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
+  const [installingSkillKey, setInstallingSkillKey] = useState<string | null>(
+    null,
+  );
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
 
   const MAX_UPLOAD_SIZE_MB = 100;
+
+  const createEmptyMarketDraft = (): SkillsMarketSpec => ({
+    id: "",
+    name: "",
+    url: "",
+    branch: "",
+    path: "index.json",
+    enabled: true,
+    order: marketDrafts.length,
+    trust: null,
+  });
 
   // Only fetch pool skills when pool modal is opened, not on page load
   useEffect(() => {
@@ -130,6 +163,243 @@ function SkillsPage() {
   const closeImportModal = () => {
     if (importing) return;
     setImportModalOpen(false);
+  };
+
+  const loadMarketConfig = async () => {
+    const payload = await api.getSkillMarkets();
+    setMarketDrafts(payload.markets ?? []);
+    setMarketCacheTtl(payload.cache?.ttl_sec ?? 600);
+    setMarketOverwriteDefault(Boolean(payload.install?.overwrite_default));
+    setMarketConfigLoaded(true);
+  };
+
+  const refreshMarketplace = async (refresh = true) => {
+    setMarketplaceLoading(true);
+    try {
+      const res = await api.listMarketplace(refresh);
+      setMarketplace(res.items ?? []);
+      setMarketErrors(res.market_errors ?? []);
+      setMarketMeta(res.meta ?? null);
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : t("common.refresh"),
+      );
+    } finally {
+      setMarketplaceLoading(false);
+    }
+  };
+
+  const openMarketplaceDrawer = async () => {
+    setMarketDrawerOpen(true);
+    try {
+      if (!marketConfigLoaded) {
+        await loadMarketConfig();
+      }
+      await refreshMarketplace(false);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t("common.loading"));
+    }
+  };
+
+  const handleAddMarket = () => {
+    setMarketDrafts((prev) => [
+      ...prev,
+      {
+        ...createEmptyMarketDraft(),
+        order: prev.length,
+      },
+    ]);
+  };
+
+  const handleRemoveMarket = (idx: number) => {
+    setMarketDrafts((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleUpdateMarket = (idx: number, patch: Partial<SkillsMarketSpec>) => {
+    setMarketDrafts((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const handleValidateMarket = async (idx: number, draft?: SkillsMarketSpec) => {
+    const row = draft ?? marketDrafts[idx];
+    const validated = await api.validateSkillMarket({
+      id: row.id,
+      name: row.name,
+      url: row.url,
+      branch: row.branch,
+      path: row.path,
+      enabled: row.enabled,
+      order: row.order,
+    });
+    setMarketDrafts((prev) =>
+      prev.map((item, i) => (i === idx ? validated.normalized : item)),
+    );
+    if (validated.warnings?.length) {
+      message.warning(validated.warnings.join("; "));
+    } else {
+      message.success(t("common.save"));
+    }
+  };
+
+  const handleSaveMarkets = async () => {
+    setSavingMarkets(true);
+    try {
+      const payload = await api.saveSkillMarkets({
+        version: 1,
+        cache: { ttl_sec: marketCacheTtl },
+        install: { overwrite_default: marketOverwriteDefault },
+        markets: marketDrafts,
+      });
+      setMarketDrafts(payload.markets ?? []);
+      setMarketCacheTtl(payload.cache?.ttl_sec ?? 600);
+      setMarketOverwriteDefault(Boolean(payload.install?.overwrite_default));
+      message.success(t("common.save"));
+      await refreshMarketplace(true);
+    } finally {
+      setSavingMarkets(false);
+    }
+  };
+
+  const handleResetMarketTemplates = async () => {
+    const payload = await api.resetSkillMarkets();
+    setMarketDrafts(payload.markets ?? []);
+    setMarketCacheTtl(payload.cache?.ttl_sec ?? 600);
+    setMarketOverwriteDefault(Boolean(payload.install?.overwrite_default));
+    message.success(t("common.reset"));
+    await refreshMarketplace(true);
+  };
+
+  const handleInstallMarketSkill = async (marketId: string, skillId: string) => {
+    const key = `${marketId}/${skillId}`;
+    setInstallingSkillKey(key);
+    try {
+      await api.installMarketplaceSkill({
+        market_id: marketId,
+        skill_id: skillId,
+        enable: true,
+        overwrite: marketOverwriteDefault,
+      });
+      message.success(`${t("common.download")}: ${skillId}`);
+      invalidateSkillCache({ agentId: selectedAgent });
+      await refreshSkills();
+      return true;
+    } catch (error) {
+      const detail = parseErrorDetail(error);
+      if (detail?.message) {
+        message.error(detail.message);
+      } else {
+        message.error(error instanceof Error ? error.message : t("common.download"));
+      }
+      return false;
+    } finally {
+      setInstallingSkillKey(null);
+    }
+  };
+
+  const handleRunBulkMarketAction = async (params: {
+    type: "enable" | "disable" | "delete";
+    marketId: string;
+    shouldStop: () => boolean;
+    onProgress?: (skillKey: string | null) => void;
+  }) => {
+    const targets = marketplace.filter((item) => item.market_id === params.marketId);
+
+    if (params.type === "enable") {
+      let enabled = 0;
+      let installed = 0;
+      let failed = 0;
+      let stopped = false;
+      for (const item of targets) {
+        if (params.shouldStop()) {
+          stopped = true;
+          break;
+        }
+        params.onProgress?.(`${item.market_id}/${item.skill_id}`);
+        try {
+          const result = await api.installMarketplaceSkill({
+            market_id: item.market_id,
+            skill_id: item.skill_id,
+            enable: true,
+            overwrite: marketOverwriteDefault,
+          });
+          if (result.installed) installed += 1;
+          if (result.enabled) enabled += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      params.onProgress?.(null);
+      invalidateSkillCache({ agentId: selectedAgent });
+      await refreshSkills();
+      return {
+        type: "enable" as const,
+        total: targets.length,
+        affected: enabled + installed,
+        failed,
+        enabled,
+        installed,
+        stopped,
+      };
+    }
+
+    if (params.type === "disable") {
+      let disabled = 0;
+      let failed = 0;
+      let stopped = false;
+      for (const item of targets) {
+        if (params.shouldStop()) {
+          stopped = true;
+          break;
+        }
+        params.onProgress?.(`${item.market_id}/${item.skill_id}`);
+        try {
+          await api.disableSkill(item.skill_id);
+          disabled += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      params.onProgress?.(null);
+      invalidateSkillCache({ agentId: selectedAgent });
+      await refreshSkills();
+      return {
+        type: "disable" as const,
+        total: targets.length,
+        affected: disabled,
+        failed,
+        disabled,
+        stopped,
+      };
+    }
+
+    let deleted = 0;
+    let failed = 0;
+    let stopped = false;
+    for (const item of targets) {
+      if (params.shouldStop()) {
+        stopped = true;
+        break;
+      }
+      params.onProgress?.(`${item.market_id}/${item.skill_id}`);
+      try {
+        const result = await api.deleteSkill(item.skill_id);
+        if (result.deleted) deleted += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    params.onProgress?.(null);
+    invalidateSkillCache({ agentId: selectedAgent });
+    await refreshSkills();
+    return {
+      type: "delete" as const,
+      total: targets.length,
+      affected: deleted,
+      failed,
+      deleted,
+      stopped,
+    };
   };
 
   const handleConfirmImport = async (url: string, targetName?: string) => {
@@ -416,6 +686,18 @@ function SkillsPage() {
                 {t("skills.importHub")}
               </Button>
             </Tooltip>
+            <Tooltip title={t("skills.marketplaceManageHint")}>
+              <Button
+                type="default"
+                className={styles.creationActionButton}
+                onClick={() => {
+                  void openMarketplaceDrawer();
+                }}
+                icon={<AppstoreAddOutlined />}
+              >
+                {t("skills.marketplaceManage")}
+              </Button>
+            </Tooltip>
             <Tooltip title={t("skills.createSkillHint")}>
               <Button
                 type="primary"
@@ -512,6 +794,35 @@ function SkillsPage() {
         form={form}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+      />
+
+      <MarketplaceDrawer
+        open={marketDrawerOpen}
+        onClose={() => setMarketDrawerOpen(false)}
+        marketDrafts={marketDrafts}
+        marketCacheTtl={marketCacheTtl}
+        marketOverwriteDefault={marketOverwriteDefault}
+        savingMarkets={savingMarkets}
+        onAddMarket={handleAddMarket}
+        onRemoveMarket={handleRemoveMarket}
+        onUpdateMarket={handleUpdateMarket}
+        onValidateMarket={handleValidateMarket}
+        onSaveMarkets={handleSaveMarkets}
+        onResetMarketTemplates={() => {
+          void handleResetMarketTemplates();
+        }}
+        onCacheTtlChange={setMarketCacheTtl}
+        onOverwriteDefaultChange={setMarketOverwriteDefault}
+        marketplace={marketplace}
+        marketErrors={marketErrors}
+        marketMeta={marketMeta}
+        marketplaceLoading={marketplaceLoading}
+        onRefreshMarketplace={() => {
+          void refreshMarketplace(true);
+        }}
+        installingSkillKey={installingSkillKey}
+        onInstallSkill={handleInstallMarketSkill}
+        onRunBulkAction={handleRunBulkMarketAction}
       />
     </div>
   );

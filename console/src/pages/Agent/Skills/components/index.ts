@@ -14,6 +14,7 @@ export {
 export { useConflictRenameModal } from "./useConflictRenameModal";
 export { ImportHubModal } from "./ImportHubModal";
 export { PoolTransferModal } from "./PoolTransferModal";
+export { MarketplaceDrawer } from "./MarketplaceDrawer";
 
 export const SUPPORTED_SKILL_URL_PREFIXES = [
   "https://skills.sh/",

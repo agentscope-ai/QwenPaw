@@ -106,10 +106,35 @@ export function MarketplaceDrawer({
   const [activeBulkSkillKey, setActiveBulkSkillKey] = useState<string | null>(
     null,
   );
+  const [installingMarketId, setInstallingMarketId] = useState<string | null>(
+    null,
+  );
+  const [installProgress, setInstallProgress] = useState<{
+    marketId: string;
+    total: number;
+    done: number;
+    success: number;
+    failed: number;
+  } | null>(null);
+  const [installStopRequested, setInstallStopRequested] = useState(false);
+  const [stopConfirmCooling, setStopConfirmCooling] = useState(false);
+  const [collapsedMarketIds, setCollapsedMarketIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [selectedMarketId, setSelectedMarketId] = useState("__all__");
   const [marketSearch, setMarketSearch] = useState("");
   const prevOpenRef = useRef(false);
   const stopBulkRef = useRef(false);
+  const stopInstallRef = useRef(false);
+  const stopCoolTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (stopCoolTimerRef.current !== null) {
+        window.clearTimeout(stopCoolTimerRef.current);
+      }
+    };
+  }, []);
 
   const marketIdOptions = Array.from(
     new Set(marketplace.map((item) => item.market_id).filter(Boolean)),
@@ -163,12 +188,37 @@ export function MarketplaceDrawer({
     return haystack.includes(searchKeyword);
   });
 
+  const groupedMarketplace = filteredMarketplace.reduce<
+    Record<string, MarketplaceItem[]>
+  >((acc, item) => {
+    const groupId = item.market_id || "unknown";
+    if (!acc[groupId]) {
+      acc[groupId] = [];
+    }
+    acc[groupId].push(item);
+    return acc;
+  }, {});
+
+  const groupedMarketIds = Object.keys(groupedMarketplace).sort();
+
   useEffect(() => {
     if (selectedMarketId === "__all__") return;
     if (!marketIdOptions.includes(selectedMarketId)) {
       setSelectedMarketId("__all__");
     }
   }, [selectedMarketId, marketIdOptions]);
+
+  useEffect(() => {
+    setCollapsedMarketIds((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (marketIdOptions.includes(id) || groupedMarketIds.includes(id)) {
+          next.add(id);
+        }
+      }
+      return next;
+    });
+  }, [marketIdOptions, groupedMarketIds]);
 
   // Auto-refresh marketplace items when drawer first opens and list is empty
   useEffect(() => {
@@ -438,6 +488,119 @@ export function MarketplaceDrawer({
         onResetMarketTemplates();
       },
     });
+  };
+
+  const toggleMarketGroup = (marketId: string) => {
+    setCollapsedMarketIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(marketId)) {
+        next.delete(marketId);
+      } else {
+        next.add(marketId);
+      }
+      return next;
+    });
+  };
+
+  const handleInstallAllInMarket = async (
+    marketId: string,
+    items: MarketplaceItem[],
+  ) => {
+    if (!items.length || installingMarketId) return;
+    setInstallingMarketId(marketId);
+    setInstallStopRequested(false);
+    stopInstallRef.current = false;
+    setInstallProgress({
+      marketId,
+      total: items.length,
+      done: 0,
+      success: 0,
+      failed: 0,
+    });
+    let success = 0;
+    let failed = 0;
+    let stopped = false;
+    for (let i = 0; i < items.length; i += 1) {
+      if (stopInstallRef.current) {
+        stopped = true;
+        break;
+      }
+      const item = items[i];
+      setActiveBulkSkillKey(`${item.market_id}/${item.skill_id}`);
+      const ok = await onInstallSkill(item.market_id, item.skill_id);
+      if (ok) {
+        success += 1;
+      } else {
+        failed += 1;
+      }
+      setInstallProgress({
+        marketId,
+        total: items.length,
+        done: i + 1,
+        success,
+        failed,
+      });
+    }
+    setActiveBulkSkillKey(null);
+    if (stopped) {
+      message.warning(
+        t("skills.marketInstallAllStoppedSummary", {
+          marketId,
+          done: success + failed,
+          total: items.length,
+          success,
+          failed,
+        }),
+      );
+    } else if (failed === 0) {
+      message.success(
+        t("skills.marketInstallAllSummary", {
+          marketId,
+          success,
+          failed,
+        }),
+      );
+    } else if (success > 0) {
+      message.warning(
+        t("skills.marketInstallAllSummary", {
+          marketId,
+          success,
+          failed,
+        }),
+      );
+    } else {
+      message.error(t("skills.marketInstallAllFailed", { marketId }));
+    }
+    setInstallingMarketId(null);
+    setInstallStopRequested(false);
+    stopInstallRef.current = false;
+    setInstallProgress(null);
+  };
+
+  const confirmInstallAllInMarket = (marketId: string, items: MarketplaceItem[]) => {
+    if (!items.length || installingMarketId) {
+      return;
+    }
+    Modal.confirm({
+      title: t("skills.marketInstallAll"),
+      content: t("skills.marketInstallAllConfirm", {
+        marketId,
+        count: items.length,
+      }),
+      onOk: async () => {
+        await handleInstallAllInMarket(marketId, items);
+      },
+    });
+  };
+
+  const extractHost = (url: string) => {
+    const raw = (url || "").trim();
+    if (!raw) return "";
+    try {
+      return new URL(raw).hostname.replace(/^www\./, "");
+    } catch {
+      return raw.replace(/^https?:\/\//, "").split("/")[0] || "";
+    }
   };
 
   return (
@@ -776,38 +939,156 @@ export function MarketplaceDrawer({
         ) : null}
 
         <div className={styles.marketItems}>
-          {filteredMarketplace.map((item) => {
-            const key = `${item.market_id}/${item.skill_id}`;
+          {groupedMarketIds.map((marketId) => {
+            const groupItems = groupedMarketplace[marketId] || [];
+            const collapsed = collapsedMarketIds.has(marketId);
             return (
-              <div
-                key={key}
-                className={`${styles.marketItemCard} ${
-                  activeBulkSkillKey === key ? styles.marketItemCardActive : ""
-                }`}
-              >
-                <div className={styles.marketItemMain}>
-                  <div className={styles.marketItemName}>
-                    {renderHighlightedText(item.name)}
+              <div key={marketId} className={styles.marketGroup}>
+                <div className={styles.marketGroupHeader}>
+                  <button
+                    type="button"
+                    className={styles.marketGroupCollapseBtn}
+                    onClick={() => toggleMarketGroup(marketId)}
+                  >
+                    <span className={styles.marketGroupTitle}>{marketId}</span>
+                    <span className={styles.marketGroupCount}>
+                      {groupItems.length}
+                    </span>
+                    <span className={styles.marketGroupToggle}>
+                      {collapsed ? "+" : "-"}
+                    </span>
+                  </button>
+                  <div className={styles.marketGroupHeaderActions}>
+                    <Button
+                      size="small"
+                      disabled={
+                        groupItems.length === 0 ||
+                        (installingMarketId === marketId && stopConfirmCooling)
+                      }
+                      loading={
+                        installingMarketId === marketId && !installStopRequested
+                      }
+                      danger={installingMarketId === marketId}
+                      onClick={() => {
+                        if (installingMarketId === marketId) {
+                          if (stopConfirmCooling) {
+                            return;
+                          }
+                          Modal.confirm({
+                            title: t("skills.marketInstallAllStop"),
+                            content: t("skills.marketInstallAllStopConfirm", {
+                              marketId,
+                            }),
+                            okType: "danger",
+                            onOk: () => {
+                              stopInstallRef.current = true;
+                              setInstallStopRequested(true);
+                              setStopConfirmCooling(true);
+                              if (stopCoolTimerRef.current !== null) {
+                                window.clearTimeout(stopCoolTimerRef.current);
+                              }
+                              stopCoolTimerRef.current = window.setTimeout(() => {
+                                setStopConfirmCooling(false);
+                                stopCoolTimerRef.current = null;
+                              }, 1000);
+                            },
+                          });
+                          return;
+                        }
+                        confirmInstallAllInMarket(marketId, groupItems);
+                      }}
+                    >
+                      {installingMarketId === marketId
+                        ? t("skills.marketInstallAllStop")
+                        : t("skills.marketInstallAll")}
+                    </Button>
                   </div>
-                  <div className={styles.marketItemMeta}>
-                    {renderHighlightedText(item.market_id)} /{" "}
-                    {renderHighlightedText(item.skill_id)}
-                  </div>
-                  {item.description ? (
-                    <div className={styles.marketItemDesc}>
-                      {renderHighlightedText(item.description)}
-                    </div>
-                  ) : null}
                 </div>
-                <Button
-                  size="small"
-                  loading={installingSkillKey === key}
-                  onClick={() => {
-                    void onInstallSkill(item.market_id, item.skill_id);
-                  }}
-                >
-                  {t("skills.marketInstall")}
-                </Button>
+                {installProgress?.marketId === marketId ? (
+                  <div className={styles.marketInstallProgressWrap}>
+                    <div className={styles.marketInstallProgressTrack}>
+                      <div
+                        className={styles.marketInstallProgressFill}
+                        style={{
+                          width: `${
+                            installProgress.total > 0
+                              ? (installProgress.done / installProgress.total) * 100
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </div>
+                    <span className={styles.marketInstallProgressText}>
+                      {t("skills.marketInstallProgress", {
+                        done: installProgress.done,
+                        total: installProgress.total,
+                        success: installProgress.success,
+                        failed: installProgress.failed,
+                      })}
+                    </span>
+                  </div>
+                ) : null}
+                {!collapsed ? (
+                  <div className={styles.marketGroupItems}>
+                    {groupItems.map((item) => {
+                      const key = `${item.market_id}/${item.skill_id}`;
+                      const sourceHost = extractHost(
+                        item.install_url || item.source_url,
+                      );
+                      return (
+                        <div
+                          key={key}
+                          className={`${styles.marketItemCard} ${
+                            activeBulkSkillKey === key
+                              ? styles.marketItemCardActive
+                              : ""
+                          }`}
+                        >
+                          <div className={styles.marketItemMain}>
+                            <div className={styles.marketItemName}>
+                              {renderHighlightedText(item.name)}
+                            </div>
+                            <div className={styles.marketItemMeta}>
+                              {renderHighlightedText(item.market_id)} /{" "}
+                              {renderHighlightedText(item.skill_id)}
+                            </div>
+                            <div className={styles.marketItemTags}>
+                              {item.version ? (
+                                <span className={styles.marketItemTag}>
+                                  v{item.version}
+                                </span>
+                              ) : null}
+                              {sourceHost ? (
+                                <span className={styles.marketItemTagMuted}>
+                                  {sourceHost}
+                                </span>
+                              ) : null}
+                              {(item.tags || []).slice(0, 2).map((tag) => (
+                                <span key={`${key}-${tag}`} className={styles.marketItemTag}>
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                            {item.description ? (
+                              <div className={styles.marketItemDesc}>
+                                {renderHighlightedText(item.description)}
+                              </div>
+                            ) : null}
+                          </div>
+                          <Button
+                            size="small"
+                            loading={installingSkillKey === key}
+                            onClick={() => {
+                              void onInstallSkill(item.market_id, item.skill_id);
+                            }}
+                          >
+                            {t("skills.marketInstall")}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             );
           })}
