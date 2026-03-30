@@ -6,10 +6,89 @@ import {
   Button,
   Tag,
 } from "@agentscope-ai/design";
+import { message } from "antd";
 import type { ACPHarnessInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
 import styles from "../index.module.less";
+
+function parseCommandArgs(input: string): string[] {
+  const parsedArgs: string[] = [];
+  let currentArg = "";
+  let activeQuote: '"' | "'" | null = null;
+  let escaping = false;
+
+  for (const char of input) {
+    if (escaping) {
+      currentArg += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      if (activeQuote === "'") {
+        currentArg += char;
+      } else {
+        escaping = true;
+      }
+      continue;
+    }
+
+    if (activeQuote) {
+      if (char === activeQuote) {
+        activeQuote = null;
+      } else {
+        currentArg += char;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      activeQuote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (currentArg) {
+        parsedArgs.push(currentArg);
+        currentArg = "";
+      }
+      continue;
+    }
+
+    currentArg += char;
+  }
+
+  if (escaping) {
+    currentArg += "\\";
+  }
+
+  if (activeQuote) {
+    throw new Error("Unterminated quoted argument");
+  }
+
+  if (currentArg) {
+    parsedArgs.push(currentArg);
+  }
+
+  return parsedArgs;
+}
+
+function formatCommandArgs(args: string[] = []): string {
+  return args
+    .map((arg) => {
+      if (arg.length === 0) {
+        return '""';
+      }
+
+      if (/^[A-Za-z0-9_./:=@+-]+$/.test(arg)) {
+        return arg;
+      }
+
+      return `"${arg.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+    })
+    .join(" ");
+}
 
 interface HarnessEditDrawerProps {
   open: boolean;
@@ -54,7 +133,7 @@ export function HarnessEditDrawer({
     if (open && harness) {
       setKey(harness.key);
       setCommand(harness.command || "");
-      setArgs(harness.args?.join(" ") || "");
+      setArgs(formatCommandArgs(harness.args));
       setEnv(harness.env || {});
       setEnabled(harness.enabled || false);
       setKeepSessionDefault(harness.keep_session_default || false);
@@ -76,10 +155,11 @@ export function HarnessEditDrawer({
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
+      const parsedArgs = parseCommandArgs(args);
       const submitKey = isCreating ? key : harness!.key;
       const success = await onSubmit(submitKey, {
         command,
-        args: args.split(" ").filter(Boolean),
+        args: parsedArgs,
         env,
         enabled,
         keep_session_default: keepSessionDefault,
@@ -88,6 +168,12 @@ export function HarnessEditDrawer({
       if (success) {
         onClose();
       }
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : "Failed to parse command arguments";
+      message.error(errMsg);
     } finally {
       setSubmitting(false);
     }
