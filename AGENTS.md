@@ -7,6 +7,9 @@ CoPaw/
 ├── src/copaw/           # Backend (Python)
 ├── console/             # Frontend 1 (Vite + TypeScript)
 ├── website/             # Frontend 2 (Vite)
+├── tests/               # Python tests
+│   ├── unit/           # Unit tests
+│   └── integrated/     # Integration tests
 ├── pyproject.toml       # Python config
 └── .pre-commit-config.yaml
 ```
