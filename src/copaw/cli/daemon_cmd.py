@@ -117,7 +117,6 @@ def version_cmd(agent_id: str) -> None:
 )
 def logs_cmd(lines: int, agent_id: str) -> None:
     """Tail last N lines of WORKING_DIR/copaw.log."""
-    ctx = _context(agent_id)
     lines = min(max(1, lines), 2000)
     click.echo(f"Agent: {agent_id}\n")
-    click.echo(run_daemon_logs(ctx, lines=lines))
+    click.echo(run_daemon_logs(lines=lines))
