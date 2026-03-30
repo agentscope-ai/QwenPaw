@@ -58,9 +58,7 @@ export function HarnessEditDrawer({
       setEnv(harness.env || {});
       setEnabled(harness.enabled || false);
       setKeepSessionDefault(harness.keep_session_default || false);
-      setPermissionBrokerVerified(
-        harness.permission_broker_verified || false,
-      );
+      setPermissionBrokerVerified(harness.permission_broker_verified || false);
     } else if (open && isCreating) {
       setKey("");
       setCommand("npx");
