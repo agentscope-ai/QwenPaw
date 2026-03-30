@@ -27,7 +27,7 @@ class OpenAIProvider(Provider):
 
     @staticmethod
     def _format_api_error(error: APIError) -> str:
-        """Format OpenAI APIError with status and response body when present."""
+        """Format APIError with status and response body when present."""
         parts: list[str] = []
         status = getattr(error, "status_code", None)
         if status is not None:
