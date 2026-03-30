@@ -5,7 +5,7 @@ imports, or files you add yourself.
 
 Two ways to manage skills:
 
-- **Console:** Use the [Console](./console) under **Agent → Skills**.
+- **Console:** Use the [Console](./console) under **Workspace → Skills**.
 - **Working directory:** Edit skill files directly under `$COPAW_WORKING_DIR`
   (default `~/.copaw`), including `$COPAW_WORKING_DIR/skill_pool/` and each
   workspace's `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`.
@@ -94,8 +94,8 @@ Adding skills to the pool:
    | **xlsx**                      | Read, edit, and create spreadsheets (.xlsx, .xlsm, .csv, .tsv), clean up formatting, formulas, and data analysis.               | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
 
    In the pool UI, built-ins can show statuses such as **up-to-date** or
-   **out-of-date**. Use **Import Builtin** to add missing built-ins, and
-   **Update** to refresh an out-of-date builtin from packaged source.
+   **out-of-date**. Use **Update Built-in Skills** to add missing built-ins
+   or refresh out-of-date ones from the packaged source.
 
    The **Cron** built-in provides scheduled job management. Use the
    [CLI](./cli) (`copaw cron`) or Console **Control → Cron Jobs**:
@@ -114,7 +114,7 @@ Adding skills to the pool:
    This is useful when you already have one or more packaged skill folders.
 
 5. **Upload from a workspace**.
-   On **Agent → Skills**, click **Upload** to publish a workspace skill to the
+   On **Workspace → Skills**, click **Sync to Skill Pool** to publish a workspace skill to the
    pool. After upload, the workspace entry is marked with `sync_to_pool.status =
 "synced"`.
 
@@ -162,7 +162,7 @@ returns a conflict and suggests a renamed target.
 
 ### 2. Create via UI
 
-In [Console](./console) → **Agent → Skills**, you can create a skill by
+In [Console](./console) → **Workspace → Skills**, you can create a skill by
 entering a name and content. The new workspace skill is written into
 `skills/` and `skill.json`, and is **enabled by default**.
 
@@ -191,23 +191,23 @@ The workspace skill page supports importing from the following URL sources:
 
 #### Steps
 
-1. In [Console](./console) → **Agent → Skills**, click **Import Hub**.
+1. In [Console](./console) → **Workspace → Skills**, click **Import from Skills Hub**.
 
-   ![skill](https://img.alicdn.com/imgextra/i2/O1CN01gQN4gv1HCj5HVBeq1_!!6000000000722-2-tps-3410-1978.png)
+   ![skill](https://img.alicdn.com/imgextra/i1/O1CN01a1iK2K1mfoKagiCXr_!!6000000004982-2-tps-2910-1552.png)
 
 2. Paste a skill URL in the pop-up window (see **URL acquisition example**
    below).
 
-   ![url](https://img.alicdn.com/imgextra/i1/O1CN01YSoLHy1dZ5yWnMM3N_!!6000000003749-2-tps-3410-1978.png)
+   ![url](https://img.alicdn.com/imgextra/i1/O1CN01PGa9Kl1pzuYoGENBi_!!6000000005432-2-tps-2940-1554.png)
 
 3. Confirm and wait for import to finish.
 
-   ![click](https://img.alicdn.com/imgextra/i4/O1CN013idFsl1CiGHBEIWx2_!!6000000000114-2-tps-3410-1978.png)
+   ![click](https://img.alicdn.com/imgextra/i2/O1CN01Lsn0sR27p4GcJ1Ux0_!!6000000007845-2-tps-2940-1614.png)
 
 4. After a successful import, the skill appears in the skill list and is
    **enabled by default**.
 
-   ![check](https://img.alicdn.com/imgextra/i1/O1CN014LNdGd1wFNcq6JWbY_!!6000000006278-2-tps-3410-1978.png)
+   ![check](https://img.alicdn.com/imgextra/i1/O1CN01Dk2bKZ1kitllHcWDl_!!6000000004718-2-tps-2940-1556.png)
 
 #### URL acquisition example
 
@@ -296,7 +296,7 @@ Each skill can be restricted to specific channels. By default, skills apply to
 
 To limit a skill to certain channels:
 
-1. In **Agent → Skills**, click the channel setting on a skill.
+1. In **Workspace → Skills**, click the channel setting on a skill.
 2. Select the channels where this skill should be active (e.g. `discord`,
    `telegram`, `console`).
 
@@ -314,7 +314,7 @@ is not just stored metadata. When a skill is effective for the current
 workspace and channel, CoPaw injects that config into the runtime environment
 for that agent turn, then restores the environment after the turn completes.
 
-You can set config per skill in the Console (**Agent → Skills** → click the
+You can set config per skill in the Console (**Workspace → Skills** → click the
 config icon on a skill) or via the API.
 
 ### How it works
