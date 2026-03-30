@@ -323,15 +323,12 @@ async def update_mcp_client(
     # Update fields if provided
     update_data = updates.model_dump(exclude_unset=True)
 
-    # Restore masked env/header values to originals before merging
+    # Restore masked env/header values to originals before replacing
     if "env" in update_data and update_data["env"] is not None:
         update_data["env"] = _restore_original_values(
             update_data["env"],
             existing.env or {},
         )
-        updated_env = existing.env.copy() if existing.env else {}
-        updated_env.update(update_data["env"])
-        update_data["env"] = updated_env
 
     if "headers" in update_data and update_data["headers"] is not None:
         update_data["headers"] = _restore_original_values(
