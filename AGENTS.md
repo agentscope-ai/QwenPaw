@@ -18,7 +18,7 @@ CoPaw/
 ```bash
 # Create and activate venv
 python -m venv .venv
-source .venv/bin/activate  # macOS/Linux
+source .venv/bin/activate
 
 # Install deps
 pip install -e ".[dev]"
@@ -33,6 +33,24 @@ pre-commit run --all-files
 
 # Run specific check
 pre-commit run --files src/copaw/cli/main.py
+```
+
+## Testing
+
+### Python (pytest)
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src/copaw
+
+# Run specific test file
+pytest tests/unit/test_example.py
+
+# Run tests matching pattern
+pytest -k "test_name_pattern"
 ```
 
 ## Frontend
@@ -75,30 +93,13 @@ Run `pre-commit run --all-files` to auto-format and check.
 - **Linter**: ESLint
 - **Formatter**: Prettier
 
-### Commit Convention
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>(<scope>): <subject>
-```
-
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
-
-**Examples:**
-```bash
-feat(channels): add Telegram channel stub
-fix(skills): correct SKILL.md parsing
-docs(readme): update quick start
-```
-
 ## Full Guidelines
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## Quick Rules
 
-- **Always use .venv** for Python commands
-- **Run pre-commit** before every commit
-- **Format frontend** code with `npm run format` or `pnpm format`
-- **Follow commit convention** for all commits
+- **Always use .venv** for Python commands and `pre-commit`
+- **Run pre-commit** every time the backend code is changed
+- **Run tests** before major commits: `pytest`
+- **Format frontend** code with `npm run format`
