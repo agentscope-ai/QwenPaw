@@ -9,7 +9,7 @@
 CoPaw 支持多种 LLM 提供商：
 
 - **云提供商**（一般需要 API Key）
-- **本地提供商**（llama.cpp / Ollama / LMStudio）
+- **本地提供商**（llama.cpp / Ollama / LM Studio）
 - **自定义提供商**（如果预设的云和本地提供商无法满足您的需求）
 
 ### 云提供商配置

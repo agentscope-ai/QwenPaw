@@ -9,7 +9,7 @@ Before using CoPaw, you need to configure at least one available model. CoPaw su
 CoPaw supports various LLM providers:
 
 - **Cloud Providers** (usually require an API Key)
-- **Local Providers** (llama.cpp / Ollama / LMStudio)
+- **Local Providers** (llama.cpp / Ollama / LM Studio)
 - **Custom Providers** (if the preset cloud and local providers do not meet your needs)
 
 ### Cloud Provider Configuration
