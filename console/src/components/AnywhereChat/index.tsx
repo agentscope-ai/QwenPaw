@@ -77,6 +77,7 @@ interface AnywhereChatProps {
   }) => void;
   autoAttachRequest?: {
     id: string;
+    mode?: "submit" | "draft";
     fileName?: string;
     content?: string;
     mimeType?: string;
@@ -327,6 +328,37 @@ export default function AnywhereChat({
 
     const attach = async () => {
       try {
+        const mode = autoAttachRequest.mode || "submit";
+        if (mode === "draft") {
+          const root = document.querySelector(`.${hostClassName}`) as HTMLElement | null;
+          const draftText =
+            autoAttachRequest.note ||
+            "I attached files as context. Please review them and wait for my next instruction.";
+
+          const textArea = root?.querySelector("textarea") as HTMLTextAreaElement | null;
+          if (textArea) {
+            const prototype = Object.getPrototypeOf(textArea) as {
+              value?: PropertyDescriptor;
+            };
+            const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+            if (descriptor?.set) {
+              descriptor.set.call(textArea, draftText);
+            } else {
+              textArea.value = draftText;
+            }
+            textArea.dispatchEvent(new Event("input", { bubbles: true }));
+            textArea.focus();
+
+            onAutoAttachHandled?.({
+              id: autoAttachRequest.id,
+              ok: true,
+            });
+            return;
+          }
+
+          throw new Error("chat_input_not_found");
+        }
+
         const sourceFiles = Array.isArray(autoAttachRequest.files) && autoAttachRequest.files.length > 0
           ? autoAttachRequest.files
           : autoAttachRequest.fileName && autoAttachRequest.content
@@ -388,7 +420,7 @@ export default function AnywhereChat({
     };
 
     void attach();
-  }, [autoAttachRequest, onAutoAttachHandled]);
+  }, [autoAttachRequest, hostClassName, onAutoAttachHandled]);
 
   useEffect(() => {
     void loadRuntimeInputs();

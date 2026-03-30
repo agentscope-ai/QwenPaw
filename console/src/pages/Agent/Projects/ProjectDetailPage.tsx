@@ -249,6 +249,26 @@ function buildAutoAttachAnalysisPrompt(params: {
   ].join("\n");
 }
 
+function buildAttachDraftPrompt(params: {
+  projectName: string;
+  selectedRunId?: string;
+  selectedFiles: Array<{ path: string; size: number }>;
+}): string {
+  const modeHint = params.selectedRunId
+    ? `当前运行：${params.selectedRunId}`
+    : "当前上下文：流程设计";
+  const fileList = params.selectedFiles
+    .map((item, index) => `${index + 1}. ${item.path} (${item.size} bytes)`)
+    .join("\n");
+  return [
+    `我已选择 ${params.selectedFiles.length} 个项目文件作为上下文。`,
+    `项目：${params.projectName}`,
+    modeHint,
+    "文件列表：",
+    fileList,
+  ].join("\n");
+}
+
 const INLINE_FULL_MAX_BYTES = 32 * 1024;
 const INLINE_TRUNCATE_MAX_BYTES = 256 * 1024;
 const INLINE_TRUNCATE_HEAD_CHARS = 8000;
@@ -305,6 +325,7 @@ export default function ProjectDetailPage() {
   const [uploadTargetDir, setUploadTargetDir] = useState("data");
   const [autoAttachRequest, setAutoAttachRequest] = useState<{
     id: string;
+    mode?: "submit" | "draft";
     fileName?: string;
     content?: string;
     mimeType?: string;
@@ -320,6 +341,8 @@ export default function ProjectDetailPage() {
   const [autoAnalyzeOnAttach, setAutoAnalyzeOnAttach] = useState(true);
   const runFocusChatIdRef = useRef("");
   const designFocusChatIdRef = useRef("");
+  const designRestoreAttemptKeyRef = useRef("");
+  const runRestoreAttemptKeyRef = useRef("");
 
   const currentAgent = useMemo(
     () => getCurrentAgent(agents, selectedAgent),
@@ -962,7 +985,129 @@ export default function ProjectDetailPage() {
     }
   }, [activeRunChatId, resolvedProjectRequestId, selectedProject, selectedRunId, t]);
 
-  const handleEnsureDesignChat = useCallback(async (forceNew = false): Promise<string> => {
+  const resolveLatestDesignBoundChatId = useCallback(async (): Promise<string> => {
+    if (!selectedProject || !currentAgent) {
+      return "";
+    }
+
+    const templateId = selectedTemplateId || "draft";
+    const bindingKey = buildProjectFlowBindingKey({
+      projectId: selectedProject.id,
+      templateId,
+    });
+
+    const chats = await chatApi.listChats({ user_id: "default", channel: "console" });
+    const matched = chats.filter((chat) => {
+      const meta =
+        chat.meta && typeof chat.meta === "object"
+          ? (chat.meta as Record<string, unknown>)
+          : undefined;
+      const metaType = getMetaString(meta, "focus_type") || getMetaString(meta, "binding_type");
+      const metaKey = getMetaString(meta, "focus_binding_key") || getMetaString(meta, "pipeline_binding_key");
+      const metaAgentId = getMetaString(meta, "agent_id");
+      if (metaType !== "pipeline_edit" || metaKey !== bindingKey) {
+        return false;
+      }
+      if (metaAgentId && metaAgentId !== currentAgent.id) {
+        return false;
+      }
+      return true;
+    });
+
+    if (matched.length === 0) {
+      const sessionPrefix = `project-flow-design-${selectedProject.id}-`;
+      const bySession = chats.filter((chat) =>
+        (chat.session_id || "").startsWith(sessionPrefix),
+      );
+      if (bySession.length > 0) {
+        const toMillis = (chat: ChatSpec): number => {
+          const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
+          if (Number.isFinite(updatedTs) && updatedTs > 0) {
+            return updatedTs;
+          }
+          const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
+          return Number.isFinite(createdTs) ? createdTs : 0;
+        };
+        bySession.sort((a, b) => toMillis(b) - toMillis(a));
+        return bySession[0]?.id || "";
+      }
+    }
+
+    if (matched.length === 0) {
+      return "";
+    }
+
+    const toMillis = (chat: ChatSpec): number => {
+      const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
+      if (Number.isFinite(updatedTs) && updatedTs > 0) {
+        return updatedTs;
+      }
+      const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
+      return Number.isFinite(createdTs) ? createdTs : 0;
+    };
+    matched.sort((a, b) => toMillis(b) - toMillis(a));
+    return matched[0]?.id || "";
+  }, [currentAgent, selectedProject, selectedTemplateId]);
+
+  const resolveLatestRunBoundChatId = useCallback(async (): Promise<string> => {
+    if (!selectedProject || !selectedRunId) {
+      return "";
+    }
+
+    const chats = await chatApi.listChats({ user_id: "default", channel: "console" });
+    const matched = chats.filter((chat) => {
+      const meta =
+        chat.meta && typeof chat.meta === "object"
+          ? (chat.meta as Record<string, unknown>)
+          : undefined;
+      const metaType = getMetaString(meta, "focus_type");
+      const metaRunId = getMetaString(meta, "run_id");
+      const metaProjectId = getMetaString(meta, "project_id");
+      if (metaType !== "project_run" || metaRunId !== selectedRunId) {
+        return false;
+      }
+      if (metaProjectId && metaProjectId !== selectedProject.id) {
+        return false;
+      }
+      return true;
+    });
+
+    if (matched.length === 0) {
+      const sessionPrefix = `project-run-${selectedRunId}-`;
+      const bySession = chats.filter((chat) =>
+        (chat.session_id || "").startsWith(sessionPrefix),
+      );
+      if (bySession.length > 0) {
+        const toMillis = (chat: ChatSpec): number => {
+          const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
+          if (Number.isFinite(updatedTs) && updatedTs > 0) {
+            return updatedTs;
+          }
+          const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
+          return Number.isFinite(createdTs) ? createdTs : 0;
+        };
+        bySession.sort((a, b) => toMillis(b) - toMillis(a));
+        return bySession[0]?.id || "";
+      }
+    }
+
+    if (matched.length === 0) {
+      return "";
+    }
+
+    const toMillis = (chat: ChatSpec): number => {
+      const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
+      if (Number.isFinite(updatedTs) && updatedTs > 0) {
+        return updatedTs;
+      }
+      const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
+      return Number.isFinite(createdTs) ? createdTs : 0;
+    };
+    matched.sort((a, b) => toMillis(b) - toMillis(a));
+    return matched[0]?.id || "";
+  }, [selectedProject, selectedRunId]);
+
+  const handleEnsureDesignChat = useCallback(async (forceNew = false, allowCreate = true): Promise<string> => {
     if (!selectedProject || !currentAgent) {
       return "";
     }
@@ -993,37 +1138,15 @@ export default function ProjectDetailPage() {
       const selectedTemplateName = selectedTemplate?.name || selectedProject.name;
 
       if (!forceNew) {
-        const chats = await chatApi.listChats({ user_id: "default", channel: "console" });
-        const matched = chats.filter((chat) => {
-          const meta =
-            chat.meta && typeof chat.meta === "object"
-              ? (chat.meta as Record<string, unknown>)
-              : undefined;
-          const metaType = getMetaString(meta, "focus_type") || getMetaString(meta, "binding_type");
-          const metaKey = getMetaString(meta, "focus_binding_key") || getMetaString(meta, "pipeline_binding_key");
-          const metaAgentId = getMetaString(meta, "agent_id");
-          if (metaType !== "pipeline_edit" || metaKey !== bindingKey) {
-            return false;
-          }
-          if (metaAgentId && metaAgentId !== currentAgent.id) {
-            return false;
-          }
-          return true;
-        });
-
-        if (matched.length > 0) {
-          const toMillis = (chat: ChatSpec): number => {
-            const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
-            if (Number.isFinite(updatedTs) && updatedTs > 0) {
-              return updatedTs;
-            }
-            const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
-            return Number.isFinite(createdTs) ? createdTs : 0;
-          };
-          matched.sort((a, b) => toMillis(b) - toMillis(a));
-          setDesignFocusChatId(matched[0].id);
+        const restoredChatId = await resolveLatestDesignBoundChatId();
+        if (restoredChatId) {
+          setDesignFocusChatId(restoredChatId);
           setError("");
-          return matched[0].id;
+          return restoredChatId;
+        }
+
+        if (!allowCreate) {
+          return "";
         }
       }
 
@@ -1090,6 +1213,7 @@ export default function ProjectDetailPage() {
     selectedTemplate?.name,
     selectedTemplate?.version,
     selectedTemplateId,
+    resolveLatestDesignBoundChatId,
     t,
   ]);
 
@@ -1107,30 +1231,6 @@ export default function ProjectDetailPage() {
       setRunFocusChatId(fallbackChatId);
     }
   }, [runDetail?.focus_chat_id, runFocusChatId, selectedRunSummary?.focus_chat_id]);
-
-  useEffect(() => {
-    return () => {
-      const runChatId = runFocusChatIdRef.current;
-      if (runChatId) {
-        void chatApi
-          .clearChatMeta(runChatId, {
-            user_id: "default",
-            channel: "console",
-          })
-          .catch(() => {});
-      }
-
-      const designChatId = designFocusChatIdRef.current;
-      if (designChatId) {
-        void chatApi
-          .clearChatMeta(designChatId, {
-            user_id: "default",
-            channel: "console",
-          })
-          .catch(() => {});
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!currentAgent) {
@@ -1156,6 +1256,8 @@ export default function ProjectDetailPage() {
     setUploadTargetDir("data");
     setSelectedAttachPaths([]);
     setSendingSelectedFiles(false);
+    designRestoreAttemptKeyRef.current = "";
+    runRestoreAttemptKeyRef.current = "";
   }, [routeProjectId]);
 
   useEffect(() => {
@@ -1208,6 +1310,73 @@ export default function ProjectDetailPage() {
     void loadProjectFiles(currentAgent.id, selectedProject);
     void loadPipelineContext(currentAgent.id, selectedProject);
   }, [currentAgent, selectedProject, loadProjectFiles, loadPipelineContext]);
+
+  useEffect(() => {
+    if (!currentAgent || !selectedProject) {
+      return;
+    }
+    if (selectedRunId || activeDesignChatId || pipelineLoading || chatStarting) {
+      return;
+    }
+
+    const templateId = selectedTemplateId || "draft";
+    const restoreKey = `${currentAgent.id}:${selectedProject.id}:${templateId}`;
+    if (designRestoreAttemptKeyRef.current === restoreKey) {
+      return;
+    }
+    designRestoreAttemptKeyRef.current = restoreKey;
+
+    void handleEnsureDesignChat(false, true);
+  }, [
+    activeDesignChatId,
+    chatStarting,
+    currentAgent,
+    handleEnsureDesignChat,
+    pipelineLoading,
+    selectedProject,
+    selectedRunId,
+    selectedTemplateId,
+  ]);
+
+  useEffect(() => {
+    if (!currentAgent || !selectedProject || !selectedRunId) {
+      return;
+    }
+    if (activeRunChatId || pipelineLoading || chatStarting) {
+      return;
+    }
+
+    const restoreKey = `${currentAgent.id}:${selectedProject.id}:${selectedRunId}`;
+    if (runRestoreAttemptKeyRef.current === restoreKey) {
+      return;
+    }
+    runRestoreAttemptKeyRef.current = restoreKey;
+
+    let cancelled = false;
+    void resolveLatestRunBoundChatId()
+      .then((restoredChatId) => {
+        if (cancelled || !restoredChatId) {
+          return;
+        }
+        setRunFocusChatId((prev) => prev || restoredChatId);
+        setError("");
+      })
+      .catch(() => {
+        // Keep silent for passive restore checks.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeRunChatId,
+    chatStarting,
+    currentAgent,
+    pipelineLoading,
+    resolveLatestRunBoundChatId,
+    selectedProject,
+    selectedRunId,
+  ]);
 
   useEffect(() => {
     if (!currentAgent || !selectedProject || !selectedFilePath) {
@@ -1400,8 +1569,7 @@ export default function ProjectDetailPage() {
     ].join("\n");
   }, []);
 
-  const handleAttachArtifactToChat = useCallback(async (path: string) => {
-    setSelectedFilePath(path);
+  const handleAttachArtifactToChat = useCallback((path: string) => {
     setSelectedAttachPaths((prev) =>
       prev.includes(path) ? prev.filter((item) => item !== path) : [...prev, path],
     );
@@ -1420,6 +1588,33 @@ export default function ProjectDetailPage() {
         await handleEnsureRunChat();
       } else {
         await handleEnsureDesignChat();
+      }
+
+      if (!autoAnalyzeOnAttach) {
+        const selectedFiles = selectedAttachPaths.map((path) => {
+          const fileInfo = projectFiles.find((file) => file.path === path);
+          return {
+            path,
+            size: fileInfo?.size || 0,
+          };
+        });
+        setAutoAttachRequest({
+          id: `manual-batch-draft-${Date.now()}`,
+          mode: "draft",
+          note: buildAttachDraftPrompt({
+            projectName: selectedProject.name,
+            selectedRunId,
+            selectedFiles,
+          }),
+        });
+        message.success(
+          t(
+            "projects.chat.attachDraftReady",
+            "Prepared selected file context in the chat input box.",
+          ),
+        );
+        setSelectedAttachPaths([]);
+        return;
       }
 
       const filesPayload: Array<{ fileName: string; content: string; mimeType?: string }> = [];
@@ -1465,17 +1660,13 @@ export default function ProjectDetailPage() {
 
       setAutoAttachRequest({
         id: `manual-batch-${Date.now()}`,
+        mode: "submit",
         files: filesPayload,
-        note: autoAnalyzeOnAttach
-          ? buildAutoAttachAnalysisPrompt({
-              projectName: selectedProject.name,
-              fileNames: filesPayload.map((item) => item.fileName),
-              selectedRunId,
-            })
-          : t(
-              "projects.chat.attachWithoutAnalysis",
-              "I attached selected files. Please treat them as context and wait for my next instruction.",
-            ),
+        note: buildAutoAttachAnalysisPrompt({
+          projectName: selectedProject.name,
+          fileNames: filesPayload.map((item) => item.fileName),
+          selectedRunId,
+        }),
       });
 
       message.success(
