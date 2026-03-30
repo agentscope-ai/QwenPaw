@@ -926,7 +926,8 @@ class WeixinChannel(BaseChannel):
             await self._send_text_direct(to_user_id, chunk, context_token)
 
         # Stop typing indicator after sending all messages
-        stop_typing()
+        if stop_typing:
+            stop_typing()
 
     async def send(
         self,
