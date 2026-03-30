@@ -62,7 +62,6 @@ function SkillPoolPage() {
   const [importBuiltinLoading, setImportBuiltinLoading] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [hoverKey, setHoverKey] = useState<string | null>(null);
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
 
@@ -638,8 +637,6 @@ function SkillPoolPage() {
               key={skill.name}
               className={styles.skillCard}
               onClick={() => openEdit(skill)}
-              onMouseEnter={() => setHoverKey(skill.name)}
-              onMouseLeave={() => setHoverKey(null)}
               style={{ cursor: "pointer" }}
             >
               <div className={styles.cardBody}>
@@ -685,28 +682,26 @@ function SkillPoolPage() {
                   </p>
                 </div>
               </div>
-              {hoverKey === skill.name && (
-                <div className={styles.cardFooter}>
-                  <Button
-                    className={styles.actionButton}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openBroadcast(skill);
-                    }}
-                  >
-                    {t("skillPool.broadcast")}
-                  </Button>
-                  <Button
-                    className={styles.deleteButton}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleDelete(skill);
-                    }}
-                  >
-                    {t("skillPool.delete")}
-                  </Button>
-                </div>
-              )}
+              <div className={styles.cardFooter}>
+                <Button
+                  className={styles.actionButton}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openBroadcast(skill);
+                  }}
+                >
+                  {t("skillPool.broadcast")}
+                </Button>
+                <Button
+                  className={styles.deleteButton}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDelete(skill);
+                  }}
+                >
+                  {t("skillPool.delete")}
+                </Button>
+              </div>
             </Card>
           ))}
         </div>

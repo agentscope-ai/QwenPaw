@@ -188,7 +188,6 @@ function SessionsPage() {
           scroll={{ x: 1500 }}
           pagination={{
             pageSize: 10,
-            showTotal: (total) => t("sessions.totalItems", { count: total }),
           }}
         />
       </Card>

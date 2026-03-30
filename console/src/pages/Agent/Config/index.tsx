@@ -9,7 +9,6 @@ import {
   ToolResultCompactCard,
   MemorySummaryCard,
   EmbeddingConfigCard,
-  ContextManagementCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
@@ -75,8 +74,6 @@ function AgentConfigPage() {
             <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
 
             <LlmRateLimiterCard />
-
-            <ContextManagementCard />
 
             <ContextCompactCard maxInputLength={maxInputLength} />
 
