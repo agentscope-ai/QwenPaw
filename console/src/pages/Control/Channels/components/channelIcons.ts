@@ -19,7 +19,7 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
   mattermost:
     "https://gw.alicdn.com/imgextra/i2/O1CN01A2bvSh1eVig4fDBEF_!!6000000003877-2-tps-400-400.png",
   matrix:
-    "https://gw.alicdn.com/imgextra/i4/O1CN01LF8Tv61tAqrsI5yMY_!!6000000005862-2-tps-400-400.png",
+    "https://gw.alicdn.com/imgextra/i3/O1CN01CQSF5R29JaGuuzZ5X_!!6000000008047-2-tps-320-320.png",
   console:
     "https://gw.alicdn.com/imgextra/i4/O1CN01eeLWyo1ZgBePACyWf_!!6000000003223-2-tps-320-320.png",
   wecom:
