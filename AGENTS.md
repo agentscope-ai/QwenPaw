@@ -83,10 +83,9 @@ pnpm format
 
 ### Python
 
-- **Line length**: 88 characters (Black default)
+- **Line length**: 79 characters (Black & Flake8 configured as in .pre-commit-config.yaml)
 - **Formatter**: Black
 - **Linter**: Ruff, Flake8
-- **Import order**: isort
 
 Run `pre-commit run --all-files` to auto-format and check.
 
