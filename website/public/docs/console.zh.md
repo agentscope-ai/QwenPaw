@@ -318,115 +318,16 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 > 侧边栏：**设置 → 模型**
 
-在这里配置 LLM 提供商，并为 CoPaw 选择全局默认的 LLM 模型。新建智能体会默认使用该全局 LLM，可以在聊天页面右上角为不同智能体单独选择使用的模型。
-
-CoPaw 同时支持云提供商（需要 API Key）和本地提供商（无需 API Key）。详细配置方式请见 [模型](./models)。
+在这里配置 LLM 提供商，并选择默认模型。详情请见 [Models](./models)。
 
 ![模型](https://img.alicdn.com/imgextra/i2/O1CN015r2PfQ1i2BbMESsvQ_!!6000000004354-2-tps-3822-2064.png)
 
-### 云提供商
+在本页面，你可以：
 
-**配置提供商：**
-
-1. 点击提供商卡片（ModelScope、DashScope）上的 **设置** 按钮。
-2. 输入你的 **API Key**。
-3. 点 **保存**，卡片状态变为「可用」。
-4. 如果想添加自定义提供商，点击右侧**添加提供商**。
-5. 输入提供商 ID、显示名称等必要信息，点击**创建**。
-6. 找到创建的提供商，点击**设置**，填写必要信息，选择保存，卡片状态变为「可用」。
-
-**撤销授权：**
-打开提供商的 **设置**对话框，点击 **撤销授权**，API Key 会被清除；
-如果当前使用的就是该提供商，模型选择也会一并清空。
-
-### 本地提供商（llama.cpp / MLX）
-
-本地提供商显示紫色的 **本地** 标签。
-使用前需先安装后端依赖（`pip install 'copaw[llamacpp]'` 或
-`pip install 'copaw[mlx]'`）。
-
-**下载模型：**
-
-1. 点击本地提供商卡片上的 **模型**按钮。
-2. 点击 **下载模型**，填写：
-   - **Repo ID**（必填）—— 如 `Qwen/Qwen3-4B-GGUF`
-   - **文件名**（可选）—— 留空自动选择
-   - **下载源** —— Hugging Face（默认）或 ModelScope
-3. 点击 **下载**，等待下载完成。
-
-**查看和删除模型：**
-已下载的模型列在管理面板中，显示文件大小、来源标记（**HF** / **MS**）和删除按钮。
-
-### Ollama 提供商
-
-Ollama 提供商集成本地 Ollama 守护进程，动态加载其中的模型。
-
-**前置条件：**
-
-- 从 [ollama.com](https://ollama.com) 安装 Ollama
-- 安装 Ollama SDK：`pip install 'copaw[ollama]'`（或使用 `--extras ollama` 重新运行安装脚本）
-
-**下载模型：**
-
-1. 点击 Ollama 提供商卡片的 **设置**按钮。
-2. 在**API key**中填写内容，例如可以直接填写为ollama，点击**保存**。
-3. 点击Ollama卡片中的 **模型**按钮，点击**下载模型**，输入 **模型名称**（如 `mistral:7b`、`qwen3:8b`）。
-4. 点击 **下载模型**，等待下载完成。
-
-**取消下载：**
-下载过程中，点击进度指示器旁的 **✕** 按钮即可取消。
-
-**查看和删除模型：**
-已下载的模型列在管理面板中，显示大小和删除按钮。通过 Ollama CLI 或控制台添加/删除模型时，列表会自动更新。
-
-**与本地模型的区别：**
-
-- 模型来自 Ollama 守护进程（不由 CoPaw 直接下载）
-- 模型列表与 Ollama 自动同步
-- 支持热门模型：`mistral:7b`、`qwen3:8b` 等
-
-> 也可以通过 Ollama CLI 管理 Ollama 模型：`ollama pull`、`ollama list`、`ollama rm`。详见 [Ollama CLI](https://docs.ollama.com/cli)。
-
-> ⚠️ **运行 CoPaw 前必须将上下文长度设为 32K 以上**
->
-> 为了正常运行 CoPaw，必须将模型 context length 设置为 **32K 或更高**。注意，这会消耗较多的计算资源，请确保你的本地机器能够支持。
->
-> ![Ollama context length 配置示意图](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
-
-### LM Studio 提供商
-
-LM Studio 提供商连接 LM Studio 桌面应用内置的 OpenAI 兼容本地服务器，自动发现并使用已加载的模型。
-
-**前置条件：**
-
-- 从 [lmstudio.ai](https://lmstudio.ai) 安装 LM Studio
-- 在 LM Studio 中加载模型并启动本地服务器（默认地址：`http://localhost:1234`）
-
-**配置步骤：**
-
-1. 点击 LM Studio 提供商卡片的 **设置** 按钮。
-2. 默认 Base URL 为 `http://localhost:1234/v1`，如有需要可修改，点击 **保存**。
-3. 点击 **模型** 查看 LM Studio 中当前已加载的模型，也可手动添加模型 ID。
-4. 在 **提供商** 下拉菜单中选择 LM Studio，选择模型后点击 **保存**。
-
-> LM Studio 默认不需要 API Key。模型必须在 LM Studio 中加载后才会在 CoPaw 中显示。
-
-> ⚠️ **运行 CoPaw 前必须将上下文长度设为 32K 以上**
->
-> 为了正常运行 CoPaw，必须将模型 context length 设置为 **32K 或更高**。注意，这会消耗较多的计算资源，请确保你的本地机器能够支持。
->
-> ![LM Studio context length 配置示意图](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
-
-### 选择活跃模型
-
-1. 在顶部**LLM配置**的**提供商**下拉菜单中选择一个提供商（只显示已授权或
-   有已下载模型的本地提供商）。
-2. 在 **模型** 下拉菜单中选择一个模型。
-3. 点 **保存**。
-
-> **注意：** 云提供商 API Key 的有效性需要用户自行保证，CoPaw 不会验证。
->
-> 提供商详细说明见 [配置 — 模型提供商](./config#模型提供商)。
+- 配置云端提供商（ModelScope、DashScope、OpenAI、Anthropic 等）
+- 配置本地提供商（llama.cpp、Ollama、LM Studio）
+- 通过填写 API 详情添加自定义提供商
+- 选择智能体默认使用的模型
 
 ---
 

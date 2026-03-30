@@ -209,7 +209,7 @@ In Console, go to **Settings → Models** to configure. See the
 
 - Cloud models: enter the provider API key (e.g. ModelScope, DashScope, or a
   custom provider).
-- Local models: supports `llama.cpp`, `MLX`, and Ollama.
+- Local models: supports `CoPaw Local (llama.cpp)`, Ollama, and LM Studio.
 
 After configuration, choose the target provider and model under **Default LLM**
 at the top of the Models page and **Save** — that becomes the global default.

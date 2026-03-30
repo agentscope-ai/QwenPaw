@@ -97,7 +97,6 @@ copaw daemon logs -n 50
 | `copaw models config`                  | 完整交互式配置：API Key → 选择模型     |
 | `copaw models config-key [provider]`   | 单独配置某个提供商的 API Key           |
 | `copaw models set-llm`                 | 只切换活跃模型（不改 API Key）         |
-| `copaw models download <repo_id>`      | 下载本地模型（llama.cpp / MLX）        |
 | `copaw models local`                   | 查看已下载的本地模型                   |
 | `copaw models remove-local <model_id>` | 删除已下载的本地模型                   |
 
@@ -112,8 +111,8 @@ copaw models set-llm                 # 只切换模型
 
 #### 本地模型
 
-CoPaw 也支持通过 llama.cpp 或 MLX 在本地运行模型——无需 API Key。
-先安装后端：`pip install 'copaw[llamacpp]'` 或 `pip install 'copaw[mlx]'`。
+CoPaw 也支持通过 llama.cpp，Ollama 或 LM Studio 在本地运行模型——无需 API Key。
+但在此之前需要先下载对应的应用，例如 [Ollama](https://ollama.com/download) 或 [LM Studio](https://lmstudio.ai/download)。
 
 ```bash
 # 下载模型（自动选择 Q4_K_M GGUF）

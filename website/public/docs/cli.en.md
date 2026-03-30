@@ -120,8 +120,8 @@ copaw models set-llm                 # Change active model only
 
 #### Local models
 
-CoPaw can also run models locally via llama.cpp — no API key needed.
-Install the backend first: `pip install 'copaw[local]'`
+CoPaw can also run models locally via llama.cpp, Ollama, or LM Studio — no API key needed.
+But you need to download the corresponding application first, such as [Ollama](https://ollama.com/download) or [LM Studio](https://lmstudio.ai/download).
 
 ```bash
 # Download a model (auto-selects Q4_K_M GGUF)

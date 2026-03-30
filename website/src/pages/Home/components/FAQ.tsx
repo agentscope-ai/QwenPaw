@@ -181,7 +181,7 @@ export function CopawFAQ() {
                 <li>{t("homeFaq.features.models.li1")}</li>
                 <li>
                   {t("homeFaq.features.models.li2Prefix")}{" "}
-                  <code>llama.cpp</code>, <code>MLX</code>,{" "}
+                  <code>llama.cpp</code>,{" "}
                   {t("homeFaq.features.models.li2Suffix")}
                 </li>
               </ul>

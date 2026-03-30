@@ -196,7 +196,7 @@ CoPaw 已开源，官方仓库地址：
 在控制台进入 **设置 → 模型** 中进行配置，详情请见文档 [模型](https://copaw.agentscope.io/docs/models)：
 
 - 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商）。
-- 本地模型：支持 `llama.cpp`、`MLX` 和 Ollama。
+- 本地模型：支持 `CoPaw Local (llama.cpp)`、Ollama 和 LM Studio。
 
 配置好模型后，可在模型页面最上方的 **默认 LLM** 中选择目标提供商和目标模型，保存后即为全局默认模型。
 

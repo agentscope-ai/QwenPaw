@@ -476,10 +476,9 @@ CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/prov
 | Azure OpenAI           | `azure-openai`      | Azure OpenAI Service           |
 | Anthropic              | `anthropic`         | Anthropic Claude API           |
 | Google Gemini          | `gemini`            | Google Gemini API              |
+| CoPaw Local            | `copaw-local`       | 本地 llama.cpp 后端            |
 | Ollama                 | `ollama`            | 本地 Ollama 服务               |
 | LM Studio              | `lmstudio`          | 本地 LM Studio 服务            |
-| llama.cpp              | `llamacpp`          | 本地 llama.cpp 后端            |
-| MLX                    | `mlx`               | 本地 MLX 后端（Apple Silicon） |
 | 自定义                 | `custom`            | 自定义 OpenAI 兼容服务         |
 
 > **完整配置说明：** 每个提供商的详细配置方式、`providers.json` 字段结构、模型发现等请参见 [模型](./models)。

@@ -344,133 +344,16 @@ path, etc.). See [Multi-Agent](./multi-agent).
 
 > Sidebar: **Settings → Models**
 
-Configure LLM providers and choose the **global default** model. New agents use
-this default; you can override the model per agent in the top-right control on
-the Chat page.
-
-CoPaw supports cloud providers (API key) and local providers (no API key). See
-[Models](./models) for details.
+Configure LLM providers and select the default model for agents. See [Models](./models) for details on provider and model configuration.
 
 ![Models](https://img.alicdn.com/imgextra/i2/O1CN01GumhVY26BqjjKriDe_!!6000000007624-2-tps-3822-2064.png)
 
-### Cloud providers
+On this page you can:
 
-**Configure a provider:**
-
-1. Click **Settings** on a provider card (ModelScope, DashScope).
-2. Enter your **API Key**.
-3. Click **Save**. Card status becomes available.
-4. To add a custom provider, click **Add provider** on the right.
-5. Enter provider ID, display name, and required fields, then **Create**.
-6. Open **Settings** for the new provider, fill required fields, **Save**. Status
-   becomes available.
-
-**Revoke authorization:**
-Open the provider settings dialog and click **Revoke Authorization**. API key
-data is cleared. If this provider is currently active, model selection is also
-cleared.
-
-### Local providers (llama.cpp / MLX)
-
-Local providers show a purple **Local** tag. Install backend dependencies first
-(`pip install 'copaw[llamacpp]'` or `pip install 'copaw[mlx]'`).
-
-**Download a model:**
-
-1. Click **Manage Models** on a local provider card.
-2. Click **Download Model**, then fill:
-   - **Repo ID** (required) — e.g. `Qwen/Qwen3-4B-GGUF`
-   - **Filename** (optional) — leave empty for auto-selection
-   - **Source** — Hugging Face (default) or ModelScope
-3. Click **Download** and wait for completion.
-
-**View and delete models:**
-Downloaded models are listed with file size, source badge (**HF** / **MS**),
-and delete button.
-
-### Ollama provider
-
-The Ollama provider integrates with your local Ollama daemon and dynamically
-loads models from it.
-
-**Prerequisites:**
-
-- Install Ollama from [ollama.com](https://ollama.com)
-- Install the Ollama SDK: `pip install 'copaw[ollama]'` (or re-run the installer with `--extras ollama`)
-
-**Download a model:**
-
-1. Click **Settings** on the Ollama provider card.
-2. In **API Key**, enter a value (for example `ollama`), then click **Save**.
-3. Click **Manage Models** on the Ollama card, click **Download Model**, and
-   enter a model name (e.g. `mistral:7b`, `qwen3:8b`).
-4. Click **Download Model** and wait for completion.
-
-**Cancel a download:**
-During download, click **✕** next to the progress indicator to cancel.
-
-**View and delete models:**
-Downloaded models are listed with size and delete button. The list updates
-automatically when models are added/removed via Ollama CLI or Console.
-
-**How it differs from local providers:**
-
-- Models come from the Ollama daemon (not downloaded directly by CoPaw)
-- Model list is auto-synced with Ollama
-- Popular model examples: `mistral:7b`, `qwen3:8b`
-
-> You can also manage Ollama models via Ollama CLI: `ollama pull`,
-> `ollama list`, `ollama rm`. See [Ollama CLI](https://docs.ollama.com/cli).
-
-> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
->
-> To run CoPaw properly, you must set the model context length to
-> **32K or higher**. Note that this can consume substantial compute resources,
-> so make sure your local machine can handle it.
->
-> ![Ollama context length configuration](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
-
-### LM Studio provider
-
-The LM Studio provider connects to the LM Studio desktop application's
-OpenAI-compatible local server to discover and use loaded models.
-
-**Prerequisites:**
-
-- Install LM Studio from [lmstudio.ai](https://lmstudio.ai)
-- Load a model and start the local server in LM Studio (default: `http://localhost:1234`)
-
-**Configure:**
-
-1. Click **Settings** on the LM Studio provider card.
-2. The default Base URL is `http://localhost:1234/v1`. Adjust if needed, then
-   click **Save**.
-3. Click **Manage Models** to see models loaded in LM Studio. You can also
-   manually add model IDs.
-4. Select **LM Studio** in the **Provider** dropdown and pick a model.
-
-> LM Studio does not require an API key by default. Models must be loaded
-> in LM Studio before they appear in CoPaw.
-
-> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
->
-> To run CoPaw properly, you must set the model context length to
-> **32K or higher**. Note that this can consume substantial compute resources,
-> so make sure your local machine can handle it.
->
-> ![LM Studio context length configuration](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
-
-### Choose the active model
-
-1. Under **LLM config**, select a **Provider** (only authorized providers or
-   local providers with downloaded models).
-2. Select a **Model**.
-3. Click **Save**.
-
-> **Note:** Cloud API key validity is your responsibility. CoPaw does not
-> verify key correctness.
->
-> For provider details, see [Config — LLM Providers](./config#llm-providers).
+- Configure Clould Providers (ModelScope, DashScope, OpenAI, Anthropic, etc.)
+- Configure Local Providers (llama.cpp, Ollama, LM Studio)
+- Add Custom Providers by filling in API details
+- Select the default model for agents
 
 ---
 
