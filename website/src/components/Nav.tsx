@@ -170,13 +170,22 @@ export function Nav({
                   <span>{t(lang, "nav.releaseNotes")}</span>
                 </Link>
                 <Link
-                  to={`${docsBase}/quickstart`}
+                  to="/downloads"
                   role="menuitem"
                   className="nav-dropdown-item"
                   onClick={() => setMoreOpen(false)}
                 >
                   <Download size={16} strokeWidth={1.5} aria-hidden />
                   <span>{t(lang, "nav.download")}</span>
+                </Link>
+                <Link
+                  to={`${docsBase}/quickstart`}
+                  role="menuitem"
+                  className="nav-dropdown-item"
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <FileText size={16} strokeWidth={1.5} aria-hidden />
+                  <span>{t(lang, "nav.installGuide")}</span>
                 </Link>
               </div>
             )}
@@ -269,11 +278,18 @@ export function Nav({
           <FileText size={18} /> {t(lang, "nav.releaseNotes")}
         </Link>
         <Link
-          to={`${docsBase}/quickstart`}
+          to="/downloads"
           className={linkClass}
           onClick={() => setOpen(false)}
         >
           <Download size={18} /> {t(lang, "nav.download")}
+        </Link>
+        <Link
+          to={`${docsBase}/quickstart`}
+          className={linkClass}
+          onClick={() => setOpen(false)}
+        >
+          <FileText size={18} /> {t(lang, "nav.installGuide")}
         </Link>
         <Link
           to={docsBase}

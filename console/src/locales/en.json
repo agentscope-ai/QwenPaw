@@ -1214,7 +1214,8 @@
         "title": "Security Issues Detected",
         "description": "The following security issues were found:",
         "warnDescription": "Security issues were found but the skill was still enabled (warn mode):",
-        "goToWhitelist": "Go to Whitelist"
+        "goToWhitelist": "Go to Whitelist",
+        "moreFindings": "{{count}} more issues not shown (see Security → Skill Scanner for the full list)."
       }
     }
   },

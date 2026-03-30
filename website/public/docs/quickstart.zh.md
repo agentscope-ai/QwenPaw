@@ -87,11 +87,6 @@ curl -fsSL ... | bash -s -- --version 0.0.2
 
 # 从源码安装（开发/测试用）
 curl -fsSL ... | bash -s -- --from-source
-
-# 安装本地模型支持（详见本地模型文档）
-bash install.sh --extras llamacpp    # llama.cpp（跨平台）
-bash install.sh --extras mlx         # MLX（Apple Silicon）
-bash install.sh --extras ollama      # Ollama（跨平台，需 Ollama 服务运行）
 ```
 
 **Windows（PowerShell）：**
@@ -102,11 +97,6 @@ bash install.sh --extras ollama      # Ollama（跨平台，需 Ollama 服务运
 
 # 从源码安装（开发/测试用）
 .\install.ps1 -FromSource
-
-# 安装本地模型支持（详见本地模型文档）
-.\install.ps1 -Extras llamacpp      # llama.cpp（跨平台）
-.\install.ps1 -Extras mlx           # MLX
-.\install.ps1 -Extras ollama        # Ollama
 ```
 
 升级只需重新运行安装命令。卸载请运行 `copaw uninstall`。
@@ -258,38 +248,27 @@ CoPaw 需要大语言模型才能工作。你可以选择以下任一方式：
 2. 选择一个提供商（如 DashScope、ModelScope 等）
 3. 点击 **设置** 按钮，输入你的 **API Key**
 4. 点击 **保存**
-5. 在顶部 **LLM 配置** 中选择该提供商和具体模型
+5. 在顶部 **默认 LLM** 中选择该提供商和具体模型
 6. 点击 **保存**
 
-详见 [模型 - 配置云提供商](./models#配置云提供商)。
+详见 [模型 - 配置云提供商](./models)。
 
 **选项 B：使用本地模型（无需 API Key，完全离线）**
 
-1. 安装本地模型后端依赖：
+1. 安装本地模型后端：
 
-   ```bash
-   # llama.cpp（跨平台）
-   pip install 'copaw[llamacpp]'
-
-   # MLX（Apple Silicon）
-   pip install 'copaw[mlx]'
-
-   # Ollama（需单独安装 Ollama 服务）
-   pip install 'copaw[ollama]'
-   ```
+- CoPaw Local（llama.cpp）：在 CoPaw Local 提供商设置中下载 `llama.cpp`，详见 [模型 - 配置本地提供商](./models)。
+- Ollama：从 [Ollama 官网](https://ollama.com/download) 安装 Ollama，并启动 Ollama 服务。
+- LM Studio：从 [LM Studio 官网](https://lmstudio.ai/download) 安装 LM Studio，并启动 LM Studio 服务。
 
 2. 下载模型：
 
-   - **控制台方式**：设置 → 模型 → 选择本地提供商 → 模型 → 下载模型
-   - **命令行方式**：
-     ```bash
-     copaw models download Qwen/Qwen3-4B-GGUF
-     copaw models  # 选择已下载的模型
-     ```
+- 对于 CoPaw Local（llama.cpp），你可以直接在控制台的提供商设置中下载模型，或者手动将 GGUF 模型文件放到本地模型目录中（默认 `~/.copaw/local_models/models/<org>/<model>`，例如 `~/.copaw/local_models/models/Qwen/Qwen3-0.6B-GGUF`）。
+- 对于 Ollama 和 LM Studio，需要先在各自服务中添加模型，之后 CoPaw 才能自动获取模型列表并连接。
 
 3. 在控制台选择本地提供商和模型
 
-详见 [模型 - 本地提供商](./models#本地提供商llamacpp--mlx)。
+配置好本地模型后，你可以在控制台的 **默认 LLM** 设置中选择它，也可以直接在 **聊天** 页面中切换使用。
 
 #### 🎯 2. 在控制台测试对话
 

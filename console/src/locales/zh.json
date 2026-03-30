@@ -1184,7 +1184,8 @@
         "title": "检测到安全问题",
         "description": "发现以下安全问题：",
         "warnDescription": "发现安全问题，但技能仍已启用（仅提醒模式）：",
-        "goToWhitelist": "前往白名单"
+        "goToWhitelist": "前往白名单",
+        "moreFindings": "另有 {{count}} 条未列出（完整列表见 设置 → 安全 → 技能扫描）。"
       }
     }
   },

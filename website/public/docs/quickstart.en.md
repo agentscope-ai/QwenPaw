@@ -87,11 +87,6 @@ curl -fsSL ... | bash -s -- --version 0.0.2
 
 # Install from source (dev/testing)
 curl -fsSL ... | bash -s -- --from-source
-
-# Install with local model support (see local models docs)
-bash install.sh --extras llamacpp    # llama.cpp (cross-platform)
-bash install.sh --extras mlx         # MLX (Apple Silicon)
-bash install.sh --extras ollama      # Ollama (cross-platform, requires Ollama service)
 ```
 
 **Windows (PowerShell):**
@@ -102,11 +97,6 @@ bash install.sh --extras ollama      # Ollama (cross-platform, requires Ollama s
 
 # Install from source (dev/testing)
 .\install.ps1 -FromSource
-
-# Install with local model support (see local models docs)
-.\install.ps1 -Extras llamacpp      # llama.cpp (cross-platform)
-.\install.ps1 -Extras mlx           # MLX
-.\install.ps1 -Extras ollama        # Ollama
 ```
 
 To upgrade, simply re-run the install command. To uninstall, run `copaw uninstall`.
@@ -277,38 +267,27 @@ CoPaw needs a large language model to work. You can choose either option:
 2. Select a provider (such as DashScope, ModelScope, etc.)
 3. Click the **Settings** button and enter your **API Key**
 4. Click **Save**
-5. In the top **LLM Configuration**, select the provider and specific model
+5. In the top **Default LLM**, select the provider and specific model
 6. Click **Save**
 
-See [Models - Configure cloud providers](./models#configure-cloud-providers).
+See [Models - Configure cloud providers](./models).
 
 **Option B: Use local models (no API Key required, completely offline)**
 
-1. Install local model backend dependencies:
+1. Install local model backend:
 
-   ```bash
-   # llama.cpp (cross-platform)
-   pip install 'copaw[llamacpp]'
-
-   # MLX (Apple Silicon)
-   pip install 'copaw[mlx]'
-
-   # Ollama (requires separate Ollama service installation)
-   pip install 'copaw[ollama]'
-   ```
+- CoPaw Local (llama.cpp): download `llama.cpp` inside CoPaw Local provider settings, see [Models - Local providers Configuration](./models) for details.
+- Ollama: install Ollama from [Ollama website](https://ollama.com/download) and run the Ollama service.
+- LM Studio: install LM Studio from [LM Studio website](https://lmstudio.ai/download) and run the LM Studio service.
 
 2. Download models:
 
-   - **Console method**: Settings → Models → Select local provider → Models → Download model
-   - **Command line method**:
-     ```bash
-     copaw models download Qwen/Qwen3-4B-GGUF
-     copaw models  # Select the downloaded model
-     ```
+- For CoPaw Local (llama.cpp), you can download models directly from the provider settings in the Console, or manually place GGUF model files in the local models directory (default `~/.copaw/local_models/models/<org>/<model>`, for example: `~/.copaw/local_models/models/Qwen/Qwen3-0.6B-GGUF`).
+- For Ollama and LM Studio, you need to add models in their respective services first, then CoPaw can automatically fetch the model list and connect to them.
 
 3. Select the local provider and model in the Console
 
-See [Models - Local providers](./models#local-providers-llamacpp--mlx).
+After configuring the local model, you can select it in the Console's **Default LLM** settings or in the **Chat** page.
 
 #### 🎯 2. Test chat in Console
 

@@ -609,19 +609,62 @@ export function QuickStart({ config, lang }: QuickStartProps) {
                   </span>
                 </div>
               </div>
-              <a
-                href={DESKTOP_RELEASES_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="quickstart-link quickstart-link-primary"
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "var(--space-3)",
+                }}
+                className="desktop-download-grid"
               >
-                <Download size={16} strokeWidth={1.5} />
-                {t(lang, "quickstart.desktop.downloadGithub")}
-                <ExternalLink size={14} strokeWidth={1.5} />
-              </a>
+                <a
+                  href={DESKTOP_RELEASES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="desktop-download-card desktop-download-card-primary"
+                >
+                  <div className="download-card-header">
+                    <Download size={20} strokeWidth={2} />
+                    <span className="recommended-badge-inline">
+                      {t(lang, "quickstart.desktop.recommended")}
+                    </span>
+                  </div>
+                  <div className="download-card-title">
+                    {lang === "zh" ? "GitHub Release" : "GitHub Release"}
+                  </div>
+                  <div className="download-card-desc">
+                    {lang === "zh"
+                      ? "透明发布，稳定可靠"
+                      : "Transparent releases, stable"}
+                  </div>
+                  <div className="download-card-footer">
+                    <ExternalLink size={14} strokeWidth={1.5} />
+                  </div>
+                </a>
+                <Link
+                  to="/downloads"
+                  className="desktop-download-card desktop-download-card-secondary"
+                >
+                  <div className="download-card-header">
+                    <Cloud size={20} strokeWidth={2} />
+                  </div>
+                  <div className="download-card-title">
+                    {lang === "zh" ? "镜像下载" : "Mirror Download"}
+                  </div>
+                  <div className="download-card-desc">
+                    {lang === "zh"
+                      ? "国内加速，下载更快"
+                      : "Faster download speed"}
+                  </div>
+                  <div className="download-card-footer">
+                    <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>→</span>
+                  </div>
+                </Link>
+              </div>
               <Link
                 to={`${docsBase}/desktop`}
                 className="quickstart-link quickstart-link-secondary"
+                style={{ marginTop: "var(--space-2)" }}
               >
                 <ExternalLink size={14} strokeWidth={1.5} />
                 {t(lang, "quickstart.desktop.viewGuide")}
@@ -804,6 +847,99 @@ export function QuickStart({ config, lang }: QuickStartProps) {
         .quickstart-tab:focus-visible {
           outline: 2px solid #d2d2d7;
           outline-offset: 2px;
+        }
+
+        .desktop-download-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: var(--space-3);
+        }
+
+        @media (max-width: 640px) {
+          .desktop-download-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .desktop-download-card {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          padding: 1rem 1.25rem;
+          border-radius: 0.75rem;
+          text-decoration: none;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          overflow: hidden;
+          min-height: 120px;
+        }
+
+        .desktop-download-card-primary {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .desktop-download-card-primary:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+        }
+
+        .desktop-download-card-secondary {
+          background: var(--surface);
+          color: var(--text);
+          border: 2px solid var(--border);
+        }
+
+        .desktop-download-card-secondary:hover {
+          transform: translateY(-4px);
+          border-color: #667eea;
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+        }
+
+        .download-card-header {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          margin-bottom: 0.5rem;
+        }
+
+        .recommended-badge-inline {
+          margin-left: auto;
+          padding: 0.25rem 0.625rem;
+          background: rgba(255, 255, 255, 0.25);
+          backdrop-filter: blur(8px);
+          border-radius: 1rem;
+          font-size: 0.6875rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: white;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .download-card-title {
+          font-size: 1.125rem;
+          font-weight: 700;
+          margin-bottom: 0.375rem;
+        }
+
+        .download-card-desc {
+          font-size: 0.8125rem;
+          opacity: 0.9;
+          line-height: 1.4;
+          flex: 1;
+        }
+
+        .desktop-download-card-secondary .download-card-desc {
+          color: var(--text-muted);
+        }
+
+        .download-card-footer {
+          margin-top: 0.75rem;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
         }
       `}</style>
     </motion.section>

@@ -125,10 +125,10 @@ curl -fsSL https://copaw.agentscope.io/install.sh | bash
 curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama
 ```
 
-Для установки с несколькими дополнениями (например, Ollama + llama.cpp):
+Для установки с несколькими дополнениями (например, Ollama + local):
 
 ```bash
-curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,llamacpp
+curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,local
 ```
 
 **Windows (CMD):**
@@ -212,7 +212,7 @@ copaw uninstall          # сохраняет конфигурацию и дан
 copaw uninstall --purge  # удаляет всё
 ```
 
-> **Примечание**: Для поддержки локальных моделей (llama.cpp, MLX, Ollama) см. раздел [Локальные модели](#локальные-модели).
+> **Примечание**: Для поддержки локальных моделей (llama.cpp, Ollama, LM Studio) см. раздел [Локальные модели](#локальные-модели).
 
 </details>
 
@@ -349,21 +349,19 @@ docker run -p 127.0.0.1:8088:8088 \
 
 Ключи для других инструментов (например, `TAVILY_API_KEY` для веб-поиска) можно настроить в консоли **Настройки → Переменные окружения**, подробности см. в [Конфигурация](https://copaw.agentscope.io/docs/config).
 
-> **Используете только локальные модели?** Если вы используете [Локальные модели](#локальные-модели) (llama.cpp или MLX), вам **не нужен** никакой API Key.
+> **Используете только локальные модели?** Если вы используете [Локальные модели](#локальные-модели) (llama.cpp / Ollama / LM Studio), вам **не нужен** никакой API Key.
 
 ---
 
 ## Локальные модели
 
-CoPaw может полностью локально запускать большие модели на вашей машине без API Key или облачных сервисов. Подробности см. в [официальной документации](https://copaw.agentscope.io/docs/models#%E6%9C%AC%E5%9C%B0%E6%8F%90%E4%BE%9B%E5%95%86llamacpp--MLX)
+CoPaw может полностью запускать LLM на вашей машине без API-ключей и облачных сервисов. Подробности см. в [официальной документации](https://copaw.agentscope.io/docs/models).
 
 | Бэкенд        | Подходит для                             | Установка                                                                 |
 | ------------- | ---------------------------------------- | ------------------------------------------------------------------------- |
-| **llama.cpp** | Кроссплатформенный (macOS / Linux / Windows) | `pip install 'copaw[llamacpp]'` или `bash install.sh --extras llamacpp` |
-| **MLX**       | Apple Silicon (M1/M2/M3/M4)              | `pip install 'copaw[mlx]'` или `bash install.sh --extras mlx`           |
-| **Ollama**    | Кроссплатформенный (требуется сервис Ollama) | `pip install 'copaw[ollama]'` или `bash install.sh --extras ollama`     |
-
-После установки можно загружать и управлять локальными моделями в интерфейсе **Консоли**.
+| **llama.cpp** | Кроссплатформенный (macOS / Linux / Windows) | Дополнительная установка не требуется; нажмите «Download llama.cpp» в веб-интерфейсе. |
+| **Ollama**    | Кроссплатформенный (требуется сервис Ollama) | Заранее установите и запустите приложение Ollama. |
+| **LM Studio** | Кроссплатформенный (требуется сервис LM Studio) | Заранее установите и запустите приложение LM Studio. |
 
 Также можно использовать командную строку:
 

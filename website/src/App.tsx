@@ -5,6 +5,7 @@ import { type Lang, t } from "./i18n";
 import { Home } from "./pages/Home";
 import { Docs } from "./pages/Docs";
 import { ReleaseNotes } from "./pages/ReleaseNotes";
+import { Downloads } from "./pages/Downloads";
 import "./index.css";
 
 const LANG_KEY = "site-lang";
@@ -65,6 +66,12 @@ export default function App() {
         path="/release-notes"
         element={
           <ReleaseNotes config={config} lang={lang} onLangClick={toggleLang} />
+        }
+      />
+      <Route
+        path="/downloads"
+        element={
+          <Downloads config={config} lang={lang} onLangClick={toggleLang} />
         }
       />
     </Routes>

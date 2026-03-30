@@ -84,7 +84,7 @@
 > - **🚀 我是新用户，想快速试用**：[快速开始](#快速开始) → 三条命令跑起来 → [配置模型](#api-key) → 在控制台对话
 > - **💬 我想在钉钉/飞书/微信里用**：完成快速开始 → [配置模型](#api-key) → [频道配置](https://copaw.agentscope.io/docs/channels)
 > - **🐍 我不想装 Python**：[桌面应用](#桌面应用beta) 或 [脚本安装](#脚本安装) 或 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw)
-> - **💻 我想用本地模型（无需 API Key）**：[本地模型](#本地模型) → 下载模型 → 开始使用
+> - **💻 我想用本地模型（无需 API Key）**：[本地模型](#本地模型)
 > - **🛠️ 我想贡献代码或开发新功能**：[从源码安装](#从源码安装) → [参与贡献](#参与贡献)
 
 - [新闻](#新闻)
@@ -122,10 +122,10 @@ curl -fsSL https://copaw.agentscope.io/install.sh | bash
 curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama
 ```
 
-如需安装多个扩展（例如 Ollama + llama.cpp）：
+如需安装多个扩展（例如 Ollama + local）：
 
 ```bash
-curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,llamacpp
+curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,local
 ```
 
 **Windows (CMD):**
@@ -336,7 +336,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ## API Key
 
-若使用**云端大模型 API**（如通义千问、Gemini、OpenAI），在开始对话前必须配置 API Key。未配置有效 Key 前，CoPaw 无法正常工作。详情请参考[官方文档](https://copaw.agentscope.io/docs/models#%E9%85%8D%E7%BD%AE%E4%BA%91%E6%8F%90%E4%BE%9B%E5%95%86)。
+若使用**云端大模型 API**（如通义千问、Gemini、OpenAI），在开始对话前必须配置 API Key。未配置有效 Key 前，CoPaw 无法正常工作。详情请参考[官方文档](https://copaw.agentscope.io/docs/models)。
 
 **配置方式：**
 
@@ -346,29 +346,20 @@ docker run -p 127.0.0.1:8088:8088 \
 
 其他工具所需密钥（如网页搜索的 `TAVILY_API_KEY`）可在控制台 **设置 → 环境变量** 中配置，详见 [配置](https://copaw.agentscope.io/docs/config)。
 
-> **仅用本地模型？** 若使用 [本地模型](#本地模型)（llama.cpp 或 MLX），则**无需**任何 API Key。
+> **仅用本地模型？** 若使用 [本地模型](#本地模型)（llama.cpp，Ollama，LM Studio），则**无需**任何 API Key。
 
 ---
 
 ## 本地模型
 
-CoPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见[官方文档](https://copaw.agentscope.io/docs/models#%E6%9C%AC%E5%9C%B0%E6%8F%90%E4%BE%9B%E5%95%86llamacpp--MLX)
+CoPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见[官方文档](https://copaw.agentscope.io/docs/models)
 
 | 后端          | 适用场景                          | 安装                                                                 |
 | ------------- | --------------------------------- | -------------------------------------------------------------------- |
-| **llama.cpp** | 跨平台（macOS / Linux / Windows） | `pip install 'copaw[llamacpp]'` 或 `bash install.sh --extras llamacpp` |
-| **MLX**       | Apple Silicon（M1/M2/M3/M4）      | `pip install 'copaw[mlx]'` 或 `bash install.sh --extras mlx`         |
-| **Ollama**    | 跨平台（需要 Ollama 服务运行）    | `pip install 'copaw[ollama]'` 或 `bash install.sh --extras ollama`   |
+| **llama.cpp** | 跨平台（macOS / Linux / Windows） | 无需额外安装，在 Web 界面中点击 `Download Llama.cpp` 即可 |
+| **Ollama**    | 跨平台（需要 Ollama 服务运行）    | 提前安装 Ollama 应用并启动 |
+| **LM Studio** | 跨平台（需要 LM Studio 服务运行） | 提前安装 LM Studio 应用并启动 |
 
-安装后可以在 **控制台** 界面中下载与管理本地模型。
-
-也可以用命令行管理模型：
-
-```bash
-copaw models download Qwen/Qwen3-4B-GGUF
-copaw models # 选择已下载的模型
-copaw app # 启动服务
-```
 
 ---
 
