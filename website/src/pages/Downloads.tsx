@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Download, Monitor, Laptop } from "lucide-react";
 import { type Lang } from "../i18n";
 import { type SiteConfig } from "../config";
 import { Nav } from "../components/Nav";
@@ -45,10 +46,10 @@ interface MainIndex {
   >;
 }
 
-const platformIcons: Record<string, string> = {
-  win: "🪟",
-  mac: "🍎",
-  linux: "🐧",
+const platformIcons: Record<string, typeof Monitor> = {
+  win: Monitor,
+  mac: Laptop,
+  linux: Monitor,
 };
 
 function detectOS(): string | null {
@@ -61,31 +62,37 @@ function detectOS(): string | null {
 
 interface PlatformCardProps {
   fileMetadata: FileMetadata;
+  allVersions: string[];
   isRecommended: boolean;
   lang: Lang;
 }
 
 function PlatformCard({
   fileMetadata,
+  allVersions,
   isRecommended,
   lang,
 }: PlatformCardProps) {
+  const [selectedVersion, setSelectedVersion] = useState(fileMetadata.version);
+
   const platformName =
     lang === "zh" ? fileMetadata.name["zh-CN"] : fileMetadata.name["en-US"];
   const description =
     lang === "zh"
       ? fileMetadata.description["zh-CN"]
       : fileMetadata.description["en-US"];
-  const icon = platformIcons[fileMetadata.platform] || "📦";
+  const IconComponent = platformIcons[fileMetadata.platform] || Monitor;
   const updatedDate = new Date(fileMetadata.updated_at).toLocaleDateString(
     lang === "zh" ? "zh-CN" : "en-US",
   );
   const downloadUrl = `https://download.copaw.agentscope.io${fileMetadata.url}`;
 
   return (
-    <div className="platform-card">
+    <div className={`platform-card ${isRecommended ? "recommended" : ""}`}>
       <div className="platform-header">
-        <div className="platform-icon">{icon}</div>
+        <div className="platform-icon">
+          <IconComponent size={28} strokeWidth={2} />
+        </div>
         <div className="platform-info">
           <h4>
             {platformName}
@@ -99,13 +106,32 @@ function PlatformCard({
         </div>
       </div>
       <p className="platform-description">{description}</p>
-      <a
-        href={downloadUrl}
-        className={`download-btn ${isRecommended ? "recommended" : ""}`}
-        download
-      >
+
+      {allVersions.length > 1 && (
+        <div className="version-selector">
+          <label className="version-label">
+            {lang === "zh" ? "选择版本" : "Select Version"}
+          </label>
+          <select
+            className="version-dropdown"
+            value={selectedVersion}
+            onChange={(e) => setSelectedVersion(e.target.value)}
+          >
+            {allVersions.map((version, index) => (
+              <option key={version} value={version}>
+                v{version}{" "}
+                {index === 0 ? `(${lang === "zh" ? "最新" : "Latest"})` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <a href={downloadUrl} className="download-btn" download>
+        <Download size={18} strokeWidth={2.5} />
         {lang === "zh" ? "下载" : "Download"}
       </a>
+
       <div className="file-details">
         <div className="detail-row">
           <span className="detail-label">
@@ -125,10 +151,10 @@ function PlatformCard({
           </span>
           <span>{updatedDate}</span>
         </div>
-        <div className="detail-row">
+        <div className="sha256-row">
           <span className="detail-label">SHA256:</span>
+          <div className="sha256">{fileMetadata.sha256}</div>
         </div>
-        <div className="sha256">{fileMetadata.sha256}</div>
       </div>
     </div>
   );
@@ -300,10 +326,15 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
                       if (!fileMetadata) return null;
 
                       const isRecommended = platform === userOS;
+                      const allVersions = platformData.versions || [
+                        fileMetadata.version,
+                      ];
+
                       return (
                         <PlatformCard
                           key={platform}
                           fileMetadata={fileMetadata}
+                          allVersions={allVersions}
                           isRecommended={isRecommended}
                           lang={lang}
                         />
