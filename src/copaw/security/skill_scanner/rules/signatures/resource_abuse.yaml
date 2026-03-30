@@ -1,22 +1,5 @@
 # Resource Abuse & Denial of Service Signatures
-# Detects infinite loops, fork bombs, and excessive memory allocation
-
-- id: RESOURCE_ABUSE_INFINITE_LOOP
-  category: resource_abuse
-  severity: HIGH
-  patterns:
-    - "while\\s+True\\s*:"
-    - "while\\s+1\\s*:"
-    - "for\\s+\\w+\\s+in\\s+itertools\\.count\\s*\\("
-  exclude_patterns:
-    - "except\\s+(EOFError|StopIteration|KeyboardInterrupt|Exception)\\s*:"
-    - "break"
-    - "return"
-    - "sys\\.exit"
-    - "raise\\s+StopIteration"
-  file_types: [python]
-  description: "Infinite loop without clear exit condition"
-  remediation: "Add proper exit conditions or limits to loops"
+# Detects fork bombs and excessive memory allocation
 
 - id: RESOURCE_ABUSE_FORK_BOMB
   category: resource_abuse
