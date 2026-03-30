@@ -610,6 +610,16 @@ html.dark-mode .ant-slider-track {
   background-color: #ff7f16 !important;
 }
 
+html.dark-mode .copaw-slider-mark-text,
+html.dark-mode .ant-slider-mark-text {
+  color: #ff7f16 !important;
+}
+
+html.dark-mode .copaw-form-item-label > label .copaw-form-item-tooltip,
+html.dark-mode .ant-form-item-label > label .ant-form-item-tooltip {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
 html.dark-mode .copaw-slider-handle::after,
 html.dark-mode .ant-slider-handle::after {
   box-shadow: 0 0 0 2px #ff7f16 !important;
@@ -708,6 +718,14 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
 .ant-layout-content {
   overflow: hidden;
   background: #f9f8f4;
+}
+
+.copaw-bubble-list-wrapper {
+  background: #fff !important;
+}
+
+.copaw-chat-anywhere-input {
+  background: #fff !important;
 }
 
 /* Chat bubble list max-width override */
