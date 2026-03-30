@@ -85,7 +85,7 @@ pnpm format
 
 - **Line length**: 79 characters (Black & Flake8 configured as in .pre-commit-config.yaml)
 - **Formatter**: Black
-- **Linter**: Ruff, Flake8
+- **Linters/Type checking**: Flake8, Pylint, Mypy (as configured in .pre-commit-config.yaml)
 
 Run `pre-commit run --all-files` to auto-format and check.
 
