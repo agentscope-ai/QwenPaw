@@ -414,6 +414,11 @@
   "skillPool": {
     "description": "共享本地技能池，包含内置技能和工作区上传。ClawHub 或 LobeHub 等外部导入为独立功能。",
     "broadcast": "广播到智能体",
+    "broadcastAll": "全部广播到智能体",
+    "broadcastAllInGroup": "本组全部广播到智能体",
+    "broadcastAllInGroupStop": "停止本组广播",
+    "broadcastAllConfirm": "将该市场下全部技能导入技能池，并进入广播选择。是否继续？",
+    "broadcastAllLoading": "正在准备全部广播到智能体...",
     "broadcastHint": "将技能广播给选定的智能体",
     "broadcastTitle": "广播 {{name}}",
     "importBuiltin": "更新内置技能",

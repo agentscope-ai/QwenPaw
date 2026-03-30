@@ -414,6 +414,9 @@
   "skillPool": {
     "description": "ビルトインスキルとワークスペースアップロード用の共有ローカルスキルプール。ClawHub や LobeHub などの外部インポートは別機能です。",
     "broadcast": "ブロードキャスト",
+    "broadcastAll": "すべてをエージェントへブロードキャスト",
+    "broadcastAllConfirm": "このマーケットのすべてのスキルをスキルプールに取り込み、続けてブロードキャスト先を選択します。続行しますか？",
+    "broadcastAllLoading": "すべてのスキルをエージェントへブロードキャストする準備中...",
     "broadcastHint": "スキルプールのスキルを全てまたは選択したワークスペースにブロードキャスト",
     "broadcastTitle": "{{name}} をブロードキャスト",
     "importBuiltin": "ビルトインを取り込む",

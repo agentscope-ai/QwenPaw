@@ -448,6 +448,11 @@
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",
     "broadcast": "Broadcast to Agents",
+    "broadcastAll": "Broadcast All to Agents",
+    "broadcastAllInGroup": "Broadcast Group to Agents",
+    "broadcastAllInGroupStop": "Stop Group Broadcast",
+    "broadcastAllConfirm": "Import all skills in this market to the skill pool, then continue to broadcast selection. Continue?",
+    "broadcastAllLoading": "Preparing to broadcast all skills to agents...",
     "broadcastHint": "Broadcast skills to selected agents",
     "broadcastTitle": "Broadcast {{name}}",
     "importBuiltin": "Update Built-in Skills",

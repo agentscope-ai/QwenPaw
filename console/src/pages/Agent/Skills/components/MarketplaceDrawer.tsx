@@ -66,6 +66,14 @@ export interface MarketplaceDrawerProps {
         stopped: boolean;
       }
   >;
+    installActionLabel?: string;
+    enableAllActionLabel?: string;
+    enableAllConfirmText?: string;
+    bulkEnableLoadingText?: string;
+    enableAllSummaryActionLabel?: string;
+    installAllInGroupLabel?: string;
+    installAllInGroupStopLabel?: string;
+    useBulkEnableForGroupInstall?: boolean;
 }
 
 export function MarketplaceDrawer({
@@ -91,6 +99,14 @@ export function MarketplaceDrawer({
   installingSkillKey,
   onInstallSkill,
   onRunBulkAction,
+  installActionLabel,
+  enableAllActionLabel,
+  enableAllConfirmText,
+  bulkEnableLoadingText,
+  enableAllSummaryActionLabel,
+  installAllInGroupLabel,
+  installAllInGroupStopLabel,
+  useBulkEnableForGroupInstall,
 }: MarketplaceDrawerProps) {
   const { t } = useTranslation();
   const [editingMarketIdx, setEditingMarketIdx] = useState<number | null>(null);
@@ -409,19 +425,19 @@ export function MarketplaceDrawer({
 
     const actionTitle =
       type === "enable"
-        ? t("skills.marketEnableAll")
+        ? enableAllActionLabel || t("skills.marketEnableAll")
         : type === "disable"
           ? t("skills.marketDisableAll")
           : t("skills.marketDeleteAll");
     const actionConfirm =
       type === "enable"
-        ? t("skills.marketEnableAllConfirm")
+        ? enableAllConfirmText || t("skills.marketEnableAllConfirm")
         : type === "disable"
           ? t("skills.marketDisableAllConfirm")
           : t("skills.marketDeleteAllConfirm");
     const actionLoading =
       type === "enable"
-        ? t("skills.marketBulkEnableLoading")
+        ? bulkEnableLoadingText || t("skills.marketBulkEnableLoading")
         : type === "disable"
           ? t("skills.marketBulkDisableLoading")
           : t("skills.marketBulkDeleteLoading");
@@ -456,7 +472,10 @@ export function MarketplaceDrawer({
             notify({
               key: messageKey,
               content: t("skills.marketBulkEnableSummary", {
-                action: t("skills.marketEnableAll"),
+                action:
+                  enableAllSummaryActionLabel ||
+                  enableAllActionLabel ||
+                  t("skills.marketEnableAll"),
                 total: result.total,
                 enabled: result.enabled,
                 installed: result.installed,
@@ -856,7 +875,7 @@ export function MarketplaceDrawer({
                   >
                     {runningType === "enable"
                       ? t("skills.marketAbortEnable")
-                      : t("skills.marketEnableAll")}
+                      : enableAllActionLabel || t("skills.marketEnableAll")}
                   </Button>
                   <Button
                     size="small"
@@ -988,15 +1007,38 @@ export function MarketplaceDrawer({
                   <div className={styles.marketGroupHeaderActions}>
                     <Button
                       size="small"
-                      disabled={
-                        groupItems.length === 0 ||
-                        (installingMarketId === marketId && stopConfirmCooling)
-                      }
+                      disabled={(() => {
+                        if (useBulkEnableForGroupInstall) {
+                          const bulkRunning =
+                            bulkActionState?.marketId === marketId &&
+                            bulkActionState.type === "enable";
+                          return (
+                            groupItems.length === 0 ||
+                            (bulkActionState !== null && !bulkRunning)
+                          );
+                        }
+                        return (
+                          groupItems.length === 0 ||
+                          (installingMarketId === marketId && stopConfirmCooling)
+                        );
+                      })()}
                       loading={
-                        installingMarketId === marketId && !installStopRequested
+                        useBulkEnableForGroupInstall
+                          ? bulkActionState?.marketId === marketId &&
+                            bulkActionState.type === "enable"
+                          : installingMarketId === marketId && !installStopRequested
                       }
-                      danger={installingMarketId === marketId}
+                      danger={
+                        useBulkEnableForGroupInstall
+                          ? bulkActionState?.marketId === marketId &&
+                            bulkActionState.type === "enable"
+                          : installingMarketId === marketId
+                      }
                       onClick={() => {
+                        if (useBulkEnableForGroupInstall) {
+                          runBulkAction("enable", marketId);
+                          return;
+                        }
                         if (installingMarketId === marketId) {
                           if (stopConfirmCooling) {
                             return;
@@ -1025,9 +1067,18 @@ export function MarketplaceDrawer({
                         confirmInstallAllInMarket(marketId, groupItems);
                       }}
                     >
-                      {installingMarketId === marketId
-                        ? t("skills.marketInstallAllStop")
-                        : t("skills.marketInstallAll")}
+                      {useBulkEnableForGroupInstall
+                        ? bulkActionState?.marketId === marketId &&
+                          bulkActionState.type === "enable"
+                          ? installAllInGroupStopLabel || t("skills.marketAbortEnable")
+                          : installAllInGroupLabel ||
+                            enableAllActionLabel ||
+                            t("skills.marketEnableAll")
+                        : installingMarketId === marketId
+                          ?
+                              installAllInGroupStopLabel ||
+                              t("skills.marketInstallAllStop")
+                          : installAllInGroupLabel || t("skills.marketInstallAll")}
                     </Button>
                   </div>
                 </div>
@@ -1109,7 +1160,7 @@ export function MarketplaceDrawer({
                               void onInstallSkill(item.market_id, item.skill_id);
                             }}
                           >
-                            {t("skills.marketInstall")}
+                            {installActionLabel || t("skills.marketInstall")}
                           </Button>
                         </div>
                       );

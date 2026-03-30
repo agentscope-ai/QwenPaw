@@ -10,6 +10,7 @@ import {
   Form,
 } from "@agentscope-ai/design";
 import {
+  AppstoreAddOutlined,
   ImportOutlined,
   PlusOutlined,
   SendOutlined,
@@ -21,7 +22,11 @@ import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
   BuiltinImportSpec,
+  MarketError,
+  MarketplaceItem,
+  MarketplaceMeta,
   PoolSkillSpec,
+  SkillsMarketSpec,
   WorkspaceSkillSummary,
 } from "../../../api/types";
 import { parseErrorDetail } from "../../../utils/error";
@@ -35,6 +40,7 @@ import {
   parseFrontmatter,
   useConflictRenameModal,
   ImportHubModal,
+  MarketplaceDrawer,
 } from "../Skills/components";
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import { BroadcastModal } from "./components/BroadcastModal";
@@ -63,6 +69,19 @@ function SkillPoolPage() {
   const [importBuiltinLoading, setImportBuiltinLoading] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [marketDrawerOpen, setMarketDrawerOpen] = useState(false);
+  const [marketDrafts, setMarketDrafts] = useState<SkillsMarketSpec[]>([]);
+  const [marketCacheTtl, setMarketCacheTtl] = useState(600);
+  const [marketOverwriteDefault, setMarketOverwriteDefault] = useState(false);
+  const [marketConfigLoaded, setMarketConfigLoaded] = useState(false);
+  const [savingMarkets, setSavingMarkets] = useState(false);
+  const [marketErrors, setMarketErrors] = useState<MarketError[]>([]);
+  const [marketMeta, setMarketMeta] = useState<MarketplaceMeta | null>(null);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
+  const [marketplace, setMarketplace] = useState<MarketplaceItem[]>([]);
+  const [installingSkillKey, setInstallingSkillKey] = useState<string | null>(
+    null,
+  );
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
 
@@ -137,6 +156,122 @@ function SkillPoolPage() {
     } finally {
       setImportBuiltinLoading(false);
     }
+  };
+
+  const loadMarketConfig = async () => {
+    const payload = await api.getSkillMarkets();
+    setMarketDrafts(payload.markets ?? []);
+    setMarketCacheTtl(payload.cache?.ttl_sec ?? 600);
+    setMarketOverwriteDefault(Boolean(payload.install?.overwrite_default));
+    setMarketConfigLoaded(true);
+  };
+
+  const refreshMarketplace = useCallback(async (refresh = true) => {
+    setMarketplaceLoading(true);
+    try {
+      const res = await api.listMarketplace(refresh);
+      setMarketplace(res.items ?? []);
+      setMarketErrors(res.market_errors ?? []);
+      setMarketMeta(res.meta ?? null);
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : t("common.refresh"),
+      );
+    } finally {
+      setMarketplaceLoading(false);
+    }
+  }, [t]);
+
+  const openMarketplaceDrawer = async () => {
+    setMarketDrawerOpen(true);
+    try {
+      if (!marketConfigLoaded) {
+        await loadMarketConfig();
+      }
+      await refreshMarketplace(false);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t("common.loading"));
+    }
+  };
+
+  const createEmptyMarketDraft = (): SkillsMarketSpec => ({
+    id: "",
+    name: "",
+    url: "",
+    branch: "",
+    path: "index.json",
+    enabled: true,
+    order: marketDrafts.length,
+    trust: null,
+  });
+
+  const handleAddMarket = () => {
+    setMarketDrafts((prev) => [
+      ...prev,
+      {
+        ...createEmptyMarketDraft(),
+        order: prev.length,
+      },
+    ]);
+  };
+
+  const handleRemoveMarket = (idx: number) => {
+    setMarketDrafts((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleUpdateMarket = (idx: number, patch: Partial<SkillsMarketSpec>) => {
+    setMarketDrafts((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const handleValidateMarket = async (idx: number, draft?: SkillsMarketSpec) => {
+    const row = draft ?? marketDrafts[idx];
+    const validated = await api.validateSkillMarket({
+      id: row.id,
+      name: row.name,
+      url: row.url,
+      branch: row.branch,
+      path: row.path,
+      enabled: row.enabled,
+      order: row.order,
+    });
+    setMarketDrafts((prev) =>
+      prev.map((item, i) => (i === idx ? validated.normalized : item)),
+    );
+    if (validated.warnings?.length) {
+      message.warning(validated.warnings.join("; "));
+    } else {
+      message.success(t("common.save"));
+    }
+  };
+
+  const handleSaveMarkets = async () => {
+    setSavingMarkets(true);
+    try {
+      const payload = await api.saveSkillMarkets({
+        version: 1,
+        cache: { ttl_sec: marketCacheTtl },
+        install: { overwrite_default: marketOverwriteDefault },
+        markets: marketDrafts,
+      });
+      setMarketDrafts(payload.markets ?? []);
+      setMarketCacheTtl(payload.cache?.ttl_sec ?? 600);
+      setMarketOverwriteDefault(Boolean(payload.install?.overwrite_default));
+      message.success(t("common.save"));
+      await refreshMarketplace(true);
+    } finally {
+      setSavingMarkets(false);
+    }
+  };
+
+  const handleResetMarketTemplates = async () => {
+    const payload = await api.resetSkillMarkets();
+    setMarketDrafts(payload.markets ?? []);
+    setMarketCacheTtl(payload.cache?.ttl_sec ?? 600);
+    setMarketOverwriteDefault(Boolean(payload.install?.overwrite_default));
+    message.success(t("common.reset"));
+    await refreshMarketplace(true);
   };
 
   const closeImportBuiltin = () => {
@@ -579,6 +714,197 @@ function SkillPoolPage() {
     }
   };
 
+  const importMarketplaceSkillToPool = async (
+    item: MarketplaceItem,
+    targetName?: string,
+  ): Promise<string | null> => {
+    try {
+      const result = await api.importPoolSkillFromHub({
+        bundle_url: item.install_url,
+        overwrite: false,
+        target_name: targetName,
+      });
+      return result.name;
+    } catch (error) {
+      const detail = parseErrorDetail(error);
+      if (detail?.suggested_name) {
+        const skillName = detail?.skill_name || item.skill_id || "";
+        const renameMap = await showConflictRenameModal([
+          {
+            key: skillName,
+            label: skillName,
+            suggested_name: String(detail.suggested_name),
+          },
+        ]);
+        if (renameMap) {
+          const newName = Object.values(renameMap)[0];
+          if (newName) {
+            return importMarketplaceSkillToPool(item, newName);
+          }
+        }
+        return null;
+      }
+      message.error(
+        error instanceof Error ? error.message : t("skills.uploadFailed"),
+      );
+      return null;
+    }
+  };
+
+  const handleImportFromMarketplace = async (item: MarketplaceItem) => {
+    const key = `${item.market_id}/${item.skill_id}`;
+    try {
+      setInstallingSkillKey(key);
+      const importedName = await importMarketplaceSkillToPool(item);
+      if (!importedName) return;
+
+      message.success(`${t("common.create")}: ${importedName}`);
+      invalidateSkillCache({ pool: true, workspaces: true });
+      await loadData(true);
+      setMarketDrawerOpen(false);
+      setMode("broadcast");
+      setBroadcastInitialNames([importedName]);
+    } finally {
+      setInstallingSkillKey(null);
+    }
+  };
+
+  const handleInstallMarketSkill = async (marketId: string, skillId: string) => {
+    const item = marketplace.find(
+      (entry) => entry.market_id === marketId && entry.skill_id === skillId,
+    );
+    if (!item) {
+      message.error(t("common.download"));
+      return false;
+    }
+    await handleImportFromMarketplace(item);
+    return true;
+  };
+
+  const resolvePoolSkillNameFromMarketItem = (item: MarketplaceItem) => {
+    const bySource = skills.find((s) => s.source === item.source_url)?.name;
+    if (bySource) return bySource;
+    return skills.find((s) => s.name === item.skill_id)?.name || null;
+  };
+
+  const handleRunBulkMarketAction = async (params: {
+    type: "enable" | "disable" | "delete";
+    marketId: string;
+    shouldStop: () => boolean;
+    onProgress?: (skillKey: string | null) => void;
+  }) => {
+    const targets = marketplace.filter((item) => item.market_id === params.marketId);
+
+    if (params.type === "enable") {
+      let enabled = 0;
+      let installed = 0;
+      let failed = 0;
+      let stopped = false;
+      const broadcastSkillNames: string[] = [];
+      for (const item of targets) {
+        if (params.shouldStop()) {
+          stopped = true;
+          break;
+        }
+        params.onProgress?.(`${item.market_id}/${item.skill_id}`);
+        const imported = await importMarketplaceSkillToPool(item);
+        if (imported) {
+          installed += 1;
+          enabled += 1;
+          broadcastSkillNames.push(imported);
+        } else {
+          failed += 1;
+        }
+      }
+      params.onProgress?.(null);
+      invalidateSkillCache({ pool: true });
+      await loadData(true);
+      if (broadcastSkillNames.length > 0) {
+        const deduped = Array.from(new Set(broadcastSkillNames));
+        setMarketDrawerOpen(false);
+        setMode("broadcast");
+        setBroadcastInitialNames(deduped);
+      }
+      return {
+        type: "enable" as const,
+        total: targets.length,
+        affected: enabled + installed,
+        failed,
+        enabled,
+        installed,
+        stopped,
+      };
+    }
+
+    if (params.type === "disable") {
+      let disabled = 0;
+      let failed = 0;
+      let stopped = false;
+      for (const item of targets) {
+        if (params.shouldStop()) {
+          stopped = true;
+          break;
+        }
+        params.onProgress?.(`${item.market_id}/${item.skill_id}`);
+        const poolSkillName = resolvePoolSkillNameFromMarketItem(item);
+        if (!poolSkillName) {
+          failed += 1;
+          continue;
+        }
+        try {
+          await api.deleteSkillPoolSkill(poolSkillName);
+          disabled += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      params.onProgress?.(null);
+      invalidateSkillCache({ pool: true });
+      await loadData(true);
+      return {
+        type: "disable" as const,
+        total: targets.length,
+        affected: disabled,
+        failed,
+        disabled,
+        stopped,
+      };
+    }
+
+    let deleted = 0;
+    let failed = 0;
+    let stopped = false;
+    for (const item of targets) {
+      if (params.shouldStop()) {
+        stopped = true;
+        break;
+      }
+      params.onProgress?.(`${item.market_id}/${item.skill_id}`);
+      const poolSkillName = resolvePoolSkillNameFromMarketItem(item);
+      if (!poolSkillName) {
+        failed += 1;
+        continue;
+      }
+      try {
+        const result = await api.deleteSkillPoolSkill(poolSkillName);
+        if (result.deleted) deleted += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    params.onProgress?.(null);
+    invalidateSkillCache({ pool: true });
+    await loadData(true);
+    return {
+      type: "delete" as const,
+      total: targets.length,
+      affected: deleted,
+      failed,
+      deleted,
+      stopped,
+    };
+  };
+
   return (
     <div className={styles.skillsPage}>
       <PageHeader
@@ -630,6 +956,15 @@ function SkillPoolPage() {
                   onClick={() => setImportModalOpen(true)}
                 >
                   {t("skills.importHub")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.marketplaceManageHint")}>
+                <Button
+                  type="default"
+                  icon={<AppstoreAddOutlined />}
+                  onClick={() => void openMarketplaceDrawer()}
+                >
+                  {t("skills.marketplaceManage")}
                 </Button>
               </Tooltip>
               <Tooltip title={t("skills.createSkillHint")}>
@@ -734,6 +1069,43 @@ function SkillPoolPage() {
         onCancel={closeImportModal}
         onConfirm={handleConfirmImport}
         hint={t("skillPool.externalHubHint")}
+      />
+
+      <MarketplaceDrawer
+        open={marketDrawerOpen}
+        onClose={() => setMarketDrawerOpen(false)}
+        marketDrafts={marketDrafts}
+        marketCacheTtl={marketCacheTtl}
+        marketOverwriteDefault={marketOverwriteDefault}
+        savingMarkets={savingMarkets}
+        onAddMarket={handleAddMarket}
+        onRemoveMarket={handleRemoveMarket}
+        onUpdateMarket={handleUpdateMarket}
+        onValidateMarket={handleValidateMarket}
+        onSaveMarkets={handleSaveMarkets}
+        onResetMarketTemplates={() => {
+          void handleResetMarketTemplates();
+        }}
+        onCacheTtlChange={setMarketCacheTtl}
+        onOverwriteDefaultChange={setMarketOverwriteDefault}
+        marketplace={marketplace}
+        marketErrors={marketErrors}
+        marketMeta={marketMeta}
+        marketplaceLoading={marketplaceLoading}
+        onRefreshMarketplace={() => {
+          void refreshMarketplace(true);
+        }}
+        installingSkillKey={installingSkillKey}
+        onInstallSkill={handleInstallMarketSkill}
+        onRunBulkAction={handleRunBulkMarketAction}
+        installActionLabel={t("skillPool.broadcast")}
+        enableAllActionLabel={t("skillPool.broadcastAll")}
+        enableAllConfirmText={t("skillPool.broadcastAllConfirm")}
+        bulkEnableLoadingText={t("skillPool.broadcastAllLoading")}
+        enableAllSummaryActionLabel={t("skillPool.broadcastAll")}
+        installAllInGroupLabel={t("skillPool.broadcastAllInGroup")}
+        installAllInGroupStopLabel={t("skillPool.broadcastAllInGroupStop")}
+        useBulkEnableForGroupInstall={true}
       />
 
       <BroadcastModal
