@@ -39,16 +39,17 @@ The **Tool Guard** scans tool parameters **before** the agent invokes a tool, de
 
 ### How it works
 
-1. When the agent calls a tool (e.g., `execute_shell_command`, `write_file`), the Tool Guard inspects the call parameters
-2. Uses regex rules to detect dangerous patterns:
+1. When the agent calls a tool, the Tool Guard inspects relevant parameters. Built-in regex rules primarily target **`execute_shell_command`**.
+2. Regex rules detect dangerous patterns, for example:
    - `rm -rf /` — Dangerous file deletion
-   - SQL injection patterns
+   - SQL-injection-like fragments
    - Command substitution `$(...)` or `` `...` ``
    - Path traversal `../`
    - Privilege escalation `sudo`, `su`
    - Reverse shells, fork bombs, etc.
+     (Exact coverage depends on built-in and custom rules.)
 3. Each rule has an independent severity level (CRITICAL, HIGH, MEDIUM, LOW, INFO)
-4. When a CRITICAL or HIGH finding is detected, the tool call is blocked and the agent receives a denial message
+4. For CRITICAL or HIGH findings: in the Console / interactive sessions, the tool call enters a pending-approval flow — you approve or reject before it runs. In non-interactive contexts without a session, findings are logged and execution may still proceed — use **`denied_tools`** to hard-block specific tools or tighten rules when needed.
 
 ### Configuration
 
@@ -403,7 +404,7 @@ Built-in signature categories:
 - `hardcoded_secrets` — Hardcoded secrets
 - `prompt_injection` — Prompt injection
 - `social_engineering` — Social engineering
-- `supply_chain` — Supply chain attacks
+- `supply_chain_attack` — Supply chain attacks
 - `obfuscation` — Code obfuscation
 - `resource_abuse` — Resource abuse
 - `unauthorized_tool_use` — Unauthorized tool use
@@ -688,7 +689,7 @@ This command will:
 
 1. Display the current registered username
 2. Prompt for a new password (hidden input, requires confirmation twice)
-3. Rotate the JWT signing secret, which **invalidates all existing sessions** — all logged-in devices must log in again with the new password
+3. Rotate the session signing secret (the key stored in `auth.json`), which **invalidates all existing sessions** — all logged-in devices must log in again with the new password
 
 **Docker deployments**:
 
