@@ -222,28 +222,26 @@ export const SkillCard = React.memo(function SkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer with buttons - only show on hover */}
-      {isHover && (
-        <div className={styles.cardFooter}>
+      {/* Footer with buttons - always show */}
+      <div className={styles.cardFooter}>
+        <Button
+          className={styles.actionButton}
+          onClick={handleToggleClick}
+          icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+        >
+          {skill.enabled ? t("common.disable") : t("common.enable")}
+        </Button>
+        {onDelete && (
           <Button
-            className={styles.actionButton}
-            onClick={handleToggleClick}
-            icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+            danger
+            className={styles.deleteButton}
+            onClick={handleDeleteClick}
+            disabled={skill.enabled}
           >
-            {skill.enabled ? t("common.disable") : t("common.enable")}
+            {t("common.delete")}
           </Button>
-          {onDelete && (
-            <Button
-              danger
-              className={styles.deleteButton}
-              onClick={handleDeleteClick}
-              disabled={skill.enabled}
-            >
-              {t("common.delete")}
-            </Button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </Card>
   );
 });

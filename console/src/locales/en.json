@@ -933,7 +933,7 @@
     "toolResultCompactTitle": "Tool Result Compact Config",
     "toolResultCompactEnabled": "Enable Tool Result Compaction",
     "toolResultCompactEnabledTooltip": "Compact oversized tool call results to save context space",
-    "memorySummaryTitle": "Memory Summary Config",
+    "memorySummaryTitle": "Long-term Memory Config",
     "memorySummaryEnabled": "Activate Memory Summary",
     "memorySummaryEnabledTooltip": "Automatically generate and save memory summaries during context compaction",
     "forceMemorySearch": "Force Memory Search (beta)",

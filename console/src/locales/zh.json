@@ -903,7 +903,7 @@
     "toolResultCompactTitle": "工具结果压缩配置",
     "toolResultCompactEnabled": "启用工具结果压缩",
     "toolResultCompactEnabledTooltip": "对过长的工具调用结果进行压缩，节省上下文空间",
-    "memorySummaryTitle": "记忆总结配置",
+    "memorySummaryTitle": "长期记忆配置",
     "memorySummaryEnabled": "启动记忆总结",
     "memorySummaryEnabledTooltip": "在上下文压缩时自动生成并保存记忆总结",
     "forceMemorySearch": "强制记忆搜索(beta)",
