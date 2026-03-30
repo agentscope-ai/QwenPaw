@@ -424,7 +424,7 @@ class ILinkClient:
 
         # Generate AES key and filekey
         # Generate 16 random bytes for AES key
-        aes_key_raw_bytes = bytes([random.randint(0, 255) for _ in range(16)])
+        aes_key_raw_bytes = secrets.token_bytes(16)
         # Convert to hex string for API call (32 hex chars)
         aes_key_hex = aes_key_raw_bytes.hex()
         # For message, we need base64(hex_string) - following picoclaw's encodeWeixinOutboundAESKey
