@@ -21,10 +21,12 @@ import {
   AliyunIcon,
 } from "@/components/Icon";
 import { sectionStyles } from "@/lib/utils";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 
 type InstallMethod = "pip" | "script" | "docker" | "cloud" | "desktop";
 type ScriptPlatform = "mac" | "windows";
 type ScriptWindowsVariant = "cmd" | "ps";
+type CloudPlatform = "aliyun" | "modelscope";
 
 type CopawQuickStartProps = {
   docsBase: string;
@@ -90,7 +92,10 @@ const COMMANDS = {
   ],
   docker: [
     `docker pull ${DOCKER_IMAGE}`,
-    `docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working -v copaw-secrets:/app/working.secret ${DOCKER_IMAGE}`,
+    `docker run -p 127.0.0.1:8088:8088 \\
+  -v copaw-data:/app/working \\
+  -v copaw-secrets:/app/working.secret \\
+  ${DOCKER_IMAGE}`,
   ],
 } as const;
 
@@ -123,28 +128,95 @@ function CodeBlock({
   headerLeft?: JSX.Element | null;
   className?: string;
 }) {
+  const code = lines.join("\n");
+
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-col rounded-xl border border-[#ececec] bg-[#fafafa] p-4 md:p-5 ${
+      className={`relative flex h-full min-h-0 flex-col rounded-xl border border-[#ececec] bg-[#fafafa] ${
         className ?? ""
       }`}
     >
-      {headerLeft ? <div className="mb-2">{headerLeft}</div> : null}
-      <button
-        type="button"
-        onClick={onCopy}
-        className="absolute right-4 top-4 z-10 inline-flex items-center gap-1.5 rounded-xl border border-[#e6e6e6] bg-white px-3 py-1.5 text-xs font-medium text-[#666] hover:bg-[#f8f8f8]"
-      >
-        {copied ? (
-          <Check size={12} aria-hidden />
-        ) : (
-          <Copy size={12} aria-hidden />
-        )}
-        {copied ? t("docs.copied") : t("docs.copy")}
-      </button>
-      <pre className="min-h-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all pr-20 text-left font-mono text-sm leading-6 text-[#1A1716] md:pr-24 md:text-base md:leading-7">
-        {lines.join("\n")}
-      </pre>
+      <div className="flex items-center justify-between border-b border-[#e8e8e8] px-4 py-2.5 md:px-5">
+        {headerLeft ? <div>{headerLeft}</div> : <div />}
+        <button
+          type="button"
+          onClick={onCopy}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#e6e6e6] bg-white px-2.5 py-1 text-xs font-medium text-[#666] hover:bg-[#f8f8f8]"
+        >
+          {copied ? (
+            <Check size={12} aria-hidden />
+          ) : (
+            <Copy size={12} aria-hidden />
+          )}
+          {copied ? t("docs.copied") : t("docs.copy")}
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-x-auto px-4 py-4 text-center md:px-5 md:py-5">
+        <SyntaxHighlighter
+          language="bash"
+          style={{
+            'code[class*="language-"]': {
+              color: "#1A1716",
+              background: "transparent",
+              fontFamily: "inherit",
+              fontSize: "inherit",
+              lineHeight: "inherit",
+              textAlign: "left",
+            },
+            'pre[class*="language-"]': {
+              background: "transparent",
+              margin: 0,
+              padding: 0,
+            },
+            comment: { color: "#6a737d", fontStyle: "italic" },
+            prolog: { color: "#6a737d" },
+            doctype: { color: "#6a737d" },
+            cdata: { color: "#6a737d" },
+            punctuation: { color: "#393A34" },
+            property: { color: "#d73a49" },
+            tag: { color: "#d73a49" },
+            boolean: { color: "#d73a49" },
+            number: { color: "#005cc5" },
+            constant: { color: "#d73a49" },
+            symbol: { color: "#d73a49" },
+            deleted: { color: "#d73a49" },
+            selector: { color: "#6f42c1" },
+            "attr-name": { color: "#6f42c1" },
+            string: { color: "#032f62" },
+            char: { color: "#032f62" },
+            builtin: { color: "#d73a49", fontWeight: "600" },
+            inserted: { color: "#22863a" },
+            operator: { color: "#d73a49" },
+            entity: { color: "#6f42c1" },
+            url: { color: "#032f62" },
+            variable: { color: "#e36209" },
+            atrule: { color: "#d73a49" },
+            "attr-value": { color: "#032f62" },
+            function: { color: "#6f42c1" },
+            keyword: { color: "#d73a49", fontWeight: "600" },
+            regex: { color: "#22863a" },
+            important: { color: "#d73a49", fontWeight: "bold" },
+            bold: { fontWeight: "bold" },
+            italic: { fontStyle: "italic" },
+          }}
+          customStyle={{
+            margin: 0,
+            padding: 0,
+            background: "transparent",
+            fontSize: "inherit",
+            lineHeight: "inherit",
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily: "inherit",
+              background: "transparent",
+            },
+          }}
+          PreTag="div"
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
     </div>
   );
 }
@@ -155,6 +227,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
   const [scriptPlatform, setScriptPlatform] = useState<ScriptPlatform>("mac");
   const [scriptWinVariant, setScriptWinVariant] =
     useState<ScriptWindowsVariant>("cmd");
+  const [cloudPlatform, setCloudPlatform] = useState<CloudPlatform>("aliyun");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const currentScriptCommands = useMemo(() => {
@@ -253,6 +326,8 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                 <motion.div
                   className="overflow-hidden rounded-[16px] bg-white"
                   variants={itemVariants}
+                  layout
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
                 >
                   <div className="grid grid-cols-2 gap-px bg-(--bg) pb-px sm:grid-cols-5">
                     {METHOD_ORDER.map((method) => {
@@ -280,17 +355,21 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                     })}
                   </div>
 
-                  <div className="flex h-90 flex-col p-3 md:h-105 md:p-7">
-                    <p className="font-inter mb-4 mt-2 text-sm leading-relaxed text-(--color-text-secondary) md:mb-6 md:mt-4 md:text-base">
+                  <motion.div
+                    className="flex flex-col p-3 md:p-7"
+                    layout
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                  >
+                    <p className="font-inter mb-4 mt-2 text-sm leading-relaxed text-(--color-text-secondary) md:mb-4 md:mt-3 md:text-base">
                       {t(`quickstart.desc.${selectedMethod}`)}
                     </p>
 
-                    <div className="min-h-0 flex-1 overflow-y-hidden">
+                    <div className="overflow-y-hidden">
                       <AnimatePresence mode="wait" initial={false}>
                         {selectedMethod === "pip" ? (
                           <motion.div
                             key="pip"
-                            className="h-full"
+                            className="min-h-[200px]"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
@@ -301,7 +380,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                               copied={copiedId === "pip"}
                               onCopy={() => copyLines("pip", COMMANDS.pip)}
                               t={t}
-                              className="h-full"
+                              className="min-h-[200px]"
                             />
                           </motion.div>
                         ) : null}
@@ -309,7 +388,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                         {selectedMethod === "script" ? (
                           <motion.div
                             key="script"
-                            className="flex h-full min-h-0 flex-col gap-3"
+                            className="flex min-h-[200px] flex-col gap-3"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
@@ -351,7 +430,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                                 )
                               }
                               t={t}
-                              className="flex-1"
+                              className="min-h-[140px]"
                               headerLeft={
                                 scriptPlatform === "windows" ? (
                                   <div className="inline-flex rounded-lg border border-[#e8e8e8] bg-(--color-fill-tertiary) p-1">
@@ -381,7 +460,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                         {selectedMethod === "docker" ? (
                           <motion.div
                             key="docker"
-                            className="h-full"
+                            className="min-h-[200px]"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
@@ -394,7 +473,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                                 copyLines("docker", COMMANDS.docker)
                               }
                               t={t}
-                              className="h-full"
+                              className="min-h-[200px]"
                             />
                           </motion.div>
                         ) : null}
@@ -402,60 +481,84 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                         {selectedMethod === "cloud" ? (
                           <motion.div
                             key="cloud"
-                            className="space-y-3"
+                            className="grid min-h-[140px] gap-3"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
                             transition={{ duration: 0.2 }}
                           >
-                            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-                              <a
-                                href={ALIYUN_ECS_URL}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex w-fit items-center justify-center gap-2 rounded-xl  bg-(--color-secondary) px-4 py-2 text-sm  text-(--color-text)  hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
-                              >
-                                <AliyunIcon size={20} />
-                                {t("quickstart.cloud.aliyunDeploy")}
-                              </a>
+                            <div className="flex justify-center">
+                              <div className="inline-flex rounded-xl border border-[#ebe5df] bg-(--color-fill-tertiary) p-1">
+                                {(["aliyun", "modelscope"] as const).map(
+                                  (platform) => (
+                                    <button
+                                      key={platform}
+                                      type="button"
+                                      onClick={() => setCloudPlatform(platform)}
+                                      className={`rounded-lg px-4 py-1.5 text-sm font-semibold sm:px-6 sm:py-2 sm:text-[1.05rem] ${
+                                        cloudPlatform === platform
+                                          ? "bg-white text-(--color-text) shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
+                                          : "text-(--color-text-secondary)"
+                                      }`}
+                                    >
+                                      {t(`quickstart.cloud.${platform}`)}
+                                    </button>
+                                  ),
+                                )}
+                              </div>
+                            </div>
+
+                            <a
+                              href={
+                                cloudPlatform === "aliyun"
+                                  ? ALIYUN_ECS_URL
+                                  : MODELSCOPE_URL
+                              }
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center gap-2 rounded-xl bg-(--color-secondary) px-4 py-3 text-sm font-medium text-(--color-text) hover:brightness-105 md:px-5 md:py-3.5 md:text-[1.08rem]"
+                            >
+                              {cloudPlatform === "aliyun" ? (
+                                <>
+                                  <AliyunIcon size={20} />
+                                  {t("quickstart.cloud.aliyunDeploy")}
+                                </>
+                              ) : (
+                                <>
+                                  <ModelIcon size={20} />
+                                  {t("quickstart.cloud.modelscopeGo")}
+                                </>
+                              )}
+                            </a>
+
+                            {cloudPlatform === "aliyun" ? (
                               <a
                                 href={ALIYUN_DOC_URL}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex w-fit items-center justify-center gap-2 rounded-xl border border-[#d9d9d9] bg-white px-4 py-2 text-sm  text-[#6a6a6a] hover:bg-[#fafafa] md:px-5 md:py-2.5 md:text-[1.08rem]"
+                                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#d9d9d9] bg-white px-4 py-2.5 text-sm font-medium text-[#6a6a6a] hover:bg-[#fafafa] md:px-5 md:py-3 md:text-[1.08rem]"
                               >
                                 <FileText size={16} aria-hidden />
                                 {t("quickstart.cloud.aliyunDoc")}
                               </a>
-                              <div className="basis-full">
-                                <a
-                                  href={MODELSCOPE_URL}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex w-fit items-center justify-center gap-2 rounded-xl  bg-(--color-secondary) px-4 py-2 text-sm  text-(--color-text)  hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
-                                >
-                                  <ModelIcon size={20} />
-                                  {t("quickstart.cloud.modelscopeGo")}
-                                </a>
-                              </div>
-                            </div>
+                            ) : null}
                           </motion.div>
                         ) : null}
 
                         {selectedMethod === "desktop" ? (
                           <motion.div
                             key="desktop"
-                            className="space-y-5"
+                            className="grid min-h-[220px] gap-3"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
                             transition={{ duration: 0.2 }}
                           >
-                            <div className="rounded-2xl border border-[#ececec] bg-[#fafafa] p-4 md:p-6">
-                              <div className="mb-2 font-mono text-sm font-semibold tracking-[0.01em] text-(--color-text) md:mb-3 md:text-[1.02rem]">
+                            <div className="rounded-xl border border-[#ececec] bg-[#fafafa] p-4 md:p-5">
+                              <div className="mb-2 font-mono text-sm font-semibold tracking-[0.01em] text-(--color-text) md:text-[0.95rem]">
                                 {t("quickstart.desktop.platforms")}
                               </div>
-                              <ul className="space-y-1 font-mono text-sm leading-6 text-(--color-text-secondary) md:space-y-1.5 md:text-[1.02rem] md:leading-8">
+                              <ul className="space-y-0.5 font-mono text-sm leading-6 text-(--color-text-secondary) md:text-[0.95rem] md:leading-7">
                                 <li>Windows 10+</li>
                                 <li>
                                   macOS 14+ (Apple Silicon{" "}
@@ -464,29 +567,41 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                               </ul>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                               <a
                                 href={DESKTOP_RELEASES_URL}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center justify-center gap-2 rounded-xl  bg-(--color-secondary) px-4 py-2 text-sm text-(--color-text) hover:brightness-105 md:px-5 md:py-2.5 md:text-[1.08rem]"
+                                className="inline-flex items-center justify-center gap-2 rounded-xl bg-(--color-secondary) px-4 py-3 text-sm font-medium text-(--color-text) hover:brightness-105 md:px-5 md:py-3.5 md:text-[1.08rem]"
                               >
                                 <GitHubIcon size={20} />
-                                {t("quickstart.desktop.downloadGithub")}
+                                <span>
+                                  {t("quickstart.desktop.downloadGithub")}
+                                </span>
+                                <span className="ml-0.5 rounded-xs bg-[#FFD8B8] px-1.5 py-0.5 text-[10px] font-semibold text-[#F46F02] sm:text-[11px]">
+                                  {t("quickstart.desktop.recommended")}
+                                </span>
                               </a>
                               <Link
-                                to={`${docsBase}/desktop`}
-                                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#d9d9d9] bg-white px-4 py-2 text-sm text-[#6a6a6a] hover:bg-[#fafafa] md:px-5 md:py-2.5 md:text-[1.08rem]"
+                                to="/downloads"
+                                className="inline-flex items-center justify-center gap-2 rounded-xl bg-(--color-secondary) px-4 py-3 text-sm font-medium text-(--color-text) hover:brightness-105 md:px-5 md:py-3.5 md:text-[1.08rem]"
                               >
-                                <FileText size={16} aria-hidden />
-                                {t("quickstart.desktop.viewGuide")}
+                                <Monitor size={20} aria-hidden />
+                                {t("quickstart.desktop.viewDownloads")}
                               </Link>
                             </div>
+                            <Link
+                              to={`${docsBase}/desktop`}
+                              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#d9d9d9] bg-white px-4 py-2.5 text-sm font-medium text-[#6a6a6a] hover:bg-[#fafafa] md:px-5 md:py-3 md:text-[1.08rem]"
+                            >
+                              <FileText size={16} aria-hidden />
+                              {t("quickstart.desktop.viewGuide")}
+                            </Link>
                           </motion.div>
                         ) : null}
                       </AnimatePresence>
                     </div>
-                  </div>
+                  </motion.div>
                 </motion.div>
               </div>
               <div

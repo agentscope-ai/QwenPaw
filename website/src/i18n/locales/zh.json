@@ -192,6 +192,7 @@
     },
     "desktop": {
       "platforms": "支持平台",
+      "viewDownloads": "查看下载页",
       "downloadGithub": "前往 GitHub 下载",
       "viewGuide": "查看使用指南",
       "recommended": "推荐"

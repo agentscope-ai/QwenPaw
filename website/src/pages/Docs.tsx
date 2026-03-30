@@ -22,6 +22,7 @@ import {
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { DocSearch } from "@/components/DocSearch";
 import { DocSearchResults } from "@/components/DocSearchResults";
+import { ImageZoom } from "@/components/ImageZoom";
 /* Code block theme: defined in index.css for high contrast */
 
 function CodeBlockWithCopy({ children }: { children: React.ReactNode }) {
@@ -624,6 +625,15 @@ export function Docs() {
                               const id = getHeadingId(children);
                               return <h3 id={id}>{children}</h3>;
                             },
+                            img: ({ src, alt, className }) => {
+                              return (
+                                <ImageZoom
+                                  src={src ?? ""}
+                                  alt={alt ?? ""}
+                                  className={className}
+                                />
+                              );
+                            },
                           }}
                         >
                           {faqData.intro}
@@ -666,6 +676,17 @@ export function Docs() {
                                   <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                                    components={{
+                                      img: ({ src, alt, className }) => {
+                                        return (
+                                          <ImageZoom
+                                            src={src ?? ""}
+                                            alt={alt ?? ""}
+                                            className={className}
+                                          />
+                                        );
+                                      },
+                                    }}
                                   >
                                     {item.answer}
                                   </ReactMarkdown>
@@ -757,7 +778,7 @@ export function Docs() {
                             </code>
                           );
                         },
-                        img: ({ src, alt }) => {
+                        img: ({ src, alt, className }) => {
                           const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(
                             src ?? "",
                           );
@@ -768,7 +789,13 @@ export function Docs() {
                               </video>
                             );
                           }
-                          return <img src={src ?? undefined} alt={alt ?? ""} />;
+                          return (
+                            <ImageZoom
+                              src={src ?? ""}
+                              alt={alt ?? ""}
+                              className={className}
+                            />
+                          );
                         },
                       }}
                     >

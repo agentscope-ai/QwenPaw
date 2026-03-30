@@ -10,6 +10,9 @@ importers:
       "@fontsource-variable/geist":
         specifier: ^5.2.8
         version: 5.2.8
+      "@types/react-syntax-highlighter":
+        specifier: ^15.5.13
+        version: 15.5.13
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -55,6 +58,9 @@ importers:
       react-router-dom:
         specifier: ^7.0.1
         version: 7.13.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-syntax-highlighter:
+        specifier: ^16.1.1
+        version: 16.1.1(react@18.3.1)
       rehype-highlight:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1788,7 +1794,6 @@ packages:
       }
     cpu: [arm]
     os: [linux]
-    libc: [glibc]
 
   "@rollup/rollup-linux-arm-musleabihf@4.57.1":
     resolution:
@@ -1797,7 +1802,6 @@ packages:
       }
     cpu: [arm]
     os: [linux]
-    libc: [musl]
 
   "@rollup/rollup-linux-arm64-gnu@4.57.1":
     resolution:
@@ -1806,7 +1810,6 @@ packages:
       }
     cpu: [arm64]
     os: [linux]
-    libc: [glibc]
 
   "@rollup/rollup-linux-arm64-musl@4.57.1":
     resolution:
@@ -1815,7 +1818,6 @@ packages:
       }
     cpu: [arm64]
     os: [linux]
-    libc: [musl]
 
   "@rollup/rollup-linux-loong64-gnu@4.57.1":
     resolution:
@@ -1824,7 +1826,6 @@ packages:
       }
     cpu: [loong64]
     os: [linux]
-    libc: [glibc]
 
   "@rollup/rollup-linux-loong64-musl@4.57.1":
     resolution:
@@ -1833,7 +1834,6 @@ packages:
       }
     cpu: [loong64]
     os: [linux]
-    libc: [musl]
 
   "@rollup/rollup-linux-ppc64-gnu@4.57.1":
     resolution:
@@ -1842,7 +1842,6 @@ packages:
       }
     cpu: [ppc64]
     os: [linux]
-    libc: [glibc]
 
   "@rollup/rollup-linux-ppc64-musl@4.57.1":
     resolution:
@@ -1851,7 +1850,6 @@ packages:
       }
     cpu: [ppc64]
     os: [linux]
-    libc: [musl]
 
   "@rollup/rollup-linux-riscv64-gnu@4.57.1":
     resolution:
@@ -1860,7 +1858,6 @@ packages:
       }
     cpu: [riscv64]
     os: [linux]
-    libc: [glibc]
 
   "@rollup/rollup-linux-riscv64-musl@4.57.1":
     resolution:
@@ -1869,7 +1866,6 @@ packages:
       }
     cpu: [riscv64]
     os: [linux]
-    libc: [musl]
 
   "@rollup/rollup-linux-s390x-gnu@4.57.1":
     resolution:
@@ -1878,7 +1874,6 @@ packages:
       }
     cpu: [s390x]
     os: [linux]
-    libc: [glibc]
 
   "@rollup/rollup-linux-x64-gnu@4.57.1":
     resolution:
@@ -1887,7 +1882,6 @@ packages:
       }
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
 
   "@rollup/rollup-linux-x64-musl@4.57.1":
     resolution:
@@ -1896,7 +1890,6 @@ packages:
       }
     cpu: [x64]
     os: [linux]
-    libc: [musl]
 
   "@rollup/rollup-openbsd-x64@4.57.1":
     resolution:
@@ -2018,7 +2011,6 @@ packages:
     engines: { node: ">= 20" }
     cpu: [arm64]
     os: [linux]
-    libc: [glibc]
 
   "@tailwindcss/oxide-linux-arm64-musl@4.2.2":
     resolution:
@@ -2028,7 +2020,6 @@ packages:
     engines: { node: ">= 20" }
     cpu: [arm64]
     os: [linux]
-    libc: [musl]
 
   "@tailwindcss/oxide-linux-x64-gnu@4.2.2":
     resolution:
@@ -2038,7 +2029,6 @@ packages:
     engines: { node: ">= 20" }
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
 
   "@tailwindcss/oxide-linux-x64-musl@4.2.2":
     resolution:
@@ -2048,7 +2038,6 @@ packages:
     engines: { node: ">= 20" }
     cpu: [x64]
     os: [linux]
-    libc: [musl]
 
   "@tailwindcss/oxide-wasm32-wasi@4.2.2":
     resolution:
@@ -2369,6 +2358,12 @@ packages:
         integrity: sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw==,
       }
 
+  "@types/prismjs@1.26.6":
+    resolution:
+      {
+        integrity: sha512-vqlvI7qlMvcCBbVe0AKAb4f97//Hy0EBTaiW8AalRnG/xAN5zOiWWyrNqNXeq8+KAuvRewjCVY1+IPxk4RdNYw==,
+      }
+
   "@types/prop-types@15.7.15":
     resolution:
       {
@@ -2382,6 +2377,12 @@ packages:
       }
     peerDependencies:
       "@types/react": ^18.0.0
+
+  "@types/react-syntax-highlighter@15.5.13":
+    resolution:
+      {
+        integrity: sha512-uLGJ87j6Sz8UaBAooU0T6lWJ0dBmjZgN1PZTrj05TNql2/XpC6+4HhMT5syIdFUUt+FASfCeLLv4kBygNU+8qA==,
+      }
 
   "@types/react@18.3.28":
     resolution:
@@ -3467,6 +3468,12 @@ packages:
         integrity: sha512-GGToxJ/w1x32s/D2EKND7kTil4n8OVk/9mycTc4VDza13lOvpUZTGX3mFSCtV9ksdGBVzvsyAVLM6mHFThxXxw==,
       }
 
+  fault@1.0.4:
+    resolution:
+      {
+        integrity: sha512-CJ0HCB5tL5fYTEA7ToAq5+kTwd++Borf1/bifxd9iT70QcXr4MRrO3Llf8Ifs70q+SJcGHFtnIE/Nw6giCtECA==,
+      }
+
   fdir@6.5.0:
     resolution:
       {
@@ -3506,6 +3513,13 @@ packages:
         integrity: sha512-S8KoZgRZN+a5rNwqTxlZZePjT/4cnm0ROV70LedRHZ0p8u9fRID0hJUZQpkKLzro8LfmC8sx23bY6tVNxv8pQA==,
       }
     engines: { node: ">= 18.0.0" }
+
+  format@0.2.2:
+    resolution:
+      {
+        integrity: sha512-wzsgA6WOq+09wrU1tsJ09udeR/YZRaeArL9e1wPbFg3GG2yDnC2ldKpxs4xunpFF9DgqCqOIra3bc1HWrJ37Ww==,
+      }
+    engines: { node: ">=0.4.x" }
 
   formdata-polyfill@4.0.10:
     resolution:
@@ -3749,12 +3763,24 @@ packages:
         integrity: sha512-IScLbePpkvO846sIwOtOTDjutRMWdXdJmXdMvk6gCBHxFO8d+QKOQedyZSxFTTFYRSmlgSTDtXqqq4pcenBXLQ==,
       }
 
+  highlight.js@10.7.3:
+    resolution:
+      {
+        integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==,
+      }
+
   highlight.js@11.11.1:
     resolution:
       {
         integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==,
       }
     engines: { node: ">=12.0.0" }
+
+  highlightjs-vue@1.0.0:
+    resolution:
+      {
+        integrity: sha512-PDEfEF102G23vHmPhLyPboFCD+BkMGu+GuJe2d9/eH4FsCwvgBpnc9n0pGE+ffKdph38s6foEZiEjdgHdzp+IA==,
+      }
 
   hono@4.12.9:
     resolution:
@@ -4221,7 +4247,6 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [arm64]
     os: [linux]
-    libc: [glibc]
 
   lightningcss-linux-arm64-musl@1.32.0:
     resolution:
@@ -4231,7 +4256,6 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [arm64]
     os: [linux]
-    libc: [musl]
 
   lightningcss-linux-x64-gnu@1.32.0:
     resolution:
@@ -4241,7 +4265,6 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
 
   lightningcss-linux-x64-musl@1.32.0:
     resolution:
@@ -4251,7 +4274,6 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [x64]
     os: [linux]
-    libc: [musl]
 
   lightningcss-win32-arm64-msvc@1.32.0:
     resolution:
@@ -4315,6 +4337,12 @@ packages:
         integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==,
       }
     hasBin: true
+
+  lowlight@1.20.0:
+    resolution:
+      {
+        integrity: sha512-8Ktj+prEb1RoCPkEOrPMYUN/nCggB7qAWe3a7OpMjWQkh3l2RD5wKRQ+o8Q8YuI9RG/xs95waaI/E6ym/7NsTw==,
+      }
 
   lowlight@3.3.0:
     resolution:
@@ -5058,6 +5086,13 @@ packages:
       }
     engines: { node: ">=18" }
 
+  prismjs@1.30.0:
+    resolution:
+      {
+        integrity: sha512-DEvV2ZF2r2/63V+tK8hQvrR2ZGn10srHbXviTlcv7Kpzw8jWiNTqbVgjO3IY8RxrrOUF8VPMQQFysYYYv0YZxw==,
+      }
+    engines: { node: ">=6" }
+
   prompts@2.4.2:
     resolution:
       {
@@ -5226,6 +5261,15 @@ packages:
       "@types/react":
         optional: true
 
+  react-syntax-highlighter@16.1.1:
+    resolution:
+      {
+        integrity: sha512-PjVawBGy80C6YbC5DDZJeUjBmC7skaoEUdvfFQediQHgCL7aKyVHe57SaJGfQsloGDac+gCpTfRdtxzWWKmCXA==,
+      }
+    engines: { node: ">= 16.20.2" }
+    peerDependencies:
+      react: ">= 0.14.0"
+
   react@18.3.1:
     resolution:
       {
@@ -5239,6 +5283,12 @@ packages:
         integrity: sha512-YTUo+Flmw4ZXiWfQKGcwwc11KnoRAYgzAE2E7mXKCjSviTKShtxBsN6YUUBB2gtaBzKzeKunxhUwNHQuRryhWA==,
       }
     engines: { node: ">= 4" }
+
+  refractor@5.0.0:
+    resolution:
+      {
+        integrity: sha512-QXOrHQF5jOpjjLfiNk5GFnWhRXvxjUVnlFxkeDmewR5sXkr3iM46Zo+CnRR8B+MDVqkULW4EcLVcRBNOPXHosw==,
+      }
 
   rehype-highlight@7.0.2:
     resolution:
@@ -7645,9 +7695,15 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
+  "@types/prismjs@1.26.6": {}
+
   "@types/prop-types@15.7.15": {}
 
   "@types/react-dom@18.3.7(@types/react@18.3.28)":
+    dependencies:
+      "@types/react": 18.3.28
+
+  "@types/react-syntax-highlighter@15.5.13":
     dependencies:
       "@types/react": 18.3.28
 
@@ -8292,6 +8348,10 @@ snapshots:
     dependencies:
       reusify: 1.1.0
 
+  fault@1.0.4:
+    dependencies:
+      format: 0.2.2
+
   fdir@6.5.0(picomatch@4.0.3):
     optionalDependencies:
       picomatch: 4.0.3
@@ -8319,6 +8379,8 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
+
+  format@0.2.2: {}
 
   formdata-polyfill@4.0.10:
     dependencies:
@@ -8491,7 +8553,11 @@ snapshots:
 
   headers-polyfill@4.0.3: {}
 
+  highlight.js@10.7.3: {}
+
   highlight.js@11.11.1: {}
+
+  highlightjs-vue@1.0.0: {}
 
   hono@4.12.9: {}
 
@@ -8727,6 +8793,11 @@ snapshots:
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 4.0.0
+
+  lowlight@1.20.0:
+    dependencies:
+      fault: 1.0.4
+      highlight.js: 10.7.3
 
   lowlight@3.3.0:
     dependencies:
@@ -9353,6 +9424,8 @@ snapshots:
     dependencies:
       parse-ms: 4.0.0
 
+  prismjs@1.30.0: {}
+
   prompts@2.4.2:
     dependencies:
       kleur: 3.0.3
@@ -9521,6 +9594,16 @@ snapshots:
     optionalDependencies:
       "@types/react": 18.3.28
 
+  react-syntax-highlighter@16.1.1(react@18.3.1):
+    dependencies:
+      "@babel/runtime": 7.29.2
+      highlight.js: 10.7.3
+      highlightjs-vue: 1.0.0
+      lowlight: 1.20.0
+      prismjs: 1.30.0
+      react: 18.3.1
+      refractor: 5.0.0
+
   react@18.3.1:
     dependencies:
       loose-envify: 1.4.0
@@ -9532,6 +9615,13 @@ snapshots:
       source-map: 0.6.1
       tiny-invariant: 1.3.3
       tslib: 2.8.1
+
+  refractor@5.0.0:
+    dependencies:
+      "@types/hast": 3.0.4
+      "@types/prismjs": 1.26.6
+      hastscript: 9.0.1
+      parse-entities: 4.0.2
 
   rehype-highlight@7.0.2:
     dependencies:

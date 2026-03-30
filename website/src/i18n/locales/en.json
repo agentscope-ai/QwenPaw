@@ -192,6 +192,7 @@
     },
     "desktop": {
       "platforms": "Supported Platforms",
+      "viewDownloads": "View Downloads",
       "downloadGithub": "Download from GitHub",
       "viewGuide": "View User Guide",
       "recommended": "recommended"

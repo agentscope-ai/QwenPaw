@@ -347,6 +347,60 @@ button {
   padding: 0;
 }
 
+/* QuickStart code block syntax highlighting */
+pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  background: transparent !important;
+}
+
+pre code.hljs .hljs-keyword,
+pre code.hljs .hljs-selector-tag,
+pre code.hljs .hljs-literal,
+pre code.hljs .hljs-section,
+pre code.hljs .hljs-link,
+pre code.hljs .hljs-built_in {
+  color: #d73a49 !important;
+  font-weight: 600;
+}
+
+pre code.hljs .hljs-string,
+pre code.hljs .hljs-regexp,
+pre code.hljs .hljs-addition,
+pre code.hljs .hljs-attribute,
+pre code.hljs .hljs-meta .hljs-string {
+  color: #22863a !important;
+}
+
+pre code.hljs .hljs-title,
+pre code.hljs .hljs-class .hljs-title,
+pre code.hljs .hljs-title.class_ {
+  color: #6f42c1 !important;
+}
+
+pre code.hljs .hljs-variable,
+pre code.hljs .hljs-template-variable,
+pre code.hljs .hljs-type,
+pre code.hljs .hljs-selector-class,
+pre code.hljs .hljs-selector-attr,
+pre code.hljs .hljs-selector-pseudo,
+pre code.hljs .hljs-number {
+  color: #005cc5 !important;
+}
+
+pre code.hljs .hljs-comment,
+pre code.hljs .hljs-quote,
+pre code.hljs .hljs-deletion,
+pre code.hljs .hljs-meta {
+  color: #6a737d !important;
+  font-style: italic;
+}
+
+pre code.hljs .hljs-params,
+pre code.hljs .hljs-attr {
+  color: #e36209 !important;
+}
+
 .docs-content :not(pre) > code {
   padding: 0.15em 0.4em;
   background: var(--bg);
