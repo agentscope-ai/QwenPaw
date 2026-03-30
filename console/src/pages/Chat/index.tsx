@@ -579,9 +579,9 @@ export default function ChatPage() {
       },
       welcome: {
         ...i18nConfig.welcome,
-        nick: "CoPaw",
+        nick: "qua-assistant",
         avatar:
-          "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png",
+          "https://www.quaming.com/images/logo@3x.png",
       },
       sender: {
         ...(i18nConfig as any)?.sender,
