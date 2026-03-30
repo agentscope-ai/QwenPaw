@@ -5,7 +5,7 @@
 
 管理 Skill 有两种方式：
 
-- **控制台：** 在 [控制台](./console) 的 **Agent → Skills** 页面操作。
+- **控制台：** 在 [控制台](./console) 的 **工作区 → 技能** 页面操作。
 - **工作目录：** 直接在 `$COPAW_WORKING_DIR`（默认 `~/.copaw`）下编辑技能文件，
   包括 `$COPAW_WORKING_DIR/skill_pool/` 和各工作区下的
   `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`。
@@ -76,7 +76,7 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
    | **browser_visible**           | 以可见模式（headed）启动真实浏览器窗口，适用于演示、调试或需要人工参与的场景。                     | 自建                                                           |
    | **channel_message**           | 在先定位目标 session / channel 后，主动向会话或频道发送单向消息。                                  | 自建                                                           |
    | **copaw_source_index**        | CoPaw 自身源码与文档的快速索引技能，用于把关键词映射到本地源码路径和文档。                         | 自建                                                           |
-   | **cron**                      | 定时任务管理。通过 `copaw cron` 或控制台 Cron Jobs 创建、查询、暂停、恢复、删除定时任务。          | 自建                                                           |
+   | **cron**                      | 定时任务管理。通过 `copaw cron` 或控制台定时任务创建、查询、暂停、恢复、删除定时任务。             | 自建                                                           |
    | **dingtalk_channel**          | 通过可视浏览器辅助完成钉钉频道接入流程，并提示用户完成必要手动步骤。                               | 自建                                                           |
    | **docx**                      | Word 文档（.docx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                 | https://github.com/anthropics/skills/tree/main/skills/docx     |
    | **file_reader**               | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由专用 Skill 处理。 | 自建                                                           |
@@ -89,11 +89,11 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
    | **xlsx**                      | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                 | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
 
    在技能池页面里，内置技能可能显示 **最新** / **已过期** 之类状态。
-   用 **导入内置** 可以补回缺失内置技能；用 **更新** 可以把已过期的内置技能
-   刷新到当前打包版本。
+   用 **更新内置技能** 可以补回缺失内置技能或将已过期的内置技能刷新到当前
+   打包版本。
 
    内置的 **Cron** 技能提供定时任务管理。通过 [CLI](./cli) 的
-   `copaw cron` 或控制台 **Control → Cron Jobs** 管理：
+   `copaw cron` 或控制台 **控制 → 定时任务** 管理：
 
    - 创建任务：`copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
    - 查看列表：`copaw cron list`
@@ -109,7 +109,7 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
    适合已经打包好的一个或多个 skill 目录。
 
 5. **从工作区上传到池子**。
-   在 **智能体 → 技能** 页面点击 **上传**，可以把某个工作区技能发布到池子。
+   在 **工作区 → 技能** 页面点击 **同步到技能池**，可以把某个工作区技能发布到池子。
    上传后，工作区条目会写成 `sync_to_pool.status = "synced"`。
 
 6. **手动在技能池目录中操作**。
@@ -151,7 +151,7 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
 
 ### 2. 通过界面创建
 
-在 [控制台](./console) → **Agent → Skills** 中直接填写名称和内容即可创建。
+在 [控制台](./console) → **工作区 → 技能** 中直接填写名称和内容即可创建。
 创建后会写入工作区的 `skills/` 目录和 `skill.json`，并且**默认启用**。
 
 在编辑工作区 skill 的抽屉里，还可以使用 **AI 优化**。这个功能目前只是
@@ -177,21 +177,21 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
 
 #### 步骤
 
-1. 打开 [控制台](./console) → **智能体 → 技能**，点击 **导入 Hub**。
+1. 打开 [控制台](./console) → **工作区 → 技能**，点击 **从 Skills Hub 导入技能**。
 
-   ![import](https://img.alicdn.com/imgextra/i1/O1CN01bPOPqG1msB1BfyaWH_!!6000000005009-2-tps-3422-1964.png)
+   ![import](https://img.alicdn.com/imgextra/i1/O1CN0134XTb81v513NbR5YT_!!6000000006120-2-tps-2938-1560.png)
 
 2. 在弹窗中粘贴 Skill URL（获取方式见下方 **URL 获取示例**）。
 
-   ![url](https://img.alicdn.com/imgextra/i1/O1CN01tkDSeA23nunikJNbG_!!6000000007301-2-tps-3422-1964.png)
+   ![url](https://img.alicdn.com/imgextra/i4/O1CN01enUOza1epPhw1IRJs_!!6000000003920-2-tps-2924-1562.png)
 
 3. 点击导入技能，等待导入完成。
 
-   ![click](https://img.alicdn.com/imgextra/i2/O1CN015ZrEml1oGjsI3SnRZ_!!6000000005198-2-tps-3422-1964.png)
+   ![click](https://img.alicdn.com/imgextra/i3/O1CN019BEC8u1cImFpKaQJv_!!6000000003578-2-tps-2940-1556.png)
 
 4. 导入成功后，skill 出现在技能列表中，**默认启用**。
 
-   ![new](https://img.alicdn.com/imgextra/i2/O1CN01E5vUus1VdezregzVv_!!6000000002676-2-tps-3422-1964.png)
+   ![new](https://img.alicdn.com/imgextra/i2/O1CN01A4T0dQ1OxcxZ6jP3Q_!!6000000001772-2-tps-2940-1556.png)
 
 #### URL 获取示例
 
@@ -273,7 +273,7 @@ metadata:
 
 要限制某个 Skill 只在特定频道上生效：
 
-1. 在 **Agent → Skills** 中，点击某个技能的频道设置。
+1. 在 **工作区 → 技能** 中，点击某个技能的频道设置。
 2. 选择希望该技能生效的频道（如 `discord`、`telegram`、`console`）。
 
 Agent 在某个频道运行时，只会加载 `channels` 列表包含该频道（或 `"all"`）的技能。
@@ -288,7 +288,7 @@ Discord 上。
 展示字段。当某个 Skill 在当前 workspace 和频道下生效时，CoPaw 会在该次 Agent
 运行期间把它注入到运行时环境中，Skill 结束后再回滚。
 
-可以在控制台 **Agent → Skills** 中点击技能的配置图标设置 config，也可以通过
+可以在控制台 **工作区 → 技能** 中点击技能的配置图标设置 config，也可以通过
 API 操作。
 
 ### 注入方式

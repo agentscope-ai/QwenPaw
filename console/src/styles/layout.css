@@ -31,6 +31,7 @@ html.dark-mode .copaw-layout-content {
 /* Page content area background */
 html.dark-mode .page-content {
   background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 /* Card components — @agentscope-ai/design uses copaw prefix */
@@ -858,4 +859,12 @@ html.dark-mode .copaw-btn-primary.copaw-btn-disabled {
   color: rgba(255, 255, 255, 0.3) !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   box-shadow: none !important;
+}
+
+/* Dark mode - default button */
+html.dark-mode .ant-btn-default,
+html.dark-mode .copaw-btn-default {
+  color: rgba(255, 235, 218, 0.88) !important;
+  background-color: #000000 !important;
+  border: 1px solid #3a312a !important;
 }
