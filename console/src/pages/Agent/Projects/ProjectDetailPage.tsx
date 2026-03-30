@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Collapse,
   Empty,
   Modal,
   Select,
@@ -102,6 +103,23 @@ function statusTagColor(status: string): string {
   }
 }
 
+function formatRunTimeLabel(raw: string): string {
+  if (!raw) {
+    return "-";
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return raw;
+  }
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  const hh = String(parsed.getHours()).padStart(2, "0");
+  const mm = String(parsed.getMinutes()).padStart(2, "0");
+  const ss = String(parsed.getSeconds()).padStart(2, "0");
+  return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+}
+
 export default function ProjectDetailPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -167,9 +185,38 @@ export default function ProjectDetailPage() {
   );
 
   const selectedRunSummary = useMemo(
-    () => pipelineRuns.find((run) => run.id === selectedRunId),
-    [pipelineRuns, selectedRunId],
+    () =>
+      pipelineRuns.find(
+        (run) => run.id === selectedRunId && run.template_id === selectedTemplateId,
+      ),
+    [pipelineRuns, selectedRunId, selectedTemplateId],
   );
+
+  const runsForSelectedTemplate = useMemo(
+    () =>
+      pipelineRuns.filter(
+        (run) => !selectedTemplateId || run.template_id === selectedTemplateId,
+      ),
+    [pipelineRuns, selectedTemplateId],
+  );
+
+  const activeRunTemplate = useMemo(() => {
+    if (!selectedTemplateId) {
+      return pipelineTemplates[0];
+    }
+    return (
+      pipelineTemplates.find((item) => item.id === selectedTemplateId) ||
+      pipelineTemplates[0]
+    );
+  }, [pipelineTemplates, selectedTemplateId]);
+
+  const stepContractById = useMemo(() => {
+    const mapping = new Map<string, ProjectPipelineTemplateInfo["steps"][number]>();
+    for (const item of activeRunTemplate?.steps || []) {
+      mapping.set(item.id, item);
+    }
+    return mapping;
+  }, [activeRunTemplate?.steps]);
 
   const activeRunChatId = useMemo(
     () => runFocusChatId || runDetail?.focus_chat_id || selectedRunSummary?.focus_chat_id || "",
@@ -377,7 +424,7 @@ export default function ProjectDetailPage() {
       }
 
       if (runs.length > 0) {
-        setSelectedRunId((prev) => (runs.some((item) => item.id === prev) ? prev : runs[0].id));
+        setSelectedRunId((prev) => (runs.some((item) => item.id === prev) ? prev : ""));
       } else {
         setSelectedRunId("");
         setRunDetail(null);
@@ -689,6 +736,32 @@ export default function ProjectDetailPage() {
   }, [currentAgent, selectedProject, selectedFilePath, loadFileContent]);
 
   useEffect(() => {
+    if (!selectedTemplateId) {
+      setSelectedRunId("");
+      setRunDetail(null);
+      return;
+    }
+
+    if (runsForSelectedTemplate.length === 0) {
+      setSelectedRunId("");
+      setRunDetail(null);
+      return;
+    }
+
+    setSelectedRunId((prev) =>
+      runsForSelectedTemplate.some((item) => item.id === prev)
+        ? prev
+        : runsForSelectedTemplate[0].id,
+    );
+  }, [runsForSelectedTemplate, selectedTemplateId]);
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setRunDetail(null);
+    }
+  }, [selectedRunId]);
+
+  useEffect(() => {
     if (!currentAgent || !selectedProject || !selectedRunId) {
       return;
     }
@@ -823,62 +896,174 @@ export default function ProjectDetailPage() {
                   <div className={styles.centerState}>
                     <Spin />
                   </div>
-                ) : pipelineRuns.length === 0 ? (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description={t("projects.pipeline.noRuns", "No pipeline runs yet")}
-                  />
                 ) : (
                   <>
                     <div className={styles.runList}>
-                      {pipelineRuns.map((run) => {
-                        const selected = run.id === selectedRunId;
-                        return (
-                          <button
-                            key={run.id}
-                            type="button"
-                            className={`${styles.listItem} ${selected ? styles.selected : ""}`}
-                            onClick={() => setSelectedRunId(run.id)}
-                          >
-                            <div className={styles.itemTitleRow}>
-                              <span className={styles.itemTitle}>{run.id}</span>
-                              <Tag color={statusTagColor(run.status)}>{run.status}</Tag>
-                            </div>
-                            <div className={styles.itemMeta}>{run.template_id}</div>
-                            <div className={styles.itemMeta}>{run.updated_at}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className={styles.stepPanel}>
-                      <div className={styles.subSectionTitle}>
-                        {t("projects.pipeline.steps", "Steps")}
-                      </div>
-                      {runDetail && (
-                        <div className={styles.progressLine}>
-                          {t("projects.pipeline.progress", "Progress")}: {runProgress.completed}/
-                          {runProgress.total} · running {runProgress.running} · pending {runProgress.pending}
-                        </div>
-                      )}
-                      {!runDetail || runDetail.steps.length === 0 ? (
+                      {runsForSelectedTemplate.length === 0 ? (
                         <Empty
                           image={Empty.PRESENTED_IMAGE_SIMPLE}
-                          description={t("projects.pipeline.noSteps", "No steps available")}
+                          description={t(
+                            "projects.pipeline.noRunsForFlow",
+                            "No runs for selected flow yet",
+                          )}
                         />
                       ) : (
-                        runDetail.steps.map((step) => (
-                          <div key={step.id} className={styles.stepItem}>
-                            <div className={styles.itemTitleRow}>
-                              <span className={styles.itemTitle}>{step.name}</span>
-                              <Tag color={statusTagColor(step.status)}>{step.status}</Tag>
-                            </div>
-                            <div className={styles.itemMeta}>{step.kind}</div>
-                            <div className={styles.itemMeta}>{step.id}</div>
-                          </div>
-                        ))
+                        <Collapse
+                          accordion
+                          ghost
+                          activeKey={selectedRunId || undefined}
+                          onChange={(activeKey) => {
+                            const key = Array.isArray(activeKey) ? activeKey[0] : activeKey;
+                            setSelectedRunId(typeof key === "string" ? key : "");
+                          }}
+                          items={runsForSelectedTemplate.map((run) => ({
+                            key: run.id,
+                            label: (
+                              <div className={styles.itemTitleRow}>
+                                <span className={styles.itemTitle}>
+                                  {t("projects.pipeline.runStartedAt", "Run @ {{time}}", {
+                                    time: formatRunTimeLabel(run.created_at),
+                                  })}
+                                </span>
+                                <Tag color={statusTagColor(run.status)}>{run.status}</Tag>
+                              </div>
+                            ),
+                            children: (
+                              <div className={styles.runAccordionBody}>
+                                <div className={styles.itemMeta}>{run.id}</div>
+                                <div className={styles.itemMeta}>{run.template_id}</div>
+                                <div className={styles.itemMeta}>{run.updated_at}</div>
+                                {selectedRunId === run.id && runDetail ? (
+                                  <>
+                                    <div className={styles.subSectionTitle}>
+                                      {t("projects.pipeline.steps", "Steps")}
+                                    </div>
+                                    <div className={styles.progressLine}>
+                                      {t("projects.pipeline.progress", "Progress")}: {runProgress.completed}/
+                                      {runProgress.total} · running {runProgress.running} · pending {runProgress.pending}
+                                    </div>
+                                    {runDetail.steps.length > 0 ? (
+                                      runDetail.steps.map((step) => {
+                                        const contract = stepContractById.get(step.id);
+                                        const dependsOn = (contract?.depends_on || []).filter(Boolean);
+                                        const inputKeys = Object.keys(contract?.inputs || {});
+                                        const outputKeys = Object.keys(contract?.outputs || {});
+                                        const bindingKeys = Object.keys(contract?.input_bindings || {});
+                                        const hasPrompt = Boolean((contract?.prompt || "").trim());
+                                        const hasScript = Boolean((contract?.script || "").trim());
+                                        const retryMaxAttempts =
+                                          typeof contract?.retry_policy?.max_attempts === "number"
+                                            ? String(contract.retry_policy.max_attempts)
+                                            : "-";
+
+                                        return (
+                                          <div key={step.id} className={styles.stepItem}>
+                                            <div className={styles.itemTitleRow}>
+                                              <span className={styles.itemTitle}>{step.name}</span>
+                                              <Tag color={statusTagColor(step.status)}>{step.status}</Tag>
+                                            </div>
+                                            <div className={styles.itemMeta}>{step.kind}</div>
+                                            <div className={styles.itemMeta}>{step.id}</div>
+                                            <div className={styles.itemMeta}>
+                                              {t("projects.pipeline.contract.dependsOn", "Depends on")}: {dependsOn.join(", ") || "-"}
+                                            </div>
+                                            <div className={styles.itemMeta}>
+                                              {t("projects.pipeline.contract.inputs", "Inputs")}: {inputKeys.join(", ") || "-"}
+                                            </div>
+                                            <div className={styles.itemMeta}>
+                                              {t("projects.pipeline.contract.outputs", "Outputs")}: {outputKeys.join(", ") || "-"}
+                                            </div>
+                                            <div className={styles.itemMeta}>
+                                              {t("projects.pipeline.contract.bindings", "Input bindings")}: {bindingKeys.join(", ") || "-"}
+                                            </div>
+                                            <div className={styles.itemMeta}>
+                                              {t("projects.pipeline.contract.execution", "Execution")}: {hasPrompt ? "prompt" : "-"}
+                                              {hasScript ? "+script" : ""}
+                                            </div>
+                                            <div className={styles.itemMeta}>
+                                              {t("projects.pipeline.contract.retry", "Retry max attempts")}: {retryMaxAttempts}
+                                            </div>
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <Empty
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                        description={t("projects.pipeline.noSteps", "No steps available")}
+                                      />
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className={styles.itemMeta}>
+                                    {t(
+                                      "projects.pipeline.expandToViewSteps",
+                                      "Expand selected run to view step records",
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ),
+                          }))}
+                        />
                       )}
                     </div>
+
+                    {runsForSelectedTemplate.length === 0 && (
+                      <div className={styles.stepPanel}>
+                        <div className={styles.subSectionTitle}>
+                          {t("projects.pipeline.steps", "Steps")}
+                        </div>
+                        {activeRunTemplate?.steps && activeRunTemplate.steps.length > 0 ? (
+                        activeRunTemplate.steps.map((step) => {
+                          const dependsOn = (step.depends_on || []).filter(Boolean);
+                          const inputKeys = Object.keys(step.inputs || {});
+                          const outputKeys = Object.keys(step.outputs || {});
+                          const bindingKeys = Object.keys(step.input_bindings || {});
+                          const hasPrompt = Boolean((step.prompt || "").trim());
+                          const hasScript = Boolean((step.script || "").trim());
+                          const retryMaxAttempts =
+                            typeof step.retry_policy?.max_attempts === "number"
+                              ? String(step.retry_policy.max_attempts)
+                              : "-";
+
+                          return (
+                            <div key={step.id} className={styles.stepItem}>
+                              <div className={styles.itemTitleRow}>
+                                <span className={styles.itemTitle}>{step.name}</span>
+                                <Tag color="blue">{t("projects.pipeline.templateStep", "template")}</Tag>
+                              </div>
+                              <div className={styles.itemMeta}>{step.kind}</div>
+                              <div className={styles.itemMeta}>{step.id}</div>
+                              <div className={styles.itemMeta}>
+                                {t("projects.pipeline.contract.dependsOn", "Depends on")}: {dependsOn.join(", ") || "-"}
+                              </div>
+                              <div className={styles.itemMeta}>
+                                {t("projects.pipeline.contract.inputs", "Inputs")}: {inputKeys.join(", ") || "-"}
+                              </div>
+                              <div className={styles.itemMeta}>
+                                {t("projects.pipeline.contract.outputs", "Outputs")}: {outputKeys.join(", ") || "-"}
+                              </div>
+                              <div className={styles.itemMeta}>
+                                {t("projects.pipeline.contract.bindings", "Input bindings")}: {bindingKeys.join(", ") || "-"}
+                              </div>
+                              <div className={styles.itemMeta}>
+                                {t("projects.pipeline.contract.execution", "Execution")}: {hasPrompt ? "prompt" : "-"}
+                                {hasScript ? "+script" : ""}
+                              </div>
+                              <div className={styles.itemMeta}>
+                                {t("projects.pipeline.contract.retry", "Retry max attempts")}: {retryMaxAttempts}
+                              </div>
+                            </div>
+                          );
+                        })
+                        ) : (
+                          <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description={t("projects.pipeline.noSteps", "No steps available")}
+                          />
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
               </div>

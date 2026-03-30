@@ -33,6 +33,13 @@ export interface ProjectPipelineTemplateStep {
   name: string;
   kind: string;
   description: string;
+  inputs?: Record<string, unknown>;
+  prompt?: string;
+  script?: string;
+  outputs?: Record<string, unknown>;
+  depends_on?: string[];
+  input_bindings?: Record<string, string>;
+  retry_policy?: Record<string, unknown>;
 }
 
 export interface PipelineValidationError {

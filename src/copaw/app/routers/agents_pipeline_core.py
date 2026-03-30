@@ -38,6 +38,13 @@ class PipelineTemplateStep(BaseModel):
     name: str
     kind: str
     description: str = ""
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    prompt: str = ""
+    script: str = ""
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    depends_on: list[str] = Field(default_factory=list)
+    input_bindings: dict[str, str] = Field(default_factory=dict)
+    retry_policy: dict[str, Any] = Field(default_factory=dict)
 
 
 class PipelineTemplateInfo(BaseModel):
@@ -321,12 +328,32 @@ def _parse_pipeline_template_doc(raw: dict[str, Any], fallback_id: str) -> Pipel
         step_kind = str(node.get("kind") or "task").strip() or "task"
         if not step_id or not step_name:
             continue
+        raw_inputs = node.get("inputs")
+        raw_outputs = node.get("outputs")
+        raw_depends_on = node.get("depends_on")
+        raw_input_bindings = node.get("input_bindings")
+        raw_retry_policy = node.get("retry_policy")
         steps.append(
             PipelineTemplateStep(
                 id=step_id,
                 name=step_name,
                 kind=step_kind,
                 description=str(node.get("description") or "").strip(),
+                inputs=raw_inputs if isinstance(raw_inputs, dict) else {},
+                prompt=str(node.get("prompt") or "").strip(),
+                script=str(node.get("script") or "").strip(),
+                outputs=raw_outputs if isinstance(raw_outputs, dict) else {},
+                depends_on=(
+                    [str(item).strip() for item in raw_depends_on if str(item).strip()]
+                    if isinstance(raw_depends_on, list)
+                    else []
+                ),
+                input_bindings=(
+                    {str(key): str(value) for key, value in raw_input_bindings.items()}
+                    if isinstance(raw_input_bindings, dict)
+                    else {}
+                ),
+                retry_policy=raw_retry_policy if isinstance(raw_retry_policy, dict) else {},
             ),
         )
 
@@ -524,6 +551,14 @@ def _pipeline_steps_to_md(template: PipelineTemplateInfo) -> str:
         if step.description:
             lines.append(step.description.strip())
             lines.append("")
+        lines.append(f"- contract_inputs: {json.dumps(step.inputs or {}, ensure_ascii=False)}")
+        lines.append(f"- contract_prompt: {json.dumps((step.prompt or '').strip(), ensure_ascii=False)}")
+        lines.append(f"- contract_script: {json.dumps((step.script or '').strip(), ensure_ascii=False)}")
+        lines.append(f"- contract_outputs: {json.dumps(step.outputs or {}, ensure_ascii=False)}")
+        lines.append(f"- contract_depends_on: {json.dumps(step.depends_on or [], ensure_ascii=False)}")
+        lines.append(f"- contract_input_bindings: {json.dumps(step.input_bindings or {}, ensure_ascii=False)}")
+        lines.append(f"- contract_retry_policy: {json.dumps(step.retry_policy or {}, ensure_ascii=False)}")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -542,8 +577,23 @@ def _parse_pipeline_md(content: str) -> list[PipelineTemplateStep]:
     steps: list[PipelineTemplateStep] = []
     current: dict[str, str] | None = None
     desc_lines: list[str] = []
+    contract_inputs: dict[str, Any] = {}
+    contract_outputs: dict[str, Any] = {}
+    contract_prompt = ""
+    contract_script = ""
+    contract_depends_on: list[str] = []
+    contract_input_bindings: dict[str, str] = {}
+    contract_retry_policy: dict[str, Any] = {}
+
+    def _decode_contract_json(raw_value: str, fallback: Any) -> Any:
+        try:
+            return json.loads(raw_value)
+        except Exception:
+            return fallback
 
     def _flush() -> None:
+        nonlocal contract_inputs, contract_outputs, contract_prompt, contract_script
+        nonlocal contract_depends_on, contract_input_bindings, contract_retry_policy
         if current is not None:
             desc = " ".join(desc_lines).strip()
             steps.append(
@@ -552,8 +602,22 @@ def _parse_pipeline_md(content: str) -> list[PipelineTemplateStep]:
                     name=current["name"],
                     kind=current["kind"],
                     description=desc,
+                    inputs=contract_inputs,
+                    prompt=contract_prompt,
+                    script=contract_script,
+                    outputs=contract_outputs,
+                    depends_on=contract_depends_on,
+                    input_bindings=contract_input_bindings,
+                    retry_policy=contract_retry_policy,
                 )
             )
+        contract_inputs = {}
+        contract_outputs = {}
+        contract_prompt = ""
+        contract_script = ""
+        contract_depends_on = []
+        contract_input_bindings = {}
+        contract_retry_policy = {}
 
     for raw_line in content.splitlines():
         line = raw_line.rstrip()
@@ -566,6 +630,57 @@ def _parse_pipeline_md(content: str) -> list[PipelineTemplateStep]:
             # Ignore top-level #/--- headers inside step sections
             if line.startswith("# ") or line.startswith("---"):
                 continue
+            contract_match = re.match(
+                r"^\s*-\s*contract_(inputs|prompt|script|outputs|depends_on|input_bindings|retry_policy):\s*(.+?)\s*$",
+                line,
+            )
+            if contract_match:
+                contract_key = contract_match.group(1)
+                contract_value = contract_match.group(2)
+                if contract_key == "inputs":
+                    parsed_inputs = _decode_contract_json(contract_value, {})
+                    contract_inputs = parsed_inputs if isinstance(parsed_inputs, dict) else {}
+                    continue
+                if contract_key == "outputs":
+                    parsed_outputs = _decode_contract_json(contract_value, {})
+                    contract_outputs = parsed_outputs if isinstance(parsed_outputs, dict) else {}
+                    continue
+                if contract_key == "prompt":
+                    parsed_prompt = _decode_contract_json(contract_value, "")
+                    contract_prompt = str(parsed_prompt or "").strip()
+                    continue
+                if contract_key == "script":
+                    parsed_script = _decode_contract_json(contract_value, "")
+                    contract_script = str(parsed_script or "").strip()
+                    continue
+                if contract_key == "depends_on":
+                    parsed_depends = _decode_contract_json(contract_value, [])
+                    if isinstance(parsed_depends, list):
+                        contract_depends_on = [
+                            str(item).strip() for item in parsed_depends if str(item).strip()
+                        ]
+                    else:
+                        contract_depends_on = []
+                    continue
+                if contract_key == "input_bindings":
+                    parsed_bindings = _decode_contract_json(contract_value, {})
+                    if isinstance(parsed_bindings, dict):
+                        contract_input_bindings = {
+                            str(key): str(value)
+                            for key, value in parsed_bindings.items()
+                            if str(key).strip() and str(value).strip()
+                        }
+                    else:
+                        contract_input_bindings = {}
+                    continue
+                if contract_key == "retry_policy":
+                    parsed_retry_policy = _decode_contract_json(contract_value, {})
+                    contract_retry_policy = (
+                        parsed_retry_policy
+                        if isinstance(parsed_retry_policy, dict)
+                        else {}
+                    )
+                    continue
             desc_lines.append(line)
 
     _flush()
@@ -702,6 +817,13 @@ def _parse_pipeline_md_strict(
             )
         seen_step_ids.add(step.id)
 
+        step_errors = _validate_pipeline_step(step)
+        for item in step_errors:
+            item.field_path = f"{step_path}.{item.field_path}"
+            errors.append(item)
+
+    errors.extend(_validate_pipeline_dependency_graph(steps))
+
     template = PipelineTemplateInfo(
         id=template_id,
         name=name,
@@ -726,6 +848,13 @@ def _template_content_hash(template: PipelineTemplateInfo) -> str:
                 "name": step.name,
                 "kind": step.kind,
                 "description": step.description,
+                "inputs": step.inputs,
+                "prompt": step.prompt,
+                "script": step.script,
+                "outputs": step.outputs,
+                "depends_on": step.depends_on,
+                "input_bindings": step.input_bindings,
+                "retry_policy": step.retry_policy,
             }
             for step in template.steps
         ],
@@ -1009,6 +1138,13 @@ def _import_platform_template_to_project(
                 "name": step.name,
                 "kind": step.kind,
                 "description": step.description,
+                "inputs": step.inputs,
+                "prompt": step.prompt,
+                "script": step.script,
+                "outputs": step.outputs,
+                "depends_on": step.depends_on,
+                "input_bindings": step.input_bindings,
+                "retry_policy": step.retry_policy,
             }
             for step in platform_template.steps
         ],
@@ -1075,6 +1211,13 @@ def _publish_project_template_to_platform(
                 "name": step.name,
                 "kind": step.kind,
                 "description": step.description,
+                "inputs": step.inputs,
+                "prompt": step.prompt,
+                "script": step.script,
+                "outputs": step.outputs,
+                "depends_on": step.depends_on,
+                "input_bindings": step.input_bindings,
+                "retry_policy": step.retry_policy,
             }
             for step in source_template.steps
         ],
@@ -1145,6 +1288,13 @@ def _save_agent_pipeline_template(
                 "name": step.name,
                 "kind": step.kind,
                 "description": step.description,
+                "inputs": step.inputs,
+                "prompt": step.prompt,
+                "script": step.script,
+                "outputs": step.outputs,
+                "depends_on": step.depends_on,
+                "input_bindings": step.input_bindings,
+                "retry_policy": step.retry_policy,
             }
             for step in normalized.steps
         ],
@@ -1226,6 +1376,13 @@ def _save_agent_pipeline_template_with_md(
                 "name": step.name,
                 "kind": step.kind,
                 "description": step.description,
+                "inputs": step.inputs,
+                "prompt": step.prompt,
+                "script": step.script,
+                "outputs": step.outputs,
+                "depends_on": step.depends_on,
+                "input_bindings": step.input_bindings,
+                "retry_policy": step.retry_policy,
             }
             for step in parsed_template.steps
         ],
@@ -1260,8 +1417,8 @@ def _validate_pipeline_step(step: PipelineTemplateStep) -> list[PipelineValidati
     """Validate a single pipeline step. Return list of errors if any."""
     # Valid step kinds
     VALID_STEP_KINDS = {
-        "input", "analysis", "transform", "review", 
-        "validation", "publish", "task", "output"
+        "input", "analysis", "transform", "review",
+        "validation", "publish", "task", "output", "ingest", "alignment"
     }
     
     errors: list[PipelineValidationError] = []
@@ -1334,7 +1491,189 @@ def _validate_pipeline_step(step: PipelineTemplateStep) -> list[PipelineValidati
                 suggestion=f"Use one of: {', '.join(sorted(VALID_STEP_KINDS))}",
             )
         )
+
+    # Validate explicit step contract fields
+    if not isinstance(step.inputs, dict):
+        errors.append(
+            PipelineValidationError(
+                error_code="invalid_step_inputs",
+                message="Step inputs must be an object.",
+                field_path="inputs",
+                step_id=step_id,
+                expected="object/dict",
+                actual=type(step.inputs).__name__,
+                suggestion="Set inputs as a JSON object with declared input contract.",
+            )
+        )
+
+    if not isinstance(step.outputs, dict):
+        errors.append(
+            PipelineValidationError(
+                error_code="invalid_step_outputs",
+                message="Step outputs must be an object.",
+                field_path="outputs",
+                step_id=step_id,
+                expected="object/dict",
+                actual=type(step.outputs).__name__,
+                suggestion="Set outputs as a JSON object with declared output contract.",
+            )
+        )
+
+    if not isinstance(step.depends_on, list):
+        errors.append(
+            PipelineValidationError(
+                error_code="invalid_step_depends_on",
+                message="Step depends_on must be a list.",
+                field_path="depends_on",
+                step_id=step_id,
+                expected="array/list of step ids",
+                actual=type(step.depends_on).__name__,
+                suggestion="Set depends_on as an array of upstream step ids.",
+            )
+        )
+
+    if not isinstance(step.input_bindings, dict):
+        errors.append(
+            PipelineValidationError(
+                error_code="invalid_step_input_bindings",
+                message="Step input_bindings must be an object.",
+                field_path="input_bindings",
+                step_id=step_id,
+                expected="object/dict",
+                actual=type(step.input_bindings).__name__,
+                suggestion="Set input_bindings as a JSON object like {'input': 'upstream.output'}.",
+            )
+        )
+
+    if not isinstance(step.retry_policy, dict):
+        errors.append(
+            PipelineValidationError(
+                error_code="invalid_step_retry_policy",
+                message="Step retry_policy must be an object.",
+                field_path="retry_policy",
+                step_id=step_id,
+                expected="object/dict",
+                actual=type(step.retry_policy).__name__,
+                suggestion="Set retry_policy as an object like {'max_attempts': 2}.",
+            )
+        )
+
+    if isinstance(step.retry_policy, dict) and "max_attempts" in step.retry_policy:
+        max_attempts = step.retry_policy.get("max_attempts")
+        if not isinstance(max_attempts, int) or max_attempts < 0 or max_attempts > 10:
+            errors.append(
+                PipelineValidationError(
+                    error_code="invalid_step_retry_max_attempts",
+                    message="retry_policy.max_attempts must be an integer between 0 and 10.",
+                    field_path="retry_policy.max_attempts",
+                    step_id=step_id,
+                    expected="integer in [0, 10]",
+                    actual=str(max_attempts),
+                    suggestion="Set retry_policy.max_attempts to a small integer such as 1 or 2.",
+                )
+            )
+
+    step_prompt = (step.prompt or "").strip()
+    step_script = (step.script or "").strip()
+    executable_kinds = {
+        "analysis",
+        "transform",
+        "review",
+        "validation",
+        "publish",
+        "task",
+        "alignment",
+        "ingest",
+    }
+    if step_kind in executable_kinds and not step_prompt and not step_script:
+        errors.append(
+            PipelineValidationError(
+                error_code="missing_step_execution_contract",
+                message="Step requires prompt or script to define execution contract.",
+                field_path="prompt|script",
+                step_id=step_id,
+                expected="non-empty prompt or script",
+                actual="",
+                suggestion="Provide prompt, script, or both for executable step kinds.",
+            )
+        )
     
+    return errors
+
+
+def _validate_pipeline_dependency_graph(
+    steps: list[PipelineTemplateStep],
+) -> list[PipelineValidationError]:
+    """Validate dependency existence and cycle in a pipeline."""
+    errors: list[PipelineValidationError] = []
+    step_ids = {step.id for step in steps}
+
+    for idx, step in enumerate(steps):
+        step_path = f"steps[{idx}].depends_on"
+        for dep in step.depends_on:
+            dep_id = (dep or "").strip()
+            if not dep_id:
+                continue
+            if dep_id == step.id:
+                errors.append(
+                    PipelineValidationError(
+                        error_code="step_dependency_self_reference",
+                        message="Step cannot depend on itself.",
+                        field_path=step_path,
+                        step_id=step.id,
+                        expected="upstream step id different from self",
+                        actual=dep_id,
+                        suggestion="Remove self reference from depends_on.",
+                    )
+                )
+                continue
+            if dep_id not in step_ids:
+                errors.append(
+                    PipelineValidationError(
+                        error_code="step_dependency_not_found",
+                        message="Dependency step id not found in this pipeline.",
+                        field_path=step_path,
+                        step_id=step.id,
+                        expected="existing step id",
+                        actual=dep_id,
+                        suggestion="Add the missing upstream step or fix the dependency id.",
+                    )
+                )
+
+    graph: dict[str, list[str]] = {
+        step.id: [dep for dep in step.depends_on if dep in step_ids and dep != step.id]
+        for step in steps
+    }
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def _dfs(node: str, path: list[str]) -> None:
+        if node in visiting:
+            cycle = " -> ".join([*path, node])
+            errors.append(
+                PipelineValidationError(
+                    error_code="step_dependency_cycle",
+                    message="Dependency cycle detected.",
+                    field_path="steps",
+                    step_id=node,
+                    expected="acyclic dependency graph",
+                    actual=cycle,
+                    suggestion="Break the cycle by removing at least one dependency edge.",
+                )
+            )
+            return
+        if node in visited:
+            return
+
+        visiting.add(node)
+        for upstream in graph.get(node, []):
+            _dfs(upstream, [*path, node])
+        visiting.remove(node)
+        visited.add(node)
+
+    for step in steps:
+        _dfs(step.id, [])
+
     return errors
 
 
