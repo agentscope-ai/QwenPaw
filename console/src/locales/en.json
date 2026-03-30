@@ -888,7 +888,7 @@
     "toolResultCompactOldThresholdPlaceholder": "Enter character threshold",
     "toolResultCompactOldThresholdRequired": "Max characters for tool results beyond recent_n is required",
     "toolResultCompactRecentThreshold": "Recent Messages Threshold (bytes)",
-    "toolResultCompactRecentThresholdTooltip": "Tool results in the most recent N messages are compacted when they exceed this byte limit. Must be greater than the older messages threshold.",
+    "toolResultCompactRecentThresholdTooltip": "Tool results in the most recent N messages are compacted when they exceed this byte limit. Also sets the maximum bytes returned per read_file call. Must be greater than or equal to the older messages threshold.",
     "toolResultCompactRecentThresholdPlaceholder": "Enter character threshold",
     "toolResultCompactRecentThresholdRequired": "Max characters for tool results within recent_n is required",
     "toolResultCompactRetentionDays": "Tool Result File Retention Days",

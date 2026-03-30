@@ -829,7 +829,7 @@
     "toolResultCompactOldThresholdPlaceholder": "Введите порог символов",
     "toolResultCompactOldThresholdRequired": "Макс. символов для результатов за пределами recent_n обязательно",
     "toolResultCompactRecentThreshold": "Макс. символов для результатов инструментов в пределах recent_n",
-    "toolResultCompactRecentThresholdTooltip": "Результаты инструментов в пределах recent_n, превышающие этот лимит, будут сжаты",
+    "toolResultCompactRecentThresholdTooltip": "Результаты инструментов в пределах recent_n, превышающие этот лимит, будут сжаты. Также задаёт максимальное количество байт, возвращаемых за один вызов read_file. Должно быть больше или равно порогу для старых сообщений",
     "toolResultCompactRecentThresholdPlaceholder": "Введите порог символов",
     "toolResultCompactRecentThresholdRequired": "Макс. символов для результатов в пределах recent_n обязательно",
     "toolResultCompactRetentionDays": "Дни хранения файлов результатов инструментов",

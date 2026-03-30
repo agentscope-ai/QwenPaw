@@ -824,7 +824,7 @@
     "toolResultCompactOldThresholdPlaceholder": "文字数しきい値を入力",
     "toolResultCompactOldThresholdRequired": "recent_nを超えるツール呼び出し結果の最大文字数は必須です",
     "toolResultCompactRecentThreshold": "recent_n内のツール呼び出し結果の最大文字数",
-    "toolResultCompactRecentThresholdTooltip": "recent_n範囲内のツール呼び出し結果で、この文字数を超えると圧縮されます",
+    "toolResultCompactRecentThresholdTooltip": "recent_n範囲内のツール呼び出し結果で、このバイト数を超えると圧縮されます。また、read_fileツールの1回の読み取りで返される最大バイト数にもなります。古いメッセージのしきい値以上である必要があります",
     "toolResultCompactRecentThresholdPlaceholder": "文字数しきい値を入力",
     "toolResultCompactRecentThresholdRequired": "recent_n内のツール呼び出し結果の最大文字数は必須です",
     "toolResultCompactRetentionDays": "ツール呼び出しファイルの保持日数",
