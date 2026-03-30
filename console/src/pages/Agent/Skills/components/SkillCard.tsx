@@ -10,6 +10,7 @@ import {
   FilePptFilled,
   FileImageFilled,
   CodeFilled,
+  EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
 import type { SkillSpec } from "../../../../api/types";
@@ -227,7 +228,9 @@ export const SkillCard = React.memo(function SkillCard({
           <Button
             className={styles.actionButton}
             onClick={handleToggleClick}
-            icon={<EyeInvisibleOutlined />}
+            icon={
+              skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />
+            }
           >
             {skill.enabled ? t("common.disable") : t("common.enable")}
           </Button>
