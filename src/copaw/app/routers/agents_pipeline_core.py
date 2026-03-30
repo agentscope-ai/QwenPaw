@@ -100,6 +100,23 @@ class PipelineRunStep(BaseModel):
     evidence: list[str] = Field(default_factory=list)
 
 
+class PipelineArtifactRecord(BaseModel):
+    """Structured artifact record with provenance."""
+
+    artifact_id: str
+    path: str
+    name: str
+    kind: str
+    format: str = "bin"
+    human_readable: bool = False
+    run_id: str = ""
+    producer_step_id: str | None = None
+    producer_step_name: str | None = None
+    consumer_step_ids: list[str] = Field(default_factory=list)
+    consumer_step_names: list[str] = Field(default_factory=list)
+    created_at: str = ""
+
+
 class PipelineCollaborationEvent(BaseModel):
     """Structured collaboration event for one run."""
 
@@ -121,6 +138,7 @@ class PipelineRunDetail(PipelineRunSummary):
     parameters: dict[str, Any] = Field(default_factory=dict)
     steps: list[PipelineRunStep] = Field(default_factory=list)
     artifacts: list[str] = Field(default_factory=list)
+    artifact_records: list[PipelineArtifactRecord] = Field(default_factory=list)
     flow_version: str = ""
     source_platform_template_id: str | None = None
     source_platform_template_version: str | None = None
@@ -2297,6 +2315,91 @@ def _persist_project_pipeline_run(project_dir: Path, run: PipelineRunDetail, tem
     )
 
 
+def _build_pipeline_artifact_records(
+    project_dir: Path,
+    run_id: str,
+    template: PipelineTemplateInfo,
+    generated_at: str,
+    raw_steps: list[dict[str, Any]],
+    run_dir: Path,
+) -> list[PipelineArtifactRecord]:
+    records: list[PipelineArtifactRecord] = []
+    produced_paths: set[str] = set()
+    step_name_by_id = {step.id: step.name for step in template.steps}
+    step_dep_names_by_id = {
+        step.id: [dep for dep in step.depends_on if dep]
+        for step in template.steps
+    }
+    terminal_step_id = template.steps[-1].id if template.steps else ""
+
+    for node in raw_steps:
+        if not isinstance(node, dict):
+            continue
+        step_id = str(node.get("step_id") or "").strip()
+        artifact_path = node.get("artifact_manifest")
+        if not step_id or not isinstance(artifact_path, str) or not _is_safe_relative_path(artifact_path):
+            continue
+
+        artifact_file = (run_dir / artifact_path).resolve()
+        if not artifact_file.exists() or not artifact_file.is_file() or not str(artifact_file).startswith(str(run_dir)):
+            continue
+
+        artifact_doc = json.loads(artifact_file.read_text(encoding="utf-8"))
+        outputs = artifact_doc.get("outputs") or []
+        consumer_step_ids = [
+            step.id for step in template.steps if step_id in (step.depends_on or [])
+        ]
+        consumer_step_names = [step_name_by_id.get(dep, dep) for dep in consumer_step_ids]
+
+        for output in outputs:
+            if not isinstance(output, dict):
+                continue
+            output_path = str(output.get("path") or "").strip()
+            if not output_path:
+                continue
+            produced_paths.add(output_path)
+            records.append(
+                PipelineArtifactRecord(
+                    artifact_id=f"{run_id}:{step_id}:{output_path}",
+                    path=output_path,
+                    name=Path(output_path).name,
+                    kind="final" if step_id == terminal_step_id else "intermediate",
+                    format=str(output.get("format") or _infer_output_format(output_path)),
+                    human_readable=bool(output.get("human_readable", False)),
+                    run_id=run_id,
+                    producer_step_id=step_id,
+                    producer_step_name=step_name_by_id.get(step_id, step_id),
+                    consumer_step_ids=consumer_step_ids,
+                    consumer_step_names=consumer_step_names,
+                    created_at=str(artifact_doc.get("generated_at") or generated_at),
+                )
+            )
+
+    root_step_ids = [step.id for step in template.steps if not step.depends_on]
+    root_step_names = [step_name_by_id.get(step_id, step_id) for step_id in root_step_ids]
+    for source_path in _sample_project_artifacts(project_dir, limit=200):
+        if source_path in produced_paths:
+            continue
+        records.append(
+            PipelineArtifactRecord(
+                artifact_id=f"source:{source_path}",
+                path=source_path,
+                name=Path(source_path).name,
+                kind="source",
+                format=_infer_output_format(source_path),
+                human_readable=_infer_output_format(source_path) != "bin",
+                run_id=run_id,
+                producer_step_id=None,
+                producer_step_name=None,
+                consumer_step_ids=root_step_ids,
+                consumer_step_names=root_step_names,
+                created_at=generated_at,
+            )
+        )
+
+    return sorted(records, key=lambda item: (item.kind, item.path.lower()))
+
+
 def _execute_project_pipeline_run(
     project_dir: Path,
     run: PipelineRunDetail,
@@ -2427,9 +2530,10 @@ def _load_pipeline_run_from_manifest(project_dir: Path, run_id: str) -> Pipeline
 
     template = _resolve_pipeline_template(project_dir, str(raw.get("pipeline_id") or ""))
 
+    raw_steps = [item for item in (raw.get("steps") or []) if isinstance(item, dict)]
     all_artifacts: list[str] = []
     steps: list[PipelineRunStep] = []
-    for node in raw.get("steps") or []:
+    for node in raw_steps:
         if not isinstance(node, dict):
             continue
 
@@ -2502,6 +2606,14 @@ def _load_pipeline_run_from_manifest(project_dir: Path, run_id: str) -> Pipeline
         parameters=cast(dict[str, Any], raw.get("params") or {}),
         steps=steps,
         artifacts=sorted(set(all_artifacts)),
+        artifact_records=_build_pipeline_artifact_records(
+            project_dir,
+            str(raw.get("run_id") or run_id),
+            template,
+            updated_at or created_at,
+            raw_steps,
+            run_dir,
+        ),
         flow_version=str(raw.get("flow_version") or raw.get("pipeline_version") or ""),
         source_platform_template_id=(
             str(raw.get("source_platform_template_id") or "").strip() or None
@@ -2545,6 +2657,8 @@ def _load_legacy_pipeline_run(project_dir: Path, run_id: str) -> PipelineRunDeta
         )
         for step in run.steps
     ]
+    if not hasattr(run, "artifact_records") or run.artifact_records is None:
+        run.artifact_records = []
     return run
 
 

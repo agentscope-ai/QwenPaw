@@ -21,6 +21,7 @@ import AnywhereChat from "../../../components/AnywhereChat";
 import type {
   AgentProjectSummary,
   AgentProjectFileInfo,
+  ProjectPipelineArtifactRecord,
   ProjectPipelineRunDetail,
   ProjectPipelineRunSummary,
   ProjectPipelineTemplateInfo,
@@ -159,6 +160,7 @@ export default function ProjectDetailPage() {
   const [selectedPlatformTemplateId, setSelectedPlatformTemplateId] = useState("");
   const [runFocusChatId, setRunFocusChatId] = useState("");
   const [chatStarting, setChatStarting] = useState(false);
+  const [selectedStepId, setSelectedStepId] = useState("");
   const runFocusChatIdRef = useRef("");
 
   const currentAgent = useMemo(
@@ -176,13 +178,90 @@ export default function ProjectDetailPage() {
     [projects, routeProjectId],
   );
 
-  const artifactPaths = useMemo(
-    () =>
-      (runDetail?.artifacts ?? projectFiles.map((file) => file.path)).filter(
-        isPreviewablePath,
-      ),
-    [projectFiles, runDetail?.artifacts],
+  const artifactRecords = useMemo<ProjectPipelineArtifactRecord[]>(() => {
+    if (runDetail?.artifact_records?.length) {
+      return runDetail.artifact_records.filter((item) => isPreviewablePath(item.path));
+    }
+
+    return projectFiles
+      .filter((file) => isPreviewablePath(file.path))
+      .map((file) => ({
+        artifact_id: `source:${file.path}`,
+        path: file.path,
+        name: file.filename || file.path,
+        kind: "source",
+        format: file.path.split(".").pop() || "bin",
+        human_readable: true,
+        run_id: selectedRunId || "",
+        producer_step_id: null,
+        producer_step_name: null,
+        consumer_step_ids: [],
+        consumer_step_names: [],
+        created_at: file.modified_time,
+      }));
+  }, [projectFiles, runDetail?.artifact_records, selectedRunId]);
+
+  const relatedArtifactPathsForSelectedStep = useMemo(() => {
+    if (!selectedStepId) {
+      return new Set<string>();
+    }
+    return new Set(
+      artifactRecords
+        .filter(
+          (item) =>
+            item.producer_step_id === selectedStepId ||
+            item.consumer_step_ids.includes(selectedStepId),
+        )
+        .map((item) => item.path),
+    );
+  }, [artifactRecords, selectedStepId]);
+
+  const visibleArtifactRecords = useMemo(() => {
+    if (!selectedStepId) {
+      return artifactRecords;
+    }
+    return artifactRecords.filter((item) => relatedArtifactPathsForSelectedStep.has(item.path));
+  }, [artifactRecords, relatedArtifactPathsForSelectedStep, selectedStepId]);
+
+  const groupedArtifactRecords = useMemo(
+    () => [
+      {
+        key: "source",
+        title: t("projects.artifacts.source", "Source Files"),
+        items: visibleArtifactRecords.filter((item) => item.kind === "source"),
+      },
+      {
+        key: "intermediate",
+        title: t("projects.artifacts.intermediate", "Intermediate Artifacts"),
+        items: visibleArtifactRecords.filter((item) => item.kind === "intermediate"),
+      },
+      {
+        key: "final",
+        title: t("projects.artifacts.final", "Final Outputs"),
+        items: visibleArtifactRecords.filter((item) => item.kind === "final"),
+      },
+    ].filter((group) => group.items.length > 0),
+    [t, visibleArtifactRecords],
   );
+
+  const selectedArtifactRecord = useMemo(
+    () => artifactRecords.find((item) => item.path === selectedFilePath),
+    [artifactRecords, selectedFilePath],
+  );
+
+  const highlightedStepIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (selectedStepId) {
+      ids.add(selectedStepId);
+    }
+    if (selectedArtifactRecord?.producer_step_id) {
+      ids.add(selectedArtifactRecord.producer_step_id);
+    }
+    for (const consumerStepId of selectedArtifactRecord?.consumer_step_ids || []) {
+      ids.add(consumerStepId);
+    }
+    return ids;
+  }, [selectedArtifactRecord, selectedStepId]);
 
   const selectedRunSummary = useMemo(
     () =>
@@ -209,6 +288,14 @@ export default function ProjectDetailPage() {
       pipelineTemplates[0]
     );
   }, [pipelineTemplates, selectedTemplateId]);
+
+  const currentStepIds = useMemo(
+    () =>
+      (runDetail?.steps?.map((step) => step.id) || activeRunTemplate?.steps?.map((step) => step.id) || []).filter(
+        Boolean,
+      ),
+    [activeRunTemplate?.steps, runDetail?.steps],
+  );
 
   const stepContractById = useMemo(() => {
     const mapping = new Map<string, ProjectPipelineTemplateInfo["steps"][number]>();
@@ -716,9 +803,32 @@ export default function ProjectDetailPage() {
     setPipelineRuns([]);
     setSelectedTemplateId("");
     setSelectedRunId("");
+    setSelectedStepId("");
     setRunDetail(null);
     setRunFocusChatId("");
   }, [routeProjectId]);
+
+  useEffect(() => {
+    if (!selectedStepId) {
+      return;
+    }
+    if (!currentStepIds.includes(selectedStepId)) {
+      setSelectedStepId("");
+    }
+  }, [currentStepIds, selectedStepId]);
+
+  useEffect(() => {
+    if (!selectedStepId) {
+      return;
+    }
+    if (selectedFilePath && relatedArtifactPathsForSelectedStep.has(selectedFilePath)) {
+      return;
+    }
+    const firstRelatedPath = Array.from(relatedArtifactPathsForSelectedStep)[0];
+    if (firstRelatedPath) {
+      setSelectedFilePath(firstRelatedPath);
+    }
+  }, [relatedArtifactPathsForSelectedStep, selectedFilePath, selectedStepId]);
 
   useEffect(() => {
     if (!currentAgent || !selectedProject) {
@@ -793,6 +903,10 @@ export default function ProjectDetailPage() {
     selectedRunSummary?.status,
     pollPipelineRun,
   ]);
+
+  const handleSelectStep = useCallback((stepId: string) => {
+    setSelectedStepId((prev) => (prev === stepId ? "" : stepId));
+  }, []);
 
   return (
     <div className={styles.agentsPage}>
@@ -956,8 +1070,16 @@ export default function ProjectDetailPage() {
                                             ? String(contract.retry_policy.max_attempts)
                                             : "-";
 
+                                        const stepSelected = selectedStepId === step.id;
+                                        const stepRelated = !stepSelected && highlightedStepIds.has(step.id);
+
                                         return (
-                                          <div key={step.id} className={styles.stepItem}>
+                                          <button
+                                            key={step.id}
+                                            type="button"
+                                            className={`${styles.stepItem} ${stepSelected ? styles.selected : ""} ${stepRelated ? styles.related : ""}`}
+                                            onClick={() => handleSelectStep(step.id)}
+                                          >
                                             <div className={styles.itemTitleRow}>
                                               <span className={styles.itemTitle}>{step.name}</span>
                                               <Tag color={statusTagColor(step.status)}>{step.status}</Tag>
@@ -983,7 +1105,7 @@ export default function ProjectDetailPage() {
                                             <div className={styles.itemMeta}>
                                               {t("projects.pipeline.contract.retry", "Retry max attempts")}: {retryMaxAttempts}
                                             </div>
-                                          </div>
+                                          </button>
                                         );
                                       })
                                     ) : (
@@ -1026,8 +1148,16 @@ export default function ProjectDetailPage() {
                               ? String(step.retry_policy.max_attempts)
                               : "-";
 
+                          const stepSelected = selectedStepId === step.id;
+                          const stepRelated = !stepSelected && highlightedStepIds.has(step.id);
+
                           return (
-                            <div key={step.id} className={styles.stepItem}>
+                            <button
+                              key={step.id}
+                              type="button"
+                              className={`${styles.stepItem} ${stepSelected ? styles.selected : ""} ${stepRelated ? styles.related : ""}`}
+                              onClick={() => handleSelectStep(step.id)}
+                            >
                               <div className={styles.itemTitleRow}>
                                 <span className={styles.itemTitle}>{step.name}</span>
                                 <Tag color="blue">{t("projects.pipeline.templateStep", "template")}</Tag>
@@ -1053,7 +1183,7 @@ export default function ProjectDetailPage() {
                               <div className={styles.itemMeta}>
                                 {t("projects.pipeline.contract.retry", "Retry max attempts")}: {retryMaxAttempts}
                               </div>
-                            </div>
+                            </button>
                           );
                         })
                         ) : (
@@ -1124,7 +1254,7 @@ export default function ProjectDetailPage() {
                           <div className={styles.centerState}>
                             <Spin />
                           </div>
-                        ) : artifactPaths.length === 0 ? (
+                        ) : artifactRecords.length === 0 ? (
                           <Empty
                             image={Empty.PRESENTED_IMAGE_SIMPLE}
                             description={t("projects.noFiles", "No files in this project")}
@@ -1132,26 +1262,73 @@ export default function ProjectDetailPage() {
                         ) : (
                           <div className={styles.artifactPanel}>
                             <div className={styles.artifactList}>
-                              {artifactPaths.map((path) => {
-                                const selected = path === selectedFilePath;
-                                const fileInfo = projectFiles.find((file) => file.path === path);
-                                return (
-                                  <button
-                                    key={path}
-                                    type="button"
-                                    className={`${styles.listItem} ${selected ? styles.selected : ""}`}
-                                    onClick={() => setSelectedFilePath(path)}
+                              {(selectedStepId || selectedArtifactRecord) && (
+                                <div className={styles.focusBar}>
+                                  <div className={styles.itemMeta}>
+                                    {selectedStepId
+                                      ? t("projects.artifacts.filteredByStep", "Filtered by step: {{stepId}}", {
+                                          stepId: selectedStepId,
+                                        })
+                                      : selectedArtifactRecord
+                                        ? t("projects.artifacts.focusedArtifact", "Focused artifact relation")
+                                        : ""}
+                                  </div>
+                                  <Button
+                                    size="small"
+                                    onClick={() => {
+                                      setSelectedStepId("");
+                                      setSelectedFilePath("");
+                                    }}
                                   >
-                                    <div className={styles.itemTitle}>{fileInfo?.filename || path}</div>
-                                    <div className={styles.itemMeta}>{path}</div>
-                                    {fileInfo && (
-                                      <div className={styles.itemMeta}>
-                                        {formatBytes(fileInfo.size)} · {fileInfo.modified_time}
-                                      </div>
-                                    )}
-                                  </button>
-                                );
-                              })}
+                                    {t("common.clear", "Clear")}
+                                  </Button>
+                                </div>
+                              )}
+                              {groupedArtifactRecords.map((group) => (
+                                <div key={group.key} className={styles.artifactGroup}>
+                                  <div className={styles.artifactGroupTitle}>{group.title}</div>
+                                  {group.items.map((item) => {
+                                    const selected = item.path === selectedFilePath;
+                                    const artifactRelated =
+                                      Boolean(selectedStepId) && relatedArtifactPathsForSelectedStep.has(item.path);
+                                    const fileInfo = projectFiles.find((file) => file.path === item.path);
+                                    return (
+                                      <button
+                                        key={item.artifact_id}
+                                        type="button"
+                                        className={`${styles.listItem} ${selected ? styles.selected : ""} ${artifactRelated && !selected ? styles.related : ""}`}
+                                        onClick={() => setSelectedFilePath(item.path)}
+                                      >
+                                        <div className={styles.itemTitleRow}>
+                                          <div className={styles.itemTitle}>{item.name}</div>
+                                          <Tag color={
+                                            item.kind === "source"
+                                              ? "default"
+                                              : item.kind === "final"
+                                                ? "success"
+                                                : "processing"
+                                          }>
+                                            {item.kind}
+                                          </Tag>
+                                        </div>
+                                        <div className={styles.itemMeta}>{item.path}</div>
+                                        <div className={styles.itemMeta}>
+                                          {item.producer_step_name
+                                            ? t("projects.artifacts.producedBy", "Produced by: {{step}}", {
+                                                step: item.producer_step_name,
+                                              })
+                                            : t("projects.artifacts.originalFile", "Original project file")}
+                                        </div>
+                                        {fileInfo && (
+                                          <div className={styles.itemMeta}>
+                                            {formatBytes(fileInfo.size)} · {fileInfo.modified_time}
+                                          </div>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ))}
                             </div>
                             <div className={styles.previewPane}>
                               {contentLoading ? (
@@ -1159,7 +1336,77 @@ export default function ProjectDetailPage() {
                                   <Spin />
                                 </div>
                               ) : selectedFilePath ? (
-                                <pre className={styles.previewContent}>{fileContent}</pre>
+                                <>
+                                  {selectedArtifactRecord && (
+                                    <div className={styles.artifactDetailCard}>
+                                      <div className={styles.itemTitleRow}>
+                                        <div className={styles.itemTitle}>{selectedArtifactRecord.name}</div>
+                                        <Tag color={
+                                          selectedArtifactRecord.kind === "source"
+                                            ? "default"
+                                            : selectedArtifactRecord.kind === "final"
+                                              ? "success"
+                                              : "processing"
+                                        }>
+                                          {selectedArtifactRecord.kind}
+                                        </Tag>
+                                      </div>
+                                      <div className={styles.itemMeta}>{selectedArtifactRecord.path}</div>
+                                      <div className={styles.itemMeta}>
+                                        {selectedArtifactRecord.producer_step_name
+                                          ? t("projects.artifacts.producedBy", "Produced by: {{step}}", {
+                                              step: selectedArtifactRecord.producer_step_name,
+                                            })
+                                          : t("projects.artifacts.originalFile", "Original project file")}
+                                      </div>
+                                      <div className={styles.itemMeta}>
+                                        {t("projects.artifacts.consumedBy", "Consumed by")}: {selectedArtifactRecord.consumer_step_names.join(", ") || "-"}
+                                      </div>
+                                      <div className={styles.lineageRow}>
+                                        <span className={styles.lineageLabel}>
+                                          {t("projects.artifacts.lineage", "Lineage")}
+                                        </span>
+                                        <div className={styles.lineageFlow}>
+                                          {selectedArtifactRecord.producer_step_name ? (
+                                            <button
+                                              type="button"
+                                              className={styles.lineageNode}
+                                              onClick={() => handleSelectStep(selectedArtifactRecord.producer_step_id || "")}
+                                            >
+                                              {selectedArtifactRecord.producer_step_name}
+                                            </button>
+                                          ) : (
+                                            <span className={styles.lineageTerminal}>
+                                              {t("projects.artifacts.sourceTerminal", "Project Source")}
+                                            </span>
+                                          )}
+                                          <span className={styles.lineageArrow}>-&gt;</span>
+                                          <span className={styles.lineageArtifact}>{selectedArtifactRecord.name}</span>
+                                          <span className={styles.lineageArrow}>-&gt;</span>
+                                          {selectedArtifactRecord.consumer_step_names.length > 0 ? (
+                                            <div className={styles.lineageConsumerList}>
+                                              {selectedArtifactRecord.consumer_step_names.map((consumerName, index) => (
+                                                <button
+                                                  key={`${selectedArtifactRecord.artifact_id}-${consumerName}`}
+                                                  type="button"
+                                                  className={styles.lineageNode}
+                                                  onClick={() => handleSelectStep(selectedArtifactRecord.consumer_step_ids[index] || "")}
+                                                >
+                                                  {consumerName}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <span className={styles.lineageTerminal}>
+                                              {t("projects.artifacts.finalTerminal", "Terminal Output")}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                  <pre className={styles.previewContent}>{fileContent}</pre>
+                                </>
                               ) : (
                                 <Empty
                                   image={Empty.PRESENTED_IMAGE_SIMPLE}

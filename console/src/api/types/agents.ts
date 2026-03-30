@@ -163,11 +163,27 @@ export interface ProjectPipelineCollaborationEvent {
   metrics: Record<string, unknown>;
 }
 
+export interface ProjectPipelineArtifactRecord {
+  artifact_id: string;
+  path: string;
+  name: string;
+  kind: string;
+  format: string;
+  human_readable: boolean;
+  run_id: string;
+  producer_step_id?: string | null;
+  producer_step_name?: string | null;
+  consumer_step_ids: string[];
+  consumer_step_names: string[];
+  created_at: string;
+}
+
 export interface ProjectPipelineRunDetail extends ProjectPipelineRunSummary {
   project_id: string;
   parameters: Record<string, unknown>;
   steps: ProjectPipelineRunStep[];
   artifacts: string[];
+  artifact_records: ProjectPipelineArtifactRecord[];
   flow_version: string;
   source_platform_template_id?: string | null;
   source_platform_template_version?: string | null;

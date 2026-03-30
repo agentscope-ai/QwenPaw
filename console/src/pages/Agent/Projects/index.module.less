@@ -251,6 +251,10 @@
   border-radius: 8px;
   padding: 10px;
   margin-bottom: 8px;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  cursor: pointer;
 }
 
 .listItem {
@@ -276,6 +280,11 @@
 .selected {
   border: 2px solid #1677ff;
   background: #f0f7ff;
+}
+
+.related {
+  border-color: #91caff;
+  background: #f6fbff;
 }
 
 .itemTitleRow {
@@ -337,10 +346,106 @@
   border-right: 1px solid #f0f0f0;
 }
 
+.artifactGroup {
+  margin-bottom: 12px;
+}
+
+.focusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid #d6e4ff;
+  border-radius: 8px;
+  background: #f0f7ff;
+}
+
+.artifactGroupTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 8px;
+}
+
 .previewPane {
   flex: 1;
   min-width: 0;
   overflow: auto;
+}
+
+.artifactDetailCard {
+  margin: 12px 12px 0;
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.lineageRow {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e8e8e8;
+}
+
+.lineageLabel {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.lineageFlow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lineageNode,
+.lineageTerminal,
+.lineageArtifact {
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.lineageNode {
+  border: 1px solid #91caff;
+  background: #f0f7ff;
+  color: #0958d9;
+  cursor: pointer;
+}
+
+.lineageTerminal {
+  border: 1px solid #d9d9d9;
+  background: #fff;
+  color: #666;
+}
+
+.lineageArtifact {
+  border: 1px solid #b7eb8f;
+  background: #f6ffed;
+  color: #237804;
+}
+
+.lineageArrow {
+  font-size: 12px;
+  color: #999;
+}
+
+.lineageConsumerList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .chatPanel {
