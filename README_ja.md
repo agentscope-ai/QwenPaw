@@ -121,7 +121,7 @@ copaw app
 
 ブラウザで **http://127.0.0.1:8088/** を開いてコンソールでモデルを設定します。DingTalk、Feishu、WeChat などでチャットするには、[チャネル設定](https://copaw.agentscope.io/docs/channels)ドキュメントを参照してください。
 
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01pyaTXq1nqAuRBGbJc_!!6000000005140-2-tps-3822-2144.png)
 
 ---
 

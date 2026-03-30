@@ -122,7 +122,7 @@ copaw app
 Затем откройте консоль в браузере: **http://127.0.0.1:8088/**, настройте модель и начните диалог.
 Для использования в DingTalk, Feishu, WeChat и других приложениях см. документацию [Настройка каналов](https://copaw.agentscope.io/docs/channels).
 
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01tqG9E621WqoqaCAPN_!!6000000006993-2-tps-3822-2144.png)
 
 ---
 
