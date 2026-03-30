@@ -62,7 +62,7 @@ export default function LanguageSwitcher() {
       placement="bottomRight"
       overlayClassName={styles.languageDropdown}
     >
-      <Button icon={LIGHT_ICON[currentLanguage]} type="text" />
+      <Button icon={LIGHT_ICON[currentLangKey]} type="text" />
     </Dropdown>
   );
 }

@@ -19,7 +19,7 @@ export default function ThemeToggleButton() {
         onClick={toggleTheme}
         aria-label={t(isDark ? "theme.switchToLight" : "theme.switchToDark")}
         type="text"
-        icon={isDark ? <SparkMoonLine /> : <SparkSunLine />}
+        icon={isDark ? <SparkSunLine /> : <SparkMoonLine />}
       />
     </Tooltip>
   );
