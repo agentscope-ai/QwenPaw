@@ -25,7 +25,7 @@ copaw init --force      # Overwrite existing config files
 
 **What the interactive flow covers (in order):**
 
-1. **Default Workspace Initialization** — automatically create default workspace and configuration files
+1. **Default Workspace Initialization** — automatically create default workspace and configuration files.
 2. **LLM provider** — select provider, enter API key, choose model
    (**required**).
 3. **Environment variables** — optionally add key-value pairs for tools.

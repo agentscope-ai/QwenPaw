@@ -310,7 +310,7 @@ export function Downloads() {
               <div className="other-methods">
                 <Link
                   to={`${docsBase}/quickstart#${
-                    isZh ? "方式二pip-安装" : "Option-2-pip-install"
+                    isZh ? "方式一pip-安装" : "Option-1-pip-install"
                   }`}
                   className="method-card"
                 >
@@ -320,7 +320,7 @@ export function Downloads() {
                 </Link>
                 <Link
                   to={`${docsBase}/quickstart#${
-                    isZh ? "方式一脚本安装" : "Option-1-Script-install"
+                    isZh ? "方式二脚本安装" : "Option-2-Script-install"
                   }`}
                   className="method-card"
                 >
@@ -330,7 +330,7 @@ export function Downloads() {
                 </Link>
                 <Link
                   to={`${docsBase}/quickstart#${
-                    isZh ? "方式五Docker" : "Option-5-Docker"
+                    isZh ? "方式三Docker" : "Option-3-Docker"
                   }`}
                   className="method-card"
                 >
@@ -341,8 +341,8 @@ export function Downloads() {
                 <Link
                   to={`${docsBase}/quickstart#${
                     isZh
-                      ? "方式六部署到阿里云-ECS"
-                      : "Option-6-Deploy-to-Alibaba-Cloud-ECS"
+                      ? "方式四部署到阿里云-ECS"
+                      : "Option-4-Deploy-to-Alibaba-Cloud-ECS"
                   }`}
                   className="method-card"
                 >
