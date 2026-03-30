@@ -163,7 +163,7 @@ function MCPPage() {
     <div className={styles.mcpPage}>
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbParent}>{t("nav.agent")}</span>
           <span className={styles.breadcrumbSeparator}>/</span>
           <span className={styles.breadcrumbCurrent}>{t("mcp.title")}</span>
         </div>

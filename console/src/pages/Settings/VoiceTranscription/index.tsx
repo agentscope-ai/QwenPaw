@@ -93,7 +93,7 @@ function VoiceTranscriptionPage() {
     <div className={styles.voiceTranscriptionPage}>
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Settings</span>
+          <span className={styles.breadcrumbParent}>{t("nav.settings")}</span>
           <span className={styles.breadcrumbSeparator}>/</span>
           <span className={styles.breadcrumbCurrent}>
             {t("voiceTranscription.title")}

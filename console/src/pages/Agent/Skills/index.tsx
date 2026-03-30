@@ -359,7 +359,7 @@ function SkillsPage() {
     <div className={styles.skillsPage}>
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbParent}>{t("nav.agent")}</span>
           <span className={styles.breadcrumbSeparator}>/</span>
           <span className={styles.breadcrumbCurrent}>{t("skills.title")}</span>
         </div>

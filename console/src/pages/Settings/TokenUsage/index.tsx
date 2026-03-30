@@ -135,7 +135,7 @@ function TokenUsagePage() {
 
   return (
     <div className={styles.tokenUsagePage}>
-      <PageHeader parent="Settings" current={t("tokenUsage.title")} />
+      <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
       <div className={styles.content}>
         {loading && !data ? (
           <LoadingState

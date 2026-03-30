@@ -201,7 +201,7 @@ function CronJobsPage() {
     <div className={styles.cronJobsPage}>
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Control</span>
+          <span className={styles.breadcrumbParent}>{t("nav.control")}</span>
           <span className={styles.breadcrumbSeparator}>/</span>
           <span className={styles.breadcrumbCurrent}>
             {t("cronJobs.title")}
