@@ -272,40 +272,44 @@ function SecurityPage() {
                         >
                           <Switch onChange={(val) => setEnabled(val)} />
                         </Form.Item>
-                      </Form>
-                      <div className={styles.toolGuardRow}>
-                        <Form.Item
-                          label={t("security.guardedTools")}
-                          name="guarded_tools"
-                          tooltip={t("security.guardedToolsTooltip")}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            mode="tags"
-                            options={toolOptions}
-                            placeholder={t("security.guardedToolsPlaceholder")}
-                            disabled={!enabled}
-                            allowClear
-                            style={{ width: "100%" }}
-                          />
-                        </Form.Item>
+                        <div className={styles.toolGuardRow}>
+                          <Form.Item
+                            label={t("security.guardedTools")}
+                            name="guarded_tools"
+                            tooltip={t("security.guardedToolsTooltip")}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              mode="tags"
+                              options={toolOptions}
+                              placeholder={t(
+                                "security.guardedToolsPlaceholder",
+                              )}
+                              disabled={!enabled}
+                              allowClear
+                              style={{ width: "100%" }}
+                            />
+                          </Form.Item>
 
-                        <Form.Item
-                          label={t("security.deniedTools")}
-                          name="denied_tools"
-                          tooltip={t("security.deniedToolsTooltip")}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            mode="tags"
-                            options={toolOptions}
-                            placeholder={t("security.deniedToolsPlaceholder")}
-                            disabled={!enabled}
-                            allowClear
-                            style={{ width: "100%" }}
-                          />
-                        </Form.Item>
-                      </div>
+                          <Form.Item
+                            label={t("security.deniedTools")}
+                            name="denied_tools"
+                            tooltip={t("security.deniedToolsTooltip")}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              mode="tags"
+                              options={toolOptions}
+                              placeholder={t(
+                                "security.deniedToolsPlaceholder",
+                              )}
+                              disabled={!enabled}
+                              allowClear
+                              style={{ width: "100%" }}
+                            />
+                          </Form.Item>
+                        </div>
+                      </Form>
                     </Card>
                   </div>
 
