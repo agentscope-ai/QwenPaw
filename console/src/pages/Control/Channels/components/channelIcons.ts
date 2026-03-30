@@ -25,7 +25,7 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
   wecom:
     "https://gw.alicdn.com/imgextra/i1/O1CN01HWtzmr1hkK9beQICJ_!!6000000004315-2-tps-400-400.png",
   weixin:
-    "https://img.alicdn.com/imgextra/i4/O1CN01Jw2SLK1XxvlP5879e_!!6000000002991-55-tps-1200-800.svg",
+    "https://gw.alicdn.com/imgextra/i4/O1CN01GsAob11fkfDWVIb3R_!!6000000004045-2-tps-400-400.png",
 };
 
 export const CHANNEL_DEFAULT_ICON_URL =

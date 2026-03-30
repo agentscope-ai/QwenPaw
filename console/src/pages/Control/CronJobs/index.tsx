@@ -218,8 +218,6 @@ function CronJobsPage() {
           scroll={{ x: 2840 }}
           pagination={{
             pageSize: 10,
-            showSizeChanger: false,
-            showTotal: (total) => t("cronJobs.totalItems", { count: total }),
           }}
         />
       </Card>
