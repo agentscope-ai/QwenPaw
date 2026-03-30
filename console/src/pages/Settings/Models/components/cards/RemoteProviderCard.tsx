@@ -60,7 +60,7 @@ export function RemoteProviderCard({
 
   let isConfigured = false;
 
-  if (provider.is_local) {
+  if (provider.id === "copaw-local") {
     isConfigured = true;
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
