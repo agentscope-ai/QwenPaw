@@ -94,8 +94,8 @@ export function CopawWhatYouCanDo() {
           aria-hidden
           loading="lazy"
           className="absolute inset-0 h-full w-full object-cover object-bottom opacity-90"
-          initial={{ opacity: 0, scale: 1.06, filter: "blur(10px)" }}
-          animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+          initial={{ opacity: 0, filter: "blur(10px)" }}
+          animate={{ opacity: 1, filter: "blur(0px)" }}
           transition={{ duration: 1.15, ease: "easeOut" }}
         />
         <motion.div
@@ -104,13 +104,11 @@ export function CopawWhatYouCanDo() {
           initial={{
             opacity: 0,
             y: 56,
-            scale: 0.95,
             filter: "blur(6px)",
           }}
           animate={{
             opacity: 1,
             y: 0,
-            scale: 1,
             filter: "blur(0px)",
           }}
           transition={{

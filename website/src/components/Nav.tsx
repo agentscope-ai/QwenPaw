@@ -5,7 +5,6 @@ import {
   X,
   BookOpen,
   Globe,
-  FileText,
   Download,
 } from "lucide-react";
 import { CopawMascot } from "@/components/CopawMascot";
@@ -39,8 +38,11 @@ function AgentScopeLogo() {
   );
 }
 
-const navLinkClass =
-  "inline-flex items-center gap-2 rounded-md px-1 py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors hover:!text-orange-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400";
+const navLinkBaseClass =
+  "inline-flex items-center gap-2 rounded-md px-1 py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
+
+const navLinkOrangeClass = `${navLinkBaseClass} hover:!text-orange-400 focus-visible:outline-orange-400`;
+const navLinkBlueClass = `${navLinkBaseClass} hover:!text-[#0064FD] focus-visible:outline-[#0064FD]`;
 
 const navIconStroke = 1.5;
 
@@ -86,7 +88,7 @@ export function Nav() {
           </span>
         </Link>
         <div className="nav-links hidden min-[641px]:flex min-[641px]:items-center min-[641px]:gap-6 lg:gap-8">
-          <Link to={docsBase} className={navLinkClass}>
+          <Link to={docsBase} className={navLinkOrangeClass}>
             <SelectTextIcon />
             <span>{t("nav.docs")}</span>
           </Link>
@@ -94,7 +96,7 @@ export function Nav() {
             href="https://github.com/agentscope-ai/CoPaw"
             target="_blank"
             rel="noopener noreferrer"
-            className={navLinkClass}
+            className={navLinkOrangeClass}
             title="CoPaw on GitHub"
           >
             <GitHubIcon />
@@ -104,7 +106,7 @@ export function Nav() {
             href="https://agentscope.io/"
             target="_blank"
             rel="noopener noreferrer"
-            className={`${navLinkClass} whitespace-nowrap`}
+            className={`${navLinkBlueClass} whitespace-nowrap`}
             title={isZh ? "基于 AgentScope 打造" : "Built on AgentScope"}
             aria-label={t("nav.agentscopeTeam")}
           >
@@ -114,7 +116,7 @@ export function Nav() {
           <button
             type="button"
             onClick={toggleLang}
-            className={`${navLinkClass} cursor-pointer border-0 bg-transparent`}
+            className={`${navLinkOrangeClass} cursor-pointer border-0 bg-transparent`}
             aria-label={t("nav.lang")}
           >
             <Globe size={18} strokeWidth={navIconStroke} aria-hidden />
@@ -123,7 +125,7 @@ export function Nav() {
           <Link
             to="/release-notes"
             role="menuitem"
-            className={navLinkClass}
+            className={navLinkOrangeClass}
           >
             <NoteIcon />
             <span>{t("nav.releaseNotes")}</span>
@@ -155,7 +157,7 @@ export function Nav() {
       >
         <Link
           to={docsBase}
-          className={navLinkClass}
+          className={navLinkOrangeClass}
           onClick={() => setOpen(false)}
         >
           <BookOpen size={18} strokeWidth={navIconStroke} /> {t("nav.docs")}
@@ -164,7 +166,7 @@ export function Nav() {
           href="https://github.com/agentscope-ai/CoPaw"
           target="_blank"
           rel="noopener noreferrer"
-          className={navLinkClass}
+          className={navLinkOrangeClass}
           onClick={() => setOpen(false)}
           title="CoPaw on GitHub"
         >
@@ -174,7 +176,7 @@ export function Nav() {
           href="https://agentscope.io/"
           target="_blank"
           rel="noopener noreferrer"
-          className={`${navLinkClass} inline-flex items-center gap-2`}
+          className={`${navLinkBlueClass} inline-flex items-center gap-2`}
           onClick={() => setOpen(false)}
           title={isZh ? "基于 AgentScope 打造" : "Built on AgentScope"}
           aria-label={t("nav.agentscopeTeam")}
@@ -184,7 +186,7 @@ export function Nav() {
         </a>
         <button
           type="button"
-          className={`${navLinkClass} w-full cursor-pointer border-0 bg-transparent text-left`}
+          className={`${navLinkOrangeClass} w-full cursor-pointer border-0 bg-transparent text-left`}
           onClick={() => {
             toggleLang();
             setOpen(false);
@@ -194,7 +196,7 @@ export function Nav() {
         </button>
         <Link
           to="/release-notes"
-          className={navLinkClass}
+          className={navLinkOrangeClass}
           onClick={() => setOpen(false)}
         >
           <NoteIcon />
@@ -202,7 +204,7 @@ export function Nav() {
         </Link>
         <Link
           to={`${docsBase}/quickstart`}
-          className={navLinkClass}
+          className={navLinkOrangeClass}
           onClick={() => setOpen(false)}
         >
           <Download size={18} strokeWidth={navIconStroke} />
