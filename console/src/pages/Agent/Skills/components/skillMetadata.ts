@@ -35,3 +35,16 @@ export const getPoolBuiltinStatusLabel = (
       return "-";
   }
 };
+
+export const getPoolBuiltinStatusTone = (
+  status: SkillSyncStatus | "" | undefined,
+) => {
+  switch (status) {
+    case "outdated":
+      return "outdated";
+    case "synced":
+      return "synced";
+    default:
+      return "neutral";
+  }
+};

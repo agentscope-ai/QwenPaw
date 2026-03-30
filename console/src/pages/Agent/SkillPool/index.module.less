@@ -100,7 +100,7 @@
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
-  padding-bottom: 16px;
+  padding-bottom: 56px; /* 增加底部padding，为按钮留出空间 */
 
   :global {
     .ant-card-body {
@@ -163,6 +163,90 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.statusLabel {
+  color: rgba(26, 23, 22, 0.65);
+  font-weight: normal;
+}
+
+.statusValue {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid transparent;
+
+  &.synced {
+    background-color: rgba(82, 196, 26, 0.12);
+    color: #389e0d;
+    border-color: rgba(82, 196, 26, 0.24);
+  }
+
+  &.outdated {
+    background-color: rgba(250, 173, 20, 0.14);
+    color: #d48806;
+    border-color: rgba(250, 173, 20, 0.28);
+  }
+
+  &.neutral {
+    background-color: rgba(239, 240, 243, 0.8);
+    color: rgba(20, 20, 19, 0.65);
+    border-color: rgba(20, 20, 19, 0.08);
+  }
+}
+
+.metaStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.infoSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.infoLabel {
+  font-size: 12px;
+  color: rgba(26, 23, 22, 0.65);
+}
+
+.infoBlock {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid transparent;
+
+  &.synced {
+    background-color: rgba(82, 196, 26, 0.12);
+    color: #389e0d;
+    border-color: rgba(82, 196, 26, 0.24);
+  }
+
+  &.outdated {
+    background-color: rgba(250, 173, 20, 0.14);
+    color: #d48806;
+    border-color: rgba(250, 173, 20, 0.28);
+  }
+
+  &.neutral {
+    background-color: rgba(239, 240, 243, 0.8);
+    color: rgba(20, 20, 19, 0.65);
+    border-color: rgba(20, 20, 19, 0.08);
+  }
 }
 
 /* ─── Tags ────────────────────────────────────────────────────────────────── */
@@ -344,6 +428,54 @@
 
   .metaValue {
     color: rgba(255, 255, 255, 0.85);
+  }
+
+  .statusLabel {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .statusValue {
+    &.synced {
+      background-color: rgba(82, 196, 26, 0.18);
+      color: #b7eb8f;
+      border-color: rgba(82, 196, 26, 0.32);
+    }
+
+    &.outdated {
+      background-color: rgba(250, 173, 20, 0.2);
+      color: #ffd666;
+      border-color: rgba(250, 173, 20, 0.34);
+    }
+
+    &.neutral {
+      background-color: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.8);
+      border-color: rgba(255, 255, 255, 0.14);
+    }
+  }
+
+  .infoLabel {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .infoBlock {
+    &.synced {
+      background-color: rgba(82, 196, 26, 0.18);
+      color: #b7eb8f;
+      border-color: rgba(82, 196, 26, 0.32);
+    }
+
+    &.outdated {
+      background-color: rgba(250, 173, 20, 0.2);
+      color: #ffd666;
+      border-color: rgba(250, 173, 20, 0.34);
+    }
+
+    &.neutral {
+      background-color: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.8);
+      border-color: rgba(255, 255, 255, 0.14);
+    }
   }
 
   /* Action button */

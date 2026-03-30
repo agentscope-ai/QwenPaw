@@ -13,6 +13,53 @@ import type {
 // Declare VITE_API_BASE_URL as global (injected by Vite)
 declare const VITE_API_BASE_URL: string;
 
+// Simple in-memory cache with TTL
+const CACHE_TTL_MS = 30000; // 30 seconds
+const apiCache = new Map<string, { data: unknown; timestamp: number }>();
+
+function getCached<T>(key: string): T | null {
+  const cached = apiCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > CACHE_TTL_MS) {
+    apiCache.delete(key);
+    return null;
+  }
+  return cached.data as T;
+}
+
+function setCache<T>(key: string, data: T): void {
+  apiCache.set(key, { data, timestamp: Date.now() });
+}
+
+export function invalidateSkillCache(options?: {
+  agentId?: string;
+  workspaces?: boolean;
+  pool?: boolean;
+}): void {
+  // Clear all skill-related cache entries
+  for (const key of Array.from(apiCache.keys())) {
+    if (!key.startsWith("/skills")) continue;
+
+    // If no specific options provided, clear all
+    if (!options) {
+      apiCache.delete(key);
+      continue;
+    }
+
+    // Targeted invalidation based on options
+    if (options.pool && key === "/skills/pool") {
+      apiCache.delete(key);
+    } else if (options.workspaces && key === "/skills/workspaces") {
+      apiCache.delete(key);
+    } else if (options.agentId && key === `/skills?agent=${options.agentId}`) {
+      apiCache.delete(key);
+    } else if (options.agentId && key === "/skills") {
+      // Also clear generic /skills cache when specific agent cache is invalidated
+      apiCache.delete(key);
+    }
+  }
+}
+
 function getStreamApiUrl(): string {
   const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";
   return `${base}/api`;
@@ -63,16 +110,37 @@ async function _uploadZip(
 }
 
 export const skillApi = {
-  listSkills: (agentId?: string) => {
+  listSkills: async (agentId?: string) => {
+    const cacheKey = `/skills${agentId ? `?agent=${agentId}` : ""}`;
+    const cached = getCached<SkillSpec[]>(cacheKey);
+    if (cached) return cached;
+
     const opts: RequestInit = {};
     if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
-    return request<SkillSpec[]>("/skills", opts);
+    const data = await request<SkillSpec[]>("/skills", opts);
+    setCache(cacheKey, data);
+    return data;
   },
 
-  listSkillWorkspaces: () =>
-    request<WorkspaceSkillSummary[]>("/skills/workspaces"),
+  listSkillWorkspaces: async () => {
+    const cacheKey = "/skills/workspaces";
+    const cached = getCached<WorkspaceSkillSummary[]>(cacheKey);
+    if (cached) return cached;
 
-  listSkillPoolSkills: () => request<PoolSkillSpec[]>("/skills/pool"),
+    const data = await request<WorkspaceSkillSummary[]>("/skills/workspaces");
+    setCache(cacheKey, data);
+    return data;
+  },
+
+  listSkillPoolSkills: async () => {
+    const cacheKey = "/skills/pool";
+    const cached = getCached<PoolSkillSpec[]>(cacheKey);
+    if (cached) return cached;
+
+    const data = await request<PoolSkillSpec[]>("/skills/pool");
+    setCache(cacheKey, data);
+    return data;
+  },
 
   searchHubSkills: (q: string, limit: number = 20) =>
     request<HubSkillSpec[]>(

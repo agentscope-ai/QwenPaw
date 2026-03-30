@@ -3,6 +3,7 @@ import { Card, Switch, Empty } from "@agentscope-ai/design";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 export default function ToolsPage() {
@@ -33,22 +34,20 @@ export default function ToolsPage() {
 
   return (
     <div className={styles.toolsPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Agent</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>{t("tools.title")}</span>
-        </div>
-        <div className={styles.headerAction}>
-          <Switch
-            checked={hasEnabledTools && !hasDisabledTools}
-            onChange={() => (hasDisabledTools ? enableAll() : disableAll())}
-            disabled={batchLoading || loading}
-            checkedChildren={t("tools.enableAll")}
-            unCheckedChildren={t("tools.disableAll")}
-          />
-        </div>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.agent") }, { title: t("tools.title") }]}
+        extra={
+          <div className={styles.headerAction}>
+            <Switch
+              checked={hasEnabledTools && !hasDisabledTools}
+              onChange={() => (hasDisabledTools ? enableAll() : disableAll())}
+              disabled={batchLoading || loading}
+              checkedChildren={t("tools.enableAll")}
+              unCheckedChildren={t("tools.disableAll")}
+            />
+          </div>
+        }
+      />
       <div className={styles.toolsContainer}>
         {loading ? (
           <div className={styles.loading}>

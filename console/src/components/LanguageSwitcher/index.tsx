@@ -2,6 +2,7 @@ import { Dropdown } from "@agentscope-ai/design";
 import { GlobalOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { Button, type MenuProps } from "antd";
+import { languageApi } from "../../api/modules/language";
 import styles from "./index.module.less";
 
 export default function LanguageSwitcher() {
@@ -13,6 +14,11 @@ export default function LanguageSwitcher() {
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
+    languageApi
+      .updateLanguage(lang)
+      .catch((err) =>
+        console.error("Failed to save language preference:", err),
+      );
   };
 
   const items: MenuProps["items"] = [

@@ -2,6 +2,7 @@ import React from "react";
 import { Input } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkEditLine, SparkDeleteLine } from "@agentscope-ai/icons";
+import { getChannelIconUrl } from "../../../Control/Channels/components";
 import styles from "./index.module.less";
 
 interface ChatSessionItemProps {
@@ -9,6 +10,10 @@ interface ChatSessionItemProps {
   name: string;
   /** Pre-formatted creation time string */
   time: string;
+  /** Channel key (e.g. console, dingtalk) — used with shared channel icons */
+  channelKey?: string;
+  /** Localized channel label (e.g. Console, DingTalk) */
+  channelLabel?: string;
   /** Whether this is the currently selected session */
   active?: boolean;
   /** Whether the item is in inline-edit mode */
@@ -61,7 +66,30 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
         ) : (
           <div className={styles.name}>{props.name}</div>
         )}
-        <div className={styles.time}>{props.time}</div>
+        <div className={styles.metaRow}>
+          <span className={styles.time}>{props.time}</span>
+          {(props.channelKey || props.channelLabel) && (
+            <span
+              className={styles.channelTag}
+              title={props.channelLabel || props.channelKey}
+            >
+              {props.channelKey ? (
+                <img
+                  className={styles.channelIcon}
+                  src={getChannelIconUrl(props.channelKey)}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                />
+              ) : null}
+              {props.channelLabel ? (
+                <span className={styles.channelTagText}>
+                  {props.channelLabel}
+                </span>
+              ) : null}
+            </span>
+          )}
+        </div>
       </div>
       {/* Action buttons visible on hover */}
       {!props.editing && (

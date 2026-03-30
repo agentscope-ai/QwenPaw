@@ -4,6 +4,7 @@ import { Bot, CheckCircle, EyeOff, ChevronRight } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
 import { agentsApi } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
+import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useNavigate } from "react-router-dom";
 import styles from "./index.module.less";
 
@@ -74,7 +75,11 @@ export default function AgentSelector({
   if (collapsed) {
     return (
       <Tooltip
-        title={currentAgentInfo?.name ?? selectedAgent}
+        title={
+          currentAgentInfo
+            ? getAgentDisplayName(currentAgentInfo, t)
+            : selectedAgent
+        }
         placement="right"
         overlayInnerStyle={{ background: "rgba(0,0,0,0.75)", color: "#fff" }}
       >
@@ -129,7 +134,7 @@ export default function AgentSelector({
             label={
               <div className={styles.selectedAgentLabel}>
                 <Bot size={14} strokeWidth={2} />
-                <span>{agent.name}</span>
+                <span>{getAgentDisplayName(agent, t)}</span>
                 {!agent.enabled && <EyeOff size={12} strokeWidth={2} />}
               </div>
             }
@@ -145,7 +150,7 @@ export default function AgentSelector({
                 <div className={styles.agentOptionContent}>
                   <div className={styles.agentOptionName}>
                     <span className={styles.agentOptionNameText}>
-                      {agent.name}
+                      {getAgentDisplayName(agent, t)}
                     </span>
                     {agent.id === selectedAgent && (
                       <CheckCircle

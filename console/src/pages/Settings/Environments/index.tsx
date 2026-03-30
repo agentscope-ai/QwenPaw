@@ -4,14 +4,8 @@ import { useTranslation } from "react-i18next";
 
 import api from "../../../api";
 import { useEnvVars } from "./useEnvVars";
-import {
-  PageHeader,
-  EmptyState,
-  AddButton,
-  Toolbar,
-  EnvRow,
-  type Row,
-} from "./components";
+import { EmptyState, AddButton, Toolbar, EnvRow, type Row } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 /* ------------------------------------------------------------------ */

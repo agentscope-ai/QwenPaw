@@ -7,7 +7,8 @@ import { skillApi } from "../../../api/modules/skill";
 import type { AgentSummary } from "../../../api/types/agents";
 import { useAgents } from "./useAgents";
 import { useAgentStore } from "../../../stores/agentStore";
-import { PageHeader, AgentTable, AgentModal } from "./components";
+import { AgentTable, AgentModal } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 export default function AgentsPage() {
@@ -114,10 +115,16 @@ export default function AgentsPage() {
       <PageHeader
         parent={t("agent.parent")}
         current={t("agent.agents")}
-        action={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            {t("agent.create")}
-          </Button>
+        extra={
+          <div className={styles.headerRight}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleCreate}
+            >
+              {t("agent.create")}
+            </Button>
+          </div>
         }
       />
 

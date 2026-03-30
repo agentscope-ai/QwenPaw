@@ -13,13 +13,13 @@ import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
 import {
-  PageHeader,
   RuleTable,
   RuleModal,
   PreviewModal,
   SkillScannerSection,
   FileGuardSection,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 const BUILTIN_TOOLS = [
@@ -50,6 +50,17 @@ function SecurityPage() {
     reset: () => void;
     saving: boolean;
   } | null>(null);
+
+  const onFileGuardHandlersReady = useCallback(
+    (handlers: {
+      save: () => Promise<void>;
+      reset: () => void;
+      saving: boolean;
+    }) => {
+      setFileGuardHandlers(handlers);
+    },
+    [],
+  );
 
   const {
     config,
@@ -341,9 +352,7 @@ function SecurityPage() {
                     <p className={styles.tabDescription}>
                       {t("security.fileGuard.description")}
                     </p>
-                    <FileGuardSection
-                      onSave={(handlers) => setFileGuardHandlers(handlers)}
-                    />
+                    <FileGuardSection onSave={onFileGuardHandlersReady} />
                   </div>
                 </div>
               ),

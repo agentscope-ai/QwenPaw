@@ -1,43 +1,81 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Button,
-  Form,
   Input,
   Modal,
   Select,
-  Tag,
+  Tooltip,
   message,
 } from "@agentscope-ai/design";
-import {
-  CloseOutlined,
-  DeleteOutlined,
-  DownloadOutlined,
-  LoadingOutlined,
-  ApiOutlined,
-} from "@ant-design/icons";
+import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
+import { Progress } from "antd";
 import type {
   ProviderInfo,
-  LocalModelResponse,
-  DownloadTaskResponse,
+  LocalDownloadProgress,
+  LocalDownloadSource,
+  LocalModelInfo,
+  LocalServerStatus,
 } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
+import { LocalModelRow } from "./local-models/LocalModelRow";
+import { LocalRuntimePanel } from "./local-models/LocalRuntimePanel";
+import {
+  formatProgressText,
+  getProgressPercent,
+  isDownloadActive,
+} from "./local-models/shared";
 
 const POLL_INTERVAL_MS = 3000;
+
+type LocalDownloadStatus = LocalDownloadProgress["status"];
+
+function isSameServerStatus(
+  left: LocalServerStatus | null,
+  right: LocalServerStatus | null,
+): boolean {
+  return (
+    left?.available === right?.available &&
+    left?.installed === right?.installed &&
+    left?.port === right?.port &&
+    left?.model_name === right?.model_name &&
+    left?.message === right?.message
+  );
+}
+
+function isSameDownloadProgress(
+  left: LocalDownloadProgress | null,
+  right: LocalDownloadProgress | null,
+): boolean {
+  return (
+    left?.status === right?.status &&
+    left?.model_name === right?.model_name &&
+    left?.downloaded_bytes === right?.downloaded_bytes &&
+    left?.total_bytes === right?.total_bytes &&
+    left?.speed_bytes_per_sec === right?.speed_bytes_per_sec &&
+    left?.source === right?.source &&
+    left?.error === right?.error
+  );
+}
+
+interface LocalStatusSnapshot {
+  server: LocalServerStatus;
+  llamacpp: LocalDownloadProgress;
+  model: LocalDownloadProgress;
+}
+
+function isBusyDownloadStatus(status: LocalDownloadStatus | null | undefined) {
+  return (
+    status === "pending" || status === "downloading" || status === "canceling"
+  );
+}
 
 interface LocalModelManageModalProps {
   provider: ProviderInfo;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
 export function LocalModelManageModal({
@@ -47,14 +85,34 @@ export function LocalModelManageModal({
   onSaved,
 }: LocalModelManageModalProps) {
   const { t } = useTranslation();
-  const [adding, setAdding] = useState(false);
-  const [testingModelId, setTestingModelId] = useState<string | null>(null);
-  const [form] = Form.useForm();
-  const [localModels, setLocalModels] = useState<LocalModelResponse[]>([]);
+  const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
+  const [customModelRepoId, setCustomModelRepoId] = useState("");
+  const [customModelSource, setCustomModelSource] =
+    useState<LocalDownloadSource>("huggingface");
   const [loadingLocal, setLoadingLocal] = useState(false);
-  const [activeTasks, setActiveTasks] = useState<DownloadTaskResponse[]>([]);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [serverStatus, setServerStatus] = useState<LocalServerStatus | null>(
+    null,
+  );
+  const [llamacppDownload, setLlamacppDownload] =
+    useState<LocalDownloadProgress | null>(null);
+  const [modelDownload, setModelDownload] =
+    useState<LocalDownloadProgress | null>(null);
+  const [startingModelName, setStartingModelName] = useState<string | null>(
+    null,
+  );
+  const [stoppingServer, setStoppingServer] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const notifiedRef = useRef<Set<string>>(new Set());
+  const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
+  const previousLlamacppStatusRef = useRef<string | null>(null);
+  const previousModelStatusRef = useRef<string | null>(null);
+
+  const getLocalModelDisplayName = (modelId: string | null) => {
+    if (!modelId) {
+      return null;
+    }
+    return localModels.find((model) => model.id === modelId)?.name ?? modelId;
+  };
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -66,149 +124,201 @@ export function LocalModelManageModal({
   const fetchLocalModels = useCallback(async () => {
     setLoadingLocal(true);
     try {
-      const data = await api.listLocalModels(provider.id);
+      const data = await api.listRecommendedLocalModels();
       setLocalModels(Array.isArray(data) ? data : []);
     } catch {
       setLocalModels([]);
     } finally {
       setLoadingLocal(false);
     }
-  }, [provider.id]);
+  }, []);
 
-  const pollDownloads = useCallback(async () => {
-    try {
-      const tasks = await api.getDownloadStatus(provider.id);
-      const active = tasks.filter(
-        (t) => t.status === "pending" || t.status === "downloading",
-      );
-      const terminal = tasks.filter(
-        (t) =>
-          t.status === "completed" ||
-          t.status === "failed" ||
-          t.status === "cancelled",
-      );
+  const setModelDownloadState = useCallback(
+    (
+      value:
+        | LocalDownloadProgress
+        | null
+        | ((
+            prev: LocalDownloadProgress | null,
+          ) => LocalDownloadProgress | null),
+    ) => {
+      setModelDownload((prev) => {
+        const next = typeof value === "function" ? value(prev) : value;
+        modelDownloadRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
 
-      let needsRefresh = false;
-      for (const task of terminal) {
-        if (!notifiedRef.current.has(task.task_id)) {
-          notifiedRef.current.add(task.task_id);
-          if (task.status === "completed") {
-            message.success(t("models.localDownloadSuccess"));
-            needsRefresh = true;
-          } else if (task.status === "cancelled") {
-            message.info(t("models.localDownloadCancelled"));
-          } else {
-            message.error(task.error || t("models.localDownloadFailed"));
-          }
+  const refreshStatus = useCallback(
+    async (showLoading = false) => {
+      if (showLoading) {
+        setLoadingStatus(true);
+      }
+      try {
+        const [nextServerStatus, nextLlamacppDownload, nextModelDownload] =
+          await Promise.all([
+            api.getLocalServerStatus(),
+            api.getLlamacppDownloadProgress(),
+            api.getLocalModelDownloadProgress(),
+          ]);
+
+        setServerStatus((prev) =>
+          isSameServerStatus(prev, nextServerStatus) ? prev : nextServerStatus,
+        );
+        setLlamacppDownload((prev) =>
+          isSameDownloadProgress(prev, nextLlamacppDownload)
+            ? prev
+            : nextLlamacppDownload,
+        );
+        setModelDownloadState((prev) =>
+          isSameDownloadProgress(prev, nextModelDownload)
+            ? prev
+            : nextModelDownload,
+        );
+
+        if (
+          (previousLlamacppStatusRef.current === "pending" ||
+            previousLlamacppStatusRef.current === "downloading") &&
+          nextLlamacppDownload.status === "completed"
+        ) {
+          message.success(t("models.localLlamacppInstallSuccess"));
+        }
+
+        if (
+          (previousModelStatusRef.current === "pending" ||
+            previousModelStatusRef.current === "downloading") &&
+          nextModelDownload.status === "completed"
+        ) {
+          message.success(t("models.localDownloadSuccess"));
+          onSaved();
+          void fetchLocalModels();
+        }
+
+        if (
+          previousLlamacppStatusRef.current !== "failed" &&
+          nextLlamacppDownload.status === "failed" &&
+          nextLlamacppDownload.error
+        ) {
+          message.error(nextLlamacppDownload.error);
+        }
+        if (
+          previousModelStatusRef.current !== "failed" &&
+          nextModelDownload.status === "failed" &&
+          nextModelDownload.error
+        ) {
+          message.error(nextModelDownload.error);
+        }
+
+        previousLlamacppStatusRef.current = nextLlamacppDownload.status;
+        previousModelStatusRef.current = nextModelDownload.status;
+
+        if (
+          !isBusyDownloadStatus(nextLlamacppDownload.status) &&
+          !isBusyDownloadStatus(nextModelDownload.status)
+        ) {
+          stopPolling();
+        }
+
+        return {
+          server: nextServerStatus,
+          llamacpp: nextLlamacppDownload,
+          model: nextModelDownload,
+        } satisfies LocalStatusSnapshot;
+      } catch {
+        return null;
+      } finally {
+        if (showLoading) {
+          setLoadingStatus(false);
         }
       }
-
-      if (needsRefresh) {
-        onSaved();
-        fetchLocalModels();
-      }
-
-      setActiveTasks(active);
-
-      if (active.length === 0) {
-        stopPolling();
-      }
-    } catch {
-      /* ignore polling errors */
-    }
-  }, [provider.id, t, onSaved, fetchLocalModels, stopPolling]);
+    },
+    [fetchLocalModels, onSaved, stopPolling, t],
+  );
 
   const startPolling = useCallback(() => {
     if (pollRef.current) return;
-    pollRef.current = setInterval(pollDownloads, POLL_INTERVAL_MS);
-  }, [pollDownloads]);
+    pollRef.current = setInterval(() => {
+      void refreshStatus();
+    }, POLL_INTERVAL_MS);
+  }, [refreshStatus]);
 
   useEffect(() => {
     if (!open) return;
 
-    fetchLocalModels();
-    setAdding(false);
-    form.resetFields();
-    notifiedRef.current.clear();
-
-    api
-      .getDownloadStatus(provider.id)
-      .then((tasks) => {
-        const taskList = Array.isArray(tasks) ? tasks : [];
-        const active = taskList.filter(
-          (t) => t.status === "pending" || t.status === "downloading",
-        );
-        setActiveTasks(active);
-        if (active.length > 0) {
+    void Promise.all([fetchLocalModels(), refreshStatus(true)]).then(
+      ([, statuses]) => {
+        if (
+          statuses &&
+          (isBusyDownloadStatus(statuses.llamacpp.status) ||
+            isBusyDownloadStatus(statuses.model.status))
+        ) {
           startPolling();
         }
-      })
-      .catch(() => {});
+      },
+    );
 
     return () => stopPolling();
-  }, [open, provider.id, fetchLocalModels, form, startPolling, stopPolling]);
+  }, [fetchLocalModels, open, refreshStatus, startPolling, stopPolling]);
 
-  const handleDownload = async () => {
+  const handleStartLlamacppDownload = useCallback(async () => {
+    const previousLlamacppDownload = llamacppDownload;
+    const previousLlamacppStatus = previousLlamacppStatusRef.current;
+
+    setLlamacppDownload({
+      status: "pending",
+      model_name: t("models.localLlamacppName"),
+      downloaded_bytes: 0,
+      total_bytes: null,
+      speed_bytes_per_sec: 0,
+      source: null,
+      error: null,
+      local_path: null,
+    });
+    previousLlamacppStatusRef.current = "pending";
+
     try {
-      const values = await form.validateFields();
-      const task = await api.downloadModel({
-        repo_id: values.repo_id.trim(),
-        filename: values.filename?.trim() || undefined,
-        backend: provider.id,
-        source: values.source || "huggingface",
-      });
-      setActiveTasks((prev) => [...prev, task]);
-      setAdding(false);
-      form.resetFields();
+      await api.startLlamacppDownload();
+      message.success(t("models.localLlamacppInstallStarted"));
+      await refreshStatus();
       startPolling();
     } catch (error) {
-      if (error && typeof error === "object" && "errorFields" in error) return;
+      setLlamacppDownload(previousLlamacppDownload);
+      previousLlamacppStatusRef.current = previousLlamacppStatus;
+      await refreshStatus();
+      startPolling();
       const errMsg =
-        error instanceof Error ? error.message : t("models.downloadFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localLlamacppInstallFailed");
       message.error(errMsg);
     }
-  };
+  }, [llamacppDownload, refreshStatus, startPolling, t]);
 
-  const handleDeleteLocal = (model: LocalModelResponse) => {
+  const handleCancelLlamacppDownload = useCallback(() => {
     Modal.confirm({
-      title: t("models.localDeleteModel"),
-      content: t("models.localDeleteConfirm", { name: model.display_name }),
-      okText: t("common.delete"),
+      title: t("models.localCancelDownloadTitle"),
+      content: t("models.localCancelDownloadConfirm", {
+        repo: t("models.localLlamacppName"),
+      }),
+      okText: t("models.localCancelDownloadAction"),
       okButtonProps: { danger: true },
-      cancelText: t("models.cancel"),
+      cancelText: t("common.close"),
       onOk: async () => {
         try {
-          await api.deleteLocalModel(model.id);
-          message.success(
-            t("models.localModelDeleted", { name: model.display_name }),
+          setLlamacppDownload((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: "canceling",
+                }
+              : prev,
           );
-          onSaved();
-          fetchLocalModels();
-        } catch (error) {
-          const errMsg =
-            error instanceof Error
-              ? error.message
-              : t("models.localDeleteFailed");
-          message.error(errMsg);
-        }
-      },
-    });
-  };
-
-  const handleCancelDownload = (task: DownloadTaskResponse) => {
-    Modal.confirm({
-      title: t("models.localCancelDownload"),
-      content: t("models.localCancelDownloadConfirm", { repo: task.repo_id }),
-      okText: t("models.localCancelDownload"),
-      okButtonProps: { danger: true },
-      cancelText: t("models.cancel"),
-      onOk: async () => {
-        try {
-          await api.cancelDownload(task.task_id);
+          await api.cancelLlamacppDownload();
           message.success(t("models.localDownloadCancelled"));
-          setActiveTasks((prev) =>
-            prev.filter((t) => t.task_id !== task.task_id),
-          );
+          await refreshStatus();
+          startPolling();
         } catch (error) {
           const errMsg =
             error instanceof Error
@@ -218,37 +328,176 @@ export function LocalModelManageModal({
         }
       },
     });
-  };
+  }, [refreshStatus, startPolling, t]);
 
-  const handleTest = async (modelId: string) => {
-    setTestingModelId(modelId);
-    try {
-      const result = await api.testModelConnection(provider.id, {
-        model_id: modelId,
+  const handleStartModelDownload = useCallback(
+    async (model: LocalModelInfo) => {
+      const previousModelDownload = modelDownloadRef.current;
+      const previousModelStatus = previousModelStatusRef.current;
+
+      setModelDownloadState({
+        status: "pending",
+        model_name: model.id,
+        downloaded_bytes: 0,
+        total_bytes: null,
+        speed_bytes_per_sec: 0,
+        source: model.source,
+        error: null,
+        local_path: null,
       });
-      if (result.success) {
-        message.success(result.message || t("models.testConnectionSuccess"));
-        // Refresh model list on successful test
-        fetchLocalModels();
-      } else {
-        message.warning(result.message || t("models.testConnectionFailed"));
+      previousModelStatusRef.current = "pending";
+
+      try {
+        await api.startLocalModelDownload(model.id, model.source);
+        await refreshStatus();
+        startPolling();
+      } catch (error) {
+        setModelDownloadState(previousModelDownload);
+        previousModelStatusRef.current = previousModelStatus;
+        const errMsg =
+          error instanceof Error
+            ? error.message
+            : t("models.localDownloadFailed");
+        message.error(errMsg);
       }
+    },
+    [refreshStatus, setModelDownloadState, startPolling, t],
+  );
+
+  const handleStartCustomModelDownload = useCallback(async () => {
+    const trimmedRepoId = customModelRepoId.trim();
+
+    if (!trimmedRepoId) {
+      message.warning(t("models.localRepoIdRequired"));
+      return;
+    }
+
+    await handleStartModelDownload({
+      id: trimmedRepoId,
+      name: trimmedRepoId,
+      size_bytes: 0,
+      downloaded: false,
+      source: customModelSource,
+    });
+  }, [customModelRepoId, customModelSource, handleStartModelDownload, t]);
+
+  const handleCancelModelDownload = useCallback(
+    (modelName: string) => {
+      Modal.confirm({
+        title: t("models.localCancelDownloadTitle"),
+        content: t("models.localCancelDownloadConfirm", { repo: modelName }),
+        okText: t("models.localCancelDownloadAction"),
+        okButtonProps: { danger: true },
+        cancelText: t("common.close"),
+        onOk: async () => {
+          try {
+            setModelDownloadState((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    status: "canceling",
+                  }
+                : prev,
+            );
+            await api.cancelLocalModelDownload();
+            message.success(t("models.localDownloadCancelled"));
+            await refreshStatus();
+            startPolling();
+          } catch (error) {
+            const errMsg =
+              error instanceof Error
+                ? error.message
+                : t("models.localCancelDownloadFailed");
+            message.error(errMsg);
+          }
+        },
+      });
+    },
+    [refreshStatus, setModelDownloadState, startPolling, t],
+  );
+
+  const handleStartServer = useCallback(
+    async (model: LocalModelInfo) => {
+      const run = async () => {
+        setStartingModelName(model.id);
+        try {
+          await api.startLocalServer({
+            model_id: model.id,
+          });
+          await refreshStatus();
+          onSaved();
+        } catch (error) {
+          const errMsg =
+            error instanceof Error
+              ? error.message
+              : t("models.localServerStartFailed");
+          message.error(errMsg);
+        } finally {
+          setStartingModelName(null);
+        }
+      };
+
+      if (
+        serverStatus?.available &&
+        serverStatus.model_name &&
+        serverStatus.model_name !== model.id
+      ) {
+        Modal.confirm({
+          title: t("models.localServerSwitchTitle"),
+          content: t("models.localServerSwitchConfirm", {
+            current: getLocalModelDisplayName(serverStatus.model_name),
+            next: model.name,
+          }),
+          okText: t("models.localSwitchModel"),
+          cancelText: t("models.cancel"),
+          onOk: run,
+        });
+        return;
+      }
+
+      await run();
+    },
+    [localModels, onSaved, refreshStatus, serverStatus, t],
+  );
+
+  const handleStopServer = useCallback(async () => {
+    setStoppingServer(true);
+    try {
+      await api.stopLocalServer();
+      await refreshStatus();
+      onSaved();
     } catch (error) {
       const errMsg =
         error instanceof Error
           ? error.message
-          : t("models.testConnectionError");
+          : t("models.localServerStopFailed");
       message.error(errMsg);
     } finally {
-      setTestingModelId(null);
+      setStoppingServer(false);
     }
-  };
+  }, [onSaved, refreshStatus, t]);
 
   const handleClose = () => {
-    setAdding(false);
-    form.resetFields();
     onClose();
   };
+
+  const isModelDownloading = isDownloadActive(modelDownload);
+  const isServerBusy = stoppingServer || startingModelName !== null;
+  const isRuntimeInstalled = Boolean(serverStatus?.installed);
+  const isCustomDownloadDisabled =
+    customModelRepoId.trim().length === 0 || isModelDownloading || isServerBusy;
+  const downloadedModelCount = localModels.filter(
+    (model) => model.downloaded,
+  ).length;
+
+  const currentRunningModelName = serverStatus?.model_name ?? null;
+  const currentRunningModelDisplayName = getLocalModelDisplayName(
+    currentRunningModelName,
+  );
+  const currentModelDownloadName =
+    getLocalModelDisplayName(modelDownload?.model_name ?? null) ||
+    t("models.localDownloadPending");
+  const currentModelDownloadPercent = getProgressPercent(modelDownload);
 
   return (
     <Modal
@@ -265,157 +514,178 @@ export function LocalModelManageModal({
       width={600}
       destroyOnHidden
     >
-      {/* Active download statuses */}
-      {activeTasks.map((task) => (
-        <div
-          key={task.task_id}
-          style={{
-            padding: "12px 16px",
-            marginBottom: 8,
-            background: "#f6f8fa",
-            borderRadius: 8,
-            border: "1px solid #e8e8e8",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <LoadingOutlined spin style={{ fontSize: 16, color: "#FF7F16" }} />
-          <span style={{ color: "#333", fontSize: 13, flex: 1 }}>
-            {task.status === "pending"
-              ? t("models.downloadPending")
-              : t("models.localDownloading", { repo: task.repo_id })}
-          </span>
-          <Button
-            type="text"
-            size="small"
-            danger
-            icon={<CloseOutlined />}
-            onClick={() => handleCancelDownload(task)}
-            style={{ marginLeft: "auto" }}
-          />
-        </div>
-      ))}
+      {(loadingLocal || loadingStatus) && localModels.length === 0 ? (
+        <div className={styles.modelListEmpty}>{t("common.loading")}</div>
+      ) : null}
 
-      {/* Downloaded models list */}
-      <div className={styles.modelList}>
-        {loadingLocal ? (
-          <div className={styles.modelListEmpty}>{t("common.loading")}</div>
-        ) : localModels.length === 0 ? (
-          <div className={styles.modelListEmpty}>
-            {t("models.localNoModels")}
+      <section className={styles.localSection}>
+        <LocalRuntimePanel
+          serverStatus={serverStatus}
+          progress={llamacppDownload}
+          onStart={handleStartLlamacppDownload}
+          onCancel={handleCancelLlamacppDownload}
+          onStop={handleStopServer}
+          stopping={stoppingServer}
+        />
+      </section>
+
+      <section className={styles.localSection}>
+        <div className={styles.localSectionHeader}>
+          <div>
+            <div className={styles.localSectionTitle}>
+              {t("models.localModelsSectionTitle")}
+            </div>
+          </div>
+        </div>
+
+        {isRuntimeInstalled && isModelDownloading ? (
+          <div className={styles.localSectionInfoRow}>
+            <div className={styles.localSectionInfoContent}>
+              <span className={styles.localSectionInfoLabel}>
+                {t("models.localCurrentDownloadTitle")}
+              </span>
+              <span className={styles.localSectionInfoValue}>
+                {currentModelDownloadName}
+              </span>
+              <div className={styles.localRuntimeDownloadRow}>
+                <div className={styles.localRuntimeProgressBlock}>
+                  <div className={styles.localRuntimeProgressBarRow}>
+                    <Progress
+                      className={styles.localRuntimeProgress}
+                      percent={currentModelDownloadPercent ?? 0}
+                      showInfo={false}
+                      status="active"
+                      strokeColor="#ff7f16"
+                      strokeWidth={10}
+                    />
+                    <Tooltip title={t("models.localCancelDownloadAction")}>
+                      <Button
+                        danger
+                        size="small"
+                        icon={<CloseOutlined />}
+                        onClick={() =>
+                          handleCancelModelDownload(currentModelDownloadName)
+                        }
+                      />
+                    </Tooltip>
+                  </div>
+                  <span className={styles.localRuntimeProgressMeta}>
+                    {formatProgressText(modelDownload)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {isRuntimeInstalled && currentRunningModelName ? (
+          <div className={styles.localSectionInfoRow}>
+            <span className={styles.localSectionInfoLabel}>
+              {t("models.localEngineCurrentModelLabel")}
+            </span>
+            <span className={styles.localSectionInfoValue}>
+              {currentRunningModelDisplayName}
+            </span>
+          </div>
+        ) : null}
+
+        {isRuntimeInstalled && downloadedModelCount === 0 ? (
+          <div className={styles.localSectionNotice}>
+            {t("models.localNoDownloadedModelsHint")}
+          </div>
+        ) : null}
+
+        {!isRuntimeInstalled ? (
+          <div className={styles.localLockedPanel}>
+            <div className={styles.localLockedPanelDescription}>
+              {t("models.localModelsLockedHint")}
+            </div>
           </div>
         ) : (
-          localModels.map((m) => (
-            <div key={m.id} className={styles.modelListItem}>
-              <div className={styles.modelListItemInfo}>
-                <span className={styles.modelListItemName}>
-                  {m.display_name}
-                </span>
-                <span className={styles.modelListItemId}>
-                  {m.repo_id}/{m.filename} &middot;{" "}
-                  {formatFileSize(m.file_size)}
-                </span>
+          <div className={styles.modelList}>
+            {serverStatus?.installed && loadingLocal ? (
+              <div className={styles.modelListEmpty}>{t("common.loading")}</div>
+            ) : serverStatus?.installed && localModels.length === 0 ? (
+              <div className={styles.modelListEmpty}>
+                {t("models.localNoRecommendedModels")}
               </div>
-              <div className={styles.modelListItemActions}>
-                <Tag
-                  color={m.source === "huggingface" ? "orange" : "blue"}
-                  style={{ fontSize: 11, marginRight: 4 }}
-                >
-                  {m.source === "huggingface" ? "HF" : "MS"}
-                </Tag>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ApiOutlined />}
-                  onClick={() => handleTest(m.id)}
-                  loading={testingModelId === m.id}
-                  style={{ marginRight: 4 }}
-                >
-                  {t("models.testConnection")}
-                </Button>
-                <Button
-                  type="text"
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => handleDeleteLocal(m)}
-                />
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+            ) : null}
 
-      {/* Download form */}
-      {adding ? (
-        <div className={styles.modelAddForm}>
-          <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
-            <Form.Item
-              name="repo_id"
-              label={t("models.localRepoId")}
-              rules={[
-                { required: true, message: t("models.localRepoIdRequired") },
-              ]}
-              style={{ marginBottom: 12 }}
-            >
-              <Input placeholder={t("models.localRepoIdPlaceholder")} />
-            </Form.Item>
-            <Form.Item
-              name="filename"
-              label={t("models.localFilename")}
-              extra={t("models.localFilenameHint")}
-              style={{ marginBottom: 12 }}
-            >
-              <Input placeholder={t("models.localFilenamePlaceholder")} />
-            </Form.Item>
-            <Form.Item
-              name="source"
-              label={t("models.localSource")}
-              initialValue="huggingface"
-              style={{ marginBottom: 12 }}
-            >
-              <Select
-                options={[
-                  { value: "huggingface", label: "Hugging Face" },
-                  { value: "modelscope", label: "ModelScope" },
-                ]}
-              />
-            </Form.Item>
-            <div
-              style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
-            >
-              <Button
-                size="small"
-                onClick={() => {
-                  setAdding(false);
-                  form.resetFields();
-                }}
+            {serverStatus?.installed
+              ? localModels.map((model) => (
+                  <LocalModelRow
+                    key={model.id}
+                    model={model}
+                    currentRunningModelName={currentRunningModelName}
+                    isModelDownloading={isModelDownloading}
+                    isServerBusy={isServerBusy}
+                    startingModelName={startingModelName}
+                    stoppingServer={stoppingServer}
+                    onStartDownload={handleStartModelDownload}
+                    onStartServer={handleStartServer}
+                    onStopServer={handleStopServer}
+                  />
+                ))
+              : null}
+
+            {serverStatus?.installed ? (
+              <div
+                className={`${styles.modelListItem} ${styles.customModelListItem}`}
               >
-                {t("models.cancel")}
-              </Button>
-              <Button
-                type="primary"
-                size="small"
-                onClick={handleDownload}
-                icon={<DownloadOutlined />}
-              >
-                {t("models.localDownloadModel")}
-              </Button>
-            </div>
-          </Form>
-        </div>
-      ) : (
-        <Button
-          type="dashed"
-          block
-          icon={<DownloadOutlined />}
-          onClick={() => setAdding(true)}
-          style={{ marginTop: 12 }}
-        >
-          {t("models.localDownloadModel")}
-        </Button>
-      )}
+                <div className={styles.customModelHeader}>
+                  <div className={styles.customModelListItemInfo}>
+                    <span className={styles.modelListItemName}>
+                      {t("models.localCustomModelTitle")}
+                    </span>
+                    <span className={styles.customModelHint}>
+                      {t("models.localCustomModelHint")}
+                    </span>
+                  </div>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    onClick={() => {
+                      void handleStartCustomModelDownload();
+                    }}
+                    disabled={isCustomDownloadDisabled}
+                  >
+                    {t("common.download")}
+                  </Button>
+                </div>
+                <div className={styles.customModelInputRow}>
+                  <Input
+                    value={customModelRepoId}
+                    onChange={(e) => setCustomModelRepoId(e.target.value)}
+                    onPressEnter={() => {
+                      void handleStartCustomModelDownload();
+                    }}
+                    placeholder={t("models.localRepoIdPlaceholder")}
+                    className={styles.customModelRepoInput}
+                  />
+                  <Select
+                    value={customModelSource}
+                    onChange={(value) =>
+                      setCustomModelSource(value as LocalDownloadSource)
+                    }
+                    className={styles.customModelSourceSelect}
+                    options={[
+                      {
+                        value: "huggingface",
+                        label: t("models.localSourceHuggingFace"),
+                      },
+                      {
+                        value: "modelscope",
+                        label: t("models.localSourceModelScope"),
+                      },
+                    ]}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </section>
     </Modal>
   );
 }
