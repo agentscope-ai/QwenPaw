@@ -228,9 +228,7 @@ export const SkillCard = React.memo(function SkillCard({
           <Button
             className={styles.actionButton}
             onClick={handleToggleClick}
-            icon={
-              skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />
-            }
+            icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
           >
             {skill.enabled ? t("common.disable") : t("common.enable")}
           </Button>
