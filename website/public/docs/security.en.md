@@ -47,7 +47,7 @@ The **Tool Guard** scans tool parameters **before** the agent invokes a tool, de
    - Path traversal `../`
    - Privilege escalation `sudo`, `su`
    - Reverse shells, fork bombs, etc.
-   (Exact coverage depends on built-in and custom rules.)
+     (Exact coverage depends on built-in and custom rules.)
 3. Each rule has an independent severity level (CRITICAL, HIGH, MEDIUM, LOW, INFO)
 4. For **CRITICAL** or **HIGH** findings: in the **Console / interactive sessions**, the tool call enters a **pending-approval** flow — you approve or reject before it runs. In **non-interactive contexts without a session**, findings are logged and **execution may still proceed** — use **`denied_tools`** to hard-block specific tools or tighten rules when needed.
 
