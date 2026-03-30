@@ -94,6 +94,7 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
 
    内置的 **Cron** 技能提供定时任务管理。通过 [CLI](./cli) 的
    `copaw cron` 或控制台 **控制 → 定时任务** 管理：
+
    - 创建任务：`copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
    - 查看列表：`copaw cron list`
    - 查看状态：`copaw cron state <job_id>`

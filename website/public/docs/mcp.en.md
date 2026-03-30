@@ -9,6 +9,7 @@ CoPaw uses **MCP (Model Context Protocol)** to connect to external services and 
 CoPaw provides two types of tools for agents:
 
 1. **Built-in Tools**: Ready-to-use tools provided by CoPaw core, such as file operations, command execution, and browser automation
+
    - Managed on the **Agent → Tools** page
    - Can be individually enabled/disabled
 

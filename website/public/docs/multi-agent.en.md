@@ -125,10 +125,12 @@ In **Settings → Agent Management** page:
 **Setup**:
 
 1. Create two agents in console:
+
    - `work` - work assistant
    - `personal` - personal assistant
 
 2. For `work` agent:
+
    - Enable DingTalk channel
    - Enable code and document-related skills
    - Configure formal persona (AGENTS.md)
@@ -147,6 +149,7 @@ In **Settings → Agent Management** page:
 **Setup**:
 
 1. Create three agents:
+
    - `coder` - code assistant (enable code review, file operation skills)
    - `writer` - writing assistant (enable document processing, news digest skills)
    - `planner` - task assistant (enable cron, email skills)
@@ -162,6 +165,7 @@ In **Settings → Agent Management** page:
 **Setup**:
 
 1. Create two agents:
+
    - `zh-assistant` - Chinese assistant (language: "zh")
    - `en-assistant` - English assistant (language: "en")
 
@@ -227,10 +231,12 @@ Not recommended. The `default` agent is the system's default fallback; deleting 
 If you previously used CoPaw **v0.0.x**, upgrading to **v0.1.0** will **automatically migrate**:
 
 1. **Automatic Migration on First Start**
+
    - Old configs and data are automatically moved to the `default` agent workspace
    - No manual file operations required
 
 2. **Verify Migration**
+
    - After starting CoPaw, check the agent list in console
    - You should see an agent named "Default Agent"
    - Your old conversations and configs should still be there

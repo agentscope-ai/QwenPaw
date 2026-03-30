@@ -52,6 +52,7 @@ docker run -p 127.0.0.1:8088:8088 \
 > 1. **If using CMD (.bat): Script executes successfully but fails to write to `Path`**
 >
 >    The script completes file installation. Due to **Constrained Language Mode**, it cannot automatically update environment variables. Manually configure as follows:
+>
 >    - **Locate the installation directory**:
 >      - Check if `uv` is available: Enter `uv --version` in CMD. If a version number appears, **only configure the CoPaw path**. If you receive the prompt `'uv' is not recognized as an internal or external command, operable program or batch file,` configure both paths.
 >      - uv path (choose one based on installation location; use if step 1 fails): Typically `%USERPROFILE%\.local\bin`, `%USERPROFILE%\AppData\Local\uv`, or the `Scripts` folder within your Python installation directory

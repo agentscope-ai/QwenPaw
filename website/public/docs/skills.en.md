@@ -99,6 +99,7 @@ Adding skills to the pool:
 
    The **Cron** built-in provides scheduled job management. Use the
    [CLI](./cli) (`copaw cron`) or Console **Control → Cron Jobs**:
+
    - Create: `copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
    - List: `copaw cron list`
    - Check state: `copaw cron state <job_id>`

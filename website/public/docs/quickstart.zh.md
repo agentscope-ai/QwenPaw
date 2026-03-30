@@ -97,6 +97,7 @@ irm https://copaw.agentscope.io/install.ps1 | iex
 > 1. **如果你使用的是 CMD（.bat）：脚本执行成功但无法写入`Path`**
 >
 >    脚本已完成文件安装，由于 **受限语言模式** ，脚本无法自动写入环境变量，此时只需手动配置：
+>
 >    - **找到安装目录**：
 >      - 检查 `uv` 是否可用：在 CMD 中输入 `uv --version` ，如果显示版本号，则**只需配置 CoPaw 路径**；如果提示 `'uv' 不是内部或外部命令，也不是可运行的程序或批处理文件。`，则需同时配置两者。
 >      - uv路径（任选其一，取决于安装位置，若`uv`不可用则填）：通常在`%USERPROFILE%\.local\bin`、`%USERPROFILE%\AppData\Local\uv`或 Python 安装目录下的 `Scripts` 文件夹
@@ -221,10 +222,12 @@ docker run -p 127.0.0.1:8088:8088 \
 
 1. **下载安装包**
    前往 [GitHub Releases](https://github.com/agentscope-ai/CoPaw/releases) 下载对应系统的版本：
+
    - Windows: `CoPaw-Setup-<version>.exe`
    - macOS: `CoPaw-<version>-macOS.zip`
 
 2. **安装并启动**
+
    - **Windows**: 双击 `.exe` 文件按向导安装，完成后双击桌面快捷方式启动
    - **macOS**: 解压 `.zip` 得到 `CoPaw.app`，首次需右键选择"打开"以绕过系统安全限制
 
