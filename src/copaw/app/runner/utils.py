@@ -82,10 +82,9 @@ def build_env_context(
             "  2. When using write_file, if you want to avoid overwriting "
             "existing content, use read_file first to inspect the file, "
             "then use edit_file for partial updates or appending.\n"
-            "  3. If you don't produce any tool calls, it means you have "
-            "completed the task and are ready to terminate. During task "
-            "execution, you must generate tool calls unless you have "
-            "completed the task or have clear feedback.",
+            "  3. Use tool calls to perform actions. A response without a tool "
+            "call indicates the task is complete. To continue a task, you must "
+            "use a tool call or provide feedback if you are blocked."
         )
 
     return (
