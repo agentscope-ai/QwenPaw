@@ -225,6 +225,37 @@ button {
   margin: 0;
 }
 
+/* Release notes list styling: ensure list markers are visible on white background */
+.release-notes-content ul {
+  list-style-type: disc;
+}
+
+.release-notes-content ol {
+  list-style-type: decimal;
+}
+
+.release-notes-content ul,
+.release-notes-content ol {
+  color: var(--text) !important;
+}
+
+.release-notes-content ul li {
+  color: var(--text) !important;
+}
+
+.release-notes-content ol li {
+  color: var(--text) !important;
+}
+
+.release-notes-content ul li::marker {
+  color: #1c1c1c !important;
+}
+
+.release-notes-content ol li::marker {
+  color: #1c1c1c !important;
+  font-weight: 600;
+}
+
 .docs-content pre {
   margin: var(--space-3) 0;
   padding: var(--space-4);
