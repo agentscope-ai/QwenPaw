@@ -874,7 +874,7 @@
     "toolResultCompactTitle": "Настройки сжатия результатов инструментов",
     "toolResultCompactEnabled": "Включить сжатие результатов инструментов",
     "toolResultCompactEnabledTooltip": "Сжимать слишком длинные результаты вызовов инструментов для экономии пространства контекста",
-    "memorySummaryTitle": "Настройки сводки памяти",
+    "memorySummaryTitle": "Настройки долгосрочной памяти",
     "memorySummaryEnabled": "Запустить сводку памяти",
     "memorySummaryEnabledTooltip": "Автоматически генерировать и сохранять сводки памяти при сжатии контекста",
     "forceMemorySearch": "Принудительный поиск по памяти (beta)",

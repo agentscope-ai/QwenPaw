@@ -963,7 +963,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         set_current_workspace_dir(self._workspace_dir)
         set_current_recent_max_bytes(
-            self._agent_config.running.recent_max_bytes,
+            self._agent_config.running.tool_result_compact.recent_max_bytes,
         )
 
         # Process file and media blocks in messages
