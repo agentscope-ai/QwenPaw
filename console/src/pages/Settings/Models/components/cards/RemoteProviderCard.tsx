@@ -148,7 +148,7 @@ export function RemoteProviderCard({
       {/* Info Section */}
       <div className={styles.cardInfo}>
         <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Bot URL:</span>
+          <span className={styles.infoLabel}>Base URL:</span>
           {provider.base_url ? (
             <span className={styles.infoValue} title={provider.base_url}>
               {provider.base_url}
