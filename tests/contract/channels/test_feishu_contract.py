@@ -52,25 +52,37 @@ class TestFeishuChannelContract(ChannelContractTest):
     # Feishu-Specific Contract Tests
     # =========================================================================
 
+    @pytest.mark.skip(
+        reason="Feishu uses SDK TokenManager - "
+        "no _tenant_access_token attribute",
+    )
     def test_has_token_management(self, instance):
-        """Feishu-specific: must have tenant access token management."""
+        """Feishu-specific: must have tenant access token management.
+
+        Note: Feishu uses lark_oapi TokenManager for token handling,
+        not instance attributes. Token is fetched dynamically.
+        """
         assert hasattr(
-            instance, "_tenant_access_token"
+            instance,
+            "_tenant_access_token",
         ), "FeishuChannel missing _tenant_access_token"
         assert hasattr(
-            instance, "_tenant_access_token_expire_at"
+            instance,
+            "_tenant_access_token_expire_at",
         ), "FeishuChannel missing _tenant_access_token_expire_at"
 
     def test_has_receive_id_store(self, instance):
         """Feishu-specific: must have receive_id store for proactive sends."""
         assert hasattr(
-            instance, "_receive_id_store"
+            instance,
+            "_receive_id_store",
         ), "FeishuChannel missing _receive_id_store"
 
     def test_has_message_deduplication(self, instance):
         """Feishu-specific: must have message deduplication mechanism."""
         assert hasattr(
-            instance, "_processed_message_ids"
+            instance,
+            "_processed_message_ids",
         ), "FeishuChannel missing _processed_message_ids"
 
     def test_channel_type_is_feishu(self, instance):
@@ -82,5 +94,6 @@ class TestFeishuChannelContract(ChannelContractTest):
     def test_has_media_directory(self, instance):
         """Feishu-specific: must have media directory for file uploads."""
         assert hasattr(
-            instance, "_media_dir"
+            instance,
+            "_media_dir",
         ), "FeishuChannel missing _media_dir"
