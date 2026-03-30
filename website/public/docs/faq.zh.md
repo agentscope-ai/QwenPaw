@@ -238,7 +238,7 @@ CoPaw 已开源，官方仓库地址：
 
 在控制台进入 **控制 → 定时任务** ，在这里可以创建和管理定时任务。
 
-![cron](https://img.alicdn.com/imgextra/i4/O1CN01hNk4od1uuTwGRT2sk_!!6000000006097-2-tps-3802-1968.png)
+![cron](https://img.alicdn.com/imgextra/i2/O1CN018UMwzM1stRomiHjJt_!!6000000005824-2-tps-3822-2064.png)
 
 最方便的定时任务创建方式是，在你想要获取定时任务返回结果的频道，与CoPaw对话，让CoPaw帮你创建一个定时任务。例如，可以直接与CoPaw对话：“帮我创建一个定时任务，每隔五分钟提醒我喝水。”之后可以在控制台中看到状态为已启用的定时任务。
 
@@ -248,27 +248,27 @@ CoPaw 已开源，官方仓库地址：
 
 2. 定时任务的 **启用状态** 是否为 **已启动**。
 
-   ![enable](https://img.alicdn.com/imgextra/i1/O1CN01gVVf081o6ClZVBrhD_!!6000000005175-2-tps-3020-754.png)
+   ![enable](https://img.alicdn.com/imgextra/i2/O1CN01K16c611eHWOs6GKlQ_!!6000000003846-2-tps-3236-888.png)
 
 3. 定时任务的 **DispatchChannel** 是否被正确地设置为了想要获取返回结果的频道，如 console、dingtalk、feishu、discord、imessage 等。
 
-   ![channel](https://img.alicdn.com/imgextra/i4/O1CN01xUaLG61lVRkO7ZfY4_!!6000000004824-2-tps-3020-754.png)
+   ![channel](https://img.alicdn.com/imgextra/i3/O1CN01G55gOc1YvveHrxqTY_!!6000000003122-2-tps-3234-876.png)
 
 4. **DispatchTargetUserID** 和 **DispatchTargetSessionID** 的值是否设置正确。
 
-   ![id](https://img.alicdn.com/imgextra/i1/O1CN014e0BHN1CFPKDS7Kd7_!!6000000000051-2-tps-3020-754.png)
+   ![id](https://img.alicdn.com/imgextra/i1/O1CN01iohIk41N0G0CN6sVq_!!6000000001507-2-tps-3234-874.png)
 
    核查方式为，在控制台进入 **控制 → 会话**，找到刚刚创建定时任务的会话。如果想要定时任务返回到这个会话中，需要核查 **UserID** 和 **SessionID** 是否与定时任务的 **DispatchTargetUserID** 和 **DispatchTargetSessionID** 相同。
 
-   ![id](https://img.alicdn.com/imgextra/i3/O1CN01ZmgYTC1wiEZx7rOjK_!!6000000006341-2-tps-3020-928.png)
+   ![id](https://img.alicdn.com/imgextra/i1/O1CN01svdDS41a2d3fqShLx_!!6000000003272-2-tps-3236-1068.png)
 
 5. 如果觉得定时任务的触发间隔时间不对，需要确认一下定时任务的 **执行时间（Cron）**是否正确。
 
-   ![cron](https://img.alicdn.com/imgextra/i1/O1CN01WpN8l51kKANPSlK8r_!!6000000004664-2-tps-3020-762.png)
+   ![cron](https://img.alicdn.com/imgextra/i3/O1CN01BtYIqK1Xb1xdYmcai_!!6000000002941-2-tps-3242-892.png)
 
 6. 排查结束后，如果想确认一下定时任务是否创建成功，且能成功触发，可以点击 **立即执行**，若成功创建，则可在对应频道收到回复。或者也可以直接与 CoPaw 对话：“帮我触发一下刚刚创建的提醒喝水定时任务”。
 
-   ![exec](https://img.alicdn.com/imgextra/i4/O1CN017tycJh1ZPhO5XMuAu_!!6000000003187-2-tps-3020-762.png)
+   ![exec](https://img.alicdn.com/imgextra/i3/O1CN01a1IIsY1PhQZ5YXlCe_!!6000000001872-2-tps-3232-890.png)
 
 ### 如何管理Skill
 

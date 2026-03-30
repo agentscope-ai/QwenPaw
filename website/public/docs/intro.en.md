@@ -9,7 +9,7 @@ step by step with the documentation.
 
 CoPaw is a **personal assistant** that runs in your own environment.
 
-> 💡 TODO: Add console interface screenshot here
+![console fig](https://img.alicdn.com/imgextra/i1/O1CN01TZtpUC23sUlflQYuT_!!6000000007311-2-tps-3822-2064.png)
 
 - **Multi-channel chat** — Talk through DingTalk, Feishu, Discord, Telegram,
   and more.

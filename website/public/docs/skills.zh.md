@@ -177,21 +177,21 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
 
 #### 步骤
 
-1. 打开 [控制台](./console) → **智能体 → 技能**，点击 **导入 Hub**。
+1. 打开 [控制台](./console) → **工作区 → 技能**，点击 **从 Skills Hub 导入技能**。
 
-   ![import](https://img.alicdn.com/imgextra/i1/O1CN01bPOPqG1msB1BfyaWH_!!6000000005009-2-tps-3422-1964.png)
+   ![import](https://img.alicdn.com/imgextra/i3/O1CN018A6IRC1Q9Mj544eZu_!!6000000001933-2-tps-3822-2064.png)
 
 2. 在弹窗中粘贴 Skill URL（获取方式见下方 **URL 获取示例**）。
 
-   ![url](https://img.alicdn.com/imgextra/i1/O1CN01tkDSeA23nunikJNbG_!!6000000007301-2-tps-3422-1964.png)
+   ![url](https://img.alicdn.com/imgextra/i4/O1CN01Pl1R7o1dNe516BeRp_!!6000000003724-2-tps-3822-2064.png)
 
-3. 点击导入技能，等待导入完成。
+3. 点击**从 Skills Hub 导入技能**，等待导入完成。
 
-   ![click](https://img.alicdn.com/imgextra/i2/O1CN015ZrEml1oGjsI3SnRZ_!!6000000005198-2-tps-3422-1964.png)
+   ![click](https://img.alicdn.com/imgextra/i2/O1CN01iEATt320vkjnbTbCR_!!6000000006912-2-tps-3822-2064.png)
 
 4. 导入成功后，skill 出现在技能列表中，**默认启用**。
 
-   ![new](https://img.alicdn.com/imgextra/i2/O1CN01E5vUus1VdezregzVv_!!6000000002676-2-tps-3422-1964.png)
+   ![new](https://img.alicdn.com/imgextra/i2/O1CN01NIOojK1GkKXCrroXr_!!6000000000660-2-tps-3822-2064.png)
 
 #### URL 获取示例
 
