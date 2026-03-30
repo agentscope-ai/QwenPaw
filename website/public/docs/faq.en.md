@@ -199,22 +199,26 @@ CoPaw is open source. Official repository:
 
 ### Where to check latest version upgrade details
 
-You can check version changes in CoPaw GitHub
-[Releases](https://github.com/agentscope-ai/CoPaw/releases).
+See the site [Release notes](https://copaw.agentscope.io/release-notes/?lang=en)
+or CoPaw GitHub [Releases](https://github.com/agentscope-ai/CoPaw/releases).
 
 ### How to configure models
 
-In Console, go to **Settings -> Models** to configure. See the
+In Console, go to **Settings → Models** to configure. See the
 [Models](https://copaw.agentscope.io/docs/models) doc for details:
 
-- Cloud models: fill provider API key (e.g. ModelScope, DashScope, or custom),
-  then select the active model.
-- Local models: supports `llama.cpp`, `MLX`, and Ollama. After download, select
-  the active model on the same page.
+- Cloud models: enter the provider API key (e.g. ModelScope, DashScope, or a
+  custom provider).
+- Local models: supports `llama.cpp`, LM Studio and Ollama.
 
-You can also use `copaw models` CLI commands for configuration, download, and
-switching. See
-[CLI -> Models and environment variables -> copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
+After configuration, choose the target provider and model under **Default LLM**
+at the top of the Models page and **Save** — that becomes the global default.
+
+To use a different model per agent, switch the agent with the selector at the top-left of Console, then pick a model in the top-right of the **Chat** page for that
+agent.
+
+You can also use `copaw models` for setup, downloads, and switching. See
+[CLI → Models and environment variables → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
 
 ### When using models deployed with Ollama / LM Studio, why can't CoPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?
 
@@ -257,7 +261,7 @@ When you deploy a local model with Ollama or LM Studio, if the model's
 
 In Console, go to **Control -> Cron Jobs** to create and manage scheduled tasks.
 
-![cron](https://img.alicdn.com/imgextra/i2/O1CN01sL8ZYj1QJtpXs9iKE_!!6000000001956-2-tps-3814-1954.png)
+![cron](https://img.alicdn.com/imgextra/i3/O1CN01duPPPB1R0x495tRdY_!!6000000002050-2-tps-3822-2064.png)
 
 The easiest way to create a cron job is to talk to CoPaw in the channel where you want the results. For example, say: “Create a scheduled task that reminds me to drink water every five minutes.” You can then see the enabled job in Console.
 
@@ -267,27 +271,27 @@ If a scheduled task does not run as expected, try the following:
 
 2. Check that the task **Status** is **Enabled**.
 
-   ![enable](https://img.alicdn.com/imgextra/i4/O1CN01oggNyG1yQwrWKCnN7_!!6000000006574-2-tps-3020-762.png)
+   ![enable](https://img.alicdn.com/imgextra/i3/O1CN01XsJiIH1bIUOD4j9sF_!!6000000003442-2-tps-3236-880.png)
 
 3. Check that **Dispatch Channel** is set to the channel where you want the result (e.g. console, dingtalk, feishu, discord, imessage).
 
-   ![channel](https://img.alicdn.com/imgextra/i1/O1CN01RnjX7z1MHpZvVpjJq_!!6000000001410-2-tps-3020-762.png)
+   ![channel](https://img.alicdn.com/imgextra/i2/O1CN01JN4bq61WKFpzXrIcZ_!!6000000002769-2-tps-3230-876.png)
 
 4. Check that **Dispatch Target User ID** and **Dispatch Target Session ID** are correct.
 
-   ![id](https://img.alicdn.com/imgextra/i4/O1CN01QgvEDv290o1p3oaTv_!!6000000008006-2-tps-3020-762.png)
+   ![id](https://img.alicdn.com/imgextra/i2/O1CN014BLaOC1YwO2onZK8U_!!6000000003123-2-tps-3236-874.png)
 
    In Console, go to **Control -> Sessions** and find the session you used when creating the task. To have the task reply in that session, the **User ID** and **Session ID** there must match the task’s **Dispatch Target User ID** and **Dispatch Target Session ID**.
 
-   ![id](https://img.alicdn.com/imgextra/i3/O1CN01aqsLLR1eRb6m6WaGl_!!6000000003868-2-tps-3020-928.png)
+   ![id](https://img.alicdn.com/imgextra/i2/O1CN01iZZhHZ1VeZnMzjlMm_!!6000000002678-2-tps-3236-1068.png)
 
 5. If the task runs at the wrong time, check the **Schedule (Cron)** for the task.
 
-   ![cron](https://img.alicdn.com/imgextra/i2/O1CN01iNoLp229bRiIdvJKK_!!6000000008086-2-tps-3020-778.png)
+   ![cron](https://img.alicdn.com/imgextra/i4/O1CN01TSodVd21msgJQvHkI_!!6000000007028-2-tps-3234-876.png)
 
 6. To verify that the task was created and can run, click **Execute Now**. If it works, you should see the reply in the target channel. You can also ask CoPaw: “Trigger the ‘drink water reminder’ task I just created.”
 
-   ![exec](https://img.alicdn.com/imgextra/i3/O1CN01nGtc3p1o5kN0d01mf_!!6000000005174-2-tps-3020-778.png)
+   ![exec](https://img.alicdn.com/imgextra/i4/O1CN01MkrSYn1mJpJshAO8n_!!6000000004934-2-tps-3224-878.png)
 
 ### How to manage Skills
 
@@ -300,7 +304,7 @@ custom Skills, and import Skills from Skills Hub. See
 Go to **Agent -> MCP** in Console. You can enable/disable/delete/create MCP
 clients there. See [MCP](https://copaw.agentscope.io/docs/mcp).
 
-### Common error
+### Common errors
 
 1. Error pattern: `You didn't provide an API key`
 

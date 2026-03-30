@@ -158,6 +158,7 @@ class Workspace:
                 init_args=lambda ws: {
                     "agent_id": ws.agent_id,
                     "workspace_dir": ws.workspace_dir,
+                    "task_tracker": ws._task_tracker,
                 },
                 stop_method="stop",
                 priority=10,
@@ -325,6 +326,17 @@ class Workspace:
             return
 
         logger.info(f"Starting workspace: {self.agent_id}")
+
+        from ...agents.skills_manager import (
+            ensure_skill_pool_initialized,
+        )
+
+        try:
+            ensure_skill_pool_initialized()
+        except Exception as e:
+            logger.warning(
+                f"Skill pool initialization failed (non-fatal): {e}",
+            )
 
         try:
             # 1. Load agent configuration

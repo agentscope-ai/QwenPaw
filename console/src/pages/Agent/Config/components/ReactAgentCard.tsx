@@ -33,40 +33,61 @@ export function ReactAgentCard({
   const { t } = useTranslation();
   return (
     <Card className={styles.formCard} title={t("agentConfig.reactAgentTitle")}>
-      <Form.Item
-        label={t("agentConfig.language")}
-        tooltip={t("agentConfig.languageTooltip")}
-      >
-        <Select
-          value={language}
-          options={LANGUAGE_OPTIONS}
-          onChange={onLanguageChange}
-          loading={savingLang}
-          disabled={savingLang}
-          style={{ width: "100%" }}
-        />
-      </Form.Item>
+      <div className={styles.reactAgentRow}>
+        <Form.Item
+          label={t("agentConfig.language")}
+          tooltip={t("agentConfig.languageTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            value={language}
+            options={LANGUAGE_OPTIONS}
+            onChange={onLanguageChange}
+            loading={savingLang}
+            disabled={savingLang}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
 
-      <Form.Item
-        label={t("agentConfig.timezone")}
-        tooltip={t("agentConfig.timezoneTooltip")}
-      >
-        <Select
-          showSearch
-          value={timezone}
-          placeholder={t("agentConfig.selectTimezone")}
-          filterOption={(input, option) =>
-            (option?.label?.toString() || "")
-              .toLowerCase()
-              .includes(input.toLowerCase())
-          }
-          options={TIMEZONE_OPTIONS}
-          onChange={onTimezoneChange}
-          loading={savingTimezone}
-          disabled={savingTimezone}
-          style={{ width: "100%" }}
-        />
-      </Form.Item>
+        <Form.Item
+          label={t("agentConfig.timezone")}
+          tooltip={t("agentConfig.timezoneTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            showSearch
+            value={timezone}
+            placeholder={t("agentConfig.selectTimezone")}
+            filterOption={(input, option) =>
+              (option?.label?.toString() || "")
+                .toLowerCase()
+                .includes(input.toLowerCase())
+            }
+            options={TIMEZONE_OPTIONS}
+            onChange={onTimezoneChange}
+            loading={savingTimezone}
+            disabled={savingTimezone}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+
+        <Form.Item
+          label={t("agentConfig.maxIters")}
+          name="max_iters"
+          rules={[
+            { required: true, message: t("agentConfig.maxItersRequired") },
+            { type: "number", min: 1, message: t("agentConfig.maxItersMin") },
+          ]}
+          tooltip={t("agentConfig.maxItersTooltip")}
+          className={styles.reactAgentField}
+        >
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1}
+            placeholder={t("agentConfig.maxItersPlaceholder")}
+          />
+        </Form.Item>
+      </div>
 
       <Form.Item
         label={t("agentConfig.memoryManagerBackend")}
@@ -84,22 +105,6 @@ export function ReactAgentCard({
         message={t("agentConfig.memoryManagerBackendRestartWarning")}
         style={{ marginBottom: 16 }}
       />
-
-      <Form.Item
-        label={t("agentConfig.maxIters")}
-        name="max_iters"
-        rules={[
-          { required: true, message: t("agentConfig.maxItersRequired") },
-          { type: "number", min: 1, message: t("agentConfig.maxItersMin") },
-        ]}
-        tooltip={t("agentConfig.maxItersTooltip")}
-      >
-        <InputNumber
-          style={{ width: "100%" }}
-          min={1}
-          placeholder={t("agentConfig.maxItersPlaceholder")}
-        />
-      </Form.Item>
 
       <Form.Item
         label={t("agentConfig.maxContextLength")}

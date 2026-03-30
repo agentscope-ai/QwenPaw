@@ -6,35 +6,49 @@ In CoPaw, **heartbeat** means: on a fixed interval, ask CoPaw the
 digests, scheduled reminders” — CoPaw runs without you sending a
 message.
 
-If you haven’t read [Introduction](./intro), skim the short “terms” there
-(heartbeat, channels) first.
+With **multiple agents**, each agent has its own **HEARTBEAT.md** and
+**heartbeat** settings under that agent’s workspace. You can also turn heartbeat
+on or off and change the interval in the [Console](./console) (**Control →
+Heartbeat**).
+
+If you haven’t read [Introduction](./intro), skim the short notes there on
+heartbeat and channels.
 
 ---
 
 ## How heartbeat works
 
-1. You have a file **HEARTBEAT.md** (by default under the working dir
-   `~/.copaw/`). Its content is **what to ask CoPaw each time** (one
-   block of text; CoPaw sees it as one user message).
-2. The system runs on your **interval** (e.g. every 30 minutes): read
-   HEARTBEAT.md → send that as the user message → CoPaw replies.
-3. **Whether the reply is sent to a channel** is controlled by **target** in
-   config:
-   - **main** — Run CoPaw only; do not send the reply anywhere (e.g. for
-     local check-ins or logs).
-   - **last** — Send the CoPaw’s reply to **the channel/session where you
-     last talked to CoPaw** (e.g. if you last used DingTalk, the
-     heartbeat reply goes to DingTalk).
+1. In the current agent’s workspace there is a **heartbeat query file** (default
+   name **HEARTBEAT.md**; rename with env **`COPAW_HEARTBEAT_FILE`**). Its
+   content is **what to ask CoPaw on each run** (one or more paragraphs; CoPaw
+   treats it as one user message).
+2. When **`enabled` is true** in config, the system runs on your **every**
+   value (**interval string** or **five-field cron**): read that file → send as
+   the user message → CoPaw replies.
+3. **Whether the reply goes to a channel** is set by **target**:
+   - **main** — Run CoPaw only; don’t send the reply to any channel (e.g. local
+     self-check, logs).
+   - **last** — Send the reply to the **channel/session where you last talked
+     to CoPaw** (e.g. if you last used DingTalk, the heartbeat reply goes to
+     DingTalk).
 
-You can also set **active hours**: heartbeat runs only in that time window each
-day (e.g. 08:00–22:00).
+You can also set **active hours**: heartbeat only runs in that daily window
+(e.g. 08:00–22:00).
 
 ---
 
 ## Step 1: Write HEARTBEAT.md
 
-Default path: `~/.copaw/HEARTBEAT.md`. Content = “what to ask each time.”
-Plain text or Markdown; the whole thing is sent as one user message.
+**Path (multi-agent, usual case):**
+`<COPAW_WORKING_DIR>/workspaces/<agent_id>/HEARTBEAT.md`.
+Default `COPAW_WORKING_DIR` is `~/.copaw` (override with **`COPAW_WORKING_DIR`**);
+`<agent_id>` is the current agent id (e.g. `default`).
+
+The default filename is `HEARTBEAT.md`; use **`COPAW_HEARTBEAT_FILE`** to change
+it. The full path is always **that agent’s workspace root + that filename**.
+
+The file is simply “what to ask each time.” Plain text or Markdown; the whole
+thing is one user message.
 
 Example (customize as you like):
 
@@ -47,71 +61,85 @@ Example (customize as you like):
 - Light check-in if quiet for 8h
 ```
 
-If you ran `copaw init` without `--defaults`, you were prompted to edit
-HEARTBEAT.md; the default editor would open. You can also edit the file anytime;
-the next heartbeat run will use the new content.
+If you ran `copaw init` without `--defaults`, you may be prompted to edit
+HEARTBEAT.md; choosing yes opens it in your default editor. You can edit the
+file anytime; after save, the **next** heartbeat uses the new content.
 
 ---
 
-## Step 2: Configure heartbeat in config.json
+## Step 2: Configure heartbeat
 
-**Interval, target, and active hours** are in `config.json` (usually
-`~/.copaw/config.json`), under `agents.defaults.heartbeat`:
+![heartbeat](https://img.alicdn.com/imgextra/i3/O1CN01qtGUD61scVAD28zPS_!!6000000005787-2-tps-3822-2064.png)
 
-| Field       | Meaning                                    | Example                                        |
-| ----------- | ------------------------------------------ | ---------------------------------------------- |
-| every       | How often to run                           | `"30m"`, `"1h"`, `"2h30m"`, `"90s"`            |
-| target      | Where to send the reply                    | `"main"` = don’t send; `"last"` = last channel |
-| activeHours | Optional; only run in this window each day | `{ "start": "08:00", "end": "22:00" }`         |
+Prefer configuring on the Console **Heartbeat** page. To edit **`agent.json`**
+instead, use the following.
 
-Example (run every 30m, no channel):
+**Interval, on/off, target, and active hours** are read from **`heartbeat`** in
+the current agent’s **`workspaces/<agent_id>/agent.json`** (same as what the
+Console saves). After migration from older layouts, legacy
+**`agents.defaults.heartbeat`** in root **`config.json`** may have been merged
+into the default agent’s **`agent.json`** — treat **`agent.json`** as the
+source of truth for new changes.
+
+| Field           | Meaning                                                                                                                                                                                                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **enabled**     | Heartbeat on/off. **Default false**; the schedule runs only when **true**.                                                                                                                                                                                                |
+| **every**       | How often: an interval string (`"30m"`, `"1h"`, `"2h30m"`, `"90s"`) **or** a space-separated **five-field cron** (minute hour day month weekday — same shape as cron jobs, e.g. daily 09:00: `"0 9 * * *"`). Cron is interpreted in the **process scheduler’s timezone**. |
+| **target**      | **main** — don’t send to a channel; **last** — send using **`last_dispatch`** for that agent.                                                                                                                                                                             |
+| **activeHours** | Optional daily window: `{ "start": "08:00", "end": "22:00" }`.                                                                                                                                                                                                            |
+
+If **every** is omitted, the built-in default applies (currently about **6
+hours** — confirm in your installed version).
+
+Example (heartbeat on, CoPaw only, no channel, every 30m) — in that agent’s
+**`agent.json`**:
 
 ```json
-"agents": {
-  "defaults": {
-    "heartbeat": {
-      "every": "30m",
-      "target": "main"
-    }
+{
+  "heartbeat": {
+    "enabled": true,
+    "every": "30m",
+    "target": "main"
   }
 }
 ```
 
-Example (send to last channel, every 1h, only 08:00–22:00):
+Example (send to last conversation channel, every 1h, only 08:00–22:00):
 
 ```json
-"agents": {
-  "defaults": {
-    "heartbeat": {
-      "every": "1h",
-      "target": "last",
-      "activeHours": { "start": "08:00", "end": "22:00" }
-    }
+{
+  "heartbeat": {
+    "enabled": true,
+    "every": "1h",
+    "target": "last",
+    "activeHours": { "start": "08:00", "end": "22:00" }
   }
 }
 ```
 
-Save config; if the server is running, the new settings take effect (some
-setups may require a restart).
+After changes, save **config.json**; if the service is running, settings apply
+as implemented (some setups may need a restart — see what you actually run).
 
 ---
 
 ## Heartbeat vs cron jobs
 
-|              | Heartbeat                                    | Cron jobs                                               |
-| ------------ | -------------------------------------------- | ------------------------------------------------------- |
-| **Count**    | One prompt file (HEARTBEAT.md)               | As many as you need                                     |
-| **Schedule** | One global interval                          | Each job has its own schedule                           |
-| **Delivery** | Optional: send to last channel or don't send | Each job specifies its own channel and user             |
-| **Best for** | One fixed check-in / digest                  | Multiple jobs at different times with different content |
+|              | Heartbeat                     | Cron jobs                       |
+| ------------ | ----------------------------- | ------------------------------- |
+| **Count**    | One file (HEARTBEAT.md)       | Many jobs                       |
+| **Schedule** | One global interval           | Each job has its own schedule   |
+| **Delivery** | Optional last channel or none | Each job sets channel and user  |
+| **Best for** | One fixed checklist / digest  | Many tasks, times, and contents |
 
-> Need "send Good morning at 9am" or "every 2h ask todos and send to DingTalk"? Use [CLI](./cli) `copaw cron create` (cron jobs), not heartbeat.
+> Want “good morning at 9” or “every 2h ask todos and send to DingTalk”? Use
+> [CLI](./cli) `copaw cron create` for cron jobs, not heartbeat.
 
 ---
 
 ## Related pages
 
 - [Introduction](./intro) — What the project can do
-- [Channels](./channels) — Connect a channel first so target=last has somewhere to send
-- [CLI](./cli) — Configure heartbeat at init, manage cron jobs
-- [Config & working dir](./config) — config.json and working directory
+- [Console](./console) — Turn heartbeat on/off and change interval in the web UI
+- [Channels](./channels) — Connect channels first so target=last has somewhere to send
+- [CLI](./cli) — Heartbeat at init, cron jobs
+- [Config & working dir](./config) — config.json, agent.json, working directory
