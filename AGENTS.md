@@ -101,7 +101,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## Quick Rules
 
-- **Always use .venv** for Python commands and `pre-commit`
+- **Always use .venv** for Python commands (python, pip), formatters and `pre-commit` commands
 - **Run pre-commit** every time the backend code is changed
 - **Run tests** before major commits: `pytest`
 - **Format frontend** code with `npm run format`
