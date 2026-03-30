@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Facade for local llama.cpp and model download management."""
-# pylint: disable=line-too-long
 
 from __future__ import annotations
 
@@ -17,7 +16,7 @@ class LocalModelManager:
 
     DEFAULT_LLAMA_CPP_BASE_URL = (
         # Mirror of "https://github.com/ggml-org/llama.cpp/releases/download"
-        "https://copaw-download.oss-ap-southeast-1.aliyuncs.com/files/models/llama_cpp"  # noqa: E501
+        "https://download.copaw.agentscope.io/files/models/llama_cpp"
     )
     DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8514"
 
