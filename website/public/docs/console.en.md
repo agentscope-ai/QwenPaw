@@ -334,7 +334,7 @@ For mechanics, see [Context](./context) and [Config & working directory](./confi
 Create, edit, enable/disable, or delete agents. The **Description** field is used
 when multiple agents collaborate — write a clear role.
 
-**Current agent** at the top-right of the Console selects which agent you operate
+**Current agent** at the top-left of the Console selects which agent you operate
 on; this page edits each agent's metadata (name, description, custom workspace
 path, etc.). See [Multi-Agent](./multi-agent).
 
