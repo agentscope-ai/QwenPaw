@@ -27,7 +27,7 @@ export function FilterBar({
         onChange={(e) => onUserIdChange(e.target.value)}
         allowClear
         className="sessions-filter-input"
-        style={{ width: 200 }}
+        style={{ width: 200, marginRight: 8 }}
       />
       <Select
         placeholder={t("sessions.filterChannel")}

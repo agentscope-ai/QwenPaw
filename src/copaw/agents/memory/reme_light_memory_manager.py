@@ -8,6 +8,7 @@ import logging
 import os
 import platform
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
@@ -18,6 +19,10 @@ from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import get_copaw_token_counter
 from copaw.config import load_config
 from copaw.config.config import load_agent_config
+from copaw.config.context import (
+    set_current_workspace_dir,
+    set_current_recent_max_bytes,
+)
 from copaw.constant import EnvVarLoader
 
 if TYPE_CHECKING:
@@ -25,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_REME_VERSION = "0.3.1.4"
+_EXPECTED_REME_VERSION = "0.3.1.6"
 
 
 class ReMeLightMemoryManager(BaseMemoryManager):
@@ -304,6 +309,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         agent_config = load_agent_config(self.agent_id)
         cc = agent_config.running.context_compact
+
+        set_current_workspace_dir(Path(self.working_dir))
+        recent_max_bytes = (
+            agent_config.running.tool_result_compact.recent_max_bytes
+        )
+        set_current_recent_max_bytes(recent_max_bytes)
 
         return await self._reme.summary_memory(
             messages=messages,

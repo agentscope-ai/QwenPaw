@@ -19,6 +19,7 @@ dist/
 # Console frontend build (generated in Docker/CI, do not commit)
 src/copaw/console/dist/
 src/copaw/console/
+console/.cursor/
 
 # frontend (website)
 website/node_modules/
@@ -96,3 +97,6 @@ src/.hypothesis/
 
 # Kiro IDE
 .kiro/
+
+# Qoder IDE
+.qoder/
