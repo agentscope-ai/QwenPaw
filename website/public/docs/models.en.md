@@ -99,7 +99,7 @@ After installing and configuring Ollama, go to the **Models** page of the CoPaw 
 
 Before using LM Studio, you need to [install LM Studio](https://lmstudio.ai/download) on your machine.
 
-By default, LM Studio does not enable the model API service. After installing LM Studio and downloading models, go to **Developer -> Local Server** to start the local model service and note the API address, which defaults to `https://localhost:1234`.
+By default, LM Studio does not enable the model API service. After installing LM Studio and downloading models, go to **Developer -> Local Server** to start the local model service and note the API address, which defaults to `http://localhost:1234`.
 
 ![LM Studio Local Server]()
 
@@ -109,11 +109,11 @@ To ensure a good experience in CoPaw, set the **Default Context Length** to at l
 
 ![LM Studio Reasoning Content]()
 
-After completing the above LM Studio configuration, go to the **Settings** page of the CoPaw LM Studio provider and enter the LM Studio API address, which can be found on the **Developer -> Local Server** page. Be sure to add the `/v1` suffix, e.g., `https://localhost:1234/v1`.
+After completing the above LM Studio configuration, go to the **Settings** page of the CoPaw LM Studio provider and enter the LM Studio API address, which can be found on the **Developer -> Local Server** page. Be sure to add the `/v1` suffix, e.g., `http://localhost:1234/v1`.
 
 The subsequent process is the same as for Ollama: click **Test Connection** to verify the connection, then go to the LM Studio model management page and click **Auto Fetch Models** to get the list of available models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
 
-> For users deploying CoPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `https://host.docker.internal:1234/v1`.
+> For users deploying CoPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:1234/v1`.
 
 ### Custom Provider Configuration
 

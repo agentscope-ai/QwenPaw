@@ -47,7 +47,7 @@ CoPaw 当前支持的云提供商包括：
 
 ### 本地供应商配置
 
-CoPaw 支持当前支持的本地供应商包括：
+CoPaw 当前支持的本地供应商包括：
 
 - [CoPaw Local (llama.cpp)](https://github.com/ggml-org/llama.cpp)
 - [Ollama](https://ollama.com/)
@@ -99,7 +99,7 @@ Ollama 安装配置完成后，可以进入 CoPaw Ollama 提供商的 **模型**
 
 在使用 LM Studio 之前，您需要先在机器上[安装 LM Studio](https://lmstudio.ai/download)。
 
-LM Studio 默认不会开启模型 API 服务，因此在 LM Studio 安装完成并下载模型后，您需要进入 **Developer -> Local Server** 页面，启动本地模型服务，并记录下 API 地址，默认为 `https://localhost:1234`。
+LM Studio 默认不会开启模型 API 服务，因此在 LM Studio 安装完成并下载模型后，您需要进入 **Developer -> Local Server** 页面，启动本地模型服务，并记录下 API 地址，默认为 `http://localhost:1234`。
 
 ![LM Studio 本地服务]()
 
@@ -109,11 +109,11 @@ LM Studio 默认不会开启模型 API 服务，因此在 LM Studio 安装完成
 
 ![LM Studio 思考内容解析]()
 
-上述 LM Studio 配置完成后，可以进入 CoPaw LM Studio 提供商的 **设置** 页面，输入 LM Studio 的 API 地址，该地址可以从 LM Studio 的 **Developer -> Local Server** 页面获取，但注意要后缀 `/v1`，例如 `https://localhost:1234/v1`。
+上述 LM Studio 配置完成后，可以进入 CoPaw LM Studio 提供商的 **设置** 页面，输入 LM Studio 的 API 地址，该地址可以从 LM Studio 的 **Developer -> Local Server** 页面获取，但注意要后缀 `/v1`，例如 `http://localhost:1234/v1`。
 
 后续流程与 Ollama 相同，点击 **测试连接** 按钮来验证 CoPaw 是否能够连接到 LM Studio 服务，如果连接成功，就可以进入 LM Studio 模型管理页面，点击 **自动获取模型** 来获取当前 LM Studio 中可用的模型列表，获取完成后可以进一步点击 **测试连接** 来验证模型是否能够正常使用。
 
-> 对于将 CoPaw 部署在 Docker 容器中的用户，如果 LM Studio 安装在宿主机上，请确保 Docker 的网络配置允许容器访问宿主机的 LM Studio 服务（在 `docker run` 命令中添加 `--add-host=host.docker.internal:host-gateway`），并将 API 地址设置为 `https://host.docker.internal:1234/v1` 来实现连接。
+> 对于将 CoPaw 部署在 Docker 容器中的用户，如果 LM Studio 安装在宿主机上，请确保 Docker 的网络配置允许容器访问宿主机的 LM Studio 服务（在 `docker run` 命令中添加 `--add-host=host.docker.internal:host-gateway`），并将 API 地址设置为 `http://host.docker.internal:1234/v1` 来实现连接。
 
 ### 自定义供应商配置
 
@@ -135,7 +135,7 @@ LM Studio 默认不会开启模型 API 服务，因此在 LM Studio 安装完成
 
 自定义供应商配置完成后，您可以进入该供应商的 **模型** 页面，点击 **添加模型** 来添加模型，添加时需要提供 **模型 ID**（API 实际使用的模型标识）以及 **模型名称** （用于在界面中展示）。添加完成后同样可以通过 **测试连接** 来验证是否能够正常使用。
 
-> 以 vLLM 部署为例，如果您将 vLLM 部署在 `http://localhost:8000`，并且 vLLM 中有一个路径为 `、/path/to/Qwen3.5` 的模型，那么您可以添加一个自定义提供商，设置 API 兼容模式为 OpenAI `chat.completions`，基础 URL 设置为 `http://localhost:8000/v1`，然后在该提供商下添加一个模型，模型 ID 填写 `/path/to/Qwen3.5`，模型名称可以自定义为 `Qwen3.5`，添加完成后测试连接，如果一切配置正确，就可以在 CoPaw 中使用这个 vLLM 模型了。
+> 以 vLLM 部署为例，如果您将 vLLM 部署在 `http://localhost:8000`，并且 vLLM 中有一个路径为 `/path/to/Qwen3.5` 的模型，那么您可以添加一个自定义提供商，设置 API 兼容模式为 OpenAI `chat.completions`，基础 URL 设置为 `http://localhost:8000/v1`，然后在该提供商下添加一个模型，模型 ID 填写 `/path/to/Qwen3.5`，模型名称可以自定义为 `Qwen3.5`，添加完成后测试连接，如果一切配置正确，就可以在 CoPaw 中使用这个 vLLM 模型了。
 
 ## 选择模型
 
