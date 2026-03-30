@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { Card, Switch, Empty } from "@agentscope-ai/design";
+import { Card, Switch, Empty, Button } from "@agentscope-ai/design";
+import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
@@ -84,21 +85,23 @@ export default function ToolsPage() {
 
                 <div className={styles.cardFooter}>
                   {tool.name === "execute_shell_command" && (
-                    <div className={styles.inlineSettingItem}>
-                      <span className={styles.settingLabel}>
-                        {t("tools.asyncExecution")}
-                      </span>
-                      <Switch
-                        checked={tool.async_execution}
-                        onChange={() => toggleAsyncExecution(tool)}
-                        disabled={!tool.enabled}
-                      />
-                    </div>
+                    <Button
+                      className={styles.asyncButton}
+                      onClick={() => toggleAsyncExecution(tool)}
+                      disabled={!tool.enabled}
+                    >
+                      {t("tools.asyncExecution")}
+                    </Button>
                   )}
-                  <Switch
-                    checked={tool.enabled}
-                    onChange={() => handleToggle(tool)}
-                  />
+                  <Button
+                    className={styles.toggleButton}
+                    onClick={() => handleToggle(tool)}
+                    icon={
+                      tool.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />
+                    }
+                  >
+                    {tool.enabled ? t("common.disable") : t("common.enable")}
+                  </Button>
                 </div>
               </Card>
             ))}
