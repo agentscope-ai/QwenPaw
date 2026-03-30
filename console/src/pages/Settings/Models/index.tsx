@@ -3,12 +3,12 @@ import { Button, Input } from "@agentscope-ai/design";
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
-  PageHeader,
   LoadingState,
   ProviderCard,
   CustomProviderModal,
   ModelsSection,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../api/types/provider";
 import styles from "./index.module.less";

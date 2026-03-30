@@ -38,6 +38,7 @@ import {
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { ImportBuiltinModal } from "./components/ImportBuiltinModal";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type PoolMode = "broadcast" | "create" | "edit";
@@ -560,73 +561,71 @@ function SkillPoolPage() {
 
   return (
     <div className={styles.skillsPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>{t("nav.settings")}</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>{t("nav.skillPool")}</span>
-        </div>
-        <div className={styles.headerRight}>
-          <input
-            type="file"
-            accept=".zip"
-            ref={zipInputRef}
-            onChange={handleZipImport}
-            style={{ display: "none" }}
-          />
-          <div className={styles.headerActionsLeft}>
-            <Tooltip title={t("skillPool.broadcastHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                icon={<SendOutlined />}
-                onClick={() => openBroadcast()}
-              >
-                {t("skillPool.broadcast")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skillPool.importBuiltinHint")}>
-              <Button
-                type="default"
-                icon={<SyncOutlined />}
-                onClick={() => void openImportBuiltin()}
-              >
-                {t("skillPool.importBuiltin")}
-              </Button>
-            </Tooltip>
+      <PageHeader
+        items={[{ title: t("nav.settings") }, { title: t("nav.skillPool") }]}
+        extra={
+          <div className={styles.headerRight}>
+            <input
+              type="file"
+              accept=".zip"
+              ref={zipInputRef}
+              onChange={handleZipImport}
+              style={{ display: "none" }}
+            />
+            <div className={styles.headerActionsLeft}>
+              <Tooltip title={t("skillPool.broadcastHint")}>
+                <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  icon={<SendOutlined />}
+                  onClick={() => openBroadcast()}
+                >
+                  {t("skillPool.broadcast")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skillPool.importBuiltinHint")}>
+                <Button
+                  type="default"
+                  icon={<SyncOutlined />}
+                  onClick={() => void openImportBuiltin()}
+                >
+                  {t("skillPool.importBuiltin")}
+                </Button>
+              </Tooltip>
+            </div>
+            <div className={styles.headerActionsRight}>
+              <Tooltip title={t("skillPool.uploadZipHint")}>
+                <Button
+                  type="default"
+                  icon={<UploadOutlined />}
+                  onClick={() => zipInputRef.current?.click()}
+                >
+                  {t("skills.uploadZip")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skillPool.importHubHint")}>
+                <Button
+                  type="default"
+                  icon={<ImportOutlined />}
+                  onClick={() => setImportModalOpen(true)}
+                >
+                  {t("skills.importHub")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.createSkillHint")}>
+                <Button
+                  type="primary"
+                  className={styles.primaryActionButton}
+                  icon={<PlusOutlined />}
+                  onClick={openCreate}
+                >
+                  {t("skills.createSkill")}
+                </Button>
+              </Tooltip>
+            </div>
           </div>
-          <div className={styles.headerActionsRight}>
-            <Tooltip title={t("skillPool.uploadZipHint")}>
-              <Button
-                type="default"
-                icon={<UploadOutlined />}
-                onClick={() => zipInputRef.current?.click()}
-              >
-                {t("skills.uploadZip")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skillPool.importHubHint")}>
-              <Button
-                type="default"
-                icon={<ImportOutlined />}
-                onClick={() => setImportModalOpen(true)}
-              >
-                {t("skills.importHub")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.createSkillHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryActionButton}
-                icon={<PlusOutlined />}
-                onClick={openCreate}
-              >
-                {t("skills.createSkill")}
-              </Button>
-            </Tooltip>
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {loading ? (
         <div className={styles.loading}>

@@ -13,13 +13,13 @@ import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
 import {
-  PageHeader,
   RuleTable,
   RuleModal,
   PreviewModal,
   SkillScannerSection,
   FileGuardSection,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 const BUILTIN_TOOLS = [

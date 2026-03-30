@@ -10,7 +10,8 @@ import type {
   TokenUsageStats,
 } from "../../../api/types/tokenUsage";
 import { formatCompact } from "../../../utils/formatNumber";
-import { PageHeader, LoadingState, EmptyState } from "./components";
+import { LoadingState, EmptyState } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type ByModelRow = TokenUsageStats & { key: string };
