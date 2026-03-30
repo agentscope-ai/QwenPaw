@@ -394,8 +394,8 @@ def _create_file_block_support_formatter(
                             )
                             textual_output.append(text)
                             multimodal_data.extend(data)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"Error converting tool result block, skipping. Block: {block}, Error: {e}")
 
                 if len(textual_output) == 0:
                     return "", multimodal_data
