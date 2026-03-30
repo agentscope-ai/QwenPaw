@@ -11,8 +11,13 @@ from agentscope.tool import ToolResponse
 from .utils import (
     truncate_text_output,
     read_file_safe,
+    DEFAULT_MAX_BYTES,
 )
-from ...config.context import get_current_workspace_dir, get_current_focus_dir
+from ...config.context import (
+    get_current_workspace_dir,
+    get_current_recent_max_bytes,
+    get_current_focus_dir,
+)
 from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
 
 
@@ -165,11 +170,13 @@ async def read_file(  # pylint: disable=too-many-return-statements
         selected_content = "\n".join(all_lines[s - 1 : e])
 
         # Apply smart truncation (consistent with shell output format)
+        max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
         text = truncate_text_output(
             selected_content,
             start_line=s,
             total_lines=total,
             file_path=file_path,
+            max_bytes=max_bytes,
         )
 
         # Add continuation hint if partial read without truncation.

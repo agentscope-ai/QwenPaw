@@ -3,6 +3,7 @@ import { Button, Card, message } from "@agentscope-ai/design";
 import { Radio, Select, Space, Spin, Alert } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 interface TranscriptionProvider {
@@ -91,15 +92,12 @@ function VoiceTranscriptionPage() {
 
   return (
     <div className={styles.voiceTranscriptionPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Settings</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>
-            {t("voiceTranscription.title")}
-          </span>
-        </div>
-      </div>
+      <PageHeader
+        items={[
+          { title: t("nav.settings") },
+          { title: t("voiceTranscription.title") },
+        ]}
+      />
       <Alert
         type="info"
         showIcon

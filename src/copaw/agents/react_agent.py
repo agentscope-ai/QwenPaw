@@ -1093,11 +1093,19 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Response message
         """
-        # Set workspace and focus dirs in context for tool functions
-        from ..config.context import set_current_workspace_dir, set_current_focus_dir
+<<<<<<< HEAD
+        # Set workspace_dir and recent_max_bytes in context for tool functions
+        from ..config.context import (
+            set_current_focus_dir,
+            set_current_workspace_dir,
+            set_current_recent_max_bytes,
+        )
 
         set_current_workspace_dir(self._workspace_dir)
         set_current_focus_dir(self._focus_dir)
+        set_current_recent_max_bytes(
+            self._agent_config.running.tool_result_compact.recent_max_bytes,
+        )
 
         # Process file and media blocks in messages
         if msg is not None:

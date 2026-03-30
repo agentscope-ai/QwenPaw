@@ -131,11 +131,11 @@ def _create_file_block_support_formatter(
                     ):
                         extra_contents[block["id"]] = block["extra_content"]
 
-            # Convert file:// URLs to paths,
+            # Convert file:// URLs to paths for all media blocks,
             # TODO: remove this after AgentScope updated
             for msg in msgs:
                 for block in msg.get_content_blocks():
-                    if block.get("type") == "audio":
+                    if block.get("type") in ("image", "audio", "video"):
                         source = block.get("source")
                         if (
                             isinstance(source, dict)
@@ -324,6 +324,7 @@ def create_model_and_formatter(
             )
             rate_limit_config = RateLimitConfig(
                 max_concurrent=agent_config.running.llm_max_concurrent,
+                max_qpm=agent_config.running.llm_max_qpm,
                 pause_seconds=agent_config.running.llm_rate_limit_pause,
                 jitter_range=agent_config.running.llm_rate_limit_jitter,
                 acquire_timeout=agent_config.running.llm_acquire_timeout,

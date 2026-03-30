@@ -2,7 +2,6 @@ import { Button, Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
 import {
-  PageHeader,
   ReactAgentCard,
   LlmRetryCard,
   LlmRateLimiterCard,
@@ -13,6 +12,7 @@ import {
   ContextManagementCard,
   KnowledgeMaintenanceCard,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 function AgentConfigPage() {
@@ -60,7 +60,7 @@ function AgentConfigPage() {
 
   return (
     <div className={styles.configPage}>
-      <PageHeader />
+      <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
       <div className={styles.pageContent}>
         <div className={styles.formContainer}>
           <Form form={form} layout="vertical" className={styles.form}>

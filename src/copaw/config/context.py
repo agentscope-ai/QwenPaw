@@ -71,3 +71,27 @@ def get_current_task_dir() -> Path | None:
 def set_current_task_dir(task_dir: Path | None) -> None:
     """Backward-compatible alias for set_current_focus_dir()."""
     set_current_focus_dir(task_dir)
+
+# Context variable to store the recent_max_bytes limit
+current_recent_max_bytes: ContextVar[int | None] = ContextVar(
+    "current_recent_max_bytes",
+    default=None,
+)
+
+
+def get_current_recent_max_bytes() -> int | None:
+    """Get the current agent's recent_max_bytes limit from context.
+
+    Returns:
+        Byte limit for recent tool output truncation, or None if not set.
+    """
+    return current_recent_max_bytes.get()
+
+
+def set_current_recent_max_bytes(max_bytes: int | None) -> None:
+    """Set the current agent's recent_max_bytes limit in context.
+
+    Args:
+        max_bytes: Byte limit for recent tool output truncation.
+    """
+    current_recent_max_bytes.set(max_bytes)

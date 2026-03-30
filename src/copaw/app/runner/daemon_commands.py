@@ -171,13 +171,13 @@ def run_daemon_version(context: DaemonContext) -> str:
         f"**Daemon version**\n\n"
         f"- Version: {ver}\n"
         f"- Working dir: {context.working_dir}\n"
-        f"- Log file: {context.working_dir / 'copaw.log'}"
+        f"- Log file: {WORKING_DIR / 'copaw.log'}"
     )
 
 
-def run_daemon_logs(context: DaemonContext, lines: int = 100) -> str:
+def run_daemon_logs(lines: int = 100) -> str:
     """Tail last N lines from WORKING_DIR / copaw.log."""
-    log_path = context.working_dir / "copaw.log"
+    log_path = WORKING_DIR / "copaw.log"
     content = _get_last_lines(log_path, lines=lines)
     return f"**Console log (last {lines} lines)**\n\n```\n{content}\n```"
 
@@ -288,7 +288,7 @@ class DaemonCommandHandlerMixin:
                 if a.isdigit():
                     n = max(1, min(int(a), 2000))
                     break
-            text = run_daemon_logs(context, lines=n)
+            text = run_daemon_logs(lines=n)
         elif sub == "approve":
             session_id = getattr(context, "session_id", "") or ""
             text = await run_daemon_approve(context, session_id=session_id)
