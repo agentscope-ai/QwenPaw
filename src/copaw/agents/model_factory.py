@@ -112,7 +112,7 @@ if GeminiChatFormatter is not None:
     except ImportError:
         pass
 
-if AnthropicChatModel is not None:
+if AnthropicChatFormatter is not None:
     try:
         import agentscope.formatter._anthropic_formatter as anthropic_fmt
         anthropic_fmt._get_bytes_from_web_url = _patched_get_bytes_from_web_url
