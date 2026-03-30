@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI commands for managing LLM providers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -805,3 +806,119 @@ def remove_local_cmd(model_id: str, yes: bool) -> None:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
     click.echo(f"Done! Model '{model_id}' deleted.")
+
+
+@models_group.command("oauth")
+@click.argument("provider", required=False, default=None)
+def oauth_cmd(provider: str | None) -> None:
+    """Authenticate to MiniMax via OAuth.
+
+    \b
+    Supported providers:
+      minimax-cn  - MiniMax (China)
+      minimax     - MiniMax (International)
+
+    \b
+    Examples:
+      copaw models oauth minimax-cn
+      copaw models oauth
+    """
+    from ._oauth import login_minimax_oauth
+
+    if provider is None:
+        choice = prompt_choice(
+            "Select provider:",
+            options=["minimax-cn (China)", "minimax (International)"],
+            default=None,
+        )
+        provider = "minimax-cn" if "cn" in choice else "minimax"
+
+    if provider not in ("minimax-cn", "minimax"):
+        click.echo(
+            click.style(
+                f"Error: unsupported provider '{provider}'. "
+                "Supported: minimax-cn, minimax",
+                fg="red",
+            ),
+        )
+        raise SystemExit(1)
+
+    region = "cn" if provider == "minimax-cn" else "global"
+
+    try:
+        result = login_minimax_oauth(region=region)
+
+        # Set access_token as api_key so existing provider code works
+        token_data = result.to_dict()
+        token_data["api_key"] = result.access_token
+
+        manager = _manager()
+        ok = manager.update_provider(provider, token_data)
+        if not ok:
+            raise RuntimeError(f"Provider '{provider}' not found")
+
+        click.echo(f"✓ Successfully authenticated to {provider}")
+        click.echo(f"  Token expires at: {result.expires_at}")
+
+        # Check if a default model is already set
+        current_slot = manager.get_active_model()
+        if (
+            current_slot
+            and current_slot.provider_id == provider
+            and current_slot.model
+        ):
+            # Provider already has a model selected
+            return
+
+        # Ask user if they want to set a default model
+        if click.confirm(
+            f"\nSet '{provider}' as your default LLM provider?",
+            default=True,
+        ):
+            # Interactively select the model
+            defn = manager.get_provider(provider)
+            if defn is None:
+                click.echo(
+                    click.style(
+                        f"Provider '{provider}' not found.",
+                        fg="red",
+                    ),
+                )
+                return
+
+            all_models = list(defn.models) + list(defn.extra_models)
+            if not all_models:
+                click.echo(
+                    click.style(
+                        f"No models available for {provider}.",
+                        fg="yellow",
+                    ),
+                )
+                return
+
+            model_labels = [m.name for m in all_models]
+            model_ids = [m.id for m in all_models]
+
+            # Default to MiniMax-M2.7 if available
+            default_idx = (
+                model_ids.index("MiniMax-M2.7")
+                if "MiniMax-M2.7" in model_ids
+                else 0
+            )
+            chosen_label = prompt_choice(
+                "Select a model:",
+                options=model_labels,
+                default=model_labels[default_idx],
+            )
+            selected_model = model_ids[model_labels.index(chosen_label)]
+
+            try:
+                asyncio.run(manager.activate_model(provider, selected_model))
+                click.echo(f"✓ Default LLM set: {provider} / {selected_model}")
+            except ValueError as exc:
+                click.echo(click.style(f"Warning: {exc}", fg="yellow"))
+                click.echo("  Run 'copaw models set-llm' to configure later.")
+
+    except Exception as exc:
+        click.echo(click.style(f"Error: {exc}", fg="red"))
+        raise SystemExit(1) from exc

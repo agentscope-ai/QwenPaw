@@ -99,15 +99,16 @@ variables power many built-in tools (e.g. web search).
 
 Manage LLM providers and the active model.
 
-| Command                                | What it does                                         |
-| -------------------------------------- | ---------------------------------------------------- |
-| `copaw models list`                    | Show all providers, API key status, and active model |
-| `copaw models config`                  | Full interactive setup: API keys → active model      |
-| `copaw models config-key [provider]`   | Configure a single provider's API key                |
-| `copaw models set-llm`                 | Switch the active model (API keys unchanged)         |
-| `copaw models download <repo_id>`      | Download a local model (llama.cpp)                   |
-| `copaw models local`                   | List downloaded local models                         |
-| `copaw models remove-local <model_id>` | Delete a downloaded local model                      |
+| Command                                | What it does                                          |
+| -------------------------------------- | ----------------------------------------------------- |
+| `copaw models list`                    | Show all providers, API key status, and active model  |
+| `copaw models config`                  | Full interactive setup: API keys → active model       |
+| `copaw models config-key [provider]`   | Configure a single provider's API key                 |
+| `copaw models set-llm`                 | Switch the active model (API keys unchanged)          |
+| `copaw models oauth [provider]`        | Authenticate MiniMax via OAuth (minimax-cn / minimax) |
+| `copaw models download <repo_id>`      | Download a local model (llama.cpp / MLX)              |
+| `copaw models local`                   | List downloaded local models                          |
+| `copaw models remove-local <model_id>` | Delete a downloaded local model                       |
 
 ```bash
 copaw models list                    # See what's configured
@@ -604,18 +605,18 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 
 ## Command overview
 
-| Command          | Subcommands                                                                          | Requires server? |
-| ---------------- | ------------------------------------------------------------------------------------ | :--------------: |
-| `copaw init`     | —                                                                                    |        No        |
-| `copaw app`      | —                                                                                    |  — (starts it)   |
-| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        No        |
-| `copaw env`      | `list` · `set` · `delete`                                                            |        No        |
-| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                            |     **Yes**      |
-| `copaw agents`   | `list` · `chat`                                                                      |     **Yes**      |
-| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
-| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
-| `copaw skills`   | `list` · `config`                                                                    |        No        |
-| `copaw clean`    | —                                                                                    |        No        |
+| Command          | Subcommands                                                                                                                                      | Requires server? |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | :--------------: |
+| `copaw init`     | —                                                                                                                                                |        No        |
+| `copaw app`      | —                                                                                                                                                |  — (starts it)   |
+| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `oauth` · `download` · `local` · `remove-local` |        No        |
+| `copaw env`      | `list` · `set` · `delete`                                                                                                                        |        No        |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                                                                                        |     **Yes**      |
+| `copaw agents`   | `list` · `chat`                                                                                                                                  |     **Yes**      |
+| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                                      |     **Yes**      |
+| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                                  |     **Yes**      |
+| `copaw skills`   | `list` · `config`                                                                                                                                |        No        |
+| `copaw clean`    | —                                                                                                                                                |        No        |
 
 ---
 

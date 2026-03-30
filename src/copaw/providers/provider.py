@@ -96,6 +96,22 @@ class ProviderInfo(BaseModel):
             "without model configuration"
         ),
     )
+    access_token: str = Field(
+        default="",
+        description="OAuth access token",
+    )
+    refresh_token: str = Field(
+        default="",
+        description="OAuth refresh token",
+    )
+    token_expires_at: int = Field(
+        default=0,
+        description="Token expiry Unix timestamp",
+    )
+    is_oauth: bool = Field(
+        default=False,
+        description="Whether provider uses OAuth",
+    )
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
@@ -184,6 +200,17 @@ class Provider(ProviderInfo, ABC):
                 else ModelInfo.model_validate(model)
                 for model in config["extra_models"]
             ]
+        if "access_token" in config and config["access_token"] is not None:
+            self.access_token = str(config["access_token"])
+        if "refresh_token" in config and config["refresh_token"] is not None:
+            self.refresh_token = str(config["refresh_token"])
+        if (
+            "token_expires_at" in config
+            and config["token_expires_at"] is not None
+        ):
+            self.token_expires_at = int(config["token_expires_at"])
+        if "is_oauth" in config and config["is_oauth"] is not None:
+            self.is_oauth = bool(config["is_oauth"])
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
@@ -284,6 +311,16 @@ class Provider(ProviderInfo, ABC):
             if mock_secret and self.api_key
             else self.api_key
         )
+        access_token = (
+            self.access_token[:8] + "*" * 8
+            if mock_secret and self.access_token
+            else self.access_token
+        )
+        refresh_token = (
+            self.refresh_token[:8] + "*" * 8
+            if mock_secret and self.refresh_token
+            else self.refresh_token
+        )
         return ProviderInfo(
             id=self.id,
             name=self.name,
@@ -302,4 +339,8 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_expires_at=self.token_expires_at,
+            is_oauth=self.is_oauth,
         )

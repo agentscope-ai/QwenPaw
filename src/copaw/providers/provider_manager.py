@@ -1173,6 +1173,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                             model.generate_kwargs = stored_model_kwargs[
                                 model.id
                             ]
+                # Load OAuth fields if present
+                if provider.access_token:
+                    builtin.access_token = provider.access_token
+                if provider.refresh_token:
+                    builtin.refresh_token = provider.refresh_token
+                if provider.token_expires_at:
+                    builtin.token_expires_at = provider.token_expires_at
+                if provider.is_oauth:
+                    builtin.is_oauth = provider.is_oauth
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)
