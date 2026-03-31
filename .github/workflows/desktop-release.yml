@@ -148,3 +148,221 @@ jobs:
           fail-on-unmatched-files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-oss:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for scripts)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Get version
+        id: version
+        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/copaw/__version__.py)" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Install ossutil
+        run: |
+          wget https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip ossutil-v1.7.18-linux-amd64.zip
+          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
+          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Configure ossutil
+        run: |
+          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            -L CH
+
+      - name: Process and upload Windows artifacts
+        if: hashFiles('CoPaw-Desktop-Windows-*/*.exe') != ''
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          WIN_EXE=$(find CoPaw-Desktop-Windows-* -name "CoPaw-Setup-*.exe" | head -1)
+
+          if [ -z "$WIN_EXE" ]; then
+            echo "No Windows exe found, skipping"
+            exit 0
+          fi
+
+          echo "Processing Windows artifact: $WIN_EXE"
+
+          # Generate metadata
+          python scripts/pack/generate_oss_metadata.py \
+            --file "$WIN_EXE" \
+            --product desktop \
+            --platform win \
+            --version "$VERSION" \
+            --output win-metadata.json
+
+          # Upload file (versioned)
+          ossutil cp "$WIN_EXE" \
+            "oss://copaw-download/files/apps/desktop/win/CoPaw-Setup-${VERSION}.exe" \
+            --acl public-read \
+            --force
+
+          # Upload file (latest)
+          ossutil cp "$WIN_EXE" \
+            "oss://copaw-download/files/apps/desktop/win/CoPaw-Setup-latest.exe" \
+            --acl public-read \
+            --force
+
+          # Upload metadata (versioned)
+          ossutil cp win-metadata.json \
+            "oss://copaw-download/metadata/apps/desktop/win/CoPaw-Setup-${VERSION}.exe.json" \
+            --acl public-read \
+            --force
+
+          # Upload metadata (latest)
+          ossutil cp win-metadata.json \
+            "oss://copaw-download/metadata/apps/desktop/win/CoPaw-Setup-latest.exe.json" \
+            --acl public-read \
+            --force
+
+          echo "✓ Windows artifacts uploaded"
+
+      - name: Process and upload macOS artifacts
+        if: hashFiles('CoPaw-Desktop-macOS-*/*.zip') != ''
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          MAC_ZIP=$(find CoPaw-Desktop-macOS-* -name "CoPaw-*.zip" | head -1)
+
+          if [ -z "$MAC_ZIP" ]; then
+            echo "No macOS zip found, skipping"
+            exit 0
+          fi
+
+          echo "Processing macOS artifact: $MAC_ZIP"
+
+          # Generate metadata
+          python scripts/pack/generate_oss_metadata.py \
+            --file "$MAC_ZIP" \
+            --product desktop \
+            --platform mac \
+            --version "$VERSION" \
+            --output mac-metadata.json
+
+          # Upload file (versioned)
+          ossutil cp "$MAC_ZIP" \
+            "oss://copaw-download/files/apps/desktop/mac/CoPaw-${VERSION}-macOS.zip" \
+            --acl public-read \
+            --force
+
+          # Upload file (latest)
+          ossutil cp "$MAC_ZIP" \
+            "oss://copaw-download/files/apps/desktop/mac/CoPaw-latest-macOS.zip" \
+            --acl public-read \
+            --force
+
+          # Upload metadata (versioned)
+          ossutil cp mac-metadata.json \
+            "oss://copaw-download/metadata/apps/desktop/mac/CoPaw-${VERSION}-macOS.zip.json" \
+            --acl public-read \
+            --force
+
+          # Upload metadata (latest)
+          ossutil cp mac-metadata.json \
+            "oss://copaw-download/metadata/apps/desktop/mac/CoPaw-latest-macOS.zip.json" \
+            --acl public-read \
+            --force
+
+          echo "✓ macOS artifacts uploaded"
+
+      - name: Update desktop index
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Download existing desktop/index.json if exists
+          ossutil cp "oss://copaw-download/metadata/apps/desktop/index.json" \
+            desktop-index.json 2>/dev/null || cat > desktop-index.json << 'EOF'
+          {
+            "product": "desktop",
+            "updated_at": "",
+            "platforms": {},
+            "files": {}
+          }
+          EOF
+
+          # Merge Windows metadata if exists
+          if [ -f "win-metadata.json" ]; then
+            python scripts/pack/generate_oss_metadata.py \
+              --file "$(find CoPaw-Desktop-Windows-* -name 'CoPaw-Setup-*.exe' | head -1)" \
+              --product desktop \
+              --platform win \
+              --version "$VERSION" \
+              --output win-metadata.json \
+              --merge-index desktop-index.json \
+              --output-index desktop-index.json
+          fi
+
+          # Merge macOS metadata if exists
+          if [ -f "mac-metadata.json" ]; then
+            python scripts/pack/generate_oss_metadata.py \
+              --file "$(find CoPaw-Desktop-macOS-* -name 'CoPaw-*.zip' | head -1)" \
+              --product desktop \
+              --platform mac \
+              --version "$VERSION" \
+              --output mac-metadata.json \
+              --merge-index desktop-index.json \
+              --output-index desktop-index.json
+          fi
+
+          # Upload updated desktop/index.json
+          ossutil cp desktop-index.json \
+            "oss://copaw-download/metadata/apps/desktop/index.json" \
+            --acl public-read \
+            --force
+
+          echo "✓ Desktop index updated"
+
+      - name: Update main index
+        run: |
+          # Download main index if exists
+          ossutil cp "oss://copaw-download/metadata/index.json" \
+            main-index.json 2>/dev/null || cat > main-index.json << 'EOF'
+          {
+            "version": "1.0",
+            "updated_at": "",
+            "products": {}
+          }
+          EOF
+
+          # Ensure desktop product is in main index
+          python3 << 'PYTHON'
+          import json
+          from datetime import datetime, timezone
+
+          with open("main-index.json", "r") as f:
+              index = json.load(f)
+
+          index["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+          if "desktop" not in index["products"]:
+              index["products"]["desktop"] = {
+                  "name": {
+                      "zh-CN": "桌面客户端",
+                      "en-US": "Desktop Client"
+                  },
+                  "index_url": "/metadata/apps/desktop/index.json"
+              }
+
+          with open("main-index.json", "w") as f:
+              json.dump(index, f, indent=2, ensure_ascii=False)
+          PYTHON
+
+          # Upload main index
+          ossutil cp main-index.json \
+            "oss://copaw-download/metadata/index.json" \
+            --acl public-read \
+            --force
+
+          echo "✓ Main index updated"

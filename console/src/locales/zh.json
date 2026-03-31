@@ -296,7 +296,8 @@
     "toggleError": "切换 MCP 客户端状态失败",
     "deleteConfirm": "确定要删除此 MCP 客户端吗？",
     "deleteSuccess": "MCP 客户端删除成功",
-    "deleteError": "MCP 客户端删除失败"
+    "deleteError": "MCP 客户端删除失败",
+    "maskedFieldHint": "敏感字段已用 *** 遮掩，不支持在遮掩值上直接编辑，如需修改请替换为完整新值。"
   },
   "heartbeat": {
     "title": "心跳",
@@ -858,7 +859,7 @@
     "toolResultCompactOldThresholdPlaceholder": "请输入字符阈值",
     "toolResultCompactOldThresholdRequired": "超出recent_n的工具调用结果最大字符数为必填项",
     "toolResultCompactRecentThreshold": "最新消息压缩阈值（bytes）",
-    "toolResultCompactRecentThresholdTooltip": "最近 N 条消息中工具结果超过此字节数时将被压缩，须大于早期消息阈值",
+    "toolResultCompactRecentThresholdTooltip": "最近 N 条消息中工具结果超过此字节数时将被压缩，同时也是 read_file 工具单次读取的最大字节上限，须大于等于早期消息阈值",
     "toolResultCompactRecentThresholdPlaceholder": "请输入字符阈值",
     "toolResultCompactRecentThresholdRequired": "recent_n内的工具调用结果最大字符数为必填项",
     "toolResultCompactRetentionDays": "工具调用的文件保留天数",
@@ -903,7 +904,7 @@
     "toolResultCompactTitle": "工具结果压缩配置",
     "toolResultCompactEnabled": "启用工具结果压缩",
     "toolResultCompactEnabledTooltip": "对过长的工具调用结果进行压缩，节省上下文空间",
-    "memorySummaryTitle": "记忆总结配置",
+    "memorySummaryTitle": "长期记忆配置",
     "memorySummaryEnabled": "启动记忆总结",
     "memorySummaryEnabledTooltip": "在上下文压缩时自动生成并保存记忆总结",
     "forceMemorySearch": "强制记忆搜索(beta)",
@@ -1187,7 +1188,8 @@
         "title": "检测到安全问题",
         "description": "发现以下安全问题：",
         "warnDescription": "发现安全问题，但技能仍已启用（仅提醒模式）：",
-        "goToWhitelist": "前往白名单"
+        "goToWhitelist": "前往白名单",
+        "moreFindings": "另有 {{count}} 条未列出（完整列表见 设置 → 安全 → 技能扫描）。"
       }
     }
   },

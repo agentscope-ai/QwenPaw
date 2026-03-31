@@ -829,6 +829,8 @@ async def upload_workspace_skill_to_pool(
             target_name=body.new_name,
             overwrite=body.overwrite,
         )
+    except SkillScanError as exc:
+        return _scan_error_response(exc)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.get("success"):
@@ -962,6 +964,10 @@ async def download_pool_skill_to_workspaces(
             )
     except HTTPException:
         raise
+    except SkillScanError as exc:
+        for rollback in reversed(execution_plan):
+            _restore_workspace_skill(rollback["snapshot"])
+        return _scan_error_response(exc)
     except Exception:
         for rollback in reversed(execution_plan):
             _restore_workspace_skill(rollback["snapshot"])

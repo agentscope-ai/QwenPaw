@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Drawer } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine } from "@agentscope-ai/icons";
@@ -70,6 +70,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
+
+  /** Sessions sorted by createdAt descending, independent of context internal order */
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      const aTime = (a as ExtendedChatSession).createdAt;
+      const bTime = (b as ExtendedChatSession).createdAt;
+      if (!aTime && !bTime) return 0;
+      if (!aTime) return 1;
+      if (!bTime) return -1;
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
+  }, [sessions]);
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
@@ -201,7 +213,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       <div className={styles.listWrapper}>
         <div className={styles.topGradient} />
         <div className={styles.list}>
-          {sessions.map((session) => {
+          {sortedSessions.map((session) => {
             const ext = session as ExtendedChatSession;
             const channelKey = ext.channel?.trim() || "";
             const channelLabel = channelKey

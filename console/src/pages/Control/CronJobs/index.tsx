@@ -11,6 +11,7 @@ import {
   DEFAULT_FORM_VALUES,
 } from "./components";
 import { parseCron, serializeCron } from "./components/parseCron";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type CronJob = CronJobSpecOutput;
@@ -199,18 +200,14 @@ function CronJobsPage() {
 
   return (
     <div className={styles.cronJobsPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Control</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>
-            {t("cronJobs.title")}
-          </span>
-        </div>
-        <Button type="primary" onClick={handleCreate}>
-          + {t("cronJobs.createJob")}
-        </Button>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.control") }, { title: t("cronJobs.title") }]}
+        extra={
+          <Button type="primary" onClick={handleCreate}>
+            + {t("cronJobs.createJob")}
+          </Button>
+        }
+      />
 
       <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
         <Table
@@ -221,8 +218,6 @@ function CronJobsPage() {
           scroll={{ x: 2840 }}
           pagination={{
             pageSize: 10,
-            showSizeChanger: false,
-            showTotal: (total) => t("cronJobs.totalItems", { count: total }),
           }}
         />
       </Card>

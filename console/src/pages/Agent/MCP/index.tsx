@@ -4,6 +4,7 @@ import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
 import { useTranslation } from "react-i18next";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type MCPTransport = "stdio" | "streamable_http" | "sse";
@@ -161,16 +162,14 @@ function MCPPage() {
 
   return (
     <div className={styles.mcpPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Agent</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>{t("mcp.title")}</span>
-        </div>
-        <Button type="primary" onClick={() => setCreateModalOpen(true)}>
-          {t("mcp.create")}
-        </Button>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.agent") }, { title: t("mcp.title") }]}
+        extra={
+          <Button type="primary" onClick={() => setCreateModalOpen(true)}>
+            {t("mcp.create")}
+          </Button>
+        }
+      />
 
       {loading ? (
         <div className={styles.loading}>
