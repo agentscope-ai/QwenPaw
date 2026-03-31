@@ -72,12 +72,26 @@ export async function request<T = unknown>(
 
   if (!response.ok) {
     // Handle 401: clear token and redirect to login
-    if (response.status === 401) {
-      clearAuthToken();
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
+    if (!response.ok) {
+      // Handle 401: clear token and redirect to login
+      if (response.status === 401) {
+        clearAuthToken();
+        if (window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
+        throw new Error("Not authenticated");
       }
-      throw new Error("Not authenticated");
+
+      const text = await response.text().catch(() => "");
+      const contentType = response.headers.get("content-type") || "";
+      const errorMessage = getErrorMessageFromBody(text, contentType);
+      
+      // Preserve raw body for parseErrorDetail() to extract structured fields
+      const finalMessage = errorMessage
+        ? `${errorMessage} - ${text}`
+        : `Request failed: ${response.status} ${response.statusText}`;
+      
+      throw new Error(finalMessage);
     }
 
     const text = await response.text().catch(() => "");
