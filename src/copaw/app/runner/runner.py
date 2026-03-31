@@ -77,6 +77,16 @@ class AgentRunner(Runner):
         self._workspace: Any = None  # Workspace instance for control commands
         self.memory_manager: BaseMemoryManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
+        self._plan_notebook = None
+
+    def set_plan_notebook(self, plan_notebook) -> None:
+        """Set workspace-level PlanNotebook instance."""
+        self._plan_notebook = plan_notebook
+
+    @property
+    def plan_notebook(self):
+        """Access the workspace-level PlanNotebook (may be None)."""
+        return self._plan_notebook
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -309,6 +319,7 @@ class AgentRunner(Runner):
                 },
                 workspace_dir=self.workspace_dir,
                 task_tracker=self._task_tracker,
+                plan_notebook=self._plan_notebook,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
@@ -351,11 +362,14 @@ class AgentRunner(Runner):
                     f"session_id={session_id}",
                 )
 
+            load_kwargs = {"agent": agent}
+            if self._plan_notebook is not None:
+                load_kwargs["plan_notebook"] = self._plan_notebook
             try:
                 await self.session.load_session_state(
                     session_id=session_id,
                     user_id=user_id,
-                    agent=agent,
+                    **load_kwargs,
                 )
             except KeyError as e:
                 logger.warning(
@@ -404,10 +418,15 @@ class AgentRunner(Runner):
             raise
         finally:
             if agent is not None and session_state_loaded:
+                save_kwargs = {"agent": agent}
+                if self._plan_notebook is not None:
+                    save_kwargs["plan_notebook"] = (
+                        self._plan_notebook
+                    )
                 await self.session.save_session_state(
                     session_id=session_id,
                     user_id=user_id,
-                    agent=agent,
+                    **save_kwargs,
                 )
 
             if self._chat_manager is not None and chat is not None:

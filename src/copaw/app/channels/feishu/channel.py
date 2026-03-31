@@ -1726,8 +1726,18 @@ class FeishuChannel(BaseChannel):
                     to_handle,
                     f"Error: {err_msg}",
                 )
-            elif last_message_id:
-                await self._add_reaction(last_message_id, "DONE")
+            else:
+                plan_text = self._get_plan_status_text()
+                if plan_text:
+                    try:
+                        await self.send(to_handle, plan_text, send_meta)
+                    except Exception:
+                        logger.warning(
+                            "Failed to send plan status in Feishu",
+                            exc_info=True,
+                        )
+                if last_message_id:
+                    await self._add_reaction(last_message_id, "DONE")
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)

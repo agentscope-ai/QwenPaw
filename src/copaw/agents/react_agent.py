@@ -96,6 +96,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
+        plan_notebook: Any | None = None,
     ):
         """Initialize CoPawAgent.
 
@@ -159,6 +160,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             memory=InMemoryMemory(),
             formatter=formatter,
             max_iters=running_config.max_iters,
+            plan_notebook=plan_notebook,
         )
 
         # Setup memory manager
@@ -689,6 +691,22 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         try:
             return await super()._reasoning(tool_choice=tool_choice)
         except Exception as e:
+            # --- Context overflow recovery ---
+            if self._is_context_overflow_error(e):
+                n_trunc = self._emergency_truncate_tool_results()
+                if n_trunc > 0:
+                    logger.warning(
+                        "_reasoning: context overflow (%s). "
+                        "Truncated %d tool-result block(s), "
+                        "retrying.",
+                        e,
+                        n_trunc,
+                    )
+                    return await super()._reasoning(
+                        tool_choice=tool_choice,
+                    )
+
+            # --- Media error recovery ---
             if not self._is_bad_request_or_media_error(e):
                 raise
 
@@ -696,8 +714,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             if n_stripped == 0:
                 raise
 
-            # If the model is marked as multimodal but still
-            # errored, the capability flag may be wrong.
             if get_active_model_supports_multimodal():
                 logger.warning(
                     "Model marked multimodal but "
@@ -707,7 +723,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
             logger.warning(
                 "_reasoning failed (%s). "
-                "Stripped %d media block(s) from memory, retrying.",
+                "Stripped %d media block(s) from memory, "
+                "retrying.",
                 e,
                 n_stripped,
             )
@@ -744,27 +761,52 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             try:
                 msg = await super()._summarizing()
             except Exception as e:
-                if not self._is_bad_request_or_media_error(e):
-                    raise
+                recovered = False
 
-                n_stripped = self._strip_media_blocks_from_memory()
-                if n_stripped == 0:
-                    raise
-
-                if get_active_model_supports_multimodal():
-                    logger.warning(
-                        "Model marked multimodal but "
-                        "rejected media. "
-                        "Capability flag may be wrong.",
+                # --- Context overflow recovery ---
+                if self._is_context_overflow_error(e):
+                    n_trunc = (
+                        self._emergency_truncate_tool_results()
                     )
+                    if n_trunc > 0:
+                        logger.warning(
+                            "_summarizing: context overflow "
+                            "(%s). Truncated %d block(s), "
+                            "retrying.",
+                            e,
+                            n_trunc,
+                        )
+                        msg = await super()._summarizing()
+                        recovered = True
 
-                logger.warning(
-                    "_summarizing failed (%s). "
-                    "Stripped %d media block(s) from memory, retrying.",
-                    e,
-                    n_stripped,
-                )
-                msg = await super()._summarizing()
+                if not recovered:
+                    # --- Media error recovery ---
+                    if not self._is_bad_request_or_media_error(
+                        e,
+                    ):
+                        raise
+
+                    n_stripped = (
+                        self._strip_media_blocks_from_memory()
+                    )
+                    if n_stripped == 0:
+                        raise
+
+                    if get_active_model_supports_multimodal():
+                        logger.warning(
+                            "Model marked multimodal but "
+                            "rejected media. "
+                            "Capability flag may be wrong.",
+                        )
+
+                    logger.warning(
+                        "_summarizing failed (%s). "
+                        "Stripped %d media block(s) from "
+                        "memory, retrying.",
+                        e,
+                        n_stripped,
+                    )
+                    msg = await super()._summarizing()
         finally:
             self._in_summarizing = False
 
@@ -879,6 +921,94 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "image_url",
         ]
         return any(kw in error_str for kw in keywords)
+
+    @staticmethod
+    def _is_context_overflow_error(exc: Exception) -> bool:
+        """Return True for context-too-large / buffer-overflow errors."""
+        error_str = str(exc).lower()
+        keywords = [
+            "buffer overflow",
+            "context length",
+            "context_length",
+            "maximum context",
+            "too many tokens",
+            "request too large",
+            "payload too large",
+        ]
+        return any(kw in error_str for kw in keywords)
+
+    _OVERFLOW_KEEP_RECENT = 8
+    _OVERFLOW_MAX_CHARS = 300
+    _OVERFLOW_NOTE = "\n... [truncated to reduce context]"
+
+    def _emergency_truncate_tool_results(self) -> int:
+        """Truncate large tool-result outputs in older memory
+        messages to recover from a context overflow error.
+
+        Keeps the most recent ``_OVERFLOW_KEEP_RECENT`` messages
+        untouched and truncates ``tool_result`` outputs that
+        exceed ``_OVERFLOW_MAX_CHARS`` in all earlier messages.
+
+        Returns:
+            Number of blocks truncated.
+        """
+        pairs = list(self.memory.content)
+        total = len(pairs)
+        keep = min(self._OVERFLOW_KEEP_RECENT, total)
+        cutoff = total - keep
+        if cutoff <= 0:
+            return 0
+
+        truncated = 0
+        for idx, (msg, _marks) in enumerate(pairs):
+            if idx >= cutoff:
+                break
+            if not isinstance(msg.content, list):
+                continue
+            truncated += self._truncate_tool_blocks(
+                msg.content,
+            )
+        return truncated
+
+    def _truncate_tool_blocks(self, blocks: list) -> int:
+        """Truncate oversized tool_result blocks in *blocks* list.
+
+        Returns the number of individual outputs truncated.
+        """
+        limit = self._OVERFLOW_MAX_CHARS
+        note = self._OVERFLOW_NOTE
+        count = 0
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_result":
+                continue
+            out = block.get("output")
+            if isinstance(out, str) and len(out) > limit:
+                block["output"] = out[:limit] + note
+                count += 1
+            elif isinstance(out, list):
+                count += self._truncate_text_items(
+                    out, limit, note,
+                )
+        return count
+
+    @staticmethod
+    def _truncate_text_items(
+        items: list,
+        limit: int,
+        note: str,
+    ) -> int:
+        """Truncate oversized text entries in a list of dicts."""
+        count = 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            txt = item.get("text", "")
+            if isinstance(txt, str) and len(txt) > limit:
+                item["text"] = txt[:limit] + note
+                count += 1
+        return count
 
     _MEDIA_PLACEHOLDER = (
         "[Media content removed - model does not support this media type]"

@@ -22,6 +22,7 @@ import { toolsApi } from "./modules/tools";
 import { securityApi } from "./modules/security";
 import { userTimezoneApi } from "./modules/userTimezone";
 import { languageApi } from "./modules/language";
+import { planApi } from "./modules/plan";
 
 export const api = {
   // Root
@@ -76,9 +77,13 @@ export const api = {
 
   // Language
   ...languageApi,
+
+  // Plan
+  ...planApi,
 };
 
 export default api;
 
 // Export individual APIs for direct access
 export { agentsApi };
+export { planApi, subscribePlanUpdates } from "./modules/plan";
