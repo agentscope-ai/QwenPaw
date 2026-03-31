@@ -95,6 +95,7 @@
     "enableSuccess": "エージェントが有効化されました",
     "toggleFailed": "エージェント状態の切り替えに失敗しました",
     "defaultNotDisablable": "デフォルトのエージェントは無効化できません",
+    "currentAgentDeleted": "現在のエージェントが削除されました。デフォルトエージェントに自動切り替えしました",
     "currentAgentDisabled": "現在のエージェントが無効化されました。デフォルトエージェントに自動切り替えしました",
     "switchedToDefault": "デフォルトエージェントに自動切り替えしました",
     "cannotSwitchToDisabled": "このエージェントは無効化されています。管理ページで有効化してください"

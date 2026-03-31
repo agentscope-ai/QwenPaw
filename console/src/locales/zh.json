@@ -121,6 +121,7 @@
     "enableSuccess": "智能体已启用",
     "toggleFailed": "切换智能体状态失败",
     "defaultNotDisablable": "默认智能体不允许禁用",
+    "currentAgentDeleted": "当前智能体已被删除，已自动切换到默认智能体",
     "currentAgentDisabled": "当前智能体已被禁用，已自动切换到默认智能体",
     "switchedToDefault": "已自动切换到默认智能体",
     "cannotSwitchToDisabled": "该智能体已被禁用，请先在管理页面启用",

@@ -156,6 +156,7 @@
     "enableSuccess": "Agent enabled successfully",
     "toggleFailed": "Failed to toggle agent state",
     "defaultNotDisablable": "Default agent cannot be disabled",
+    "currentAgentDeleted": "Current agent has been deleted, automatically switched to default agent",
     "currentAgentDisabled": "Current agent has been disabled, automatically switched to default agent",
     "switchedToDefault": "Automatically switched to default agent",
     "cannotSwitchToDisabled": "This agent is disabled, please enable it in the management page first",
