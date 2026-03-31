@@ -1066,17 +1066,8 @@ export default function ChatPage() {
       };
       const token = getApiToken();
       if (token) headers.Authorization = `Bearer ${token}`;
-      try {
-        const agentStorage = localStorage.getItem("copaw-agent-storage");
-        if (agentStorage) {
-          const parsed = JSON.parse(agentStorage);
-          const selectedAgent = parsed?.state?.selectedAgent;
-          if (selectedAgent) {
-            headers["X-Agent-Id"] = selectedAgent;
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to get selected agent from storage:", error);
+      if (selectedAgent) {
+        headers["X-Agent-Id"] = selectedAgent;
       }
 
       const shouldReconnect =
