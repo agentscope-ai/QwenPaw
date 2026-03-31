@@ -33,11 +33,6 @@ export default function LanguageSwitcher() {
       onClick: () => changeLanguage("en"),
     },
     {
-      key: "ru",
-      label: "Русский",
-      onClick: () => changeLanguage("ru"),
-    },
-    {
       key: "zh",
       label: "简体中文",
       onClick: () => changeLanguage("zh"),
@@ -46,6 +41,11 @@ export default function LanguageSwitcher() {
       key: "ja",
       label: "日本語",
       onClick: () => changeLanguage("ja"),
+    },
+    {
+      key: "ru",
+      label: "Русский",
+      onClick: () => changeLanguage("ru"),
     },
   ];
 
