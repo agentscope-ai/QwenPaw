@@ -1,0 +1,88 @@
+# Build CoPaw multi-arch Docker image and push to DockerHub + Aliyun ACR on release.
+# Pre-release: update <version> and pre only.
+# Formal release: update <version>, pre and latest.
+name: Docker Build and Push on Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image tag (e.g. v1.2.3 or v1.2.3-beta.1)"
+        required: true
+        type: string
+      is_prerelease:
+        description: "Pre-release (do not update latest tag)"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
+  IMAGE: agentscope/copaw
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
+      - name: Set version and prerelease flag
+        id: vars
+        run: |
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+            # Parse version to determine if it's a pre-release
+            # Beta/alpha/rc/dev are pre-releases, but .post is NOT
+            if [[ "$VERSION" =~ (beta|alpha|rc|dev) ]]; then
+              echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            elif [[ "$VERSION" =~ post ]]; then
+              # .post versions should update latest (post-release patches)
+              echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            else
+              # Use GitHub's prerelease flag as fallback
+              echo "is_prerelease=${{ github.event.release.prerelease }}" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "is_prerelease=${{ github.event.inputs.is_prerelease }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push multi-arch (version + pre [+ latest])
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          IS_PRERELEASE: ${{ steps.vars.outputs.is_prerelease }}
+          COPAW_DISABLED_CHANNELS: "imessage"
+        run: |
+          TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
+          TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
+          if [ "${IS_PRERELEASE}" != "true" ]; then
+            TAGS="${TAGS} -t ${ACR_REGISTRY}/${IMAGE}:latest -t docker.io/${IMAGE}:latest"
+          fi
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -f deploy/Dockerfile \
+            --build-arg COPAW_DISABLED_CHANNELS="${COPAW_DISABLED_CHANNELS}" \
+            ${TAGS} --push .

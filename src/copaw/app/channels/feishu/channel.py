@@ -1886,263 +1886,263 @@ class FeishuChannel(BaseChannel):
         except Exception:
             logger.exception("card close error")
 
-    async def _run_process_loop(
-        self,
-        request: Any,
-        to_handle: str,
-        send_meta: Dict[str, Any],
-    ) -> None:
-        """Override to support streaming card output.
 
-        When streaming is enabled (FEISHU_STREAMING_ENABLED=true), creates a
-        streaming card for each agent round and updates it in real-time.
-        Falls back to normal message output otherwise.
+    # ----- _stream_with_tracker override (CoPaw post-1.0 architecture)
+
+    async def _stream_with_tracker(
+        self,
+        payload: Any,
+    ) -> AsyncGenerator[str, None]:
+        """Override for CoPaw versions that use _stream_with_tracker.
+
+        In post-1.0 CoPaw the message path changed from
+        _consume_one_request -> _run_process_loop to
+        _consume_with_tracker -> _stream_with_tracker.
+        This override mirrors the streaming card logic from
+        _run_process_loop_streaming but adapted to the new async-generator
+        architecture that yields SSE events.
+
+        Falls back to super() if streaming is disabled.
         """
-        if self._is_streaming_enabled():
-            await self._run_process_loop_streaming(
-                request,
-                to_handle,
-                send_meta,
-            )
+        if not self._is_streaming_enabled():
+            async for chunk in super()._stream_with_tracker(payload):  # type: ignore[misc]
+                yield chunk
             return
 
-        last_message_id: Optional[str] = None
-        last_response = None
-        try:
-            async for event in self._process(request):
-                obj = getattr(event, "object", None)
-                status = getattr(event, "status", None)
-                if obj == "message" and status == RunStatus.Completed:
-                    parts = self._message_to_content_parts(event)
-                    if parts:
-                        msg_id = await self.send_content_parts(
-                            to_handle,
-                            parts,
-                            send_meta,
-                        )
-                        if msg_id:
-                            last_message_id = msg_id
-                elif obj == "response":
-                    last_response = event
-                    await self.on_event_response(request, event)
-            err_msg = self._get_response_error_message(last_response)
-            if err_msg:
-                await self._on_consume_error(
-                    request,
-                    to_handle,
-                    f"Error: {err_msg}",
-                )
-            elif last_message_id:
-                await self._add_reaction(last_message_id, "DONE")
-            if self._on_reply_sent:
-                args = self.get_on_reply_sent_args(request, to_handle)
-                self._on_reply_sent(self.channel, *args)
-        except Exception:
-            logger.exception("channel consume_one failed")
-            await self._on_consume_error(
-                request,
-                to_handle,
-                "An error occurred while processing your request.",
-            )
+        # --- Build request & meta (mirror BaseChannel._stream_with_tracker) ---
+        request = self._payload_to_request(payload)
 
-    def _extract_streaming_text(
-        self,
-        ev: Any,
-        *,
-        is_streaming: bool = False,
-    ) -> Optional[str]:
-        """Extract partial text from a streaming event."""
-        obj = getattr(ev, "object", None)
+        if isinstance(payload, dict):
+            send_meta = dict(payload.get("meta") or {})
+            if payload.get("session_webhook"):
+                send_meta["session_webhook"] = payload["session_webhook"]
+        else:
+            send_meta = getattr(request, "channel_meta", None) or {}
 
-        # Method 1: message object with content parts (non-streaming events)
-        if obj == "message" and not is_streaming:
-            parts = self._message_to_content_parts(ev)
-            for p in parts:
-                if getattr(p, "type", None) in ("text", "markdown"):
-                    return getattr(p, "text", None) or getattr(
-                        p,
-                        "content",
-                        None,
-                    )
+        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
+            self, "_bot_prefix", ""
+        )
+        if bot_prefix and "bot_prefix" not in send_meta:
+            send_meta = {**send_meta, "bot_prefix": bot_prefix}
 
-        # Method 2: direct attributes on the event
-        for attr in ("delta", "content", "text"):
-            val = getattr(ev, attr, None)
-            if val and isinstance(val, str):
-                return val
+        to_handle = self.get_to_handle_from_request(request)
+        await self._before_consume_process(request)
 
-        # Method 3: content_part with text
-        cp = getattr(ev, "content_part", None)
-        if cp:
-            t = getattr(cp, "text", None)
-            if t:
-                return t
-
-        # Method 4: nested message attribute
-        inner = getattr(ev, "message", None)
-        if inner:
-            for attr in ("content", "text"):
-                val = getattr(inner, attr, None)
-                if val and isinstance(val, str):
-                    return val
-
-        return None
-
-    async def _run_process_loop_streaming(
-        self,
-        request: Any,
-        to_handle: str,
-        send_meta: Dict[str, Any],
-    ) -> None:
-        """Streaming card variant of _run_process_loop.
-
-        Each agent round gets its own streaming card:
-        - InProgress → create card, stream partial text
-        - Completed → finalize card, send non-text parts, reset state
-        - Next InProgress → new card for the new round
-
-        Falls back to normal message if any streaming API call fails.
-        """
-        last_msg_id: Optional[str] = None
-        last_response = None
-
+        # --- Streaming card state ---
         card_id: Optional[str] = None  # None=not attempted, ""=failed
         text_acc = ""
-        updater_task: Optional[asyncio.Task] = None
-        streaming_active = True
+        last_msg_id: Optional[str] = None
+        last_response = None
+        _updater_task: Optional[asyncio.Task] = None
 
-        async def _card_updater():
-            """Background task: push accumulated text to card periodically."""
-            nonlocal text_acc, card_id, streaming_active
-            last_pushed = ""
-            while streaming_active and card_id:
+        async def _card_updater() -> None:
+            nonlocal card_id, text_acc
+            while card_id and card_id != "":
                 await asyncio.sleep(_STREAMING_UPDATE_INTERVAL_SEC)
-                if text_acc != last_pushed and card_id:
+                if not card_id or card_id == "":
+                    break
+                if text_acc:
                     ok = await self._card_update_text(card_id, text_acc)
-                    if ok:
-                        last_pushed = text_acc
-                    else:
+                    if not ok:
                         card_id = ""
-                        streaming_active = False
                         return
 
-        async def _close_current_card(final_text: str) -> None:
-            nonlocal card_id, updater_task, streaming_active
-            if updater_task and not updater_task.done():
-                updater_task.cancel()
+        async def _stop_updater() -> None:
+            nonlocal _updater_task
+            if _updater_task and not _updater_task.done():
+                _updater_task.cancel()
                 try:
-                    await updater_task
+                    await _updater_task
                 except asyncio.CancelledError:
                     pass
-                updater_task = None
-            if card_id:
+                _updater_task = None
+
+        async def _close_card(final_text: str) -> None:
+            nonlocal card_id, text_acc
+            await _stop_updater()
+            if card_id and card_id != "":
                 if final_text:
                     await self._card_update_text(card_id, final_text)
                 await self._card_close(card_id)
             card_id = None
-            streaming_active = True
+            text_acc = ""
 
         async def _create_card() -> bool:
-            nonlocal card_id, last_msg_id, updater_task
-            recv = await self._get_receive_for_send(
-                to_handle,
-                send_meta,
-            )
-            if not recv:
+            nonlocal card_id, last_msg_id, _updater_task
+            try:
+                recv = await self._get_receive_for_send(to_handle, send_meta)
+                if not recv:
+                    card_id = ""
+                    return False
+                rid_type, rid = recv
+                cid = await self._card_create()
+                if not cid:
+                    card_id = ""
+                    return False
+                mid = await self._card_send(cid, rid, rid_type)
+                if not mid:
+                    card_id = ""
+                    return False
+                card_id = cid
+                last_msg_id = mid
+                _updater_task = asyncio.create_task(_card_updater())
+                return True
+            except Exception:
+                logger.warning(
+                    "streaming card create failed, falling back",
+                    exc_info=True,
+                )
                 card_id = ""
                 return False
-            rid_type, rid = recv
-            cid = await self._card_create()
-            if not cid:
-                card_id = ""
-                return False
-            mid = await self._card_send(cid, rid, rid_type)
-            if not mid:
-                card_id = ""
-                return False
-            card_id = cid
-            last_msg_id = mid
-            updater_task = asyncio.create_task(_card_updater())
-            return True
 
+        # --- Main event loop ---
+        process_iterator = None
         try:
-            async for event in self._process(request):
-                obj = getattr(event, "object", None)
-                status = getattr(event, "status", None)
+            process_iterator = self._process(request)
+            async for event in process_iterator:
+                # Yield SSE event
+                if hasattr(event, "model_dump_json"):
+                    data = event.model_dump_json()
+                elif hasattr(event, "json"):
+                    data = event.json()
+                else:
+                    data = json.dumps({"text": str(event)})
+                yield f"data: {data}\n\n"
 
+                obj = getattr(event, "object", None)
+                st = getattr(event, "status", None)
+
+                # --- response event ---
                 if obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
                     continue
 
-                text = self._extract_streaming_text(
-                    event,
-                    is_streaming=(obj != "message"),
-                )
-
-                if obj == "message" and status == RunStatus.Completed:
-                    final_text = text or ""
-                    # If we had an active card, finalize it
-                    if card_id:
-                        await _close_current_card(final_text)
-                    else:
-                        # No card (creation failed or no delta), send normally
-                        parts = self._message_to_content_parts(event)
-                        if parts:
-                            msg_id = await self.send_content_parts(
-                                to_handle,
-                                parts,
-                                send_meta,
-                            )
-                            if msg_id:
-                                last_msg_id = msg_id
-                    # Send non-text parts separately
+                # --- message Completed: finalize ---
+                if obj == "message" and st == RunStatus.Completed:
                     parts = self._message_to_content_parts(event)
-                    non_text = [
+                    if not parts:
+                        continue
+
+                    texts = [
                         p
                         for p in parts
-                        if getattr(p, "type", None) not in ("text", "markdown")
+                        if getattr(p, "type", None)
+                        in ("text", "markdown")
                     ]
-                    if non_text:
-                        await self.send_content_parts(
-                            to_handle,
-                            non_text,
-                            send_meta,
-                        )
-                    card_id = None
-                    text_acc = ""
-                elif text and status == RunStatus.InProgress:
-                    if card_id is None:
-                        # First token of this round → create card
-                        ok = await _create_card()
-                        if ok:
-                            text_acc = text
-                    elif card_id == "":
-                        # Card creation failed, skip streaming
-                        pass
-                    else:
-                        text_acc = text
+                    others = [
+                        p
+                        for p in parts
+                        if getattr(p, "type", None)
+                        not in ("text", "markdown")
+                    ]
+                    new_text = "".join(
+                        getattr(t, "text", "") for t in texts
+                    )
 
-            # Post-loop cleanup
-            err_msg = self._get_response_error_message(last_response)
-            if err_msg:
+                    if card_id == "":
+                        # Streaming failed, normal send
+                        mid = await self.send_content_parts(
+                            to_handle, parts, send_meta
+                        )
+                        if mid:
+                            last_msg_id = mid
+                        continue
+
+                    if card_id and card_id != "":
+                        final = new_text or text_acc
+                        await _close_card(final)
+                        if others:
+                            try:
+                                mid = await self.send_content_parts(
+                                    to_handle, others, send_meta
+                                )
+                                if mid:
+                                    last_msg_id = mid
+                            except Exception:
+                                pass
+                        continue
+
+                    # No card yet: quick create + close
+                    if new_text:
+                        if await _create_card():
+                            await self._card_update_text(
+                                card_id, new_text  # type: ignore[arg-type]
+                            )
+                            await _close_card(new_text)
+                            if others:
+                                try:
+                                    mid = await self.send_content_parts(
+                                        to_handle, others, send_meta
+                                    )
+                                    if mid:
+                                        last_msg_id = mid
+                                except Exception:
+                                    pass
+                        else:
+                            mid = await self.send_content_parts(
+                                to_handle, parts, send_meta
+                            )
+                            if mid:
+                                last_msg_id = mid
+                    else:
+                        if others:
+                            mid = await self.send_content_parts(
+                                to_handle, others, send_meta
+                            )
+                            if mid:
+                                last_msg_id = mid
+                    continue
+
+                # --- InProgress streaming deltas ---
+                if st == RunStatus.InProgress:
+                    text = self._extract_streaming_text(
+                        event, is_streaming=True
+                    )
+                    if not text:
+                        continue
+                    text_acc = text
+                    if card_id is None:
+                        await _create_card()
+                    continue
+
+        except asyncio.CancelledError:
+            if process_iterator is not None:
+                await process_iterator.aclose()
+            if card_id and card_id != "":
+                await _card_close(card_id)
+            raise
+
+        except Exception:
+            logger.exception("streaming _stream_with_tracker error")
+            if card_id and card_id != "":
+                await _card_close(card_id)
+            return
+
+        # --- Post-processing ---
+        if card_id and card_id != "":
+            await _close_card(text_acc)
+
+        err = self._get_response_error_message(last_response)
+        if err:
+            try:
                 await self._on_consume_error(
-                    request,
-                    to_handle,
-                    f"Error: {err_msg}",
+                    request, to_handle, f"Error: {err}"
                 )
-            elif last_msg_id:
+            except Exception:
+                pass
+        elif last_msg_id:
+            try:
                 await self._add_reaction(last_msg_id, "DONE")
-            if self._on_reply_sent:
+            except Exception:
+                pass
+
+        if self._on_reply_sent:
+            try:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
-        except Exception:
-            logger.exception("streaming consume_one failed")
-            await self._on_consume_error(
-                request,
-                to_handle,
-                "An error occurred while processing your request.",
-            )
+            except Exception:
+                pass
 
     async def send(
         self,

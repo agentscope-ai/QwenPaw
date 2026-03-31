@@ -418,180 +418,243 @@ class TestExtractStreamingText:
 # ---------------------------------------------------------------------------
 
 
-class TestProcessLoopRouting:
-    @pytest.mark.asyncio
-    async def test_disabled_stays_normal(self, channel, monkeypatch):
-        monkeypatch.setenv("FEISHU_STREAMING_ENABLED", "false")
-        with patch.object(
-            FeishuChannel,
-            "_run_process_loop_streaming",
-            new_callable=AsyncMock,
-        ) as mock_streaming:
-            await channel._run_process_loop(
-                request=MagicMock(),
-                to_handle="test",
-                send_meta={},
-            )
-            mock_streaming.assert_not_awaited()
+class TestStreamWithTrackerRouting:
+    """Verify _stream_with_tracker delegates correctly."""
 
     @pytest.mark.asyncio
-    async def test_enabled_calls_streaming(self, channel, monkeypatch):
-        monkeypatch.setenv("FEISHU_STREAMING_ENABLED", "true")
-        with patch.object(
-            FeishuChannel,
-            "_run_process_loop_streaming",
-            new_callable=AsyncMock,
-        ) as mock_streaming:
-            await channel._run_process_loop(
-                request=MagicMock(),
-                to_handle="test",
-                send_meta={},
-            )
-            mock_streaming.assert_awaited_once()
+    async def test_disabled_delegates_to_super(self, channel, monkeypatch):
+        """When streaming disabled, should delegate to super."""
+        monkeypatch.delenv("FEISHU_STREAMING_ENABLED", raising=False)
 
+        async def fake_super(payload):
+            yield "data: super_chunk\n\n"
 
-# ---------------------------------------------------------------------------
-# _run_process_loop_streaming integration
-# ---------------------------------------------------------------------------
-
-
-class TestProcessLoopStreaming:
-    """Integration tests for _run_process_loop_streaming core flow.
-
-    Tests the interaction between the main event loop and the background
-    updater task, state transitions (card creation, updates, closing),
-    and fallback mechanisms on API failure.
-    """
-
-    @pytest.mark.asyncio
-    async def test_card_create_send_close_lifecycle(self, channel, mock_http, monkeypatch):
-        """Full lifecycle: _card_create → _card_send → updater → _card_close."""
-        monkeypatch.setattr(channel, "_streaming_auth_headers",
-                            lambda: {"Authorization": "Bearer t"})
-        monkeypatch.setattr(channel, "_get_receive_for_send",
-                            AsyncMock(return_value=("open_id", "ou_123")))
-        monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
-        monkeypatch.setattr(channel, "_feishu_base_url",
-                            lambda: "https://open.feishu.cn")
-
-        # _card_create → success
-        mock_http.post.return_value = _ok_feishu(data={"card_id": "c1"})
-        # _card_send → success
-        mock_http.put.return_value = _ok_feishu(data={"message_id": "m1"})
-        # _card_update_text + _card_close → success
-        mock_http.patch.return_value = _ok_feishu()
-
-        monkeypatch.setattr(channel, "_card_update_text",
-                            AsyncMock(return_value=True))
-
-        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
-
-        async def fake_process(req):
-            # InProgress event with text
-            ev1 = MagicMock()
-            ev1.object = "response.delta"
-            ev1.status = RunStatus.InProgress
-            yield ev1
-
-            # Completed event
-            ev2 = MagicMock()
-            ev2.object = "message"
-            ev2.status = RunStatus.Completed
-            yield ev2
-
-        # _extract_streaming_text: always return text for InProgress, final for Completed
-        def fake_extract(ev, is_streaming=True):
-            if not is_streaming:
-                return "Hello world"
-            return "Hello world"
-
-        monkeypatch.setattr(channel, "_process", fake_process)
-        monkeypatch.setattr(channel, "_extract_streaming_text", fake_extract)
-
-        # Mock _message_to_content_parts for Completed fallback
-        content_part = MagicMock()
-        content_part.type = "text"
-        content_part.text = "Hello world"
-        monkeypatch.setattr(channel, "_message_to_content_parts",
-                            lambda ev: [content_part])
-        monkeypatch.setattr(channel, "send_content_parts",
-                            AsyncMock(return_value="m_normal"))
-
-        monkeypatch.setattr(channel, "_get_response_error_message",
-                            lambda r: None)
-        monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
-        monkeypatch.setattr(channel, "get_on_reply_sent_args",
-                            lambda r, t: (r, t))
-        monkeypatch.setattr(channel, "_on_reply_sent", None)
-
-        await channel._run_process_loop_streaming(
-            request=MagicMock(),
-            to_handle="test_user",
-            send_meta={},
+        monkeypatch.setattr(
+            type(channel).__bases__[0],
+            "_stream_with_tracker",
+            fake_super,
         )
 
-        # Card should have been created (POST to cardkit)
-        assert mock_http.post.await_count >= 1
+        result = []
+        async for chunk in channel._stream_with_tracker({"meta": {}}):
+            result.append(chunk)
+
+        assert result == ["data: super_chunk\n\n"]
 
     @pytest.mark.asyncio
-    async def test_card_create_falls_back_on_failure(self, channel, mock_http, monkeypatch):
-        """Card creation fails → should fall back to normal send."""
-        monkeypatch.setattr(channel, "_streaming_auth_headers",
-                            lambda: {"Authorization": "Bearer t"})
-        monkeypatch.setattr(channel, "_get_receive_for_send",
-                            AsyncMock(return_value=("open_id", "ou_123")))
+    async def test_enabled_yields_sse_events(self, channel, monkeypatch):
+        """When streaming enabled, should yield SSE events."""
+        monkeypatch.setenv("FEISHU_STREAMING_ENABLED", "true")
+
+        monkeypatch.setattr(
+            channel, "_payload_to_request", lambda p: MagicMock()
+        )
+        monkeypatch.setattr(
+            channel, "get_to_handle_from_request", lambda r: "test_user"
+        )
+        monkeypatch.setattr(channel, "_before_consume_process", AsyncMock())
+        monkeypatch.setattr(
+            channel, "_get_receive_for_send",
+            AsyncMock(return_value=("open_id", "ou_123")),
+        )
+        monkeypatch.setattr(
+            channel, "_streaming_auth_headers",
+            lambda: {"Authorization": "Bearer t"},
+        )
         monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
-        monkeypatch.setattr(channel, "_feishu_base_url",
-                            lambda: "https://open.feishu.cn")
-
-        # Card create fails
-        mock_http.post.return_value = _fail_http(500, "Internal Server Error")
-        mock_http.patch.return_value = _ok_feishu()
-        mock_http.put.return_value = _ok_feishu(data={"message_id": "m1"})
-
-        monkeypatch.setattr(channel, "_card_update_text",
-                            AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            channel, "_feishu_base_url", lambda: "https://open.feishu.cn"
+        )
 
         from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 
-        async def fake_process(req):
-            ev1 = MagicMock()
-            ev1.object = "response.delta"
-            ev1.status = RunStatus.InProgress
-            yield ev1
+        ev1 = MagicMock()
+        ev1.object = "response"
+        ev1.status = None
+        ev1.model_dump_json = lambda: '{"object":"response"}'
 
-            ev2 = MagicMock()
-            ev2.object = "message"
-            ev2.status = RunStatus.Completed
+        ev2 = MagicMock()
+        ev2.object = "message"
+        ev2.status = RunStatus.Completed
+        ev2.model_dump_json = lambda: '{"object":"message"}'
+
+        async def fake_process(req):
+            yield ev1
             yield ev2
 
-        def fake_extract(ev, is_streaming=True):
-            return "Hello"
-
         monkeypatch.setattr(channel, "_process", fake_process)
-        monkeypatch.setattr(channel, "_extract_streaming_text", fake_extract)
 
         content_part = MagicMock()
         content_part.type = "text"
         content_part.text = "Hello"
-        monkeypatch.setattr(channel, "_message_to_content_parts",
-                            lambda ev: [content_part])
-        monkeypatch.setattr(channel, "send_content_parts",
-                            AsyncMock(return_value="m_fallback"))
-
-        monkeypatch.setattr(channel, "_get_response_error_message",
-                            lambda r: None)
+        monkeypatch.setattr(
+            channel, "_message_to_content_parts", lambda ev: [content_part]
+        )
+        monkeypatch.setattr(
+            channel, "send_content_parts", AsyncMock(return_value="m1")
+        )
+        monkeypatch.setattr(
+            channel, "_get_response_error_message", lambda r: None
+        )
         monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
-        monkeypatch.setattr(channel, "get_on_reply_sent_args",
-                            lambda r, t: (r, t))
+        monkeypatch.setattr(
+            channel, "get_on_reply_sent_args", lambda r, t: (r, t)
+        )
         monkeypatch.setattr(channel, "_on_reply_sent", None)
 
-        await channel._run_process_loop_streaming(
-            request=MagicMock(),
-            to_handle="test_user",
-            send_meta={},
+        chunks = []
+        async for chunk in channel._stream_with_tracker({"meta": {}}):
+            chunks.append(chunk)
+
+        assert len(chunks) >= 2
+        assert "data:" in chunks[0]
+
+
+class TestStreamWithTrackerStreaming:
+    """Test streaming card lifecycle via _stream_with_tracker."""
+
+    @pytest.mark.asyncio
+    async def test_card_lifecycle_via_tracker(
+        self, channel, mock_http, monkeypatch
+    ):
+        """Full lifecycle: create card -> stream -> close via tracker."""
+        monkeypatch.setenv("FEISHU_STREAMING_ENABLED", "true")
+
+        monkeypatch.setattr(
+            channel, "_payload_to_request", lambda p: MagicMock()
+        )
+        monkeypatch.setattr(
+            channel, "get_to_handle_from_request", lambda r: "test_user"
+        )
+        monkeypatch.setattr(channel, "_before_consume_process", AsyncMock())
+        monkeypatch.setattr(
+            channel, "_get_receive_for_send",
+            AsyncMock(return_value=("open_id", "ou_123")),
+        )
+        monkeypatch.setattr(
+            channel, "_streaming_auth_headers",
+            lambda: {"Authorization": "Bearer t"},
+        )
+        monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
+        monkeypatch.setattr(
+            channel, "_feishu_base_url", lambda: "https://open.feishu.cn"
         )
 
-        # Should have fallen back to send_content_parts
+        mock_http.post.return_value = _ok_feishu(
+            data={"card_id": "card_test123"}
+        )
+        mock_http.put.return_value = _ok_feishu()
+        mock_http.patch.return_value = _ok_feishu()
+
+        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+
+        async def fake_process(req):
+            ev1 = MagicMock()
+            ev1.object = "message"
+            ev1.status = RunStatus.InProgress
+            ev1.model_dump_json = lambda: '{"partial":true}'
+            yield ev1
+
+            ev2 = MagicMock()
+            ev2.object = "message"
+            ev2.status = RunStatus.Completed
+            ev2.model_dump_json = lambda: '{"done":true}'
+            yield ev2
+
+        monkeypatch.setattr(channel, "_process", fake_process)
+        monkeypatch.setattr(
+            channel,
+            "_extract_streaming_text",
+            lambda ev, is_streaming=True: "Hello world",
+        )
+
+        content_part = MagicMock()
+        content_part.type = "text"
+        content_part.text = "Hello world"
+        monkeypatch.setattr(
+            channel, "_message_to_content_parts", lambda ev: [content_part]
+        )
+        monkeypatch.setattr(
+            channel, "send_content_parts", AsyncMock(return_value="m1")
+        )
+        monkeypatch.setattr(
+            channel, "_get_response_error_message", lambda r: None
+        )
+        monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
+        monkeypatch.setattr(
+            channel, "get_on_reply_sent_args", lambda r, t: (r, t)
+        )
+        monkeypatch.setattr(channel, "_on_reply_sent", None)
+
+        chunks = []
+        async for chunk in channel._stream_with_tracker({"meta": {}}):
+            chunks.append(chunk)
+
+        assert mock_http.post.await_count >= 1
+        assert mock_http.patch.await_count >= 1
+        assert len(chunks) >= 2
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_card_failure_via_tracker(
+        self, channel, mock_http, monkeypatch
+    ):
+        """Card creation fails -> fall back to normal send via tracker."""
+        monkeypatch.setenv("FEISHU_STREAMING_ENABLED", "true")
+
+        monkeypatch.setattr(
+            channel, "_payload_to_request", lambda p: MagicMock()
+        )
+        monkeypatch.setattr(
+            channel, "get_to_handle_from_request", lambda r: "test_user"
+        )
+        monkeypatch.setattr(channel, "_before_consume_process", AsyncMock())
+        monkeypatch.setattr(
+            channel, "_get_receive_for_send",
+            AsyncMock(return_value=("open_id", "ou_123")),
+        )
+        monkeypatch.setattr(
+            channel, "_streaming_auth_headers",
+            lambda: {"Authorization": "Bearer t"},
+        )
+        monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
+        monkeypatch.setattr(
+            channel, "_feishu_base_url", lambda: "https://open.feishu.cn"
+        )
+
+        mock_http.post.return_value = _fail_http(500, "Server Error")
+        mock_http.patch.return_value = _ok_feishu()
+
+        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+
+        async def fake_process(req):
+            ev = MagicMock()
+            ev.object = "message"
+            ev.status = RunStatus.Completed
+            ev.model_dump_json = lambda: '{"done":true}'
+            yield ev
+
+        monkeypatch.setattr(channel, "_process", fake_process)
+
+        content_part = MagicMock()
+        content_part.type = "text"
+        content_part.text = "Hello"
+        monkeypatch.setattr(
+            channel, "_message_to_content_parts", lambda ev: [content_part]
+        )
+        monkeypatch.setattr(
+            channel, "send_content_parts", AsyncMock(return_value="m_fallback")
+        )
+        monkeypatch.setattr(
+            channel, "_get_response_error_message", lambda r: None
+        )
+        monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
+        monkeypatch.setattr(
+            channel, "get_on_reply_sent_args", lambda r, t: (r, t)
+        )
+        monkeypatch.setattr(channel, "_on_reply_sent", None)
+
+        async for _ in channel._stream_with_tracker({"meta": {}}):
+            pass
+
         channel.send_content_parts.assert_awaited()
 

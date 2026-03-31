@@ -1,0 +1,41 @@
+name: Pre-commit Checks
+
+on: [push, pull_request]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+    env:
+      OS: ubuntu-latest
+      PYTHON: "3.10"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Update setuptools and wheel
+        run: |
+          pip install setuptools==68.2.2 wheel==0.41.2
+
+      - name: Install CoPaw with dev dependencies
+        run: |
+          pip install -q -e ".[dev]"
+
+      - name: Install pre-commit hooks
+        run: |
+          pre-commit install
+
+      - name: Run pre-commit
+        run: |
+          pre-commit run --all-files > pre-commit.log 2>&1 || true
+          cat pre-commit.log
+          if grep -q Failed pre-commit.log; then
+            echo -e "\e[41m  [**FAIL**] pre-commit checks failed. Run 'pre-commit run --all-files' locally, commit any auto-fixes, then push again. \e[0m"
+            exit 1
+          fi
+          echo -e "\e[46m  ********************************Passed******************************** \e[0m"
