@@ -335,6 +335,11 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
 
 def _do_migrate_legacy_skills() -> bool:
     """Internal implementation of legacy skills migration."""
+    # Check if migration has already been completed
+    migration_marker = Path(WORKING_DIR) / ".skill_migration_done"
+    if migration_marker.exists():
+        return False
+
     from ..agents.skills_manager import (
         _build_signature,
         _copy_skill_dir,
@@ -487,6 +492,14 @@ def _do_migrate_legacy_skills() -> bool:
         if not customized and not active:
             continue
 
+        logger.debug(
+            "Found legacy skills in %s (%s): %d customized, %d active",
+            source_root,
+            source_kind,
+            len(customized),
+            len(active),
+        )
+
         active_names = workspace_active_names.setdefault(
             target_workspace,
             set(),
@@ -545,12 +558,6 @@ def _do_migrate_legacy_skills() -> bool:
                     copied_workspace_skills += 1
                 active_names.add(skill_name)  # Mark as enabled
             # else: already handled in customized loop
-        logger.debug(
-            "Prepared legacy skill migration from %s to %s (%s)",
-            source_root,
-            target_workspace,
-            source_kind,
-        )
 
     # --- Phase 4: Reconcile workspace manifests ---
     for workspace_dir in workspace_dirs:
@@ -589,6 +596,11 @@ def _do_migrate_legacy_skills() -> bool:
             "Legacy skill migration completed: %d workspace copies",
             copied_workspace_skills,
         )
+
+    # Mark migration as completed to skip on next startup
+    migration_marker = Path(WORKING_DIR) / ".skill_migration_done"
+    migration_marker.touch()
+    logger.debug("Created skill migration marker: %s", migration_marker)
 
     return copied_workspace_skills > 0
 
