@@ -6,11 +6,24 @@ import { useTheme } from "../../../../contexts/ThemeContext";
 import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
 import styles from "../index.module.less";
 
+interface MCPClientUpdate {
+  name?: string;
+  description?: string;
+  command?: string;
+  enabled?: boolean;
+  transport?: "stdio" | "streamable_http" | "sse";
+  url?: string;
+  headers?: Record<string, string>;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+}
+
 interface MCPClientCardProps {
   client: MCPClientInfo;
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
-  onUpdate: (key: string, updates: unknown) => Promise<boolean>;
+  onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
   isHovered: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
