@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_REME_VERSION = "0.3.1.7"
+_EXPECTED_REME_VERSION = "0.3.1.8"
 
 
 class ReMeLightMemoryManager(BaseMemoryManager):
@@ -81,6 +81,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                         f"""
 chromadb import failed, falling back to `local` backend.
 This is often caused by an outdated system SQLite (requires >= 3.35).
+Please upgrade your system SQLite to >= 3.35.
 See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
  | Error: {e}
                         """,
