@@ -5,8 +5,9 @@ import {
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Popover, message } from "antd";
-import { DashboardOutlined } from "@ant-design/icons";
+import { Button, Popover, Tooltip, message } from "antd";
+import { CopyOutlined, DashboardOutlined, FileMarkdownOutlined } from "@ant-design/icons";
+import { SparkAttachmentLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import defaultConfig, { getDefaultConfig } from "../../pages/Chat/OptionsPanel/defaultConfig";
 import ModelSelector from "../../pages/Chat/ModelSelector";
@@ -32,6 +33,8 @@ import {
   formatTokenCount,
   mergeRuntimeStatusSnapshot,
 } from "../../utils/chatRuntimeStatus";
+import { IconButton } from "@agentscope-ai/design";
+import { copyText, extractCopyableText, toDisplayUrl } from "../../pages/Chat/utils";
 
 type SessionContext = {
   session_id?: string;
@@ -99,9 +102,34 @@ type StreamResponseData = {
   status?: string;
   output?: Array<{
     role?: string;
-    content?: Array<{ type?: string; text?: string; refusal?: string }>;
+    content?: Array<{
+      type?: string;
+      text?: string;
+      refusal?: string;
+      [key: string]: unknown;
+    }>;
   }>;
 };
+
+type CopyableResponse = {
+  output?: Array<{
+    role?: string;
+    content?:
+      | string
+      | Array<{
+          type?: string;
+          text?: string;
+          refusal?: string;
+          [key: string]: unknown;
+        }>;
+  }>;
+};
+
+type AttachmentTriggerProps = {
+  disabled?: boolean;
+};
+
+const CHAT_ATTACHMENT_MAX_MB = 10;
 
 function extractUserTextFromInput(input?: ChatInputItem): string {
   if (!input || !Array.isArray(input.content)) return "";
@@ -157,6 +185,51 @@ function extractAssistantText(response: StreamResponseData | null): string {
     })
     .filter(Boolean)
     .join("\n\n")
+    .trim();
+}
+
+function extractRawMarkdownText(response: CopyableResponse): string {
+  const textBlocks: string[] = [];
+
+  for (const message of response.output || []) {
+    if (typeof message.content === "string") {
+      textBlocks.push(message.content);
+      continue;
+    }
+
+    if (!Array.isArray(message.content)) continue;
+
+    for (const part of message.content) {
+      if (part.type === "text" && typeof part.text === "string") {
+        textBlocks.push(part.text);
+        continue;
+      }
+
+      if (part.type === "refusal" && typeof part.refusal === "string") {
+        textBlocks.push(part.refusal);
+        continue;
+      }
+    }
+  }
+
+  return textBlocks.join("\n\n").trim();
+}
+
+function stripMarkdownSyntax(markdown: string): string {
+  if (!markdown) {
+    return "";
+  }
+  return markdown
+    .replace(/```([\s\S]*?)```/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*\]\(([^)]+)\)/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_{1,2}([^_]+)_{1,2}/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -304,6 +377,67 @@ export default function AnywhereChat({
     }, RUNTIME_STATUS_RETRY_DELAY_MS);
     return snapshot;
   }, [clearRuntimeStatusRetry, isChatStreaming, loadRuntimeStatus, runtimeStatusOpen, sessionId]);
+
+  const copyAsText = useCallback(async (response: CopyableResponse) => {
+    const payload = extractCopyableText(response) || stripMarkdownSyntax(extractRawMarkdownText(response));
+    if (!payload) {
+      message.warning(t("common.nothingToCopy", "No copyable content."));
+      return;
+    }
+    try {
+      await copyText(payload);
+      message.success(t("common.copied", "Copied"));
+    } catch {
+      message.error(t("common.copyFailed", "Copy failed"));
+    }
+  }, [t]);
+
+  const copyAsMarkdown = useCallback(async (response: CopyableResponse) => {
+    const raw = extractRawMarkdownText(response);
+    const payload = raw || extractAssistantText(response as StreamResponseData | null);
+    if (!payload) {
+      message.warning(t("common.nothingToCopy", "No copyable content."));
+      return;
+    }
+    try {
+      await copyText(payload);
+      message.success(t("common.copied", "Copied"));
+    } catch {
+      message.error(t("common.copyFailed", "Copy failed"));
+    }
+  }, [t]);
+
+  const handleFileUpload = useCallback(
+    async (options: {
+      file: File;
+      onSuccess: (body: { url?: string; thumbUrl?: string }) => void;
+      onError?: (e: Error) => void;
+      onProgress?: (e: { percent?: number }) => void;
+    }) => {
+      const { file, onSuccess, onError, onProgress } = options;
+      try {
+        const sizeMb = file.size / 1024 / 1024;
+        if (sizeMb >= CHAT_ATTACHMENT_MAX_MB) {
+          message.error(
+            t("chat.attachments.fileSizeExceeded", {
+              limit: CHAT_ATTACHMENT_MAX_MB,
+              size: sizeMb.toFixed(2),
+              defaultValue: `File size exceeds ${CHAT_ATTACHMENT_MAX_MB} MB (current ${sizeMb.toFixed(2)} MB).`,
+            }),
+          );
+          onError?.(new Error(`File size exceeds ${CHAT_ATTACHMENT_MAX_MB}MB`));
+          return;
+        }
+
+        const res = await chatApi.uploadFile(file);
+        onProgress?.({ percent: 100 });
+        onSuccess({ url: chatApi.filePreviewUrl(res.url) });
+      } catch (e) {
+        onError?.(e instanceof Error ? e : new Error(String(e)));
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -648,7 +782,7 @@ export default function AnywhereChat({
 
             const responseData = responseBuilder.handle(
               chunkData as never,
-            ) as StreamResponseData;
+            ) as unknown as StreamResponseData;
 
             if (hasRenderableOutput(responseData)) {
               latestRenderable = JSON.parse(
@@ -730,7 +864,21 @@ export default function AnywhereChat({
       },
       sender: {
         ...senderConfig,
-        attachments: undefined,
+        attachments: {
+          trigger: function (props: AttachmentTriggerProps) {
+            return (
+              <Tooltip title={t("chat.attachments.tooltip", "Attach files")}> 
+                <IconButton
+                  disabled={props?.disabled}
+                  icon={<SparkAttachmentLine />}
+                  bordered={false}
+                />
+              </Tooltip>
+            );
+          },
+          accept: "*/*",
+          customRequest: handleFileUpload,
+        },
         placeholder: inputPlaceholder || senderConfig.placeholder,
       },
       welcome: {
@@ -746,6 +894,7 @@ export default function AnywhereChat({
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
+        replaceMediaURL: (url: string) => toDisplayUrl(url),
         cancel(data: { session_id?: string }) {
           const chatIdForStop = data?.session_id || sessionId;
           if (chatIdForStop) {
@@ -757,12 +906,44 @@ export default function AnywhereChat({
         },
       },
       actions: {
-        list: [],
+        list: [
+          {
+            key: "copy-text",
+            icon: (
+              <span
+                key="copy-text-action-icon"
+                title={`${t("chat.copyText", "复制文本")} · ${t("chat.copyTextHint", "纯文本，不含格式")}`}
+              >
+                <CopyOutlined />
+              </span>
+            ),
+            onClick: ({ data }: { data: CopyableResponse }) => {
+              void copyAsText(data);
+            },
+          },
+          {
+            key: "copy-markdown",
+            icon: (
+              <span
+                key="copy-md-action-icon"
+                title={`${t("chat.copyMarkdown", "复制原始Markdown")} · ${t("chat.copyMarkdownHint", "保留Markdown格式")}`}
+              >
+                <FileMarkdownOutlined />
+              </span>
+            ),
+            onClick: ({ data }: { data: CopyableResponse }) => {
+              void copyAsMarkdown(data);
+            },
+          },
+        ],
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
   }, [
+    copyAsMarkdown,
+    copyAsText,
     customFetch,
+    handleFileUpload,
     inputPlaceholder,
     isDark,
     sessionId,

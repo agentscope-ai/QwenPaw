@@ -133,6 +133,27 @@ function formatRunTimeLabel(raw: string): string {
   return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
 }
 
+function sortChatsForRestore<T extends ChatSpec>(chats: T[]): T[] {
+  const toMillis = (chat: ChatSpec): number => {
+    const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
+    if (Number.isFinite(updatedTs) && updatedTs > 0) {
+      return updatedTs;
+    }
+    const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
+    return Number.isFinite(createdTs) ? createdTs : 0;
+  };
+
+  return [...chats].sort((a, b) => {
+    const aRunning = a.status === "running";
+    const bRunning = b.status === "running";
+    if (aRunning !== bRunning) {
+      // Prefer non-running chats to avoid restoring into empty-running sessions.
+      return aRunning ? 1 : -1;
+    }
+    return toMillis(b) - toMillis(a);
+  });
+}
+
 function buildProjectFlowWorkspaceRelativePath(projectId: string): string {
   return `projects/${projectId}/pipelines`;
 }
@@ -179,6 +200,7 @@ function buildProjectFlowBootstrapPrompt(params: {
   projectName: string;
   selectedTemplateName: string;
   flowMemoryPath: string;
+  workspaceDir: string;
   sourceFiles: string[];
 }): string {
   const seedFiles = selectSeedSourceFiles(params.sourceFiles);
@@ -191,6 +213,8 @@ function buildProjectFlowBootstrapPrompt(params: {
   return [
     `你现在处于项目流程设计模式。项目：${params.projectName}`,
     `当前模板：${params.selectedTemplateName}`,
+    `路径基准（workspace root）：${params.workspaceDir}`,
+    "路径解析规则：以下 source files 与 flow memory path 均为相对路径，必须以 workspace root 为起点拼接后访问。",
     `flow memory path: ${params.flowMemoryPath}`,
     "请基于以下 4 个真实源文件，先给出可执行的 4~6 步流程草案，并为每步明确：inputs / outputs / depends_on / retry_policy。",
     "源文件列表：",
@@ -266,6 +290,74 @@ function buildAttachDraftPrompt(params: {
     modeHint,
     "文件列表：",
     fileList,
+  ].join("\n");
+}
+
+function isSucceededStatus(status: string): boolean {
+  return status === "succeeded" || status === "completed";
+}
+
+function toTimestamp(raw?: string): number {
+  if (!raw) {
+    return 0;
+  }
+  const ts = Date.parse(raw);
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function buildImplementationAdvancePrompt(params: {
+  projectName: string;
+  templateName: string;
+  templateId: string;
+  runCount: number;
+  latestRunStatus: string;
+  gateSummary: string;
+}): string {
+  return [
+    `我们继续以“对话驱动”方式推进项目流程构建。项目：${params.projectName}`,
+    `当前流程：${params.templateName} (${params.templateId})`,
+    `当前运行数：${params.runCount}，最近一次运行状态：${params.latestRunStatus || "none"}`,
+    `验证门槛现状：${params.gateSummary}`,
+    "请你输出下一轮实施计划（不是最终模板），要求：",
+    "1) 仅调整最小必要步骤；",
+    "2) 对每一步明确 inputs / outputs / depends_on / retry_policy；",
+    "3) 说明本轮要验证的假设与成功判定；",
+    "4) 最后给出‘我下一步该点击什么（Run / Attach / 继续对话）’。",
+  ].join("\n");
+}
+
+function buildValidationRoundPrompt(params: {
+  projectName: string;
+  runId: string;
+  templateName: string;
+  gateSummary: string;
+}): string {
+  return [
+    `请基于当前运行做一次“验证导向”复盘。项目：${params.projectName}`,
+    `运行：${params.runId}，流程：${params.templateName}`,
+    `当前门槛状态：${params.gateSummary}`,
+    "请输出：",
+    "1) 通过项 / 失败项（逐步列出）；",
+    "2) 每个失败项的最小修复动作；",
+    "3) 是否建议立即重跑；若是，给出重跑前必须修改的项；",
+    "4) 用一句话判断：是否已到‘可吸收为模板’时机。",
+  ].join("\n");
+}
+
+function buildPromotionDraftPrompt(params: {
+  projectName: string;
+  templateName: string;
+  templateId: string;
+  runId: string;
+}): string {
+  return [
+    `我们准备把已验证成果吸收为模板草案。项目：${params.projectName}`,
+    `目标模板：${params.templateName} (${params.templateId})，依据运行：${params.runId}`,
+    "请输出结构化模板草案（不是解释文），要求：",
+    "1) 仅保留已验证通过的步骤；",
+    "2) 每步必须含 id/name/kind/inputs/outputs/depends_on/input_bindings/retry_policy；",
+    "3) 标注本次吸收剔除的步骤及原因；",
+    "4) 最后给一段简短变更摘要，便于我人工确认后保存。",
   ].join("\n");
 }
 
@@ -358,6 +450,132 @@ export default function ProjectDetailPage() {
     () => projects.find((project) => matchesRouteProject(project, routeProjectId)),
     [projects, routeProjectId],
   );
+
+  const leaveConfirmText = useMemo(
+    () =>
+      t(
+        "projects.leaveConfirm",
+        "你有可能误触跳转。确定要离开当前项目页面吗？",
+      ),
+    [t],
+  );
+
+  const shouldBlockLeave = useMemo(() => {
+    const runInProgress = runDetail?.status === "running" || runDetail?.status === "pending";
+    const designSessionActive = Boolean(designFocusChatId && !selectedRunId);
+
+    return Boolean(
+      selectedAttachPaths.length > 0 ||
+      pendingUploads.length > 0 ||
+      uploadModalOpen ||
+      importModalOpen ||
+      sendingSelectedFiles ||
+      uploadingFiles ||
+      chatStarting ||
+      createRunLoading ||
+      runInProgress ||
+      designSessionActive,
+    );
+  }, [
+    chatStarting,
+    createRunLoading,
+    designFocusChatId,
+    importModalOpen,
+    pendingUploads.length,
+    runDetail?.status,
+    selectedAttachPaths.length,
+    selectedRunId,
+    sendingSelectedFiles,
+    uploadModalOpen,
+    uploadingFiles,
+  ]);
+
+  useEffect(() => {
+    if (!shouldBlockLeave) {
+      return;
+    }
+
+    const rawPushState = window.history.pushState.bind(window.history);
+    const rawReplaceState = window.history.replaceState.bind(window.history);
+    const rawGo = window.history.go.bind(window.history);
+    const rawBack = window.history.back.bind(window.history);
+    const rawForward = window.history.forward.bind(window.history);
+
+    const shouldConfirmLeave = (nextUrl?: string | URL | null): boolean => {
+      if (!nextUrl) {
+        return false;
+      }
+      const current = new URL(window.location.href);
+      const target = new URL(String(nextUrl), window.location.origin);
+      return target.pathname !== current.pathname;
+    };
+
+    const confirmLeave = (): boolean => window.confirm(leaveConfirmText);
+
+    const patchedPushState: History["pushState"] = function patched(
+      data,
+      unused,
+      url,
+    ) {
+      if (shouldConfirmLeave(url) && !confirmLeave()) {
+        return;
+      }
+      rawPushState(data, unused, url);
+    };
+
+    const patchedReplaceState: History["replaceState"] = function patched(
+      data,
+      unused,
+      url,
+    ) {
+      if (shouldConfirmLeave(url) && !confirmLeave()) {
+        return;
+      }
+      rawReplaceState(data, unused, url);
+    };
+
+    const patchedGo: History["go"] = function patched(delta) {
+      if ((delta || 0) !== 0 && !confirmLeave()) {
+        return;
+      }
+      rawGo(delta);
+    };
+
+    const patchedBack: History["back"] = function patched() {
+      if (!confirmLeave()) {
+        return;
+      }
+      rawBack();
+    };
+
+    const patchedForward: History["forward"] = function patched() {
+      if (!confirmLeave()) {
+        return;
+      }
+      rawForward();
+    };
+
+    window.history.pushState = patchedPushState;
+    window.history.replaceState = patchedReplaceState;
+    window.history.go = patchedGo;
+    window.history.back = patchedBack;
+    window.history.forward = patchedForward;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = leaveConfirmText;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.history.pushState = rawPushState;
+      window.history.replaceState = rawReplaceState;
+      window.history.go = rawGo;
+      window.history.back = rawBack;
+      window.history.forward = rawForward;
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [leaveConfirmText, shouldBlockLeave]);
 
   const artifactRecords = useMemo<ProjectPipelineArtifactRecord[]>(() => {
     if (runDetail?.artifact_records?.length) {
@@ -511,6 +729,50 @@ export default function ProjectDetailPage() {
     const pending = runDetail.steps.filter((step) => step.status === "pending").length;
     return { total, completed, running, pending };
   }, [runDetail]);
+
+  const latestRunForSelectedTemplate = useMemo(() => {
+    if (runsForSelectedTemplate.length === 0) {
+      return null;
+    }
+    const sorted = [...runsForSelectedTemplate].sort((a, b) =>
+      toTimestamp(b.updated_at || b.created_at) -
+      toTimestamp(a.updated_at || a.created_at),
+    );
+    return sorted[0] || null;
+  }, [runsForSelectedTemplate]);
+
+  const succeededRunCountForSelectedTemplate = useMemo(
+    () => runsForSelectedTemplate.filter((item) => isSucceededStatus(item.status)).length,
+    [runsForSelectedTemplate],
+  );
+
+  const selectedRunAllStepsSucceeded = useMemo(() => {
+    if (!runDetail || runDetail.steps.length === 0) {
+      return false;
+    }
+    return runDetail.steps.every((step) => isSucceededStatus(step.status));
+  }, [runDetail]);
+
+  const selectedRunEvidenceCoverage = useMemo(() => {
+    if (!runDetail || runDetail.steps.length === 0) {
+      return false;
+    }
+    return runDetail.steps.every((step) => (step.evidence || []).length > 0);
+  }, [runDetail]);
+
+  const hasTwoSucceededRuns = succeededRunCountForSelectedTemplate >= 2;
+  const canPromoteToTemplateDraft =
+    hasTwoSucceededRuns && selectedRunAllStepsSucceeded && selectedRunEvidenceCoverage;
+
+  const verificationGateSummary = useMemo(
+    () =>
+      [
+        `连续成功>=2: ${hasTwoSucceededRuns ? "yes" : "no"}`,
+        `当前运行步骤全成功: ${selectedRunAllStepsSucceeded ? "yes" : "no"}`,
+        `当前运行证据覆盖: ${selectedRunEvidenceCoverage ? "yes" : "no"}`,
+      ].join("; "),
+    [hasTwoSucceededRuns, selectedRunAllStepsSucceeded, selectedRunEvidenceCoverage],
+  );
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
@@ -1020,16 +1282,8 @@ export default function ProjectDetailPage() {
         (chat.session_id || "").startsWith(sessionPrefix),
       );
       if (bySession.length > 0) {
-        const toMillis = (chat: ChatSpec): number => {
-          const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
-          if (Number.isFinite(updatedTs) && updatedTs > 0) {
-            return updatedTs;
-          }
-          const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
-          return Number.isFinite(createdTs) ? createdTs : 0;
-        };
-        bySession.sort((a, b) => toMillis(b) - toMillis(a));
-        return bySession[0]?.id || "";
+        const sorted = sortChatsForRestore(bySession);
+        return sorted[0]?.id || "";
       }
     }
 
@@ -1037,16 +1291,8 @@ export default function ProjectDetailPage() {
       return "";
     }
 
-    const toMillis = (chat: ChatSpec): number => {
-      const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
-      if (Number.isFinite(updatedTs) && updatedTs > 0) {
-        return updatedTs;
-      }
-      const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
-      return Number.isFinite(createdTs) ? createdTs : 0;
-    };
-    matched.sort((a, b) => toMillis(b) - toMillis(a));
-    return matched[0]?.id || "";
+    const sorted = sortChatsForRestore(matched);
+    return sorted[0]?.id || "";
   }, [currentAgent, selectedProject, selectedTemplateId]);
 
   const resolveLatestRunBoundChatId = useCallback(async (): Promise<string> => {
@@ -1078,16 +1324,8 @@ export default function ProjectDetailPage() {
         (chat.session_id || "").startsWith(sessionPrefix),
       );
       if (bySession.length > 0) {
-        const toMillis = (chat: ChatSpec): number => {
-          const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
-          if (Number.isFinite(updatedTs) && updatedTs > 0) {
-            return updatedTs;
-          }
-          const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
-          return Number.isFinite(createdTs) ? createdTs : 0;
-        };
-        bySession.sort((a, b) => toMillis(b) - toMillis(a));
-        return bySession[0]?.id || "";
+        const sorted = sortChatsForRestore(bySession);
+        return sorted[0]?.id || "";
       }
     }
 
@@ -1095,16 +1333,8 @@ export default function ProjectDetailPage() {
       return "";
     }
 
-    const toMillis = (chat: ChatSpec): number => {
-      const updatedTs = chat.updated_at ? Date.parse(chat.updated_at) : 0;
-      if (Number.isFinite(updatedTs) && updatedTs > 0) {
-        return updatedTs;
-      }
-      const createdTs = chat.created_at ? Date.parse(chat.created_at) : 0;
-      return Number.isFinite(createdTs) ? createdTs : 0;
-    };
-    matched.sort((a, b) => toMillis(b) - toMillis(a));
-    return matched[0]?.id || "";
+    const sorted = sortChatsForRestore(matched);
+    return sorted[0]?.id || "";
   }, [selectedProject, selectedRunId]);
 
   const handleEnsureDesignChat = useCallback(async (forceNew = false, allowCreate = true): Promise<string> => {
@@ -1185,6 +1415,7 @@ export default function ProjectDetailPage() {
         projectName: selectedProject.name,
         selectedTemplateName,
         flowMemoryPath,
+        workspaceDir: selectedProject.workspace_dir || "",
         sourceFiles,
       });
       void chatApi.startConsoleChat({
@@ -1697,6 +1928,128 @@ export default function ProjectDetailPage() {
     autoAnalyzeOnAttach,
   ]);
 
+  const handlePrepareImplementationDraft = useCallback(async () => {
+    if (!selectedProject) {
+      return;
+    }
+
+    const chatId = await handleEnsureDesignChat(false, true);
+    if (!chatId) {
+      message.error(t("projects.chat.startFailed", "Failed to start project chat."));
+      return;
+    }
+
+    setAutoAttachRequest({
+      id: `flow-impl-${Date.now()}`,
+      mode: "draft",
+      note: buildImplementationAdvancePrompt({
+        projectName: selectedProject.name,
+        templateName: selectedTemplate?.name || "draft",
+        templateId: selectedTemplateId || "draft",
+        runCount: runsForSelectedTemplate.length,
+        latestRunStatus: latestRunForSelectedTemplate?.status || "",
+        gateSummary: verificationGateSummary,
+      }),
+    });
+    message.success(
+      t(
+        "projects.chat.implDraftReady",
+        "Implementation prompt has been prepared in the design chat input.",
+      ),
+    );
+  }, [
+    handleEnsureDesignChat,
+    latestRunForSelectedTemplate?.status,
+    runsForSelectedTemplate.length,
+    selectedProject,
+    selectedTemplate?.name,
+    selectedTemplateId,
+    t,
+    verificationGateSummary,
+  ]);
+
+  const handlePrepareValidationDraft = useCallback(async () => {
+    if (!selectedProject) {
+      return;
+    }
+    if (!selectedRunId) {
+      message.warning(
+        t(
+          "projects.pipeline.validationNeedRun",
+          "Please start or select one run before preparing a validation prompt.",
+        ),
+      );
+      return;
+    }
+
+    const chatId = await handleEnsureRunChat(false);
+    if (!chatId) {
+      message.error(t("projects.chat.startFailed", "Failed to start project chat."));
+      return;
+    }
+
+    setAutoAttachRequest({
+      id: `flow-validate-${Date.now()}`,
+      mode: "draft",
+      note: buildValidationRoundPrompt({
+        projectName: selectedProject.name,
+        runId: selectedRunId,
+        templateName: selectedTemplate?.name || selectedTemplateId || "draft",
+        gateSummary: verificationGateSummary,
+      }),
+    });
+    message.success(
+      t(
+        "projects.chat.validationDraftReady",
+        "Validation prompt has been prepared in the run chat input.",
+      ),
+    );
+  }, [
+    handleEnsureRunChat,
+    selectedProject,
+    selectedRunId,
+    selectedTemplate?.name,
+    selectedTemplateId,
+    t,
+    verificationGateSummary,
+  ]);
+
+  const handlePreparePromotionDraft = useCallback(async () => {
+    if (!selectedProject || !selectedTemplateId || !selectedRunId) {
+      return;
+    }
+
+    const chatId = await handleEnsureDesignChat(false, true);
+    if (!chatId) {
+      message.error(t("projects.chat.startFailed", "Failed to start project chat."));
+      return;
+    }
+
+    setAutoAttachRequest({
+      id: `flow-promote-${Date.now()}`,
+      mode: "draft",
+      note: buildPromotionDraftPrompt({
+        projectName: selectedProject.name,
+        templateName: selectedTemplate?.name || selectedTemplateId,
+        templateId: selectedTemplateId,
+        runId: selectedRunId,
+      }),
+    });
+    message.success(
+      t(
+        "projects.chat.promotionDraftReady",
+        "Promotion draft prompt has been prepared in the design chat input.",
+      ),
+    );
+  }, [
+    handleEnsureDesignChat,
+    selectedProject,
+    selectedRunId,
+    selectedTemplate?.name,
+    selectedTemplateId,
+    t,
+  ]);
+
   return (
     <div className={styles.agentsPage}>
       <div className={styles.header}>
@@ -1826,6 +2179,31 @@ export default function ProjectDetailPage() {
                   >
                     {t("projects.pipeline.run", "Run")}
                   </Button>
+                </div>
+
+                <div className={styles.progressCoach}>
+                  <div className={styles.progressCoachMeta}>
+                    <div className={styles.subSectionTitle}>
+                      {t("projects.pipeline.dialogueDriven", "Dialogue-Driven Build")}
+                    </div>
+                    <div className={styles.itemMeta}>{verificationGateSummary}</div>
+                  </div>
+                  <div className={styles.progressCoachActions}>
+                    <Button size="small" onClick={() => void handlePrepareImplementationDraft()}>
+                      {t("projects.pipeline.nextImplementation", "Prepare next implementation prompt")}
+                    </Button>
+                    <Button size="small" onClick={() => void handlePrepareValidationDraft()}>
+                      {t("projects.pipeline.nextValidation", "Prepare validation prompt")}
+                    </Button>
+                    <Button
+                      size="small"
+                      type="primary"
+                      disabled={!canPromoteToTemplateDraft || !selectedTemplateId || !selectedRunId}
+                      onClick={() => void handlePreparePromotionDraft()}
+                    >
+                      {t("projects.pipeline.promoteDraft", "Prepare promotion-to-template prompt")}
+                    </Button>
+                  </div>
                 </div>
 
                 {pipelineLoading ? (
