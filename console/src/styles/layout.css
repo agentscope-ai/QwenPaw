@@ -7,6 +7,10 @@ body {
   background: #f9f8f4;
 }
 
+.copaw-layout {
+  background: #f9f8f4;
+}
+
 /* ─── Dark mode global token overrides ─────────────────────────────────────── */
 html.dark-mode {
   color-scheme: dark;
