@@ -61,7 +61,7 @@ export function RemoteProviderCard({
 
   let isConfigured = false;
 
-  if (provider.is_local) {
+  if (provider.id === "copaw-local") {
     isConfigured = true;
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
@@ -148,7 +148,7 @@ export function RemoteProviderCard({
       {/* Info Section */}
       <div className={styles.cardInfo}>
         <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Bot URL:</span>
+          <span className={styles.infoLabel}>Base URL:</span>
           {provider.base_url ? (
             <span className={styles.infoValue} title={provider.base_url}>
               {provider.base_url}

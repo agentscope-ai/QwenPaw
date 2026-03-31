@@ -26,11 +26,17 @@ export function tryParseScanError(
   return null;
 }
 
-function renderFindings(findings: BlockedSkillFinding[]) {
+/** Cap long finding lists so modals stay readable; full history remains in alerts. */
+const MAX_FINDINGS_IN_MODAL = 5;
+
+function renderFindings(findings: BlockedSkillFinding[], t: TFunction) {
+  const total = findings.length;
+  const shown = findings.slice(0, MAX_FINDINGS_IN_MODAL);
+  const moreCount = total - shown.length;
   return React.createElement(
     "div",
     { style: { maxHeight: 300, overflow: "auto", marginTop: 8 } },
-    findings.map((f, i) =>
+    shown.map((f, i) =>
       React.createElement(
         "div",
         {
@@ -61,6 +67,20 @@ function renderFindings(findings: BlockedSkillFinding[]) {
           ),
       ),
     ),
+    moreCount > 0 &&
+      React.createElement(
+        "div",
+        {
+          key: "more",
+          style: {
+            fontSize: 12,
+            color: "#888",
+            marginTop: 8,
+            padding: "8px 12px",
+          },
+        },
+        t("security.skillScanner.scanError.moreFindings", { count: moreCount }),
+      ),
   );
 }
 
@@ -80,7 +100,7 @@ export function showScanErrorModal(
         null,
         t("security.skillScanner.scanError.description"),
       ),
-      renderFindings(findings),
+      renderFindings(findings, t),
     ),
   });
 }
@@ -100,7 +120,7 @@ export function showScanWarnModal(
         null,
         t("security.skillScanner.scanError.warnDescription"),
       ),
-      renderFindings(findings),
+      renderFindings(findings, t),
     ),
   });
 }

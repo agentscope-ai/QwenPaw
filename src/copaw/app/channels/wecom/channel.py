@@ -41,7 +41,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from .utils import format_markdown_tables
+from .utils import compress_image_for_wecom, format_markdown_tables
 from ..utils import split_text
 
 logger = logging.getLogger(__name__)
@@ -635,9 +635,15 @@ class WecomChannel(BaseChannel):
         if not p.is_file():
             logger.warning("wecom upload: file not found: %s", local[:80])
             return None
-        data = p.read_bytes()
+
+        # Compress image if needed (WeCom has 2MB limit)
+        if media_type == "image":
+            data, filename = compress_image_for_wecom(local)
+        else:
+            data = p.read_bytes()
+            filename = p.name
+
         total_size = len(data)
-        filename = p.name
         md5 = hashlib.md5(data).hexdigest()
 
         # Split into chunks

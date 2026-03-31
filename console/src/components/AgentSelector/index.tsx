@@ -1,5 +1,5 @@
 import { Select, message, Tag, Tooltip } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Bot, CheckCircle, EyeOff, ChevronRight } from "lucide-react";
 import { SparkDownLine, SparkUpLine } from "@agentscope-ai/icons";
 import { useAgentStore } from "../../stores/agentStore";
@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useNavigate } from "react-router-dom";
 import styles from "./index.module.less";
+import type { AgentSummary } from "../../api/types/agents";
 
 interface AgentSelectorProps {
   collapsed?: boolean;
@@ -23,16 +24,17 @@ export default function AgentSelector({
   const [loading, setLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  useEffect(() => {
-    loadAgents();
-  }, []);
-
-  const loadAgents = async () => {
+  const loadAgents = useCallback(async () => {
     try {
       setLoading(true);
       const data = await agentsApi.listAgents();
+      const agentList: AgentSummary[] = Array.isArray(data)
+        ? data
+        : Array.isArray((data as { agents?: AgentSummary[] }).agents)
+          ? (data as { agents: AgentSummary[] }).agents
+          : [];
       // Sort agents: enabled first, disabled last
-      const sortedAgents = [...data.agents].sort((a, b) => {
+      const sortedAgents = [...agentList].sort((a, b) => {
         if (a.enabled === b.enabled) return 0;
         return a.enabled ? -1 : 1;
       });
@@ -43,7 +45,11 @@ export default function AgentSelector({
     } finally {
       setLoading(false);
     }
-  };
+  }, [t, setAgents]);
+
+  useEffect(() => {
+    loadAgents();
+  }, [loadAgents]);
 
   const handleChange = (value: string) => {
     const targetAgent = agents?.find((a) => a.id === value);

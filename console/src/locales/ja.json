@@ -506,7 +506,8 @@
     "runtimeDisconnected": "未接続",
     "deleteConfirm": "このMCPクライアントを削除してもよろしいですか？",
     "deleteSuccess": "MCPクライアントを削除しました",
-    "deleteError": "MCPクライアントの削除に失敗しました"
+    "deleteError": "MCPクライアントの削除に失敗しました",
+    "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。"
   },
   "heartbeat": {
     "title": "ハートビート",
@@ -1413,7 +1414,8 @@
         "title": "セキュリティ問題が検出されました",
         "description": "以下のセキュリティ問題が見つかりました：",
         "warnDescription": "セキュリティ問題が見つかりましたが、スキルは引き続き有効です（警告モード）：",
-        "goToWhitelist": "ホワイトリストへ"
+        "goToWhitelist": "ホワイトリストへ",
+        "moreFindings": "他に {{count}} 件は表示していません（一覧は 設定 → セキュリティ → スキルスキャナ を参照）。"
       }
     }
   },
