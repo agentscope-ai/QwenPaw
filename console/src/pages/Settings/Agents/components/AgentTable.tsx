@@ -1,4 +1,4 @@
-import { Table, Button, Space, Popconfirm, Tooltip } from "antd";
+import { Table, Button, Space, Popconfirm, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import {
@@ -14,8 +14,10 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
+import { EyeOff, Eye } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
 import styles from "../index.module.less";
 
@@ -25,6 +27,7 @@ interface AgentTableProps {
   reordering: boolean;
   onEdit: (agent: AgentSummary) => void;
   onDelete: (agentId: string) => void;
+  onToggle: (agentId: string, currentEnabled: boolean) => void;
   onReorder: (activeId: string, overId: string) => void;
 }
 
@@ -34,6 +37,7 @@ export function AgentTable({
   reordering,
   onEdit,
   onDelete,
+  onToggle,
   onReorder,
 }: AgentTableProps) {
   const { t } = useTranslation();
@@ -46,9 +50,12 @@ export function AgentTable({
     }),
   );
 
-  // Inline style for disabled buttons — CSS cannot reliably override AntD's disabled styles
   const disabledStyle: React.CSSProperties = isDark
     ? { color: "rgba(255,255,255,0.35)", opacity: 1 }
+    : {};
+
+  const iconStyle: React.CSSProperties = isDark
+    ? { color: "rgba(255,255,255,0.85)" }
     : {};
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -78,10 +85,19 @@ export function AgentTable({
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      render: (text: string) => (
+      width: 300,
+      render: (_text: string, record: AgentSummary) => (
         <Space>
-          <RobotOutlined style={{ fontSize: 16 }} />
-          <span>{text}</span>
+          <RobotOutlined
+            style={{
+              fontSize: 16,
+              opacity: record.enabled ? 1 : 0.5,
+            }}
+          />
+          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
+            {getAgentDisplayName(record, t)}
+          </span>
+          {!record.enabled && <Tag color="error">{t("agent.disabled")}</Tag>}
         </Space>
       ),
     },
@@ -105,24 +121,50 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
-      width: 300,
       render: (_: any, record: AgentSummary) => (
         <Space>
           <Button
-            type="link"
-            size="small"
+            type="text"
+            size="middle"
             icon={<EditOutlined />}
             onClick={() => onEdit(record)}
             disabled={record.id === "default"}
-            style={record.id === "default" ? disabledStyle : undefined}
+            style={record.id === "default" ? disabledStyle : iconStyle}
             title={
               record.id === "default"
                 ? t("agent.defaultNotEditable")
                 : undefined
             }
+          />
+          <Popconfirm
+            title={
+              record.enabled
+                ? t("agent.disableConfirm")
+                : t("agent.enableConfirm")
+            }
+            description={
+              record.enabled
+                ? t("agent.disableConfirmDesc")
+                : t("agent.enableConfirmDesc")
+            }
+            onConfirm={() => onToggle(record.id, record.enabled)}
+            disabled={record.id === "default"}
+            okText={t("common.confirm")}
+            cancelText={t("common.cancel")}
           >
-            {t("common.edit")}
-          </Button>
+            <Button
+              type="text"
+              size="middle"
+              icon={record.enabled ? <EyeOff size={14} /> : <Eye size={14} />}
+              disabled={record.id === "default"}
+              style={record.id === "default" ? disabledStyle : iconStyle}
+              title={
+                record.id === "default"
+                  ? t("agent.defaultNotDisablable")
+                  : undefined
+              }
+            />
+          </Popconfirm>
           <Popconfirm
             title={t("agent.deleteConfirm")}
             description={t("agent.deleteConfirmDesc")}
@@ -133,7 +175,7 @@ export function AgentTable({
           >
             <Button
               type="link"
-              size="small"
+              size="middle"
               danger
               icon={<DeleteOutlined />}
               disabled={record.id === "default"}
@@ -143,9 +185,7 @@ export function AgentTable({
                   ? t("agent.defaultNotDeletable")
                   : undefined
               }
-            >
-              {t("common.delete")}
-            </Button>
+            />
           </Popconfirm>
         </Space>
       ),

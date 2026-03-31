@@ -352,6 +352,8 @@ class TelegramChannel(BaseChannel):
             return self._http_proxy
 
         builder = Application.builder().token(self._bot_token)
+        builder = builder.get_updates_read_timeout(20)
+        builder = builder.get_updates_connect_timeout(10)
         proxy = proxy_url()
         if proxy:
             builder = builder.proxy(proxy).get_updates_proxy(proxy)

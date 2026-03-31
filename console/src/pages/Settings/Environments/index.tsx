@@ -1,17 +1,12 @@
 import { useState, useCallback, useMemo } from "react";
-import { Button, Modal, message } from "@agentscope-ai/design";
+import { Button, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 
 import api from "../../../api";
 import { useEnvVars } from "./useEnvVars";
-import {
-  PageHeader,
-  EmptyState,
-  AddButton,
-  Toolbar,
-  EnvRow,
-  type Row,
-} from "./components";
+import { EmptyState, AddButton, Toolbar, EnvRow, type Row } from "./components";
+import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 /* ------------------------------------------------------------------ */
@@ -34,6 +29,7 @@ function shiftIndices(prev: Set<number>, removedIdx: number): Set<number> {
 
 function EnvironmentsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { envVars, loading, error, fetchAll } = useEnvVars();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -265,7 +261,10 @@ function EnvironmentsPage() {
   return (
     <div className={styles.environmentsPage}>
       {/* ---- Page header ---- */}
-      <PageHeader />
+      <PageHeader
+        parent={t("environments.parent")}
+        current={t("environments.environments")}
+      />
 
       {/* ---- Content ---- */}
       {loading ? (

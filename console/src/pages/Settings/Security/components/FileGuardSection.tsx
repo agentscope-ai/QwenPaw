@@ -4,11 +4,11 @@ import {
   Button,
   Input,
   Table,
-  message,
   Popconfirm,
   Tag,
   Switch,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Space } from "antd";
 import {
   PlusCircleOutlined,
@@ -20,13 +20,22 @@ import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import styles from "../index.module.less";
 
-export function FileGuardSection() {
+interface FileGuardSectionProps {
+  onSave?: (handlers: {
+    save: () => Promise<void>;
+    reset: () => void;
+    saving: boolean;
+  }) => void;
+}
+
+export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(true);
   const [paths, setPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newPath, setNewPath] = useState("");
+  const { message } = useAppMessage();
 
   const fetchData = useCallback(async () => {
     try {
@@ -90,6 +99,10 @@ export function FileGuardSection() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    onSave?.({ save: handleSave, reset: handleReset, saving });
+  }, [handleSave, handleReset, saving, onSave]);
+
   const columns = [
     {
       title: t("security.fileGuard.path"),
@@ -120,7 +133,7 @@ export function FileGuardSection() {
         <Popconfirm
           title={t("security.fileGuard.removeConfirm")}
           onConfirm={() => handleRemove(record.path)}
-          okText={t("common.ok")}
+          okText={t("common.delete")}
           cancelText={t("common.cancel")}
         >
           <Button type="text" danger icon={<DeleteOutlined />} size="small" />
@@ -180,24 +193,6 @@ export function FileGuardSection() {
           }}
         />
       </Card>
-
-      <div className={styles.footerButtons}>
-        <Button
-          onClick={handleReset}
-          disabled={saving}
-          style={{ marginRight: 8 }}
-        >
-          {t("common.reset")}
-        </Button>
-        <Button
-          type="primary"
-          onClick={handleSave}
-          loading={saving}
-          disabled={!enabled}
-        >
-          {t("common.save")}
-        </Button>
-      </div>
     </>
   );
 }

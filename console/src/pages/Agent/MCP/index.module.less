@@ -1,21 +1,72 @@
+.mcpPage {
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  margin-bottom: 0;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
 .mcpCard {
-  border-radius: 12px;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: var(--border-radius, 8px);
+  background: var(--color-bg-base, #ffffff);
+  border: 1px solid var(--color-border-secondary, #eae8e7);
+  box-sizing: border-box;
   transition: all 0.2s ease-in-out;
-  cursor: pointer;
-  padding: 16px;
+
+  :global(.copaw-card-body) {
+    padding: 0 !important;
+  }
 
   &.enabledCard {
-    border: 2px solid #615ced !important;
-    box-shadow: rgba(97, 92, 237, 0.2) 0px 4px 12px !important;
+    .statusDot {
+      background-color: rgba(20, 184, 166, 1);
+    }
+
+    .statusText {
+      color: rgba(20, 184, 166, 1);
+    }
   }
 
   &.hover {
-    border: 1px solid #615ced;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+    border-color: var(--color-border, #d9d9d9);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
 
   &.normal {
-    border: 1px solid rgba(0, 0, 0, 0.04);
+    border-color: var(--color-border-secondary, #eae8e7);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   }
 }
@@ -23,16 +74,17 @@
 .cardHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+  align-items: flex-start;
 }
 
 .mcpTitle {
   margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  color: #1a1a1a;
-  max-width: 180px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(20, 20, 19, 0.88);
+  font-family: Inter;
+  line-height: 24px;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -43,32 +95,26 @@
   padding: 2px 6px;
   border-radius: 3px;
   font-weight: 500;
+  flex-shrink: 0;
+  margin-left: 8px;
 
   &.local {
-    background-color: #e6f7ff;
-    color: #1890ff;
-    border: 1px solid #91d5ff;
+    background-color: rgba(239, 240, 243, 0.8);
+    color: #8e8c99;
   }
 
   &.remote {
-    background-color: #fff7e6;
-    color: #fa8c16;
-    border: 1px solid #ffd591;
+    background-color: rgba(255, 247, 230, 0.8);
+    color: rgba(255, 255, 255, 0.85);
   }
 }
 
-.fileIcon {
-  font-size: 20px;
-  display: flex;
-  align-items: center;
-}
-
-.description {
-  font-size: 14px;
+.mcpDescription {
+  margin: 6px 0 16px 0;
   color: #666;
+  font-size: 13px;
   line-height: 1.6;
-  margin-bottom: 32px;
-  min-height: 64px;
+  min-height: 40px;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -78,28 +124,44 @@
 
 .cardFooter {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  gap: 8px;
-  padding-top: 16px;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
   margin-top: auto;
   border-top: 1px solid #f0f0f0;
 }
 
-.actionButton {
-  padding: 0;
-  font-size: 12px;
+.toggleButton {
+  flex: 1;
+  padding: 8px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #666;
+  background: transparent;
+  border: 1px solid #d9d9d9;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover {
+    color: #333;
+    border-color: #bfbfbf;
+  }
 }
 
 .deleteButton {
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: 1;
+  padding: 8px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #ff4d4f;
+  background: transparent;
+  border: 1px solid #d9d9d9;
+  cursor: pointer;
+  transition: all 0.18s ease;
 
   &:hover {
-    background-color: #ff4d4f;
-    color: #fff;
+    color: #ff4d4f;
     border-color: #ff4d4f;
   }
 }
@@ -107,33 +169,26 @@
 .statusContainer {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  font-size: 11px;
+  flex-shrink: 0;
 }
 
 .statusDot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-
-  &.enabled {
-    background-color: #52c41a;
-  }
-
-  &.disabled {
-    background-color: #d9d9d9;
-  }
+  flex-shrink: 0;
+  background-color: #d9d9d9;
 }
 
 .statusText {
+  font-family: Lato;
   font-size: 12px;
-
-  &.enabled {
-    color: #52c41a;
-  }
-
-  &.disabled {
-    color: #999;
-  }
+  font-weight: normal;
+  line-height: 19px;
+  letter-spacing: normal;
+  color: rgba(20, 20, 19, 0.45);
 }
 
 .editJsonTextArea {
@@ -159,4 +214,116 @@
   border-radius: 8px;
   max-height: 500px;
   overflow: auto;
+}
+
+.mcpGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  padding: 16px;
+}
+
+.loading {
+  text-align: center;
+  padding: 60px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.modalFooter {
+  text-align: right;
+}
+
+.importHint {
+  margin-bottom: 12px;
+}
+
+.importHintTitle {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.65);
+}
+
+.importHintList {
+  margin: 8px 0;
+  padding: 0 0 0 20px;
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.jsonTextArea {
+  font-family:
+    Monaco,
+    Courier New,
+    monospace;
+  font-size: 13px;
+}
+
+.maskedFieldHint {
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  background-color: rgba(255, 165, 0, 0.08);
+  border-radius: 6px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .mcpTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .statusText {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .statusDot {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .mcpCard {
+    background: #2d2d2d;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .mcpDescription {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .cardFooter {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .toggleButton {
+    color: rgba(255, 255, 255, 0.65);
+    border-color: rgba(255, 255, 255, 0.2);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.85);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+  }
+
+  .deleteButton {
+    color: #ff7875;
+    border-color: rgba(255, 255, 255, 0.2);
+
+    &:hover {
+      color: #ff4d4f;
+      border-color: #ff4d4f;
+    }
+  }
+
+  .maskedFieldHint {
+    background-color: rgba(255, 165, 0, 0.12);
+    color: rgba(255, 255, 255, 0.65);
+  }
 }

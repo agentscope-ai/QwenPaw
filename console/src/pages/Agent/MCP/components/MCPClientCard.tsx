@@ -1,17 +1,29 @@
 import { Card, Button, Modal, Tooltip, Input } from "@agentscope-ai/design";
-import { DeleteOutlined } from "@ant-design/icons";
-import { Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
 import styles from "../index.module.less";
+
+interface MCPClientUpdate {
+  name?: string;
+  description?: string;
+  command?: string;
+  enabled?: boolean;
+  transport?: "stdio" | "streamable_http" | "sse";
+  url?: string;
+  headers?: Record<string, string>;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+}
 
 interface MCPClientCardProps {
   client: MCPClientInfo;
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
-  onUpdate: (key: string, updates: any) => Promise<boolean>;
+  onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
   isHovered: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -50,7 +62,7 @@ export function MCPClientCard({
 
   const confirmDelete = () => {
     setDeleteModalOpen(false);
-    onDelete(client, null as any);
+    onDelete(client, null as unknown as React.MouseEvent);
   };
 
   const handleCardClick = () => {
@@ -63,7 +75,7 @@ export function MCPClientCard({
   const handleSaveJson = async () => {
     try {
       const parsed = JSON.parse(editedJson);
-      const { key, ...updates } = parsed;
+      const { key: _key, ...updates } = parsed;
 
       // Send all updates directly to backend, let backend handle env masking check
       const success = await onUpdate(client.key, updates);
@@ -71,7 +83,7 @@ export function MCPClientCard({
         setJsonModalOpen(false);
         setIsEditing(false);
       }
-    } catch (error) {
+    } catch {
       alert("Invalid JSON format");
     }
   };
@@ -90,60 +102,49 @@ export function MCPClientCard({
         } ${isHovered ? styles.hover : styles.normal}`}
       >
         <div className={styles.cardHeader}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className={styles.fileIcon}>
-              <Server style={{ color: "#1890ff", fontSize: 20 }} />
-            </span>
-            <Tooltip title={client.name}>
-              <h3 className={styles.mcpTitle}>{client.name}</h3>
-            </Tooltip>
-            <span
-              className={`${styles.typeBadge} ${
-                isRemote ? styles.remote : styles.local
-              }`}
-            >
-              {clientType}
-            </span>
-          </div>
+          <Tooltip title={client.name}>
+            <h3 className={styles.mcpTitle}>
+              <span>{client.name}</span>
+              <span
+                className={`${styles.typeBadge} ${
+                  isRemote ? styles.remote : styles.local
+                }`}
+              >
+                {clientType}
+              </span>
+            </h3>
+          </Tooltip>
           <div className={styles.statusContainer}>
-            <span
-              className={`${styles.statusDot} ${
-                client.enabled ? styles.enabled : styles.disabled
-              }`}
-            />
-            <span
-              className={`${styles.statusText} ${
-                client.enabled ? styles.enabled : styles.disabled
-              }`}
-            >
+            <span className={styles.statusDot} />
+            <span className={styles.statusText}>
               {client.enabled ? t("common.enabled") : t("common.disabled")}
             </span>
           </div>
         </div>
 
-        <div className={styles.description}>
-          {client.description || "\u00A0"}
-        </div>
+        <p className={styles.mcpDescription}>{client.description || "-"}</p>
 
         <div className={styles.cardFooter}>
           <Button
-            type="link"
-            size="small"
-            onClick={handleToggleClick}
-            className={styles.actionButton}
+            className={styles.toggleButton}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleClick(e);
+            }}
+            icon={client.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
           >
             {client.enabled ? t("common.disable") : t("common.enable")}
           </Button>
-
           <Button
-            type="text"
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
             className={styles.deleteButton}
-            onClick={handleDeleteClick}
-            disabled={client.enabled}
-          />
+            danger
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteClick(e);
+            }}
+          >
+            {t("common.delete")}
+          </Button>
         </div>
       </Card>
 
@@ -184,6 +185,7 @@ export function MCPClientCard({
         }
         width={700}
       >
+        <div className={styles.maskedFieldHint}>{t("mcp.maskedFieldHint")}</div>
         {isEditing ? (
           <Input.TextArea
             value={editedJson}

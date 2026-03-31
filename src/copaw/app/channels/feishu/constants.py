@@ -18,3 +18,11 @@ FEISHU_SESSION_ID_SUFFIX_LEN = 8
 
 # Timeout for Contact API when fetching user name by open_id (seconds)
 FEISHU_USER_NAME_FETCH_TIMEOUT = 2
+
+# Stale message threshold: drop Feishu retry deliveries older than this (ms)
+FEISHU_STALE_MSG_THRESHOLD_MS = 20 * 1000
+
+# WebSocket reconnection backoff settings
+FEISHU_WS_INITIAL_RETRY_DELAY = 1.0  # seconds
+FEISHU_WS_MAX_RETRY_DELAY = 60.0  # seconds
+FEISHU_WS_BACKOFF_FACTOR = 2

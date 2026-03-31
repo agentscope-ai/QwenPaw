@@ -3,11 +3,18 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from copaw.config.config import (
     AgentProfileConfig,
+    AgentsRunningConfig,
     load_agent_config,
     save_agent_config,
+)
+from copaw.constant import (
+    LLM_BACKOFF_BASE,
+    LLM_BACKOFF_CAP,
+    LLM_MAX_RETRIES,
 )
 from copaw.providers.models import ModelSlotConfig
 
@@ -23,11 +30,9 @@ def mock_agent_workspace(tmp_path, monkeypatch):
     workspace_dir = tmp_path / "workspaces" / "test_agent"
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
-    # Patch config path FIRST before any config operations
-    monkeypatch.setenv(
-        "COPAW_CONFIG_PATH",
-        str(tmp_path / "config.json"),
-    )
+    # Patch WORKING_DIR so tests never touch the real ~/.copaw/
+    monkeypatch.setattr("copaw.config.utils.WORKING_DIR", tmp_path)
+    monkeypatch.setattr("copaw.config.config.WORKING_DIR", tmp_path)
 
     # Create root config with this agent
     root_config = Config(
@@ -131,11 +136,9 @@ def test_agent_model_config_can_be_cleared(
 
 def test_different_agents_have_independent_models(tmp_path, monkeypatch):
     """Test that different agents can have different model configs."""
-    # Patch config path
-    monkeypatch.setenv(
-        "COPAW_CONFIG_PATH",
-        str(tmp_path / "config.json"),
-    )
+    # Patch WORKING_DIR so tests never touch the real ~/.copaw/
+    monkeypatch.setattr("copaw.config.utils.WORKING_DIR", tmp_path)
+    monkeypatch.setattr("copaw.config.config.WORKING_DIR", tmp_path)
 
     # Create two agents
     import json
@@ -248,3 +251,45 @@ def test_model_config_included_when_set(
     assert "active_model" in raw_data
     assert raw_data["active_model"]["provider_id"] == "openai"
     assert raw_data["active_model"]["model"] == "gpt-4-turbo"
+
+
+def test_agent_running_config_has_llm_retry_defaults(
+    mock_agent_workspace,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Test that agent running config exposes LLM retry defaults."""
+    agent_config = load_agent_config("test_agent")
+
+    assert agent_config.running.llm_retry_enabled is (LLM_MAX_RETRIES > 0)
+    assert agent_config.running.llm_max_retries == max(LLM_MAX_RETRIES, 1)
+    assert agent_config.running.llm_backoff_base == LLM_BACKOFF_BASE
+    assert agent_config.running.llm_backoff_cap == LLM_BACKOFF_CAP
+
+
+def test_agent_running_config_llm_retry_persists(
+    mock_agent_workspace,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Test that LLM retry settings persist in agent.json."""
+    agent_config = load_agent_config("test_agent")
+    agent_config.running = AgentsRunningConfig(
+        llm_retry_enabled=False,
+        llm_max_retries=5,
+        llm_backoff_base=0.5,
+        llm_backoff_cap=8.0,
+    )
+    save_agent_config("test_agent", agent_config)
+
+    reloaded_config = load_agent_config("test_agent")
+
+    assert reloaded_config.running.llm_retry_enabled is False
+    assert reloaded_config.running.llm_max_retries == 5
+    assert reloaded_config.running.llm_backoff_base == 0.5
+    assert reloaded_config.running.llm_backoff_cap == 8.0
+
+
+def test_agent_running_config_rejects_backoff_cap_below_base():
+    """Test that backoff cap cannot be lower than backoff base."""
+    with pytest.raises(ValidationError):
+        AgentsRunningConfig(
+            llm_backoff_base=2.0,
+            llm_backoff_cap=1.0,
+        )

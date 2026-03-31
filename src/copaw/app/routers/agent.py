@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 """Agent file management API."""
 
-import asyncio
-import logging
-
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ..utils import schedule_agent_reload
 from ...config import (
     load_config,
     save_config,
@@ -14,7 +12,8 @@ from ...config import (
 )
 from ...config.config import load_agent_config, save_agent_config
 from ...agents.memory.agent_md_manager import AgentMdManager
-from ...agents.utils import copy_md_files
+from ...agents.utils import copy_builtin_qa_md_files, copy_md_files
+from ...constant import BUILTIN_QA_AGENT_ID
 from ..agent_context import get_agent_for_request
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -236,14 +235,22 @@ async def put_agent_language(
 
     copied_files: list[str] = []
     if old_language != language:
-        # Copy MD files to agent's workspace directory
-        copied_files = (
-            copy_md_files(
+        # Builtin QA: persona from md_files/qa/; MEMORY/HEARTBEAT from lang
+        # pack; never BOOTSTRAP (remove if wrongly copied earlier).
+        if agent_id == BUILTIN_QA_AGENT_ID:
+            copied_files = copy_builtin_qa_md_files(
                 language,
-                workspace_dir=workspace.workspace_dir,
+                workspace.workspace_dir,
+                only_if_missing=False,
             )
-            or []
-        )
+        else:
+            copied_files = (
+                copy_md_files(
+                    language,
+                    workspace_dir=workspace.workspace_dir,
+                )
+                or []
+            )
 
     return {
         "language": language,
@@ -452,20 +459,7 @@ async def put_agents_running_config(
     save_agent_config(workspace.agent_id, agent_config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    manager = request.app.state.multi_agent_manager
-    agent_id = workspace.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, workspace.agent_id)
 
     return running_config
 
@@ -505,19 +499,6 @@ async def put_system_prompt_files(
     save_agent_config(workspace.agent_id, agent_config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager before creating background task to avoid
-    # accessing request object after its lifecycle ends
-    manager = request.app.state.multi_agent_manager
-    agent_id = workspace.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, workspace.agent_id)
 
     return files

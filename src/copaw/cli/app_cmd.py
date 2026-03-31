@@ -28,13 +28,6 @@ from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 )
 @click.option("--reload", is_flag=True, help="Enable auto-reload (dev only)")
 @click.option(
-    "--workers",
-    default=1,
-    type=int,
-    show_default=True,
-    help="Worker processes",
-)
-@click.option(
     "--log-level",
     default="info",
     type=click.Choice(
@@ -51,17 +44,42 @@ from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
     show_default=True,
     help="Path substrings to hide from uvicorn access log (repeatable).",
 )
+@click.option(
+    "--workers",
+    type=int,
+    default=None,
+    help="[DEPRECATED] Number of worker processes. "
+    "This option is deprecated and will be removed in a future version. "
+    "CoPaw always uses 1 worker.",
+)
 def app_cmd(
     host: str,
     port: int,
     reload: bool,
-    workers: int,
+    workers: int,  # pylint: disable=unused-argument
     log_level: str,
     hide_access_paths: tuple[str, ...],
 ) -> None:
     """Run CoPaw FastAPI app."""
+    # Handle deprecated --workers parameter
+    if workers is not None:
+        click.echo(
+            "⚠️  WARNING: --workers option is deprecated and will be removed "
+            "in a future version.",
+            err=True,
+        )
+        click.echo(
+            "   CoPaw always uses 1 worker for stability. "
+            "Your specified value will be ignored.",
+            err=True,
+        )
+        click.echo(err=True)
+
     # Persist last used host/port for other terminals
-    write_last_api(host, port)
+    if host == "0.0.0.0":
+        write_last_api("127.0.0.1", port)
+    else:
+        write_last_api(host, port)
     os.environ[LOG_LEVEL_ENV] = log_level
 
     # Signal reload mode to browser_control.py for Windows
@@ -88,6 +106,6 @@ def app_cmd(
         host=host,
         port=port,
         reload=reload,
-        workers=workers,
+        workers=1,
         log_level=log_level,
     )

@@ -7,12 +7,14 @@ from typing import List
 
 from fastapi import (
     APIRouter,
+    Body,
     HTTPException,
     Path,
     Request,
 )
 from pydantic import BaseModel, Field
 
+from ..utils import schedule_agent_reload
 from ...config import load_config
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -24,6 +26,10 @@ class ToolInfo(BaseModel):
     name: str = Field(..., description="Tool function name")
     enabled: bool = Field(..., description="Whether the tool is enabled")
     description: str = Field(default="", description="Tool description")
+    async_execution: bool = Field(
+        default=False,
+        description="Whether to execute the tool asynchronously in background",
+    )
 
 
 @router.get("", response_model=List[ToolInfo])
@@ -59,6 +65,7 @@ async def list_tools(
                 name=tool_config.name,
                 enabled=tool_config.enabled,
                 description=tool_config.description,
+                async_execution=tool_config.async_execution,
             ),
         )
 
@@ -105,28 +112,65 @@ async def toggle_tool(
     save_agent_config(workspace.agent_id, agent_config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = workspace.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, workspace.agent_id)
 
     # Return immediately (optimistic update)
     return ToolInfo(
         name=tool_config.name,
         enabled=tool_config.enabled,
         description=tool_config.description,
+        async_execution=tool_config.async_execution,
+    )
+
+
+@router.patch("/{tool_name}/async-execution", response_model=ToolInfo)
+async def update_tool_async_execution(
+    tool_name: str = Path(...),
+    async_execution: bool = Body(..., embed=True),
+    request: Request = None,
+) -> ToolInfo:
+    """Update tool async_execution setting for active agent.
+
+    Args:
+        tool_name: Tool function name
+        async_execution: Whether to execute asynchronously
+        request: FastAPI request
+
+    Returns:
+        Updated tool information
+
+    Raises:
+        HTTPException: If tool not found
+    """
+    from ..agent_context import get_agent_for_request
+    from ...config.config import load_agent_config, save_agent_config
+
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+
+    if (
+        not agent_config.tools
+        or tool_name not in agent_config.tools.builtin_tools
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tool '{tool_name}' not found",
+        )
+
+    # Update async_execution setting
+    tool_config = agent_config.tools.builtin_tools[tool_name]
+    tool_config.async_execution = async_execution
+
+    # Save agent config
+    save_agent_config(workspace.agent_id, agent_config)
+
+    # Hot reload config (async, non-blocking)
+    schedule_agent_reload(request, workspace.agent_id)
+
+    # Return immediately (optimistic update)
+    return ToolInfo(
+        name=tool_config.name,
+        enabled=tool_config.enabled,
+        description=tool_config.description,
+        async_execution=tool_config.async_execution,
     )

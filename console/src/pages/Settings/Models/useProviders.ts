@@ -20,11 +20,11 @@ export function useProviders() {
     try {
       const [provData, activeData] = await Promise.all([
         api.listProviders(),
-        api.getActiveModels(),
+        api.getActiveModels({ scope: "global" }),
       ]);
       if (!Array.isArray(provData)) {
         throw new Error(
-          "Unexpected API response. Is BASE_URL configured correctly?",
+          "Unexpected API response. Is VITE_API_BASE_URL configured correctly?",
         );
       }
       setProviders(provData);

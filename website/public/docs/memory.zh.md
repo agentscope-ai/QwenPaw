@@ -1,8 +1,8 @@
 # 长期记忆
 
-**长期记忆** 让 CoPAW 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
+**长期记忆** 让 CoPaw 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
 
-> 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。
+> 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，记忆即 Markdown 文件，可直接读取、编辑与迁移。
 
 ---
 
@@ -107,7 +107,7 @@ Embedding 配置用于向量语义搜索，配置优先级为：**配置文件 >
 | `EMBEDDING_BASE_URL`   | Embedding 服务的 URL     | ``     |
 | `EMBEDDING_MODEL_NAME` | Embedding 模型名称       | ``     |
 
-> `api_key`、`model_name` 和 `base_url` 都非空才能开启混合检索中的向量检索。
+> `base_url` 和 `model_name` 都非空才能开启混合检索中的向量检索（`api_key` 不参与判断）。
 
 ### 全文检索配置
 
@@ -118,6 +118,20 @@ Embedding 配置用于向量语义搜索，配置优先级为：**配置文件 >
 | `FTS_ENABLED` | 是否启用全文检索 | `true` |
 
 > 即使不配置 Embedding，启用全文检索仍可通过 BM25 进行关键词搜索。
+
+### 记忆总结配置
+
+在 `agent.json` 的 `running.memory_summary` 中配置：
+
+| 配置项                           | 说明                                                                        | 默认值  |
+| -------------------------------- | --------------------------------------------------------------------------- | ------- |
+| `memory_summary_enabled`         | 是否在上下文压缩时后台保存长期记忆（调用 `summary_memory` 写入文件）        | `true`  |
+| `force_memory_search` **(BETA)** | 是否在每次对话时强制执行记忆搜索，并将结果注入上下文                        | `false` |
+| `force_max_results`              | 强制搜索时最多返回的结果数                                                  | `1`     |
+| `force_min_score`                | 强制搜索时的最低相关性分数阈值（0.0 ~ 1.0）                                 | `0.3`   |
+| `rebuild_memory_index_on_start`  | 启动时是否清空并重建记忆搜索索引；设为 `false` 可跳过重建，仅监控新文件变更 | `false` |
+
+---
 
 ### 底层数据库
 

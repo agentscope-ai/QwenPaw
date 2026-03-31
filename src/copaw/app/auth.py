@@ -45,6 +45,7 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/status",
         "/api/auth/register",
         "/api/version",
+        "/api/settings/language",
     },
 )
 
@@ -401,4 +402,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return auth_header[7:]
         if "upgrade" in request.headers.get("connection", "").lower():
             return request.query_params.get("token")
+
+        token = request.query_params.get("token")
+        if token:
+            return token
         return None

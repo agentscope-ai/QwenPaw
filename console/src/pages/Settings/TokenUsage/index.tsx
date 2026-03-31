@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, message, Table } from "@agentscope-ai/design";
+import { Button, Card, Table } from "@agentscope-ai/design";
 import type { ColumnsType } from "antd/es/table";
 import { DatePicker } from "antd";
 import { useTranslation } from "react-i18next";
@@ -10,7 +10,9 @@ import type {
   TokenUsageStats,
 } from "../../../api/types/tokenUsage";
 import { formatCompact } from "../../../utils/formatNumber";
-import { PageHeader, LoadingState, EmptyState } from "./components";
+import { LoadingState, EmptyState } from "./components";
+import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 type ByModelRow = TokenUsageStats & { key: string };
@@ -18,6 +20,7 @@ type ByDateRow = TokenUsageStats & { key: string; date: string };
 
 function TokenUsagePage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TokenUsageSummary | null>(null);
@@ -135,86 +138,84 @@ function TokenUsagePage() {
 
   return (
     <div className={styles.tokenUsagePage}>
-      <PageHeader
-        title={t("tokenUsage.title")}
-        description={t("tokenUsage.description")}
-      />
+      <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
+      <div className={styles.content}>
+        {loading && !data ? (
+          <LoadingState
+            message={error ?? t("common.loading")}
+            error={!!error}
+            onRetry={error ? fetchData : undefined}
+          />
+        ) : (
+          <>
+            <div className={styles.filters}>
+              <DatePicker.RangePicker
+                value={[startDate, endDate]}
+                onChange={handleDateChange}
+                className={styles.datePicker}
+              />
+              <Button type="primary" onClick={fetchData} loading={loading}>
+                {t("tokenUsage.refresh")}
+              </Button>
+            </div>
 
-      {loading && !data ? (
-        <LoadingState
-          message={error ?? t("common.loading")}
-          error={!!error}
-          onRetry={error ? fetchData : undefined}
-        />
-      ) : (
-        <>
-          <div className={styles.filters}>
-            <DatePicker.RangePicker
-              value={[startDate, endDate]}
-              onChange={handleDateChange}
-              className={styles.datePicker}
-            />
-            <Button type="primary" onClick={fetchData} loading={loading}>
-              {t("tokenUsage.refresh")}
-            </Button>
-          </div>
+            {data && data.total_calls > 0 ? (
+              <>
+                <div className={styles.summaryCards}>
+                  <Card className={styles.card}>
+                    <div className={styles.cardValue}>
+                      {formatCompact(data.total_prompt_tokens)}
+                    </div>
+                    <div className={styles.cardLabel}>
+                      {t("tokenUsage.promptTokens")}
+                    </div>
+                  </Card>
+                  <Card className={styles.card}>
+                    <div className={styles.cardValue}>
+                      {formatCompact(data.total_completion_tokens)}
+                    </div>
+                    <div className={styles.cardLabel}>
+                      {t("tokenUsage.completionTokens")}
+                    </div>
+                  </Card>
+                </div>
 
-          {data && data.total_calls > 0 ? (
-            <>
-              <div className={styles.summaryCards}>
-                <Card className={styles.card}>
-                  <div className={styles.cardValue}>
-                    {formatCompact(data.total_prompt_tokens)}
-                  </div>
-                  <div className={styles.cardLabel}>
-                    {t("tokenUsage.promptTokens")}
-                  </div>
-                </Card>
-                <Card className={styles.card}>
-                  <div className={styles.cardValue}>
-                    {formatCompact(data.total_completion_tokens)}
-                  </div>
-                  <div className={styles.cardLabel}>
-                    {t("tokenUsage.completionTokens")}
-                  </div>
-                </Card>
-              </div>
+                {byModelDataSource.length > 0 && (
+                  <Card
+                    className={styles.tableCard}
+                    title={t("tokenUsage.byModel")}
+                    bodyStyle={{ padding: 0 }}
+                  >
+                    <Table<ByModelRow>
+                      columns={byModelColumns}
+                      dataSource={byModelDataSource}
+                      rowKey="key"
+                      pagination={false}
+                    />
+                  </Card>
+                )}
 
-              {byModelDataSource.length > 0 && (
-                <Card
-                  className={styles.tableCard}
-                  title={t("tokenUsage.byModel")}
-                  bodyStyle={{ padding: 0 }}
-                >
-                  <Table<ByModelRow>
-                    columns={byModelColumns}
-                    dataSource={byModelDataSource}
-                    rowKey="key"
-                    pagination={false}
-                  />
-                </Card>
-              )}
-
-              {byDateDataSource.length > 0 && (
-                <Card
-                  className={styles.tableCard}
-                  title={t("tokenUsage.byDate")}
-                  bodyStyle={{ padding: 0 }}
-                >
-                  <Table<ByDateRow>
-                    columns={byDateColumns}
-                    dataSource={byDateDataSource}
-                    rowKey="key"
-                    pagination={false}
-                  />
-                </Card>
-              )}
-            </>
-          ) : (
-            <EmptyState message={t("tokenUsage.noData")} />
-          )}
-        </>
-      )}
+                {byDateDataSource.length > 0 && (
+                  <Card
+                    className={styles.tableCard}
+                    title={t("tokenUsage.byDate")}
+                    bodyStyle={{ padding: 0 }}
+                  >
+                    <Table<ByDateRow>
+                      columns={byDateColumns}
+                      dataSource={byDateDataSource}
+                      rowKey="key"
+                      pagination={false}
+                    />
+                  </Card>
+                )}
+              </>
+            ) : (
+              <EmptyState message={t("tokenUsage.noData")} />
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

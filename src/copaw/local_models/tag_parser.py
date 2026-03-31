@@ -38,6 +38,20 @@ _TOOL_CALL_RE = re.compile(
     re.DOTALL,
 )
 
+# Regex for XML-style tool call format:
+#   <function=func_name>
+#     <parameter=param_name>value</parameter>
+#     ...
+#   </function>
+_XML_FUNC_RE = re.compile(
+    r"<function=([^>]+)>(.*?)</function>",
+    re.DOTALL,
+)
+_XML_PARAM_RE = re.compile(
+    r"<parameter=([^>]+)>(.*?)</parameter>",
+    re.DOTALL,
+)
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -92,31 +106,30 @@ def _generate_call_id() -> str:
     return f"call_{uuid.uuid4().hex[:12]}"
 
 
-def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
-    """
-    Parse the JSON content between a ``<tool_call>`` / ``</tool_call>`` pair.
+def _parse_xml_tool_call(raw_text: str) -> ParsedToolCall | None:
+    """Parse an XML-style tool call block.
 
     Expected format::
 
-        {"name": "func_name", "arguments": {"key": "value"}}
+        <function=func_name>
+          <parameter=param1>value1</parameter>
+          <parameter=param2>value2</parameter>
+        </function>
     """
-    try:
-        data = json.loads(raw_text.strip())
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("Failed to parse tool call JSON: %s", raw_text[:200])
+    func_match = _XML_FUNC_RE.search(raw_text)
+    if not func_match:
         return None
 
-    name = data.get("name", "")
+    name = func_match.group(1).strip()
     if not name:
-        logger.warning("Tool call missing 'name' field: %s", raw_text[:200])
         return None
 
-    arguments = data.get("arguments", {})
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except (json.JSONDecodeError, TypeError):
-            arguments = {}
+    body = func_match.group(2)
+    arguments: dict = {}
+    for param_match in _XML_PARAM_RE.finditer(body):
+        param_name = param_match.group(1).strip()
+        param_value = param_match.group(2).strip()
+        arguments[param_name] = param_value
 
     return ParsedToolCall(
         id=_generate_call_id(),
@@ -124,6 +137,56 @@ def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
         arguments=arguments,
         raw_arguments=json.dumps(arguments, ensure_ascii=False),
     )
+
+
+def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
+    """Parse the content between a ``<tool_call>`` / ``</tool_call>`` pair.
+
+    Tries JSON format first::
+
+        {"name": "func_name", "arguments": {"key": "value"}}
+
+    Falls back to XML format if JSON parsing fails::
+
+        <function=func_name>
+          <parameter=param1>value1</parameter>
+        </function>
+    """
+    stripped = raw_text.strip()
+
+    try:
+        data = json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        data = None
+
+    if data is not None:
+        name = data.get("name", "")
+        if not name:
+            logger.warning(
+                "Tool call missing 'name' field: %s",
+                stripped[:200],
+            )
+            return None
+
+        arguments = data.get("arguments", {})
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except (json.JSONDecodeError, TypeError):
+                arguments = {}
+
+        return ParsedToolCall(
+            id=_generate_call_id(),
+            name=name,
+            arguments=arguments,
+            raw_arguments=json.dumps(arguments, ensure_ascii=False),
+        )
+
+    # JSON failed — try XML format.
+    result = _parse_xml_tool_call(stripped)
+    if result is None:
+        logger.warning("Failed to parse tool call: %s", stripped[:200])
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,8 @@ import logging
 import re
 from pathlib import Path
 
+from .utils.file_handling import read_text_file_with_encoding_fallback
+
 logger = logging.getLogger(__name__)
 
 # Default fallback prompt
@@ -76,7 +78,7 @@ class PromptBuilder:
             return
 
         try:
-            content = file_path.read_text(encoding="utf-8").strip()
+            content = read_text_file_with_encoding_fallback(file_path).strip()
 
             # Remove YAML frontmatter if present
             if content.startswith("---"):
@@ -309,9 +311,88 @@ def build_bootstrap_guidance(
     )
 
 
+def _get_active_model_info():
+    """Resolve the active model's ModelInfo and model name.
+
+    Tries agent-specific model first, then falls back to global.
+
+    Returns:
+        A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
+        when the active model cannot be resolved.
+    """
+    try:
+        from ..app.agent_context import get_current_agent_id
+        from ..config.config import load_agent_config
+        from ..providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+
+        # Try to get agent-specific model first
+        active = None
+        try:
+            agent_id = get_current_agent_id()
+            agent_config = load_agent_config(agent_id)
+            if agent_config.active_model:
+                active = agent_config.active_model
+        except Exception:
+            pass
+
+        # Fallback to global active model
+        if not active:
+            active = manager.get_active_model()
+
+        if not active:
+            return None, None
+
+        provider = manager.get_provider(active.provider_id)
+        if not provider:
+            return None, None
+
+        for m in provider.models + provider.extra_models:
+            if m.id == active.model:
+                return m, active.model
+        return None, None
+    except Exception:
+        return None, None
+
+
+def get_active_model_supports_multimodal() -> bool:
+    """Check if the current active model supports multimodal input."""
+    model_info, _ = _get_active_model_info()
+    if model_info is None:
+        return False
+    return bool(model_info.supports_multimodal)
+
+
+def build_multimodal_hint() -> str:
+    """Build a short system-prompt snippet describing multimodal capability."""
+    model_info, model_name = _get_active_model_info()
+    if model_info is None:
+        return ""
+    return format_multimodal_hint(model_info, model_name)
+
+
+def format_multimodal_hint(model_info, _model_name: str) -> str:
+    """Format the multimodal hint string for the system prompt."""
+    if (
+        model_info.supports_image
+        or model_info.supports_video
+        or model_info.supports_multimodal is None
+    ):
+        return ""
+    return (
+        "It appears that you can only understand text content. "
+        " Please honestly inform the user about this when "
+        " their input includes multimodal information."
+    )
+
+
 __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
+    "build_multimodal_hint",
+    "format_multimodal_hint",
+    "get_active_model_supports_multimodal",
     "PromptBuilder",
     "PromptConfig",
     "DEFAULT_SYS_PROMPT",

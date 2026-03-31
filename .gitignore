@@ -19,6 +19,7 @@ dist/
 # Console frontend build (generated in Docker/CI, do not commit)
 src/copaw/console/dist/
 src/copaw/console/
+console/.cursor/
 
 # frontend (website)
 website/node_modules/
@@ -56,6 +57,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 openapi-ts*.log
+package-lock.json
+pnpm-lock.yaml
 
 # MacOS
 .DS_Store
@@ -83,9 +86,18 @@ logs/
 # vibe coding
 .claude
 openspec
-/AGENTS.md
 CLAUDE.md
 *.tmp
 
 # Build cache
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+
+# Hypothesis test cache
+.hypothesis/
+src/.hypothesis/
+
+# Kiro IDE
+.kiro/
+
+# Qoder IDE
+.qoder/

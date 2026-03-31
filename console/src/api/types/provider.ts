@@ -1,6 +1,9 @@
 export interface ModelInfo {
   id: string;
   name: string;
+  supports_multimodal: boolean | null;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
 }
 
 export interface ProviderInfo {
@@ -43,9 +46,18 @@ export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
 }
 
+export type ActiveModelScope = "effective" | "global" | "agent";
+
+export interface GetActiveModelsRequest {
+  scope?: ActiveModelScope;
+  agent_id?: string;
+}
+
 export interface ModelSlotRequest {
   provider_id: string;
   model: string;
+  scope: Exclude<ActiveModelScope, "effective">;
+  agent_id?: string;
 }
 
 /* ---- Custom provider CRUD ---- */
@@ -66,54 +78,50 @@ export interface AddModelRequest {
 
 /* ---- Local models ---- */
 
-export interface LocalModelResponse {
+export interface LocalModelInfo {
   id: string;
-  repo_id: string;
-  filename: string;
-  backend: string;
-  source: string;
-  file_size: number;
-  local_path: string;
-  display_name: string;
+  name: string;
+  size_bytes: number;
+  downloaded: boolean;
+  source: LocalDownloadSource;
 }
 
-export interface DownloadModelRequest {
-  repo_id: string;
-  filename?: string;
-  backend: string;
-  source: string;
+export type LocalDownloadSource = "huggingface" | "modelscope" | "auto";
+
+export interface LocalServerStatus {
+  available: boolean;
+  installable: boolean;
+  installed: boolean;
+  port: number | null;
+  model_name: string | null;
+  message: string | null;
 }
 
-export interface DownloadTaskResponse {
-  task_id: string;
-  status: "pending" | "downloading" | "completed" | "failed" | "cancelled";
-  repo_id: string;
-  filename: string | null;
-  backend: string;
-  source: string;
+export interface LocalDownloadProgress {
+  status:
+    | "idle"
+    | "pending"
+    | "downloading"
+    | "canceling"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  model_name: string | null;
+  downloaded_bytes: number;
+  total_bytes: number | null;
+  speed_bytes_per_sec: number;
+  source: LocalDownloadSource | null;
   error: string | null;
-  result: LocalModelResponse | null;
+  local_path: string | null;
 }
 
-/* ---- Ollama models ---- */
-
-export interface OllamaModelResponse {
-  name: string;
-  size: number;
-  digest?: string | null;
-  modified_at?: string | null;
+export interface LocalActionResponse {
+  status: string;
+  message: string;
 }
 
-export interface OllamaDownloadRequest {
-  name: string;
-}
-
-export interface OllamaDownloadTaskResponse {
-  task_id: string;
-  status: "pending" | "downloading" | "completed" | "failed" | "cancelled";
-  name: string;
-  error: string | null;
-  result: OllamaModelResponse | null;
+export interface StartLocalServerRequest {
+  model_id: string;
 }
 
 /* ---- Test Connection ---- */
@@ -139,4 +147,12 @@ export interface DiscoverModelsResponse {
   message: string;
   models: ModelInfo[];
   added_count: number;
+}
+
+export interface ProbeMultimodalResponse {
+  supports_image: boolean;
+  supports_video: boolean;
+  supports_multimodal: boolean;
+  image_message: string;
+  video_message: string;
 }

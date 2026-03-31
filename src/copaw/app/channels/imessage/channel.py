@@ -91,7 +91,7 @@ class IMessageChannel(BaseChannel):
                 "~/Library/Messages/chat.db",
             ),
             poll_sec=float(os.getenv("IMESSAGE_POLL_SEC", "1.0")),
-            bot_prefix=os.getenv("IMESSAGE_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("IMESSAGE_BOT_PREFIX", ""),
             media_dir=os.getenv("IMESSAGE_MEDIA_DIR", ""),
             max_decoded_size=int(
                 os.getenv("IMESSAGE_MAX_DECODED_SIZE", "10485760"),
@@ -114,7 +114,7 @@ class IMessageChannel(BaseChannel):
             enabled=config.enabled,
             db_path=config.db_path or "~/Library/Messages/chat.db",
             poll_sec=config.poll_sec,
-            bot_prefix=config.bot_prefix or "[BOT] ",
+            bot_prefix=config.bot_prefix or "",
             media_dir=config.media_dir if config.media_dir else "",
             max_decoded_size=config.max_decoded_size,
             on_reply_sent=on_reply_sent,

@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Literal
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
+from ..utils import schedule_agent_reload
 from ...config.config import MCPClientConfig
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
@@ -126,6 +127,20 @@ class MCPClientUpdateRequest(BaseModel):
         None,
         description="Working directory for stdio MCP command",
     )
+
+
+def _restore_original_values(
+    incoming: Dict[str, str],
+    existing: Dict[str, str],
+) -> Dict[str, str]:
+    """Preserve original values when incoming matches their masked form."""
+    restored: Dict[str, str] = {}
+    for k, v in incoming.items():
+        if k in existing and v == _mask_env_value(existing[k]):
+            restored[k] = existing[k]
+        else:
+            restored[k] = v
+    return restored
 
 
 def _mask_env_value(value: str) -> str:
@@ -279,24 +294,7 @@ async def create_mcp_client(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = agent.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agent.agent_id)
 
     return _build_client_info(client_key, new_client)
 
@@ -325,11 +323,18 @@ async def update_mcp_client(
     # Update fields if provided
     update_data = updates.model_dump(exclude_unset=True)
 
-    # Special handling for env: merge with existing, don't replace
+    # Restore masked env/header values to originals before replacing
     if "env" in update_data and update_data["env"] is not None:
-        updated_env = existing.env.copy() if existing.env else {}
-        updated_env.update(update_data["env"])
-        update_data["env"] = updated_env
+        update_data["env"] = _restore_original_values(
+            update_data["env"],
+            existing.env or {},
+        )
+
+    if "headers" in update_data and update_data["headers"] is not None:
+        update_data["headers"] = _restore_original_values(
+            update_data["headers"],
+            existing.headers or {},
+        )
 
     merged_data = existing.model_dump(mode="json")
     merged_data.update(update_data)
@@ -340,24 +345,7 @@ async def update_mcp_client(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = agent.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agent.agent_id)
 
     return _build_client_info(client_key, updated_client)
 
@@ -387,24 +375,7 @@ async def toggle_mcp_client(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = agent.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agent.agent_id)
 
     return _build_client_info(client_key, client)
 
@@ -432,23 +403,6 @@ async def delete_mcp_client(
     save_agent_config(agent.agent_id, agent.config)
 
     # Hot reload config (async, non-blocking)
-    # IMPORTANT: Get manager and agent_id before creating background task
-    # to avoid accessing request/workspace after their lifecycle ends
-    import asyncio
-
-    manager = request.app.state.multi_agent_manager
-    agent_id = agent.agent_id
-
-    async def reload_in_background():
-        try:
-            await manager.reload_agent(agent_id)
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Background reload failed: {e}",
-            )
-
-    asyncio.create_task(reload_in_background())
+    schedule_agent_reload(request, agent.agent_id)
 
     return {"message": f"MCP client '{client_key}' deleted successfully"}

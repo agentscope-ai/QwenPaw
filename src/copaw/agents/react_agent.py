@@ -22,11 +22,16 @@ from pydantic import BaseModel
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .model_factory import create_model_and_formatter
-from .prompt import build_system_prompt_from_working_dir
+from .prompt import (
+    build_multimodal_hint,
+    build_system_prompt_from_working_dir,
+    get_active_model_supports_multimodal,
+)
 from .skills_manager import (
+    apply_skill_config_env_overrides,
     ensure_skills_initialized,
-    get_working_skills_dir,
-    list_available_skills,
+    get_workspace_skills_dir,
+    resolve_effective_skills,
 )
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
@@ -42,6 +47,7 @@ from .tools import (
     send_file_to_user,
     set_user_timezone,
     view_image,
+    view_video,
     write_file,
     create_memory_search_tool,
 )
@@ -49,7 +55,7 @@ from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
     WORKING_DIR,
 )
-from ..agents.memory import MemoryManager
+from ..agents.memory import BaseMemoryManager
 
 if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
@@ -86,10 +92,11 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         env_context: Optional[str] = None,
         enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
-        memory_manager: "MemoryManager | None" = None,
+        memory_manager: "BaseMemoryManager | None" = None,
         request_context: Optional[dict[str, str]] = None,
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
+        task_tracker: Any | None = None,
     ):
         """Initialize CoPawAgent.
 
@@ -117,6 +124,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
         self._workspace_dir = workspace_dir
+        self._task_tracker = task_tracker
 
         # Extract configuration from agent_config
         running_config = agent_config.running
@@ -132,8 +140,17 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         sys_prompt = self._build_sys_prompt()
 
         # Create model and formatter using factory method
-        model, formatter = create_model_and_formatter()
-
+        model, formatter = create_model_and_formatter(agent_id=agent_config.id)
+        model_info = (
+            f"{agent_config.active_model.provider_id}/"
+            f"{agent_config.active_model.model}"
+            if agent_config.active_model
+            else "global-fallback"
+        )
+        logger.info(
+            f"Agent '{agent_config.id}' initialized with model: "
+            f"{model_info} (class: {model.__class__.__name__})",
+        )
         # Initialize parent ReActAgent
         super().__init__(
             name="Friday",
@@ -181,6 +198,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Check which tools are enabled from agent config
         enabled_tools = {}
+        async_execution_tools = {}
         try:
             if hasattr(self._agent_config, "tools") and hasattr(
                 self._agent_config.tools,
@@ -189,6 +207,14 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 builtin_tools = self._agent_config.tools.builtin_tools
                 enabled_tools = {
                     name: tool.enabled for name, tool in builtin_tools.items()
+                }
+                # Only execute_shell_command supports async_execution
+                async_execution_tools = {
+                    "execute_shell_command": builtin_tools.get(
+                        "execute_shell_command",
+                    ).async_execution
+                    if "execute_shell_command" in builtin_tools
+                    else False,
                 }
         except Exception as e:
             logger.warning(
@@ -207,41 +233,100 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "browser_use": browser_use,
             "desktop_screenshot": desktop_screenshot,
             "view_image": view_image,
+            "view_video": view_video,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
         }
 
+        multimodal = get_active_model_supports_multimodal()
+
         # Register only enabled tools
         for tool_name, tool_func in tool_functions.items():
             # If tool not in config, enable by default (backward compatibility)
-            if enabled_tools.get(tool_name, True):
+            if not enabled_tools.get(tool_name, True):
+                logger.debug("Skipped disabled tool: %s", tool_name)
+                continue
+
+            if tool_name in ("view_image", "view_video") and not multimodal:
+                logger.debug(
+                    "Skipped %s — model does not support multimodal",
+                    tool_name,
+                )
+                continue
+
+            # Get async_execution setting (default to False for backward
+            # compatibility)
+            async_exec = async_execution_tools.get(tool_name, False)
+
+            toolkit.register_tool_function(
+                tool_func,
+                namesake_strategy=namesake_strategy,
+                async_execution=async_exec,
+            )
+            logger.debug(
+                "Registered tool: %s (async_execution=%s)",
+                tool_name,
+                async_exec,
+            )
+
+        # Auto-register background task management tools if any *enabled*
+        # tool has async_execution set
+        has_async_tools = any(
+            async_execution_tools.get(name, False)
+            for name in tool_functions
+            if enabled_tools.get(name, True)
+        )
+        if has_async_tools:
+            try:
                 toolkit.register_tool_function(
-                    tool_func,
+                    toolkit.view_task,
                     namesake_strategy=namesake_strategy,
                 )
-                logger.debug("Registered tool: %s", tool_name)
-            else:
-                logger.debug("Skipped disabled tool: %s", tool_name)
+                toolkit.register_tool_function(
+                    toolkit.wait_task,
+                    namesake_strategy=namesake_strategy,
+                )
+                toolkit.register_tool_function(
+                    toolkit.cancel_task,
+                    namesake_strategy=namesake_strategy,
+                )
+                logger.debug(
+                    "Registered background task management tools "
+                    "(view_task, wait_task, cancel_task)",
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to register task management tools: {e}",
+                )
 
         return toolkit
 
     def _register_skills(self, toolkit: Toolkit) -> None:
         """Load and register skills from workspace directory.
 
+        Uses the registry-backed skill resolver to determine effective
+        skills for the current channel.
+
         Args:
             toolkit: Toolkit to register skills to
         """
         workspace_dir = self._workspace_dir or WORKING_DIR
 
-        # Check skills initialization
         ensure_skills_initialized(workspace_dir)
 
-        working_skills_dir = get_working_skills_dir(workspace_dir)
-        available_skills = list_available_skills(workspace_dir)
+        request_context = getattr(self, "_request_context", {})
+        channel_name = request_context.get("channel", "console")
 
-        for skill_name in available_skills:
+        effective_skills = resolve_effective_skills(
+            workspace_dir,
+            channel_name,
+        )
+
+        working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
+
+        for skill_name in effective_skills:
             skill_dir = working_skills_dir / skill_name
             if skill_dir.exists():
                 try:
@@ -280,15 +365,22 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             agent_id=agent_id,
             heartbeat_enabled=heartbeat_enabled,
         )
-        logger.debug("System prompt:\n%s", sys_prompt)
+        logger.debug("System prompt:\n%s...", sys_prompt[:100])
+
+        # Inject multimodal capability awareness
+        multimodal_hint = build_multimodal_hint()
+        if multimodal_hint:
+            sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context
+
         return sys_prompt
 
     def _setup_memory_manager(
         self,
         enable_memory_manager: bool,
-        memory_manager: MemoryManager | None,
+        memory_manager: BaseMemoryManager | None,
         namesake_strategy: NamesakeStrategy,
     ) -> None:
         """Setup memory manager and register memory search tool if enabled.
@@ -360,6 +452,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         message stored in self.memory.content (if one exists).
         """
         self._sys_prompt = self._build_sys_prompt()
+
+        if self.memory is None:
+            logger.warning(
+                "rebuild_sys_prompt: self.memory is None, "
+                "skipping in-memory system prompt update.",
+            )
+            return
 
         for msg, _marks in self.memory.content:
             if msg.role == "system":
@@ -555,17 +654,41 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
+    def _proactive_strip_media_blocks(self) -> int:
+        """Proactively strip media blocks from memory before model call.
+
+        Only called when the active model does not support multimodal.
+        Returns the number of blocks stripped.
+        """
+        return self._strip_media_blocks_from_memory()
+
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
-        """Override reasoning with media-block fallback.
+        """Override reasoning with proactive media filtering.
 
-        If the model call fails with a bad-request error and memory
-        contains media blocks (image/audio/video), strip them all and
-        retry once.  Calls ``super()._reasoning`` to keep the
-        ToolGuardMixin interception active.
+        1. Proactive layer: if the model does not support
+           multimodal, strip media blocks *before* calling.
+        2. Passive layer: if the model call still fails with a
+           bad-request / media error, strip remaining blocks and retry.
+        3. If the model IS marked as multimodal but still errors on
+           media, log a warning about possibly inaccurate capability flag.
+
+        Calls ``super()._reasoning`` to keep the ToolGuardMixin
+        interception active.
         """
+        # --- Proactive filtering layer ---
+        if not get_active_model_supports_multimodal():
+            n = self._proactive_strip_media_blocks()
+            if n > 0:
+                logger.warning(
+                    "Proactively stripped %d media block(s) - "
+                    "model does not support multimodal.",
+                    n,
+                )
+
+        # --- Passive fallback layer (existing logic) ---
         try:
             return await super()._reasoning(tool_choice=tool_choice)
         except Exception as e:
@@ -576,6 +699,15 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             if n_stripped == 0:
                 raise
 
+            # If the model is marked as multimodal but still
+            # errored, the capability flag may be wrong.
+            if get_active_model_supports_multimodal():
+                logger.warning(
+                    "Model marked multimodal but "
+                    "rejected media. "
+                    "Capability flag may be wrong.",
+                )
+
             logger.warning(
                 "_reasoning failed (%s). "
                 "Stripped %d media block(s) from memory, retrying.",
@@ -585,17 +717,31 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return await super()._reasoning(tool_choice=tool_choice)
 
     async def _summarizing(self) -> Msg:
-        """Override summarizing with media-block fallback and tool_use filter.
+        """Override summarizing with proactive media filtering,
+        passive fallback, and tool_use block filtering.
+
+        1. Proactive layer: if the model does not support multimodal,
+           strip media blocks *before* calling the model.
+        2. Passive layer: if the model call still fails with a
+           bad-request / media error, strip remaining blocks and retry.
+        3. If the model IS marked as multimodal but still errors on
+           media, log a warning about possibly inaccurate capability flag.
 
         Some models (e.g. kimi-k2.5) generate tool_use blocks even when
-        no tools are provided, by mimicking patterns in conversation
-        history.  Since _summarizing has no acting stage, those blocks
-        would be displayed but never executed.
-
-        We set ``_in_summarizing`` so that ``print`` can strip tool_use
-        blocks from streaming chunks *before* they reach the frontend,
-        preventing the visual flash of phantom tool calls.
+        no tools are provided.  We set ``_in_summarizing`` so that
+        ``print`` can strip tool_use blocks from streaming chunks.
         """
+        # --- Proactive filtering layer ---
+        if not get_active_model_supports_multimodal():
+            n = self._proactive_strip_media_blocks()
+            if n > 0:
+                logger.warning(
+                    "Proactively stripped %d media block(s) - "
+                    "model does not support multimodal.",
+                    n,
+                )
+
+        # --- Passive fallback layer ---
         self._in_summarizing = True
         try:
             try:
@@ -607,6 +753,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 n_stripped = self._strip_media_blocks_from_memory()
                 if n_stripped == 0:
                     raise
+
+                if get_active_model_supports_multimodal():
+                    logger.warning(
+                        "Model marked multimodal but "
+                        "rejected media. "
+                        "Capability flag may be wrong.",
+                    )
 
                 logger.warning(
                     "_summarizing failed (%s). "
@@ -635,28 +788,36 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         after a page refresh.  Intermediate events that become empty
         after filtering are silently skipped to avoid blank UI flashes.
         """
-        if getattr(self, "_in_summarizing", False) and isinstance(
-            msg.content,
-            list,
-        ):
-            original = msg.content
+
+        if not getattr(self, "_in_summarizing", False):
+            return await super().print(msg, last, speech=speech)
+
+        original = msg.content
+        modified = False
+
+        if isinstance(original, list):
             filtered = [
                 b
                 for b in original
                 if not (isinstance(b, dict) and b.get("type") == "tool_use")
             ]
-            if len(filtered) != len(original):
-                if not filtered and not last:
-                    return
+            if not filtered and not last:
+                return
+            if len(filtered) != len(original) or last:
+                msg.content = filtered
                 if last:
-                    filtered.append(
+                    msg.content.append(
                         {"type": "text", "text": self._ROUND_END_NOTICE},
                     )
-                msg.content = filtered
-                try:
-                    return await super().print(msg, last, speech=speech)
-                finally:
-                    msg.content = original
+                modified = True
+        elif isinstance(original, str) and last:
+            msg.content = original + self._ROUND_END_NOTICE
+            modified = True
+        if modified:
+            try:
+                return await super().print(msg, last, speech=speech)
+            finally:
+                msg.content = original
         return await super().print(msg, last, speech=speech)
 
     _ROUND_END_NOTICE = (
@@ -675,7 +836,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         strip them and append a bilingual notice telling the user this
         round of calls has ended.
         """
-        if not isinstance(msg.content, list):
+        if isinstance(msg.content, str):
+            msg.content += CoPawAgent._ROUND_END_NOTICE
             return msg
 
         filtered = [
@@ -686,14 +848,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             )
         ]
 
-        if len(filtered) == len(msg.content):
-            return msg
-
         n_removed = len(msg.content) - len(filtered)
-        logger.debug(
-            "Stripped %d tool_use block(s) from _summarizing response",
-            n_removed,
-        )
+        if n_removed:
+            logger.debug(
+                "Stripped %d tool_use block(s) from _summarizing response",
+                n_removed,
+            )
 
         filtered.append({"type": "text", "text": CoPawAgent._ROUND_END_NOTICE})
         msg.content = filtered
@@ -783,6 +943,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         return total_stripped
 
+    # pylint: disable=protected-access
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
@@ -797,10 +958,16 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Response message
         """
-        # Set workspace_dir in context for tool functions
-        from ..config.context import set_current_workspace_dir
+        # Set workspace_dir and recent_max_bytes in context for tool functions
+        from ..config.context import (
+            set_current_workspace_dir,
+            set_current_recent_max_bytes,
+        )
 
         set_current_workspace_dir(self._workspace_dir)
+        set_current_recent_max_bytes(
+            self._agent_config.running.tool_result_compact.recent_max_bytes,
+        )
 
         # Process file and media blocks in messages
         if msg is not None:
@@ -820,7 +987,46 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Normal message processing
         logger.info("CoPawAgent.reply: max_iters=%s", self.max_iters)
-        return await super().reply(msg=msg, structured_model=structured_model)
+
+        if hasattr(self.memory, "_long_term_memory"):
+            running = self._agent_config.running
+            ms = running.memory_summary
+            if (
+                ms.force_memory_search
+                and self.memory_manager is not None
+                and query
+            ):
+                try:
+                    result = await asyncio.wait_for(
+                        self.memory_manager.memory_search(
+                            query=query[:100],
+                            max_results=ms.force_max_results,
+                            min_score=ms.force_min_score,
+                        ),
+                        timeout=1,
+                    )
+                    self.memory._long_term_memory = "\n".join(
+                        block["text"]
+                        for block in (result.content or [])
+                        if isinstance(block, dict) and block.get("text")
+                    )
+                except BaseException as e:
+                    logger.warning(
+                        "force_memory_search failed or timed out,"
+                        f" skipping e={e}",
+                    )
+                    self.memory._long_term_memory = ""
+            else:
+                self.memory._long_term_memory = ""
+
+        request_context = getattr(self, "_request_context", {}) or {}
+        channel_name = request_context.get("channel", "console")
+        workspace_dir = Path(self._workspace_dir or WORKING_DIR)
+        with apply_skill_config_env_overrides(workspace_dir, channel_name):
+            return await super().reply(
+                msg=msg,
+                structured_model=structured_model,
+            )
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""

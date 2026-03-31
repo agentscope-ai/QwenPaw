@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { message } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "@/api/modules/agents";
 import type { AgentSummary } from "@/api/types/agents";
@@ -11,6 +11,7 @@ interface UseAgentsReturn {
   error: Error | null;
   loadAgents: () => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
+  toggleAgent: (agentId: string, enabled: boolean) => Promise<void>;
   setAgents: (agents: AgentSummary[]) => void;
 }
 
@@ -20,6 +21,7 @@ export function useAgents(): UseAgentsReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const { setAgents: updateStoreAgents } = useAgentStore();
+  const { message } = useAppMessage();
 
   const setAgentsState = (nextAgents: AgentSummary[]) => {
     setAgents(nextAgents);
@@ -54,6 +56,20 @@ export function useAgents(): UseAgentsReturn {
     }
   };
 
+  const toggleAgent = async (agentId: string, enabled: boolean) => {
+    try {
+      await agentsApi.toggleAgentEnabled(agentId, enabled);
+      const successMsg = enabled
+        ? t("agent.enableSuccess")
+        : t("agent.disableSuccess");
+      message.success(successMsg);
+      await loadAgents();
+    } catch (err: any) {
+      message.error(err.message || t("agent.toggleFailed"));
+      throw err;
+    }
+  };
+
   useEffect(() => {
     loadAgents();
   }, []);
@@ -64,6 +80,7 @@ export function useAgents(): UseAgentsReturn {
     error,
     loadAgents,
     deleteAgent,
+    toggleAgent,
     setAgents: setAgentsState,
   };
 }
