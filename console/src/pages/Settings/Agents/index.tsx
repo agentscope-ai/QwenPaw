@@ -15,14 +15,8 @@ import styles from "./index.module.less";
 
 export default function AgentsPage() {
   const { t } = useTranslation();
-  const {
-    agents,
-    loading,
-    deleteAgent,
-    toggleAgent,
-    loadAgents,
-    setAgents,
-  } = useAgents();
+  const { agents, loading, deleteAgent, toggleAgent, loadAgents, setAgents } =
+    useAgents();
   const { selectedAgent, setSelectedAgent } = useAgentStore();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
@@ -153,7 +147,11 @@ export default function AgentsPage() {
         current={t("agent.agents")}
         extra={
           <div className={styles.headerRight}>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleCreate}
+            >
               {t("agent.create")}
             </Button>
           </div>
