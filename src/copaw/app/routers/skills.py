@@ -34,9 +34,12 @@ from ...agents.skills_manager import (
     _default_pool_manifest,
     _default_workspace_manifest,
     _mutate_json,
+    _read_skill_from_dir,
     get_pool_builtin_sync_status,
     get_pool_skill_manifest_path,
+    get_skill_pool_dir,
     get_workspace_skill_manifest_path,
+    get_workspace_skills_dir,
     import_builtin_skills,
     list_builtin_import_candidates,
     list_workspaces,
@@ -100,7 +103,6 @@ def _scan_error_response(exc: SkillScanError) -> JSONResponse:
 class SkillSpec(SkillInfo):
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
-    sync_to_pool: dict[str, Any] = Field(default_factory=dict)
     config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -455,17 +457,19 @@ async def _run_hub_install_task(
 
 def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
     manifest = read_skill_manifest(workspace_dir)
-    service = SkillService(workspace_dir)
     entries = manifest.get("skills", {})
+    skill_root = get_workspace_skills_dir(workspace_dir)
     specs: list[SkillSpec] = []
-    for skill in service.list_all_skills():
-        entry = entries.get(skill.name, {})
+    for skill_name, entry in sorted(entries.items()):
+        source = entry.get("source", "customized")
+        skill = _read_skill_from_dir(skill_root / skill_name, source)
+        if skill is None:
+            continue
         specs.append(
             SkillSpec(
                 **skill.model_dump(),
                 enabled=entry.get("enabled", False),
                 channels=entry.get("channels") or ["all"],
-                sync_to_pool=entry.get("sync_to_pool") or {},
                 config=entry.get("config") or {},
             ),
         )
@@ -474,13 +478,16 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
 
 def _build_pool_skill_specs() -> list[PoolSkillSpec]:
     manifest = read_skill_pool_manifest()
-    service = SkillPoolService()
     entries = manifest.get("skills", {})
+    pool_dir = get_skill_pool_dir()
     sync_info = get_pool_builtin_sync_status()
     specs: list[PoolSkillSpec] = []
-    for skill in service.list_all_skills():
-        entry = entries.get(skill.name, {})
-        info = sync_info.get(skill.name, {})
+    for skill_name, entry in sorted(entries.items()):
+        source = entry.get("source", "customized")
+        skill = _read_skill_from_dir(pool_dir / skill_name, source)
+        if skill is None:
+            continue
+        info = sync_info.get(skill_name, {})
         specs.append(
             PoolSkillSpec(
                 **skill.model_dump(exclude={"version_text"}),

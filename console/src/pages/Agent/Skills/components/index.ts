@@ -9,7 +9,6 @@ export {
   getSkillDisplaySource,
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
-  getSkillSyncStatusLabel,
 } from "./skillMetadata";
 export { useConflictRenameModal } from "./useConflictRenameModal";
 export { ImportHubModal } from "./ImportHubModal";

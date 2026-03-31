@@ -115,8 +115,7 @@ Adding skills to the pool:
 
 5. **Upload from a workspace**.
    On **Workspace → Skills**, click **Sync to Skill Pool** to publish a workspace skill to the
-   pool. After upload, the workspace entry is marked with `sync_to_pool.status =
-"synced"`.
+   pool.
 
 6. **Manual filesystem changes**.
    You can place folders directly under `$COPAW_WORKING_DIR/skill_pool/`, but this is not
@@ -129,18 +128,6 @@ Adding skills to the pool:
 Every workspace runs from its own local copies under
 `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`. Those copies are what the agent
 actually loads at runtime.
-
-The workspace tracks the relationship to the pool via `sync_to_pool`:
-
-| Status       | Meaning                                                     |
-| ------------ | ----------------------------------------------------------- |
-| `synced`     | Workspace copy matches the pool version                     |
-| `not_synced` | No corresponding pool entry exists for this workspace skill |
-| `conflict`   | Both exist but content differs                              |
-
-If a skill matters beyond one workspace, sync it to the pool early. Skills
-created only inside a workspace are easier to lose when that workspace is
-deleted, replaced, or manually cleaned up.
 
 ---
 

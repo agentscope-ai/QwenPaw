@@ -13,10 +13,6 @@ export interface SkillSpec {
   source: string;
   enabled?: boolean;
   channels?: string[];
-  sync_to_pool?: {
-    status?: SkillSyncStatus;
-    pool_name?: string;
-  };
   config?: Record<string, unknown>;
 }
 

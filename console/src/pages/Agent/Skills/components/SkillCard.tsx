@@ -16,10 +16,7 @@ import {
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
-import {
-  getSkillDisplaySource,
-  getSkillSyncStatusLabel,
-} from "./skillMetadata";
+import { getSkillDisplaySource } from "./skillMetadata";
 
 interface SkillCardProps {
   skill: SkillSpec;
@@ -188,14 +185,6 @@ export const SkillCard = React.memo(function SkillCard({
                   .join(", ")}
               </span>
             </div>
-            {skill.sync_to_pool && (
-              <div className={styles.metaItem}>
-                <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
-                <span className={styles.metaValue}>
-                  {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
-                </span>
-              </div>
-            )}
           </div>
         </div>
         <div className={styles.statusContainer}>
