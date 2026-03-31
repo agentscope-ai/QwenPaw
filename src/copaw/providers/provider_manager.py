@@ -542,6 +542,7 @@ PROVIDER_GEMINI = GeminiProvider(
 PROVIDER_OLLAMA = OllamaProvider(
     id="ollama",
     name="Ollama",
+    is_local=True,
     require_api_key=False,
     support_model_discovery=True,
     generate_kwargs={"max_tokens": None},
@@ -550,6 +551,7 @@ PROVIDER_OLLAMA = OllamaProvider(
 PROVIDER_LMSTUDIO = OpenAIProvider(
     id="lmstudio",
     name="LM Studio",
+    is_local=True,
     base_url="http://localhost:1234/v1",
     require_api_key=False,
     api_key_prefix="",
@@ -1098,7 +1100,8 @@ class ProviderManager:
         if model_id is None:
             return
 
-        if not local_manager.check_llamacpp_installation():
+        installed, _ = local_manager.check_llamacpp_installation()
+        if not installed:
             logger.info(
                 "Skipping local model restore because llama.cpp is not "
                 "installed.",

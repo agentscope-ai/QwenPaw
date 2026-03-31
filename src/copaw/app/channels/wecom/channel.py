@@ -41,7 +41,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from .utils import format_markdown_tables
+from .utils import compress_image_for_wecom, format_markdown_tables
 from ..utils import split_text
 
 logger = logging.getLogger(__name__)
@@ -635,9 +635,15 @@ class WecomChannel(BaseChannel):
         if not p.is_file():
             logger.warning("wecom upload: file not found: %s", local[:80])
             return None
-        data = p.read_bytes()
+
+        # Compress image if needed (WeCom has 2MB limit)
+        if media_type == "image":
+            data, filename = compress_image_for_wecom(local)
+        else:
+            data = p.read_bytes()
+            filename = p.name
+
         total_size = len(data)
-        filename = p.name
         md5 = hashlib.md5(data).hexdigest()
 
         # Split into chunks
@@ -1005,6 +1011,60 @@ class WecomChannel(BaseChannel):
         # Register event handlers
         self._client.on("message", self._on_message_sync)
         self._client.on("event.enter_chat", self._on_enter_chat_sync)
+
+        # Patch SDK heartbeat to trigger reconnect on pong timeout.
+        # Use ensure_future so reconnect survives heartbeat task cancel.
+        ws_mgr = self._client._ws_manager
+        _original_send_heartbeat = ws_mgr._send_heartbeat
+
+        async def _patched_send_heartbeat() -> None:
+            if ws_mgr._missed_pong_count >= ws_mgr._max_missed_pong:
+                logger.warning(
+                    "wecom heartbeat: no pong for %d pings, "
+                    "triggering reconnect",
+                    ws_mgr._missed_pong_count,
+                )
+                # Schedule reconnect BEFORE _stop_heartbeat() because
+                # it cancels the current task; any await after that
+                # would raise CancelledError.
+                asyncio.ensure_future(ws_mgr._schedule_reconnect())
+                ws_mgr._stop_heartbeat()
+                if ws_mgr._ws:
+                    try:
+                        await ws_mgr._ws.close()
+                    except Exception as close_err:
+                        logger.warning(
+                            "wecom heartbeat: failed to close ws: %s",
+                            close_err,
+                        )
+                return
+            # Normal path: delegate to original SDK implementation.
+            await _original_send_heartbeat()
+
+        ws_mgr._send_heartbeat = _patched_send_heartbeat
+
+        # Log reconnect events for observability.
+        self._client.on(
+            "disconnected",
+            lambda reason: logger.info(
+                "wecom disconnected: %s",
+                reason,
+            ),
+        )
+        self._client.on(
+            "reconnecting",
+            lambda attempt: logger.info(
+                "wecom reconnecting: attempt %d",
+                attempt,
+            ),
+        )
+        self._client.on(
+            "error",
+            lambda error: logger.error(
+                "wecom error: %s",
+                error,
+            ),
+        )
 
         self._ws_thread = threading.Thread(
             target=self._run_ws_forever,

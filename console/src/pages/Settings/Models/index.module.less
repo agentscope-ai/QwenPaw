@@ -1,3 +1,12 @@
+/* ---- Page Layout ---- */
+.settingsPage {
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ---- Page Header (breadcrumb style) ---- */
 .pageHeader {
   display: flex;
@@ -7,6 +16,14 @@
   padding: 20px;
   border-bottom: 1px solid #eae9e7;
   margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+/* ---- Scrollable Content ---- */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .breadcrumbHeader {
@@ -73,8 +90,7 @@
 /* ---- Provider Groups ---- */
 
 .providerGroup {
-  margin-bottom: 24px;
-  padding: 16px;
+  padding: 0 16px;
 
   &:last-of-type {
     margin-bottom: 0;
@@ -102,7 +118,7 @@
 .providerCard {
   flex: 1 1 calc(33.333% - 16px);
   min-width: 432px;
-  border-radius: 16px;
+  border-radius: 6px;
   transition: all 0.2s ease-in-out;
   cursor: pointer;
   position: relative;
@@ -157,6 +173,23 @@
   &.disabled {
     color: #999;
   }
+}
+
+/* Card Header Row (Icon + Status) */
+.cardHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+/* Provider Icon */
+.providerIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 /* Card Title Row */
@@ -302,7 +335,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding-top: 12px;
   position: absolute;
   bottom: 16px;
   left: 16px;
@@ -448,7 +480,7 @@
   padding: 24px;
   margin: 20px;
   background: #ffffff;
-  border-radius: 16px;
+  border-radius: 6px;
   border: 1px solid #e8e8e8;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transition: all 0.2s ease-in-out;
@@ -543,7 +575,6 @@
   gap: 16px;
   margin-bottom: 0;
   width: 100%;
-  border-bottom: 1px solid #f0f0f0;
 
   .section {
     flex: 1;
@@ -554,6 +585,17 @@
 .addProviderBtn {
   flex-shrink: 0;
   margin-right: 20px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.providersPageHeader {
+  border-bottom: none;
+  padding: 20px;
 }
 
 /* ---- Search Row ---- */
@@ -970,9 +1012,16 @@
 .localStatusCardFooter {
   margin-top: 12px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: stretch;
   gap: 12px;
+}
+
+.localStatusFooterContent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
 }
 
 .localStatusActions {
@@ -1083,6 +1132,14 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .settingsPage {
+    :global {
+      .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+        background: rgba(255, 255, 255, 0.04) !important;
+      }
+    }
+  }
+
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.12);
   }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Form, message } from "@agentscope-ai/design";
+import { Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import {
@@ -9,12 +9,15 @@ import {
   getChannelLabel,
   type ChannelKey,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 type FilterType = "all" | "builtin" | "custom";
 
 function ChannelsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { channels, orderedKeys, isBuiltin, loading, fetchChannels } =
     useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
@@ -107,28 +110,24 @@ function ChannelsPage() {
 
   return (
     <div className={styles.channelsPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Control</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>
-            {t("channels.title")}
-          </span>
-        </div>
-        <div className={styles.filterTabs}>
-          {FILTER_TABS.map(({ key, label }) => (
-            <button
-              key={key}
-              className={`${styles.filterTab} ${
-                filter === key ? styles.filterTabActive : ""
-              }`}
-              onClick={() => setFilter(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.control") }, { title: t("channels.title") }]}
+        center={
+          <div className={styles.filterTabs}>
+            {FILTER_TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                className={`${styles.filterTab} ${
+                  filter === key ? styles.filterTabActive : ""
+                }`}
+                onClick={() => setFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        }
+      />
       <div className={styles.channelsContainer}>
         {loading ? (
           <div className={styles.loading}>

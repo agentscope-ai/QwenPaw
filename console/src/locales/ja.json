@@ -95,6 +95,7 @@
     "enableSuccess": "エージェントが有効化されました",
     "toggleFailed": "エージェント状態の切り替えに失敗しました",
     "defaultNotDisablable": "デフォルトのエージェントは無効化できません",
+    "currentAgentDeleted": "現在のエージェントが削除されました。デフォルトエージェントに自動切り替えしました",
     "currentAgentDisabled": "現在のエージェントが無効化されました。デフォルトエージェントに自動切り替えしました",
     "switchedToDefault": "デフォルトエージェントに自動切り替えしました",
     "cannotSwitchToDisabled": "このエージェントは無効化されています。管理ページで有効化してください"
@@ -274,7 +275,8 @@
     "toggleError": "MCPクライアントのステータス変更に失敗しました",
     "deleteConfirm": "このMCPクライアントを削除してもよろしいですか？",
     "deleteSuccess": "MCPクライアントを削除しました",
-    "deleteError": "MCPクライアントの削除に失敗しました"
+    "deleteError": "MCPクライアントの削除に失敗しました",
+    "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。"
   },
   "heartbeat": {
     "title": "ハートビート",
@@ -681,10 +683,10 @@
     "localLlamacppInstallStarted": "llama.cpp のダウンロードを開始しました",
     "localLlamacppInstallSuccess": "llama.cpp のインストールが完了しました",
     "localLlamacppInstallFailed": "llama.cpp のインストールに失敗しました",
-    "localModelsModalDescription": "最初にローカル推論エンジンを準備し、その後で推奨モデルをダウンロードしてローカルサーバーを起動します。モーダルを閉じてもダウンロードは中断されません。",
     "localRuntimeSectionTitle": "Inference Engine",
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
     "localRuntimeInstalled": "インストール済み",
+    "localRuntimeUnsupported": "未対応",
     "localRuntimeMissing": "未導入",
     "localServerRunningTitle": "現在のローカルサーバー",
     "localServerOnline": "稼働中",
@@ -698,7 +700,7 @@
     "localEngineCurrentModelLabel": "現在提供中のモデル",
     "localEngineNextStepLabel": "次のステップ",
     "localEngineHealthLabel": "エンジン状態",
-    "localEngineStatusHint": "インストール後は、ダウンロード済みモデルを直接起動するか、下の一覧から推奨モデルをダウンロードできます。",
+    "localEngineStatusHint": "下の一覧から適切なモデルをダウンロードして起動してください",
     "localStartServer": "起動",
     "localStopServer": "停止",
     "localServerStartFailed": "ローカルサーバーの起動に失敗しました",
@@ -709,7 +711,8 @@
     "localModelPathMissing": "このダウンロード済みモデルにはローカルパス情報がありません。",
     "localModelsSectionTitle": "ローカルモデル",
     "localModelsSectionDescription": "ダウンロード済みモデルはすぐに起動できます。同時に実行できるのは 1 つのモデルダウンロードと 1 つのローカルサーバーだけです。",
-    "localModelsLockedHint": "推奨モデルを管理する前にローカル推論エンジンをインストールしてください。",
+    "localModelsLockedHint": "先に llama.cpp をインストールしてください",
+    "localAlternativeRuntimeHint": "Ollama または LM Studio をお試しください",
     "localModelsCount": "ダウンロード済み {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "現在のダウンロード",
     "localCustomModelTitle": "カスタムモデルのダウンロード",
@@ -824,7 +827,7 @@
     "toolResultCompactOldThresholdPlaceholder": "文字数しきい値を入力",
     "toolResultCompactOldThresholdRequired": "recent_nを超えるツール呼び出し結果の最大文字数は必須です",
     "toolResultCompactRecentThreshold": "recent_n内のツール呼び出し結果の最大文字数",
-    "toolResultCompactRecentThresholdTooltip": "recent_n範囲内のツール呼び出し結果で、この文字数を超えると圧縮されます",
+    "toolResultCompactRecentThresholdTooltip": "recent_n範囲内のツール呼び出し結果で、このバイト数を超えると圧縮されます。また、read_fileツールの1回の読み取りで返される最大バイト数にもなります。古いメッセージのしきい値以上である必要があります",
     "toolResultCompactRecentThresholdPlaceholder": "文字数しきい値を入力",
     "toolResultCompactRecentThresholdRequired": "recent_n内のツール呼び出し結果の最大文字数は必須です",
     "toolResultCompactRetentionDays": "ツール呼び出しファイルの保持日数",
@@ -869,7 +872,7 @@
     "toolResultCompactTitle": "ツール結果圧縮設定",
     "toolResultCompactEnabled": "ツール結果圧縮を有効化",
     "toolResultCompactEnabledTooltip": "過大なツール呼び出し結果を圧縮してコンテキストスペースを節約します",
-    "memorySummaryTitle": "記憶サマリー設定",
+    "memorySummaryTitle": "長期記憶設定",
     "memorySummaryEnabled": "記憶まとめを起動",
     "memorySummaryEnabledTooltip": "コンテキスト圧縮時に自動的に記憶サマリーを生成・保存します",
     "forceMemorySearch": "強制記憶検索(beta)",
@@ -1147,7 +1150,8 @@
         "title": "セキュリティ問題が検出されました",
         "description": "以下のセキュリティ問題が見つかりました：",
         "warnDescription": "セキュリティ問題が見つかりましたが、スキルは引き続き有効です（警告モード）：",
-        "goToWhitelist": "ホワイトリストへ"
+        "goToWhitelist": "ホワイトリストへ",
+        "moreFindings": "他に {{count}} 件は表示していません（一覧は 設定 → セキュリティ → スキルスキャナ を参照）。"
       }
     }
   },

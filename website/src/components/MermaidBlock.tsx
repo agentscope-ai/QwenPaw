@@ -41,7 +41,7 @@ function ensureMermaidInit() {
     startOnLoad: false,
     theme: "neutral",
     securityLevel: "loose",
-    fontFamily: '"DM Sans", -apple-system, BlinkMacSystemFont, sans-serif',
+    fontFamily: "var(--font-inter)",
   });
   mermaidInitialized = true;
 }

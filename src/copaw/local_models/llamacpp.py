@@ -12,7 +12,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import urllib.request
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Optional
@@ -82,6 +81,8 @@ class LlamaCppBackend:
     and setup.
     """
 
+    _MIN_MACOS_VERSION = (13, 3)
+
     def __init__(self, base_url: str, release_tag: str):
         self.base_url = base_url.rstrip("/")
         self.release_tag = release_tag
@@ -121,9 +122,26 @@ class LlamaCppBackend:
             return self.target_dir / "llama-server.exe"
         return self.target_dir / "llama-server"
 
-    def check_llamacpp_installation(self) -> bool:
+    def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Check if the llama.cpp server executable exists."""
-        return self.executable.exists()
+        if self.executable.exists():
+            return True, ""
+        else:
+            return False, "llama.cpp is not installed"
+
+    def check_llamacpp_installability(self) -> tuple[bool, str]:
+        """Check whether the current environment can install llama.cpp."""
+        if self.os_name == "macos":
+            supported, message = self._ensure_supported_macos_version()
+            if not supported:
+                return False, message
+
+        try:
+            self._build_filename()
+        except RuntimeError as exc:
+            return False, str(exc)
+
+        return True, ""
 
     def get_download_progress(self) -> dict[str, Any]:
         """Return the current llama.cpp download progress."""
@@ -177,6 +195,9 @@ class LlamaCppBackend:
           - ValueError: target_dir is an existing file path instead of a
             directory
         """
+        installable, message = self.check_llamacpp_installability()
+        if not installable:
+            raise RuntimeError(message)
         self._start_download(
             self.target_dir,
             chunk_size=chunk_size,
@@ -190,8 +211,9 @@ class LlamaCppBackend:
             model_path: Path to a local HF repo directory or GGUF file
             model_name: Name of the model to be used in the server
         """
-        if not self.check_llamacpp_installation():
-            raise RuntimeError("llama.cpp server is not installed")
+        installed, message = self.check_llamacpp_installation()
+        if not installed:
+            raise RuntimeError(message or "llama.cpp server is not installed")
         if not model_path.exists():
             raise FileNotFoundError(f"Model path not found: {model_path}")
 
@@ -282,6 +304,11 @@ class LlamaCppBackend:
             "--alias",
             model_name,
         ]
+
+        # Add GPU layers if NVIDIA GPU is available
+        if self.backend == "cuda" and self.os_name == "windows":
+            command.extend(["--gpu-layers", "auto"])
+
         try:
             logger.info(
                 "Setting up llama.cpp server for model %s at path %s",
@@ -435,7 +462,13 @@ class LlamaCppBackend:
                 status=DownloadTaskStatus.CANCELLED,
                 error=str(exc),
             )
-        except (OSError, RuntimeError, ValueError, shutil.Error) as exc:
+        except (
+            OSError,
+            RuntimeError,
+            ValueError,
+            shutil.Error,
+            httpx.HTTPError,
+        ) as exc:
             result = DownloadTaskResult(
                 status=DownloadTaskStatus.FAILED,
                 error=str(exc),
@@ -464,41 +497,46 @@ class LlamaCppBackend:
         os.close(temp_file_fd)
         temp_path = Path(temp_file_name)
 
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "llama-release-downloader/1.0"},
-        )
-
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                total_bytes = response.headers.get("Content-Length")
-                total_bytes_int = (
-                    int(total_bytes)
-                    if (total_bytes and total_bytes.isdigit())
-                    else None
-                )
+            with httpx.Client(
+                follow_redirects=True,
+                timeout=timeout,
+            ) as client:
+                with client.stream(
+                    "GET",
+                    url,
+                    headers=self._download_headers,
+                ) as response:
+                    response.raise_for_status()
+                    total_bytes = response.headers.get("Content-Length")
+                    total_bytes_int = (
+                        int(total_bytes)
+                        if (total_bytes and total_bytes.isdigit())
+                        else None
+                    )
 
-                downloaded = 0
+                    downloaded = 0
 
-                with open(temp_path, "wb") as f:
-                    while True:
-                        if self._is_download_cancelled():
-                            raise DownloadCancelled(
-                                "Download cancelled by user.",
+                    with open(temp_path, "wb") as f:
+                        for chunk in response.iter_bytes(
+                            chunk_size=chunk_size,
+                        ):
+                            if self._is_download_cancelled():
+                                raise DownloadCancelled(
+                                    "Download cancelled by user.",
+                                )
+
+                            if not chunk:
+                                continue
+
+                            f.write(chunk)
+                            downloaded += len(chunk)
+
+                            self._progress.update_downloaded(
+                                downloaded,
+                                total_bytes=total_bytes_int,
+                                source=url,
                             )
-
-                        chunk = response.read(chunk_size)
-                        if not chunk:
-                            break
-
-                        f.write(chunk)
-                        downloaded += len(chunk)
-
-                        self._progress.update_downloaded(
-                            downloaded,
-                            total_bytes=total_bytes_int,
-                            source=url,
-                        )
 
                 if self._is_download_cancelled():
                     raise DownloadCancelled("Download cancelled by user.")
@@ -756,6 +794,17 @@ class LlamaCppBackend:
         cancel_event = self._download_cancel_event
         return bool(cancel_event is not None and cancel_event.is_set())
 
+    @property
+    def _download_headers(self) -> dict[str, str]:
+        return {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/135.0.0.0 Safari/537.36"
+            ),
+            "Accept": "*/*",
+        }
+
     def _resolve_os_name(self) -> str:
         os_name = system_info.get_os_name()
         if os_name in ("windows", "macos", "linux"):
@@ -767,6 +816,26 @@ class LlamaCppBackend:
         if arch in ("x64", "arm64"):
             return arch
         raise RuntimeError(f"Unsupported architecture: {arch}")
+
+    def _ensure_supported_macos_version(self) -> tuple[bool, str]:
+        if self.os_name != "macos":
+            return True, ""
+        macos_version = system_info.get_macos_version()
+        if macos_version is None:
+            logger.warning("Unable to determine macOS version for llama.cpp")
+            return False, "Unknown macOS version"
+
+        if macos_version < self._MIN_MACOS_VERSION:
+            current_version = ".".join(str(part) for part in macos_version)
+            min_version = ".".join(
+                str(part) for part in self._MIN_MACOS_VERSION
+            )
+            return (
+                False,
+                f"Unsupported macOS version: {current_version} "
+                f"(requires {min_version} or later)",
+            )
+        return True, ""
 
     def _resolve_backend(self) -> str:
         # On macOS and Linux, only CPU backend is supported
@@ -786,12 +855,15 @@ class LlamaCppBackend:
         if cuda_version is None:
             return None
 
-        major = cuda_version.split(".", 1)[0]
-        mapping = {
-            "12": "12.4",
-            "13": "13.1",
-        }
-        return mapping.get(major)
+        parts = cuda_version.split(".")
+        major = parts[0]
+        minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+
+        if major == "12":
+            return "12.4" if minor >= 4 else None
+        if major == "13":
+            return "13.1"
+        return None
 
     def _build_filename(self) -> str:
         tag = self.release_tag

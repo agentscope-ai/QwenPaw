@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { message } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "@/api/modules/agents";
 import type { AgentSummary } from "@/api/types/agents";
@@ -20,6 +20,7 @@ export function useAgents(): UseAgentsReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const { setAgents: updateStoreAgents } = useAgentStore();
+  const { message } = useAppMessage();
 
   const loadAgents = async () => {
     setLoading(true);

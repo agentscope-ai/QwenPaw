@@ -10,15 +10,13 @@ import {
   FilePptFilled,
   FileImageFilled,
   CodeFilled,
+  EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
-import {
-  getSkillDisplaySource,
-  getSkillSyncStatusLabel,
-} from "./skillMetadata";
+import { getSkillDisplaySource } from "./skillMetadata";
 
 interface SkillCardProps {
   skill: SkillSpec;
@@ -187,14 +185,6 @@ export const SkillCard = React.memo(function SkillCard({
                   .join(", ")}
               </span>
             </div>
-            {skill.sync_to_pool && (
-              <div className={styles.metaItem}>
-                <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
-                <span className={styles.metaValue}>
-                  {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
-                </span>
-              </div>
-            )}
           </div>
         </div>
         <div className={styles.statusContainer}>
@@ -221,28 +211,26 @@ export const SkillCard = React.memo(function SkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer with buttons - only show on hover */}
-      {isHover && (
-        <div className={styles.cardFooter}>
+      {/* Footer with buttons - always show */}
+      <div className={styles.cardFooter}>
+        <Button
+          className={styles.actionButton}
+          onClick={handleToggleClick}
+          icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+        >
+          {skill.enabled ? t("common.disable") : t("common.enable")}
+        </Button>
+        {onDelete && (
           <Button
-            className={styles.actionButton}
-            onClick={handleToggleClick}
-            icon={<EyeInvisibleOutlined />}
+            danger
+            className={styles.deleteButton}
+            onClick={handleDeleteClick}
+            disabled={skill.enabled}
           >
-            {skill.enabled ? t("common.disable") : t("common.enable")}
+            {t("common.delete")}
           </Button>
-          {onDelete && (
-            <Button
-              danger
-              className={styles.deleteButton}
-              onClick={handleDeleteClick}
-              disabled={skill.enabled}
-            >
-              {t("common.delete")}
-            </Button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </Card>
   );
 });

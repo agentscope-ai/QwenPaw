@@ -1,16 +1,15 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search } from "lucide-react";
-import type { Lang } from "../i18n";
-import { t } from "../i18n";
+import { useTranslation } from "react-i18next";
 
 interface DocSearchProps {
-  lang: Lang;
   /** When on search page, pass the current q so input shows it */
   initialQuery?: string;
 }
 
-export function DocSearch({ lang, initialQuery = "" }: DocSearchProps) {
+export function DocSearch({ initialQuery = "" }: DocSearchProps) {
+  const { t } = useTranslation();
   const [inputValue, setInputValue] = useState(initialQuery);
   const navigate = useNavigate();
 
@@ -58,8 +57,8 @@ export function DocSearch({ lang, initialQuery = "" }: DocSearchProps) {
               runSearch();
             }
           }}
-          placeholder={t(lang, "docs.searchPlaceholder")}
-          aria-label={t(lang, "docs.searchPlaceholder")}
+          placeholder={t("docs.searchPlaceholder")}
+          aria-label={t("docs.searchPlaceholder")}
           style={{
             flex: 1,
             minWidth: 0,

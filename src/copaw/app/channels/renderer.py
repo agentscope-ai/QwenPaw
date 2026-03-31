@@ -193,7 +193,7 @@ class MessageRenderer:
                             ContentType.VIDEO,
                             ContentType.FILE,
                         )
-                        # Internal tools (e.g. view_image) produce
+                        # Internal tools (e.g. view_image/view_video) produce
                         # media for the LLM, not the user — skip.
                         media_parts = (
                             []

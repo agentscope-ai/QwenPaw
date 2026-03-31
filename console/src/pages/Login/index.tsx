@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Form, Input, message } from "antd";
+import { Button, Form, Input } from "antd";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { authApi } from "../../api/modules/auth";
 import { setAuthToken } from "../../api/config";
@@ -15,6 +16,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
+  const { message } = useAppMessage();
 
   useEffect(() => {
     authApi

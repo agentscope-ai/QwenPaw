@@ -84,40 +84,46 @@ class ModelManager:
         if memory_gb <= 8:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-2B-Q4_K_M",
-                    name="CoPaw-flash-2B-Q4_K_M",
+                    id="AgentScope/CoPaw-Flash-2B-Q4_K_M",
+                    name="CoPaw-Flash-2B-Q4_K_M",
                     size_bytes=1560460768,
+                    source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-2B-Q8_0",
-                    name="CoPaw-flash-2B-Q8_0",
+                    id="AgentScope/CoPaw-Flash-2B-Q8_0",
+                    name="CoPaw-Flash-2B-Q8_0",
                     size_bytes=2552356320,
+                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
         elif memory_gb <= 16:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-4B-Q4_K_M",
-                    name="CoPaw-flash-4B-Q4_K_M",
+                    id="AgentScope/CoPaw-Flash-4B-Q4_K_M",
+                    name="CoPaw-Flash-4B-Q4_K_M",
                     size_bytes=3066384736,
+                    source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-4B-Q8_0",
-                    name="CoPaw-flash-4B-Q8_0",
+                    id="AgentScope/CoPaw-Flash-4B-Q8_0",
+                    name="CoPaw-Flash-4B-Q8_0",
                     size_bytes=5157833056,
+                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
         else:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-9B-Q4_K_M",
-                    name="CoPaw-flash-9B-Q4_K_M",
+                    id="AgentScope/CoPaw-Flash-9B-Q4_K_M",
+                    name="CoPaw-Flash-9B-Q4_K_M",
                     size_bytes=5476080128,
+                    source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-9B-Q8_0",
-                    name="CoPaw-flash-9B-Q8_0",
+                    id="AgentScope/CoPaw-Flash-9B-Q8_0",
+                    name="CoPaw-Flash-9B-Q8_0",
                     size_bytes=10590617600,
+                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
 
