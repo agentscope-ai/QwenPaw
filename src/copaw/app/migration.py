@@ -335,11 +335,6 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
 
 def _do_migrate_legacy_skills() -> bool:
     """Internal implementation of legacy skills migration."""
-    # Check if migration has already been completed
-    migration_marker = Path(WORKING_DIR) / ".skill_migration_done"
-    if migration_marker.exists():
-        return False
-
     from ..agents.skills_manager import (
         _build_signature,
         _copy_skill_dir,
@@ -347,10 +342,17 @@ def _do_migrate_legacy_skills() -> bool:
         _mutate_json,
         _timestamp,
         ensure_skill_pool_initialized,
+        get_pool_skill_manifest_path,
         get_workspace_skill_manifest_path,
         get_workspace_skills_dir,
         reconcile_workspace_manifest,
     )
+
+    # --- Phase 0: Check if migration already completed ---
+    # If skill pool manifest exists, migration has been done
+    pool_manifest = get_pool_skill_manifest_path()
+    if pool_manifest.exists():
+        return False
 
     def _has_legacy_skill_root(root: Path) -> bool:
         return any(
@@ -399,7 +401,7 @@ def _do_migrate_legacy_skills() -> bool:
         _copy_skill_dir(source_dir, target_dir)
         return True
 
-    # --- Phase 0: Initialize pool ---
+    # --- Phase 1: Initialize pool ---
     try:
         ensure_skill_pool_initialized()
     except Exception as e:
@@ -596,11 +598,6 @@ def _do_migrate_legacy_skills() -> bool:
             "Legacy skill migration completed: %d workspace copies",
             copied_workspace_skills,
         )
-
-    # Mark migration as completed to skip on next startup
-    migration_marker = Path(WORKING_DIR) / ".skill_migration_done"
-    migration_marker.touch()
-    logger.debug("Created skill migration marker: %s", migration_marker)
 
     return copied_workspace_skills > 0
 
