@@ -178,12 +178,29 @@ def _extract_version(post: Any) -> str:
     return ""
 
 
+_IGNORED_SKILL_ARTIFACTS = {
+    "__pycache__",
+    "__MACOSX",
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+}
+
+
+def _is_ignored_skill_path(path: Path) -> bool:
+    return bool(_IGNORED_SKILL_ARTIFACTS & set(path.parts))
+
+
 def _build_signature(skill_dir: Path) -> str:
     """Hash the full skill tree using real file paths and real contents.
 
     This is the canonical content identity used by migration, pool sync,
     and conflict detection. If any file changes, including ``SKILL.md``,
     the signature changes.
+
+    OS/cache artifacts (``__pycache__``, ``.DS_Store``, etc.) are excluded
+    so that the signature stays consistent with ``_copy_skill_dir``, which
+    strips them on copy.
 
     Example:
         ``skill_pool/docx`` and ``workspaces/a1/skills/docx`` with identical
@@ -193,7 +210,10 @@ def _build_signature(skill_dir: Path) -> str:
     """
     digest = hashlib.sha256()
     for path in sorted(p for p in skill_dir.rglob("*") if p.is_file()):
-        digest.update(str(path.relative_to(skill_dir)).encode("utf-8"))
+        rel = path.relative_to(skill_dir)
+        if _is_ignored_skill_path(rel):
+            continue
+        digest.update(str(rel).encode("utf-8"))
         digest.update(path.read_bytes())
     return digest.hexdigest()
 
@@ -209,14 +229,7 @@ def _copy_skill_dir(source: Path, target: Path) -> None:
         shutil.rmtree(target)
 
     def _ignore(_dir: str, names: list[str]) -> set[str]:
-        ignored_names = {
-            "__pycache__",
-            "__MACOSX",
-            ".DS_Store",
-            "Thumbs.db",
-            "desktop.ini",
-        }
-        return {name for name in names if name in ignored_names}
+        return {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
 
     shutil.copytree(
         source,
@@ -495,13 +508,16 @@ def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
     elif "copaw" in metadata:
         requires = metadata["copaw"].get("requires", {})
     else:
-        requires = metadata.get("requires", {})
+        requires = metadata.get(
+            "requires",
+            post.get("requires", {}),
+        )
 
     if isinstance(requires, list):
-        return SkillRequirements(
-            require_bins=list(requires),
-            require_envs=[],
-        )
+        return SkillRequirements(require_bins=list(requires))
+
+    if not isinstance(requires, dict):
+        return SkillRequirements()
 
     return SkillRequirements(
         require_bins=list(requires.get("bins", [])),
