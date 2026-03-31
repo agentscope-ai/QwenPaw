@@ -244,6 +244,34 @@ function SkillPoolPage() {
               throw error;
             }
 
+            // Builtin upgrade: confirm then retry with overwrite
+            const builtinUpgrades = conflicts.filter(
+              (c: { reason?: string }) => c.reason === "builtin_upgrade",
+            );
+            if (builtinUpgrades.length > 0) {
+              const confirmed = await new Promise<boolean>((resolve) => {
+                Modal.confirm({
+                  title: t("skills.builtinUpgradeTitle"),
+                  content: t("skills.builtinUpgradeContent", {
+                    name: skillName,
+                  }),
+                  okText: t("common.confirm"),
+                  cancelText: t("common.cancel"),
+                  onOk: () => resolve(true),
+                  onCancel: () => resolve(false),
+                });
+              });
+              if (!confirmed) return;
+              await api.downloadSkillPoolSkill({
+                skill_name: skillName,
+                targets: targetWorkspaceIds.map((workspace_id) => ({
+                  workspace_id,
+                })),
+                overwrite: true,
+              });
+              break;
+            }
+
             const renameItems = conflicts
               .map((c: { workspace_id?: string; suggested_name?: string }) => {
                 if (!c.workspace_id || !c.suggested_name) {

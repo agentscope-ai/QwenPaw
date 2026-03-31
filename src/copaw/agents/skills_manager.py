@@ -95,19 +95,21 @@ def _get_builtin_signatures() -> dict[str, str]:
     """Return cached signatures for all packaged builtin skills.
 
     Computed once on first access; subsequent calls return the same dict.
+    Thread-safe: a local dict is built first, then merged in one shot
+    so concurrent callers never observe a partially-filled cache.
     """
     if _BUILTIN_SIGNATURES:
         return _BUILTIN_SIGNATURES
     with _BUILTIN_SIG_LOCK:
         if _BUILTIN_SIGNATURES:
             return _BUILTIN_SIGNATURES
+        sigs: dict[str, str] = {}
         builtin_dir = get_builtin_skills_dir()
         if builtin_dir.exists():
             for skill_dir in sorted(builtin_dir.iterdir()):
                 if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-                    _BUILTIN_SIGNATURES[skill_dir.name] = _build_signature(
-                        skill_dir,
-                    )
+                    sigs[skill_dir.name] = _build_signature(skill_dir)
+        _BUILTIN_SIGNATURES.update(sigs)
     return _BUILTIN_SIGNATURES
 
 
@@ -396,20 +398,6 @@ def _default_pool_manifest() -> dict[str, Any]:
         "skills": {},
         "builtin_skill_names": [],
     }
-
-
-def _get_builtin_skill_names() -> list[str]:
-    """Get list of builtin skill names from src/copaw/agents/skills/."""
-    builtin_dir = get_builtin_skills_dir()
-    if not builtin_dir.exists():
-        return []
-    return sorted(
-        [
-            p.name
-            for p in builtin_dir.iterdir()
-            if p.is_dir() and (p / "SKILL.md").exists()
-        ],
-    )
 
 
 def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
@@ -886,7 +874,7 @@ def import_builtin_skills(
 
     def _process(payload: dict[str, Any]) -> dict[str, list[Any]]:
         skills = payload.setdefault("skills", {})
-        payload["builtin_skill_names"] = _get_builtin_skill_names()
+        payload["builtin_skill_names"] = sorted(builtin_sigs.keys())
         for skill_name in selected_names:
             skill_dir = builtin_dir / skill_name
             target = pool_dir / skill_name
@@ -965,7 +953,8 @@ def reconcile_pool_manifest() -> dict[str, Any]:
     if not manifest_path.exists():
         _write_json_atomic(manifest_path, _default_pool_manifest())
 
-    builtin_names = _get_builtin_skill_names()
+    builtin_sigs = _get_builtin_signatures()
+    builtin_names = sorted(builtin_sigs.keys())
 
     def _update(payload: dict[str, Any]) -> dict[str, Any]:
         payload.setdefault("skills", {})
@@ -1232,8 +1221,8 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
 
 def update_single_builtin(skill_name: str) -> dict[str, Any]:
     """Update one builtin skill in the pool to the latest packaged version."""
-    builtin_names = _get_builtin_skill_names()
-    if skill_name not in builtin_names:
+    builtin_sigs = _get_builtin_signatures()
+    if skill_name not in builtin_sigs:
         raise ValueError(f"'{skill_name}' is not a builtin skill")
 
     manifest = read_skill_pool_manifest(reconcile=False)

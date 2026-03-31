@@ -314,7 +314,10 @@ function SkillsPage() {
     }
   };
 
-  const handleDownloadFromPool = async (poolSkillNames: string[], overwrite?: boolean) => {
+  const handleDownloadFromPool = async (
+    poolSkillNames: string[],
+    overwrite?: boolean,
+  ) => {
     if (poolSkillNames.length === 0) return;
     try {
       for (const skillName of poolSkillNames) {
@@ -339,7 +342,9 @@ function SkillsPage() {
               const confirmed = await new Promise<boolean>((resolve) => {
                 Modal.confirm({
                   title: t("skills.builtinUpgradeTitle"),
-                  content: t("skills.builtinUpgradeContent", { name: conflict.skill_name || skillName }),
+                  content: t("skills.builtinUpgradeContent", {
+                    name: conflict.skill_name || skillName,
+                  }),
                   onOk: () => resolve(true),
                   onCancel: () => resolve(false),
                 });
