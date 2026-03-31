@@ -83,7 +83,7 @@ chromadb import failed, falling back to `local` backend.
 This is often caused by an outdated system SQLite (requires >= 3.35).
 Please upgrade your system SQLite to >= 3.35.
 See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
- | Error: {e}
+| Error: {e}
                         """,
                     )
                     memory_backend = "local"
