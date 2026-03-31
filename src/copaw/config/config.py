@@ -548,7 +548,7 @@ class AgentsRunningConfig(BaseModel):
         description="Embedding model configuration",
     )
 
-    memory_manager_backend: Literal["remelight"] = Field(
+    memory_manager_backend: Literal["remelight", "powermem"] = Field(
         default="remelight",
         description=(
             "Memory manager backend type. "

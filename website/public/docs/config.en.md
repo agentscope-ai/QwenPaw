@@ -403,7 +403,7 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | ------------------------ | ------ | ------------- | ---------------------------------------------------------- |
 | `memory_summary`         | object | _(see below)_ | Memory summarization and search configuration object       |
 | `embedding_config`       | object | _(see below)_ | Embedding model configuration for semantic retrieval       |
-| `memory_manager_backend` | string | `"remelight"` | Memory manager backend type (currently only `"remelight"`) |
+| `memory_manager_backend` | string | `"remelight"` | Memory manager backend type (`"remelight"` or `"powermem"`) |
 
 **Memory Summary Configuration (`memory_summary` object):**
 

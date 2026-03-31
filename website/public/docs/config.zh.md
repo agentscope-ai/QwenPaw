@@ -356,7 +356,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | ------------------------ | ------ | ------------- | ---------------------------------------------- |
 | `memory_summary`         | object | _（见下方）_  | 记忆总结与搜索配置对象                         |
 | `embedding_config`       | object | _（见下方）_  | Embedding 模型配置对象（用于语义检索）         |
-| `memory_manager_backend` | string | `"remelight"` | 记忆管理器后端类型（当前仅支持 `"remelight"`） |
+| `memory_manager_backend` | string | `"remelight"` | 记忆管理器后端类型（`"remelight"` 或 `"powermem"`） |
 
 **记忆总结配置（`memory_summary` 对象）：**
 

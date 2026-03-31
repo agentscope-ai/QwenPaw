@@ -3,7 +3,7 @@
 **Long-term Memory** gives CoPaw persistent memory across conversations: writes key information to Markdown files for
 long-term storage, with semantic search for recall at any time.
 
-> The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe) — a file-based memory backend where memories are plain Markdown files that can be read, edited, and migrated directly.
+> The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe) — a file-based memory backend where memories are plain Markdown files that can be read, edited, and migrated directly. CoPaw also supports **PowerMem** as an alternative memory backend.
 
 ---
 
@@ -31,6 +31,8 @@ Long-term memory management includes the following capabilities:
 | **File Watching**      | Monitors file changes via `watchfile`, asynchronously updating the local database (semantic index & vector index)  |
 | **Semantic Search**    | Recalls relevant memories by semantics using vector embeddings + BM25 hybrid search                                |
 | **File Reading**       | Reads the corresponding Memory Markdown files directly via file tools, loading on demand to keep the context lean  |
+
+> **Note**: The capabilities above (file-based storage, hybrid search, file watching) are specific to the **ReMeLight** backend. The **PowerMem** backend uses a different storage architecture and may not support all features listed here.
 
 ---
 

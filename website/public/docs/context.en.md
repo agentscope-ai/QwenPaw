@@ -6,7 +6,7 @@ Imagine the LLM's context window as a **backpack with limited capacity** 🎒. E
 
 **Context management** is a set of mechanisms that help you "manage your backpack", ensuring the AI can work continuously and efficiently.
 
-> The context management mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe).
+> The context management mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe). CoPaw also supports **PowerMem** as an alternative backend.
 
 ### How It Works — Summary
 

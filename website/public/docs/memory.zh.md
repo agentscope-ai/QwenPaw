@@ -2,7 +2,7 @@
 
 **长期记忆** 让 CoPaw 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
 
-> 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，记忆即 Markdown 文件，可直接读取、编辑与迁移。
+> 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，记忆即 Markdown 文件，可直接读取、编辑与迁移。CoPaw 同时支持 **PowerMem** 作为备选记忆后端。
 
 ---
 
@@ -30,6 +30,8 @@ graph TB
 | **文件监控**   | 通过 `watchfile` 监控文件改动，异步更新本地数据库（语义索引 & 向量索引）                |
 | **语义搜索**   | 通过向量嵌入 + BM25 混合检索，按语义召回相关记忆                                        |
 | **文件读取**   | 直接通过文件工具读取对应的 Memory Markdown 文件，按需加载保持上下文精简                 |
+
+> **注意**：以上能力（文件存储、混合检索、文件监控）为 **ReMeLight** 后端特有。**PowerMem** 后端采用不同的存储架构，可能不支持上述全部功能。
 
 ---
 

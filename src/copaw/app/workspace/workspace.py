@@ -10,6 +10,7 @@ Each Workspace represents a standalone agent workspace with its own:
 
 All existing single-agent components are reused without modification.
 """
+
 import logging
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -37,10 +38,12 @@ logger = logging.getLogger(__name__)
 
 def _resolve_memory_class(backend: str) -> type:
     """Return the memory manager class for the given backend name."""
-    from ...agents.memory import ReMeLightMemoryManager
+    from ...agents.memory import ReMeLightMemoryManager, PowerMemMemoryManager
 
     if backend == "remelight":
         return ReMeLightMemoryManager
+    if backend == "powermem":
+        return PowerMemMemoryManager
     raise ValueError(f"Unsupported memory manager backend: '{backend}'")
 
 
