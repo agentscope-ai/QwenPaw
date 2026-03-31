@@ -217,6 +217,22 @@ button {
   padding-left: 1.5rem;
 }
 
+.docs-content ul {
+  list-style-type: disc;
+}
+
+.docs-content ol {
+  list-style-type: decimal;
+}
+
+.docs-content ul li::marker {
+  color: #4a4a4a !important;
+}
+
+.docs-content ol li::marker {
+  color: #4a4a4a !important;
+}
+
 .docs-content li {
   margin: 0.25rem 0;
 }
@@ -248,11 +264,11 @@ button {
 }
 
 .release-notes-content ul li::marker {
-  color: #1c1c1c !important;
+  color: #4a4a4a !important;
 }
 
 .release-notes-content ol li::marker {
-  color: #1c1c1c !important;
+  color: #4a4a4a !important;
   font-weight: 600;
 }
 
