@@ -11,7 +11,7 @@ export function useMCP() {
   const [clients, setClients] = useState<MCPClientInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const { message } = useAppMessage();
-  
+
   const loadClients = useCallback(async () => {
     setLoading(true);
     try {

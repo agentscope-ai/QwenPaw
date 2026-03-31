@@ -11,7 +11,7 @@ export function useCronJobs() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
   const { message } = useAppMessage();
-  
+
   const fetchJobs = async () => {
     setLoading(true);
     try {
