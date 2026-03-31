@@ -95,6 +95,14 @@ class DingTalkChannel(BaseChannel):
 
     channel = "dingtalk"
 
+    # Keys to exclude when creating serializable channel_meta
+    _NON_SERIALIZABLE_META_KEYS = (
+        "incoming_message",
+        "reply_future",
+        "reply_loop",
+        "_reply_futures_list",
+    )
+
     def __init__(
         self,
         process: ProcessHandler,
@@ -293,14 +301,47 @@ class DingTalkChannel(BaseChannel):
             content_parts=content_parts,
             channel_meta=meta,
         )
-        if hasattr(request, "channel_meta"):
-            request.channel_meta = meta
+        # Set serializable channel_meta (exclude non-JSON-serializable objects)
+        serializable_meta = {
+            k: v
+            for k, v in meta.items()
+            if k not in self._NON_SERIALIZABLE_META_KEYS
+        }
+        setattr(request, "channel_meta", serializable_meta)
         return request
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
         # Key by session_id (short suffix of conversation_id) so cron can
         # use the same session_id to look up stored sessionWebhook.
         return f"dingtalk:sw:{session_id}"
+
+    async def _before_consume_process(self, request: "AgentRequest") -> None:
+        """Save session_webhook from meta for cron/proactive send."""
+        meta = getattr(request, "channel_meta", None) or {}
+        session_webhook = self._get_session_webhook(meta)
+        if not session_webhook:
+            return
+        session_id = getattr(request, "session_id", None)
+        if not session_id:
+            return
+        webhook_key = self.to_handle_from_target(
+            user_id=getattr(request, "user_id", None) or "",
+            session_id=session_id,
+        )
+        logger.info(
+            "dingtalk _before_consume_process: storing webhook "
+            "session_id=%s conversation_id=%s",
+            session_id,
+            meta.get("conversation_id"),
+        )
+        await self._save_session_webhook(
+            webhook_key,
+            session_webhook,
+            expired_time=meta.get("session_webhook_expired_time"),
+            conversation_id=meta.get("conversation_id"),
+            conversation_type=meta.get("conversation_type"),
+            sender_staff_id=meta.get("sender_staff_id"),
+        )
 
     def _route_from_handle(self, to_handle: str) -> dict:
         # to_handle:
@@ -453,10 +494,13 @@ class DingTalkChannel(BaseChannel):
                 if self._is_webhook_expired(entry):
                     logger.info(
                         "dingtalk _load_session_webhook_entry: "
-                        "webhook_key=%s is expired, returning None",
+                        "webhook_key=%s is expired, clearing webhook "
+                        "but keeping conversation_id for Open API fallback",
                         webhook_key,
                     )
-                    return None
+                    # Clear webhook but keep conversation_id etc for fallback
+                    entry = {k: v for k, v in entry.items() if k != "webhook"}
+                    return entry
                 return entry
 
             logger.info(
@@ -807,13 +851,11 @@ class DingTalkChannel(BaseChannel):
 
         if is_group:
             url = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
-            payload = {
+            payload: Dict[str, Any] = {
                 "robotCode": self.robot_code,
-                "groupOpenId": conversation_id,
-                "msg": {
-                    "msgType": "text",
-                    "text": {"content": text},
-                },
+                "openConversationId": conversation_id,
+                "msgKey": "sampleText",
+                "msgParam": json.dumps({"content": text}),
             }
         else:
             if not sender_staff_id:
@@ -826,10 +868,8 @@ class DingTalkChannel(BaseChannel):
             payload = {
                 "robotCode": self.robot_code,
                 "userIds": [sender_staff_id],
-                "msg": {
-                    "msgType": "text",
-                    "text": {"content": text},
-                },
+                "msgKey": "sampleText",
+                "msgParam": json.dumps({"content": text}),
             }
 
         headers = {
@@ -1632,16 +1672,10 @@ class DingTalkChannel(BaseChannel):
         )
         # Keep only JSON-serializable keys on request for tracing; pass full
         # send_meta as reply_meta for _reply_sync_batch / send_content_parts.
-        _NON_SERIALIZABLE = (
-            "incoming_message",
-            "reply_loop",
-            "reply_future",
-            "_reply_futures_list",
-        )
         safe_meta = {
             k: v
             for k, v in (send_meta or {}).items()
-            if k not in _NON_SERIALIZABLE
+            if k not in self._NON_SERIALIZABLE_META_KEYS
         }
         request.channel_meta = safe_meta
         logger.info(
@@ -1721,29 +1755,6 @@ class DingTalkChannel(BaseChannel):
                     "dingtalk create ai card failed, fallback to markdown",
                 )
                 use_ai_card = False
-
-        # Store sessionWebhook (keyed by conversation).
-        if session_webhook:
-            fallback_sid = f"{self.channel}:{request.user_id}"
-            webhook_key = self.to_handle_from_target(
-                user_id=request.user_id or "",
-                session_id=request.session_id or fallback_sid,
-            )
-            logger.info(
-                "dingtalk _process_one_request: storing webhook "
-                "session_id=%s conversation_id=%s webhook_key=%s",
-                getattr(request, "session_id", None),
-                meta.get("conversation_id"),
-                webhook_key,
-            )
-            await self._save_session_webhook(
-                webhook_key,
-                session_webhook,
-                expired_time=meta.get("session_webhook_expired_time"),
-                conversation_id=meta.get("conversation_id"),
-                conversation_type=meta.get("conversation_type"),
-                sender_staff_id=meta.get("sender_staff_id"),
-            )
 
         async for event in self._process(request):
             event_count += 1
@@ -2510,11 +2521,30 @@ class DingTalkChannel(BaseChannel):
                         session_webhook = webhook_entry.get("webhook")
 
         if not session_webhook:
-            logger.warning(
-                "DingTalkChannel.send: no sessionWebhook for to_handle=%s. "
-                "User must have chatted with the bot first, or pass "
-                "meta['session_webhook']. Skip sending.",
+            # No valid webhook: try Open API fallback directly
+            logger.info(
+                "DingTalkChannel.send: no sessionWebhook for to_handle=%s, "
+                "trying Open API fallback",
                 to_handle,
+            )
+            params = self._resolve_open_api_params(
+                meta,
+                webhook_entry,
+            )
+            if not params["conversation_id"]:
+                logger.warning(
+                    "DingTalkChannel.send: no sessionWebhook and no "
+                    "conversation_id for to_handle=%s. User must have "
+                    "chatted with the bot first. Skip sending.",
+                    to_handle,
+                )
+                return
+            await self._send_via_open_api(
+                text,
+                conversation_id=params["conversation_id"],
+                conversation_type=params["conversation_type"],
+                sender_staff_id=params["sender_staff_id"],
+                bot_prefix="",
             )
             return
 

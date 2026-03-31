@@ -37,6 +37,33 @@ def _kill_process_tree_win32(pid: int) -> None:
         pass
 
 
+def _collapse_embedded_newlines(cmd: str) -> str:
+    r"""Replace embedded newline characters with spaces in a command string.
+
+    LLMs produce tool-call arguments in JSON where ``\n`` is parsed as an
+    actual newline character.  In the original shell command the user
+    intended the *literal* two-character sequence ``\n`` (e.g. inside a
+    ``--content`` flag), but after JSON decoding it becomes a real line
+    break.  When passed to a shell:
+
+    * **Windows** ``cmd.exe`` truncates the command at the first newline.
+    * **Unix** ``sh -c`` treats an unquoted newline as a command separator,
+      so only the first "line" is executed with its arguments.
+
+    Collapsing these newlines to spaces is a safe default because:
+
+    1. For the bug case (JSON artefact) it prevents truncation.
+    2. For intentional multi-line scripts on Windows the ``cmd /D /S /C``
+       wrapper *already* breaks at newlines, so this is no worse.
+    3. On Unix, callers should prefer ``&&`` / ``;`` over raw newlines for
+       multi-command sequences; a stray newline inside an argument is
+       almost certainly a JSON artefact.
+    """
+    if "\n" not in cmd:
+        return cmd
+    return cmd.replace("\r\n", " ").replace("\n", " ")
+
+
 def _sanitize_win_cmd(cmd: str) -> str:
     """Fix common LLM escaping artefacts for Windows ``cmd.exe``.
 
@@ -79,9 +106,16 @@ def _execute_subprocess_sync(
     only waits for the direct child (``cmd.exe``) to exit, so commands
     that spawn background processes return immediately.
 
+    .. note::
+
+       Callers must pre-process *cmd* through
+       :func:`_collapse_embedded_newlines` before passing it here.
+       ``execute_shell_command`` already does this.
+
     Args:
         cmd (`str`):
-            The shell command to execute.
+            The shell command to execute (must not contain embedded
+            newlines — see note above).
         cwd (`str`):
             The working directory for the command execution.
         timeout (`int`):
@@ -204,7 +238,7 @@ async def execute_shell_command(
             return code will be -1 and stderr will contain timeout information.
     """
 
-    cmd = (command or "").strip()
+    cmd = _collapse_embedded_newlines((command or "").strip())
 
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:

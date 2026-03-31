@@ -1,12 +1,6 @@
 import { useState } from "react";
-import {
-  Button,
-  Form,
-  Input,
-  Modal,
-  Tag,
-  message,
-} from "@agentscope-ai/design";
+import { Button, Form, Input, Modal, Tag } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ProviderInfo } from "../../../../api/types";
 import api from "../../../../api";
@@ -30,6 +24,8 @@ export function ModelManageModal({
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const { message } = useAppMessage();
+
   // --- Remote provider logic ---
 
   // For custom providers ALL models are deletable.

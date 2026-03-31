@@ -1,9 +1,14 @@
 import { Dropdown } from "@agentscope-ai/design";
-import { GlobalOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { Button, type MenuProps } from "antd";
 import { languageApi } from "../../api/modules/language";
 import styles from "./index.module.less";
+import {
+  SparkChinese02Line,
+  SparkEnglish02Line,
+  SparkJapanLine,
+  SparkRusLine,
+} from "@agentscope-ai/icons";
 
 export default function LanguageSwitcher() {
   const { i18n } = useTranslation();
@@ -44,14 +49,12 @@ export default function LanguageSwitcher() {
     },
   ];
 
-  // const languageIcons: Record<string, string> = {
-  //   en: "https://gw.alicdn.com/imgextra/i1/O1CN015nxrjZ1JkjjTH3DLE_!!6000000001067-2-tps-80-80.png",
-  //   ru: "https://gw.alicdn.com/imgextra/i4/O1CN01QjtbJU1HWQ7WlCXce_!!6000000000765-2-tps-80-80.png",
-  //   zh: "https://gw.alicdn.com/imgextra/i3/O1CN01L3Tjzd22UqhdBWnXO_!!6000000007124-2-tps-80-80.png",
-  //   ja: "https://gw.alicdn.com/imgextra/i3/O1CN019bbf8m1y6L2lor0bZ_!!6000000006529-2-tps-80-80.png",
-  // };
-
-  // const currentLabel = languageIcons[currentLanguage] ?? <GlobalOutlined />;
+  const LIGHT_ICON: Record<string, React.ReactElement> = {
+    en: <SparkEnglish02Line />,
+    zh: <SparkChinese02Line />,
+    ja: <SparkJapanLine />,
+    ru: <SparkRusLine />,
+  };
 
   return (
     <Dropdown
@@ -59,12 +62,7 @@ export default function LanguageSwitcher() {
       placement="bottomRight"
       overlayClassName={styles.languageDropdown}
     >
-      {/* <img
-        className={styles.languageIcon}
-        src={currentLabel as string}
-        alt="Language"
-      /> */}
-      <Button icon={<GlobalOutlined />} type="text" />
+      <Button icon={LIGHT_ICON[currentLangKey]} type="text" />
     </Dropdown>
   );
 }

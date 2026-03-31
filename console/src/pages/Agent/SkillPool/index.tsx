@@ -5,10 +5,10 @@ import {
   Input,
   Modal,
   Tooltip,
-  message,
   Drawer,
   Form,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   ImportOutlined,
   PlusOutlined,
@@ -25,6 +25,7 @@ import type {
   WorkspaceSkillSummary,
 } from "../../../api/types";
 import { parseErrorDetail } from "../../../utils/error";
+import { handleScanError, checkScanWarnings } from "../../../utils/scanError";
 import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import {
   getSkillDisplaySource,
@@ -64,6 +65,7 @@ function SkillPoolPage() {
   const [importing, setImporting] = useState(false);
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
+  const { message } = useAppMessage();
 
   // Form state for create/edit drawer
   const [form] = Form.useForm();
@@ -211,6 +213,7 @@ function SkillPoolPage() {
             });
             break;
           } catch (error) {
+            if (handleScanError(error, t)) return;
             const detail = parseErrorDetail(error);
             const conflicts = Array.isArray(detail?.conflicts)
               ? detail.conflicts
@@ -272,12 +275,24 @@ function SkillPoolPage() {
       }
       message.success(t("skillPool.broadcastSuccess"));
       closeModal();
-      invalidateSkillCache({ pool: true, workspaces: true }); // Clear pool and workspaces cache
+      invalidateSkillCache({ pool: true, workspaces: true });
       await loadData(true);
+      for (const skillName of broadcastSkillNames) {
+        await checkScanWarnings(
+          skillName,
+          api.getBlockedHistory,
+          api.getSkillScanner,
+          t,
+        );
+      }
     } catch (error) {
-      message.error(
-        error instanceof Error ? error.message : t("skillPool.broadcastFailed"),
-      );
+      if (!handleScanError(error, t)) {
+        message.error(
+          error instanceof Error
+            ? error.message
+            : t("skillPool.broadcastFailed"),
+        );
+      }
     }
   };
 
@@ -408,9 +423,16 @@ function SkillPoolPage() {
           : t("common.create"),
       );
       closeDrawer();
-      invalidateSkillCache({ pool: true }); // Clear pool cache
+      invalidateSkillCache({ pool: true });
       await loadData(true);
+      await checkScanWarnings(
+        result.name || skillName,
+        api.getBlockedHistory,
+        api.getSkillScanner,
+        t,
+      );
     } catch (error) {
+      if (handleScanError(error, t)) return;
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
         const renameMap = await showConflictRenameModal([
@@ -490,6 +512,16 @@ function SkillPoolPage() {
         }
         invalidateSkillCache({ pool: true }); // Clear pool cache
         await loadData(true);
+        if (result.count > 0 && Array.isArray(result.imported)) {
+          for (const name of result.imported) {
+            await checkScanWarnings(
+              name,
+              api.getBlockedHistory,
+              api.getSkillScanner,
+              t,
+            );
+          }
+        }
         break;
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -497,6 +529,7 @@ function SkillPoolPage() {
           ? detail.conflicts
           : [];
         if (conflicts.length === 0) {
+          if (handleScanError(error, t)) break;
           message.error(
             error instanceof Error
               ? error.message
@@ -531,7 +564,14 @@ function SkillPoolPage() {
       closeImportModal();
       invalidateSkillCache({ pool: true }); // Clear pool cache
       await loadData(true);
+      await checkScanWarnings(
+        result.name,
+        api.getBlockedHistory,
+        api.getSkillScanner,
+        t,
+      );
     } catch (error) {
+      if (handleScanError(error, t)) return;
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
         const skillName = detail?.skill_name || "";

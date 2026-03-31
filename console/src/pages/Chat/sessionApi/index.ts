@@ -337,6 +337,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
 
   /**
+   * When set, getSessionList will move the matching session to the front on the first call,
+   * so the library's useMount auto-selects it instead of always defaulting to sessions[0].
+   * Cleared after first use.
+   */
+  preferredChatId: string | null = null;
+
+  /**
    * Cache the latest user message for a chat so it can be patched into
    * history during reconnect (the backend only persists it after generation
    * completes). Persisted to sessionStorage so it survives page refresh.
@@ -493,6 +500,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             ? { ...s, id: existing.id, realId: existing.realId }
             : s;
         });
+
+        // Move the preferred session to the front so the library's useMount
+        // auto-selects it, avoiding an unnecessary getSession call for sessions[0].
+        if (this.preferredChatId) {
+          const preferredId = this.preferredChatId;
+          this.preferredChatId = null;
+          const idx = this.sessionList.findIndex((s) => s.id === preferredId);
+          if (idx > 0) {
+            const [preferred] = this.sessionList.splice(idx, 1);
+            this.sessionList.unshift(preferred);
+          }
+        }
 
         return [...this.sessionList];
       } finally {
