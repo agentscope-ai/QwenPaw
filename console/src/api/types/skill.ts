@@ -14,6 +14,7 @@ export interface SkillSpec {
   enabled?: boolean;
   channels?: string[];
   config?: Record<string, unknown>;
+  last_updated?: string;
 }
 
 export interface PoolSkillSpec {
@@ -27,6 +28,7 @@ export interface PoolSkillSpec {
   sync_status?: SkillSyncStatus | "";
   latest_version_text?: string;
   config?: Record<string, unknown>;
+  last_updated?: string;
 }
 
 export interface WorkspaceSkillSummary {

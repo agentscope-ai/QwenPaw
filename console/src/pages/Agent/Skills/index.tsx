@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Form, Tooltip } from "@agentscope-ai/design";
+import { Button, Form, Modal, Tooltip } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
   ImportOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SwapOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
@@ -42,6 +43,7 @@ function SkillsPage() {
     toggleEnabled,
     deleteSkill,
     refreshSkills,
+    hardRefresh,
   } = useSkills();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -312,7 +314,7 @@ function SkillsPage() {
     }
   };
 
-  const handleDownloadFromPool = async (poolSkillNames: string[]) => {
+  const handleDownloadFromPool = async (poolSkillNames: string[], overwrite?: boolean) => {
     if (poolSkillNames.length === 0) return;
     try {
       for (const skillName of poolSkillNames) {
@@ -327,11 +329,27 @@ function SkillsPage() {
                   target_name: targetName,
                 },
               ],
+              overwrite,
             });
             break;
           } catch (error) {
             const detail = parseErrorDetail(error);
             const conflict = detail?.conflicts?.[0];
+            if (conflict?.reason === "builtin_upgrade") {
+              const confirmed = await new Promise<boolean>((resolve) => {
+                Modal.confirm({
+                  title: t("skills.builtinUpgradeTitle"),
+                  content: t("skills.builtinUpgradeContent", { name: conflict.skill_name || skillName }),
+                  onOk: () => resolve(true),
+                  onCancel: () => resolve(false),
+                });
+              });
+              if (confirmed) {
+                await handleDownloadFromPool([skillName], true);
+                break;
+              }
+              return;
+            }
             if (!conflict?.suggested_name) throw error;
             const renameMap = await showConflictRenameModal([
               {
@@ -372,6 +390,14 @@ function SkillsPage() {
               style={{ display: "none" }}
             />
             <div className={styles.headerActionsLeft}>
+              <Tooltip title={t("skills.refreshHint")}>
+                <Button
+                  type="default"
+                  icon={<ReloadOutlined spin={loading} />}
+                  onClick={hardRefresh}
+                  disabled={loading}
+                />
+              </Tooltip>
               <Tooltip title={t("skills.downloadFromPoolHint")}>
                 <Button
                   type="default"

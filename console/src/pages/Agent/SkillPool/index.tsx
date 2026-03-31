@@ -12,11 +12,13 @@ import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   ImportOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SendOutlined,
   SyncOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
+import dayjs from "dayjs";
 import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
@@ -91,6 +93,26 @@ function SkillPoolPage() {
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : "Failed to load skill pool",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      invalidateSkillCache({ pool: true, workspaces: true });
+      const [poolSkills, workspaceSummaries] = await Promise.all([
+        api.refreshSkillPool(),
+        api.listSkillWorkspaces(),
+      ]);
+      setSkills(poolSkills);
+      setWorkspaces(workspaceSummaries);
+      dataLoadedRef.current = true;
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : "Failed to refresh",
       );
     } finally {
       setLoading(false);
@@ -612,6 +634,14 @@ function SkillPoolPage() {
               style={{ display: "none" }}
             />
             <div className={styles.headerActionsLeft}>
+              <Tooltip title={t("skillPool.refreshHint")}>
+                <Button
+                  type="default"
+                  icon={<ReloadOutlined spin={loading} />}
+                  onClick={handleRefresh}
+                  disabled={loading}
+                />
+              </Tooltip>
               <Tooltip title={t("skillPool.broadcastHint")}>
                 <Button
                   type="default"
@@ -712,6 +742,16 @@ function SkillPoolPage() {
                         >
                           {getPoolBuiltinStatusLabel(skill.sync_status, t)}
                         </span>
+                        {skill.last_updated && (
+                          <>
+                            <span className={styles.statusLabel}>
+                              {t("skills.lastUpdated")}:
+                            </span>
+                            <span className={styles.statusValue}>
+                              {dayjs(skill.last_updated).fromNow()}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
