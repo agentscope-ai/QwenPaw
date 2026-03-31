@@ -519,9 +519,7 @@ def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
     if not skill_md.exists():
         return SkillRequirements()
 
-    post = frontmatter.loads(
-        read_text_file_with_encoding_fallback(skill_md),
-    )
+    post = _read_frontmatter_safe(skill_dir)
     metadata = post.get("metadata") or {}
     if "openclaw" in metadata:
         requires = metadata["openclaw"].get("requires", {})
