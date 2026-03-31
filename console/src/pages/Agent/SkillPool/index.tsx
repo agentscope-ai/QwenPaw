@@ -511,6 +511,16 @@ function SkillPoolPage() {
         }
         invalidateSkillCache({ pool: true }); // Clear pool cache
         await loadData(true);
+        if (result.count > 0 && Array.isArray(result.imported)) {
+          for (const name of result.imported) {
+            await checkScanWarnings(
+              name,
+              api.getBlockedHistory,
+              api.getSkillScanner,
+              t,
+            );
+          }
+        }
         break;
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -518,6 +528,7 @@ function SkillPoolPage() {
           ? detail.conflicts
           : [];
         if (conflicts.length === 0) {
+          if (handleScanError(error, t)) break;
           message.error(
             error instanceof Error
               ? error.message
@@ -552,7 +563,14 @@ function SkillPoolPage() {
       closeImportModal();
       invalidateSkillCache({ pool: true }); // Clear pool cache
       await loadData(true);
+      await checkScanWarnings(
+        result.name,
+        api.getBlockedHistory,
+        api.getSkillScanner,
+        t,
+      );
     } catch (error) {
+      if (handleScanError(error, t)) return;
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
         const skillName = detail?.skill_name || "";

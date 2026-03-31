@@ -61,7 +61,7 @@ You can configure it either in the Console frontend or by editing the agent work
 
 Go to "Control→Channels", find **DingTalk**, click it, and enter the **Client ID** and **Client Secret** you just obtained.
 
-![console](https://img.alicdn.com/imgextra/i3/O1CN01i07tt61rzZUSMo5SI_!!6000000005702-2-tps-3643-1897.png)
+![console](https://img.alicdn.com/imgextra/i2/O1CN01TncUmE1TUNkR7e2ft_!!6000000002385-2-tps-3822-2064.png)
 
 **Method 2**: Edit agent workspace `agent.json`
 
@@ -237,7 +237,7 @@ Find `channels.feishu` in your agent's `agent.json` (e.g., `~/.copaw/workspaces/
 If your environment uses a SOCKS proxy, also install `python-socks` (for example, `pip install python-socks`), otherwise you may see: `python-socks is required to use a SOCKS proxy`.
 
 > **Note:** You can also fill in **App ID** and **App Secret** in the Console UI, but you must restart the copaw service before continuing with the long-connection configuration.
-> ![console](https://img.alicdn.com/imgextra/i1/O1CN01JInbHT1ei5MdfkMGv_!!6000000003904-2-tps-4082-2126.png)
+> ![console](https://img.alicdn.com/imgextra/i2/O1CN01ybSbN01luB8jyt9BD_!!6000000004878-2-tps-3822-2064.png)
 
 ### Recommended bot permissions
 
@@ -308,7 +308,7 @@ The app polls the local iMessage database for new messages and sends replies on 
 
    - In **Console → Channels**, click the **iMessage** card, turn **Enable** on, enter the path in **DB Path**, and click **Save**.
 
-     ![save](https://img.alicdn.com/imgextra/i1/O1CN01Bc1Dxe1rhi2vhjGsC_!!6000000005663-2-tps-3814-1954.png)
+     ![save](https://img.alicdn.com/imgextra/i2/O1CN01i0Ilrp1eSyIl9ecy5_!!6000000003871-2-tps-3822-2064.png)
 
    - Or edit the agent workspace `agent.json` (usually at `~/.copaw/workspaces/default/agent.json`):
 
@@ -380,7 +380,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 Go to **Control → Channels**, click **Discord**, and enter the **Bot Token** you obtained.
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN019GKk901VE0od1PU9t_!!6000000002620-2-tps-4084-2126.png)
+![Console](https://img.alicdn.com/imgextra/i1/O1CN01ChQJNp1afYixv52rv_!!6000000003357-2-tps-3822-2064.png)
 
 **Method 2:** Edit agent workspace `agent.json`
 
@@ -470,7 +470,7 @@ In your agent's `agent.json` (e.g., `~/.copaw/workspaces/default/agent.json`), f
 
 You can also fill them in the Console UI.
 
-![1](https://img.alicdn.com/imgextra/i1/O1CN013zS1dF1hLal9IM4rc_!!6000000004261-2-tps-4082-2126.png)
+![1](https://img.alicdn.com/imgextra/i3/O1CN01l801uc1jPpfLTOsR5_!!6000000004541-2-tps-3822-2064.png)
 
 ---
 
@@ -510,7 +510,7 @@ You can bind the bot by filling in the Bot ID and Secret in the Console or `agen
 
 **Method 1:** Fill in the Console
 
-![Bind robot](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
+![Bind robot](https://img.alicdn.com/imgextra/i3/O1CN01ZZeM111FXDa0GoZUN_!!6000000000496-2-tps-3822-2064.png)
 
 **Method 2:** Fill in `agent.json` (e.g., `~/.copaw/workspaces/default/agent.json`)
 
@@ -622,7 +622,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 Go to **Control → Channels**, click **Telegram**, and enter the **Bot Token** you obtained.
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01utJvvg1dmNSiFOOJi_!!6000000003778-0-tps-1920-993.jpg)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01Ps7Odl1a35SETdKna_!!6000000003273-2-tps-3822-2064.png)
 
 **Method 2:** Edit agent workspace `agent.json`
 

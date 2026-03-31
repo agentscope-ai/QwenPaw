@@ -11,11 +11,15 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    "types": ["vite/client", "node"],
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "resolveJsonModule": true
   },
-  "include": ["src"]
+  "include": ["src", "vite.config.ts"]
 }

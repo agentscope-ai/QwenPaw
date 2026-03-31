@@ -610,6 +610,16 @@ html.dark-mode .ant-slider-track {
   background-color: #ff7f16 !important;
 }
 
+html.dark-mode .copaw-slider-mark-text,
+html.dark-mode .ant-slider-mark-text {
+  color: #ff7f16 !important;
+}
+
+html.dark-mode .copaw-form-item-label > label .copaw-form-item-tooltip,
+html.dark-mode .ant-form-item-label > label .ant-form-item-tooltip {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
 html.dark-mode .copaw-slider-handle::after,
 html.dark-mode .ant-slider-handle::after {
   box-shadow: 0 0 0 2px #ff7f16 !important;
@@ -662,6 +672,37 @@ html.dark-mode [class*="sender-content"] {
   background: #2a2a2a !important;
 }
 
+/* Chat page bottom input area container */
+html.dark-mode .copaw-chat-anywhere-input,
+html.dark-mode [class*="chat-anywhere-input"],
+html.dark-mode [class*="copaw-chat-anywhere-default-footer"],
+html.dark-mode [class*="chat-anywhere-footer"] {
+  background: #141414 !important;
+}
+
+/* Chat input placeholder text in dark mode */
+html.dark-mode .copaw-sender textarea::placeholder,
+html.dark-mode .copaw-sender input::placeholder {
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Chat input text color */
+html.dark-mode .copaw-sender textarea,
+html.dark-mode .copaw-sender input {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Chat input action buttons (mic, attachment, send) */
+html.dark-mode .copaw-sender-actions button,
+html.dark-mode [class*="sender-actions"] button {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark-mode .copaw-sender-actions button:hover,
+html.dark-mode [class*="sender-actions"] button:hover {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
 /* Chat message bubble text in dark mode */
 html.dark-mode [class*="message-item"] [class*="content"],
 html.dark-mode [class*="chat-anywhere"] [class*="message"] p,
@@ -710,9 +751,36 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   background: #f9f8f4;
 }
 
+.copaw-bubble-list-wrapper {
+  background: #fff !important;
+}
+
+.copaw-chat-anywhere-input {
+  background: #fff !important;
+}
+
 /* Chat bubble list max-width override */
 .copaw-chat-anywhere-message-list .copaw-bubble-list {
   max-width: 960px !important;
+}
+
+/* Chat page background in dark mode */
+html.dark-mode .copaw-chat-anywhere,
+html.dark-mode .copaw-chat-anywhere-message-list,
+html.dark-mode .copaw-bubble-list-wrapper {
+  background: #141414 !important;
+}
+
+/* Chat welcome message in dark mode */
+html.dark-mode .copaw-chat-anywhere-welcome-default {
+  background: #141414 !important;
+}
+
+/* Chat input area in dark mode */
+html.dark-mode .copaw-sender,
+html.dark-mode .copaw-sender-content {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
 /* Menu background in light mode */

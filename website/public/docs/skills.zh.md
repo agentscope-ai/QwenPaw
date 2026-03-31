@@ -185,7 +185,7 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
 
    ![url](https://img.alicdn.com/imgextra/i4/O1CN01enUOza1epPhw1IRJs_!!6000000003920-2-tps-2924-1562.png)
 
-3. 点击导入技能，等待导入完成。
+3. 点击**从 Skills Hub 导入技能**，等待导入完成。
 
    ![click](https://img.alicdn.com/imgextra/i3/O1CN019BEC8u1cImFpKaQJv_!!6000000003578-2-tps-2940-1556.png)
 
