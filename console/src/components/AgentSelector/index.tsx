@@ -1,4 +1,4 @@
-import { Select, message, Tag, Tooltip } from "antd";
+import { Select, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle, EyeOff, ChevronRight } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
@@ -6,6 +6,7 @@ import { agentsApi } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useNavigate } from "react-router-dom";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 interface AgentSelectorProps {
@@ -19,6 +20,7 @@ export default function AgentSelector({
   const navigate = useNavigate();
   const { selectedAgent, agents, setSelectedAgent, setAgents } =
     useAgentStore();
+  const { message } = useAppMessage();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {

@@ -6,8 +6,8 @@ import {
   Switch,
   Button,
   Select,
-  message,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Alert, ConfigProvider, Spin } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -133,6 +133,7 @@ export function ChannelDrawer({
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
   const label = activeKey ? getChannelLabel(activeKey, t) : activeLabel;
   const sdkLoadedRef = useRef(false);
+  const { message } = useAppMessage();
 
   // WeChat QR code state
   const [weixinQrcodeImg, setWeixinQrcodeImg] = useState<string>("");

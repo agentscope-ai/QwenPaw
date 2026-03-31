@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Form, Tooltip, message } from "@agentscope-ai/design";
+import { Button, Form, Tooltip } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
   ImportOutlined,
@@ -19,6 +19,7 @@ import {
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import { parseErrorDetail } from "../../../utils/error";
@@ -27,6 +28,7 @@ import styles from "./index.module.less";
 
 function SkillsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
   const {
     skills,
