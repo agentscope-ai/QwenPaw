@@ -322,6 +322,7 @@ function SkillsPage() {
     try {
       for (const skillName of poolSkillNames) {
         let targetName: string | undefined;
+        let shouldOverwrite = overwrite;
         while (true) {
           try {
             await api.downloadSkillPoolSkill({
@@ -332,7 +333,7 @@ function SkillsPage() {
                   target_name: targetName,
                 },
               ],
-              overwrite,
+              overwrite: shouldOverwrite,
             });
             break;
           } catch (error) {
@@ -349,11 +350,9 @@ function SkillsPage() {
                   onCancel: () => resolve(false),
                 });
               });
-              if (confirmed) {
-                await handleDownloadFromPool([skillName], true);
-                break;
-              }
-              return;
+              if (!confirmed) return;
+              shouldOverwrite = true;
+              continue;
             }
             if (!conflict?.suggested_name) throw error;
             const renameMap = await showConflictRenameModal([

@@ -244,10 +244,16 @@ function SkillPoolPage() {
               throw error;
             }
 
-            // Builtin upgrade: confirm then retry with overwrite
+            // Separate builtin upgrades from regular conflicts.
             const builtinUpgrades = conflicts.filter(
               (c: { reason?: string }) => c.reason === "builtin_upgrade",
             );
+            const regularConflicts = conflicts.filter(
+              (c: { reason?: string }) => c.reason !== "builtin_upgrade",
+            );
+
+            // Handle builtin upgrades: confirm overwrite
+            let needsOverwrite = false;
             if (builtinUpgrades.length > 0) {
               const confirmed = await new Promise<boolean>((resolve) => {
                 Modal.confirm({
@@ -262,64 +268,85 @@ function SkillPoolPage() {
                 });
               });
               if (!confirmed) return;
+              needsOverwrite = true;
+            }
+
+            // Handle regular conflicts: rename modal
+            if (regularConflicts.length > 0) {
+              const renameItems = regularConflicts
+                .map(
+                  (c: {
+                    workspace_id?: string;
+                    suggested_name?: string;
+                  }) => {
+                    if (!c.workspace_id || !c.suggested_name) {
+                      return null;
+                    }
+                    const w = workspaces.find(
+                      (ws) => ws.agent_id === c.workspace_id,
+                    );
+                    const workspaceLabel = getAgentDisplayName(
+                      {
+                        id: c.workspace_id,
+                        name: w?.agent_name ?? "",
+                      },
+                      t,
+                    );
+                    return {
+                      key: c.workspace_id,
+                      label: workspaceLabel,
+                      suggested_name: c.suggested_name,
+                    };
+                  },
+                )
+                .filter(
+                  (
+                    item,
+                  ): item is {
+                    key: string;
+                    label: string;
+                    suggested_name: string;
+                  } => item !== null,
+                );
+
+              if (!renameItems.length && !needsOverwrite) {
+                throw error;
+              }
+
+              if (renameItems.length) {
+                const nextRenameMap = await showConflictRenameModal(
+                  renameItems.map((item) => ({
+                    ...item,
+                    suggested_name:
+                      renameMap[item.key] || item.suggested_name,
+                  })),
+                );
+                if (!nextRenameMap) return;
+                renameMap = { ...renameMap, ...nextRenameMap };
+              }
+            }
+
+            // No conflicts left to resolve but nothing actionable
+            if (!needsOverwrite && !regularConflicts.length) {
+              throw error;
+            }
+
+            // Retry: overwrite is safe — renamed targets use new
+            // names so won't be affected by the overwrite flag.
+            if (needsOverwrite) {
               await api.downloadSkillPoolSkill({
                 skill_name: skillName,
                 targets: targetWorkspaceIds.map((workspace_id) => ({
                   workspace_id,
+                  target_name:
+                    renameMap[workspace_id] || undefined,
                 })),
                 overwrite: true,
               });
               break;
             }
-
-            const renameItems = conflicts
-              .map((c: { workspace_id?: string; suggested_name?: string }) => {
-                if (!c.workspace_id || !c.suggested_name) {
-                  return null;
-                }
-                const w = workspaces.find(
-                  (ws) => ws.agent_id === c.workspace_id,
-                );
-                const workspaceLabel = getAgentDisplayName(
-                  {
-                    id: c.workspace_id,
-                    name: w?.agent_name ?? "",
-                  },
-                  t,
-                );
-                return {
-                  key: c.workspace_id,
-                  label: workspaceLabel,
-                  suggested_name: c.suggested_name,
-                };
-              })
-              .filter(
-                (
-                  item,
-                ): item is {
-                  key: string;
-                  label: string;
-                  suggested_name: string;
-                } => item !== null,
-              );
-
-            if (!renameItems.length) {
-              throw error;
-            }
-
-            const nextRenameMap = await showConflictRenameModal(
-              renameItems.map((item) => ({
-                ...item,
-                suggested_name: renameMap[item.key] || item.suggested_name,
-              })),
-            );
-            if (!nextRenameMap) {
-              return;
-            }
-            renameMap = {
-              ...renameMap,
-              ...nextRenameMap,
-            };
+            // Only regular conflicts — renameMap already updated
+            // above; loop continues to retry with new names.
           }
         }
       }

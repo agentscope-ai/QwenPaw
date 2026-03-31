@@ -2409,10 +2409,24 @@ class SkillPoolService:
         existing = workspace_manifest.get("skills", {}).get(final_name)
         workspace_identity = get_workspace_identity(workspace_dir)
         if existing and not overwrite:
+            # Both builtin: compare version to decide action.
             if (
                 entry.get("source") == "builtin"
                 and existing.get("source") == "builtin"
             ):
+                pool_ver = entry.get("version_text", "")
+                ws_ver = (existing.get("metadata") or {}).get(
+                    "version_text",
+                    "",
+                )
+                if pool_ver and ws_ver and pool_ver == ws_ver:
+                    return {
+                        "success": True,
+                        "mode": "unchanged",
+                        "name": final_name,
+                        "workspace_id": workspace_identity["workspace_id"],
+                        "workspace_name": workspace_identity["workspace_name"],
+                    }
                 return {
                     "success": False,
                     "reason": "builtin_upgrade",
@@ -2495,6 +2509,19 @@ class SkillPoolService:
                 entry.get("source") == "builtin"
                 and existing.get("source") == "builtin"
             ):
+                pool_ver = entry.get("version_text", "")
+                ws_ver = (existing.get("metadata") or {}).get(
+                    "version_text",
+                    "",
+                )
+                if pool_ver and ws_ver and pool_ver == ws_ver:
+                    return {
+                        "success": True,
+                        "mode": "unchanged",
+                        "name": final_name,
+                        "workspace_id": workspace_identity["workspace_id"],
+                        "workspace_name": workspace_identity["workspace_name"],
+                    }
                 return {
                     "success": False,
                     "reason": "builtin_upgrade",
