@@ -35,9 +35,13 @@ class LocalModelManager:
         )
         self._server_lifecycle_lock = asyncio.Lock()
 
-    def check_llamacpp_installation(self) -> bool:
+    def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Return whether llama.cpp is already installed locally."""
         return self._llamacpp_backend.check_llamacpp_installation()
+
+    def check_llamacpp_installability(self) -> tuple[bool, str]:
+        """Return whether the current environment can install llama.cpp."""
+        return self._llamacpp_backend.check_llamacpp_installability()
 
     def start_llamacpp_download(self) -> None:
         """Start the llama.cpp binary download task."""

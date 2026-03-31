@@ -60,10 +60,18 @@ export default function AgentSelector({
     message.success(t("agent.switchSuccess"));
   };
 
-  // Check if current agent is disabled, auto-switch to default
+  // Auto-switch to default if the selected agent was deleted or disabled
   useEffect(() => {
-    const currentAgent = agents?.find((a) => a.id === selectedAgent);
-    if (currentAgent && !currentAgent.enabled) {
+    if (!agents?.length || selectedAgent === "default") return;
+
+    const currentAgent = agents.find((a) => a.id === selectedAgent);
+
+    if (!currentAgent) {
+      // Agent was deleted — no longer in the list
+      setSelectedAgent("default");
+      message.warning(t("agent.currentAgentDeleted"));
+    } else if (!currentAgent.enabled) {
+      // Agent exists but was disabled
       setSelectedAgent("default");
       message.warning(t("agent.currentAgentDisabled"));
     }

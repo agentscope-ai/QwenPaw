@@ -912,8 +912,13 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         "view_image": BuiltinToolConfig(
             name="view_image",
             enabled=True,
-            description="Load an image into LLM context "
-            "for visual analysis",
+            description="Load an image into LLM context for visual analysis",
+            display_to_user=False,
+        ),
+        "view_video": BuiltinToolConfig(
+            name="view_video",
+            enabled=True,
+            description="Load a video into LLM context for visual analysis",
             display_to_user=False,
         ),
         "send_file_to_user": BuiltinToolConfig(
