@@ -527,8 +527,42 @@ class WeixinChannel(BaseChannel):
                     text = (
                         (item.get("text_item") or {}).get("text", "").strip()
                     )
+                    # Filter out empty text or text that looks like a filename
+                    # (e.g., "document.pdf", "image.jpg") to avoid triggering
+                    # immediate agent replies for file-only messages.
+                    # This allows BaseChannel._apply_no_text_debounce to work
+                    # correctly for media-only messages.
                     if text:
-                        text_parts.append(text)
+                        # Check if text looks like a filename (has extension)
+                        # Common file extensions to filter out
+                        filename_extensions = (
+                            ".txt",
+                            ".doc",
+                            ".docx",
+                            ".pdf",
+                            ".jpg",
+                            ".jpeg",
+                            ".png",
+                            ".gif",
+                            ".mp4",
+                            ".avi",
+                            ".mov",
+                            ".mp3",
+                            ".wav",
+                            ".zip",
+                            ".rar",
+                            ".xlsx",
+                            ".xls",
+                            ".ppt",
+                            ".pptx",
+                        )
+                        is_filename = any(
+                            text.lower().endswith(ext)
+                            for ext in filename_extensions
+                        )
+                        # Only add text if it's not just a filename
+                        if not is_filename:
+                            text_parts.append(text)
 
                 elif item_type == 2:
                     # Image (AES-128-ECB encrypted on CDN)
