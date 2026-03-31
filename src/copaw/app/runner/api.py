@@ -165,9 +165,9 @@ async def get_chat(
     status = await workspace.task_tracker.get_status(chat_id)
     if not state:
         return ChatHistory(messages=[], status=status)
-    memories = state.get("agent", {}).get("memory", {})
+    memory_state = state.get("agent", {}).get("memory", {})
     memory = InMemoryMemory()
-    memory.load_state_dict(memories)
+    memory.load_state_dict(memory_state, strict=False)
 
     memories = await memory.get_memory(prepend_summary=False)
     messages = agentscope_msg_to_message(memories)
