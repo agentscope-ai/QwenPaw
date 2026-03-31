@@ -416,7 +416,7 @@ export function CopawFAQ() {
           </motion.div>
 
           <motion.div className="md:pt-1" variants={itemVariants}>
-            <p className="font-inter mb-5 max-w-[52ch] text-[13px] leading-[1.72] text-(--color-text-tertiary) text-pretty md:mb-16 md:ml-auto md:text-[1rem]">
+            <p className="font-inter mb-5 max-w-[52ch] text-right text-[13px] leading-[1.72] text-(--color-text-tertiary) text-pretty md:mb-16 md:ml-auto md:text-[1rem]">
               {t("homeFaq.intro")}
             </p>
 
