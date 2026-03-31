@@ -6,6 +6,7 @@
 import asyncio
 import locale
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -232,11 +233,11 @@ async def execute_shell_command(
                 env,
             )
         else:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
+            cmd_args = shlex.split(cmd)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                bufsize=0,
                 cwd=str(working_dir),
                 env=env,
                 start_new_session=True,
