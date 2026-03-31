@@ -42,6 +42,7 @@ export function ModelsSection({
     undefined,
   );
   const [dirty, setDirty] = useState(false);
+  const { message } = useAppMessage();
 
   const currentSlot = activeModels?.active_llm;
 
