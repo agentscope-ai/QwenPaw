@@ -91,62 +91,62 @@ function ModelsPage() {
             />
             {/* ---- Providers Section ---- */}
             <div className={styles.providersBlock}>
-            <div className={styles.sectionHeaderRow}>
-              <PageHeader
-                current={t("models.providersTitle")}
-                className={styles.providersPageHeader}
-              />
-              <div className={styles.headerRight}>
-                {/* ---- Search ---- */}
-                <div className={styles.searchRow}>
-                  <Input
-                    placeholder={t("models.searchPlaceholder")}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onPressEnter={() => {}}
-                    className={styles.searchInput}
-                    prefix={<SearchOutlined />}
-                    allowClear
-                  />
+              <div className={styles.sectionHeaderRow}>
+                <PageHeader
+                  current={t("models.providersTitle")}
+                  className={styles.providersPageHeader}
+                />
+                <div className={styles.headerRight}>
+                  {/* ---- Search ---- */}
+                  <div className={styles.searchRow}>
+                    <Input
+                      placeholder={t("models.searchPlaceholder")}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onPressEnter={() => {}}
+                      className={styles.searchInput}
+                      prefix={<SearchOutlined />}
+                      allowClear
+                    />
+                    <Button
+                      type="primary"
+                      icon={<SearchOutlined />}
+                      onClick={() => fetchAll()}
+                      className={styles.searchBtn}
+                    >
+                      {t("models.search")}
+                    </Button>
+                  </div>
                   <Button
                     type="primary"
-                    icon={<SearchOutlined />}
-                    onClick={() => fetchAll()}
-                    className={styles.searchBtn}
+                    icon={<PlusOutlined />}
+                    onClick={() => setAddProviderOpen(true)}
+                    className={styles.addProviderBtn}
                   >
-                    {t("models.search")}
+                    {t("models.addProvider")}
                   </Button>
                 </div>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => setAddProviderOpen(true)}
-                  className={styles.addProviderBtn}
-                >
-                  {t("models.addProvider")}
-                </Button>
               </div>
-            </div>
 
-            {localProviders.length > 0 && (
-              <div className={styles.providerGroup}>
-                {/* <h4 className={styles.providerGroupTitle}>
+              {localProviders.length > 0 && (
+                <div className={styles.providerGroup}>
+                  {/* <h4 className={styles.providerGroupTitle}>
                   {t("models.localEmbedded")}
                 </h4> */}
-                <div className={styles.providerCards}>
-                  {renderProviderCards(localProviders)}
+                  <div className={styles.providerCards}>
+                    {renderProviderCards(localProviders)}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {regularProviders.length > 0 && (
-              <div className={styles.providerGroup}>
-                <div className={styles.providerCards}>
-                  {renderProviderCards(regularProviders)}
+              {regularProviders.length > 0 && (
+                <div className={styles.providerGroup}>
+                  <div className={styles.providerCards}>
+                    {renderProviderCards(regularProviders)}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
             <CustomProviderModal
               open={addProviderOpen}

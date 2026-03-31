@@ -122,9 +122,7 @@ export function MCPClientCard({
           </div>
         </div>
 
-        <p className={styles.mcpDescription}>
-          {client.description || "-"}
-        </p>
+        <p className={styles.mcpDescription}>{client.description || "-"}</p>
 
         <div className={styles.cardFooter}>
           <Button
@@ -133,13 +131,7 @@ export function MCPClientCard({
               e.stopPropagation();
               handleToggleClick(e);
             }}
-            icon={
-              client.enabled ? (
-                <EyeInvisibleOutlined />
-              ) : (
-                <EyeOutlined />
-              )
-            }
+            icon={client.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
           >
             {client.enabled ? t("common.disable") : t("common.enable")}
           </Button>
