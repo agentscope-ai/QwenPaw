@@ -1,6 +1,11 @@
 import { useState, useMemo } from "react";
 import { Card, Switch, Empty, Button } from "@agentscope-ai/design";
-import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
+import {
+  EyeOutlined,
+  EyeInvisibleOutlined,
+  ThunderboltOutlined,
+  ClockCircleOutlined,
+} from "@ant-design/icons";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
@@ -86,11 +91,20 @@ export default function ToolsPage() {
                 <div className={styles.cardFooter}>
                   {tool.name === "execute_shell_command" && (
                     <Button
-                      className={styles.asyncButton}
+                      className={styles.toggleButton}
                       onClick={() => toggleAsyncExecution(tool)}
                       disabled={!tool.enabled}
+                      icon={
+                        tool.async_execution ? (
+                          <ThunderboltOutlined />
+                        ) : (
+                          <ClockCircleOutlined />
+                        )
+                      }
                     >
-                      {t("tools.asyncExecution")}
+                      {tool.async_execution
+                        ? t("tools.asyncExecutionEnabled")
+                        : t("tools.asyncExecutionDisabled")}
                     </Button>
                   )}
                   <Button

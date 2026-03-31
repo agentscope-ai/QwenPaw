@@ -217,7 +217,7 @@
   border-top: 1px solid #f0f0f0;
 }
 
-.asyncButton {
+.toggleButton {
   flex: 1;
   padding: 8px 16px;
   border-radius: 7px;
@@ -236,23 +236,6 @@
   &:disabled {
     color: #d9d9d9;
     cursor: not-allowed;
-  }
-}
-
-.toggleButton {
-  flex: 1;
-  padding: 8px 16px;
-  border-radius: 7px;
-  font-size: 13px;
-  color: #666;
-  background: transparent;
-  border: 1px solid #d9d9d9;
-  cursor: pointer;
-  transition: all 0.18s ease;
-
-  &:hover {
-    color: #333;
-    border-color: #bfbfbf;
   }
 }
 
@@ -321,7 +304,7 @@
     border-top-color: rgba(255, 255, 255, 0.08);
   }
 
-  .asyncButton {
+  .toggleButton {
     color: rgba(255, 255, 255, 0.65);
     border-color: rgba(255, 255, 255, 0.2);
 
@@ -333,16 +316,6 @@
     &:disabled {
       color: rgba(255, 255, 255, 0.25);
       border-color: rgba(255, 255, 255, 0.1);
-    }
-  }
-
-  .toggleButton {
-    color: rgba(255, 255, 255, 0.65);
-    border-color: rgba(255, 255, 255, 0.2);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.85);
-      border-color: rgba(255, 255, 255, 0.35);
     }
   }
 
