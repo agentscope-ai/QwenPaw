@@ -148,7 +148,11 @@ export function CopawChannels() {
             />
             <span>{t("channels.titleOperateWith")}</span>
           </span>
-          <em className="mt-1 block font-normal italic text-[#301601] md:mt-0 md:ml-1 md:inline">
+          <em
+            className={`mt-1 block italic text-[#301601] md:mt-0 md:ml-1 md:inline ${
+              isZh ? "font-semibold" : "font-normal"
+            }`}
+          >
             {t("channels.titleEverything")}
           </em>
         </motion.h2>
