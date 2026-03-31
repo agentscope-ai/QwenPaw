@@ -161,9 +161,45 @@ def _directory_tree(directory: Path) -> dict[str, Any]:
 
 
 def _read_frontmatter(skill_dir: Path) -> Any:
+    """Read and parse SKILL.md frontmatter.
+
+    Args:
+        skill_dir: Path to skill directory containing SKILL.md
+
+    Returns:
+        Parsed frontmatter as dict-like object
+    """
     return frontmatter.loads(
         read_text_file_with_encoding_fallback(skill_dir / "SKILL.md"),
     )
+
+
+def _read_frontmatter_safe(
+    skill_dir: Path,
+    skill_name: str = "",
+) -> dict[str, Any]:
+    """Safely read SKILL.md frontmatter with fallback on errors.
+
+    Args:
+        skill_dir: Path to skill directory containing SKILL.md
+        skill_name: Optional skill name for logging (defaults to dir name)
+
+    Returns:
+        Parsed frontmatter dict, or fallback dict with name/description
+        on any error (file not found, YAML syntax error, etc.)
+    """
+    if not skill_name:
+        skill_name = skill_dir.name
+
+    try:
+        return _read_frontmatter(skill_dir)
+    except Exception as e:
+        logger.warning(
+            f"Failed to read SKILL.md frontmatter for '{skill_name}' "
+            f"at {skill_dir}: {e}. Using fallback values.",
+        )
+        # Return minimal valid frontmatter
+        return {"name": skill_name, "description": ""}
 
 
 def _extract_version(post: Any) -> str:
@@ -178,12 +214,29 @@ def _extract_version(post: Any) -> str:
     return ""
 
 
+_IGNORED_SKILL_ARTIFACTS = {
+    "__pycache__",
+    "__MACOSX",
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+}
+
+
+def _is_ignored_skill_path(path: Path) -> bool:
+    return bool(_IGNORED_SKILL_ARTIFACTS & set(path.parts))
+
+
 def _build_signature(skill_dir: Path) -> str:
     """Hash the full skill tree using real file paths and real contents.
 
     This is the canonical content identity used by migration, pool sync,
     and conflict detection. If any file changes, including ``SKILL.md``,
     the signature changes.
+
+    OS/cache artifacts (``__pycache__``, ``.DS_Store``, etc.) are excluded
+    so that the signature stays consistent with ``_copy_skill_dir``, which
+    strips them on copy.
 
     Example:
         ``skill_pool/docx`` and ``workspaces/a1/skills/docx`` with identical
@@ -193,7 +246,10 @@ def _build_signature(skill_dir: Path) -> str:
     """
     digest = hashlib.sha256()
     for path in sorted(p for p in skill_dir.rglob("*") if p.is_file()):
-        digest.update(str(path.relative_to(skill_dir)).encode("utf-8"))
+        rel = path.relative_to(skill_dir)
+        if _is_ignored_skill_path(rel):
+            continue
+        digest.update(str(rel).encode("utf-8"))
         digest.update(path.read_bytes())
     return digest.hexdigest()
 
@@ -209,14 +265,7 @@ def _copy_skill_dir(source: Path, target: Path) -> None:
         shutil.rmtree(target)
 
     def _ignore(_dir: str, names: list[str]) -> set[str]:
-        ignored_names = {
-            "__pycache__",
-            "__MACOSX",
-            ".DS_Store",
-            "Thumbs.db",
-            "desktop.ini",
-        }
-        return {name for name in names if name in ignored_names}
+        return {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
 
     shutil.copytree(
         source,
@@ -458,13 +507,10 @@ def _resolve_skill_name(skill_dir: Path) -> str:
     here so zip imports behave consistently whether a skill is packed at the
     archive root or nested under a folder.
     """
-    try:
-        post = _read_frontmatter(skill_dir)
-        name = str(post.get("name") or "").strip()
-        if name:
-            return name
-    except Exception:
-        pass
+    post = _read_frontmatter_safe(skill_dir)
+    name = str(post.get("name") or "").strip()
+    if name:
+        return name
     return skill_dir.name
 
 
@@ -486,22 +532,23 @@ def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
     if not skill_md.exists():
         return SkillRequirements()
 
-    post = frontmatter.loads(
-        read_text_file_with_encoding_fallback(skill_md),
-    )
+    post = _read_frontmatter_safe(skill_dir)
     metadata = post.get("metadata") or {}
     if "openclaw" in metadata:
         requires = metadata["openclaw"].get("requires", {})
     elif "copaw" in metadata:
         requires = metadata["copaw"].get("requires", {})
     else:
-        requires = metadata.get("requires", {})
+        requires = metadata.get(
+            "requires",
+            post.get("requires", {}),
+        )
 
     if isinstance(requires, list):
-        return SkillRequirements(
-            require_bins=list(requires),
-            require_envs=[],
-        )
+        return SkillRequirements(require_bins=list(requires), require_envs=[])
+
+    if not isinstance(requires, dict):
+        return SkillRequirements()
 
     return SkillRequirements(
         require_bins=list(requires.get("bins", [])),
@@ -671,7 +718,8 @@ def _build_skill_metadata(
         reconcile updates ``description`` and ``signature`` here without the
         caller manually editing ``skill.json``.
     """
-    post = _read_frontmatter(skill_dir)
+    post = _read_frontmatter_safe(skill_dir, skill_name)
+
     requirements = read_skill_requirements(skill_dir)
     now = _timestamp()
     return {
@@ -749,7 +797,9 @@ def list_builtin_import_candidates() -> list[dict[str, Any]]:
         if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
             continue
         skill_name = skill_dir.name
-        post = _read_frontmatter(skill_dir)
+
+        post = _read_frontmatter_safe(skill_dir, skill_name)
+
         source_signature = _build_signature(skill_dir)
         current = pool_skills.get(skill_name) or {}
         current_signature = str(current.get("signature", "") or "")
@@ -1227,15 +1277,25 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
 
     def _check_single_skill(item):
         name, skill_dir, pool_entry = item
-        builtin_sig = _build_signature(skill_dir)
-        pool_sig = str(pool_entry.get("signature", ""))
-        if pool_sig and pool_sig != builtin_sig:
-            post = _read_frontmatter(skill_dir)
-            return name, {
-                "sync_status": "outdated",
-                "latest_version_text": _extract_version(post),
-            }
-        else:
+        try:
+            builtin_sig = _build_signature(skill_dir)
+            pool_sig = str(pool_entry.get("signature", ""))
+            if pool_sig and pool_sig != builtin_sig:
+                post = _read_frontmatter_safe(skill_dir, name)
+                return name, {
+                    "sync_status": "outdated",
+                    "latest_version_text": _extract_version(post),
+                }
+            else:
+                return name, {
+                    "sync_status": "synced",
+                    "latest_version_text": "",
+                }
+        except Exception as e:
+            logger.warning(
+                f"Failed to check builtin skill '{name}': {e}. "
+                "Marking as synced.",
+            )
             return name, {
                 "sync_status": "synced",
                 "latest_version_text": "",
@@ -1361,11 +1421,19 @@ def _import_skill_dir(
     skill_name: str,
     overwrite: bool,
 ) -> bool:
-    try:
-        post = _read_frontmatter(src_dir)
-        if not post.get("name") or not post.get("description"):
-            return False
-    except Exception:
+    """Import a skill directory to target location.
+
+    Args:
+        src_dir: Source skill directory
+        target_root: Target root directory
+        skill_name: Name of the skill
+        overwrite: Whether to overwrite existing skill
+
+    Returns:
+        bool: True if import succeeded, False otherwise
+    """
+    post = _read_frontmatter_safe(src_dir, skill_name)
+    if not post.get("name") or not post.get("description"):
         return False
 
     target_dir = target_root / skill_name
