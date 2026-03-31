@@ -142,7 +142,7 @@ function HeartbeatPage() {
         items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
       />
       <div className={styles.heartbeatContent}>
-        <Card className={styles.card} loading={loading}>
+        <Card className={styles.card}>
           <Form
             form={form}
             layout="vertical"

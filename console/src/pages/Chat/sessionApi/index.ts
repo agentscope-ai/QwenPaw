@@ -31,6 +31,14 @@ const CHAT_HISTORY_PAGE_SIZE = 80;
 const RUNNING_EMPTY_HISTORY_RETRY_COUNT = 40;
 const RUNNING_EMPTY_HISTORY_RETRY_DELAY_MS = 500;
 
+type ChatsListPayload =
+  | ChatSpec[]
+  | {
+      chats?: ChatSpec[];
+      data?: ChatSpec[];
+      items?: ChatSpec[];
+    };
+
 // ---------------------------------------------------------------------------
 // Window globals
 // ---------------------------------------------------------------------------
@@ -446,6 +454,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }) as ExtendedSession | undefined;
   }
 
+  private normalizeChatList(payload: ChatsListPayload): ChatSpec[] {
+    if (Array.isArray(payload)) {
+      return payload;
+    }
+    if (Array.isArray(payload.chats)) {
+      return payload.chats;
+    }
+    if (Array.isArray(payload.data)) {
+      return payload.data;
+    }
+    if (Array.isArray(payload.items)) {
+      return payload.items;
+    }
+    return [];
+  }
+
   private patchLastUserMessage(
     messages: IAgentScopeRuntimeWebUIMessage[],
     generating: boolean,
@@ -710,7 +734,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.sessionListRequest = (async () => {
       try {
-        const chats = await api.listChats();
+        const chatPayload = (await api.listChats()) as ChatsListPayload;
+        const chats = this.normalizeChatList(chatPayload);
         const newList = chats
           .filter((c) => c.id && c.id !== "undefined" && c.id !== "null")
           .map(chatSpecToSession)

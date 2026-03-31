@@ -301,7 +301,14 @@ function KnowledgePage() {
         backfillProgressReconnectTimerRef.current = null;
       }
       if (backfillProgressWsRef.current) {
-        backfillProgressWsRef.current.close();
+        const ws = backfillProgressWsRef.current;
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => {
+            ws.close();
+          };
+        } else if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        }
         backfillProgressWsRef.current = null;
       }
     };

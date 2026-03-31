@@ -13,7 +13,7 @@ Example:
 import base64
 import logging
 import os
-from typing import List, Sequence, Tuple, Type, Any, Union, Optional
+from typing import List, Sequence, Tuple, Type, Any, Union, Optional, cast
 from urllib.parse import urlparse
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
@@ -304,7 +304,8 @@ def _create_file_block_support_formatter(
             ):
                 messages = _format_anthropic_messages(msgs)
             else:
-                messages = await super()._format(msgs)
+                parent_format = cast(Any, super())._format
+                messages = await parent_format(msgs)
 
             if extra_contents:
                 for message in messages:
@@ -351,8 +352,8 @@ def _create_file_block_support_formatter(
 
         @staticmethod
         def convert_tool_result_to_string(
-            output: Union[str, List[dict]],
-        ) -> tuple[str, Sequence[Tuple[str, dict]]]:
+            output: Any,
+        ) -> tuple[str, Sequence[Tuple[str, Any]]]:
             """Extend parent class to support file blocks.
 
             Uses try-first strategy for compatibility with parent class.
@@ -377,7 +378,7 @@ def _create_file_block_support_formatter(
 
                 # Handle output containing file blocks
                 textual_output = []
-                multimodal_data = []
+                multimodal_data: list[Tuple[str, Any]] = []
 
                 for block in output:
                     if not isinstance(block, dict) or "type" not in block:
@@ -404,7 +405,7 @@ def _create_file_block_support_formatter(
                             text,
                             data,
                         ) = base_formatter_class.convert_tool_result_to_string(
-                            [block],
+                            cast(Any, [block]),
                         )
                         textual_output.append(text)
                         multimodal_data.extend(data)
@@ -548,10 +549,13 @@ def _create_formatter_instance(
         base_formatter_class,
     )
     kwargs: dict[str, Any] = {}
-    if issubclass(
-        base_formatter_class,
-        (OpenAIChatFormatter, GeminiChatFormatter),
-    ):
+    promote_tool_result_formatter_bases: tuple[type, ...] = (
+        OpenAIChatFormatter,
+    )
+    if GeminiChatFormatter is not None:
+        promote_tool_result_formatter_bases += (GeminiChatFormatter,)
+
+    if issubclass(base_formatter_class, promote_tool_result_formatter_bases):
         kwargs["promote_tool_result_images"] = True
     return formatter_class(**kwargs)
 
