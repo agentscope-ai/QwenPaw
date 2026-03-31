@@ -5,9 +5,9 @@ import {
   Button,
   Card,
   Select,
-  message,
   Tabs,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PlusCircleOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
@@ -83,6 +83,8 @@ function SecurityPage() {
   const [editModal, setEditModal] = useState(false);
   const [editingRule, setEditingRule] = useState<MergedRule | null>(null);
   const [previewRule, setPreviewRule] = useState<MergedRule | null>(null);
+
+  const { message } = useAppMessage();
 
   // Form handlers
   const handleSave = useCallback(async () => {

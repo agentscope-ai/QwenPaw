@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Button, Card, message } from "@agentscope-ai/design";
+import { Button, Card } from "@agentscope-ai/design";
 import { Radio, Select, Space, Spin, Alert } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 interface TranscriptionProvider {
@@ -20,6 +21,7 @@ interface LocalWhisperStatus {
 
 function VoiceTranscriptionPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [audioMode, setAudioMode] = useState("auto");

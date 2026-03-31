@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { message, Modal } from "@agentscope-ai/design";
+import { Modal } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { invalidateSkillCache } from "../../../api/modules/skill";
@@ -26,6 +27,7 @@ export function useSkills() {
   const [importing, setImporting] = useState(false);
   const importTaskIdRef = useRef<string | null>(null);
   const importCancelReasonRef = useRef<"manual" | "timeout" | null>(null);
+  const { message } = useAppMessage();
 
   const handleError = useCallback(
     (error: unknown, defaultMsg: string): boolean => {
