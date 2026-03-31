@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_REME_VERSION = "0.3.1.6"
+_EXPECTED_REME_VERSION = "0.3.1.7"
 
 
 class ReMeLightMemoryManager(BaseMemoryManager):
@@ -67,9 +67,13 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
         try:
+            import reme
+            logger.info(f"reme package found, file_path={reme.__file__}")
+
             from reme.reme_light import ReMeLight
+
         except ImportError as e:
-            logger.warning(
+            logger.exception(
                 "reme package not installed, memory features will be "
                 f"limited. {e}",
             )
