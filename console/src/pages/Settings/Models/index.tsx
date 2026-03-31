@@ -82,13 +82,15 @@ function ModelsPage() {
             parent={t("nav.settings")}
             current={t("models.llmTitle")}
           />
-          <ModelsSection
-            providers={providers}
-            activeModels={activeModels}
-            onSaved={fetchAll}
-          />
-          {/* ---- Providers Section ---- */}
-          <div className={styles.providersBlock}>
+          {/* ---- Scrollable Content ---- */}
+          <div className={styles.content}>
+            <ModelsSection
+              providers={providers}
+              activeModels={activeModels}
+              onSaved={fetchAll}
+            />
+            {/* ---- Providers Section ---- */}
+            <div className={styles.providersBlock}>
             <div className={styles.sectionHeaderRow}>
               <PageHeader
                 current={t("models.providersTitle")}
@@ -146,11 +148,12 @@ function ModelsPage() {
             )}
           </div>
 
-          <CustomProviderModal
-            open={addProviderOpen}
-            onClose={() => setAddProviderOpen(false)}
-            onSaved={fetchAll}
-          />
+            <CustomProviderModal
+              open={addProviderOpen}
+              onClose={() => setAddProviderOpen(false)}
+              onSaved={fetchAll}
+            />
+          </div>
         </>
       )}
     </div>

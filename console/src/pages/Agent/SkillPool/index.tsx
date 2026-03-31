@@ -666,12 +666,14 @@ function SkillPoolPage() {
         }
       />
 
-      {loading ? (
-        <div className={styles.loading}>
-          <span className={styles.loadingText}>{t("common.loading")}</span>
-        </div>
-      ) : (
-        <div className={styles.skillsGrid}>
+      {/* ---- Scrollable Content ---- */}
+      <div className={styles.content}>
+        {loading ? (
+          <div className={styles.loading}>
+            <span className={styles.loadingText}>{t("common.loading")}</span>
+          </div>
+        ) : (
+          <div className={styles.skillsGrid}>
           {skills.map((skill) => (
             <Card
               key={skill.name}
@@ -744,8 +746,9 @@ function SkillPoolPage() {
               </div>
             </Card>
           ))}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       <ImportHubModal
         open={importModalOpen}
