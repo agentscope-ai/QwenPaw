@@ -217,6 +217,8 @@ class MatrixChannelConfig:
             "mention_pill_in_body",
             False,
         )
+        # matrix-nio sync long-poll timeout (ms); typical 30s
+        self.sync_timeout_ms: int = raw.get("sync_timeout_ms", 30000)
 
 
 def _normalize_user_id(uid: str) -> str:
@@ -264,6 +266,8 @@ class MatrixChannel(BaseChannel):
         # DM room cache: room_id -> {"members": [user_ids], "ts": timestamp}
         # Used to reliably detect DM rooms when nio's room.users is unreliable.
         self._dm_room_cache: Dict[str, Dict[str, Any]] = {}
+        # Shared HTTP client for media downloads (created in start())
+        self._http_client: Optional[httpx.AsyncClient] = None
 
     # ------------------------------------------------------------------
     # Debounce key — serialize by room_id (avoid concurrent session access)
@@ -452,6 +456,12 @@ class MatrixChannel(BaseChannel):
                 "encrypted event handlers registered",
             )
 
+        # Create shared HTTP client for media downloads
+        self._http_client = httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=60,
+        )
+
         self._sync_task = asyncio.create_task(self._sync_loop())
         logger.info("MatrixChannel: sync loop started")
 
@@ -462,6 +472,9 @@ class MatrixChannel(BaseChannel):
                 await self._sync_task
             except asyncio.CancelledError:
                 logger.debug("MatrixChannel: sync task cancelled during stop")
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
         if self._client:
             await self._client.close()
         logger.info("MatrixChannel: stopped")
@@ -569,7 +582,7 @@ class MatrixChannel(BaseChannel):
                 self._client.event_callbacks.clear()
                 try:
                     resp = await self._client.sync(
-                        timeout=SYNC_TIMEOUT_MS,
+                        timeout=self._cfg.sync_timeout_ms,
                         full_state=True,
                     )
                 finally:
@@ -608,7 +621,7 @@ class MatrixChannel(BaseChannel):
             )
             try:
                 resp = await self._client.sync(
-                    timeout=SYNC_TIMEOUT_MS,
+                    timeout=self._cfg.sync_timeout_ms,
                     since=next_batch,
                     full_state=True,
                 )
@@ -634,7 +647,7 @@ class MatrixChannel(BaseChannel):
         while True:
             try:
                 resp = await self._client.sync(
-                    timeout=SYNC_TIMEOUT_MS,
+                    timeout=self._cfg.sync_timeout_ms,
                     since=next_batch,
                     full_state=False,
                 )
@@ -1027,12 +1040,11 @@ class MatrixChannel(BaseChannel):
                 f"/{server}/{media_id}"
             )
             headers = {"Authorization": f"Bearer {self._cfg.access_token}"}
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                timeout=60,
-            ) as http:
-                resp = await http.get(url, headers=headers)
-                resp.raise_for_status()
+            if not self._http_client:
+                logger.warning("MatrixChannel: HTTP client not initialized")
+                return None
+            resp = await self._http_client.get(url, headers=headers)
+            resp.raise_for_status()
             dest = self._media_dir() / filename
             dest.write_bytes(resp.content)
             logger.debug("MatrixChannel: downloaded %s → %s", mxc_url, dest)
@@ -1071,12 +1083,11 @@ class MatrixChannel(BaseChannel):
                 f"/{server}/{media_id}"
             )
             headers = {"Authorization": f"Bearer {self._cfg.access_token}"}
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                timeout=60,
-            ) as http:
-                resp = await http.get(url, headers=headers)
-                resp.raise_for_status()
+            if not self._http_client:
+                logger.warning("MatrixChannel: HTTP client not initialized")
+                return None
+            resp = await self._http_client.get(url, headers=headers)
+            resp.raise_for_status()
 
             from nio.crypto.attachments import decrypt_attachment
 
@@ -1140,7 +1151,9 @@ class MatrixChannel(BaseChannel):
 
         sender_id = event.sender
         room_id = room.room_id
-        is_dm = len(room.users) == 2
+        # Use Matrix API for reliable DM detection (room.users unreliable
+        # after token restore)
+        is_dm = await self._is_dm_room(room_id, sender_id)
 
         if not self._check_allowed(sender_id, room_id, is_dm):
             return
@@ -1556,10 +1569,9 @@ class MatrixChannel(BaseChannel):
 
         sender_id = event.sender
         room_id = room.room_id
-        # nio's room.users may be empty after token restore
-        if self._client and room_id in self._client.rooms:
-            room = self._client.rooms[room_id]
-        is_dm = len(getattr(room, "users", {})) == 2
+        # Use Matrix API for reliable DM detection (room.users unreliable
+        # after token restore)
+        is_dm = await self._is_dm_room(room_id, sender_id)
 
         if not self._check_allowed(sender_id, room_id, is_dm):
             return
