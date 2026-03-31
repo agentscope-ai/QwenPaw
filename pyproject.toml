@@ -113,7 +113,6 @@ omit = [
     "*/tests/*",
     "*/test_*",
     "*/__pycache__/*",
-    "*/console/*",  # Frontend code covered separately
 ]
 
 [tool.coverage.report]
