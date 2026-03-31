@@ -60,7 +60,7 @@
 
 从“控制→频道”找到**DingTalk**，点击后填入刚刚获取的**Client ID**和**Client Secret**
 
-![console](https://img.alicdn.com/imgextra/i1/O1CN01uXrlyQ25Zpr5eVksk_!!6000000007541-2-tps-3451-1778.png)
+![console](https://img.alicdn.com/imgextra/i2/O1CN01xF0Ip91mDPm60EVDr_!!6000000004920-2-tps-3822-2064.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -234,7 +234,7 @@
 如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
 
 > 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 CoPaw 服务，才能继续配置长链接的操作。
-> ![console](https://img.alicdn.com/imgextra/i2/O1CN01k7UVrP1E2hZBAn0oF_!!6000000000294-2-tps-4082-2126.png)
+> ![console](https://img.alicdn.com/imgextra/i1/O1CN019Gfox81MMPXosAHhC_!!6000000001420-2-tps-3822-2064.png)
 
 ### 机器人权限建议
 
@@ -307,7 +307,7 @@
 
    - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
-     ![控制台](https://img.alicdn.com/imgextra/i3/O1CN01ut2ooB1mxDNNtz1Qc_!!6000000005020-2-tps-3814-1954.png)
+     ![控制台](https://img.alicdn.com/imgextra/i2/O1CN01AmgRk91Q9Mj5HfpDl_!!6000000001933-2-tps-3822-2064.png)
 
    - 填写智能体工作区的 `agent.json`（如 `~/.copaw/workspaces/default/agent.json`）：
 
@@ -379,7 +379,7 @@
 
 从“控制→频道”找到**Discord**，点击后填入刚刚获取的**Bot Token**
 
-![console](https://img.alicdn.com/imgextra/i2/O1CN01kP657n1XK5IXfPLAv_!!6000000002904-2-tps-4082-2126.png)
+![console](https://img.alicdn.com/imgextra/i4/O1CN01Q5UP6Z22ZQfAiPEaS_!!6000000007134-2-tps-3822-2064.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -471,7 +471,7 @@
 
 或者也可以在console前端填写：
 
-![1](https://img.alicdn.com/imgextra/i1/O1CN01kK9tSJ1MHpZmGR2o9_!!6000000001410-2-tps-4082-2126.png)
+![1](https://img.alicdn.com/imgextra/i2/O1CN011RzCNN1zREjSv74Y9_!!6000000006710-2-tps-3822-2064.png)
 
 ---
 
@@ -511,7 +511,7 @@
 
 **方法一**在console填写
 
-![绑定机器人](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
+![绑定机器人](https://img.alicdn.com/imgextra/i2/O1CN01hI25Kc1jrJQcrQMjR_!!6000000004601-2-tps-3822-2064.png)
 
 **方法二**在 `agent.json` 填写（如 `~/.copaw/workspaces/default/agent.json`）
 
@@ -626,7 +626,7 @@ WEIXIN_GROUP_POLICY=open
 
 从"控制→频道"找到**Telegram**，点击后填入刚刚获取的**Bot Token**
 
-![console](https://img.alicdn.com/imgextra/i4/O1CN01utJvvg1dmNSiFOOJi_!!6000000003778-0-tps-1920-993.jpg)
+![console](https://img.alicdn.com/imgextra/i3/O1CN01MCKRoZ1TjUomvgE0e_!!6000000002418-2-tps-3822-2064.png)
 
 **方法2**: 修改 `agent.json`
 

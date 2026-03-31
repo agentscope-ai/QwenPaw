@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Form, Tooltip, message } from "@agentscope-ai/design";
+import { Button, Form, Tooltip } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
   ImportOutlined,
@@ -19,13 +19,16 @@ import {
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import { parseErrorDetail } from "../../../utils/error";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 function SkillsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
   const {
     skills,
@@ -357,78 +360,76 @@ function SkillsPage() {
 
   return (
     <div className={styles.skillsPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Agent</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>{t("skills.title")}</span>
-        </div>
-        <div className={styles.headerRight}>
-          <input
-            type="file"
-            accept=".zip"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            style={{ display: "none" }}
-          />
-          <div className={styles.headerActionsLeft}>
-            <Tooltip title={t("skills.downloadFromPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={() => setPoolModal("download")}
-                icon={<DownloadOutlined />}
-              >
-                {t("skills.downloadFromPool")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.uploadToPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={() => setPoolModal("upload")}
-                icon={<SwapOutlined />}
-              >
-                {t("skills.uploadToPool")}
-              </Button>
-            </Tooltip>
+      <PageHeader
+        items={[{ title: t("nav.agent") }, { title: t("skills.title") }]}
+        extra={
+          <div className={styles.headerRight}>
+            <input
+              type="file"
+              accept=".zip"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              style={{ display: "none" }}
+            />
+            <div className={styles.headerActionsLeft}>
+              <Tooltip title={t("skills.downloadFromPoolHint")}>
+                <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  onClick={() => setPoolModal("download")}
+                  icon={<DownloadOutlined />}
+                >
+                  {t("skills.downloadFromPool")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.uploadToPoolHint")}>
+                <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  onClick={() => setPoolModal("upload")}
+                  icon={<SwapOutlined />}
+                >
+                  {t("skills.uploadToPool")}
+                </Button>
+              </Tooltip>
+            </div>
+            <div className={styles.headerActionsRight}>
+              <Tooltip title={t("skills.uploadZipHint")}>
+                <Button
+                  type="default"
+                  className={styles.creationActionButton}
+                  onClick={handleUploadClick}
+                  icon={<UploadOutlined />}
+                  loading={uploading}
+                  disabled={uploading}
+                >
+                  {t("skills.uploadZip")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.importHubHint")}>
+                <Button
+                  type="default"
+                  className={styles.creationActionButton}
+                  onClick={() => setImportModalOpen(true)}
+                  icon={<ImportOutlined />}
+                >
+                  {t("skills.importHub")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.createSkillHint")}>
+                <Button
+                  type="primary"
+                  className={styles.primaryActionButton}
+                  onClick={handleCreate}
+                  icon={<PlusOutlined />}
+                >
+                  {t("skills.createSkill")}
+                </Button>
+              </Tooltip>
+            </div>
           </div>
-          <div className={styles.headerActionsRight}>
-            <Tooltip title={t("skills.uploadZipHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={handleUploadClick}
-                icon={<UploadOutlined />}
-                loading={uploading}
-                disabled={uploading}
-              >
-                {t("skills.uploadZip")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.importHubHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={() => setImportModalOpen(true)}
-                icon={<ImportOutlined />}
-              >
-                {t("skills.importHub")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.createSkillHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryActionButton}
-                onClick={handleCreate}
-                icon={<PlusOutlined />}
-              >
-                {t("skills.createSkill")}
-              </Button>
-            </Tooltip>
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       <ImportHubModal
         open={importModalOpen}

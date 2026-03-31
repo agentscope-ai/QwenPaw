@@ -121,6 +121,7 @@
     "enableSuccess": "智能体已启用",
     "toggleFailed": "切换智能体状态失败",
     "defaultNotDisablable": "默认智能体不允许禁用",
+    "currentAgentDeleted": "当前智能体已被删除，已自动切换到默认智能体",
     "currentAgentDisabled": "当前智能体已被禁用，已自动切换到默认智能体",
     "switchedToDefault": "已自动切换到默认智能体",
     "cannotSwitchToDisabled": "该智能体已被禁用，请先在管理页面启用",
@@ -296,7 +297,8 @@
     "toggleError": "切换 MCP 客户端状态失败",
     "deleteConfirm": "确定要删除此 MCP 客户端吗？",
     "deleteSuccess": "MCP 客户端删除成功",
-    "deleteError": "MCP 客户端删除失败"
+    "deleteError": "MCP 客户端删除失败",
+    "maskedFieldHint": "敏感字段已用 *** 遮掩，不支持在遮掩值上直接编辑，如需修改请替换为完整新值。"
   },
   "heartbeat": {
     "title": "心跳",
@@ -715,11 +717,11 @@
     "localLlamacppInstallStarted": "已开始下载 llama.cpp",
     "localLlamacppInstallSuccess": "llama.cpp 安装成功",
     "localLlamacppInstallFailed": "llama.cpp 安装失败",
-    "localModelsModalDescription": "先准备本地推理引擎，再下载推荐模型并启动本地服务。关闭弹窗不会中断下载。",
     "localRuntimeSectionTitle": "Inference Engine",
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
     "localRuntimeInstalled": "已安装",
-    "localRuntimeMissing": "缺失",
+    "localRuntimeUnsupported": "当前环境不支持",
+    "localRuntimeMissing": "未安装",
     "localServerRunningTitle": "当前本地服务",
     "localServerOnline": "运行中",
     "localServerIdle": "不可用",
@@ -732,7 +734,7 @@
     "localEngineCurrentModelLabel": "当前服务模型",
     "localEngineNextStepLabel": "下一步",
     "localEngineHealthLabel": "引擎状态",
-    "localEngineStatusHint": "安装完成后，可以直接启动已下载模型，或先去下方下载推荐模型。",
+    "localEngineStatusHint": "请在下方列表中下载并启动合适的模型",
     "localStartServer": "启动",
     "localStopServer": "停止",
     "localServerStartFailed": "启动本地服务失败",
@@ -743,7 +745,8 @@
     "localModelPathMissing": "该已下载模型缺少本地路径信息。",
     "localModelsSectionTitle": "本地模型",
     "localModelsSectionDescription": "下载后即可启动；当前只允许一个模型下载任务和一个本地服务实例。",
-    "localModelsLockedHint": "请先安装本地推理引擎，再管理推荐模型。",
+    "localModelsLockedHint": "请先安装 llama.cpp",
+    "localAlternativeRuntimeHint": "请尝试使用 Ollama 或 LM Studio",
     "localModelsCount": "已下载 {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "当前下载",
     "localCustomModelTitle": "自定义模型下载",
@@ -858,7 +861,7 @@
     "toolResultCompactOldThresholdPlaceholder": "请输入字符阈值",
     "toolResultCompactOldThresholdRequired": "超出recent_n的工具调用结果最大字符数为必填项",
     "toolResultCompactRecentThreshold": "最新消息压缩阈值（bytes）",
-    "toolResultCompactRecentThresholdTooltip": "最近 N 条消息中工具结果超过此字节数时将被压缩，须大于早期消息阈值",
+    "toolResultCompactRecentThresholdTooltip": "最近 N 条消息中工具结果超过此字节数时将被压缩，同时也是 read_file 工具单次读取的最大字节上限，须大于等于早期消息阈值",
     "toolResultCompactRecentThresholdPlaceholder": "请输入字符阈值",
     "toolResultCompactRecentThresholdRequired": "recent_n内的工具调用结果最大字符数为必填项",
     "toolResultCompactRetentionDays": "工具调用的文件保留天数",
@@ -903,7 +906,7 @@
     "toolResultCompactTitle": "工具结果压缩配置",
     "toolResultCompactEnabled": "启用工具结果压缩",
     "toolResultCompactEnabledTooltip": "对过长的工具调用结果进行压缩，节省上下文空间",
-    "memorySummaryTitle": "记忆总结配置",
+    "memorySummaryTitle": "长期记忆配置",
     "memorySummaryEnabled": "启动记忆总结",
     "memorySummaryEnabledTooltip": "在上下文压缩时自动生成并保存记忆总结",
     "forceMemorySearch": "强制记忆搜索(beta)",
@@ -1186,7 +1189,8 @@
         "title": "检测到安全问题",
         "description": "发现以下安全问题：",
         "warnDescription": "发现安全问题，但技能仍已启用（仅提醒模式）：",
-        "goToWhitelist": "前往白名单"
+        "goToWhitelist": "前往白名单",
+        "moreFindings": "另有 {{count}} 条未列出（完整列表见 设置 → 安全 → 技能扫描）。"
       }
     }
   },

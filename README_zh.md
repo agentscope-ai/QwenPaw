@@ -16,7 +16,7 @@
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![钉钉群](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
 
-[[文档](https://copaw.agentscope.io/)] [[English](README.md)] [[日本語](README_ja.md)]
+[[文档](https://copaw.agentscope.io/)] [[English](README.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i2/O1CN014TIqyO1U5wDiSbFfA_!!6000000002467-2-tps-816-192.png" alt="CoPaw Logo" width="120">
@@ -26,17 +26,19 @@
 
 </div>
 
-你的AI个人助理；安装极简、本地与云上均可部署；支持多端接入、能力轻松扩展。
+你的 AI 个人助理；安装极简、本地与云上均可部署；支持多端接入、能力轻松扩展。
 
 > **核心能力：**
 >
-> **全域触达** — 钉钉、飞书、QQ、Discord、iMessage 等频道，一个 CoPaw 按需连接。
+> **由你掌控** — 记忆与个性化完全由你掌控，支持本地或云端部署。无第三方托管，无数据上传。
 >
-> **由你掌控** — 记忆与个性化由你掌控，本地或云端均可；定时与协作发往指定频道。
+> **Skills 扩展** — 内置定时任务、PDF/Office 处理、新闻摘要等；自定义技能自动加载，无绑定。通过 Skills 决定 CoPaw 能做什么。
 >
-> **多智能体** — 创建多个独立智能体，各司其职；启用协作技能，智能体间可互相通信协作。
+> **多智能体协作** — 创建多个独立智能体，各司其职；启用协作技能，智能体间互相通信共同完成复杂任务。
 >
-> **Skills 扩展** — 内置定时任务，自定义技能目录，CoPaw 自动加载，无绑定。
+> **多层安全防护** — 工具防护、文件访问控制、技能安全扫描，保障运行安全。
+>
+> **全域触达** — 钉钉、飞书、微信、Discord、Telegram 等频道，一个 CoPaw 按需连接。
 >
 > <details>
 > <summary><b>你可以用 CoPaw 做什么</b></summary>
@@ -56,22 +58,25 @@
 
 ## 新闻
 
-[2026-03-24] 我们发布了 v0.2.0！完整更新说明见 [v0.2.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+[2026-03-30] 我们发布了 v1.0.0！完整更新说明见 [v1.0.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
-- **[v0.2.0] 新增：** Agent 间通信；内置 QA Agent；LLM 自动重试配置；文件访问守卫（敏感路径防护）；控制台音视频与语音输入；页面刷新后流式重连；模型供应商搜索；多模态能力探测与 UI 标签；增强的 grep 和 glob 搜索；配置文件自动修复；摘要优化。
-- **[v0.2.0] 变更：** 稳定的提示词提升 KV Cache 命中率；CLI 启动加速；QQ 通道重构；QQ 和企业微信智能分块；QQ WebSocket 重连配置；暗色模式全面优化。
-- **[v0.2.0] 修复：** Windows Shell 命令挂起；Windows 文件路径处理；macOS 桌面端构建；通道消息处理锁泄漏；Agent 列表崩溃和刷新；控制台重连溢出；定时任务取消。
-- **[v0.2.0] 贡献者：** 感谢新贡献者：[@ixiadao](https://github.com/ixiadao)、[@leoleils](https://github.com/leoleils)、[@ltzu929](https://github.com/ltzu929)、[@emoubarak](https://github.com/emoubarak)、[@f3125472](https://github.com/f3125472)、[@shiweijiezero](https://github.com/shiweijiezero)、[@Yaohua-Leo](https://github.com/Yaohua-Leo)、[@finenter-molei](https://github.com/finenter-molei)、[@lizeruicq](https://github.com/lizeruicq)、[@hbsjmsjwj](https://github.com/hbsjmsjwj)、[@aquamarine-bot](https://github.com/aquamarine-bot)、[@sanfran1068](https://github.com/sanfran1068)、[@x1n95c](https://github.com/x1n95c)、[@saschabuehrle](https://github.com/saschabuehrle)。
+- **[v1.0.0] 新增：**
+  - **多 Agent 系统**：支持通过 CLI `--background` 标志执行后台任务并追踪；通过控制台和 API 启用/禁用 Agent；统一优先级队列系统（含 `/stop` 命令用于任务取消）
+  - **模型供应商**：CoPaw 本地模型供应商（基于 llama.cpp）；全局 LLM 流控器（QPM 滑动窗口）
+  - **安全**：工具守卫规则（保护系统重启与服务控制）；技能扫描器中的中文提示词注入检测
+  - **控制台与界面**：下载页面（提供桌面安装包及镜像站点）；控制台聊天中的多模态预览（图片、音频、视频、文件）
+  - **频道**：微信 iLink Bot 频道；自定义频道 HTTP 路由（用于 Webhook）
+  - **工具与技能**：异步工具执行（含后台任务辅助工具）；双层技能池架构；浏览器 CDP 支持（Chrome 自动化）
+- **[v1.0.0] 变更：** 上下文管理 v2.0（包含嵌套配置模型、新增压缩钩子、工具结果压缩和主动记忆搜索）；优化截断逻辑；流式 Grep 搜索。
+- **[v1.0.0] 修复：** 飞书 WebSocket 重连和多实例消息路由；Discord 重复消息；QQ 语音消息转换；多 Agent 模型配置；跨平台文件编码。
+- **[v1.0.0] 文档：** 全面更新文档，包括多 Agent、安装与 CLI、模型供应商、项目结构指南、上下文管理、安全、MCP 与工具、技能和魔法命令。
+- **[v1.0.0] 贡献者：** 感谢新贡献者：[@qzcpl](https://github.com/qzcpl)、[@livehl](https://github.com/livehl)、[@carlos999-hqsama](https://github.com/carlos999-hqsama)、[@bowenliang123](https://github.com/bowenliang123)、[@jinglinpeng](https://github.com/jinglinpeng)。
+
+[2026-03-24] 我们发布了 v0.2.0！完整更新说明见 [v0.2.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-18] 我们发布了 v0.1.0！完整更新说明见 [v0.1.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 [2026-03-12] 我们发布了 v0.0.7！完整更新说明见 [v0.0.7 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
-
-[2026-03-09] 我们发布了 v0.0.6！完整更新说明见 [v0.0.6 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
-
-[2026-03-06] 我们发布了 v0.0.5！完整更新说明见 [v0.0.5 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
-
-[2026-03-02] 我们发布了 v0.0.4！完整更新说明见 [v0.0.4 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 ---
 
@@ -79,20 +84,23 @@
 
 > **推荐阅读：**
 >
-> - **我想三条命令跑起来**： [快速开始](#快速开始) → 浏览器打开控制台。
-> - **我想在钉钉 / 飞书 / QQ 里聊**：在控制台中进行 [频道配置](https://copaw.agentscope.io/docs/channels)。
-> - **我不想装 Python**：[脚本安装](#脚本安装) 自动管理 Python，或使用 [魔搭一键配置](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 云端部署。
+> - **🚀 我是新用户，想快速试用**：[快速开始](#快速开始) → 三条命令跑起来 → [配置模型](#api-key) → 在控制台对话
+> - **💬 我想在钉钉/飞书/微信里用**：完成快速开始 → [配置模型](#api-key) → [频道配置](https://copaw.agentscope.io/docs/channels)
+> - **🐍 我不想装 Python**：[桌面应用](#桌面应用beta) 或 [脚本安装](#脚本安装) 或 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw)
+> - **💻 我想用本地模型（无需 API Key）**：[本地模型](#本地模型)
+> - **🛠️ 我想贡献代码或开发新功能**：[从源码安装](#从源码安装) → [参与贡献](#参与贡献)
 
 - [新闻](#新闻)
 - [快速开始](#快速开始)
 - [API Key](#api-key)
 - [本地模型](#本地模型)
 - [文档](#文档)
+- [安全特性](#安全特性)
 - [常见问题](#常见问题)
 - [掌握最新动态](#掌握最新动态)
 - [路线图](#路线图)
-- [参与贡献](#参与贡献)
 - [从源码安装](#从源码安装)
+- [参与贡献](#参与贡献)
 - [为什么叫 CoPaw？](#为什么叫-copaw)
 - [由谁构建](#由谁构建)
 - [许可证](#许可证)
@@ -101,7 +109,7 @@
 
 ## 快速开始
 
-### pip 安装
+### 方式一：pip 安装
 
 如果你习惯自行管理 Python 环境：
 
@@ -111,11 +119,14 @@ copaw init --defaults
 copaw app
 ```
 
-在浏览器打开 **http://127.0.0.1:8088/** 即可使用控制台（与 CoPaw 对话、配置 Agent）。若要在钉钉、飞书、QQ 等 app 内对话，请参考 [文档](https://copaw.agentscope.io/docs/channels) 接入频道。
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/**，配置模型后即可开始对话。
+若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://copaw.agentscope.io/docs/channels) 文档。
 
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
+![Console](https://img.alicdn.com/imgextra/i2/O1CN01h8X6HZ1g2z3lhP0uP_!!6000000004085-2-tps-3822-2144.png)
 
-### 脚本安装
+---
+
+### 方式二：脚本安装
 
 无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 CoPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。
 
@@ -131,10 +142,10 @@ curl -fsSL https://copaw.agentscope.io/install.sh | bash
 curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama
 ```
 
-如需安装多个扩展（例如 Ollama + llama.cpp）：
+如需安装多个扩展（例如 Ollama + local）：
 
 ```bash
-curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,llamacpp
+curl -fsSL https://copaw.agentscope.io/install.sh | bash -s -- --extras ollama,local
 ```
 
 **Windows (CMD):**
@@ -193,11 +204,6 @@ curl -fsSL ... | bash -s -- --version 0.0.2
 # 从源码安装（开发/测试用）
 curl -fsSL ... | bash -s -- --from-source
 
-# 安装本地模型支持
-bash install.sh --extras llamacpp    # llama.cpp（跨平台）
-bash install.sh --extras mlx         # MLX（Apple Silicon）
-bash install.sh --extras llamacpp,mlx
-
 # 升级 — 重新运行安装命令即可
 curl -fsSL ... | bash
 
@@ -215,11 +221,6 @@ irm ... | iex; .\install.ps1 -Version 0.0.2
 # 从源码安装（开发/测试用）
 .\install.ps1 -FromSource
 
-# 安装本地模型支持
-.\install.ps1 -Extras llamacpp      # llama.cpp（跨平台）
-.\install.ps1 -Extras mlx           # MLX
-.\install.ps1 -Extras llamacpp,mlx
-
 # 升级 — 重新运行安装命令即可
 irm ... | iex
 
@@ -228,9 +229,70 @@ copaw uninstall          # 保留配置和数据
 copaw uninstall --purge  # 删除所有内容
 ```
 
+> **注意**：如需安装本地模型支持（llama.cpp、Ollama、LM Studio），请参考 [本地模型](#本地模型) 章节。
+
 </details>
 
-### 桌面应用（Beta）
+---
+
+### 方式三：使用 Docker
+
+镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。
+
+```bash
+docker pull agentscope/copaw:latest
+docker run -p 127.0.0.1:8088:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
+```
+
+国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
+
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/**。配置、记忆与 Skills 保存在 `copaw-data` 卷中；模型配置与 API Key 保存在 `copaw-secrets` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+
+> **从容器内连接宿主机上的 Ollama 或其他模型服务**
+>
+> Docker 容器内的 `localhost` 指向容器自身，而非宿主机。如果 Ollama（或其他模型服务）运行在宿主机上，可通过以下方式让容器内的 CoPaw 访问：
+>
+> **方式 A** — 显式绑定宿主机地址（全平台通用）：
+> ```bash
+> docker run -p 127.0.0.1:8088:8088 \
+>   --add-host=host.docker.internal:host-gateway \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
+> ```
+> 然后在 CoPaw **设置 → 模型** 中，将 Base URL 改为 `http://host.docker.internal:<端口>` — 例如 Ollama 填 `http://host.docker.internal:11434`，LM Studio 填 `http://host.docker.internal:1234/v1`。
+>
+> **方式 B** — 使用宿主机网络（仅限 Linux）：
+> ```bash
+> docker run --network=host \
+>   -v copaw-data:/app/working \
+>   -v copaw-secrets:/app/working.secret \
+>   agentscope/copaw:latest
+> ```
+> 无需端口映射（`-p`），容器直接共享宿主机网络。注意这会将容器的所有端口暴露在宿主机上，可能与已占用的端口产生冲突。
+>
+> **提示：** 如果你只挂载了 `/app/working` 而没有单独挂载 `/app/working.secret`，入口脚本会自动将 secrets 重定向到 `/app/working/.secret`，使其也保存在同一个 volume 中。
+
+镜像从零构建。若需自行构建镜像，请参阅 [scripts/README.md](scripts/README.md#build-docker-image) 中的「Build Docker image」小节，构建后推送到你的镜像仓库。
+
+---
+
+### 方式四：部署到阿里云 ECS
+
+若希望将 CoPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：打开 [CoPaw 阿里云 ECS 部署链接](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884) 按页面提示操作即可。详细步骤见 [阿里云开发者社区：CoPaw 3 分钟部署你的 AI 助理](https://developer.aliyun.com/article/1713682)。
+
+---
+
+### 方式五：使用魔搭创空间
+
+**不想本地安装？** 使用 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 一键云端配置。请将创空间设为 **非公开**，否则他人可能操纵你的 CoPaw。
+
+---
+
+### 方式六：桌面应用（Beta）
 
 > **Beta 版本说明**：桌面应用目前处于 Beta 测试阶段，存在以下已知限制：
 > - **兼容性测试不完整**：未在所有系统版本和硬件配置上进行充分测试
@@ -275,6 +337,12 @@ copaw uninstall --purge  # 删除所有内容
 
 ---
 
+### 使用魔搭创空间
+
+**不想本地安装？** 使用 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 一键云端配置。请将创空间设为 **非公开**，否则他人可能操纵你的 CoPaw。
+
+---
+
 ### 使用 Docker
 
 镜像在 **Docker Hub**（`agentscope/copaw`）。镜像 tag：`latest`（稳定版）；`pre`（PyPI 预发布版）。
@@ -289,7 +357,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 国内用户也可选用阿里云容器镜像服务 (ACR)：`agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/copaw`（tag 相同）。
 
-然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `copaw-data` 卷中；模型配置与 API Key 保存在 `copaw-secrets` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
+然后在浏览器中打开控制台：**http://127.0.0.1:8088/**。配置、记忆与 Skills 保存在 `copaw-data` 卷中；模型配置与 API Key 保存在 `copaw-secrets` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
@@ -318,9 +386,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 镜像从零构建。若需自行构建镜像，请参阅 [scripts/README.md](scripts/README.md#build-docker-image) 中的「Build Docker image」小节，构建后推送到你的镜像仓库。
 
-### 使用魔搭创空间
-
-**不想本地安装？** 使用 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) 一键云端配置。请将创空间设为 **非公开**，否则他人可能操纵你的 CoPaw。
+---
 
 ### 部署到阿里云 ECS
 
@@ -330,7 +396,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ## API Key
 
-若使用**云端大模型**（如 DashScope、ModelScope），在开始对话前必须配置 API Key。未配置有效 Key 前，CoPaw 无法正常工作。详情请参考[官方文档](https://copaw.agentscope.io/docs/models#%E9%85%8D%E7%BD%AE%E4%BA%91%E6%8F%90%E4%BE%9B%E5%95%86)。
+若使用**云端大模型 API**（如通义千问、Gemini、OpenAI），在开始对话前必须配置 API Key。未配置有效 Key 前，CoPaw 无法正常工作。详情请参考[官方文档](https://copaw.agentscope.io/docs/models)。
 
 **配置方式：**
 
@@ -340,29 +406,20 @@ docker run -p 127.0.0.1:8088:8088 \
 
 其他工具所需密钥（如网页搜索的 `TAVILY_API_KEY`）可在控制台 **设置 → 环境变量** 中配置，详见 [配置](https://copaw.agentscope.io/docs/config)。
 
-> **仅用本地模型？** 若使用 [本地模型](#本地模型)（llama.cpp 或 MLX），则**无需**任何 API Key。
+> **仅用本地模型？** 若使用 [本地模型](#本地模型)（llama.cpp，Ollama，LM Studio），则**无需**任何 API Key。
 
 ---
 
 ## 本地模型
 
-CoPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见[官方文档](https://copaw.agentscope.io/docs/models#%E6%9C%AC%E5%9C%B0%E6%8F%90%E4%BE%9B%E5%95%86llamacpp--MLX)
+CoPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务。详情请见[官方文档](https://copaw.agentscope.io/docs/models)
 
 | 后端          | 适用场景                          | 安装                                                                 |
 | ------------- | --------------------------------- | -------------------------------------------------------------------- |
-| **llama.cpp** | 跨平台（macOS / Linux / Windows） | `pip install 'copaw[llamacpp]'` 或 `bash install.sh --extras llamacpp` |
-| **MLX**       | Apple Silicon（M1/M2/M3/M4）      | `pip install 'copaw[mlx]'` 或 `bash install.sh --extras mlx`         |
-| **Ollama**    | 跨平台（需要 Ollama 服务运行）    | `pip install 'copaw[ollama]'` 或 `bash install.sh --extras ollama`   |
+| **llama.cpp** | 跨平台（macOS / Linux / Windows） | 无需额外安装，在 Web 界面中点击 `Download Llama.cpp` 即可 |
+| **Ollama**    | 跨平台（需要 Ollama 服务运行）    | 提前安装 Ollama 应用并启动 |
+| **LM Studio** | 跨平台（需要 LM Studio 服务运行） | 提前安装 LM Studio 应用并启动 |
 
-安装后可以在 **控制台** 界面中下载与管理本地模型。
-
-也可以用命令行管理模型：
-
-```bash
-copaw models download Qwen/Qwen3-4B-GGUF
-copaw models # 选择已下载的模型
-copaw app # 启动服务
-```
 
 ---
 
@@ -372,27 +429,41 @@ copaw app # 启动服务
 | --------------------------------------------------------- | ------------------------------------ |
 | [项目介绍](https://copaw.agentscope.io/docs/intro)        | CoPaw 是什么、怎么用                 |
 | [快速开始](https://copaw.agentscope.io/docs/quickstart)   | 安装与运行（本地或魔搭创空间）       |
-| [控制台](https://copaw.agentscope.io/docs/console)        | Web 界面：对话与 Agent 配置          |
-| [模型](https://copaw.agentscope.io/docs/models)        | 配置云/本地/自定义提供商          |
-| [频道配置](https://copaw.agentscope.io/docs/channels)     | 钉钉、飞书、QQ、Discord、iMessage 等 |
+| [控制台](https://copaw.agentscope.io/docs/console)        | Web 界面：对话、配置与定时任务       |
+| [模型](https://copaw.agentscope.io/docs/models)           | 配置云/本地/自定义提供商             |
+| [频道配置](https://copaw.agentscope.io/docs/channels)     | 钉钉、飞书、微信、Discord、Telegram 等 |
 | [Skills](https://copaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |
-| [MCP](https://copaw.agentscope.io/docs/mcp)               | 管理 MCP 客户端                     |
-| [记忆](https://copaw.agentscope.io/docs/memory)           | 长期记忆                 |
-| [上下文](https://copaw.agentscope.io/docs/context)       | 上下文管理机制                       |
-| [魔法命令](https://copaw.agentscope.io/docs/commands)           | 控制对话状态，无需等待AI理解        |
+| [MCP和工具](https://copaw.agentscope.io/docs/mcp)         | 管理 MCP 客户端和工具                |
+| [记忆](https://copaw.agentscope.io/docs/memory)           | 长期记忆机制                         |
+| [上下文](https://copaw.agentscope.io/docs/context)        | 上下文管理机制                       |
+| [魔法命令](https://copaw.agentscope.io/docs/commands)     | 控制对话状态，无需等待 AI 理解       |
+| [安全](https://copaw.agentscope.io/docs/security)         | 工具防护、文件防护、技能安全扫描     |
 | [心跳](https://copaw.agentscope.io/docs/heartbeat)        | 定时自检与摘要                       |
 | [多智能体](https://copaw.agentscope.io/docs/multi-agent)  | 创建多个智能体并启用协作             |
 | [配置与工作目录](https://copaw.agentscope.io/docs/config) | 工作目录与配置文件                   |
 | [CLI](https://copaw.agentscope.io/docs/cli)               | 初始化、定时任务、Skills、清理       |
-| [FAQ 常见问题](https://copaw.agentscope.io/docs/faq)               | 常见问题与报错排查                   |
+| [FAQ](https://copaw.agentscope.io/docs/faq)               | 常见问题与报错排查                   |
 
 完整文档见本仓库 [website/public/docs/](website/public/docs/)。
 
 ---
 
+## 安全特性
+
+CoPaw 内置多层安全防护机制，保障你的数据与系统安全：
+
+- **工具防护** — 自动拦截危险 Shell 命令（如 `rm -rf /`、fork 炸弹、反向 shell 等）
+- **文件访问守卫** — 限制智能体访问敏感路径（如 `~/.ssh`、密钥文件、系统目录等）
+- **技能安全扫描** — 安装技能前自动扫描，检测提示词注入、命令注入、硬编码密钥、数据外泄等风险
+- **本地部署** — 所有数据与记忆存储在本地，无第三方上传（使用云端 LLM API 时，对话内容会发送到对应的 API 提供商）
+
+详见 [安全文档](https://copaw.agentscope.io/docs/security)。
+
+---
+
 ## 常见问题
 
-常见问题、排错指南与已知问题，请访问 **[FAQ 页面](https://copaw.agentscope.io/docs/faq)**。
+更多常见问题、故障排查技巧和已知问题，请访问 **[FAQ 页面](https://copaw.agentscope.io/docs/faq)**。
 
 ---
 
@@ -413,31 +484,18 @@ copaw app # 启动服务
 | **横向拓展**           | 更多频道、模型、技能、MCP 等 — **欢迎社区贡献**                                                             | 征集中   |
 | **已有功能扩展与完善** | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献**                                                   | 征集中   |
 | **控制台 Web UI**      | 在控制台中透出更多信息与配置                                                                                | 进行中   |
-| **自愈**               | DaemonAgent：自诊断、自愈与恢复                                                                             | 进行中   |
-| **多智能体**           | 后台任务支持                                                                                                | 进行中   |
-|                        | 异步任务                                                                                                    | 计划中   |
-|                        | 智能体间竞争与冲突的解决                                                                                    | 计划中   |
+| **多智能体**           | Agentic Ralph Loop                                                                                          | 进行中   |
 | **多模态**             | 语音/视频通话与实时交互                                                                                     | 进行中   |
-| **大小模型协同**       | 针对 CoPaw 工作流的本地小模型训练与微调                                                                     | 进行中   |
-|                        | 多模型路由，不同模型处理不同任务                                                                            | 进行中   |
-| **记忆系统**           | 经验沉淀技能提炼                                                                                            | 进行中   |
-|                        | 记忆机制切换                                                                                                | 计划中   |
-|                        | 多模态记忆融合增强                                                                                          | 计划中   |
+| **大小模型协同**       | 多模型路由，不同任务使用不同模型                                                                            | 进行中   |
+| **记忆系统**           | 经验沉淀与技能提炼                                                                                          | 进行中   |
+|                        | 记忆机制切换                                                                                                | 进行中   |
+|                        | 多模态记忆融合                                                                                              | 计划中   |
 |                        | 场景感知主动推送                                                                                            | 计划中   |
 | **沙箱**               | 与 AgentScope Runtime 沙箱深度集成                                                                          | 进行中   |
-| **云原生**             | 与 AgentScope Runtime 深度集成，充分利用云端算力、存储与工具生态                                            | 计划中   |
+| **云原生**             | 与 AgentScope Runtime 深度集成；利用云端算力、存储、工具与技能                                              | 进行中   |
 | **技能生态**           | 丰富 [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) 仓库，提升优质技能的发现与使用 | 计划中   |
 
-_状态说明：**进行中** — 正在推进；**计划中** — 已排期或设计中，也欢迎贡献；**征集中** — 我们非常欢迎社区参与。_
-
-### 参与贡献
-
-CoPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始。我们特别欢迎：
-
-- **横向拓展** — 新频道、模型提供商、Skills、MCP。
-- **已有功能扩展与完善** — 展示与交互优化、下载提示、Windows 路径兼容等。
-
-欢迎在 [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions) 参与讨论、提出想法或认领任务。
+_状态说明：**进行中** — 正在积极开发；**计划中** — 已排队或设计中，也欢迎贡献；**征集中** — 我们强烈鼓励社区参与。_
 
 ---
 
@@ -466,6 +524,17 @@ pip install -e .
 
 ---
 
+## 参与贡献
+
+CoPaw 在开放协作中持续演进，欢迎各种形式的参与！请参考上方 [路线图](#路线图)（尤其是标记为 **征集中** 的项）选择你感兴趣的方向，并阅读 [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING_zh.md) 了解如何开始。我们特别欢迎：
+
+- **横向拓展** — 新频道、模型提供商、Skills、MCP。
+- **已有功能扩展与完善** — 展示与交互优化、下载提示、Windows 路径兼容等。
+
+欢迎在 [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions) 参与讨论、提出想法或认领任务。
+
+---
+
 ## 为什么叫 CoPaw？
 
 CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 **Co Personal Agent Workstation**（协同个人智能体工作台）。我们希望它不是冰冷的工具，而是一只随时准备帮忙的温暖「小爪子」，是你数字生活中最默契的伙伴。
@@ -480,9 +549,9 @@ CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 **Co Personal Ag
 
 ## 联系我们
 
-| [Discord](https://discord.gg/eYMpfnkG8h)                     | [X (Twitter)](https://x.com/agentscope_ai)                   | [钉钉](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
-| ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white" width="80" height="80" alt="X">](https://x.com/agentscope_ai) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="钉钉">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) |
+| [Discord](https://discord.gg/eYMpfnkG8h)                     | [X (Twitter)](https://x.com/agentscope_ai)                   | [钉钉](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) | [小红书](https://www.xiaohongshu.com/user/profile/691c18db0000000037032be9) |
+| ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white" width="80" height="80" alt="X">](https://x.com/agentscope_ai) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="钉钉">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) | [<img src="https://img.alicdn.com/imgextra/i3/O1CN016BoEPS1l33CE9mHb9_!!6000000004762-0-tps-160-160.jpg" width="80" height="80" alt="小红书">](https://www.xiaohongshu.com/user/profile/691c18db0000000037032be9) |
 
 ---
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, message, Table } from "@agentscope-ai/design";
+import { Button, Card, Table } from "@agentscope-ai/design";
 import type { ColumnsType } from "antd/es/table";
 import { DatePicker } from "antd";
 import { useTranslation } from "react-i18next";
@@ -10,7 +10,9 @@ import type {
   TokenUsageStats,
 } from "../../../api/types/tokenUsage";
 import { formatCompact } from "../../../utils/formatNumber";
-import { PageHeader, LoadingState, EmptyState } from "./components";
+import { LoadingState, EmptyState } from "./components";
+import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 type ByModelRow = TokenUsageStats & { key: string };
@@ -18,6 +20,7 @@ type ByDateRow = TokenUsageStats & { key: string; date: string };
 
 function TokenUsagePage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TokenUsageSummary | null>(null);
@@ -135,7 +138,7 @@ function TokenUsagePage() {
 
   return (
     <div className={styles.tokenUsagePage}>
-      <PageHeader parent="Settings" current={t("tokenUsage.title")} />
+      <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
       <div className={styles.content}>
         {loading && !data ? (
           <LoadingState

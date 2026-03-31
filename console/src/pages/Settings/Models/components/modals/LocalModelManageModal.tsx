@@ -1,12 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Button,
-  Input,
-  Modal,
-  Select,
-  Tooltip,
-  message,
-} from "@agentscope-ai/design";
+import { Button, Input, Modal, Select, Tooltip } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
 import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import { Progress } from "antd";
 import type {
@@ -37,6 +31,7 @@ function isSameServerStatus(
 ): boolean {
   return (
     left?.available === right?.available &&
+    left?.installable === right?.installable &&
     left?.installed === right?.installed &&
     left?.port === right?.port &&
     left?.model_name === right?.model_name &&
@@ -106,6 +101,8 @@ export function LocalModelManageModal({
   const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
   const previousLlamacppStatusRef = useRef<string | null>(null);
   const previousModelStatusRef = useRef<string | null>(null);
+
+  const { message } = useAppMessage();
 
   const getLocalModelDisplayName = (modelId: string | null) => {
     if (!modelId) {
@@ -483,7 +480,12 @@ export function LocalModelManageModal({
 
   const isModelDownloading = isDownloadActive(modelDownload);
   const isServerBusy = stoppingServer || startingModelName !== null;
+  const isRuntimeInstallable = serverStatus?.installable ?? true;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
+  const runtimeLockedMessage =
+    !isRuntimeInstallable && serverStatus?.message
+      ? serverStatus.message
+      : t("models.localModelsLockedHint");
   const isCustomDownloadDisabled =
     customModelRepoId.trim().length === 0 || isModelDownloading || isServerBusy;
   const downloadedModelCount = localModels.filter(
@@ -527,81 +529,90 @@ export function LocalModelManageModal({
           onStop={handleStopServer}
           stopping={stoppingServer}
         />
-      </section>
-
-      <section className={styles.localSection}>
-        <div className={styles.localSectionHeader}>
-          <div>
-            <div className={styles.localSectionTitle}>
-              {t("models.localModelsSectionTitle")}
+        {!isRuntimeInstalled ? (
+          <div className={styles.localLockedPanel}>
+            <div className={styles.localLockedPanelTitle}>
+              {isRuntimeInstallable
+                ? t("models.localRuntimeMissing")
+                : t("models.localRuntimeUnsupported")}
+            </div>
+            <div className={styles.localLockedPanelDescription}>
+              <div>{runtimeLockedMessage}</div>
+              {!isRuntimeInstallable ? (
+                <div>{t("models.localAlternativeRuntimeHint")}</div>
+              ) : null}
             </div>
           </div>
-        </div>
+        ) : null}
+      </section>
 
-        {isRuntimeInstalled && isModelDownloading ? (
-          <div className={styles.localSectionInfoRow}>
-            <div className={styles.localSectionInfoContent}>
-              <span className={styles.localSectionInfoLabel}>
-                {t("models.localCurrentDownloadTitle")}
-              </span>
-              <span className={styles.localSectionInfoValue}>
-                {currentModelDownloadName}
-              </span>
-              <div className={styles.localRuntimeDownloadRow}>
-                <div className={styles.localRuntimeProgressBlock}>
-                  <div className={styles.localRuntimeProgressBarRow}>
-                    <Progress
-                      className={styles.localRuntimeProgress}
-                      percent={currentModelDownloadPercent ?? 0}
-                      showInfo={false}
-                      status="active"
-                      strokeColor="#ff7f16"
-                      strokeWidth={10}
-                    />
-                    <Tooltip title={t("models.localCancelDownloadAction")}>
-                      <Button
-                        danger
-                        size="small"
-                        icon={<CloseOutlined />}
-                        onClick={() =>
-                          handleCancelModelDownload(currentModelDownloadName)
-                        }
-                      />
-                    </Tooltip>
-                  </div>
-                  <span className={styles.localRuntimeProgressMeta}>
-                    {formatProgressText(modelDownload)}
-                  </span>
-                </div>
+      {isRuntimeInstalled ? (
+        <section className={styles.localSection}>
+          <div className={styles.localSectionHeader}>
+            <div>
+              <div className={styles.localSectionTitle}>
+                {t("models.localModelsSectionTitle")}
               </div>
             </div>
           </div>
-        ) : null}
 
-        {isRuntimeInstalled && currentRunningModelName ? (
-          <div className={styles.localSectionInfoRow}>
-            <span className={styles.localSectionInfoLabel}>
-              {t("models.localEngineCurrentModelLabel")}
-            </span>
-            <span className={styles.localSectionInfoValue}>
-              {currentRunningModelDisplayName}
-            </span>
-          </div>
-        ) : null}
-
-        {isRuntimeInstalled && downloadedModelCount === 0 ? (
-          <div className={styles.localSectionNotice}>
-            {t("models.localNoDownloadedModelsHint")}
-          </div>
-        ) : null}
-
-        {!isRuntimeInstalled ? (
-          <div className={styles.localLockedPanel}>
-            <div className={styles.localLockedPanelDescription}>
-              {t("models.localModelsLockedHint")}
+          {isRuntimeInstalled && isModelDownloading ? (
+            <div className={styles.localSectionInfoRow}>
+              <div className={styles.localSectionInfoContent}>
+                <span className={styles.localSectionInfoLabel}>
+                  {t("models.localCurrentDownloadTitle")}
+                </span>
+                <span className={styles.localSectionInfoValue}>
+                  {currentModelDownloadName}
+                </span>
+                <div className={styles.localRuntimeDownloadRow}>
+                  <div className={styles.localRuntimeProgressBlock}>
+                    <div className={styles.localRuntimeProgressBarRow}>
+                      <Progress
+                        className={styles.localRuntimeProgress}
+                        percent={currentModelDownloadPercent ?? 0}
+                        showInfo={false}
+                        status="active"
+                        strokeColor="#ff7f16"
+                        strokeWidth={10}
+                      />
+                      <Tooltip title={t("models.localCancelDownloadAction")}>
+                        <Button
+                          danger
+                          size="small"
+                          icon={<CloseOutlined />}
+                          onClick={() =>
+                            handleCancelModelDownload(currentModelDownloadName)
+                          }
+                        />
+                      </Tooltip>
+                    </div>
+                    <span className={styles.localRuntimeProgressMeta}>
+                      {formatProgressText(modelDownload)}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        ) : (
+          ) : null}
+
+          {isRuntimeInstalled && currentRunningModelName ? (
+            <div className={styles.localSectionInfoRow}>
+              <span className={styles.localSectionInfoLabel}>
+                {t("models.localEngineCurrentModelLabel")}
+              </span>
+              <span className={styles.localSectionInfoValue}>
+                {currentRunningModelDisplayName}
+              </span>
+            </div>
+          ) : null}
+
+          {isRuntimeInstalled && downloadedModelCount === 0 ? (
+            <div className={styles.localSectionNotice}>
+              {t("models.localNoDownloadedModelsHint")}
+            </div>
+          ) : null}
+
           <div className={styles.modelList}>
             {serverStatus?.installed && loadingLocal ? (
               <div className={styles.modelListEmpty}>{t("common.loading")}</div>
@@ -684,8 +695,8 @@ export function LocalModelManageModal({
               </div>
             ) : null}
           </div>
-        )}
-      </section>
+        </section>
+      ) : null}
     </Modal>
   );
 }

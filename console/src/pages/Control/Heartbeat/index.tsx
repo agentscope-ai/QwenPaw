@@ -4,10 +4,10 @@ import {
   Card,
   Form,
   InputNumber,
-  message,
   Select,
   Switch,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { TimePicker } from "antd";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
@@ -16,6 +16,7 @@ import api from "../../../api";
 import { useAgentStore } from "../../../stores/agentStore";
 import type { HeartbeatConfig } from "../../../api/types/heartbeat";
 import { parseEvery, serializeEvery, type EveryUnit } from "./parseEvery";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 dayjs.extend(customParseFormat);
@@ -73,6 +74,7 @@ function HeartbeatPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<HeartbeatFormValues>();
+  const { message } = useAppMessage();
 
   const fetchConfig = async () => {
     setLoading(true);
@@ -138,15 +140,9 @@ function HeartbeatPage() {
   if (loading) {
     return (
       <div className={styles.heartbeatPage}>
-        <div className={styles.pageHeader}>
-          <div className={styles.breadcrumbHeader}>
-            <span className={styles.breadcrumbParent}>Control</span>
-            <span className={styles.breadcrumbSeparator}>/</span>
-            <span className={styles.breadcrumbCurrent}>
-              {t("heartbeat.title")}
-            </span>
-          </div>
-        </div>
+        <PageHeader
+          items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
+        />
         <span className={styles.description}>{t("common.loading")}</span>
       </div>
     );
@@ -154,15 +150,9 @@ function HeartbeatPage() {
 
   return (
     <div className={styles.heartbeatPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Control</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>
-            {t("heartbeat.title")}
-          </span>
-        </div>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
+      />
       <div className={styles.heartbeatContent}>
         <Card className={styles.card}>
           <Form

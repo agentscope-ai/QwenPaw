@@ -3,12 +3,12 @@ import { Button, Input } from "@agentscope-ai/design";
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
-  PageHeader,
   LoadingState,
   ProviderCard,
   CustomProviderModal,
   ModelsSection,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../api/types/provider";
 import styles from "./index.module.less";
@@ -78,75 +78,82 @@ function ModelsPage() {
       ) : (
         <>
           {/* ---- LLM Section (top) ---- */}
-          <PageHeader parent="Settings" current={t("models.llmTitle")} />
-          <ModelsSection
-            providers={providers}
-            activeModels={activeModels}
-            onSaved={fetchAll}
+          <PageHeader
+            parent={t("nav.settings")}
+            current={t("models.llmTitle")}
           />
-          {/* ---- Providers Section ---- */}
-          <div className={styles.providersBlock}>
-            <div className={styles.sectionHeaderRow}>
-              <PageHeader
-                parent="Settings"
-                current={t("models.providersTitle")}
-              />
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setAddProviderOpen(true)}
-                className={styles.addProviderBtn}
-              >
-                {t("models.addProvider")}
-              </Button>
-            </div>
+          {/* ---- Scrollable Content ---- */}
+          <div className={styles.content}>
+            <ModelsSection
+              providers={providers}
+              activeModels={activeModels}
+              onSaved={fetchAll}
+            />
+            {/* ---- Providers Section ---- */}
+            <div className={styles.providersBlock}>
+              <div className={styles.sectionHeaderRow}>
+                <PageHeader
+                  current={t("models.providersTitle")}
+                  className={styles.providersPageHeader}
+                />
+                <div className={styles.headerRight}>
+                  {/* ---- Search ---- */}
+                  <div className={styles.searchRow}>
+                    <Input
+                      placeholder={t("models.searchPlaceholder")}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onPressEnter={() => {}}
+                      className={styles.searchInput}
+                      prefix={<SearchOutlined />}
+                      allowClear
+                    />
+                    <Button
+                      type="primary"
+                      icon={<SearchOutlined />}
+                      onClick={() => fetchAll()}
+                      className={styles.searchBtn}
+                    >
+                      {t("models.search")}
+                    </Button>
+                  </div>
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={() => setAddProviderOpen(true)}
+                    className={styles.addProviderBtn}
+                  >
+                    {t("models.addProvider")}
+                  </Button>
+                </div>
+              </div>
 
-            {/* ---- Search Row ---- */}
-            <div className={styles.searchRow}>
-              <Input
-                placeholder={t("models.searchPlaceholder")}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onPressEnter={() => {}}
-                className={styles.searchInput}
-                prefix={<SearchOutlined />}
-                allowClear
-              />
-              <Button
-                type="primary"
-                icon={<SearchOutlined />}
-                onClick={() => fetchAll()}
-                className={styles.searchBtn}
-              >
-                {t("models.search")}
-              </Button>
-            </div>
-
-            {localProviders.length > 0 && (
-              <div className={styles.providerGroup}>
-                {/* <h4 className={styles.providerGroupTitle}>
+              {localProviders.length > 0 && (
+                <div className={styles.providerGroup}>
+                  {/* <h4 className={styles.providerGroupTitle}>
                   {t("models.localEmbedded")}
                 </h4> */}
-                <div className={styles.providerCards}>
-                  {renderProviderCards(localProviders)}
+                  <div className={styles.providerCards}>
+                    {renderProviderCards(localProviders)}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {regularProviders.length > 0 && (
-              <div className={styles.providerGroup}>
-                <div className={styles.providerCards}>
-                  {renderProviderCards(regularProviders)}
+              {regularProviders.length > 0 && (
+                <div className={styles.providerGroup}>
+                  <div className={styles.providerCards}>
+                    {renderProviderCards(regularProviders)}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            <CustomProviderModal
+              open={addProviderOpen}
+              onClose={() => setAddProviderOpen(false)}
+              onSaved={fetchAll}
+            />
           </div>
-
-          <CustomProviderModal
-            open={addProviderOpen}
-            onClose={() => setAddProviderOpen(false)}
-            onSaved={fetchAll}
-          />
         </>
       )}
     </div>

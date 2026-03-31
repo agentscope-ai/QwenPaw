@@ -95,6 +95,7 @@
     "enableSuccess": "Агент успешно включён",
     "toggleFailed": "Не удалось переключить состояние агента",
     "defaultNotDisablable": "Агент по умолчанию нельзя отключить",
+    "currentAgentDeleted": "Текущий агент был удалён, автоматически переключено на агента по умолчанию",
     "currentAgentDisabled": "Текущий агент был отключён, автоматически переключено на агента по умолчанию",
     "switchedToDefault": "Автоматически переключено на агента по умолчанию",
     "cannotSwitchToDisabled": "Этот агент отключён, пожалуйста, сначала включите его на странице управления"
@@ -279,7 +280,8 @@
     "toggleError": "Не удалось переключить статус MCP-клиента",
     "deleteConfirm": "Вы уверены, что хотите удалить этот MCP-клиент?",
     "deleteSuccess": "MCP-клиент успешно удалён",
-    "deleteError": "Не удалось удалить MCP-клиент"
+    "deleteError": "Не удалось удалить MCP-клиент",
+    "maskedFieldHint": "Чувствительные поля скрыты ***. Редактирование скрытых значений не поддерживается — замените полным новым значением."
   },
   "heartbeat": {
     "title": "Пульс",
@@ -686,10 +688,10 @@
     "localLlamacppInstallStarted": "Загрузка llama.cpp началась",
     "localLlamacppInstallSuccess": "llama.cpp успешно установлен",
     "localLlamacppInstallFailed": "Не удалось установить llama.cpp",
-    "localModelsModalDescription": "Сначала подготовьте локальный движок инференса, затем скачайте рекомендованную модель и запустите локальный сервер. Закрытие этого окна не прерывает загрузку.",
     "localRuntimeSectionTitle": "Inference Engine",
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
     "localRuntimeInstalled": "Установлен",
+    "localRuntimeUnsupported": "Не поддерживается",
     "localRuntimeMissing": "Не установлен",
     "localServerRunningTitle": "Текущий локальный сервер",
     "localServerOnline": "Работает",
@@ -703,7 +705,7 @@
     "localEngineCurrentModelLabel": "Текущая обслуживаемая модель",
     "localEngineNextStepLabel": "Следующий шаг",
     "localEngineHealthLabel": "Состояние движка",
-    "localEngineStatusHint": "После установки можно сразу запустить загруженную модель или скачать подходящую из списка ниже.",
+    "localEngineStatusHint": "Скачайте и запустите подходящую модель из списка ниже",
     "localStartServer": "Запустить",
     "localStopServer": "Остановить",
     "localServerStartFailed": "Не удалось запустить локальный сервер",
@@ -714,7 +716,8 @@
     "localModelPathMissing": "Для этой загруженной модели отсутствует локальный путь.",
     "localModelsSectionTitle": "Локальные модели",
     "localModelsSectionDescription": "Загруженные модели можно запускать сразу. Одновременно может выполняться только одна загрузка модели и один локальный сервер.",
-    "localModelsLockedHint": "Установите локальный движок инференса перед управлением рекомендуемыми моделями.",
+    "localModelsLockedHint": "Сначала установите llama.cpp",
+    "localAlternativeRuntimeHint": "Попробуйте использовать Ollama или LM Studio",
     "localModelsCount": "Загружено {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "Текущая загрузка",
     "localCustomModelTitle": "Загрузка пользовательской модели",
@@ -829,7 +832,7 @@
     "toolResultCompactOldThresholdPlaceholder": "Введите порог символов",
     "toolResultCompactOldThresholdRequired": "Макс. символов для результатов за пределами recent_n обязательно",
     "toolResultCompactRecentThreshold": "Макс. символов для результатов инструментов в пределах recent_n",
-    "toolResultCompactRecentThresholdTooltip": "Результаты инструментов в пределах recent_n, превышающие этот лимит, будут сжаты",
+    "toolResultCompactRecentThresholdTooltip": "Результаты инструментов в пределах recent_n, превышающие этот лимит, будут сжаты. Также задаёт максимальное количество байт, возвращаемых за один вызов read_file. Должно быть больше или равно порогу для старых сообщений",
     "toolResultCompactRecentThresholdPlaceholder": "Введите порог символов",
     "toolResultCompactRecentThresholdRequired": "Макс. символов для результатов в пределах recent_n обязательно",
     "toolResultCompactRetentionDays": "Дни хранения файлов результатов инструментов",
@@ -874,7 +877,7 @@
     "toolResultCompactTitle": "Настройки сжатия результатов инструментов",
     "toolResultCompactEnabled": "Включить сжатие результатов инструментов",
     "toolResultCompactEnabledTooltip": "Сжимать слишком длинные результаты вызовов инструментов для экономии пространства контекста",
-    "memorySummaryTitle": "Настройки сводки памяти",
+    "memorySummaryTitle": "Настройки долгосрочной памяти",
     "memorySummaryEnabled": "Запустить сводку памяти",
     "memorySummaryEnabledTooltip": "Автоматически генерировать и сохранять сводки памяти при сжатии контекста",
     "forceMemorySearch": "Принудительный поиск по памяти (beta)",
@@ -1154,7 +1157,8 @@
         "title": "Обнаружены проблемы безопасности",
         "description": "Обнаружены следующие проблемы безопасности:",
         "warnDescription": "Обнаружены проблемы безопасности, но навык был включён (режим предупреждения):",
-        "goToWhitelist": "Перейти к белому списку"
+        "goToWhitelist": "Перейти к белому списку",
+        "moreFindings": "Ещё {{count}} записей не показано (полный список: Настройки → Безопасность → Сканер навыков)."
       }
     }
   },

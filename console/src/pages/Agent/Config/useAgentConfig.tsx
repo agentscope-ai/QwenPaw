@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { Form, Modal, message } from "@agentscope-ai/design";
+import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 
 export function useAgentConfig() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

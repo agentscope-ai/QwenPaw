@@ -90,6 +90,7 @@ export type LocalDownloadSource = "huggingface" | "modelscope" | "auto";
 
 export interface LocalServerStatus {
   available: boolean;
+  installable: boolean;
   installed: boolean;
   port: number | null;
   model_name: string | null;

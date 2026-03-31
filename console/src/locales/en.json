@@ -156,6 +156,7 @@
     "enableSuccess": "Agent enabled successfully",
     "toggleFailed": "Failed to toggle agent state",
     "defaultNotDisablable": "Default agent cannot be disabled",
+    "currentAgentDeleted": "Current agent has been deleted, automatically switched to default agent",
     "currentAgentDisabled": "Current agent has been disabled, automatically switched to default agent",
     "switchedToDefault": "Automatically switched to default agent",
     "cannotSwitchToDisabled": "This agent is disabled, please enable it in the management page first",
@@ -334,7 +335,8 @@
     "toggleError": "Failed to toggle MCP client status",
     "deleteConfirm": "Are you sure you want to delete this MCP client?",
     "deleteSuccess": "MCP client deleted successfully",
-    "deleteError": "Failed to delete MCP client"
+    "deleteError": "Failed to delete MCP client",
+    "maskedFieldHint": "Sensitive fields are masked with ***. In-place edits on masked values are not supported — replace with the full new value to modify."
   },
   "heartbeat": {
     "title": "Heartbeat",
@@ -745,10 +747,10 @@
     "localLlamacppInstallStarted": "llama.cpp download started",
     "localLlamacppInstallSuccess": "llama.cpp installed successfully",
     "localLlamacppInstallFailed": "Failed to install llama.cpp",
-    "localModelsModalDescription": "Set up the local inference engine first, then download a recommended model and launch a local server. Closing this modal will not interrupt downloads.",
     "localRuntimeSectionTitle": "Inference Engine",
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
     "localRuntimeInstalled": "Installed",
+    "localRuntimeUnsupported": "Unsupported",
     "localRuntimeMissing": "Missing",
     "localServerRunningTitle": "Current local server",
     "localServerOnline": "Running",
@@ -762,7 +764,7 @@
     "localEngineCurrentModelLabel": "Current served model",
     "localEngineNextStepLabel": "Next step",
     "localEngineHealthLabel": "Engine health",
-    "localEngineStatusHint": "Once installed, you can start a downloaded model directly or download one from the list below.",
+    "localEngineStatusHint": "Please download and start a suitable model from the list below",
     "localStartServer": "Start",
     "localStopServer": "Stop",
     "localServerStartFailed": "Failed to start local server",
@@ -773,7 +775,8 @@
     "localModelPathMissing": "This downloaded model is missing a local path.",
     "localModelsSectionTitle": "Local Models",
     "localModelsSectionDescription": "Downloaded models can be started immediately. Only one model download and one local server instance can run at a time.",
-    "localModelsLockedHint": "Install the local inference engine before managing recommended models.",
+    "localModelsLockedHint": "Please install llama.cpp first",
+    "localAlternativeRuntimeHint": "Please try Ollama or LM Studio",
     "localModelsCount": "Downloaded {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "Current download",
     "localCustomModelTitle": "Custom model download",
@@ -888,7 +891,7 @@
     "toolResultCompactOldThresholdPlaceholder": "Enter character threshold",
     "toolResultCompactOldThresholdRequired": "Max characters for tool results beyond recent_n is required",
     "toolResultCompactRecentThreshold": "Recent Messages Threshold (bytes)",
-    "toolResultCompactRecentThresholdTooltip": "Tool results in the most recent N messages are compacted when they exceed this byte limit. Must be greater than the older messages threshold.",
+    "toolResultCompactRecentThresholdTooltip": "Tool results in the most recent N messages are compacted when they exceed this byte limit. Also sets the maximum bytes returned per read_file call. Must be greater than or equal to the older messages threshold.",
     "toolResultCompactRecentThresholdPlaceholder": "Enter character threshold",
     "toolResultCompactRecentThresholdRequired": "Max characters for tool results within recent_n is required",
     "toolResultCompactRetentionDays": "Tool Result File Retention Days",
@@ -933,7 +936,7 @@
     "toolResultCompactTitle": "Tool Result Compact Config",
     "toolResultCompactEnabled": "Enable Tool Result Compaction",
     "toolResultCompactEnabledTooltip": "Compact oversized tool call results to save context space",
-    "memorySummaryTitle": "Memory Summary Config",
+    "memorySummaryTitle": "Long-term Memory Config",
     "memorySummaryEnabled": "Activate Memory Summary",
     "memorySummaryEnabledTooltip": "Automatically generate and save memory summaries during context compaction",
     "forceMemorySearch": "Force Memory Search (beta)",
@@ -1216,7 +1219,8 @@
         "title": "Security Issues Detected",
         "description": "The following security issues were found:",
         "warnDescription": "Security issues were found but the skill was still enabled (warn mode):",
-        "goToWhitelist": "Go to Whitelist"
+        "goToWhitelist": "Go to Whitelist",
+        "moreFindings": "{{count}} more issues not shown (see Security → Skill Scanner for the full list)."
       }
     }
   },
