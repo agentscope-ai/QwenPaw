@@ -4,8 +4,12 @@
 """WeChat (iLink Bot) Channel.
 
 Uses the official WeChat iLink Bot HTTP API to receive and send messages.
-Incoming messages are fetched via long-polling (getupdates); replies are sent
-via sendmessage. Supports text, image, voice (ASR text), and file messages.
+Incoming messages are fetched via long-polling (getupdates); replies are
+sent via sendmessage. Supports text, image, voice (ASR text), file, and
+video messages.
+
+For sending media (image/video/file), files are uploaded to WeChat CDN via
+getuploadurl API, encrypted with AES-128-ECB before upload.
 
 Authentication:
   - If bot_token is configured, it is used directly.
@@ -36,7 +40,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     VideoContent,
 )
 
-from ....constant import DEFAULT_MEDIA_DIR
+from ....constant import DEFAULT_MEDIA_DIR, WORKING_DIR
 from ..base import (
     BaseChannel,
     ContentType,
@@ -44,7 +48,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import split_text
+from ..utils import file_url_to_local_path, split_text
 from .client import ILinkClient, _DEFAULT_BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -52,8 +56,8 @@ logger = logging.getLogger(__name__)
 # Max dedup set size
 _WEIXIN_PROCESSED_IDS_MAX = 2000
 
-# Default token file path
-_DEFAULT_TOKEN_FILE = Path("~/.copaw/weixin_bot_token").expanduser()
+# Default token file path (under WORKING_DIR to respect COPAW_WORKING_DIR)
+_DEFAULT_TOKEN_FILE = WORKING_DIR / "weixin_bot_token"
 
 
 class WeixinChannel(BaseChannel):
@@ -751,7 +755,11 @@ class WeixinChannel(BaseChannel):
         parts: List[OutgoingContentPart],
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Send agent response content back to the WeChat user."""
+        """Send agent response content back to the WeChat user.
+
+        Supports TEXT, IMAGE, VIDEO, FILE, and REFUSAL content types.
+        Media files are uploaded to WeChat CDN via getuploadurl API.
+        """
         if not self.enabled:
             return
         m = meta or {}
@@ -768,6 +776,10 @@ class WeixinChannel(BaseChannel):
             logger.warning("weixin send_content_parts: no to_user_id")
             return
 
+        if not self._client:
+            logger.warning("weixin send_content_parts: client not initialized")
+            return
+
         prefix = m.get("bot_prefix", "") or self.bot_prefix or ""
         text_parts: List[str] = []
 
@@ -781,21 +793,164 @@ class WeixinChannel(BaseChannel):
             refusal_val = getattr(p, "refusal", None) or (
                 p.get("refusal") if isinstance(p, dict) else None
             )
+
             if t == ContentType.TEXT and text_val:
                 text_parts.append(text_val)
             elif t == ContentType.REFUSAL and refusal_val:
                 text_parts.append(refusal_val)
-            # Media send not yet implemented for iLink (no upload API)
+            elif t == ContentType.IMAGE:
+                await self._send_image_part(to_user_id, context_token, p)
+            elif t == ContentType.VIDEO:
+                await self._send_video_part(to_user_id, context_token, p)
+            elif t == ContentType.FILE:
+                await self._send_file_part(to_user_id, context_token, p)
 
         body = "\n".join(text_parts).strip()
         if prefix and body:
             body = prefix + "  " + body
 
-        if not body:
-            return
+        if body:
+            for chunk in split_text(body):
+                await self._send_text_direct(to_user_id, chunk, context_token)
 
-        for chunk in split_text(body):
-            await self._send_text_direct(to_user_id, chunk, context_token)
+    async def _send_image_part(
+        self,
+        to_user_id: str,
+        context_token: str,
+        part: Any,
+    ) -> None:
+        """Send an image content part."""
+        try:
+            image_url = getattr(part, "image_url", None) or (
+                part.get("image_url") if isinstance(part, dict) else None
+            )
+            if not image_url:
+                logger.warning("weixin: image part missing image_url")
+                return
+
+            # Handle file:// URLs
+            if image_url.startswith("file://"):
+                local_path = file_url_to_local_path(image_url)
+                if not local_path:
+                    logger.warning("weixin: invalid file URL: %s", image_url)
+                    return
+                image_url = local_path
+
+            # Read image data from local file
+            if image_url.startswith("/") or not image_url.startswith("http"):
+                path = Path(image_url)
+                if not path.is_file():
+                    logger.warning(
+                        "weixin: image file not found: %s",
+                        image_url,
+                    )
+                    return
+                data = path.read_bytes()
+            else:
+                # Remote URL - download first
+                logger.warning(
+                    "weixin: remote image URL not supported: %s",
+                    image_url,
+                )
+                return
+
+            await self._client.send_image(to_user_id, data, context_token)
+            logger.debug("weixin: sent image %s", image_url[:50])
+        except Exception:
+            logger.exception("weixin: failed to send image")
+
+    async def _send_video_part(
+        self,
+        to_user_id: str,
+        context_token: str,
+        part: Any,
+    ) -> None:
+        """Send a video content part."""
+        try:
+            video_url = getattr(part, "video_url", None) or (
+                part.get("video_url") if isinstance(part, dict) else None
+            )
+            if not video_url:
+                logger.warning("weixin: video part missing video_url")
+                return
+
+            # Handle file:// URLs
+            if video_url.startswith("file://"):
+                local_path = file_url_to_local_path(video_url)
+                if not local_path:
+                    logger.warning("weixin: invalid file URL: %s", video_url)
+                    return
+                video_url = local_path
+
+            if video_url.startswith("/") or not video_url.startswith("http"):
+                path = Path(video_url)
+                if not path.is_file():
+                    logger.warning(
+                        "weixin: video file not found: %s",
+                        video_url,
+                    )
+                    return
+                data = path.read_bytes()
+            else:
+                logger.warning(
+                    "weixin: remote video URL not supported: %s",
+                    video_url,
+                )
+                return
+
+            await self._client.send_video(to_user_id, data, context_token)
+            logger.debug("weixin: sent video %s", video_url[:50])
+        except Exception:
+            logger.exception("weixin: failed to send video")
+
+    async def _send_file_part(
+        self,
+        to_user_id: str,
+        context_token: str,
+        part: Any,
+    ) -> None:
+        """Send a file content part."""
+        try:
+            file_url = getattr(part, "file_url", None) or (
+                part.get("file_url") if isinstance(part, dict) else None
+            )
+            filename = getattr(part, "filename", None) or (
+                part.get("filename") if isinstance(part, dict) else None
+            )
+            if not file_url:
+                logger.warning("weixin: file part missing file_url")
+                return
+
+            # Handle file:// URLs
+            if file_url.startswith("file://"):
+                local_path = file_url_to_local_path(file_url)
+                if not local_path:
+                    logger.warning("weixin: invalid file URL: %s", file_url)
+                    return
+                file_url = local_path
+
+            if file_url.startswith("/") or not file_url.startswith("http"):
+                path = Path(file_url)
+                if not path.is_file():
+                    logger.warning("weixin: file not found: %s", file_url)
+                    return
+                data = path.read_bytes()
+                filename = filename or path.name
+            else:
+                logger.warning(
+                    "weixin: remote file URL not supported: %s",
+                    file_url,
+                )
+                return
+
+            await self._client.send_file(
+                to_user_id,
+                data,
+                filename,
+                context_token,
+            )
+        except Exception:
+            logger.exception("weixin: failed to send file")
 
     async def send(
         self,
