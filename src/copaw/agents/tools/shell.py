@@ -233,7 +233,31 @@ async def execute_shell_command(
                 env,
             )
         else:
-            cmd_args = shlex.split(cmd)
+            try:
+                cmd_args = shlex.split(cmd)
+            except ValueError as exc:
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "Error: Failed to parse shell command. "
+                                "Please check your quoting/escaping.\n"
+                                f"Details: {exc}"
+                            ),
+                        ),
+                    ],
+                )
+
+            if not cmd_args:
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text="Error: Empty or blank shell command provided.",
+                        ),
+                    ],
+                )
             proc = await asyncio.create_subprocess_exec(
                 *cmd_args,
                 stdout=asyncio.subprocess.PIPE,
