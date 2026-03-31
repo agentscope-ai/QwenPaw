@@ -264,11 +264,11 @@ export function useSkills() {
   const deleteSkill = async (skill: SkillSpec) => {
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
-        title: "Confirm Delete",
-        content: `Are you sure you want to delete skill "${skill.name}"?`,
-        okText: "Delete",
+        title: t("common.confirm"),
+        content: t("skills.deleteConfirm"),
+        okText: t("common.delete"),
         okType: "danger",
-        cancelText: "Cancel",
+        cancelText: t("common.cancel"),
         onOk: () => resolve(true),
         onCancel: () => resolve(false),
       });
@@ -279,14 +279,14 @@ export function useSkills() {
     try {
       const result = await api.deleteSkill(skill.name);
       if (result.deleted) {
-        message.success("Deleted successfully");
+        message.success(t("skills.deleteSuccess"));
         invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
         await fetchSkills();
         return true;
       }
     } catch (error) {
       console.error("Failed to delete skill", error);
-      message.error("Failed to delete skill");
+      message.error(t("skills.deleteFailed"));
     }
     return false;
   };
