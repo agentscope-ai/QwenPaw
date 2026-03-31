@@ -11,6 +11,7 @@ interface UseAgentsReturn {
   error: Error | null;
   loadAgents: () => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
+  setAgents: (agents: AgentSummary[]) => void;
 }
 
 export function useAgents(): UseAgentsReturn {
@@ -20,13 +21,17 @@ export function useAgents(): UseAgentsReturn {
   const [error, setError] = useState<Error | null>(null);
   const { setAgents: updateStoreAgents } = useAgentStore();
 
+  const setAgentsState = (nextAgents: AgentSummary[]) => {
+    setAgents(nextAgents);
+    updateStoreAgents(nextAgents);
+  };
+
   const loadAgents = async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await agentsApi.listAgents();
-      setAgents(data.agents);
-      updateStoreAgents(data.agents);
+      setAgentsState(data.agents);
     } catch (err) {
       console.error("Failed to load agents:", err);
       const errorMsg =
@@ -59,5 +64,6 @@ export function useAgents(): UseAgentsReturn {
     error,
     loadAgents,
     deleteAgent,
+    setAgents: setAgentsState,
   };
 }

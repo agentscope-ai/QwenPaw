@@ -43,6 +43,12 @@ class AgentListResponse(BaseModel):
     agents: list[AgentSummary]
 
 
+class ReorderAgentsRequest(BaseModel):
+    """Request model for persisting agent order."""
+
+    agent_ids: list[str]
+
+
 class CreateAgentRequest(BaseModel):
     """Request model for creating a new agent (id is auto-generated)."""
 
@@ -78,6 +84,22 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
     return request.app.state.multi_agent_manager
 
 
+def _normalized_agent_order(config) -> list[str]:
+    """Return a deduplicated agent order covering every configured agent."""
+    profile_ids = list(config.agents.profiles.keys())
+    ordered_ids: list[str] = []
+
+    for agent_id in config.agents.agent_order:
+        if agent_id in config.agents.profiles and agent_id not in ordered_ids:
+            ordered_ids.append(agent_id)
+
+    for agent_id in profile_ids:
+        if agent_id not in ordered_ids:
+            ordered_ids.append(agent_id)
+
+    return ordered_ids
+
+
 @router.get(
     "",
     response_model=AgentListResponse,
@@ -87,9 +109,11 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
 async def list_agents() -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
+    ordered_agent_ids = _normalized_agent_order(config)
 
     agents = []
-    for agent_id, agent_ref in config.agents.profiles.items():
+    for agent_id in ordered_agent_ids:
+        agent_ref = config.agents.profiles[agent_id]
         # Load agent config to get name and description
         try:
             agent_config = load_agent_config(agent_id)
@@ -115,6 +139,36 @@ async def list_agents() -> AgentListResponse:
     return AgentListResponse(
         agents=agents,
     )
+
+
+@router.put(
+    "/order",
+    summary="Persist agent order",
+    description="Save the full ordered list of configured agent IDs",
+)
+async def reorder_agents(
+    reorder_request: ReorderAgentsRequest = Body(...),
+) -> dict:
+    """Persist the full ordered list of agent IDs."""
+    config = load_config()
+    configured_ids = list(config.agents.profiles.keys())
+
+    if len(reorder_request.agent_ids) != len(set(reorder_request.agent_ids)):
+        raise HTTPException(
+            status_code=400,
+            detail="Each configured agent ID must appear exactly once.",
+        )
+
+    if set(reorder_request.agent_ids) != set(configured_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="Each configured agent ID must appear exactly once.",
+        )
+
+    config.agents.agent_order = list(reorder_request.agent_ids)
+    save_config(config)
+
+    return {"success": True, "agent_ids": config.agents.agent_order}
 
 
 @router.get(
@@ -199,6 +253,7 @@ async def create_agent(
 
     # Add to root config
     config.agents.profiles[new_id] = agent_ref
+    config.agents.agent_order = _normalized_agent_order(config)
     save_config(config)
 
     # Save agent config to workspace
@@ -290,6 +345,7 @@ async def delete_agent(
 
     # Remove from config
     del config.agents.profiles[agentId]
+    config.agents.agent_order = _normalized_agent_order(config)
     save_config(config)
 
     # Note: We don't delete the workspace directory for safety

@@ -6,13 +6,15 @@ import { agentsApi } from "../../../api/modules/agents";
 import type { AgentSummary } from "../../../api/types/agents";
 import { useAgents } from "./useAgents";
 import { PageHeader, AgentTable, AgentModal } from "./components";
+import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
 
 export default function AgentsPage() {
   const { t } = useTranslation();
-  const { agents, loading, deleteAgent, loadAgents } = useAgents();
+  const { agents, loading, deleteAgent, loadAgents, setAgents } = useAgents();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
+  const [reordering, setReordering] = useState(false);
   const [form] = Form.useForm();
 
   const handleCreate = () => {
@@ -65,6 +67,28 @@ export default function AgentsPage() {
     }
   };
 
+  const handleReorder = async (activeId: string, overId: string) => {
+    const nextAgents = reorderAgents(agents, activeId, overId);
+    if (nextAgents === agents) {
+      return;
+    }
+
+    const previousAgents = agents;
+    setAgents(nextAgents);
+    setReordering(true);
+
+    try {
+      await agentsApi.reorderAgents(nextAgents.map((agent) => agent.id));
+      message.success(t("agent.reorderSuccess"));
+    } catch (error) {
+      console.error("Failed to reorder agents:", error);
+      setAgents(previousAgents);
+      message.error(t("agent.reorderFailed"));
+    } finally {
+      setReordering(false);
+    }
+  };
+
   return (
     <div className={styles.agentsPage}>
       <PageHeader
@@ -80,9 +104,11 @@ export default function AgentsPage() {
       <Card className={styles.tableCard}>
         <AgentTable
           agents={agents}
-          loading={loading}
+          loading={loading || reordering}
+          reordering={reordering}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onReorder={handleReorder}
         />
       </Card>
 

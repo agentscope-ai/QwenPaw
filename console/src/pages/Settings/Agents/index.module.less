@@ -36,6 +36,37 @@
   }
 }
 
+.dragHandleButton {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  cursor: grab;
+}
+
+.dragHandleButton:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.72);
+}
+
+.dragHandleButton:active {
+  cursor: grabbing;
+}
+
+.dragHandleButton[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.sortableRowDragging {
+  background: rgba(24, 144, 255, 0.08);
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .sectionTitle {
@@ -44,6 +75,19 @@
 
   .sectionDesc {
     color: rgba(255, 255, 255, 0.35);
+  }
+
+  .dragHandleButton {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .dragHandleButton:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .sortableRowDragging {
+    background: rgba(120, 170, 255, 0.12);
   }
 }
 
