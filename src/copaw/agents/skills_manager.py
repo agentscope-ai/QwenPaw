@@ -953,6 +953,10 @@ def reconcile_pool_manifest() -> dict[str, Any]:
     if not manifest_path.exists():
         _write_json_atomic(manifest_path, _default_pool_manifest())
 
+    # Clear cached builtin signatures so reconcile always compares
+    # against the current packaged builtins on disk.
+    with _BUILTIN_SIG_LOCK:
+        _BUILTIN_SIGNATURES.clear()
     builtin_sigs = _get_builtin_signatures()
     builtin_names = sorted(builtin_sigs.keys())
 
