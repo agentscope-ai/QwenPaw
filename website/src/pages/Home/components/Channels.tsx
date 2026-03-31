@@ -2,17 +2,71 @@ import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
 const TOP_CHANNELS = [
-  { iconSrc: "https://img.alicdn.com/imgextra/i2/O1CN01ikAjLG1jhh721iEUc_!!6000000004580-2-tps-48-48.png", name: "WeChat" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i4/O1CN01o4Bmgr1OsabSKSh4X_!!6000000001761-2-tps-58-60.png", name: "Xiaoyi" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i2/O1CN01qu8Gf51LvqZZqjmU5_!!6000000001362-2-tps-48-48.png", name: "Mattermost" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i2/O1CN01OsQiMO1ZYrJXp3TmX_!!6000000003207-2-tps-42-48.png", name: "Discord" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i4/O1CN01wCpTM41LOPeyP7wKc_!!6000000001289-2-tps-48-48.png", name: "Feishu" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i3/O1CN01ApVkC91JeKBkQfgj9_!!6000000001053-2-tps-41-48.png", name: "QQ" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i2/O1CN01oWpOyx1TPnmnrzxlq_!!6000000002375-2-tps-48-48.png", name: "WeCom" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i1/O1CN01w5mzV01tFtE37wkJI_!!6000000005873-2-tps-48-48.png", name: "DingTalk" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i3/O1CN01YfEzZu1DWdqgAdqtu_!!6000000000224-2-tps-48-48.png", name: "Matrix" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i4/O1CN013VVoKf1jsgcNn40KA_!!6000000004604-2-tps-48-48.png", name: "Telegram" },
-  { iconSrc: "https://img.alicdn.com/imgextra/i4/O1CN01QtLiI31uAgL02USNH_!!6000000005997-2-tps-48-48.png", name: "iMessage" },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01ikAjLG1jhh721iEUc_!!6000000004580-2-tps-48-48.png",
+    name: "WeChat",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN01o4Bmgr1OsabSKSh4X_!!6000000001761-2-tps-58-60.png",
+    name: "Xiaoyi",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01qu8Gf51LvqZZqjmU5_!!6000000001362-2-tps-48-48.png",
+    name: "Mattermost",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01OsQiMO1ZYrJXp3TmX_!!6000000003207-2-tps-42-48.png",
+    name: "Discord",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN01wCpTM41LOPeyP7wKc_!!6000000001289-2-tps-48-48.png",
+    name: "Feishu",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i3/O1CN01ApVkC91JeKBkQfgj9_!!6000000001053-2-tps-41-48.png",
+    name: "QQ",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01oWpOyx1TPnmnrzxlq_!!6000000002375-2-tps-48-48.png",
+    name: "WeCom",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i1/O1CN01w5mzV01tFtE37wkJI_!!6000000005873-2-tps-48-48.png",
+    name: "DingTalk",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i3/O1CN01YfEzZu1DWdqgAdqtu_!!6000000000224-2-tps-48-48.png",
+    name: "Matrix",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN013VVoKf1jsgcNn40KA_!!6000000004604-2-tps-48-48.png",
+    name: "Telegram",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN01QtLiI31uAgL02USNH_!!6000000005997-2-tps-48-48.png",
+    name: "iMessage",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN014ALZcD1iBnv2GeYdE_!!6000000004375-2-tps-64-64.png",
+    name: "MQTT",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01nwY8ZK1eY0etBKDWb_!!6000000003882-2-tps-48-48.png",
+    name: "Twilio",
+  },
 ];
 
 const sectionVariants = {
@@ -99,10 +153,22 @@ export function CopawChannels() {
 
       <motion.div className="relative mt-12 w-full" variants={itemVariants}>
         <div className="group/row-top overflow-hidden">
-          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-1 will-change-transform animate-[copaw-channels-marquee-right_62s_linear_infinite] group-hover/row-top:[animation-play-state:paused]">
+          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-1 will-change-transform animate-[copaw-channels-marquee-right_72s_linear_infinite] group-hover/row-top:[animation-play-state:paused]">
             {[...TOP_CHANNELS, ...TOP_CHANNELS].map((item, idx) => (
               <ChannelPill
                 key={`${item.name}-${idx}`}
+                iconSrc={item.iconSrc}
+                name={item.name}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="group/row-bottom mt-3 overflow-hidden">
+          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-2 will-change-transform animate-[copaw-channels-marquee-left_72s_linear_infinite] group-hover/row-bottom:[animation-play-state:paused]">
+            {[...TOP_CHANNELS, ...TOP_CHANNELS].map((item, idx) => (
+              <ChannelPill
+                key={`${item.name}-bottom-${idx}`}
                 iconSrc={item.iconSrc}
                 name={item.name}
               />

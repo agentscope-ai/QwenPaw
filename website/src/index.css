@@ -128,6 +128,15 @@ button {
   }
 }
 
+@keyframes copaw-channels-marquee-left {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
 @keyframes copaw-dash-move-right {
   0% {
     background-position: 0 0;

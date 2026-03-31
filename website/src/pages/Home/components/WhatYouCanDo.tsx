@@ -238,7 +238,9 @@ export function CopawWhatYouCanDo() {
 
                   {/* Mobile: show active preview under item */}
                   {active ? (
-                    <div key={key} className="mt-3 md:hidden">{renderPreview(key)}</div>
+                    <div key={key} className="mt-3 md:hidden">
+                      {renderPreview(key)}
+                    </div>
                   ) : null}
                 </div>
               );
