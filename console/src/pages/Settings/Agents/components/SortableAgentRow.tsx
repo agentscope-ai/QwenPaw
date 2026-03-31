@@ -10,8 +10,9 @@ type SortableHandleContextValue = {
   disabled: boolean;
 };
 
-const SortableHandleContext =
-  createContext<SortableHandleContextValue | null>(null);
+const SortableHandleContext = createContext<SortableHandleContextValue | null>(
+  null,
+);
 
 interface SortableAgentRowProps
   extends React.HTMLAttributes<HTMLTableRowElement> {
@@ -41,10 +42,7 @@ export function SortableAgentRow({
     transition,
   };
 
-  const rowClassName = [
-    className,
-    isDragging ? styles.sortableRowDragging : "",
-  ]
+  const rowClassName = [className, isDragging ? styles.sortableRowDragging : ""]
     .filter(Boolean)
     .join(" ");
 

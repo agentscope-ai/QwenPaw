@@ -13,11 +13,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import {
-  EditOutlined,
-  DeleteOutlined,
-  RobotOutlined,
-} from "@ant-design/icons";
+import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
