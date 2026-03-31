@@ -13,6 +13,7 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
+import dayjs from "dayjs";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -185,6 +186,16 @@ export const SkillCard = React.memo(function SkillCard({
                   .join(", ")}
               </span>
             </div>
+            {skill.last_updated && (
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>
+                  {t("skills.lastUpdated")}
+                </span>
+                <span className={styles.metaValue}>
+                  {dayjs(skill.last_updated).fromNow()}
+                </span>
+              </div>
+            )}
           </div>
         </div>
         <div className={styles.statusContainer}>

@@ -65,6 +65,20 @@ export function useSkills() {
     }
   }, [selectedAgent]);
 
+  const hardRefresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      invalidateSkillCache({ agentId: selectedAgent });
+      const data = await api.refreshSkills(selectedAgent);
+      setSkills(data || []);
+    } catch (error) {
+      console.error("Failed to refresh skills", error);
+      message.error("Failed to refresh skills");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedAgent]);
+
   // Invalidate cache when agent changes
   useEffect(() => {
     invalidateSkillCache({ agentId: selectedAgent });
@@ -303,5 +317,6 @@ export function useSkills() {
     toggleEnabled,
     deleteSkill,
     refreshSkills: fetchSkills,
+    hardRefresh,
   };
 }
