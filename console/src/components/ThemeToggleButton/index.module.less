@@ -8,9 +8,7 @@
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
   color: #555;
   padding: 0;
   flex-shrink: 0;
@@ -21,16 +19,50 @@
   }
 }
 
-.icon {
-  font-size: 16px;
+/* ---- Theme Dropdown ---- */
+.themeDropdown :global(.copaw-dropdown-menu-item),
+.themeDropdown :global(.ant-dropdown-menu-item) {
+  color: rgba(26, 23, 22, 0.65);
+
+  &:hover {
+    background: rgba(43, 18, 0, 0.06) !important;
+  }
+}
+
+.themeDropdown :global(.copaw-dropdown-menu-item-selected),
+.themeDropdown :global(.ant-dropdown-menu-item-selected) {
+  background: rgba(43, 18, 0, 0.03) !important;
+  color: rgba(26, 23, 22, 0.88) !important;
 }
 
 /* Dark mode overrides */
-:global(.dark-mode) .toggleBtn {
-  color: #ccc;
+:global(.dark-mode) {
+  .toggleBtn {
+    color: #ccc;
 
-  &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+  }
+
+  .themeDropdown :global(.copaw-dropdown-menu),
+  .themeDropdown :global(.ant-dropdown-menu) {
+    background: #2a2a2a !important;
+  }
+
+  .themeDropdown :global(.copaw-dropdown-menu-item),
+  .themeDropdown :global(.ant-dropdown-menu-item) {
+    color: rgba(255, 255, 255, 0.65);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08) !important;
+    }
+  }
+
+  .themeDropdown :global(.copaw-dropdown-menu-item-selected),
+  .themeDropdown :global(.ant-dropdown-menu-item-selected) {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: rgba(255, 255, 255, 0.88) !important;
   }
 }

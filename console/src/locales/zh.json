@@ -999,10 +999,7 @@
   "theme": {
     "dark": "深色",
     "light": "浅色",
-    "darkMode": "深色模式",
-    "lightMode": "浅色模式",
-    "switchToDark": "切换到深色模式",
-    "switchToLight": "切换到浅色模式"
+    "system": "跟随系统"
   },
   "sidebar": {
     "newVersion": "发现新版本 v{{version}}，点击前往升级",
