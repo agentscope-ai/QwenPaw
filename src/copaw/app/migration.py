@@ -51,6 +51,7 @@ _WORKSPACE_JSON_DEFAULTS: list[tuple[str, dict]] = [
 
 
 def migrate_legacy_workspace_to_default_agent() -> bool:
+    # pylint: disable=too-many-statements
     """Migrate legacy single-agent workspace to default agent workspace.
 
     This function:
@@ -138,15 +139,27 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     )
 
     # Save default agent configuration to workspace/agent.json
+    # Use atomic write to prevent corruption
     agent_config_path = default_workspace / "agent.json"
-    with open(agent_config_path, "w", encoding="utf-8") as f:
-        json.dump(
-            default_agent_config.model_dump(exclude_none=True),
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
-    logger.info(f"Created agent config: {agent_config_path}")
+    agent_config_tmp = default_workspace / "agent.json.tmp"
+
+    try:
+        with open(agent_config_tmp, "w", encoding="utf-8") as f:
+            json.dump(
+                default_agent_config.model_dump(exclude_none=True),
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        # Atomic rename (safer than direct write)
+        agent_config_tmp.replace(agent_config_path)
+        logger.info(f"Created agent config: {agent_config_path}")
+    except Exception as e:
+        logger.error(f"Failed to save agent config: {e}")
+        # Clean up temp file if it exists
+        if agent_config_tmp.exists():
+            agent_config_tmp.unlink()
+        raise
 
     migrated_items = []
 

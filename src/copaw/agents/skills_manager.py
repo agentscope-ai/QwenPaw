@@ -665,7 +665,15 @@ def _build_skill_metadata(
         reconcile updates ``description`` and ``signature`` here without the
         caller manually editing ``skill.json``.
     """
-    post = _read_frontmatter(skill_dir)
+    try:
+        post = _read_frontmatter(skill_dir)
+    except Exception as e:
+        logger.warning(
+            f"Failed to read frontmatter for skill '{skill_name}' "
+            f"at {skill_dir}: {e}. Using fallback values.",
+        )
+        post = {"name": skill_name, "description": ""}
+
     requirements = read_skill_requirements(skill_dir)
     now = _timestamp()
     return {
@@ -743,7 +751,16 @@ def list_builtin_import_candidates() -> list[dict[str, Any]]:
         if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
             continue
         skill_name = skill_dir.name
-        post = _read_frontmatter(skill_dir)
+
+        try:
+            post = _read_frontmatter(skill_dir)
+        except Exception as e:
+            logger.warning(
+                f"Failed to read frontmatter for builtin skill "
+                f"'{skill_name}': {e}. Skipping this skill.",
+            )
+            continue
+
         source_signature = _build_signature(skill_dir)
         current = pool_skills.get(skill_name) or {}
         current_signature = str(current.get("signature", "") or "")
@@ -1221,15 +1238,25 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
 
     def _check_single_skill(item):
         name, skill_dir, pool_entry = item
-        builtin_sig = _build_signature(skill_dir)
-        pool_sig = str(pool_entry.get("signature", ""))
-        if pool_sig and pool_sig != builtin_sig:
-            post = _read_frontmatter(skill_dir)
-            return name, {
-                "sync_status": "outdated",
-                "latest_version_text": _extract_version(post),
-            }
-        else:
+        try:
+            builtin_sig = _build_signature(skill_dir)
+            pool_sig = str(pool_entry.get("signature", ""))
+            if pool_sig and pool_sig != builtin_sig:
+                post = _read_frontmatter(skill_dir)
+                return name, {
+                    "sync_status": "outdated",
+                    "latest_version_text": _extract_version(post),
+                }
+            else:
+                return name, {
+                    "sync_status": "synced",
+                    "latest_version_text": "",
+                }
+        except Exception as e:
+            logger.warning(
+                f"Failed to check builtin skill '{name}': {e}. "
+                "Marking as synced.",
+            )
             return name, {
                 "sync_status": "synced",
                 "latest_version_text": "",
