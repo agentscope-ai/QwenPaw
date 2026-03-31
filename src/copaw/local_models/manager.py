@@ -15,9 +15,10 @@ class LocalModelManager:
     """Single entry point for local runtime downloads and server control."""
 
     DEFAULT_LLAMA_CPP_BASE_URL = (
-        "https://github.com/ggml-org/llama.cpp/releases/download"
+        # Mirror of "https://github.com/ggml-org/llama.cpp/releases/download"
+        "https://download.copaw.agentscope.io/files/models/llama_cpp"
     )
-    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8513"
+    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8514"
 
     def __init__(
         self,

@@ -333,6 +333,15 @@
   font-size: 13px;
 }
 
+.maskedFieldHint {
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  background-color: rgba(255, 165, 0, 0.08);
+  border-radius: 6px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .pageHeader {
@@ -385,5 +394,10 @@
       color: #ff7875 !important;
       background-color: rgba(255, 77, 79, 0.15);
     }
+  }
+
+  .maskedFieldHint {
+    background-color: rgba(255, 165, 0, 0.12);
+    color: rgba(255, 255, 255, 0.65);
   }
 }

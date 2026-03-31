@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { message, Modal } from "@agentscope-ai/design";
 import api from "../../../api";
+import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type { SkillSpec } from "../../../api/types";
 import { useTranslation } from "react-i18next";
@@ -9,6 +10,7 @@ import { parseErrorDetail } from "../../../utils/error";
 import {
   handleScanError,
   checkScanWarnings as checkScanWarningsShared,
+  showScanErrorModal,
 } from "../../../utils/scanError";
 
 type SkillActionResult =
@@ -179,6 +181,14 @@ export function useSkills() {
             status.result.conflicts.length > 0
           ) {
             return { success: false, conflict: status.result };
+          }
+          const hubResult = status.result as
+            | SecurityScanErrorResponse
+            | null
+            | undefined;
+          if (hubResult?.type === "security_scan_failed") {
+            showScanErrorModal(hubResult, t);
+            return { success: false };
           }
           throw new Error(status.error || "Import failed");
         }
