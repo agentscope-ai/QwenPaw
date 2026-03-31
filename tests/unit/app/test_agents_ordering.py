@@ -52,7 +52,7 @@ async def test_list_agents_uses_persisted_order(monkeypatch):
     monkeypatch.setattr(
         agents_router,
         "load_agent_config",
-        lambda agent_id: _agent_config(agent_id),
+        _agent_config,
     )
 
     response = await agents_router.list_agents()
@@ -76,7 +76,7 @@ async def test_list_agents_appends_missing_ids(monkeypatch):
     monkeypatch.setattr(
         agents_router,
         "load_agent_config",
-        lambda agent_id: _agent_config(agent_id),
+        _agent_config,
     )
 
     response = await agents_router.list_agents()
