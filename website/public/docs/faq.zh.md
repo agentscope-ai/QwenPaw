@@ -204,7 +204,6 @@ CoPaw 已开源，官方仓库地址：
 
 命令行也可使用 `copaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models)。
 
-
 ### 如何使用 CoPaw-Flash 系列模型
 
 CoPaw-Flash 是 CoPaw 官方根据 CoPaw 的应用场景专门调优的系列模型，共有 2B, 4B 和 9B 三个版本，且每个版本除原始模型外还提供了 4 bit 和 8 bit 两种量化版本，适合不同的显存环境和性能需求。
@@ -228,15 +227,15 @@ CoPaw 内置的本地提供商均可接入 CoPaw-Flash 模型：
 
    - 使用 ModelScope CLI 下载：
 
-      ```bash
-      modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M README.md --local_dir ./dir
-      ```
+     ```bash
+     modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M README.md --local_dir ./dir
+     ```
 
    - 使用 Hugging Face CLI 下载：
 
-      ```bash
-      hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
-      ```
+     ```bash
+     hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+     ```
 
 2. 从 [Ollama](https://ollama.com/download) 官网下载安装 Ollama 并启动。
 

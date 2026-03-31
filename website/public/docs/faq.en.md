@@ -257,15 +257,15 @@ download and start it.
 
    - Download with ModelScope CLI:
 
-      ```bash
-      modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M README.md --local_dir ./dir
-      ```
+     ```bash
+     modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M README.md --local_dir ./dir
+     ```
 
    - Download with Hugging Face CLI:
 
-      ```bash
-      hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
-      ```
+     ```bash
+     hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+     ```
 
 1. Download and install Ollama from the [official site](https://ollama.com/download),
    then start it.

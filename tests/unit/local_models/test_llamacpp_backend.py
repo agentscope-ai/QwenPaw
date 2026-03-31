@@ -121,7 +121,7 @@ class _FakeStreamResponse:
         for index in range(0, len(self._payload), chunk_size):
             if self._chunk_delay:
                 time.sleep(self._chunk_delay)
-            yield self._payload[index:index + chunk_size]
+            yield self._payload[index : index + chunk_size]
 
     def __enter__(self) -> _FakeStreamResponse:
         return self
@@ -547,7 +547,7 @@ def test_download_sync_uses_browser_like_headers(
             "https://example.com/releases/b1234/"
             "llama-b1234-bin-win-cpu-x64.zip",
             downloader._download_headers,
-        )
+        ),
     ]
 
 
