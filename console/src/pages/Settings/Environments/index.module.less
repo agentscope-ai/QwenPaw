@@ -1,8 +1,49 @@
 .environmentsPage {
-  padding: 24px;
+  height: calc(100vh - 128px);
+  padding: 0;
 }
 
-/* ---- Section (matches Models page) ---- */
+/* ---- Page Header (breadcrumb style) ---- */
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ---- Section (deprecated) ---- */
 
 .section {
   margin-bottom: 24px;
@@ -46,7 +87,6 @@
 .tableCard {
   background: #fff;
   border: 1px solid #e8e8e8;
-  border-radius: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   overflow: hidden;
   transition: all 0.2s ease-in-out;
@@ -163,7 +203,7 @@
   transition: all 0.2s ease-in-out;
 
   &:focus-within {
-    border-color: #615ced;
+    border-color: #ff7f16;
     box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.2);
     transform: translateY(-1px);
   }
@@ -210,7 +250,7 @@
   transition: all 0.2s ease-in-out;
 
   .inputGroup:focus-within & {
-    color: #615ced;
+    color: #ff7f16;
     background: #f0f0ff;
   }
 }
@@ -264,7 +304,7 @@
   border-radius: 4px;
 
   &:hover {
-    color: #615ced;
+    color: #ff7f16;
     background: #f0f0ff;
   }
 }
@@ -293,7 +333,7 @@
   transition: all 0.2s ease-in-out;
 
   &:hover {
-    color: #615ced;
+    color: #ff7f16;
     background: #f0f0ff;
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(97, 92, 237, 0.15);
@@ -348,8 +388,8 @@
   transition: all 0.2s ease-in-out;
 
   &:hover {
-    color: #615ced;
-    border-color: #615ced;
+    color: #ff7f16;
+    border-color: #ff7f16;
     background: #f0f0ff;
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(97, 92, 237, 0.15);
@@ -379,6 +419,22 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
   .sectionDesc {
     color: rgba(255, 255, 255, 0.35);
   }
@@ -437,7 +493,7 @@
     background: #2a2a2a;
 
     &:focus-within {
-      border-color: #615ced;
+      border-color: #ff7f16;
       box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.2);
     }
   }
@@ -449,7 +505,7 @@
     background: rgba(255, 255, 255, 0.04);
 
     .inputGroup:focus-within & {
-      color: #8b87f0;
+      color: #ff7f16;
       background: rgba(97, 92, 237, 0.1);
     }
   }
@@ -478,7 +534,7 @@
     color: rgba(255, 255, 255, 0.3);
 
     &:hover {
-      color: #8b87f0;
+      color: #ff7f16;
       background: rgba(97, 92, 237, 0.12);
     }
   }
@@ -488,7 +544,7 @@
     color: rgba(255, 255, 255, 0.2);
 
     &:hover {
-      color: #8b87f0;
+      color: #ff7f16;
       background: rgba(97, 92, 237, 0.12);
     }
   }
@@ -515,8 +571,8 @@
     color: rgba(255, 255, 255, 0.35);
 
     &:hover {
-      color: #8b87f0;
-      border-color: #615ced;
+      color: #ff7f16;
+      border-color: #ff7f16;
       background: rgba(97, 92, 237, 0.1);
     }
   }

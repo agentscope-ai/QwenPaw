@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Dropdown, message, Spin } from "antd";
+import { Dropdown, Spin, Tooltip } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   CheckOutlined,
   LoadingOutlined,
@@ -31,6 +32,7 @@ export default function ModelSelector() {
   const savingRef = useRef(false);
   const location = useLocation();
   const { selectedAgent } = useAgentStore();
+  const { message } = useAppMessage();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -81,7 +83,6 @@ export default function ModelSelector() {
       const hasModels =
         (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
       if (!hasModels) return false;
-      if (p.is_local) return true;
       if (p.require_api_key === false) return !!p.base_url;
       if (p.is_custom) return !!p.base_url;
       if (p.require_api_key ?? true) return !!p.api_key;
@@ -225,20 +226,24 @@ export default function ModelSelector() {
       trigger={["click"]}
       placement="bottomLeft"
     >
-      <div
-        className={[styles.trigger, open ? styles.triggerActive : ""].join(" ")}
-      >
-        {saving && (
-          <LoadingOutlined style={{ fontSize: 11, color: "#615ced" }} />
-        )}
-        <span className={styles.triggerName}>{activeModelName}</span>
-        <SparkDownLine
-          className={[
-            styles.triggerArrow,
-            open ? styles.triggerArrowOpen : "",
-          ].join(" ")}
-        />
-      </div>
+      <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
+        <div
+          className={[styles.trigger, open ? styles.triggerActive : ""].join(
+            " ",
+          )}
+        >
+          {saving && (
+            <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
+          )}
+          <span className={styles.triggerName}>{activeModelName}</span>
+          <SparkDownLine
+            className={[
+              styles.triggerArrow,
+              open ? styles.triggerArrowOpen : "",
+            ].join(" ")}
+          />
+        </div>
+      </Tooltip>
     </Dropdown>
   );
 }

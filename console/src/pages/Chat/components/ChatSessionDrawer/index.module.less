@@ -139,3 +139,42 @@
   line-height: 24px;
   color: var(--colorText, rgba(0, 0, 0, 0.88));
 }
+
+/* Dark mode */
+:global(.dark-mode) {
+  .drawer {
+    :global {
+      .copaw-drawer-body {
+        background-color: #1f1f1f;
+      }
+    }
+  }
+
+  .header {
+    background-color: #1f1f1f;
+  }
+
+  .headerTitle {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .headerInfoIcon {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .topGradient {
+    background: linear-gradient(180deg, #1f1f1f 0%, rgba(31, 31, 31, 0) 100%);
+  }
+
+  .bottomGradient {
+    background: linear-gradient(0deg, #1f1f1f 0%, rgba(31, 31, 31, 0) 100%);
+  }
+
+  .footer {
+    background-color: #1f1f1f;
+  }
+
+  .footerText {
+    color: rgba(255, 255, 255, 0.95);
+  }
+}

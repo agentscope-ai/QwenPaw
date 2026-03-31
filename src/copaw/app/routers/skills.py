@@ -148,7 +148,7 @@ class CreateSkillRequest(BaseModel):
     references: dict[str, Any] | None = None
     scripts: dict[str, Any] | None = None
     config: dict[str, Any] | None = None
-    enable: bool = False
+    enable: bool = True
 
 
 class UploadToPoolRequest(BaseModel):
@@ -185,7 +185,7 @@ class SaveSkillRequest(CreateSkillRequest):
 class HubInstallRequest(BaseModel):
     bundle_url: str = Field(..., description="Skill URL")
     version: str = Field(default="", description="Optional version tag")
-    enable: bool = Field(default=False, description="Enable after import")
+    enable: bool = Field(default=True, description="Enable after import")
     target_name: str = Field(default="", description="Optional renamed skill")
     overwrite: bool = Field(
         default=False,
@@ -205,7 +205,7 @@ class HubInstallTask(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     bundle_url: str
     version: str = ""
-    enable: bool = False
+    enable: bool = True
     overwrite: bool = False
     status: HubInstallTaskStatus = HubInstallTaskStatus.PENDING
     error: str | None = None
@@ -652,7 +652,7 @@ async def create_skill(
 async def upload_skill_zip(
     request: Request,
     file: UploadFile = File(...),
-    enable: bool = False,
+    enable: bool = True,
     overwrite: bool = False,
     target_name: str = "",
     rename_map: str = "",
@@ -728,7 +728,8 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
     Example:
     - editing a normal shared skill in place -> ``mode="edit"``
     - saving any skill under a new name -> ``mode="rename"``
-    - saving a builtin under the same name -> conflict with suggestion
+    - editing a builtin in place -> conflict with suggestion
+    - customizing a builtin -> save under a new name
     """
     service = SkillPoolService()
     try:
@@ -828,6 +829,8 @@ async def upload_workspace_skill_to_pool(
             target_name=body.new_name,
             overwrite=body.overwrite,
         )
+    except SkillScanError as exc:
+        return _scan_error_response(exc)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.get("success"):
@@ -961,6 +964,10 @@ async def download_pool_skill_to_workspaces(
             )
     except HTTPException:
         raise
+    except SkillScanError as exc:
+        for rollback in reversed(execution_plan):
+            _restore_workspace_skill(rollback["snapshot"])
+        return _scan_error_response(exc)
     except Exception:
         for rollback in reversed(execution_plan):
             _restore_workspace_skill(rollback["snapshot"])

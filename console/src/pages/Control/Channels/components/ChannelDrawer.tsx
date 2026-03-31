@@ -6,8 +6,8 @@ import {
   Switch,
   Button,
   Select,
-  message,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Alert, ConfigProvider, Spin } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -131,8 +131,9 @@ export function ChannelDrawer({
   const { t, i18n } = useTranslation();
   const { isDark } = useTheme();
   const currentLang = i18n.language?.startsWith("zh") ? "zh" : "en";
-  const label = activeKey ? getChannelLabel(activeKey) : activeLabel;
+  const label = activeKey ? getChannelLabel(activeKey, t) : activeLabel;
   const sdkLoadedRef = useRef(false);
+  const { message } = useAppMessage();
 
   // WeChat QR code state
   const [weixinQrcodeImg, setWeixinQrcodeImg] = useState<string>("");
@@ -957,6 +958,7 @@ export function ChannelDrawer({
               window.open(finalUrl, "_blank");
             }}
             className={styles.dingtalkDocBtn}
+            style={{ color: "#FF7F16" }}
           >
             {label} Doc
           </Button>
@@ -970,6 +972,7 @@ export function ChannelDrawer({
             window.open(TWILIO_CONSOLE_URL, "_blank", "noopener,noreferrer")
           }
           className={styles.dingtalkDocBtn}
+          style={{ color: "#FF7F16" }}
         >
           {t("channels.voiceSetupLink")}
         </Button>

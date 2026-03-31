@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
-import { Card, Button, Form, message } from "antd";
+import { Card, Button, Form } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
@@ -7,7 +8,8 @@ import { skillApi } from "../../../api/modules/skill";
 import type { AgentSummary } from "../../../api/types/agents";
 import { useAgents } from "./useAgents";
 import { useAgentStore } from "../../../stores/agentStore";
-import { PageHeader, AgentTable, AgentModal } from "./components";
+import { AgentTable, AgentModal } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 export default function AgentsPage() {
@@ -19,6 +21,7 @@ export default function AgentsPage() {
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const installedSkillsRef = useRef<string[]>([]);
+  const { message } = useAppMessage();
 
   const handleCreate = () => {
     setEditingAgent(null);
@@ -112,12 +115,18 @@ export default function AgentsPage() {
   return (
     <div className={styles.agentsPage}>
       <PageHeader
-        title={t("agent.management")}
-        description={t("agent.pageDescription")}
-        action={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            {t("agent.create")}
-          </Button>
+        parent={t("agent.parent")}
+        current={t("agent.agents")}
+        extra={
+          <div className={styles.headerRight}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleCreate}
+            >
+              {t("agent.create")}
+            </Button>
+          </div>
         }
       />
 

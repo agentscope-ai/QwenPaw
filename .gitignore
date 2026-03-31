@@ -84,7 +84,6 @@ logs/
 # vibe coding
 .claude
 openspec
-/AGENTS.md
 CLAUDE.md
 *.tmp
 
@@ -97,3 +96,6 @@ src/.hypothesis/
 
 # Kiro IDE
 .kiro/
+
+# Qoder IDE
+.qoder/

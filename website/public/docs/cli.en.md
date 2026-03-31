@@ -25,16 +25,11 @@ copaw init --force      # Overwrite existing config files
 
 **What the interactive flow covers (in order):**
 
-1. **Heartbeat** — interval (e.g. `30m`), target (`main` / `last`), optional
-   active hours.
-2. **Show tool details** — whether tool call details appear in channel messages.
-3. **Language** — `zh` / `en` / `ru` for agent persona files (SOUL.md, etc.).
-4. **Channels** — optionally configure iMessage / Discord / DingTalk / Feishu /
-   QQ / Console.
-5. **LLM provider** — select provider, enter API key, choose model (**required**).
-6. **Skills** — enable all / none / custom selection.
-7. **Environment variables** — optionally add key-value pairs for tools.
-8. **HEARTBEAT.md** — edit the heartbeat checklist in your default editor.
+1. **Default Workspace Initialization** — automatically create default workspace and configuration files.
+2. **LLM provider** — select provider, enter API key, choose model
+   (**required**).
+3. **Environment variables** — optionally add key-value pairs for tools.
+4. **HEARTBEAT.md** — edit the heartbeat checklist in your default editor.
 
 ### copaw app
 
@@ -43,7 +38,6 @@ UI — depends on this.
 
 ```bash
 copaw app                             # Start on 127.0.0.1:8088
-copaw app --host 0.0.0.0 --port 9090 # Custom address
 copaw app --reload                    # Auto-reload on code change (dev)
 copaw app --log-level debug           # Verbose logging
 ```
@@ -111,12 +105,9 @@ Manage LLM providers and the active model.
 | `copaw models config`                  | Full interactive setup: API keys → active model      |
 | `copaw models config-key [provider]`   | Configure a single provider's API key                |
 | `copaw models set-llm`                 | Switch the active model (API keys unchanged)         |
-| `copaw models download <repo_id>`      | Download a local model (llama.cpp / MLX)             |
+| `copaw models download <repo_id>`      | Download a local model (llama.cpp)                   |
 | `copaw models local`                   | List downloaded local models                         |
 | `copaw models remove-local <model_id>` | Delete a downloaded local model                      |
-| `copaw models ollama-pull <model>`     | Download an Ollama model                             |
-| `copaw models ollama-list`             | List Ollama models                                   |
-| `copaw models ollama-remove <model>`   | Delete an Ollama model                               |
 
 ```bash
 copaw models list                    # See what's configured
@@ -129,34 +120,28 @@ copaw models set-llm                 # Change active model only
 
 #### Local models
 
-CoPaw can also run models locally via llama.cpp or MLX — no API key needed.
-Install the backend first: `pip install 'copaw[llamacpp]'` or
-`pip install 'copaw[mlx]'`.
+CoPaw can also run models locally via llama.cpp, Ollama, or LM Studio — no API key needed.
+But you need to download the corresponding application first, such as [Ollama](https://ollama.com/download) or [LM Studio](https://lmstudio.ai/download).
 
 ```bash
 # Download a model (auto-selects Q4_K_M GGUF)
 copaw models download Qwen/Qwen3-4B-GGUF
-
-# Download an MLX model
-copaw models download Qwen/Qwen3-4B --backend mlx
 
 # Download from ModelScope
 copaw models download Qwen/Qwen2-0.5B-Instruct-GGUF --source modelscope
 
 # List downloaded models
 copaw models local
-copaw models local --backend mlx
 
 # Delete a downloaded model
 copaw models remove-local <model_id>
 copaw models remove-local <model_id> --yes   # skip confirmation
 ```
 
-| Option      | Short | Default       | Description                                                           |
-| ----------- | ----- | ------------- | --------------------------------------------------------------------- |
-| `--backend` | `-b`  | `llamacpp`    | Target backend (`llamacpp` or `mlx`)                                  |
-| `--source`  | `-s`  | `huggingface` | Download source (`huggingface` or `modelscope`)                       |
-| `--file`    | `-f`  | _(auto)_      | Specific filename. If omitted, auto-selects (prefers Q4_K_M for GGUF) |
+| Option     | Short | Default       | Description                                                           |
+| ---------- | ----- | ------------- | --------------------------------------------------------------------- |
+| `--source` | `-s`  | `huggingface` | Download source (`huggingface` or `modelscope`)                       |
+| `--file`   | `-f`  | _(auto)_      | Specific filename. If omitted, auto-selects (prefers Q4_K_M for GGUF) |
 
 #### Ollama models
 
@@ -166,15 +151,14 @@ Install the Ollama SDK: `pip install 'copaw[ollama]'` (or re-run the installer w
 
 ```bash
 # Download an Ollama model
-copaw models ollama-pull mistral:7b
-copaw models ollama-pull qwen3:8b
+ollama pull mistral:7b
+ollama pull qwen3:8b
 
 # List Ollama models
-copaw models ollama-list
+ollama list
 
 # Remove an Ollama model
-copaw models ollama-remove mistral:7b
-copaw models ollama-remove qwen3:8b --yes   # skip confirmation
+ollama rm mistral:7b
 
 # Use in config flow (auto-detects Ollama models)
 copaw models config           # Select Ollama → Choose from model list
@@ -184,7 +168,7 @@ copaw models set-llm          # Switch to a different Ollama model
 **Key differences from local models:**
 
 - Models come from Ollama daemon (not downloaded by CoPaw)
-- Use `ollama-pull` / `ollama-remove` instead of `download` / `remove-local`
+- Use `ollama` CLI to manage models (not `copaw models download/remove-local`)
 - Model list updates dynamically when you add/remove via Ollama CLI or CoPaw
 
 > **Note:** You are responsible for ensuring the API key is valid. CoPaw does
@@ -620,18 +604,18 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 
 ## Command overview
 
-| Command          | Subcommands                                                                                                                            | Requires server? |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | :--------------: |
-| `copaw init`     | —                                                                                                                                      |        No        |
-| `copaw app`      | —                                                                                                                                      |  — (starts it)   |
-| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        No        |
-| `copaw env`      | `list` · `set` · `delete`                                                                                                              |        No        |
-| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                                                                              |     **Yes**      |
-| `copaw agents`   | `list` · `chat`                                                                                                                        |     **Yes**      |
-| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |     **Yes**      |
-| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |     **Yes**      |
-| `copaw skills`   | `list` · `config`                                                                                                                      |        No        |
-| `copaw clean`    | —                                                                                                                                      |        No        |
+| Command          | Subcommands                                                                          | Requires server? |
+| ---------------- | ------------------------------------------------------------------------------------ | :--------------: |
+| `copaw init`     | —                                                                                    |        No        |
+| `copaw app`      | —                                                                                    |  — (starts it)   |
+| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        No        |
+| `copaw env`      | `list` · `set` · `delete`                                                            |        No        |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                            |     **Yes**      |
+| `copaw agents`   | `list` · `chat`                                                                      |     **Yes**      |
+| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
+| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
+| `copaw skills`   | `list` · `config`                                                                    |        No        |
+| `copaw clean`    | —                                                                                    |        No        |
 
 ---
 

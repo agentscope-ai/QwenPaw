@@ -55,6 +55,7 @@ export function ImportHubModal({
 
   return (
     <Modal
+      className={styles.importHubModal}
       title={t("skills.importHub")}
       open={open}
       onCancel={handleClose}

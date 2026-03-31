@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Form, Tooltip, message } from "@agentscope-ai/design";
+import { Button, Form, Tooltip } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
   ImportOutlined,
@@ -19,12 +19,16 @@ import {
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
+import { invalidateSkillCache } from "../../../api/modules/skill";
 import { parseErrorDetail } from "../../../utils/error";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 function SkillsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
   const {
     skills,
@@ -54,12 +58,15 @@ function SkillsPage() {
 
   const MAX_UPLOAD_SIZE_MB = 100;
 
+  // Only fetch pool skills when pool modal is opened, not on page load
   useEffect(() => {
-    void api
-      .listSkillPoolSkills()
-      .then(setPoolSkills)
-      .catch(() => undefined);
-  }, [loading]);
+    if (poolModal === "upload" || poolModal === "download") {
+      void api
+        .listSkillPoolSkills()
+        .then(setPoolSkills)
+        .catch(() => undefined);
+    }
+  }, [poolModal]);
 
   const closePoolModal = () => {
     setPoolModal(null);
@@ -83,7 +90,10 @@ function SkillsPage() {
     const sizeMB = file.size / (1024 * 1024);
     if (sizeMB > MAX_UPLOAD_SIZE_MB) {
       message.warning(
-        t("skills.fileSizeExceeded", { size: sizeMB.toFixed(1) }),
+        t("skills.fileSizeExceeded", {
+          limit: MAX_UPLOAD_SIZE_MB,
+          size: sizeMB.toFixed(1),
+        }),
       );
       return;
     }
@@ -174,7 +184,7 @@ function SkillsPage() {
   const handleDelete = async (skill: SkillSpec, e?: React.MouseEvent) => {
     e?.stopPropagation();
     await deleteSkill(skill);
-    await refreshSkills();
+    // No need to refresh again as deleteSkill already calls fetchSkills
   };
 
   const handleDrawerClose = () => {
@@ -193,17 +203,19 @@ function SkillsPage() {
           source_name: sourceName !== targetName ? sourceName : undefined,
           config: values.config,
         });
+        await api.updateSkillChannels(result.name, values.channels || ["all"]);
         if (result.mode === "noop") {
           setDrawerOpen(false);
+          await refreshSkills();
           return;
         }
-        await api.updateSkillChannels(result.name, values.channels || ["all"]);
         message.success(
           result.mode === "rename"
             ? `${t("common.save")}: ${result.name}`
             : t("common.save"),
         );
         setDrawerOpen(false);
+        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
         await refreshSkills();
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -238,6 +250,7 @@ function SkillsPage() {
       if (result.success) {
         await api.updateSkillChannels(submitName, values.channels || ["all"]);
         setDrawerOpen(false);
+        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after updating channels
         await refreshSkills();
         return;
       }
@@ -289,6 +302,7 @@ function SkillsPage() {
       }
       message.success(t("skills.uploadedToPool"));
       closePoolModal();
+      invalidateSkillCache({ agentId: selectedAgent, pool: true }); // Clear current agent and pool cache
       await refreshSkills();
       setPoolSkills(await api.listSkillPoolSkills());
     } catch (error) {
@@ -333,6 +347,7 @@ function SkillsPage() {
       }
       message.success(t("skills.downloadedToWorkspace"));
       closePoolModal();
+      invalidateSkillCache({ agentId: selectedAgent, pool: true }); // Clear current agent and pool cache
       await refreshSkills();
     } catch (error) {
       message.error(
@@ -345,77 +360,76 @@ function SkillsPage() {
 
   return (
     <div className={styles.skillsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("skills.title")}</h1>
-          <p className={styles.description}>{t("skills.description")}</p>
-        </div>
-        <div className={styles.headerActions}>
-          <input
-            type="file"
-            accept=".zip"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            style={{ display: "none" }}
-          />
-          <div className={styles.headerActionsLeft}>
-            <Tooltip title={t("skills.downloadFromPoolHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryTransferButton}
-                onClick={() => setPoolModal("download")}
-                icon={<DownloadOutlined />}
-              >
-                {t("common.download")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.uploadToPoolHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryTransferButton}
-                onClick={() => setPoolModal("upload")}
-                icon={<SwapOutlined />}
-              >
-                {t("common.upload")}
-              </Button>
-            </Tooltip>
+      <PageHeader
+        items={[{ title: t("nav.agent") }, { title: t("skills.title") }]}
+        extra={
+          <div className={styles.headerRight}>
+            <input
+              type="file"
+              accept=".zip"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              style={{ display: "none" }}
+            />
+            <div className={styles.headerActionsLeft}>
+              <Tooltip title={t("skills.downloadFromPoolHint")}>
+                <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  onClick={() => setPoolModal("download")}
+                  icon={<DownloadOutlined />}
+                >
+                  {t("skills.downloadFromPool")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.uploadToPoolHint")}>
+                <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  onClick={() => setPoolModal("upload")}
+                  icon={<SwapOutlined />}
+                >
+                  {t("skills.uploadToPool")}
+                </Button>
+              </Tooltip>
+            </div>
+            <div className={styles.headerActionsRight}>
+              <Tooltip title={t("skills.uploadZipHint")}>
+                <Button
+                  type="default"
+                  className={styles.creationActionButton}
+                  onClick={handleUploadClick}
+                  icon={<UploadOutlined />}
+                  loading={uploading}
+                  disabled={uploading}
+                >
+                  {t("skills.uploadZip")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.importHubHint")}>
+                <Button
+                  type="default"
+                  className={styles.creationActionButton}
+                  onClick={() => setImportModalOpen(true)}
+                  icon={<ImportOutlined />}
+                >
+                  {t("skills.importHub")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.createSkillHint")}>
+                <Button
+                  type="primary"
+                  className={styles.primaryActionButton}
+                  onClick={handleCreate}
+                  icon={<PlusOutlined />}
+                >
+                  {t("skills.createSkill")}
+                </Button>
+              </Tooltip>
+            </div>
           </div>
-          <div className={styles.headerActionsRight}>
-            <Tooltip title={t("skills.uploadZipHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={handleUploadClick}
-                icon={<UploadOutlined />}
-                loading={uploading}
-                disabled={uploading}
-              >
-                {t("skills.uploadZip")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.importHubHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={() => setImportModalOpen(true)}
-                icon={<ImportOutlined />}
-              >
-                {t("skills.importHub")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.createSkillHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={handleCreate}
-                icon={<PlusOutlined />}
-              >
-                {t("skills.createSkill")}
-              </Button>
-            </Tooltip>
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       <ImportHubModal
         open={importModalOpen}
@@ -441,7 +455,7 @@ function SkillsPage() {
           <p className={styles.emptyStateText}>{t("skills.emptyStateText")}</p>
           <div className={styles.emptyStateActions}>
             <Button
-              type="primary"
+              type="default"
               className={styles.primaryTransferButton}
               onClick={() => setPoolModal("download")}
               icon={<DownloadOutlined />}
@@ -449,8 +463,8 @@ function SkillsPage() {
               {t("skills.emptyStateDownload")}
             </Button>
             <Button
-              type="default"
-              className={styles.creationActionButton}
+              type="primary"
+              className={styles.primaryActionButton}
               onClick={handleCreate}
               icon={<PlusOutlined />}
             >

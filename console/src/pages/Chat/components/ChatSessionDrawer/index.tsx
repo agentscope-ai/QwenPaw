@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Drawer } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine } from "@agentscope-ai/icons";
@@ -7,9 +7,11 @@ import {
   useChatAnywhereSessions,
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
+import { useTranslation } from "react-i18next";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import ChatSessionItem from "../ChatSessionItem";
+import { getChannelLabel } from "../../../Control/Channels/components";
 import styles from "./index.module.less";
 
 /** Sessions from CoPaw backend include extra fields beyond the runtime UI type */
@@ -52,6 +54,7 @@ const getBackendId = (session: ExtendedChatSession): string | null => {
 };
 
 const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
+  const { t } = useTranslation();
   const { sessions, currentSessionId, setCurrentSessionId, setSessions } =
     useChatAnywhereSessionsState();
 
@@ -67,6 +70,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
+
+  /** Sessions sorted by createdAt descending, independent of context internal order */
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      const aTime = (a as ExtendedChatSession).createdAt;
+      const bTime = (b as ExtendedChatSession).createdAt;
+      if (!aTime && !bTime) return 0;
+      if (!aTime) return 1;
+      if (!bTime) return -1;
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
+  }, [sessions]);
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
@@ -176,7 +191,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       {/* Header bar */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <span className={styles.headerTitle}>History</span>
+          <span className={styles.headerTitle}>{t("chat.allChats")}</span>
         </div>
         <div className={styles.headerRight}>
           <IconButton
@@ -190,7 +205,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       {/* Create new chat button */}
       <div className={styles.createSection}>
         <div className={styles.createButton} onClick={handleCreateSession}>
-          Create New Chat
+          {t("chat.createNewChat")}
         </div>
       </div>
 
@@ -198,13 +213,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       <div className={styles.listWrapper}>
         <div className={styles.topGradient} />
         <div className={styles.list}>
-          {sessions.map((session) => {
+          {sortedSessions.map((session) => {
             const ext = session as ExtendedChatSession;
+            const channelKey = ext.channel?.trim() || "";
+            const channelLabel = channelKey
+              ? getChannelLabel(channelKey, t)
+              : undefined;
             return (
               <ChatSessionItem
                 key={session.id}
                 name={session.name || "New Chat"}
                 time={formatCreatedAt(ext.createdAt ?? null)}
+                channelKey={channelKey || undefined}
+                channelLabel={channelLabel}
                 active={session.id === currentSessionId}
                 editing={editingSessionId === session.id}
                 editValue={

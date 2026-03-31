@@ -955,10 +955,16 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Response message
         """
-        # Set workspace_dir in context for tool functions
-        from ..config.context import set_current_workspace_dir
+        # Set workspace_dir and recent_max_bytes in context for tool functions
+        from ..config.context import (
+            set_current_workspace_dir,
+            set_current_recent_max_bytes,
+        )
 
         set_current_workspace_dir(self._workspace_dir)
+        set_current_recent_max_bytes(
+            self._agent_config.running.tool_result_compact.recent_max_bytes,
+        )
 
         # Process file and media blocks in messages
         if msg is not None:
@@ -997,9 +1003,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                         timeout=1,
                     )
                     self.memory._long_term_memory = "\n".join(
-                        block.text
+                        block["text"]
                         for block in (result.content or [])
-                        if hasattr(block, "text")
+                        if isinstance(block, dict) and block.get("text")
                     )
                 except BaseException as e:
                     logger.warning(

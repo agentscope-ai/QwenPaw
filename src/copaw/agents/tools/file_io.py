@@ -8,12 +8,16 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
-from ...config.context import get_current_workspace_dir
 from .utils import (
     truncate_text_output,
     read_file_safe,
+    DEFAULT_MAX_BYTES,
 )
+from ...config.context import (
+    get_current_workspace_dir,
+    get_current_recent_max_bytes,
+)
+from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
 
 
 def _resolve_file_path(file_path: str) -> str:
@@ -160,11 +164,13 @@ async def read_file(  # pylint: disable=too-many-return-statements
         selected_content = "\n".join(all_lines[s - 1 : e])
 
         # Apply smart truncation (consistent with shell output format)
+        max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
         text = truncate_text_output(
             selected_content,
             start_line=s,
             total_lines=total,
             file_path=file_path,
+            max_bytes=max_bytes,
         )
 
         # Add continuation hint if partial read without truncation.
@@ -173,10 +179,14 @@ async def read_file(  # pylint: disable=too-many-return-statements
         if text == selected_content and e < total:
             content_bytes = len(text.encode("utf-8"))
             notice = (
-                TRUNCATION_NOTICE_MARKER
-                + f"\nFile: {file_path}\nStarting at start_line={s}, next {content_bytes} bytes."
-                f"\nTotal lines: {total}"
-                f"\nUse start_line={e + 1} to continue."
+                TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
+                f"\nThe full content is saved to the file "
+                f"and contains {total} lines in total."
+                f"\nThis excerpt starts at line {s} and "
+                f"covers the next {content_bytes} bytes."
+                "\nIf the current content is not enough, "
+                f"call `read_file` with file_path={file_path} "
+                f"start_line={e + 1} to read more."
             )
             text = text + notice
 

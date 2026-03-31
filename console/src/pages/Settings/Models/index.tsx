@@ -1,14 +1,14 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button, Input } from "@agentscope-ai/design";
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
-  PageHeader,
   LoadingState,
   ProviderCard,
   CustomProviderModal,
   ModelsSection,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../api/types/provider";
 import styles from "./index.module.less";
@@ -24,27 +24,27 @@ function ModelsPage() {
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const refreshProvidersSilently = () => fetchAll(false);
+  const refreshProvidersSilently = useCallback(() => {
+    void fetchAll(false);
+  }, [fetchAll]);
 
-  const { regularProviders, embeddedProviders } = useMemo(() => {
+  const { regularProviders, localProviders } = useMemo(() => {
     const regular: ProviderInfo[] = [];
-    const embedded: ProviderInfo[] = [];
+    const local: ProviderInfo[] = [];
     for (const p of providers) {
-      if (p.is_local) embedded.push(p);
+      if (p.is_local) local.push(p);
       else regular.push(p);
     }
     // Fuzzy search filter: match provider name (case-insensitive)
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
-      return { regularProviders: regular, embeddedProviders: embedded };
+      return { regularProviders: regular, localProviders: local };
     }
     return {
       regularProviders: regular.filter((p) =>
         p.name.toLowerCase().includes(query),
       ),
-      embeddedProviders: embedded.filter((p) =>
-        p.name.toLowerCase().includes(query),
-      ),
+      localProviders: local.filter((p) => p.name.toLowerCase().includes(query)),
     };
   }, [providers, searchQuery]);
 
@@ -79,8 +79,8 @@ function ModelsPage() {
         <>
           {/* ---- LLM Section (top) ---- */}
           <PageHeader
-            title={t("models.llmTitle")}
-            description={t("models.llmDescription")}
+            parent={t("nav.settings")}
+            current={t("models.llmTitle")}
           />
           <ModelsSection
             providers={providers}
@@ -91,55 +91,56 @@ function ModelsPage() {
           <div className={styles.providersBlock}>
             <div className={styles.sectionHeaderRow}>
               <PageHeader
-                title={t("models.providersTitle")}
-                description={t("models.providersDescription")}
+                current={t("models.providersTitle")}
+                className={styles.providersPageHeader}
               />
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setAddProviderOpen(true)}
-                className={styles.addProviderBtn}
-              >
-                {t("models.addProvider")}
-              </Button>
+              <div className={styles.headerRight}>
+                {/* ---- Search ---- */}
+                <div className={styles.searchRow}>
+                  <Input
+                    placeholder={t("models.searchPlaceholder")}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onPressEnter={() => {}}
+                    className={styles.searchInput}
+                    prefix={<SearchOutlined />}
+                    allowClear
+                  />
+                  <Button
+                    type="primary"
+                    icon={<SearchOutlined />}
+                    onClick={() => fetchAll()}
+                    className={styles.searchBtn}
+                  >
+                    {t("models.search")}
+                  </Button>
+                </div>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setAddProviderOpen(true)}
+                  className={styles.addProviderBtn}
+                >
+                  {t("models.addProvider")}
+                </Button>
+              </div>
             </div>
 
-            {/* ---- Search Row ---- */}
-            <div className={styles.searchRow}>
-              <Input
-                placeholder={t("models.searchPlaceholder")}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onPressEnter={() => {}}
-                className={styles.searchInput}
-                prefix={<SearchOutlined />}
-                allowClear
-              />
-              <Button
-                type="primary"
-                icon={<SearchOutlined />}
-                onClick={() => fetchAll()}
-                className={styles.searchBtn}
-              >
-                {t("models.search")}
-              </Button>
-            </div>
+            {localProviders.length > 0 && (
+              <div className={styles.providerGroup}>
+                {/* <h4 className={styles.providerGroupTitle}>
+                  {t("models.localEmbedded")}
+                </h4> */}
+                <div className={styles.providerCards}>
+                  {renderProviderCards(localProviders)}
+                </div>
+              </div>
+            )}
 
             {regularProviders.length > 0 && (
               <div className={styles.providerGroup}>
                 <div className={styles.providerCards}>
                   {renderProviderCards(regularProviders)}
-                </div>
-              </div>
-            )}
-
-            {embeddedProviders.length > 0 && (
-              <div className={styles.providerGroup}>
-                <h4 className={styles.providerGroupTitle}>
-                  {t("models.localEmbedded")}
-                </h4>
-                <div className={styles.providerCards}>
-                  {renderProviderCards(embeddedProviders)}
                 </div>
               </div>
             )}

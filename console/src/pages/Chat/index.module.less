@@ -58,7 +58,7 @@
   }
 
   /* Dark mode scrollbar */
-  :global(.dark) & {
+  :global(.dark-mode) & {
     &::-webkit-scrollbar-thumb {
       background: rgba(255, 255, 255, 0.2);
 
@@ -72,7 +72,7 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
 
-  :global(.dark) & {
+  :global(.dark-mode) & {
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   }
 }
@@ -88,7 +88,7 @@
 
 .suggestionCommand {
   flex: 0 0 88px;
-  color: #1677ff;
+  color: #ff7f16;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -103,6 +103,31 @@
   -webkit-line-clamp: 2;
 }
 
-:global(.dark) .suggestionDescription {
-  color: rgba(255, 255, 255, 0.45);
+:global(.dark-mode) {
+  .suggestionCommand {
+    color: #ff7f16;
+  }
+
+  .suggestionDescription {
+    color: rgba(255, 255, 255, 0.65);
+  }
+}
+
+/* Prompt star icon - use theme color */
+:global {
+  .chat-anywhere-prompt-icon,
+  [class*="prompt-icon"],
+  [class*="PromptIcon"] {
+    color: #ff7f16 !important;
+  }
+}
+
+/* Dark mode scrollbar for disabled overlay */
+:global(.dark-mode) {
+  .chatDisabledOverlay :global([class*="chat-anywhere-input"]),
+  .chatDisabledOverlay :global([class*="chat-input"]),
+  .chatDisabledOverlay :global(textarea),
+  .chatDisabledOverlay :global(input[type="text"]) {
+    background-color: #2a2a2a !important;
+  }
 }

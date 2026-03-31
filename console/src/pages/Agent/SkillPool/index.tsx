@@ -5,12 +5,11 @@ import {
   Input,
   Modal,
   Tooltip,
-  message,
   Drawer,
   Form,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
-  DeleteOutlined,
   ImportOutlined,
   PlusOutlined,
   SendOutlined,
@@ -19,15 +18,19 @@ import {
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
   BuiltinImportSpec,
   PoolSkillSpec,
   WorkspaceSkillSummary,
 } from "../../../api/types";
 import { parseErrorDetail } from "../../../utils/error";
+import { handleScanError, checkScanWarnings } from "../../../utils/scanError";
+import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import {
   getSkillDisplaySource,
   getPoolBuiltinStatusLabel,
+  getPoolBuiltinStatusTone,
   getSkillVisual,
   parseFrontmatter,
   useConflictRenameModal,
@@ -36,9 +39,12 @@ import {
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { ImportBuiltinModal } from "./components/ImportBuiltinModal";
-import styles from "../Skills/index.module.less";
+import { PageHeader } from "@/components/PageHeader";
+import styles from "./index.module.less";
 
 type PoolMode = "broadcast" | "create" | "edit";
+
+const SKILL_POOL_ZIP_MAX_MB = 100;
 
 function SkillPoolPage() {
   const { t } = useTranslation();
@@ -59,13 +65,20 @@ function SkillPoolPage() {
   const [importing, setImporting] = useState(false);
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
+  const { message } = useAppMessage();
 
   // Form state for create/edit drawer
   const [form] = Form.useForm();
   const [drawerContent, setDrawerContent] = useState("");
   const [showMarkdown, setShowMarkdown] = useState(true);
 
-  const loadData = useCallback(async () => {
+  // Use ref to cache data and avoid unnecessary reloads
+  const dataLoadedRef = useRef(false);
+
+  const loadData = useCallback(async (forceReload = false) => {
+    // Skip if already loaded and not forcing reload
+    if (dataLoadedRef.current && !forceReload) return;
+
     setLoading(true);
     try {
       const [poolSkills, workspaceSummaries] = await Promise.all([
@@ -74,6 +87,7 @@ function SkillPoolPage() {
       ]);
       setSkills(poolSkills);
       setWorkspaces(workspaceSummaries);
+      dataLoadedRef.current = true;
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : "Failed to load skill pool",
@@ -199,6 +213,7 @@ function SkillPoolPage() {
             });
             break;
           } catch (error) {
+            if (handleScanError(error, t)) return;
             const detail = parseErrorDetail(error);
             const conflicts = Array.isArray(detail?.conflicts)
               ? detail.conflicts
@@ -212,9 +227,16 @@ function SkillPoolPage() {
                 if (!c.workspace_id || !c.suggested_name) {
                   return null;
                 }
-                const workspaceLabel =
-                  workspaces.find((w) => w.agent_id === c.workspace_id)
-                    ?.agent_name || c.workspace_id;
+                const w = workspaces.find(
+                  (ws) => ws.agent_id === c.workspace_id,
+                );
+                const workspaceLabel = getAgentDisplayName(
+                  {
+                    id: c.workspace_id,
+                    name: w?.agent_name ?? "",
+                  },
+                  t,
+                );
                 return {
                   key: c.workspace_id,
                   label: workspaceLabel,
@@ -253,11 +275,24 @@ function SkillPoolPage() {
       }
       message.success(t("skillPool.broadcastSuccess"));
       closeModal();
-      await loadData();
+      invalidateSkillCache({ pool: true, workspaces: true });
+      await loadData(true);
+      for (const skillName of broadcastSkillNames) {
+        await checkScanWarnings(
+          skillName,
+          api.getBlockedHistory,
+          api.getSkillScanner,
+          t,
+        );
+      }
     } catch (error) {
-      message.error(
-        error instanceof Error ? error.message : t("skillPool.broadcastFailed"),
-      );
+      if (!handleScanError(error, t)) {
+        message.error(
+          error instanceof Error
+            ? error.message
+            : t("skillPool.broadcastFailed"),
+        );
+      }
     }
   };
 
@@ -290,7 +325,8 @@ function SkillPoolPage() {
         );
       }
       closeImportBuiltin();
-      await loadData();
+      invalidateSkillCache({ pool: true }); // Clear pool cache
+      await loadData(true);
     } catch (error) {
       const detail = parseErrorDetail(error);
       const conflicts = Array.isArray(detail?.conflicts)
@@ -387,8 +423,16 @@ function SkillPoolPage() {
           : t("common.create"),
       );
       closeDrawer();
-      await loadData();
+      invalidateSkillCache({ pool: true });
+      await loadData(true);
+      await checkScanWarnings(
+        result.name || skillName,
+        api.getBlockedHistory,
+        api.getSkillScanner,
+        t,
+      );
     } catch (error) {
+      if (handleScanError(error, t)) return;
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
         const renameMap = await showConflictRenameModal([
@@ -425,7 +469,8 @@ function SkillPoolPage() {
       onOk: async () => {
         await api.deleteSkillPoolSkill(skill.name);
         message.success(t("skillPool.deletedFromPool"));
-        await loadData();
+        invalidateSkillCache({ pool: true }); // Clear pool cache
+        await loadData(true);
       },
     });
   };
@@ -434,6 +479,22 @@ function SkillPoolPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      message.warning(t("skills.zipOnly"));
+      return;
+    }
+
+    const sizeMB = file.size / (1024 * 1024);
+    if (sizeMB > SKILL_POOL_ZIP_MAX_MB) {
+      message.warning(
+        t("skills.fileSizeExceeded", {
+          limit: SKILL_POOL_ZIP_MAX_MB,
+          size: sizeMB.toFixed(1),
+        }),
+      );
+      return;
+    }
 
     let renameMap: Record<string, string> | undefined;
     while (true) {
@@ -449,7 +510,18 @@ function SkillPoolPage() {
         } else {
           message.info(t("skillPool.noNewImports"));
         }
-        await loadData();
+        invalidateSkillCache({ pool: true }); // Clear pool cache
+        await loadData(true);
+        if (result.count > 0 && Array.isArray(result.imported)) {
+          for (const name of result.imported) {
+            await checkScanWarnings(
+              name,
+              api.getBlockedHistory,
+              api.getSkillScanner,
+              t,
+            );
+          }
+        }
         break;
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -457,6 +529,7 @@ function SkillPoolPage() {
           ? detail.conflicts
           : [];
         if (conflicts.length === 0) {
+          if (handleScanError(error, t)) break;
           message.error(
             error instanceof Error
               ? error.message
@@ -489,8 +562,16 @@ function SkillPoolPage() {
       });
       message.success(`${t("common.create")}: ${result.name}`);
       closeImportModal();
-      await loadData();
+      invalidateSkillCache({ pool: true }); // Clear pool cache
+      await loadData(true);
+      await checkScanWarnings(
+        result.name,
+        api.getBlockedHistory,
+        api.getSkillScanner,
+        t,
+      );
     } catch (error) {
+      if (handleScanError(error, t)) return;
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
         const skillName = detail?.skill_name || "";
@@ -519,63 +600,71 @@ function SkillPoolPage() {
 
   return (
     <div className={styles.skillsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("nav.skillPool")}</h1>
-          <p className={styles.description}>{t("skillPool.description")}</p>
-        </div>
-        <div className={styles.headerActions}>
-          <input
-            type="file"
-            accept=".zip"
-            ref={zipInputRef}
-            onChange={handleZipImport}
-            style={{ display: "none" }}
-          />
-          <Tooltip title={t("skillPool.broadcastHint")}>
-            <Button
-              type="primary"
-              className={styles.primaryTransferButton}
-              icon={<SendOutlined />}
-              onClick={() => openBroadcast()}
-            >
-              {t("skillPool.broadcast")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("skillPool.importBuiltinHint")}>
-            <Button
-              type="default"
-              icon={<SyncOutlined />}
-              onClick={() => void openImportBuiltin()}
-            >
-              {t("skillPool.importBuiltin")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("skills.importHubHint")}>
-            <Button
-              type="default"
-              icon={<ImportOutlined />}
-              onClick={() => setImportModalOpen(true)}
-            >
-              {t("skills.importHub")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("skills.uploadZipHint")}>
-            <Button
-              type="default"
-              icon={<UploadOutlined />}
-              onClick={() => zipInputRef.current?.click()}
-            >
-              {t("skills.uploadZip")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("skills.createSkillHint")}>
-            <Button type="default" icon={<PlusOutlined />} onClick={openCreate}>
-              {t("skills.createSkill")}
-            </Button>
-          </Tooltip>
-        </div>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.settings") }, { title: t("nav.skillPool") }]}
+        extra={
+          <div className={styles.headerRight}>
+            <input
+              type="file"
+              accept=".zip"
+              ref={zipInputRef}
+              onChange={handleZipImport}
+              style={{ display: "none" }}
+            />
+            <div className={styles.headerActionsLeft}>
+              <Tooltip title={t("skillPool.broadcastHint")}>
+                <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  icon={<SendOutlined />}
+                  onClick={() => openBroadcast()}
+                >
+                  {t("skillPool.broadcast")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skillPool.importBuiltinHint")}>
+                <Button
+                  type="default"
+                  icon={<SyncOutlined />}
+                  onClick={() => void openImportBuiltin()}
+                >
+                  {t("skillPool.importBuiltin")}
+                </Button>
+              </Tooltip>
+            </div>
+            <div className={styles.headerActionsRight}>
+              <Tooltip title={t("skillPool.uploadZipHint")}>
+                <Button
+                  type="default"
+                  icon={<UploadOutlined />}
+                  onClick={() => zipInputRef.current?.click()}
+                >
+                  {t("skills.uploadZip")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skillPool.importHubHint")}>
+                <Button
+                  type="default"
+                  icon={<ImportOutlined />}
+                  onClick={() => setImportModalOpen(true)}
+                >
+                  {t("skills.importHub")}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t("skills.createSkillHint")}>
+                <Button
+                  type="primary"
+                  className={styles.primaryActionButton}
+                  icon={<PlusOutlined />}
+                  onClick={openCreate}
+                >
+                  {t("skills.createSkill")}
+                </Button>
+              </Tooltip>
+            </div>
+          </div>
+        }
+      />
 
       {loading ? (
         <div className={styles.loading}>
@@ -592,53 +681,50 @@ function SkillPoolPage() {
             >
               <div className={styles.cardBody}>
                 <div className={styles.cardHeader}>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 8 }}
-                  >
+                  <div className={styles.leftSection}>
                     <span className={styles.fileIcon}>
                       {getSkillVisual(skill.name, skill.content)}
                     </span>
-                    <h3 className={styles.skillTitle}>{skill.name}</h3>
-                  </div>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 4 }}
-                  >
-                    <span
-                      className={
-                        getSkillDisplaySource(skill.source) === "builtin"
-                          ? styles.builtinTag
-                          : styles.customizedTag
-                      }
-                    >
-                      {getSkillDisplaySource(skill.source)}
-                    </span>
+                    <div className={styles.titleRow}>
+                      <h3 className={styles.skillTitle}>{skill.name}</h3>
+                      <span
+                        className={
+                          getSkillDisplaySource(skill.source) === "builtin"
+                            ? styles.builtinTag
+                            : styles.customizedTag
+                        }
+                      >
+                        {getSkillDisplaySource(skill.source) === "builtin"
+                          ? t("skillPool.builtin")
+                          : t("skillPool.custom")}
+                      </span>
+                    </div>
+                    <div className={styles.statusRow}>
+                      <span className={styles.statusLabel}>
+                        {t("skillPool.status")}:
+                      </span>
+                      <span
+                        className={`${styles.statusValue} ${
+                          styles[getPoolBuiltinStatusTone(skill.sync_status)]
+                        }`}
+                      >
+                        {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className={styles.descriptionSection}>
-                  <div className={styles.infoLabel}>
+                <div className={styles.descriptionContainer}>
+                  <p className={styles.descriptionLabel}>
                     {t("skillPool.descriptionLabel")}
-                  </div>
-                  <div
-                    className={`${styles.infoBlock} ${styles.descriptionContent}`}
-                  >
+                  </p>
+                  <p className={styles.descriptionText}>
                     {skill.description || "-"}
-                  </div>
-                </div>
-                <div className={styles.descriptionSection}>
-                  <div className={styles.infoLabel}>
-                    {t("skillPool.status")}
-                  </div>
-                  <div className={styles.infoBlock}>
-                    {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-                  </div>
+                  </p>
                 </div>
               </div>
               <div className={styles.cardFooter}>
                 <Button
-                  type="link"
-                  size="small"
-                  className={styles.accentLinkAction}
-                  icon={<SendOutlined />}
+                  className={styles.actionButton}
                   onClick={(e) => {
                     e.stopPropagation();
                     openBroadcast(skill);
@@ -647,10 +733,7 @@ function SkillPoolPage() {
                   {t("skillPool.broadcast")}
                 </Button>
                 <Button
-                  type="link"
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
+                  className={styles.deleteButton}
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleDelete(skill);
@@ -713,7 +796,11 @@ function SkillPoolPage() {
           <div className={styles.metaStack} style={{ marginBottom: 16 }}>
             <div className={styles.infoSection}>
               <div className={styles.infoLabel}>{t("skillPool.status")}</div>
-              <div className={styles.infoBlock}>
+              <div
+                className={`${styles.infoBlock} ${
+                  styles[getPoolBuiltinStatusTone(activeSkill.sync_status)]
+                }`}
+              >
                 {getPoolBuiltinStatusLabel(activeSkill.sync_status, t)}
               </div>
             </div>

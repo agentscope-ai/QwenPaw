@@ -30,6 +30,7 @@ import type { ProviderInfo, SeriesResponse } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../../../../../contexts/ThemeContext";
+import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
 
 interface RemoteModelManageModalProps {
@@ -47,6 +48,7 @@ export function RemoteModelManageModal({
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const { message } = useAppMessage();
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [discovering, setDiscovering] = useState(false);
