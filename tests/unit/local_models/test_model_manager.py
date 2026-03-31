@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from copaw.local_models.download_manager import (
     DownloadProgressTracker,
     DownloadTaskStatus,
@@ -80,6 +82,11 @@ def test_download_model_uses_reachable_source(
         "_estimate_download_size",
         lambda **kwargs: 100,
     )
+    monkeypatch.setattr(
+        downloader,
+        "_check_gguf_exists",
+        lambda **kwargs: (True, ""),
+    )
 
     class _FakeQueue:
         pass
@@ -135,6 +142,49 @@ def test_get_download_progress_returns_idle_by_default() -> None:
         "error": None,
         "local_path": None,
     }
+
+
+def test_download_model_rejects_repo_without_gguf(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    downloader = ModelManager()
+
+    monkeypatch.setattr(
+        downloader,
+        "get_model_dir",
+        lambda repo_id: tmp_path / repo_id,
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_resolve_download_source",
+        lambda: DownloadSource.MODELSCOPE,
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_estimate_download_size",
+        lambda **kwargs: 100,
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_check_gguf_exists",
+        lambda **kwargs: (
+            False,
+            (
+                "Repository demo/no-gguf does not contain any .gguf "
+                "files on ModelScope."
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="does not contain any .gguf files",
+    ):
+        downloader.download_model("demo/no-gguf")
+
+    assert downloader.get_download_progress()["status"] == "idle"
+    assert downloader.__dict__["_process"] is None
 
 
 def test_cancel_download_stops_active_process(tmp_path: Path) -> None:
@@ -206,6 +256,11 @@ def test_download_model_uses_explicit_source_without_probe(
         downloader,
         "_estimate_download_size",
         lambda **kwargs: 100,
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_check_gguf_exists",
+        lambda **kwargs: (True, ""),
     )
 
     class _FakeQueue:

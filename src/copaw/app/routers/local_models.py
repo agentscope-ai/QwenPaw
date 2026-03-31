@@ -317,6 +317,8 @@ async def start_local_model_download(
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return ActionResponse(
         status="accepted",

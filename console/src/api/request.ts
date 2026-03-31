@@ -1,6 +1,38 @@
 import { getApiUrl, clearAuthToken } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
 
+function getErrorMessageFromBody(text: string, contentType: string): string | null {
+  if (!text) {
+    return null;
+  }
+
+  if (!contentType.includes("application/json")) {
+    return text;
+  }
+
+  try {
+    const payload = JSON.parse(text) as {
+      detail?: unknown;
+      message?: unknown;
+      error?: unknown;
+    };
+
+    if (typeof payload.detail === "string" && payload.detail) {
+      return payload.detail;
+    }
+    if (typeof payload.message === "string" && payload.message) {
+      return payload.message;
+    }
+    if (typeof payload.error === "string" && payload.error) {
+      return payload.error;
+    }
+  } catch {
+    return text;
+  }
+
+  return text;
+}
+
 function buildHeaders(method?: string, extra?: HeadersInit): Headers {
   // Normalize extra to a Headers instance for consistent handling
   const headers = extra instanceof Headers ? extra : new Headers(extra);
@@ -46,10 +78,11 @@ export async function request<T = unknown>(
     }
 
     const text = await response.text().catch(() => "");
+    const contentType = response.headers.get("content-type") || "";
+    const errorMessage = getErrorMessageFromBody(text, contentType);
     throw new Error(
-      `Request failed: ${response.status} ${response.statusText}${
-        text ? ` - ${text}` : ""
-      }`,
+      errorMessage ||
+        `Request failed: ${response.status} ${response.statusText}`,
     );
   }
 

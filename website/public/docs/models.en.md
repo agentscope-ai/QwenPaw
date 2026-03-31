@@ -10,7 +10,7 @@ CoPaw supports various LLM providers:
 
 - **Local Providers** (llama.cpp / Ollama / LM Studio)
 - **Cloud Providers** (usually require an API Key)
-- **Custom Providers** (if the preset cloud and local providers do not meet your needs)
+- **Custom Providers** (if the preset local and cloud providers do not meet your needs)
 
 ### Local Provider Configuration
 
@@ -34,7 +34,7 @@ When configuring CoPaw Local for the first time, you need to download the llama.
 
 ![Download llama.cpp](https://gw.alicdn.com/imgextra/i3/O1CN01Nqs9Cg1Vp6uA2WdiM_!!6000000002701-2-tps-1270-874.png)
 
-CoPaw team has trained a series of small models (CoPaw-flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), CoPaw will automatically recommend suitable model versions for you. You can select the models you need to download. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to the source for downloading the model. Currently, ModelScope and Hugging Face are supported.
+CoPaw team has trained a series of small models (CoPaw-Flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), CoPaw will automatically recommend suitable model versions for you. You can select the models you need to download. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to the source for downloading the model. Currently, ModelScope and Hugging Face are supported.
 
 ![Download Model](https://gw.alicdn.com/imgextra/i2/O1CN01IF2OXz1c99w9W8XGU_!!6000000003557-2-tps-1226-1202.png)
 

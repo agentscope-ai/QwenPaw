@@ -190,12 +190,19 @@ class ModelManager:
             )
 
             final_dir.parent.mkdir(parents=True, exist_ok=True)
-            self._resolved_source = source or self._resolve_download_source()
+            resolved_source = source or self._resolve_download_source()
             total_bytes = self._estimate_download_size(
                 repo_id=repo_id,
-                source=self._resolved_source,
+                source=resolved_source,
             )
+            has_gguf, error_msg = self._check_gguf_exists(
+                repo_id=repo_id,
+                source=resolved_source,
+            )
+            if not has_gguf:
+                raise ValueError(error_msg)
 
+            self._resolved_source = resolved_source
             task_id = uuid.uuid4().hex
             self._final_dir = final_dir
             self._staging_dir = (
@@ -383,6 +390,20 @@ class ModelManager:
             repo_id=repo_id,
         )
 
+    def _check_gguf_exists(
+        self,
+        repo_id: str,
+        source: DownloadSource,
+    ) -> tuple[bool, str]:
+        """Return whether the remote repository contains at least one GGUF."""
+        if source == DownloadSource.HUGGINGFACE:
+            return self._check_huggingface_gguf_exists(
+                repo_id=repo_id,
+            )
+        return self._check_modelscope_gguf_exists(
+            repo_id=repo_id,
+        )
+
     @staticmethod
     def _download_worker(payload: dict[str, Any], queue: Any) -> None:
         """Run the blocking SDK download in a child process."""
@@ -519,6 +540,51 @@ class ModelManager:
                 total += size
                 found = True
         return total if found else None
+
+    def _check_huggingface_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
+        try:
+            from huggingface_hub import HfApi
+            from huggingface_hub.errors import RepositoryNotFoundError
+        except ImportError:
+            return False, "`huggingface_hub` is not installed"
+        try:
+            files = HfApi().list_repo_files(repo_id=repo_id)
+            if any(f.endswith(".gguf") for f in files):
+                return True, ""
+            return (
+                False,
+                (
+                    f"{repo_id} is not supported by Llama.cpp because it does "
+                    "not contain any .gguf files."
+                ),
+            )
+        except RepositoryNotFoundError:
+            return False, f"Repository {repo_id} not found"
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
+            return False, f"Error when checking repository: {e}"
+
+    def _check_modelscope_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
+        try:
+            hub_api_module = importlib.import_module("modelscope.hub.api")
+        except ImportError:
+            return False, "`modelscope` is not installed"
+        try:
+            files = hub_api_module.HubApi().get_model_files(repo_id)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False, f"Failed to fetch info from {repo_id}"
+
+        if any(
+            isinstance(f, dict) and f.get("Name", "").endswith(".gguf")
+            for f in files
+        ):
+            return True, ""
+        return (
+            False,
+            (
+                f"{repo_id} is not supported by Llama.cpp because it does "
+                "not contain any .gguf files."
+            ),
+        )
 
     def _detect_available_memory_gb(self) -> float:
         """Prefer VRAM when available, otherwise use system memory."""
