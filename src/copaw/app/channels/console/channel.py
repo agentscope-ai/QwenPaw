@@ -373,13 +373,14 @@ class ConsoleChannel(BaseChannel):
                 ):
                     event_output = event.output
                     event.output = []
-                    for message in event_output:
-                        event.output.append(message)
-                        media_message = await self._extract_media_message(
-                            message,
-                        )
-                        if media_message:
-                            event.output.append(media_message)
+                    if event_output is not None:
+                        for message in event_output:
+                            event.output.append(message)
+                            media_message = await self._extract_media_message(
+                                message,
+                            )
+                            if media_message:
+                                event.output.append(media_message)
 
                 if hasattr(event, "model_dump_json"):
                     data = event.model_dump_json()

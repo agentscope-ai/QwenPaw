@@ -4,10 +4,10 @@ import {
   Card,
   Form,
   InputNumber,
-  message,
   Select,
   Switch,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { TimePicker } from "antd";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
@@ -74,6 +74,7 @@ function HeartbeatPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<HeartbeatFormValues>();
+  const { message } = useAppMessage();
 
   const fetchConfig = async () => {
     setLoading(true);

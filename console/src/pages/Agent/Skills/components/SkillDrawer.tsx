@@ -1,12 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Drawer,
-  Form,
-  Input,
-  Button,
-  Select,
-  message,
-} from "@agentscope-ai/design";
+import { Drawer, Form, Input, Button, Select } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
@@ -92,6 +86,7 @@ export function SkillDrawer({
   const abortControllerRef = useRef<AbortController | null>(null);
   const [configText, setConfigText] = useState("{}");
   const [configError, setConfigError] = useState("");
+  const { message } = useAppMessage();
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {

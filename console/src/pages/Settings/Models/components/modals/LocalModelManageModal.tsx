@@ -1,12 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Button,
-  Input,
-  Modal,
-  Select,
-  Tooltip,
-  message,
-} from "@agentscope-ai/design";
+import { Button, Input, Modal, Select, Tooltip } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
 import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import { Progress } from "antd";
 import type {
@@ -106,6 +100,8 @@ export function LocalModelManageModal({
   const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
   const previousLlamacppStatusRef = useRef<string | null>(null);
   const previousModelStatusRef = useRef<string | null>(null);
+
+  const { message } = useAppMessage();
 
   const getLocalModelDisplayName = (modelId: string | null) => {
     if (!modelId) {

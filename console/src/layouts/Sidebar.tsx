@@ -5,13 +5,13 @@ import {
   Modal,
   Input,
   Form,
-  message,
   Tooltip,
   type MenuProps,
 } from "antd";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
   SparkChatTabFill,
@@ -57,6 +57,7 @@ interface SidebarProps {
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { message } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,7 @@ export function useTools() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
+  const { message } = useAppMessage();
 
   const loadTools = useCallback(async () => {
     setLoading(true);
