@@ -64,40 +64,40 @@ If you want to use CoPaw-Flash with Ollama, it is recommended to choose a `Q8_0`
 
 1. Download a suitable quantized CoPaw-Flash model from [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) or [Hugging Face](https://huggingface.co/agentscope-ai/models), for example `AgentScope/CoPaw-Flash-4B-Q4_K_M`.
 
-  ModelScope CLI:
+ModelScope CLI:
 
-  ```bash
-  modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
-  ```
+```bash
+modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+```
 
-  Hugging Face CLI:
+Hugging Face CLI:
 
-  ```bash
-  hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
-  ```
+```bash
+hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+```
 
 2. Create a text file named `copaw-flash.txt` and replace `/path/to/your/copaw-xxx.gguf` with the absolute path of the downloaded `.gguf` file:
 
-  ```text
-  FROM /path/to/your/copaw-xxx.gguf
-  TEMPLATE {{ .Prompt }}
-  RENDERER qwen3.5
-  PARSER qwen3.5
-  PARAMETER presence_penalty 1.5
-  PARAMETER temperature 1
-  PARAMETER top_k 20
-  PARAMETER top_p 0.95
-  ```
+```text
+FROM /path/to/your/copaw-xxx.gguf
+TEMPLATE {{ .Prompt }}
+RENDERER qwen3.5
+PARSER qwen3.5
+PARAMETER presence_penalty 1.5
+PARAMETER temperature 1
+PARAMETER top_k 20
+PARAMETER top_p 0.95
+```
 
 3. Run the following command in your terminal to import the model into Ollama:
 
-  ```bash
-  ollama create copaw-flash -f copaw-flash.txt
-  ```
+```bash
+ollama create copaw-flash -f copaw-flash.txt
+```
 
-4. Go back to the CoPaw Ollama provider page and click **Auto Fetch Models** to add the model to CoPaw.
+1. Go back to the CoPaw Ollama provider page and click **Discover Models** to add the model to CoPaw.
 
-After installing and configuring Ollama, go to the **Models** page of the CoPaw Ollama provider and click **Auto Fetch Models** to get the list of available Ollama models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
+After installing and configuring Ollama, go to the **Models** page of the CoPaw Ollama provider and click **Discover Models** to get the list of available Ollama models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
 
 ![Ollama Model List](https://gw.alicdn.com/imgextra/i3/O1CN01esQyTg1eSyIlpRK69_!!6000000003871-2-tps-1208-1322.png)
 
@@ -121,27 +121,27 @@ If you want to use CoPaw-Flash with LM Studio, it is also recommended to choose 
 
 1. Download a suitable quantized CoPaw-Flash model from [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) or [Hugging Face](https://huggingface.co/agentscope-ai/models), for example `AgentScope/CoPaw-Flash-4B-Q4_K_M`.
 
-  ModelScope CLI:
+ModelScope CLI:
 
-  ```bash
-  modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
-  ```
+```bash
+modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+```
 
-  Hugging Face CLI:
+Hugging Face CLI:
 
-  ```bash
-  hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
-  ```
+```bash
+hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+```
 
 2. Run the following command to import the downloaded `.gguf` file into LM Studio:
 
-  ```bash
-  lms import /path/to/your/copaw-xxx.gguf -c -y --user-repo AgentScope/CoPaw-Flash
-  ```
+```bash
+lms import /path/to/your/copaw-xxx.gguf -c -y --user-repo AgentScope/CoPaw-Flash
+```
 
-3. Go back to the CoPaw LM Studio provider page and click **Auto Fetch Models** to add the model to CoPaw.
+3. Go back to the CoPaw LM Studio provider page and click **Discover Models** to add the model to CoPaw.
 
-The subsequent process is the same as for Ollama: click **Test Connection** to verify the connection, then go to the LM Studio model management page and click **Auto Fetch Models** to get the list of available models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
+The subsequent process is the same as for Ollama: click **Test Connection** to verify the connection, then go to the LM Studio model management page and click **Discover Models** to get the list of available models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
 
 > For users deploying CoPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:1234/v1`.
 
