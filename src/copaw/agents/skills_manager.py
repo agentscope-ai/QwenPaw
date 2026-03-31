@@ -514,7 +514,7 @@ def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
         )
 
     if isinstance(requires, list):
-        return SkillRequirements(require_bins=list(requires))
+        return SkillRequirements(require_bins=list(requires), require_envs=[])
 
     if not isinstance(requires, dict):
         return SkillRequirements()
