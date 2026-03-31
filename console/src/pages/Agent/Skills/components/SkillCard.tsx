@@ -1,6 +1,7 @@
-import { Card, Button, Tooltip } from "@agentscope-ai/design";
+import React from "react";
+import { Card, Button } from "@agentscope-ai/design";
 import {
-  DeleteOutlined,
+  CalendarFilled,
   FileTextFilled,
   FileZipFilled,
   FilePdfFilled,
@@ -9,10 +10,16 @@ import {
   FilePptFilled,
   FileImageFilled,
   CodeFilled,
+  EyeOutlined,
+  EyeInvisibleOutlined,
 } from "@ant-design/icons";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
+import {
+  getSkillDisplaySource,
+  getSkillSyncStatusLabel,
+} from "./skillMetadata";
 
 interface SkillCardProps {
   skill: SkillSpec;
@@ -24,7 +31,49 @@ interface SkillCardProps {
   onDelete?: (e?: React.MouseEvent) => void;
 }
 
-const getFileIcon = (filePath: string) => {
+const extractSkillEmoji = (content?: string) => {
+  if (!content) return "";
+  const match = content.match(/"emoji"\s*:\s*"([^"]+)"/);
+  return match?.[1] || "";
+};
+
+const normalizeSkillIconKey = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)[0]
+    ?.replace(/[^a-z0-9_-]/g, "") || "";
+
+export const getFileIcon = (filePath: string) => {
+  const skillKey = normalizeSkillIconKey(filePath);
+  const textSkillIcons = new Set([
+    "news",
+    "file_reader",
+    "browser_visible",
+    "guidance",
+    "himalaya",
+    "dingtalk_channel",
+  ]);
+
+  if (textSkillIcons.has(skillKey)) {
+    return <FileTextFilled style={{ color: "#1890ff" }} />;
+  }
+
+  switch (skillKey) {
+    case "docx":
+      return <FileWordFilled style={{ color: "#2b579a" }} />;
+    case "xlsx":
+      return <FileExcelFilled style={{ color: "#217346" }} />;
+    case "pptx":
+      return <FilePptFilled style={{ color: "#d24726" }} />;
+    case "pdf":
+      return <FilePdfFilled style={{ color: "#f5222d" }} />;
+    case "cron":
+      return <CalendarFilled style={{ color: "#13c2c2" }} />;
+    default:
+      break;
+  }
+
   const extension = filePath.split(".").pop()?.toLowerCase() || "";
 
   switch (extension) {
@@ -74,7 +123,15 @@ const getFileIcon = (filePath: string) => {
   }
 };
 
-export function SkillCard({
+export const getSkillVisual = (name: string, content?: string) => {
+  const emoji = extractSkillEmoji(content);
+  if (emoji) {
+    return <span className={styles.skillEmoji}>{emoji}</span>;
+  }
+  return getFileIcon(name);
+};
+
+export const SkillCard = React.memo(function SkillCard({
   skill,
   isHover,
   onClick,
@@ -84,7 +141,13 @@ export function SkillCard({
   onDelete,
 }: SkillCardProps) {
   const { t } = useTranslation();
-  const isCustomized = skill.source === "customized";
+  const displaySource = getSkillDisplaySource(skill.source);
+  const isBuiltin = displaySource === "builtin";
+
+  const handleToggleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleEnabled(e);
+  };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -103,89 +166,82 @@ export function SkillCard({
         skill.enabled ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
     >
-      <div className={styles.cardBody}>
-        <div className={styles.cardHeader}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className={styles.fileIcon}>{getFileIcon(skill.name)}</span>
+      {/* Header: Icon + Title + Badge + Status */}
+      <div className={styles.cardHeader}>
+        <div className={styles.leftSection}>
+          <span className={styles.fileIcon}>
+            {getSkillVisual(skill.name, skill.content)}
+          </span>
+          <div className={styles.titleRow}>
             <h3 className={styles.skillTitle}>{skill.name}</h3>
-          </div>
-          <div className={styles.statusContainer}>
-            <span
-              className={`${styles.statusDot} ${
-                skill.enabled ? styles.enabled : styles.disabled
-              }`}
-            />
-            <span
-              className={`${styles.statusText} ${
-                skill.enabled ? styles.enabled : styles.disabled
-              }`}
-            >
-              {skill.enabled ? t("common.enabled") : t("common.disabled")}
+            <span className={styles.typeBadge}>
+              {isBuiltin ? t("skills.builtin") : t("skills.custom")}
             </span>
           </div>
-        </div>
-
-        <div className={styles.descriptionSection}>
-          <div className={styles.infoLabel}>{t("skills.skillDescription")}</div>
-          <Tooltip
-            title={skill.description || "-"}
-            placement="top"
-            overlayStyle={{ maxWidth: 360 }}
-          >
-            <div className={`${styles.infoBlock} ${styles.descriptionContent}`}>
-              {skill.description || "-"}
-            </div>
-          </Tooltip>
-        </div>
-
-        <div className={styles.metaStack}>
-          <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.source")}</div>
-            <div>
-              <span
-                className={
-                  isCustomized ? styles.customizedTag : styles.builtinTag
-                }
-              >
-                {skill.source}
+          {/* Meta Info: Channels, Pool Sync - moved here */}
+          <div className={styles.metaContainer}>
+            <div className={styles.metaItem}>
+              <span className={styles.metaLabel}>{t("skills.channels")}</span>
+              <span className={styles.metaValue}>
+                {(skill.channels || ["all"])
+                  .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
+                  .join(", ")}
               </span>
             </div>
+            {skill.sync_to_pool && (
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
+                <span className={styles.metaValue}>
+                  {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
+                </span>
+              </div>
+            )}
           </div>
-
-          <div className={styles.infoSection}>
-            <div className={styles.infoLabel}>{t("skills.path")}</div>
-            <div
-              className={`${styles.infoBlock} ${styles.singleLineValue} ${styles.pathValue}`}
-              title={skill.path}
-            >
-              {skill.path}
-            </div>
-          </div>
+        </div>
+        <div className={styles.statusContainer}>
+          <span
+            className={`${styles.statusDot} ${
+              skill.enabled ? styles.enabled : styles.disabled
+            }`}
+          />
+          <span
+            className={`${styles.statusText} ${
+              skill.enabled ? styles.enabled : styles.disabled
+            }`}
+          >
+            {skill.enabled ? t("common.enabled") : t("common.disabled")}
+          </span>
         </div>
       </div>
 
+      {/* Description Section */}
+      <div className={styles.descriptionContainer}>
+        <p className={styles.descriptionLabel}>
+          {t("skills.skillDescription")}
+        </p>
+        <p className={styles.descriptionText}>{skill.description || "-"}</p>
+      </div>
+
+      {/* Footer with buttons - always show */}
       <div className={styles.cardFooter}>
         <Button
-          type="link"
-          size="small"
-          onClick={onToggleEnabled}
           className={styles.actionButton}
+          onClick={handleToggleClick}
+          icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
         >
           {skill.enabled ? t("common.disable") : t("common.enable")}
         </Button>
-
-        {isCustomized && onDelete && (
+        {onDelete && (
           <Button
-            type="text"
-            size="small"
             danger
-            icon={<DeleteOutlined />}
             className={styles.deleteButton}
             onClick={handleDeleteClick}
             disabled={skill.enabled}
-          />
+          >
+            {t("common.delete")}
+          </Button>
         )}
       </div>
     </Card>
   );
-}
+});

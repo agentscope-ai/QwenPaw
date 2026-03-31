@@ -1,207 +1,178 @@
 # Models
 
-You need to configure a model before chatting with CoPaw. You can do this under **Console → Settings → Models**.
+Before using CoPaw, you need to configure at least one available model. CoPaw supports multiple model providers, which you can configure and manage on the **Settings -> Models** page in the left sidebar.
 
-![Console models](https://img.alicdn.com/imgextra/i1/O1CN01zHAE1Z26w6jXl2xbr_!!6000000007725-2-tps-3802-1968.png)
+![Settings Models](https://gw.alicdn.com/imgextra/i3/O1CN01MmM8iv1rcfh95wdn3_!!6000000005652-2-tps-3394-1880.png)
 
-CoPaw supports multiple LLM providers: **cloud providers** (require API Key, including Google Gemini), **local providers** (llama.cpp / MLX), **Ollama provider**, **LM Studio provider**, and you can add **custom providers**. This page explains how to configure each type.
+## Provider Configuration
 
----
+CoPaw supports various LLM providers:
 
-## Configure cloud providers
+- **Cloud Providers** (usually require an API Key)
+- **Local Providers** (llama.cpp / Ollama / LM Studio)
+- **Custom Providers** (if the preset cloud and local providers do not meet your needs)
 
-Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, Azure OpenAI, Google Gemini, and MiniMax) call remote models via API and require an **API Key**.
+### Cloud Provider Configuration
 
-**In the console:**
+Currently supported cloud providers include:
 
-1. Open the console and go to **Settings → Models**.
-2. Find the target cloud provider card (e.g. DashScope) and click **Settings**. Enter your **API key** and click **Save**.
+- ModelScope
+- DashScope
+- Aliyun Coding Plan
+- OpenAI
+- Azure OpenAI
+- Anthropic
+- Google Gemini
+- MiniMax
 
-   ![save](https://img.alicdn.com/imgextra/i1/O1CN01zHAE1Z26w6jXl2xbr_!!6000000007725-2-tps-3802-1968.png)
+> Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 
-3. After saving, the card status in the top-right becomes **Available**. In the **LLM Configuration** section at the top, you can select this provider in the **Provider** dropdown and see the list of models in the **Model** dropdown.
+![Cloud Provider List](https://gw.alicdn.com/imgextra/i3/O1CN01EoK2LV2AH7lFM4GJu_!!6000000008177-2-tps-3402-1942.png)
 
-   ![choose](https://img.alicdn.com/imgextra/i2/O1CN01aYwWJ31gsjoGdycs5_!!6000000004198-2-tps-3802-1968.png)
+To activate a cloud provider, go to the provider's configuration page. Most cloud providers have pre-configured base URL; you only need to enter your API Key.
 
-4. Choose the target model (e.g. qwen3.5-plus) and click **Save**.
+![Configure API Key](https://gw.alicdn.com/imgextra/i4/O1CN01pbLeu81jIVKRoGrSk_!!6000000004525-2-tps-1058-772.png)
 
-   ![save](https://img.alicdn.com/imgextra/i3/O1CN01oQTx2a1Qey37oM3Tw_!!6000000002002-2-tps-3802-1968.png)
+After entering the API Key, click the **Test Connection** button. The system will automatically verify whether the API Key is correct (only supported by some providers).
 
-5. The LLM Configuration bar will show the current provider and model in the top-right.
+![Test Connection Result](https://gw.alicdn.com/imgextra/i1/O1CN01dGL7cJ1jH88mTpW9z_!!6000000004522-2-tps-1088-946.png)
 
-   ![model](https://img.alicdn.com/imgextra/i1/O1CN018wZ0C81MWweGbYL33_!!6000000001443-2-tps-3802-1968.png)
+Once the cloud provider is configured, you can further check if the models are available. A series of models are preset for each cloud provider. You can click the **Test Connection** button for a specific model on the provider's model management page to verify if the model is working properly.
 
-> To revoke a cloud provider, click **Settings** on its card, then **Revoke Authorization** and confirm. The provider status will change to **Unavailable**.
->
-> ![cancel](https://img.alicdn.com/imgextra/i2/O1CN01A8j1IR1n8fHGnio0q_!!6000000005045-2-tps-3802-1968.png)
+![Model Connection Test Result](https://gw.alicdn.com/imgextra/i3/O1CN01aAyd2L1N77wX0OvtY_!!6000000001522-2-tps-1150-1154.png)
 
-## Google Gemini provider
+If the preset models do not meet your needs, you can also click **Add Model** on the model management page to add new models. When adding, you need to provide the **Model ID** (the identifier used by the API, usually found in the provider's documentation) and the **Model Name** (for display in the UI). Manually added models can also be tested using the **Test Connection** button.
 
-The Google Gemini provider uses Google's native Gemini API (via the `google-genai` SDK) to access Gemini models. Pre-configured models include Gemini 3.1 Pro Preview, Gemini 3 Flash Preview, Gemini 3.1 Flash Lite Preview, Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.5 Flash Lite, and Gemini 2.0 Flash. Additional models can be auto-discovered from the API.
+![Add Model](https://gw.alicdn.com/imgextra/i1/O1CN01FBIdEH1ud4tTIHpEZ_!!6000000006059-2-tps-1148-1342.png)
 
-**Prerequisites:**
+### Local Provider Configuration
 
-- Obtain a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
+Currently supported local providers include:
 
-**In the console:**
+- [CoPaw Local (llama.cpp)](https://github.com/ggml-org/llama.cpp)
+- [Ollama](https://ollama.com/)
+- [LM Studio](https://lmstudio.ai/)
 
-1. Open the console and go to **Settings → Models**.
-2. Find the **Google Gemini** provider card and click **Settings**. Enter your **API key** and click **Save**.
-3. After saving, the card status becomes **Available**. The provider supports **model discovery** — click **Models** to auto-discover available Gemini models from the API.
-4. In the **LLM Configuration** section at the top, select **Google Gemini** in the **Provider** dropdown and choose a model (e.g. `gemini-2.5-flash`), then click **Save**.
+CoPaw Local (llama.cpp) is built into CoPaw and does not require additional software installation. Ollama and LM Studio require you to install the corresponding software in advance.
 
-**Using the CLI:**
+#### CoPaw Local (llama.cpp) Configuration
 
-```bash
-# Configure the API key
-copaw models config-key gemini
+CoPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
 
-# Set Gemini as the active LLM
-copaw models set-llm
+> CoPaw Local is currently in the beta phase. There may be stability and compatibility issues on different devices. For a more stable local model experience, it is recommended to use Ollama or LM Studio in the short term.
+
+![CoPaw Local Provider](https://gw.alicdn.com/imgextra/i4/O1CN01OAi8oN1acoLWlsm6B_!!6000000003351-2-tps-2410-1634.png)
+
+When configuring CoPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and CoPaw will automatically download and configure the runtime. Once the download is complete, you can use the CoPaw Local provider.
+
+![Download llama.cpp](https://gw.alicdn.com/imgextra/i3/O1CN01Nqs9Cg1Vp6uA2WdiM_!!6000000002701-2-tps-1270-874.png)
+
+CoPaw team has trained a series of small models (CoPaw-flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), CoPaw will automatically recommend suitable model versions for you. You can select the models you need to download. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to the source for downloading the model. Currently, ModelScope and Hugging Face are supported.
+
+![Download Model](https://gw.alicdn.com/imgextra/i2/O1CN01IF2OXz1c99w9W8XGU_!!6000000003557-2-tps-1226-1202.png)
+
+After the model is downloaded, you can click the **Start** button to launch the model. The startup time may vary depending on the model size. Once started, CoPaw will automatically set this model as the global default. Only one model can be running at a time; starting another model will automatically stop the currently running one.
+
+![Start Model](https://gw.alicdn.com/imgextra/i1/O1CN01NSNFUN1I21RynZwGy_!!6000000000834-2-tps-1224-1194.png)
+
+When you do not need to use a model temporarily, you can click **Stop** to stop the model service.
+
+![Stop Model](https://gw.alicdn.com/imgextra/i4/O1CN01ewNXXD1nMrYq8zvuC_!!6000000005076-2-tps-1230-1284.png)
+
+CoPaw Local will automatically record the model's running state. If you close the CoPaw process while a CoPaw Local model is running, it will attempt to restart the last used model the next time you open CoPaw, so you do not need to start the model manually each time.
+
+#### Ollama Configuration
+
+Before using Ollama, you need to [install Ollama](https://ollama.com/download) on your machine, download at least one model, and set the Context Length to at least 32k on the settings page.
+
+![Ollama Settings](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
+
+To verify that Ollama is working properly, go to the **Settings** page of the CoPaw Ollama provider and click the **Test Connection** button.
+
+> For users deploying CoPaw in a Docker container, if Ollama is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's Ollama service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:11434`.
+
+After installing and configuring Ollama, go to the **Models** page of the CoPaw Ollama provider and click **Auto Fetch Models** to get the list of available Ollama models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
+
+![Ollama Model List](https://gw.alicdn.com/imgextra/i3/O1CN01esQyTg1eSyIlpRK69_!!6000000003871-2-tps-1208-1322.png)
+
+#### LM Studio Configuration
+
+Before using LM Studio, you need to [install LM Studio](https://lmstudio.ai/download) on your machine.
+
+By default, LM Studio does not enable the model API service. After installing LM Studio and downloading models, go to **Developer -> Local Server** to start the local model service and note the API address, which defaults to `http://localhost:1234`.
+
+![LM Studio Local Server](https://gw.alicdn.com/imgextra/i3/O1CN01kLXu3D1VwRF3lokZz_!!6000000002717-2-tps-1654-1256.png)
+
+To ensure a good experience in CoPaw, set the **Default Context Length** to at least 32768 in **Settings -> Model Defaults**, and enable "When applicable, separate `reasoning_content` and `content` in API responses" in **Settings -> Developer -> Experimental Settings**.
+
+![LM Studio Context Length](https://gw.alicdn.com/imgextra/i4/O1CN011jc2q71hc51etcf7x_!!6000000004297-2-tps-1654-1256.png)
+
+![LM Studio Reasoning Content](https://gw.alicdn.com/imgextra/i4/O1CN01dInPGl1oDX6nOH0Wh_!!6000000005191-2-tps-1654-1256.png)
+
+After completing the above LM Studio configuration, go to the **Settings** page of the CoPaw LM Studio provider and enter the LM Studio API address, which can be found on the **Developer -> Local Server** page. Be sure to add the `/v1` suffix, e.g., `http://localhost:1234/v1`.
+
+The subsequent process is the same as for Ollama: click **Test Connection** to verify the connection, then go to the LM Studio model management page and click **Auto Fetch Models** to get the list of available models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
+
+> For users deploying CoPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:1234/v1`.
+
+### Custom Provider Configuration
+
+If the preset cloud and local providers do not meet your needs, CoPaw also supports custom providers.
+
+#### Add Provider
+
+You can add a new provider by clicking **Add Provider** in the upper right corner of **Settings -> Models -> Providers**. When adding, you need to provide the **Provider ID** (for internal indexing in CoPaw) and **Provider Name** (for display in the UI), and select the API compatibility mode (currently supports OpenAI `chat.completions` and Anthropic `messages`). After adding, you can add models under this provider just like with cloud providers, and select the provider's models in chat and other scenarios.
+
+![Add Provider](https://gw.alicdn.com/imgextra/i1/O1CN01UE3Vbu1hGYPWlzpps_!!6000000004250-2-tps-3394-1882.png)
+
+#### Configure Provider
+
+After adding a provider, go to its **Settings** page to configure the API access information, including _Base URL_ and _API Key_.
+
+![Custom Provider Settings](https://gw.alicdn.com/imgextra/i1/O1CN01naWZLN1T8OjjlOtWo_!!6000000002337-2-tps-1118-1172.png)
+
+#### Add Model
+
+After configuring a custom provider, go to its **Models** page and click **Add Model**. When adding, you need to provide the **Model ID** (the identifier used by the API) and **Model Name** (for display in the UI). After adding, you can also use **Test Connection** to verify if the model is working properly.
+
+> For example, if you deploy vLLM at `http://localhost:8000` and have a model at `/path/to/Qwen3.5`, you can add a custom provider, set the API compatibility mode to OpenAI `chat.completions`, set the Base URL to `http://localhost:8000/v1`, then add a model under this provider with Model ID `/path/to/Qwen3.5` and Model Name `Qwen3.5`. After testing the connection, if everything is configured correctly, you can use this vLLM model in CoPaw.
+
+## Selecting a Model
+
+Configured model providers and models will appear in the **Settings -> Models -> Default LLM** list. You can select a model as the global default and click the **Save** button on the right. The model set on this page will be used as the global default by CoPaw. If you do not specify a model in certain scenarios (such as chat), CoPaw will use the default model set here.
+
+![Default Model Settings](https://gw.alicdn.com/imgextra/i4/O1CN01NH2eBZ1UBQyhucWdj_!!6000000002479-2-tps-3388-808.png)
+
+Since different tasks may require different model capabilities, CoPaw also supports using different models in different chats. You can select the appropriate provider and model from the dropdown menu in the upper right corner of the **Chat** page. This setting only applies to the current agent and chat. If you do not configure a provider or model in the chat page, CoPaw will use the global default model.
+
+![Chat Model Settings](https://gw.alicdn.com/imgextra/i3/O1CN01BjQlqH1eC1eC7xNm8_!!6000000003834-2-tps-3402-1768.png)
+
+## Advanced Model Configuration
+
+### Model Configuration Files
+
+All provider configurations in CoPaw are saved in the `$COPAW_SECRET_DIR/providers` folder (default `~/.copaw.secret/providers`). Built-in provider configurations are in the `builtin` directory, and user-added custom provider configurations are in the `custom` directory. Each provider has a corresponding JSON file named after its ID, e.g., the configuration file for a provider with ID `Qwen` is `Qwen.json`. The file contains the provider's API access information and model list. It is not recommended for regular users to modify these files directly to avoid unnecessary errors. Also, changes to the configuration files require restarting CoPaw to take effect.
+
+### Local Models
+
+If you use the CoPaw Local (llama.cpp) provider, CoPaw will save the llama.cpp runtime and model files in the `$COPAW_WORKING_DIR/local_models` folder (default `~/.copaw/local_models`). The runtime is saved in the `$COPAW_WORKING_DIR/local_models/bin` directory, and downloaded models are saved in the `$COPAW_WORKING_DIR/local_models/models` directory. Each model has a corresponding folder named after its ID, e.g., the folder for the model ID `Qwen/Qwen3-0.6B-GGUF` is `$COPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. The model folder contains the GGUF file and some model metadata files.
+
+If you need more advanced usage of llama.cpp (such as using hardware-specific acceleration), you can compile your own version of llama.cpp and replace the `llama-server` file in the `bin` directory.
+
+If you want to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the `GGUF` file in that folder. After refreshing the CoPaw Local model list, you will see the model in the list (e.g., save `Qwen3-0.6B.gguf` to `$COPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).
+
+### Generation Parameters
+
+Since different models and tasks may require different generation parameters (such as `temperature`, `top_p`, `max_tokens`), CoPaw supports configuring generation parameters in the provider settings. Go to the provider's **Settings** page, expand **Advanced Configuration**, and enter the parameter configuration in JSON format, for example:
+
+```json
+{
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "max_tokens": 4096
+}
 ```
 
-> **Tip:** Gemini models with thinking capabilities (e.g. Gemini 3.1 Pro, Gemini 2.5 Pro, Gemini 2.5 Flash) support extended reasoning. CoPaw automatically handles thinking blocks and thought signatures from these models.
+After configuring, click **Save**. CoPaw will automatically include these parameters when generating with models from this provider.
 
-## Local providers (llama.cpp / MLX)
-
-Local providers run models on your machine with **no API Key**; data stays on-device.
-
-**Prerequisites:**
-
-- Install the matching backend in the same environment as CoPaw:
-  - llama.cpp: `pip install 'copaw[llamacpp]'`
-  - MLX: `pip install 'copaw[mlx]'`
-
-1. On the Models page you’ll see cards for llama.cpp and MLX.
-
-   ![card](https://img.alicdn.com/imgextra/i3/O1CN01Xpbl8a1nJemcFr97p_!!6000000005069-2-tps-3802-1968.png)
-
-2. Click **Models** on the target local provider card (e.g. llama.cpp), then **Download model**.
-
-   ![download](https://img.alicdn.com/imgextra/i3/O1CN01ML9Ce81kyvcoD92hG_!!6000000004753-2-tps-3802-1968.png)
-
-3. Enter the **Repo ID** and choose the **Source**, then click **Download model**.
-
-   ![id](https://img.alicdn.com/imgextra/i3/O1CN01HaIQwC1qV3UHvsvgc_!!6000000005500-2-tps-3802-1968.png)
-
-4. The download will run; wait for it to finish.
-
-   ![wait](https://img.alicdn.com/imgextra/i2/O1CN018b8woI1yHmwOJB2V6_!!6000000006554-2-tps-3802-1968.png)
-
-5. When the download completes, the local provider card status becomes **Available**.
-
-   ![avai](https://img.alicdn.com/imgextra/i4/O1CN01yazvrI25tWt9WqD8w_!!6000000007584-2-tps-3802-1968.png)
-
-6. In **LLM Configuration** at the top, select the local provider in the **Provider** dropdown and the newly added model in the **Model** dropdown, then click **Save**.
-
-   ![model](https://img.alicdn.com/imgextra/i1/O1CN015KoPYh1cCp6H4rkN9_!!6000000003565-2-tps-3802-1968.png)
-
-7. The LLM Configuration area will show the local provider and the selected model name.
-
-   ![see](https://img.alicdn.com/imgextra/i1/O1CN01Dce5Pt1GH1BBxJcjD_!!6000000000596-2-tps-3802-1968.png)
-
-> Click **Models** on a local provider card to see model names, sizes, and sources. To remove a model, click the **trash icon** on the right of that model and confirm.
->
-> ![delete](https://img.alicdn.com/imgextra/i4/O1CN01roGD1X1lKudZT51co_!!6000000004801-2-tps-3802-1968.png)
-
-## Ollama provider
-
-The Ollama provider uses the **Ollama daemon** installed on your machine. Models are managed by Ollama; CoPaw does not download them directly, and the list syncs with Ollama.
-
-**Prerequisites:**
-
-- Install Ollama from [ollama.com](https://ollama.com).
-- Install Ollama support in CoPaw’s environment: `pip install 'copaw[ollama]'`.
-
-1. On the Models page you’ll see the Ollama provider card.
-
-2. Click **Settings** at the bottom right. On the Ollama config page, enter an **API Key** (any value is fine, e.g. `ollama`). Click **Save**.
-
-   ![set](https://img.alicdn.com/imgextra/i1/O1CN01JhGTpy1FPQqDXSVo9_!!6000000000479-2-tps-3802-1968.png)
-
-3. Click **Models** at the bottom right. If you’ve already pulled models with Ollama, they’ll appear here. To pull a new model, click **Download model**.
-
-   ![download](https://img.alicdn.com/imgextra/i2/O1CN01CARKar1ilzCd0dIZ9_!!6000000004454-2-tps-3802-1968.png)
-
-4. Enter the **Model name**, then click **Download Model**.
-
-   ![download](https://img.alicdn.com/imgextra/i3/O1CN014JJgSv24of3xUkGch_!!6000000007438-2-tps-3802-1968.png)
-
-5. The model will download; wait for it to complete.
-
-   ![wait](https://img.alicdn.com/imgextra/i3/O1CN01ptZICs25rEuMA4O7U_!!6000000007579-2-tps-3802-1968.png)
-
-6. When done, in **LLM Configuration** at the top, select **Ollama** in the **Provider** dropdown and your model in the **Model** dropdown, then click **Save**.
-
-   ![save](https://img.alicdn.com/imgextra/i3/O1CN01DEOqAH1ODMx4rUTLw_!!6000000001671-2-tps-3802-1968.png)
-
-7. The LLM Configuration area will show the Ollama provider and the selected model name.
-
-   ![name](https://img.alicdn.com/imgextra/i2/O1CN01955KEG1vtOcDcdedZ_!!6000000006230-2-tps-3802-1968.png)
-
-> If you see `Ollama SDK not installed. Install with: pip install 'copaw[ollama]'`, make sure Ollama is installed from ollama.com and you’ve run `pip install 'copaw[ollama]'` in CoPaw’s environment. To remove a model, click **Models** on the Ollama card, then the **trash icon** next to the model and confirm.
->
-> ![delete](https://img.alicdn.com/imgextra/i1/O1CN01OvNNu21shXVzD14go_!!6000000005798-2-tps-3802-1968.png)
->
-> **Docker users:** If CoPaw runs inside a Docker container, `localhost` refers to the container — not your host machine. Change the Ollama Base URL to `http://host.docker.internal:11434` (and add `--add-host=host.docker.internal:host-gateway` to your `docker run` command). See the [Docker section in the README](https://github.com/agentscope-ai/CoPaw#using-docker) for details.
-
-## LM Studio provider
-
-The LM Studio provider connects to the **LM Studio** desktop application's built-in OpenAI-compatible server. Models are managed in the LM Studio GUI; CoPaw discovers loaded models automatically via the `/v1/models` endpoint.
-
-**Prerequisites:**
-
-- Install LM Studio from [lmstudio.ai](https://lmstudio.ai).
-- In LM Studio, load a model and start the local server (default: `http://localhost:1234`).
-
-1. On the Models page you'll see the LM Studio provider card.
-
-2. Click **Settings** at the bottom right. The default Base URL is `http://localhost:1234/v1`. Adjust if you changed the port in LM Studio. Click **Save**.
-
-3. Click **Models** to view models currently loaded in LM Studio. You can also manually add a model ID if needed.
-
-4. In **LLM Configuration** at the top, select **LM Studio** in the **Provider** dropdown and your model in the **Model** dropdown, then click **Save**.
-
-> **Tip:** LM Studio does not require an API key by default. If you have enabled authentication in LM Studio, enter the key in the **API Key** field. Models must be loaded in LM Studio's GUI before they appear in CoPaw.
->
-> **Important — Context Length:** LM Studio loads models with a small default context length (often 2048 or 4096 tokens). CoPaw's system prompt (AGENTS.md + SOUL.md + PROFILE.md) can easily exceed this limit, causing an error like _"The number of tokens to keep from the initial prompt is greater than the context length"_. To fix this, **unload the model in LM Studio and reload it with a larger context length** (16384 or above is recommended). You can do this in the LM Studio GUI (Model Settings → Context Length) or via the CLI: `lms unload --all && lms load <model> -c 16384`.
->
-> **Docker users:** If CoPaw runs inside a Docker container, `localhost` refers to the container — not your host machine. Change the LM Studio Base URL to `http://host.docker.internal:1234/v1` (and add `--add-host=host.docker.internal:host-gateway` to your `docker run` command). See the [Docker section in the README](https://github.com/agentscope-ai/CoPaw#using-docker) for details.
-
-## Add custom provider
-
-1. On the Models page click **Add provider**.
-
-   ![add](https://img.alicdn.com/imgextra/i2/O1CN018PFJmz1kUhUBwf4OL_!!6000000004687-2-tps-3802-1968.png)
-
-2. Enter **Provider ID** and **Display name**, then click **Create**.
-
-   ![create](https://img.alicdn.com/imgextra/i3/O1CN01XuLvkT1wRHvNLHUaf_!!6000000006304-2-tps-3802-1968.png)
-
-3. The new provider card will appear.
-
-   ![card](https://img.alicdn.com/imgextra/i3/O1CN01BFghrw1ZFcfpyzIL7_!!6000000003165-2-tps-3802-1968.png)
-
-4. Click **Settings**, enter **Base URL** and **API Key**, then click **Save**.
-
-   ![save](https://img.alicdn.com/imgextra/i4/O1CN01R5ZTQ321ymyQ8psEY_!!6000000007054-2-tps-3802-1968.png)
-
-5. The card will show the configured Base URL and API Key, but the status will still be **Unavailable** until you add a model.
-
-   ![model](https://img.alicdn.com/imgextra/i4/O1CN01qDDA1I1xd1gu7D8w2_!!6000000006465-2-tps-3802-1968.png)
-
-6. Click **Models**, enter the **Model ID**, then click **Add model**.
-
-   ![add](https://img.alicdn.com/imgextra/i2/O1CN01nG1FoA1KyJ4vcUYwo_!!6000000001232-2-tps-3802-1968.png)
-
-7. The custom provider will then show as **Available**. In **LLM Configuration** at the top, select it in the **Provider** dropdown and the new model in the **Model** dropdown, then click **Save**.
-
-   ![model](https://img.alicdn.com/imgextra/i2/O1CN01EtQCWr1YpW63ox5QY_!!6000000003108-2-tps-3802-1968.png)
-
-8. The LLM Configuration area will show the custom provider ID and the selected model name.
-
-   ![save](https://img.alicdn.com/imgextra/i2/O1CN01WPMjKq1bCzdC8RJvP_!!6000000003430-2-tps-3802-1968.png)
-
-> If configuration fails, double-check **Base URL**, **API Key**, and **Model ID** (including case). To remove a custom provider, click **Delete provider** on its card and confirm.
->
-> ![delete](https://img.alicdn.com/imgextra/i3/O1CN0124kc9J1dv4zHYDWQg_!!6000000003797-2-tps-3802-1968.png)
+![Generation Parameters](https://gw.alicdn.com/imgextra/i2/O1CN01et3R371uamugLZiT0_!!6000000006054-2-tps-1078-1732.png)

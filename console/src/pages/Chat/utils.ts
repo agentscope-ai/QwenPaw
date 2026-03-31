@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
+import { chatApi } from "../../api/modules/chat";
 export type CopyableContent = {
   type?: string;
   text?: string;
@@ -147,6 +147,9 @@ export function toStoredName(v: string): string {
     if (h !== -1) rest = rest.slice(0, h);
     if (rest) {
       const decoded = decodeUriPathSegments(rest);
+      // Windows absolute path: C:\... or C:/...
+      const isWindowsAbsolute = /^[a-zA-Z]:[\\/]/.test(decoded);
+      if (isWindowsAbsolute) return decoded;
       return decoded.startsWith("/") ? decoded : `/${decoded}`;
     }
   }
@@ -165,4 +168,12 @@ export function normalizeContentUrls(part: any): any {
   if (p.type === "video" && typeof p.video_url === "string")
     p.video_url = toStoredName(p.video_url);
   return p;
+}
+
+/** Turn a backend content URL (path or full URL) into a full URL for display. */
+export function toDisplayUrl(url: string | undefined): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("file://")) url = url.replace("file://", "");
+  return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
 }

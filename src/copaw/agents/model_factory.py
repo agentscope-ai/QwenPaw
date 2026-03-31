@@ -14,6 +14,7 @@ import base64
 import logging
 import os
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
+from urllib.parse import urlparse
 
 import agentscope._utils._common as agentscope_common
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
@@ -41,7 +42,6 @@ from ..providers.retry_chat_model import (
     RateLimitConfig,
 )
 from ..token_usage import TokenRecordingModelWrapper
-from ..local_models import create_local_chat_model
 
 
 def _file_url_to_path(url: str) -> str:
@@ -123,6 +123,153 @@ if AnthropicChatFormatter is not None:
 logger = logging.getLogger(__name__)
 
 
+# TODO: remove after agentscope anthropic formatter updated
+def _format_anthropic_image_block(image_block: dict) -> dict:
+    """Format an image block for Anthropic API. If the source is a
+    URLSource pointing to a local file, it will be converted to base64
+    format.
+
+    Args:
+        image_block (`dict`):
+            The image block to format.
+
+    Returns:
+        `dict`:
+            A dictionary in Anthropic image block format.
+
+    Raises:
+        `ValueError`:
+            If the source type or image format is not supported.
+    """
+    support_image_extensions = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }
+
+    source = image_block["source"]
+
+    if source["type"] == "base64":
+        return {**image_block}
+
+    url = source["url"]
+    raw_url = _file_url_to_path(url)
+
+    if os.path.exists(raw_url) and os.path.isfile(raw_url):
+        ext = os.path.splitext(raw_url)[1].lower()
+        media_type = support_image_extensions.get(ext)
+        if media_type:
+            with open(raw_url, "rb") as f:
+                data = base64.b64encode(f.read()).decode("utf-8")
+            return {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": data,
+                },
+            }
+
+    parsed_url = urlparse(raw_url)
+    if parsed_url.scheme not in ("", "file"):
+        return {
+            "type": "image",
+            "source": {
+                "type": "url",
+                "url": url,
+            },
+        }
+
+    raise ValueError(
+        f'Invalid image URL: "{url}". '
+        "It should be a local file or a web URL.",
+    )
+
+
+# TODO: remove after agentscope anthropic formatter updated
+def _format_anthropic_messages(  # pylint: disable=too-many-branches
+    msgs: list,
+) -> list[dict]:
+    """Format messages for Anthropic API with image block support.
+
+    This replaces the default ``AnthropicChatFormatter._format`` so that
+    ``_format_anthropic_image_block`` is applied to both top-level image
+    blocks and image blocks nested inside ``tool_result`` outputs.
+    """
+    messages: list[dict] = []
+    for index, msg in enumerate(msgs):
+        content_blocks: list[dict] = []
+
+        for block in msg.get_content_blocks():
+            typ = block.get("type")
+            if typ in ["thinking", "text"]:
+                content_blocks.append({**block})
+
+            elif typ == "image":
+                content_blocks.append(
+                    _format_anthropic_image_block(block),
+                )
+
+            elif typ == "tool_use":
+                content_blocks.append(
+                    {
+                        "id": block.get("id"),
+                        "type": "tool_use",
+                        "name": block.get("name"),
+                        "input": block.get("input", {}),
+                    },
+                )
+
+            elif typ == "tool_result":
+                output = block.get("output")
+                if output is None:
+                    content_value: list = [
+                        {"type": "text", "text": None},
+                    ]
+                elif isinstance(output, list):
+                    content_value = [
+                        _format_anthropic_image_block(item)
+                        if item.get("type") == "image"
+                        else item
+                        for item in output
+                    ]
+                else:
+                    content_value = [
+                        {"type": "text", "text": str(output)},
+                    ]
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.get("id"),
+                                "content": content_value,
+                            },
+                        ],
+                    },
+                )
+
+        if msg.role == "system" and index != 0:
+            role = "user"
+        else:
+            role = msg.role
+
+        msg_anthropic: dict = {
+            "role": role,
+            "content": content_blocks or None,
+        }
+
+        if msg_anthropic["content"] or msg_anthropic.get(
+            "tool_calls",
+        ):
+            messages.append(msg_anthropic)
+
+    return messages
+
+
 # Mapping from chat model class to formatter class
 _CHAT_MODEL_FORMATTER_MAP: dict[Type[ChatModelBase], Type[FormatterBase]] = {
     OpenAIChatModel: OpenAIChatFormatter,
@@ -201,8 +348,7 @@ def _create_file_block_support_formatter(
                         and "extra_content" in block
                     ):
                         extra_contents[block["id"]] = block["extra_content"]
-
-            # 3. Handle media blocks with local file references
+                        # 3. Handle media blocks with local file references
             # Convert file:// URLs to paths and prevent crashes from missing files
             for msg in msgs:
                 if not isinstance(msg.content, list):
@@ -254,9 +400,15 @@ def _create_file_block_support_formatter(
                     new_content.append(block)
                 msg.content = new_content
 
-            # 4. Delegate to base formatter
-            messages = await super()._format(msgs)
-
+            # 4. Delegate to base formatter or override for Anthropic
+            # TODO: remove after agentscope anthropic formatter updated
+            if AnthropicChatFormatter is not None and issubclass(
+                base_formatter_class,
+                AnthropicChatFormatter,
+            ):
+                messages = _format_anthropic_messages(msgs)
+            else:
+                messages = await super()._format(msgs)
             if extra_contents:
                 for message in messages:
                     for tc in message.get("tool_calls", []):
@@ -471,6 +623,7 @@ def create_model_and_formatter(
             )
             rate_limit_config = RateLimitConfig(
                 max_concurrent=agent_config.running.llm_max_concurrent,
+                max_qpm=agent_config.running.llm_max_qpm,
                 pause_seconds=agent_config.running.llm_rate_limit_pause,
                 jitter_range=agent_config.running.llm_rate_limit_jitter,
                 acquire_timeout=agent_config.running.llm_acquire_timeout,
@@ -487,14 +640,8 @@ def create_model_and_formatter(
             raise ValueError(
                 f"Provider '{model_slot.provider_id}' not found.",
             )
-        if provider.is_local:
-            model = create_local_chat_model(
-                model_id=model_slot.model,
-                stream=True,
-                generate_kwargs={"max_tokens": None},
-            )
-        else:
-            model = provider.get_chat_model_instance(model_slot.model)
+
+        model = provider.get_chat_model_instance(model_slot.model)
         provider_id = model_slot.provider_id
     else:
         # Fallback to global active model

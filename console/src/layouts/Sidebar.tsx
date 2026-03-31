@@ -2,62 +2,45 @@ import {
   Layout,
   Menu,
   Button,
-  Badge,
   Modal,
-  Spin,
-  Tooltip,
   Input,
   Form,
   message,
+  Tooltip,
   type MenuProps,
 } from "antd";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import AgentSelector from "../components/AgentSelector";
 import {
-  MessageSquare,
-  Radio,
-  Zap,
-  MessageCircle,
-  Wifi,
-  UsersRound,
-  CalendarClock,
-  Activity,
-  Sparkles,
-  Briefcase,
-  Cpu,
-  Box,
-  Globe,
-  Settings,
-  Shield,
-  Plug,
-  Wrench,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Copy,
-  Check,
-  BarChart3,
-  Mic,
-  Bot,
-  LogOut,
-  UserCog,
-} from "lucide-react";
-import api from "../api";
+  SparkChatTabFill,
+  SparkWifiLine,
+  SparkUserGroupLine,
+  SparkDateLine,
+  SparkVoiceChat01Line,
+  SparkMagicWandLine,
+  SparkLocalFileLine,
+  SparkModePlazaLine,
+  SparkInternetLine,
+  SparkModifyLine,
+  SparkBrowseLine,
+  SparkMcpMcpLine,
+  SparkToolLine,
+  SparkDataLine,
+  SparkMicLine,
+  SparkAgentLine,
+  SparkExitFullscreenLine,
+  SparkSearchUserLine,
+  SparkMenuExpandLine,
+  SparkMenuFoldLine,
+  SparkOtherLine,
+} from "@agentscope-ai/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
-import {
-  PYPI_URL,
-  ONE_HOUR_MS,
-  DEFAULT_OPEN_KEYS,
-  KEY_TO_PATH,
-  UPDATE_MD,
-  isStableVersion,
-  compareVersions,
-} from "./constants";
+import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -69,52 +52,17 @@ interface SidebarProps {
   selectedKey: string;
 }
 
-// ── CopyButton ────────────────────────────────────────────────────────────
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const { t } = useTranslation();
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [text]);
-
-  return (
-    <Tooltip
-      title={copied ? t("common.copied", "Copied!") : t("common.copy", "Copy")}
-    >
-      <Button
-        type="text"
-        size="small"
-        icon={copied ? <Check size={13} /> : <Copy size={13} />}
-        onClick={handleCopy}
-        className={`${styles.copyBtn} ${
-          copied ? styles.copyBtnCopied : styles.copyBtnDefault
-        }`}
-      />
-    </Tooltip>
-  );
-}
-
 // ── Sidebar ───────────────────────────────────────────────────────────────
 
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { isDark } = useTheme();
-  const [collapsed, setCollapsed] = useState(false);
-  const [openKeys, setOpenKeys] = useState<string[]>(DEFAULT_OPEN_KEYS);
-  const [version, setVersion] = useState<string>("");
-  const [latestVersion, setLatestVersion] = useState<string>("");
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [updateMarkdown, setUpdateMarkdown] = useState<string>("");
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountForm] = Form.useForm();
+  const [collapsed, setCollapsed] = useState(false);
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -125,102 +73,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!collapsed) setOpenKeys(DEFAULT_OPEN_KEYS);
-  }, [collapsed]);
-
-  useEffect(() => {
-    api
-      .getVersion()
-      .then((res) => setVersion(res?.version ?? ""))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    fetch(PYPI_URL)
-      .then((res) => res.json())
-      .then((data) => {
-        const releases = data?.releases ?? {};
-
-        // Build stable/post versions list with their latest upload time.
-        const versionsWithTime = Object.entries(releases)
-          .filter(([v]) => isStableVersion(v))
-          .map(([v, files]) => {
-            const fileList = files as Array<{ upload_time_iso_8601?: string }>;
-            const latestUpload = fileList
-              .map((f) => f.upload_time_iso_8601)
-              .filter(Boolean)
-              .sort()
-              .pop();
-            return { version: v, uploadTime: latestUpload || "" };
-          });
-
-        // Sort by upload time (newest first); break ties by semantic version.
-        versionsWithTime.sort((a, b) => {
-          const timeDiff =
-            new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime();
-          return timeDiff !== 0
-            ? timeDiff
-            : compareVersions(b.version, a.version);
-        });
-
-        const versions = versionsWithTime.map((v) => v.version);
-        // latest = most recently uploaded stable/post release
-        const latest = versions[0] ?? data?.info?.version ?? "";
-
-        // Only notify once the latest version is older than 1 hour,
-        // giving Docker images time to build and become available.
-        const releaseTime = versionsWithTime.find((v) => v.version === latest)
-          ?.uploadTime;
-        const isOldEnough =
-          !!releaseTime &&
-          new Date(releaseTime) <= new Date(Date.now() - ONE_HOUR_MS);
-
-        if (isOldEnough) {
-          setLatestVersion(latest);
-        } else {
-          setLatestVersion("");
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  // ── Derived state ─────────────────────────────────────────────────────────
-
-  // Show update notification only when latestVersion is strictly newer than current version.
-  const hasUpdate =
-    !!version && !!latestVersion && compareVersions(latestVersion, version) > 0;
-
   // ── Handlers ──────────────────────────────────────────────────────────────
-
-  const handleOpenUpdateModal = () => {
-    setUpdateMarkdown("");
-    setUpdateModalOpen(true);
-    const lang = i18n.language?.startsWith("zh")
-      ? "zh"
-      : i18n.language?.startsWith("ru")
-      ? "ru"
-      : "en";
-    const faqLang = lang === "zh" ? "zh" : "en";
-    const url = `https://copaw.agentscope.io/docs/faq.${faqLang}.md`;
-    fetch(url, { cache: "no-cache" })
-      .then((res) => (res.ok ? res.text() : Promise.reject()))
-      .then((text) => {
-        const zhPattern = /###\s*CoPaw如何更新[\s\S]*?(?=\n###|$)/;
-        const enPattern = /###\s*How to update CoPaw[\s\S]*?(?=\n###|$)/;
-        const match = text.match(faqLang === "zh" ? zhPattern : enPattern);
-        setUpdateMarkdown(
-          match && lang !== "ru"
-            ? match[0].trim()
-            : UPDATE_MD[lang] ?? UPDATE_MD.en,
-        );
-      })
-      .catch(() => {
-        setUpdateMarkdown(UPDATE_MD[lang] ?? UPDATE_MD.en);
-      });
-  };
-
-  // ── Menu items ────────────────────────────────────────────────────────────
 
   const handleUpdateProfile = async (values: {
     currentPassword: string;
@@ -230,13 +83,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     const trimmedUsername = values.newUsername?.trim() || undefined;
     const trimmedPassword = values.newPassword?.trim() || undefined;
 
-    // User typed spaces only in password field
     if (values.newPassword && !trimmedPassword) {
       message.error(t("account.passwordEmpty"));
       return;
     }
 
-    // User typed spaces only in username field
     if (values.newUsername && !trimmedUsername) {
       message.error(t("account.usernameEmpty"));
       return;
@@ -257,7 +108,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       message.success(t("account.updateSuccess"));
       setAccountModalOpen(false);
       accountForm.resetFields();
-      // Force re-login with new credentials
       clearAuthToken();
       window.location.href = "/login";
     } catch (err: unknown) {
@@ -278,88 +128,216 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     }
   };
 
+  // ── Collapsed nav items (all leaf pages) ──────────────────────────────
+
+  const collapsedNavItems = [
+    {
+      key: "chat",
+      icon: <SparkChatTabFill size={18} />,
+      path: "/chat",
+      label: t("nav.chat"),
+    },
+    {
+      key: "channels",
+      icon: <SparkWifiLine size={18} />,
+      path: "/channels",
+      label: t("nav.channels"),
+    },
+    {
+      key: "sessions",
+      icon: <SparkUserGroupLine size={18} />,
+      path: "/sessions",
+      label: t("nav.sessions"),
+    },
+    {
+      key: "cron-jobs",
+      icon: <SparkDateLine size={18} />,
+      path: "/cron-jobs",
+      label: t("nav.cronJobs"),
+    },
+    {
+      key: "heartbeat",
+      icon: <SparkVoiceChat01Line size={18} />,
+      path: "/heartbeat",
+      label: t("nav.heartbeat"),
+    },
+    {
+      key: "workspace",
+      icon: <SparkLocalFileLine size={18} />,
+      path: "/workspace",
+      label: t("nav.workspace"),
+    },
+    {
+      key: "skills",
+      icon: <SparkMagicWandLine size={18} />,
+      path: "/skills",
+      label: t("nav.skills"),
+    },
+    {
+      key: "skill-pool",
+      icon: <SparkOtherLine size={18} />,
+      path: "/skill-pool",
+      label: t("nav.skillPool", "Skill Pool"),
+    },
+    {
+      key: "tools",
+      icon: <SparkToolLine size={18} />,
+      path: "/tools",
+      label: t("nav.tools"),
+    },
+    {
+      key: "mcp",
+      icon: <SparkMcpMcpLine size={18} />,
+      path: "/mcp",
+      label: t("nav.mcp"),
+    },
+    {
+      key: "agent-config",
+      icon: <SparkModifyLine size={18} />,
+      path: "/agent-config",
+      label: t("nav.agentConfig"),
+    },
+    {
+      key: "agents",
+      icon: <SparkAgentLine size={18} />,
+      path: "/agents",
+      label: t("nav.agents"),
+    },
+    {
+      key: "models",
+      icon: <SparkModePlazaLine size={18} />,
+      path: "/models",
+      label: t("nav.models"),
+    },
+    {
+      key: "environments",
+      icon: <SparkInternetLine size={18} />,
+      path: "/environments",
+      label: t("nav.environments"),
+    },
+    {
+      key: "security",
+      icon: <SparkBrowseLine size={18} />,
+      path: "/security",
+      label: t("nav.security"),
+    },
+    {
+      key: "token-usage",
+      icon: <SparkDataLine size={18} />,
+      path: "/token-usage",
+      label: t("nav.tokenUsage"),
+    },
+    {
+      key: "voice-transcription",
+      icon: <SparkMicLine size={18} />,
+      path: "/voice-transcription",
+      label: t("nav.voiceTranscription"),
+    },
+  ];
+
+  // ── Menu items ────────────────────────────────────────────────────────────
+
   const menuItems: MenuProps["items"] = [
     {
-      key: "chat-group",
-      label: t("nav.chat"),
-      icon: <MessageSquare size={16} />,
-      children: [
-        {
-          key: "chat",
-          label: t("nav.chat"),
-          icon: <MessageCircle size={16} />,
-        },
-      ],
+      key: "chat",
+      label: collapsed ? null : t("nav.chat"),
+      icon: <SparkChatTabFill size={16} />,
     },
     {
       key: "control-group",
-      label: t("nav.control"),
-      icon: <Radio size={16} />,
+      label: collapsed ? null : t("nav.control"),
       children: [
-        { key: "channels", label: t("nav.channels"), icon: <Wifi size={16} /> },
+        {
+          key: "channels",
+          label: collapsed ? null : t("nav.channels"),
+          icon: <SparkWifiLine size={16} />,
+        },
         {
           key: "sessions",
-          label: t("nav.sessions"),
-          icon: <UsersRound size={16} />,
+          label: collapsed ? null : t("nav.sessions"),
+          icon: <SparkUserGroupLine size={16} />,
         },
         {
           key: "cron-jobs",
-          label: t("nav.cronJobs"),
-          icon: <CalendarClock size={16} />,
+          label: collapsed ? null : t("nav.cronJobs"),
+          icon: <SparkDateLine size={16} />,
         },
         {
           key: "heartbeat",
-          label: t("nav.heartbeat"),
-          icon: <Activity size={16} />,
+          label: collapsed ? null : t("nav.heartbeat"),
+          icon: <SparkVoiceChat01Line size={16} />,
         },
       ],
     },
     {
       key: "agent-group",
-      label: t("nav.agent"),
-      icon: <Zap size={16} />,
+      label: collapsed ? null : t("nav.agent"),
       children: [
         {
           key: "workspace",
-          label: t("nav.workspace"),
-          icon: <Briefcase size={16} />,
+          label: collapsed ? null : t("nav.workspace"),
+          icon: <SparkLocalFileLine size={16} />,
         },
-        { key: "skills", label: t("nav.skills"), icon: <Sparkles size={16} /> },
-        { key: "tools", label: t("nav.tools"), icon: <Wrench size={16} /> },
-        { key: "mcp", label: t("nav.mcp"), icon: <Plug size={16} /> },
+        {
+          key: "skills",
+          label: collapsed ? null : t("nav.skills"),
+          icon: <SparkMagicWandLine size={16} />,
+        },
+        {
+          key: "tools",
+          label: collapsed ? null : t("nav.tools"),
+          icon: <SparkToolLine size={16} />,
+        },
+        {
+          key: "mcp",
+          label: collapsed ? null : t("nav.mcp"),
+          icon: <SparkMcpMcpLine size={16} />,
+        },
         {
           key: "agent-config",
-          label: t("nav.agentConfig"),
-          icon: <Settings size={16} />,
+          label: collapsed ? null : t("nav.agentConfig"),
+          icon: <SparkModifyLine size={16} />,
         },
       ],
     },
     {
       key: "settings-group",
-      label: t("nav.settings"),
-      icon: <Cpu size={16} />,
+      label: collapsed ? null : t("nav.settings"),
       children: [
-        { key: "agents", label: t("nav.agents"), icon: <Bot size={16} /> },
-        { key: "models", label: t("nav.models"), icon: <Box size={16} /> },
+        {
+          key: "agents",
+          label: collapsed ? null : t("nav.agents"),
+          icon: <SparkAgentLine size={16} />,
+        },
+        {
+          key: "models",
+          label: collapsed ? null : t("nav.models"),
+          icon: <SparkModePlazaLine size={16} />,
+        },
+        {
+          key: "skill-pool",
+          label: collapsed ? null : t("nav.skillPool", "Skill Pool"),
+          icon: <SparkOtherLine size={16} />,
+        },
         {
           key: "environments",
-          label: t("nav.environments"),
-          icon: <Globe size={16} />,
+          label: collapsed ? null : t("nav.environments"),
+          icon: <SparkInternetLine size={16} />,
         },
         {
           key: "security",
-          label: t("nav.security"),
-          icon: <Shield size={16} />,
+          label: collapsed ? null : t("nav.security"),
+          icon: <SparkBrowseLine size={16} />,
         },
         {
           key: "token-usage",
-          label: t("nav.tokenUsage"),
-          icon: <BarChart3 size={16} />,
+          label: collapsed ? null : t("nav.tokenUsage"),
+          icon: <SparkDataLine size={16} />,
         },
         {
           key: "voice-transcription",
-          label: t("nav.voiceTranscription"),
-          icon: <Mic size={16} />,
+          label: collapsed ? null : t("nav.voiceTranscription"),
+          icon: <SparkMicLine size={16} />,
         },
       ],
     },
@@ -369,71 +347,61 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   return (
     <Sider
-      collapsed={collapsed}
-      onCollapse={setCollapsed}
-      width={275}
-      className={`${styles.sider}${isDark ? ` ${styles.siderDark}` : ""}`}
+      width={collapsed ? 72 : 240}
+      className={`${styles.sider}${
+        collapsed ? ` ${styles.siderCollapsed}` : ""
+      }${isDark ? ` ${styles.siderDark}` : ""}`}
     >
-      <div className={styles.siderTop}>
-        {!collapsed && (
-          <div className={styles.logoWrapper}>
-            <img
-              src={
-                isDark
-                  ? `${import.meta.env.BASE_URL}dark-logo.png`
-                  : `${import.meta.env.BASE_URL}logo.png`
-              }
-              alt="CoPaw"
-              className={styles.logoImg}
-            />
-            {version && (
-              <Badge dot={!!hasUpdate} color="red" offset={[4, 18]}>
-                <span
-                  className={`${styles.versionBadge} ${
-                    hasUpdate
-                      ? styles.versionBadgeClickable
-                      : styles.versionBadgeDefault
-                  }`}
-                  onClick={() => hasUpdate && handleOpenUpdateModal()}
-                >
-                  v{version}
-                </span>
-              </Badge>
-            )}
-          </div>
-        )}
-        <Button
-          type="text"
-          icon={
-            collapsed ? (
-              <PanelLeftOpen size={20} />
-            ) : (
-              <PanelLeftClose size={20} />
-            )
-          }
-          onClick={() => setCollapsed(!collapsed)}
-          className={styles.collapseBtn}
-        />
+      <div className={styles.agentSelectorContainer}>
+        <AgentSelector collapsed={collapsed} />
       </div>
 
-      <Menu
-        mode="inline"
-        selectedKeys={[selectedKey]}
-        openKeys={openKeys}
-        onOpenChange={(keys) => setOpenKeys(keys as string[])}
-        onClick={({ key }) => {
-          const path = KEY_TO_PATH[String(key)];
-          if (path) navigate(path);
-        }}
-        items={menuItems}
-        theme={isDark ? "dark" : "light"}
-      />
+      {collapsed ? (
+        <nav className={styles.collapsedNav}>
+          {collapsedNavItems.map((item) => {
+            const isActive = selectedKey === item.key;
+            return (
+              <Tooltip
+                key={item.key}
+                title={item.label}
+                placement="right"
+                overlayInnerStyle={{
+                  background: "rgba(0,0,0,0.75)",
+                  color: "#fff",
+                }}
+              >
+                <button
+                  className={`${styles.collapsedNavItem} ${
+                    isActive ? styles.collapsedNavItemActive : ""
+                  }`}
+                  onClick={() => navigate(item.path)}
+                >
+                  {item.icon}
+                </button>
+              </Tooltip>
+            );
+          })}
+        </nav>
+      ) : (
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          openKeys={DEFAULT_OPEN_KEYS}
+          onClick={({ key }) => {
+            const path = KEY_TO_PATH[String(key)];
+            if (path) navigate(path);
+          }}
+          items={menuItems}
+          theme={isDark ? "dark" : "light"}
+          className={styles.sideMenu}
+        />
+      )}
 
-      {authEnabled && (
+      {authEnabled && !collapsed && (
         <div className={styles.authActions}>
           <Button
             type="text"
-            icon={<UserCog size={16} />}
+            icon={<SparkSearchUserLine size={16} />}
             onClick={() => {
               accountForm.resetFields();
               setAccountModalOpen(true);
@@ -447,7 +415,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           </Button>
           <Button
             type="text"
-            icon={<LogOut size={16} />}
+            icon={<SparkExitFullscreenLine size={16} />}
             onClick={() => {
               clearAuthToken();
               window.location.href = "/login";
@@ -461,6 +429,21 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           </Button>
         </div>
       )}
+
+      <div className={styles.collapseToggleContainer}>
+        <Button
+          type="text"
+          icon={
+            collapsed ? (
+              <SparkMenuExpandLine size={20} />
+            ) : (
+              <SparkMenuFoldLine size={20} />
+            )
+          }
+          onClick={() => setCollapsed(!collapsed)}
+          className={styles.collapseToggle}
+        />
+      </div>
 
       <Modal
         open={accountModalOpen}
@@ -525,72 +508,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
             </Button>
           </Form.Item>
         </Form>
-      </Modal>
-
-      <Modal
-        open={updateModalOpen}
-        onCancel={() => setUpdateModalOpen(false)}
-        title={
-          <h3 className={styles.updateModalTitle}>
-            {t("sidebar.updateModal.title", { version: latestVersion })}
-          </h3>
-        }
-        width={680}
-        footer={[
-          <Button
-            key="releases"
-            type="primary"
-            onClick={() => {
-              const websiteLang = i18n.language?.startsWith("zh") ? "zh" : "en";
-              window.open(
-                `https://copaw.agentscope.io/release-notes?lang=${websiteLang}`,
-                "_blank",
-              );
-            }}
-            className={styles.updateModalPrimaryBtn}
-          >
-            {t("sidebar.updateModal.viewReleases")}
-          </Button>,
-          <Button key="close" onClick={() => setUpdateModalOpen(false)}>
-            {t("sidebar.updateModal.close")}
-          </Button>,
-        ]}
-      >
-        <div className={styles.updateModalBody}>
-          {!updateMarkdown ? (
-            <div className={styles.updateModalSpinWrapper}>
-              <Spin />
-            </div>
-          ) : (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ className, children, ...props }) {
-                  const isBlock =
-                    className?.startsWith("language-") ||
-                    String(children).includes("\n");
-                  if (isBlock) {
-                    return (
-                      <pre className={styles.codeBlock}>
-                        <CopyButton text={String(children)} />
-                        <code className={styles.codeBlockInner} {...props}>
-                          {children}
-                        </code>
-                      </pre>
-                    );
-                  }
-                  return (
-                    <code className={styles.codeInline} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-              }}
-            >
-              {updateMarkdown}
-            </ReactMarkdown>
-          )}
-        </div>
       </Modal>
     </Sider>
   );

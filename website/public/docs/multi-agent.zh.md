@@ -65,7 +65,7 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 
 #### 1. 查看和切换智能体
 
-启动 CoPaw 后，在控制台**右上角**可以看到**智能体切换器**：
+启动 CoPaw 后，在控制台**左上角**可以看到**智能体切换器**：
 
 ```
 ┌───────────────────────────────────┐
@@ -101,9 +101,9 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 切换到某个智能体后，您可以为它单独配置：
 
 - **频道** - 去"控制 → 频道"页面，启用/配置频道
-- **技能** - 去"智能体 → 技能"页面，启用/禁用技能
-- **工具** - 去"智能体 → 工具"页面，开关内置工具
-- **人设** - 去"智能体 → 工作区"页面，编辑 AGENTS.md 和 SOUL.md
+- **技能** - 去"工作区 → 技能"页面，启用/禁用技能
+- **工具** - 去"工作区 → 工具"页面，开关内置工具
+- **人设** - 去"工作区 → 文件"页面，编辑 AGENTS.md 和 SOUL.md
 
 这些配置**只影响当前智能体**，不会影响其他智能体。
 
@@ -430,7 +430,7 @@ copaw skills config --agent-id abc123
 ~/.copaw/workspaces/{agent_id}/PROFILE.md
 ```
 
-您可以在**智能体 → 工作区**页面查看自动生成的 PROFILE.md。
+您可以在**工作区 → 文件**页面查看自动生成的 PROFILE.md。
 
 #### 查看智能体信息
 
@@ -503,7 +503,7 @@ Profile: [自动生成的详细能力描述]
 #### 与其他智能体通信
 
 ```bash
-# 发起新对话
+# 发起新对话（实时模式，适合快速查询）
 copaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
@@ -515,7 +515,39 @@ copaw agents chat \
   --to-agent <target_agent> \
   --session-id "<session_id>" \
   --text "继续请求"
+
+# 复杂任务（后台模式，适合数据分析、报告生成等）
+copaw agents chat --background \
+  --from-agent <current_agent> \
+  --to-agent <target_agent> \
+  --text "复杂任务请求"
+# 返回 [TASK_ID: xxx] [SESSION: xxx]
+
+# 查询后台任务状态（查询时 --to-agent 为可选）
+copaw agents chat --background \
+  --task-id <task_id>
+# 状态流程：submitted → pending → running → finished
+# finished 时结果显示：completed（✅）或 failed（❌）
 ```
+
+**后台模式说明**：
+
+当任务比较复杂（如数据分析、批量处理、报告生成）时，使用 `--background` 可以避免阻塞当前智能体，让它可以继续处理其他工作。提交后会返回 `task_id`，稍后可以查询任务状态和结果。
+
+**任务状态流程**：
+
+- `submitted`：任务已接受，等待开始
+- `pending`：排队等待执行
+- `running`：正在执行
+- `finished`：已完成（需检查结果是 `completed` 或 `failed`）
+
+**建议使用后台模式的场景**：
+
+- 数据分析和统计
+- 批量文件处理
+- 生成详细报告
+- 调用慢速外部API
+- 不确定执行时间的复杂任务
 
 > **说明**：这些命令由智能体自动执行，通常无需用户手动调用。详见 [CLI - 智能体](./cli#智能体)。
 
@@ -632,6 +664,7 @@ curl -X POST http://localhost:7860/api/cron/jobs \
 ### 合理规划智能体数量
 
 ✅ **推荐**：3-5 个智能体，按主要功能或平台分类
+
 ❌ **不推荐**：为每个小功能都创建智能体
 
 过多智能体会增加管理复杂度，得不偿失。

@@ -3,7 +3,7 @@
 import mimetypes
 import os
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -23,15 +23,19 @@ from .routers.agent_scoped import AgentContextMiddleware
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
+from ..local_models.manager import LocalModelManager
 from .multi_agent_manager import MultiAgentManager
 from .migration import (
+    migrate_legacy_workspace_to_default_agent,
+    migrate_legacy_skills_to_skill_pool,
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
-    migrate_legacy_workspace_to_default_agent,
 )
+from .channels.registry import register_custom_channel_routes
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+
 
 # Ensure static assets are served with browser-compatible MIME types across
 # platforms (notably Windows may miss .js/.mjs mappings).
@@ -141,8 +145,11 @@ runner = DynamicMultiAgentRunner()
 
 agent_app = AgentApp(
     app_name="Friday",
-    app_description="A helpful assistant",
+    app_description="A helpful assistant with background task support",
     runner=runner,
+    enable_stream_task=True,
+    stream_task_queue="stream_query",
+    stream_task_timeout=300,
 )
 
 
@@ -179,6 +186,7 @@ async def lifespan(
     logger.info("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
+    migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
     # --- Multi-agent manager initialization ---
@@ -190,6 +198,9 @@ async def lifespan(
 
     # --- Model provider manager (non-reloadable, in-memory) ---
     provider_manager = ProviderManager.get_instance()
+
+    # --- Local model manager initialization ---
+    local_model_manager = LocalModelManager.get_instance()
 
     # Expose to endpoints - multi-agent manager
     app.state.multi_agent_manager = multi_agent_manager
@@ -210,6 +221,9 @@ async def lifespan(
 
     # Global managers (shared across all agents)
     app.state.provider_manager = provider_manager
+    app.state.local_model_manager = local_model_manager
+
+    provider_manager.start_local_model_resume(local_model_manager)
 
     # Setup approval service with default agent's channel_manager
     default_agent = await multi_agent_manager.get_agent("default")
@@ -228,6 +242,19 @@ async def lifespan(
     try:
         yield
     finally:
+        local_model_mgr = getattr(app.state, "local_model_manager", None)
+        if local_model_mgr is not None:
+            logger.info("Stopping local model server...")
+            try:
+                await local_model_mgr.shutdown_server()
+            except Exception as exc:
+                logger.error(
+                    "Error shutting down local model server gracefully: %s",
+                    exc,
+                )
+                with suppress(OSError, RuntimeError, ValueError):
+                    local_model_mgr.force_shutdown_server()
+
         # Stop multi-agent manager (stops all agents and their components)
         multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
         if multi_agent_mgr is not None:
@@ -342,6 +369,9 @@ app.include_router(
 # Voice channel: Twilio-facing endpoints at root level (not under /api/).
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
+
+# Custom channel routes (before SPA catch-all to ensure route priority)
+register_custom_channel_routes(app)
 
 # Console static files and SPA fallback
 # Register these AFTER API routes to ensure proper routing priority

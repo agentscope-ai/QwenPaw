@@ -1,21 +1,72 @@
 .heartbeatPage {
-  padding: 24px;
+  :global {
+    .copaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+
+    .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+      background: #f9f8f4 !important;
+    }
+
+    .copaw-card {
+      padding: 16px !important;
+    }
+  }
+}
+
+.heartbeatContent {
+  padding: 0 20px;
+  margin-top: 16px;
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
 }
 
 .title {
-  margin-bottom: 4px;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
+  color: #333;
 }
 
 .description {
-  margin: 0 0 24px;
   color: #999;
   font-size: 14px;
+  margin: 0;
+  display: none;
 }
 
 .card {
-  max-width: 560px;
+  max-width: 100%;
 }
 
 .everyField {
@@ -40,9 +91,9 @@
 
 .formActions {
   display: flex;
-  justify-content: flex-end;
   gap: 8px;
-  margin-top: 16px;
+  border-top: 1px solid #eae9e7;
+  padding-top: 16px;
 }
 
 .activeHoursRow {
@@ -58,6 +109,30 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .heartbeatPage {
+    :global {
+      .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+        background: rgba(255, 255, 255, 0.04) !important;
+      }
+    }
+  }
+
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
   .title {
     color: rgba(255, 255, 255, 0.85);
   }

@@ -282,9 +282,9 @@ async def test_provider(
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
-            message="Connection successful"
-            if ok
-            else f"Connection failed: {msg}",
+            message=(
+                "Connection successful" if ok else f"Connection failed: {msg}"
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -523,13 +523,12 @@ async def set_active_model(
     if body.scope == "global":
         try:
             await manager.activate_model(body.provider_id, body.model)
-        except ValueError as exc:
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
             message = str(exc)
             lower_msg = message.lower()
             if "provider" in lower_msg and "not found" in lower_msg:
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=400, detail=message) from exc
-
         return ActiveModelsInfo(active_llm=manager.get_active_model())
 
     if not body.agent_id:
