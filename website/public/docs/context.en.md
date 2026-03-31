@@ -208,6 +208,12 @@ Proactively trigger compaction:
 /compact
 ```
 
+You can also add an optional instruction for this manual run:
+
+```
+/compact keep requirements and decisions only
+```
+
 After execution, you'll see:
 
 ```

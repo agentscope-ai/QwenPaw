@@ -997,7 +997,7 @@
         "description": "会話のコンテキストをクリア"
       },
       "compact": {
-        "description": "会話のコンテキストをクリアし、会話履歴の要約を生成"
+        "description": "会話コンテキストを圧縮して要約を生成。追加指示にも対応"
       },
       "approve": {
         "description": "保留中のツール操作を承認して実行を続行"

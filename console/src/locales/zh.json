@@ -1034,7 +1034,7 @@
         "description": "清空对话上下文"
       },
       "compact": {
-        "description": "清空对话上下文并生成历史对话摘要"
+        "description": "压缩对话上下文并生成摘要，支持附带说明"
       },
       "approve": {
         "description": "批准待执行的工具操作并继续执行"

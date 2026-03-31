@@ -256,6 +256,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         self,
         messages: list[Msg],
         previous_summary: str = "",
+        extra_instruction: str = "",
         **_kwargs,
     ) -> str:
         """Compact messages into a condensed summary.
@@ -278,6 +279,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             previous_summary=previous_summary,
             return_dict=True,
             add_thinking_block=cc.compact_with_thinking_block,
+            extra_instruction=extra_instruction,
         )
 
         if isinstance(result, str):

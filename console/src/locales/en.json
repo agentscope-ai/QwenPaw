@@ -1064,7 +1064,7 @@
         "description": "Clear the conversation context"
       },
       "compact": {
-        "description": "Clear the conversation context and generate a summary of the conversation history"
+        "description": "Compact the conversation context; optional instruction supported"
       },
       "approve": {
         "description": "Approve the pending tool action and continue execution"
