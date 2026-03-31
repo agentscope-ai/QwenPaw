@@ -73,7 +73,7 @@
 /* ---- Provider Groups ---- */
 
 .providerGroup {
-  padding: 16px;
+  padding: 0 16px;
 
   &:last-of-type {
     margin-bottom: 0;
@@ -156,6 +156,23 @@
   &.disabled {
     color: #999;
   }
+}
+
+/* Card Header Row (Icon + Status) */
+.cardHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+/* Provider Icon */
+.providerIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 /* Card Title Row */
@@ -301,7 +318,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding-top: 12px;
   position: absolute;
   bottom: 16px;
   left: 16px;
