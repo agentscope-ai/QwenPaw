@@ -24,7 +24,7 @@ import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import base64 as _b64
 
@@ -128,10 +128,16 @@ class WeixinChannel(BaseChannel):
         self._user_context_tokens: Dict[str, str] = {}
 
         # Cache typing tickets per user (24h TTL)
-        self._typing_tickets: Dict[str, Tuple[str, float]] = {}  # user_id -> (ticket, expiry_time)
+        self._typing_tickets: Dict[
+            str,
+            Tuple[str, float],
+        ] = {}  # user_id -> (ticket, expiry_time)
         self._typing_lock = threading.Lock()
         # Store stop functions for active typing indicators
-        self._typing_stop_funcs: Dict[str, Callable[[], None]] = {}  # user_id -> stop function
+        self._typing_stop_funcs: Dict[
+            str,
+            Callable[[], None],
+        ] = {}  # user_id -> stop function
         self._typing_stop_lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -676,8 +682,12 @@ class WeixinChannel(BaseChannel):
 
             # Start typing indicator for this user
             if from_user_id and context_token:
+
                 async def _start_typing_async():
-                    stop_func = await self.start_typing(from_user_id, context_token)
+                    stop_func = await self.start_typing(
+                        from_user_id,
+                        context_token,
+                    )
                     with self._typing_stop_lock:
                         self._typing_stop_funcs[from_user_id] = stop_func
 
@@ -781,7 +791,9 @@ class WeixinChannel(BaseChannel):
             content_type: Type of media (IMAGE/FILE/VIDEO).
         """
         if not self._client or not to_user_id or not context_token:
-            logger.warning("weixin _send_media_file: missing required parameters")
+            logger.warning(
+                "weixin _send_media_file: missing required parameters",
+            )
             return
 
         try:
@@ -958,7 +970,11 @@ class WeixinChannel(BaseChannel):
     # Typing Indicator
     # ------------------------------------------------------------------
 
-    async def _get_typing_ticket(self, user_id: str, context_token: str) -> str:
+    async def _get_typing_ticket(
+        self,
+        user_id: str,
+        context_token: str,
+    ) -> str:
         """Get or fetch typing ticket for a user.
 
         Args:
@@ -969,17 +985,24 @@ class WeixinChannel(BaseChannel):
             Typing ticket string (empty if failed)
         """
         import time
+
         now = time.time()
         cache_ttl = 24 * 3600  # 24 hours
 
-        logger.debug(f"weixin _get_typing_ticket called for user_id={user_id}, context_token={context_token[:20] if context_token else 'NONE'}...")
+        logger.debug(
+            "weixin _get_typing_ticket called for user_id="
+            f"{user_id}, context_token="
+            f"{context_token[:20] if context_token else 'NONE'}...",
+        )
 
         with self._typing_lock:
             # Check cache
             if user_id in self._typing_tickets:
                 ticket, expiry = self._typing_tickets[user_id]
                 if now < expiry:
-                    logger.debug(f"weixin using cached typing_ticket for {user_id}")
+                    logger.debug(
+                        f"weixin using cached typing_ticket for {user_id}",
+                    )
                     return ticket
                 # Expired, remove from cache
                 del self._typing_tickets[user_id]
@@ -993,24 +1016,43 @@ class WeixinChannel(BaseChannel):
             )
             ret = resp.get("ret", 1)
             errcode = resp.get("errcode") or 0  # Treat None as 0
-            logger.info(f"weixin getconfig response: ret={ret}, errcode={resp.get('errcode')}, ticket={'FOUND' if resp.get('typing_ticket') else 'EMPTY'}")
+            logger.info(
+                f"weixin getconfig response: ret={ret}, "
+                f"errcode={resp.get('errcode')}, "
+                f"ticket={'FOUND' if resp.get('typing_ticket') else 'EMPTY'}",
+            )
             if ret == 0 and errcode == 0:
                 ticket = resp.get("typing_ticket", "").strip()
                 if ticket:
                     with self._typing_lock:
-                        self._typing_tickets[user_id] = (ticket, now + cache_ttl)
-                    logger.info(f"weixin got typing_ticket for {user_id}: {ticket[:20]}... (length={len(ticket)})")
+                        self._typing_tickets[user_id] = (
+                            ticket,
+                            now + cache_ttl,
+                        )
+                    logger.info(
+                        f"weixin got typing_ticket for {user_id}: "
+                        f"{ticket[:20]}... (length={len(ticket)})",
+                    )
                     return ticket
                 else:
-                    logger.warning(f"weixin getconfig returned no typing_ticket")
+                    logger.warning(
+                        "weixin getconfig returned no typing_ticket",
+                    )
             else:
-                logger.warning(f"weixin getconfig failed: ret={ret}, errcode={resp.get('errcode')}")
+                logger.warning(
+                    f"weixin getconfig failed: ret={ret}, "
+                    f"errcode={resp.get('errcode')}",
+                )
         except Exception as e:
             logger.warning(f"weixin getconfig failed: {e}")
 
         return ""
 
-    async def start_typing(self, user_id: str, context_token: str) -> Callable[[], None]:
+    async def start_typing(
+        self,
+        user_id: str,
+        context_token: str,
+    ) -> Callable[[], None]:
         """Start typing indicator for a user.
 
         Args:
@@ -1027,7 +1069,6 @@ class WeixinChannel(BaseChannel):
             # Return empty function if no ticket
             return lambda: None
 
-        import asyncio
         stop_event = asyncio.Event()
         stop_called = False
 
@@ -1037,15 +1078,22 @@ class WeixinChannel(BaseChannel):
             while not stop_event.is_set():
                 try:
                     await self._client.sendtyping(user_id, ticket, status=1)
-                    logger.info(f"weixin refresh_typing: sent typing status for {user_id}")
+                    logger.info(
+                        "weixin refresh_typing: sent typing status "
+                        f"for {user_id}",
+                    )
                 except Exception as e:
                     logger.warning(f"weixin sendtyping refresh failed: {e}")
                 # Wait for 5 seconds or until stop
                 try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=5.0)
+                    await asyncio.wait_for(
+                        stop_event.wait(),
+                        timeout=5.0,
+                    )
                 except asyncio.TimeoutError:
                     pass  # Timeout, continue refreshing
-                # If wait_for completes without timeout, stop_event was set, so loop will exit
+                # If wait_for completes without timeout, stop_event was set,
+                # so loop will exit
             logger.info(f"weixin refresh_typing task stopped for {user_id}")
 
         # Start refresh task in background
@@ -1055,18 +1103,30 @@ class WeixinChannel(BaseChannel):
         except RuntimeError:
             loop = self._loop
 
-        logger.info(f"weixin start_typing: loop={loop}, is_running={loop.is_running() if loop else False}")
+        logger.info(
+            f"weixin start_typing: loop={loop}, "
+            f"is_running={loop.is_running() if loop else False}",
+        )
         if loop and loop.is_running():
             task = asyncio.create_task(refresh_typing())
             logger.info(f"weixin start_typing: refresh task created: {task}")
         else:
-            logger.warning(f"weixin start_typing: no event loop available for refresh task")
+            logger.warning(
+                "weixin start_typing: no event loop "
+                "available for refresh task",
+            )
 
         # Send initial typing status
         try:
-            logger.info(f"weixin sending initial typing status for {user_id} with ticket={ticket[:20]}...")
+            logger.info(
+                f"weixin sending initial typing status for {user_id} "
+                f"with ticket={ticket[:20]}...",
+            )
             await self._client.sendtyping(user_id, ticket, status=1)
-            logger.info(f"weixin initial typing status sent successfully for {user_id}")
+            logger.info(
+                "weixin initial typing status sent successfully "
+                f"for {user_id}",
+            )
         except Exception as e:
             logger.warning(f"weixin sendtyping initial failed: {e}")
 

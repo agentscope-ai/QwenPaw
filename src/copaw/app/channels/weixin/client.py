@@ -17,14 +17,18 @@ import asyncio
 import base64
 import hashlib
 import logging
-import random
+import secrets
 import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import quote
 
 import httpx
 
-from .utils import aes_ecb_decrypt, aes_ecb_encrypt, generate_aes_key_b64, make_headers
+from .utils import (
+    aes_ecb_decrypt,
+    aes_ecb_encrypt,
+    make_headers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +284,10 @@ class ILinkClient:
         Returns:
             API response dict.
         """
-        logger.info(f"ILinkClient sendtyping: to_user_id={to_user_id[:20]}..., ticket={typing_ticket[:20]}..., status={status}")
+        logger.info(
+            f"ILinkClient sendtyping: to_user_id={to_user_id[:20]}..., "
+            f"ticket={typing_ticket[:20]}..., status={status}",
+        )
         resp = await self._post(
             "ilink/bot/sendtyping",
             {
@@ -292,7 +299,10 @@ class ILinkClient:
         )
         ret = resp.get("ret", -1)
         errcode = resp.get("errcode", -1)
-        logger.info(f"ILinkClient sendtyping response: ret={ret}, errcode={errcode}, full={resp}")
+        logger.info(
+            f"ILinkClient sendtyping response: ret={ret}, "
+            f"errcode={errcode}, full={resp}",
+        )
         return resp
 
     # ------------------------------------------------------------------
@@ -411,8 +421,6 @@ class ILinkClient:
                 aes_key_b64 (str): Base64-encoded AES key for media.aes_key.
                 filesize (int): Encrypted file size.
         """
-        import hashlib
-
         assert self._client is not None, "ILinkClient not started"
 
         # Read original file
@@ -427,7 +435,8 @@ class ILinkClient:
         aes_key_raw_bytes = secrets.token_bytes(16)
         # Convert to hex string for API call (32 hex chars)
         aes_key_hex = aes_key_raw_bytes.hex()
-        # For message, we need base64(hex_string) - following picoclaw's encodeWeixinOutboundAESKey
+        # For message, we need base64(hex_string) -
+        # following picoclaw's encodeWeixinOutboundAESKey
         aes_key_for_msg = base64.b64encode(aes_key_hex.encode()).decode()
         # For encryption, use base64 encoding of raw key
         aes_key_b64_for_encrypt = base64.b64encode(aes_key_raw_bytes).decode()
@@ -452,37 +461,64 @@ class ILinkClient:
         logger.info(f"getuploadurl response: {upload_resp}")
         upload_url = upload_resp.get("upload_full_url", "")
         if not upload_url:
-            # API might return upload_param instead, need to construct URL manually
+            # API might return upload_param instead,
+            # need to construct URL manually
             upload_param = upload_resp.get("upload_param", "")
             if upload_param:
                 cdn_base = "https://novac2c.cdn.weixin.qq.com/c2c"
                 enc_param = quote(upload_param, safe="")
-                # Add filekey as query parameter (required by CDN for validation)
-                upload_url = f"{cdn_base}/upload?encrypted_query_param={enc_param}&filekey={filekey}"
-                logger.info(f"Constructed upload URL from upload_param with filekey={filekey}")
+                # Add filekey as query parameter
+                # (required by CDN for validation)
+                upload_url = (
+                    f"{cdn_base}/upload?encrypted_query_param={enc_param}"
+                    f"&filekey={filekey}"
+                )
+                logger.info(
+                    "Constructed upload URL from upload_param "
+                    f"with filekey={filekey}",
+                )
             else:
-                raise ValueError(f"No upload_full_url or upload_param in getuploadurl response: {upload_resp}")
+                raise ValueError(
+                    "No upload_full_url or upload_param in "
+                    f"getuploadurl response: {upload_resp}",
+                )
 
         # Upload encrypted file to CDN
-        # Note: Don't include auth headers when using upload_param - the param itself is encrypted
+        # Note: Don't include auth headers when using upload_param -
+        # the param itself is encrypted
         headers = {
             "Content-Type": "application/octet-stream",
         }
 
-        logger.info(f"Uploading to URL: {upload_url[:100]}...")
+        logger.info(
+            f"Uploading to URL: {upload_url[:100]}...",
+        )
         resp = await self._client.post(
             upload_url,
             content=encrypted_data,
             headers=headers,
             timeout=120.0,
         )
-        logger.info(f"Upload response status: {resp.status_code}, headers: {dict(resp.headers)}")
+        logger.info(
+            f"Upload response status: {resp.status_code}, "
+            f"headers: {dict(resp.headers)}",
+        )
         resp.raise_for_status()
 
         # Get download parameters from response header
         # Note: header name might be case-sensitive
-        encrypt_query_param = resp.headers.get("x-encrypted-param", "") or resp.headers.get("X-Encrypted-Param", "")
-        logger.info(f"Got encrypt_query_param from headers: {encrypt_query_param[:50] if encrypt_query_param else 'EMPTY'}...")
+        encrypt_query_param = resp.headers.get(
+            "x-encrypted-param",
+            "",
+        ) or resp.headers.get(
+            "X-Encrypted-Param",
+            "",
+        )
+        logger.info(
+            "Got encrypt_query_param from headers: "
+            f"{encrypt_query_param[:50] if encrypt_query_param else 'EMPTY'}"
+            "...",
+        )
 
         return {
             "encrypt_query_param": encrypt_query_param,
@@ -533,9 +569,9 @@ class ILinkClient:
                             "file_name": filename,
                             "len": str(upload_result["filesize"]),
                         },
-                    }
+                    },
                 ],
-            }
+            },
         )
 
     async def send_image(
@@ -558,7 +594,17 @@ class ILinkClient:
         upload_result = await self.upload_media(image_path, 1, to_user_id)
 
         # Log media parameters for debugging
-        logger.info(f"Image media params: encrypt_query_param={upload_result['encrypt_query_param'][:50] if upload_result['encrypt_query_param'] else 'EMPTY'}..., aes_key={upload_result['aes_key_b64'][:20]}..., filesize={upload_result['filesize']}")
+        # Log media parameters for debugging
+        encrypt_preview = (
+            upload_result["encrypt_query_param"][:50]
+            if upload_result["encrypt_query_param"]
+            else "EMPTY"
+        )
+        logger.info(
+            f"Image media params: encrypt_query_param={encrypt_preview}..., "
+            f"aes_key={upload_result['aes_key_b64'][:20]}..., "
+            f"filesize={upload_result['filesize']}",
+        )
 
         # Send image message
         return await self.sendmessage(
@@ -580,10 +626,10 @@ class ILinkClient:
                                 "encrypt_type": 1,
                             },
                             "mid_size": upload_result["filesize"],
-                        }
-                    }
+                        },
+                    },
                 ],
-            }
+            },
         )
 
     async def send_video(
@@ -623,9 +669,9 @@ class ILinkClient:
                                 ],
                                 "aes_key": upload_result["aes_key_b64"],
                                 "encrypt_type": 1,
-                            }
+                            },
                         },
-                    }
+                    },
                 ],
-            }
+            },
         )
