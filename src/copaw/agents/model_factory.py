@@ -615,10 +615,18 @@ def _create_file_block_support_formatter(
             if isinstance(output, str):
                 return output, []
 
+            # Normalize blocks: convert {'text': ...} to {'type': 'text', 'text': ...}
+            normalized_output = []
+            for block in output:
+                if isinstance(block, dict) and "text" in block and "type" not in block:
+                    normalized_output.append({**block, "type": "text"})
+                else:
+                    normalized_output.append(block)
+
             # Try parent class method first
             try:
                 return base_formatter_class.convert_tool_result_to_string(
-                    output,
+                    normalized_output,
                 )
             except ValueError as e:
                 if "Unsupported block type: file" not in str(e):
@@ -628,7 +636,7 @@ def _create_file_block_support_formatter(
                 textual_output = []
                 multimodal_data = []
 
-                for block in output:
+                for block in normalized_output:
                     if not isinstance(block, dict) or "type" not in block:
                         raise ValueError(
                             f"Invalid block: {block}, "
