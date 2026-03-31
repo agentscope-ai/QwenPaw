@@ -211,6 +211,7 @@ export function MCPClientCard({
         }
         width={700}
       >
+        <div className={styles.maskedFieldHint}>{t("mcp.maskedFieldHint")}</div>
         {isEditing ? (
           <Input.TextArea
             value={editedJson}

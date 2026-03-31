@@ -1,6 +1,7 @@
 import { Select, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle, EyeOff, ChevronRight } from "lucide-react";
+import { SparkDownLine, SparkUpLine } from "@agentscope-ai/icons";
 import { useAgentStore } from "../../stores/agentStore";
 import { agentsApi } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
@@ -22,6 +23,7 @@ export default function AgentSelector({
     useAgentStore();
   const { message } = useAppMessage();
   const [loading, setLoading] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   useEffect(() => {
     loadAgents();
@@ -110,6 +112,10 @@ export default function AgentSelector({
         placeholder={t("agent.selectAgent")}
         optionLabelProp="label"
         popupClassName={styles.agentSelectorDropdown}
+        onDropdownVisibleChange={setDropdownOpen}
+        suffixIcon={
+          dropdownOpen ? <SparkUpLine size={20} /> : <SparkDownLine size={20} />
+        }
         dropdownRender={(menu) => (
           <>
             <div className={styles.dropdownHeader}>
