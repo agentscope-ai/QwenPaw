@@ -213,12 +213,12 @@ class TestConsoleChannelFromEnv:
         # Clear environment
         monkeypatch.delenv("CONSOLE_CHANNEL_ENABLED", raising=False)
         monkeypatch.delenv("CONSOLE_BOT_PREFIX", raising=False)
+        monkeypatch.delenv("CONSOLE_MEDIA_DIR", raising=False)
 
         channel = ConsoleChannel.from_env(mock_process)
 
         assert channel.enabled is True  # Default enabled
-        # Default prefix may be empty string depending on implementation
-        assert channel.bot_prefix in ["[BOT] ", ""]  # Accept either default
+        assert channel.bot_prefix == ""  # Default is empty string
 
 
 class TestConsoleChannelFromConfig:

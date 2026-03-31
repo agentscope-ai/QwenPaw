@@ -188,9 +188,8 @@ class TestBuildAgentRequestCore:
         # Should fill with default empty text (implementation uses space " ")
         assert len(request.input[0].content) == 1
         assert request.input[0].content[0].type == ContentType.TEXT
-        assert (
-            request.input[0].content[0].text.strip() == ""
-        )  # Accept whitespace-only default
+        # Implementation uses " " as default to satisfy non-empty validation
+        assert request.input[0].content[0].text == " "
 
 
 # =============================================================================
@@ -408,22 +407,33 @@ class TestMergeNativeItemsLogic:
         assert result["content_parts"][2].text == "C"
 
     def test_meta_merge_combined(self, base_channel):
-        """Meta merge should combine all items"""
+        """Meta merge should combine specific special keys (last wins)"""
+        # The implementation only merges special keys (last wins):
+        # reply_future, reply_loop, incoming_message, conversation_id
+        future_a = object()
+        future_b = object()
+
         items = [
-            {"content_parts": [], "meta": {"a": 1, "b": 2}},
-            {"content_parts": [], "meta": {"b": 3, "c": 4}},
+            {
+                "content_parts": [],
+                "meta": {"reply_future": future_a, "extra": 1},
+            },
+            {
+                "content_parts": [],
+                "meta": {"reply_future": future_b, "conversation_id": "abc"},
+            },
         ]
 
         result = base_channel.merge_native_items(items)
 
         # Verify result has meta
         assert "meta" in result
-        # First item's keys should be preserved
-        assert "a" in result["meta"] or result["meta"].get("a") == 1
-        # b key exists (from either item)
-        assert "b" in result["meta"]
-        # Implementation may vary - just verify merge happened
-        assert result is not None
+        # Later future should override earlier (last wins)
+        assert result["meta"]["reply_future"] is future_b
+        # conversation_id should be merged
+        assert result["meta"]["conversation_id"] == "abc"
+        # Extra keys are NOT merged (implementation limitation)
+        # This is documented behavior - only specific keys are merged
 
     def test_special_meta_keys_preserved(self, base_channel):
         """Special meta keys (reply_future, conv_id) should be preserved"""
@@ -613,58 +623,50 @@ class TestResponseErrorExtraction:
         assert result is None
 
     def test_response_without_error_returns_none(self, base_channel):
-        """Response without error should not crash"""
-        mock_response = MagicMock()
+        """Response without error should return None"""
+        # Create a mock that doesn't auto-create attributes
+        mock_response = MagicMock(spec=[])
         mock_response.error = None
-        # Prevent MagicMock from creating nested mocks
         mock_response.data = None
 
-        try:
-            _ = base_channel._get_response_error_message(mock_response)
-            # Method should return without error
-            assert True
-        except Exception:
-            pytest.fail("Method should handle response without error")
+        result = base_channel._get_response_error_message(mock_response)
+
+        # Should return None when there's no error
+        assert result is None
 
     def test_nested_error_message_extracted(self, base_channel):
         """Nested error message should be extracted"""
-        # Create response with proper nesting
-        mock_response = MagicMock()
-        mock_response.error = MagicMock()
-        mock_response.error.message = "Nested error occurred"
-        # Also set data path if that's what the implementation uses
-        mock_response.data.error.message = "Nested error occurred"
+        # Create a mock error with message attribute
+        mock_error = MagicMock(spec=[])
+        mock_error.message = "Nested error occurred"
+
+        mock_response = MagicMock(spec=[])
+        mock_response.error = mock_error
+        mock_response.data = None
 
         result = base_channel._get_response_error_message(mock_response)
 
-        assert "Nested error" in str(result) or result is None
+        assert result == "Nested error occurred"
 
     def test_dict_error_message_handled(self, base_channel):
-        """Dict type error should be handled"""
-        mock_response = MagicMock()
+        """Dict type error should be extracted"""
+        mock_response = MagicMock(spec=[])
         mock_response.error = {"message": "Dict error message"}
-        # MagicMock will convert dict access to mock attributes
-        # Test that the method handles dict errors without crashing
+        mock_response.data = None
 
         result = base_channel._get_response_error_message(mock_response)
 
-        # Result should be string-like
-        # (actual extraction depends on implementation)
-        assert result is not None or isinstance(result, (str, type(None)))
+        assert result == "Dict error message"
 
     def test_string_error_handled(self, base_channel):
-        """String error should be handled"""
-        mock_response = MagicMock()
+        """String error should be returned as-is"""
+        mock_response = MagicMock(spec=[])
         mock_response.error = "Plain string error"
+        mock_response.data = None
 
         result = base_channel._get_response_error_message(mock_response)
 
-        # Result should be string-like or None
-        # (actual behavior depends on implementation)
-        assert (
-            isinstance(result, (str, type(None)))
-            or "error" in str(result).lower()
-        )
+        assert result == "Plain string error"
 
 
 # =============================================================================
