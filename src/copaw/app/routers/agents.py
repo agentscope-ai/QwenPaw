@@ -79,14 +79,10 @@ class CreateAgentRequest(BaseModel):
         If an unsupported language is provided (e.g., ja from UI),
         fallback to English (en).
         """
-        if value is None:
-            return DEFAULT_AGENT_LANGUAGE
         if isinstance(value, str):
             language = value.strip().lower()
             if language in VALID_AGENT_LANGUAGES:
                 return language
-            # Fallback to English for unsupported languages (e.g., ja)
-            return DEFAULT_AGENT_LANGUAGE
         return DEFAULT_AGENT_LANGUAGE
 
 
