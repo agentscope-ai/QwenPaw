@@ -1,7 +1,10 @@
 import { getApiUrl, clearAuthToken } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
 
-function getErrorMessageFromBody(text: string, contentType: string): string | null {
+function getErrorMessageFromBody(
+  text: string,
+  contentType: string,
+): string | null {
   if (!text) {
     return null;
   }
