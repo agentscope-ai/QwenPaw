@@ -275,10 +275,7 @@ function SkillPoolPage() {
             if (regularConflicts.length > 0) {
               const renameItems = regularConflicts
                 .map(
-                  (c: {
-                    workspace_id?: string;
-                    suggested_name?: string;
-                  }) => {
+                  (c: { workspace_id?: string; suggested_name?: string }) => {
                     if (!c.workspace_id || !c.suggested_name) {
                       return null;
                     }
@@ -317,8 +314,7 @@ function SkillPoolPage() {
                 const nextRenameMap = await showConflictRenameModal(
                   renameItems.map((item) => ({
                     ...item,
-                    suggested_name:
-                      renameMap[item.key] || item.suggested_name,
+                    suggested_name: renameMap[item.key] || item.suggested_name,
                   })),
                 );
                 if (!nextRenameMap) return;
@@ -338,8 +334,7 @@ function SkillPoolPage() {
                 skill_name: skillName,
                 targets: targetWorkspaceIds.map((workspace_id) => ({
                   workspace_id,
-                  target_name:
-                    renameMap[workspace_id] || undefined,
+                  target_name: renameMap[workspace_id] || undefined,
                 })),
                 overwrite: true,
               });
