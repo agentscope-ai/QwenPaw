@@ -33,7 +33,7 @@
   },
   "finalCta": {
     "titleBefore": "欢迎使用",
-    "titleEmphasis": "Copaw",
+    "titleEmphasis": "CoPaw",
     "titleAfter": "，",
     "titleLine2": "懂你所需，伴你左右",
     "downloadFromGithub": "前往 GitHub 下载"
@@ -142,7 +142,7 @@
       },
       "creative": {
         "title": "创意与构建",
-        "description": "CoPaw 可以整夜运行，从创意到草稿，支持内容创作的完整流程。"
+        "description": "CoPaw 可以全天候在您的设备上运行，帮助您实现想法，并支持从创意构思到实现的整个内容创作过程。"
       },
       "productivity": {
         "title": "生产力",
@@ -150,7 +150,7 @@
       },
       "research": {
         "title": "研究与学习",
-        "description": "CoPaw 追踪重要的公司动态，构建个人知识库，便于检索与复用。"
+        "description": "CoPaw 帮助您追踪重要的企业动态，并支持建立您的个人通用知识库，以便日常轻松检索和重复使用。"
       }
     }
   },

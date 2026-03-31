@@ -26,8 +26,8 @@ const itemVariants = {
 };
 
 const AVATAR_URLS = {
-  a1: "https://img.alicdn.com/imgextra/i4/O1CN01wn2bMN1n3AWwL2jrD_!!6000000005033-55-tps-156-156.svg",
-  a2: "https://img.alicdn.com/imgextra/i1/O1CN01f6Mipz1IfPVi301wi_!!6000000000920-55-tps-156-156.svg",
+  a1: "https://img.alicdn.com/imgextra/i1/O1CN01f6Mipz1IfPVi301wi_!!6000000000920-55-tps-156-156.svg",
+  a2: "https://img.alicdn.com/imgextra/i4/O1CN01wn2bMN1n3AWwL2jrD_!!6000000005033-55-tps-156-156.svg",
   a3: "https://img.alicdn.com/imgextra/i1/O1CN01y6Ss8I27Z2PAlwycK_!!6000000007810-55-tps-154-156.svg",
   a4: "https://img.alicdn.com/imgextra/i1/O1CN01MU31R81EeiRq4VgqL_!!6000000000377-55-tps-159-156.svg",
   a5: "https://img.alicdn.com/imgextra/i2/O1CN01hqduGn1dLoUnc22ya_!!6000000003720-55-tps-156-156.svg",

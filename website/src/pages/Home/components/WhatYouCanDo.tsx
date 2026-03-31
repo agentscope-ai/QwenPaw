@@ -113,7 +113,7 @@ export function CopawWhatYouCanDo() {
             src={active.preview}
             alt=""
             aria-hidden
-            className="block w-full object-cover object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)]"
+            className="block w-full object-cover object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)] rounded-[8px]"
             loading="lazy"
             initial={{ opacity: 0, y: 32 }}
             animate={{ opacity: 1, y: 0 }}

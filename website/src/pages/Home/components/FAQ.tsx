@@ -441,7 +441,7 @@ export function CopawFAQ() {
                           : "px-3.5 py-2.5 md:px-5 md:py-3.5"
                       }`}
                     >
-                      <span className="font-newsreader text-[1.75rem] leading-[1.08] text-(--color-text) md:text-[28px]">
+                      <span className="font-newsreader text-[1.5rem] leading-[1.08] text-(--color-text) md:text-[24px]">
                         {faq.question}
                       </span>
                       <span
@@ -452,7 +452,7 @@ export function CopawFAQ() {
                       </span>
                     </button>
                     {isOpen && faq.answer ? (
-                      <div className="px-3.5 pb-3.5 md:px-5 md:pb-5">
+                      <div className="p-4 md:p-6">
                         <div className="font-inter text-[13px] leading-[1.65] text-(--color-text-secondary) md:text-base">
                           {faq.answer}
                         </div>
