@@ -184,41 +184,10 @@ async def lifespan(
 
     # --- Multi-agent migration and initialization ---
     logger.info("Checking for legacy config migration...")
-    try:
-        migrate_legacy_workspace_to_default_agent()
-    except Exception as e:
-        logger.error(
-            f"Legacy config migration failed: {e}. "
-            "Application startup will continue, but some features "
-            "may not work. Please check your configuration.",
-            exc_info=True,
-        )
-        # Do not raise - allow app to start with existing config
-
-    try:
-        ensure_default_agent_exists()
-    except Exception as e:
-        logger.error(
-            f"Failed to ensure default agent exists: {e}",
-            exc_info=True,
-        )
-        # Do not raise - let the app try to start
-
-    try:
-        migrate_legacy_skills_to_skill_pool()
-    except Exception as e:
-        logger.warning(
-            f"Legacy skills migration failed (non-fatal): {e}",
-            exc_info=True,
-        )
-
-    try:
-        ensure_qa_agent_exists()
-    except Exception as e:
-        logger.warning(
-            f"Failed to ensure QA agent exists (non-fatal): {e}",
-            exc_info=True,
-        )
+    migrate_legacy_workspace_to_default_agent()
+    ensure_default_agent_exists()
+    migrate_legacy_skills_to_skill_pool()
+    ensure_qa_agent_exists()
 
     # --- Multi-agent manager initialization ---
     logger.info("Initializing MultiAgentManager...")

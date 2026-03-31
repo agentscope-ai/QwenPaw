@@ -161,9 +161,45 @@ def _directory_tree(directory: Path) -> dict[str, Any]:
 
 
 def _read_frontmatter(skill_dir: Path) -> Any:
+    """Read and parse SKILL.md frontmatter.
+
+    Args:
+        skill_dir: Path to skill directory containing SKILL.md
+
+    Returns:
+        Parsed frontmatter as dict-like object
+    """
     return frontmatter.loads(
         read_text_file_with_encoding_fallback(skill_dir / "SKILL.md"),
     )
+
+
+def _read_frontmatter_safe(
+    skill_dir: Path,
+    skill_name: str = "",
+) -> dict[str, Any]:
+    """Safely read SKILL.md frontmatter with fallback on errors.
+
+    Args:
+        skill_dir: Path to skill directory containing SKILL.md
+        skill_name: Optional skill name for logging (defaults to dir name)
+
+    Returns:
+        Parsed frontmatter dict, or fallback dict with name/description
+        on any error (file not found, YAML syntax error, etc.)
+    """
+    if not skill_name:
+        skill_name = skill_dir.name
+
+    try:
+        return _read_frontmatter(skill_dir)
+    except Exception as e:
+        logger.warning(
+            f"Failed to read SKILL.md frontmatter for '{skill_name}' "
+            f"at {skill_dir}: {e}. Using fallback values.",
+        )
+        # Return minimal valid frontmatter
+        return {"name": skill_name, "description": ""}
 
 
 def _extract_version(post: Any) -> str:
@@ -458,13 +494,10 @@ def _resolve_skill_name(skill_dir: Path) -> str:
     here so zip imports behave consistently whether a skill is packed at the
     archive root or nested under a folder.
     """
-    try:
-        post = _read_frontmatter(skill_dir)
-        name = str(post.get("name") or "").strip()
-        if name:
-            return name
-    except Exception:
-        pass
+    post = _read_frontmatter_safe(skill_dir)
+    name = str(post.get("name") or "").strip()
+    if name:
+        return name
     return skill_dir.name
 
 
@@ -665,14 +698,7 @@ def _build_skill_metadata(
         reconcile updates ``description`` and ``signature`` here without the
         caller manually editing ``skill.json``.
     """
-    try:
-        post = _read_frontmatter(skill_dir)
-    except Exception as e:
-        logger.warning(
-            f"Failed to read frontmatter for skill '{skill_name}' "
-            f"at {skill_dir}: {e}. Using fallback values.",
-        )
-        post = {"name": skill_name, "description": ""}
+    post = _read_frontmatter_safe(skill_dir, skill_name)
 
     requirements = read_skill_requirements(skill_dir)
     now = _timestamp()
@@ -752,14 +778,7 @@ def list_builtin_import_candidates() -> list[dict[str, Any]]:
             continue
         skill_name = skill_dir.name
 
-        try:
-            post = _read_frontmatter(skill_dir)
-        except Exception as e:
-            logger.warning(
-                f"Failed to read frontmatter for builtin skill "
-                f"'{skill_name}': {e}. Skipping this skill.",
-            )
-            continue
+        post = _read_frontmatter_safe(skill_dir, skill_name)
 
         source_signature = _build_signature(skill_dir)
         current = pool_skills.get(skill_name) or {}
@@ -1242,7 +1261,7 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
             builtin_sig = _build_signature(skill_dir)
             pool_sig = str(pool_entry.get("signature", ""))
             if pool_sig and pool_sig != builtin_sig:
-                post = _read_frontmatter(skill_dir)
+                post = _read_frontmatter_safe(skill_dir, name)
                 return name, {
                     "sync_status": "outdated",
                     "latest_version_text": _extract_version(post),
@@ -1382,11 +1401,19 @@ def _import_skill_dir(
     skill_name: str,
     overwrite: bool,
 ) -> bool:
-    try:
-        post = _read_frontmatter(src_dir)
-        if not post.get("name") or not post.get("description"):
-            return False
-    except Exception:
+    """Import a skill directory to target location.
+
+    Args:
+        src_dir: Source skill directory
+        target_root: Target root directory
+        skill_name: Name of the skill
+        overwrite: Whether to overwrite existing skill
+
+    Returns:
+        bool: True if import succeeded, False otherwise
+    """
+    post = _read_frontmatter_safe(src_dir, skill_name)
+    if not post.get("name") or not post.get("description"):
         return False
 
     target_dir = target_root / skill_name
