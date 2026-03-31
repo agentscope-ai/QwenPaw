@@ -12,6 +12,11 @@ export interface AgentListResponse {
   agents: AgentSummary[];
 }
 
+export interface ReorderAgentsResponse {
+  success: boolean;
+  agent_ids: string[];
+}
+
 export interface AgentProfileConfig {
   id: string;
   name: string;

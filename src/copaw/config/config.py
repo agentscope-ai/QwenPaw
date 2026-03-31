@@ -684,6 +684,10 @@ class AgentsConfig(BaseModel):
         default="default",
         description="Currently active agent ID",
     )
+    agent_order: List[str] = Field(
+        default_factory=lambda: ["default"],
+        description="Persisted UI order for configured agents",
+    )
     profiles: Dict[str, AgentProfileRef] = Field(
         default_factory=lambda: {
             "default": AgentProfileRef(
