@@ -1012,56 +1012,6 @@ class WecomChannel(BaseChannel):
         self._client.on("message", self._on_message_sync)
         self._client.on("event.enter_chat", self._on_enter_chat_sync)
 
-        # Patch SDK heartbeat to trigger reconnect on connection death
-        # SDK bug: _send_heartbeat returns without calling _schedule_reconnect
-        # when missed_pong_count exceeds max, causing permanent disconnection.
-        async def _patched_send_heartbeat() -> None:
-            """Patched heartbeat: trigger reconnect when connection is dead."""
-            ws_mgr = self._client._ws_manager
-            if ws_mgr._missed_pong_count >= ws_mgr._max_missed_pong:
-                ws_mgr._stop_heartbeat()
-                if ws_mgr._ws:
-                    try:
-                        await ws_mgr._ws.close()
-                    except Exception as e:
-                        ws_mgr._logger.warning(
-                            "Failed to close ws on heartbeat failure: %s",
-                            e,
-                        )
-                # Fix: trigger reconnect instead of silent return
-                await ws_mgr._schedule_reconnect()
-                return
-
-            ws_mgr._missed_pong_count += 1
-            try:
-                await ws_mgr.send(
-                    {
-                        "cmd": "heartbeat",
-                        "headers": {"req_id": generate_req_id("heartbeat")},
-                    },
-                )
-            except Exception as e:
-                ws_mgr._logger.error("Failed to send heartbeat: %s", e)
-
-        self._client._ws_manager._send_heartbeat = _patched_send_heartbeat
-
-        # Log reconnect events for observability
-        self._client.on(
-            "disconnected",
-            lambda reason: logger.info("wecom disconnected: %s", reason),
-        )
-        self._client.on(
-            "reconnecting",
-            lambda attempt: logger.info(
-                "wecom reconnecting: attempt %d",
-                attempt,
-            ),
-        )
-        self._client.on(
-            "error",
-            lambda error: logger.error("wecom error: %s", error),
-        )
-
         self._ws_thread = threading.Thread(
             target=self._run_ws_forever,
             daemon=True,

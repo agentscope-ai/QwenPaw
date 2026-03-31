@@ -666,86 +666,89 @@ function SkillPoolPage() {
         }
       />
 
-      {loading ? (
-        <div className={styles.loading}>
-          <span className={styles.loadingText}>{t("common.loading")}</span>
-        </div>
-      ) : (
-        <div className={styles.skillsGrid}>
-          {skills.map((skill) => (
-            <Card
-              key={skill.name}
-              className={styles.skillCard}
-              onClick={() => openEdit(skill)}
-              style={{ cursor: "pointer" }}
-            >
-              <div className={styles.cardBody}>
-                <div className={styles.cardHeader}>
-                  <div className={styles.leftSection}>
-                    <span className={styles.fileIcon}>
-                      {getSkillVisual(skill.name, skill.content)}
-                    </span>
-                    <div className={styles.titleRow}>
-                      <h3 className={styles.skillTitle}>{skill.name}</h3>
-                      <span
-                        className={
-                          getSkillDisplaySource(skill.source) === "builtin"
-                            ? styles.builtinTag
-                            : styles.customizedTag
-                        }
-                      >
-                        {getSkillDisplaySource(skill.source) === "builtin"
-                          ? t("skillPool.builtin")
-                          : t("skillPool.custom")}
+      {/* ---- Scrollable Content ---- */}
+      <div className={styles.content}>
+        {loading ? (
+          <div className={styles.loading}>
+            <span className={styles.loadingText}>{t("common.loading")}</span>
+          </div>
+        ) : (
+          <div className={styles.skillsGrid}>
+            {skills.map((skill) => (
+              <Card
+                key={skill.name}
+                className={styles.skillCard}
+                onClick={() => openEdit(skill)}
+                style={{ cursor: "pointer" }}
+              >
+                <div className={styles.cardBody}>
+                  <div className={styles.cardHeader}>
+                    <div className={styles.leftSection}>
+                      <span className={styles.fileIcon}>
+                        {getSkillVisual(skill.name, skill.content)}
                       </span>
-                    </div>
-                    <div className={styles.statusRow}>
-                      <span className={styles.statusLabel}>
-                        {t("skillPool.status")}:
-                      </span>
-                      <span
-                        className={`${styles.statusValue} ${
-                          styles[getPoolBuiltinStatusTone(skill.sync_status)]
-                        }`}
-                      >
-                        {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-                      </span>
+                      <div className={styles.titleRow}>
+                        <h3 className={styles.skillTitle}>{skill.name}</h3>
+                        <span
+                          className={
+                            getSkillDisplaySource(skill.source) === "builtin"
+                              ? styles.builtinTag
+                              : styles.customizedTag
+                          }
+                        >
+                          {getSkillDisplaySource(skill.source) === "builtin"
+                            ? t("skillPool.builtin")
+                            : t("skillPool.custom")}
+                        </span>
+                      </div>
+                      <div className={styles.statusRow}>
+                        <span className={styles.statusLabel}>
+                          {t("skillPool.status")}:
+                        </span>
+                        <span
+                          className={`${styles.statusValue} ${
+                            styles[getPoolBuiltinStatusTone(skill.sync_status)]
+                          }`}
+                        >
+                          {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                  <div className={styles.descriptionContainer}>
+                    <p className={styles.descriptionLabel}>
+                      {t("skillPool.descriptionLabel")}
+                    </p>
+                    <p className={styles.descriptionText}>
+                      {skill.description || "-"}
+                    </p>
+                  </div>
                 </div>
-                <div className={styles.descriptionContainer}>
-                  <p className={styles.descriptionLabel}>
-                    {t("skillPool.descriptionLabel")}
-                  </p>
-                  <p className={styles.descriptionText}>
-                    {skill.description || "-"}
-                  </p>
+                <div className={styles.cardFooter}>
+                  <Button
+                    className={styles.actionButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openBroadcast(skill);
+                    }}
+                  >
+                    {t("skillPool.broadcast")}
+                  </Button>
+                  <Button
+                    className={styles.deleteButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDelete(skill);
+                    }}
+                  >
+                    {t("skillPool.delete")}
+                  </Button>
                 </div>
-              </div>
-              <div className={styles.cardFooter}>
-                <Button
-                  className={styles.actionButton}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openBroadcast(skill);
-                  }}
-                >
-                  {t("skillPool.broadcast")}
-                </Button>
-                <Button
-                  className={styles.deleteButton}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDelete(skill);
-                  }}
-                >
-                  {t("skillPool.delete")}
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
 
       <ImportHubModal
         open={importModalOpen}

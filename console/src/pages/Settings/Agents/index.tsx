@@ -49,6 +49,12 @@ export default function AgentsPage() {
   const handleDelete = async (agentId: string) => {
     try {
       await deleteAgent(agentId);
+
+      // If deleting the currently selected agent, fall back to default
+      if (selectedAgent === agentId) {
+        setSelectedAgent("default");
+        message.info(t("agent.switchedToDefault"));
+      }
     } catch {
       // Error already handled in hook
       message.error(t("agent.deleteFailed"));

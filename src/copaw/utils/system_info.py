@@ -40,6 +40,23 @@ def get_architecture() -> str:
     return mapping.get(machine, machine)
 
 
+def get_macos_version() -> tuple[int, ...] | None:
+    """Return the full macOS version as a tuple, or None when unavailable."""
+    if get_os_name() != "macos":
+        return None
+
+    version = platform.mac_ver()[0].strip()
+    if not version:
+        version = (_run_command(["sw_vers", "-productVersion"]) or "").strip()
+    if not version:
+        return None
+
+    parts = tuple(int(part) for part in version.split(".") if part.isdigit())
+    if not parts:
+        return None
+    return parts
+
+
 def get_cuda_version() -> str | None:
     """Return the detected CUDA version, or None if CUDA is unavailable."""
     for command in (["nvidia-smi"], ["nvcc", "--version"]):

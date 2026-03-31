@@ -30,14 +30,21 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   onCancel,
 }: LocalRuntimePanelProps) {
   const { t } = useTranslation();
+  const installable = serverStatus?.installable ?? true;
   const installed = Boolean(serverStatus?.installed);
   const isDownloading = isDownloadActive(progress);
   const isCanceling = progress?.status === "canceling";
   const isRunning = Boolean(serverStatus?.model_name);
+  const showFooterHint = installed || isDownloading;
   const installBadge = installed
     ? {
         className: styles.localStatusBadgeInstalled,
         label: t("models.localRuntimeInstalled"),
+      }
+    : !installable
+    ? {
+        className: styles.localStatusBadgeDead,
+        label: t("models.localRuntimeUnsupported"),
       }
     : {
         className: styles.localStatusBadgeMuted,
@@ -79,11 +86,21 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           <span className={styles.localEngineMetricLabel}>
             {t("models.localEngineInstallStateLabel")}
           </span>
-          <span
-            className={`${styles.localStatusBadge} ${installBadge.className}`}
-          >
-            {installBadge.label}
-          </span>
+          {!installable && serverStatus?.message ? (
+            <Tooltip title={serverStatus.message}>
+              <span
+                className={`${styles.localStatusBadge} ${installBadge.className}`}
+              >
+                {installBadge.label}
+              </span>
+            </Tooltip>
+          ) : (
+            <span
+              className={`${styles.localStatusBadge} ${installBadge.className}`}
+            >
+              {installBadge.label}
+            </span>
+          )}
         </div>
         <div className={styles.localEngineStatusItem}>
           <span className={styles.localEngineMetricLabel}>
@@ -116,16 +133,25 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
       </div>
 
       <div className={styles.localStatusCardFooter}>
-        <span className={styles.localStatusHint}>
-          {isDownloading
-            ? t("models.localDownloadNavigateHint")
-            : t("models.localEngineStatusHint")}
-        </span>
-        {!isDownloading && !installed ? (
-          <Button type="primary" icon={<DownloadOutlined />} onClick={onStart}>
-            {t("models.localInstallLlamacpp")}
-          </Button>
-        ) : null}
+        <div className={styles.localStatusFooterContent}>
+          {showFooterHint ? (
+            <span className={styles.localStatusHint}>
+              {isDownloading
+                ? t("models.localDownloadNavigateHint")
+                : t("models.localEngineStatusHint")}
+            </span>
+          ) : null}
+          {!isDownloading && !installed ? (
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={onStart}
+              disabled={!installable}
+            >
+              {t("models.localInstallLlamacpp")}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {isDownloading ? (

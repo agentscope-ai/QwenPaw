@@ -1,16 +1,29 @@
 import { Card, Button, Modal, Tooltip, Input } from "@agentscope-ai/design";
-import { Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
 import styles from "../index.module.less";
+
+interface MCPClientUpdate {
+  name?: string;
+  description?: string;
+  command?: string;
+  enabled?: boolean;
+  transport?: "stdio" | "streamable_http" | "sse";
+  url?: string;
+  headers?: Record<string, string>;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+}
 
 interface MCPClientCardProps {
   client: MCPClientInfo;
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
-  onUpdate: (key: string, updates: any) => Promise<boolean>;
+  onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
   isHovered: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -37,9 +50,6 @@ export function MCPClientCard({
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
 
-  // Check if command is npx to show special icon
-  const isNpxCommand = client.command?.includes("npx");
-
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onToggle(client, e);
@@ -52,7 +62,7 @@ export function MCPClientCard({
 
   const confirmDelete = () => {
     setDeleteModalOpen(false);
-    onDelete(client, null as any);
+    onDelete(client, null as unknown as React.MouseEvent);
   };
 
   const handleCardClick = () => {
@@ -65,7 +75,7 @@ export function MCPClientCard({
   const handleSaveJson = async () => {
     try {
       const parsed = JSON.parse(editedJson);
-      const { key, ...updates } = parsed;
+      const { key: _key, ...updates } = parsed;
 
       // Send all updates directly to backend, let backend handle env masking check
       const success = await onUpdate(client.key, updates);
@@ -73,7 +83,7 @@ export function MCPClientCard({
         setJsonModalOpen(false);
         setIsEditing(false);
       }
-    } catch (error) {
+    } catch {
       alert("Invalid JSON format");
     }
   };
@@ -92,86 +102,50 @@ export function MCPClientCard({
         } ${isHovered ? styles.hover : styles.normal}`}
       >
         <div className={styles.cardHeader}>
-          {/* Left section: icon, name, badge */}
-          <div className={styles.leftSection}>
-            <span className={styles.fileIcon}>
-              {isNpxCommand ? (
-                <img
-                  src="https://gw.alicdn.com/imgextra/i4/O1CN01iz3wMQ1u1yoImSYTX_!!6000000005978-2-tps-160-160.png"
-                  alt="npx"
-                  style={{ width: 40, height: 40 }}
-                />
-              ) : (
-                <Server style={{ color: "#1890ff", fontSize: 20 }} />
-              )}
-            </span>
-            <Tooltip title={client.name}>
-              <h3 className={styles.mcpTitle}>
-                <span>{client.name}</span>
-                <span
-                  className={`${styles.typeBadge} ${
-                    isRemote ? styles.remote : styles.local
-                  }`}
-                >
-                  {clientType}
-                </span>
-              </h3>
-            </Tooltip>
-          </div>
-
-          {/* Right section: status */}
+          <Tooltip title={client.name}>
+            <h3 className={styles.mcpTitle}>
+              <span>{client.name}</span>
+              <span
+                className={`${styles.typeBadge} ${
+                  isRemote ? styles.remote : styles.local
+                }`}
+              >
+                {clientType}
+              </span>
+            </h3>
+          </Tooltip>
           <div className={styles.statusContainer}>
-            <span
-              className={`${styles.statusDot} ${
-                client.enabled ? styles.enabled : styles.disabled
-              }`}
-            />
-            <span
-              className={`${styles.statusText} ${
-                client.enabled ? styles.enabled : styles.disabled
-              }`}
-            >
+            <span className={styles.statusDot} />
+            <span className={styles.statusText}>
               {client.enabled ? t("common.enabled") : t("common.disabled")}
             </span>
           </div>
         </div>
 
-        {/* Description - only show when exists */}
+        <p className={styles.mcpDescription}>{client.description || "-"}</p>
 
-        <div className={styles.descriptionContainer}>
-          <p className={styles.descriptionLabel}>Introduction</p>
-          <p className={styles.descriptionText}>{client.description || "-"}</p>
+        <div className={styles.cardFooter}>
+          <Button
+            className={styles.toggleButton}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleClick(e);
+            }}
+            icon={client.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          >
+            {client.enabled ? t("common.disable") : t("common.enable")}
+          </Button>
+          <Button
+            className={styles.deleteButton}
+            danger
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteClick(e);
+            }}
+          >
+            {t("common.delete")}
+          </Button>
         </div>
-
-        {/* Footer with buttons - only show on hover */}
-        {isHovered && (
-          <div className={styles.cardFooter}>
-            {
-              <>
-                <Button
-                  className={styles.actionButton}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleToggleClick(e);
-                  }}
-                >
-                  {client.enabled ? "Disable" : "Enable"}
-                </Button>
-
-                <Button
-                  danger
-                  className={styles.deleteButtonLarge}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteClick(e);
-                  }}
-                >
-                  Delete
-                </Button>
-              </>
-            }
-          </div>
-        )}
       </Card>
 
       <Modal

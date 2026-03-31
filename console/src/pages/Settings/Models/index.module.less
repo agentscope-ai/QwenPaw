@@ -1,3 +1,12 @@
+/* ---- Page Layout ---- */
+.settingsPage {
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ---- Page Header (breadcrumb style) ---- */
 .pageHeader {
   display: flex;
@@ -7,6 +16,14 @@
   padding: 20px;
   border-bottom: 1px solid #eae9e7;
   margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+/* ---- Scrollable Content ---- */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .breadcrumbHeader {
@@ -995,9 +1012,16 @@
 .localStatusCardFooter {
   margin-top: 12px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: stretch;
   gap: 12px;
+}
+
+.localStatusFooterContent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
 }
 
 .localStatusActions {
@@ -1108,6 +1132,14 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .settingsPage {
+    :global {
+      .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+        background: rgba(255, 255, 255, 0.04) !important;
+      }
+    }
+  }
+
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.12);
   }

@@ -82,6 +82,8 @@ class LlamaCppBackend:
     and setup.
     """
 
+    _MIN_MACOS_VERSION = (13, 3)
+
     def __init__(self, base_url: str, release_tag: str):
         self.base_url = base_url.rstrip("/")
         self.release_tag = release_tag
@@ -121,9 +123,26 @@ class LlamaCppBackend:
             return self.target_dir / "llama-server.exe"
         return self.target_dir / "llama-server"
 
-    def check_llamacpp_installation(self) -> bool:
+    def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Check if the llama.cpp server executable exists."""
-        return self.executable.exists()
+        if self.executable.exists():
+            return True, ""
+        else:
+            return False, "llama.cpp is not installed"
+
+    def check_llamacpp_installability(self) -> tuple[bool, str]:
+        """Check whether the current environment can install llama.cpp."""
+        if self.os_name == "macos":
+            supported, message = self._ensure_supported_macos_version()
+            if not supported:
+                return False, message
+
+        try:
+            self._build_filename()
+        except RuntimeError as exc:
+            return False, str(exc)
+
+        return True, ""
 
     def get_download_progress(self) -> dict[str, Any]:
         """Return the current llama.cpp download progress."""
@@ -177,6 +196,9 @@ class LlamaCppBackend:
           - ValueError: target_dir is an existing file path instead of a
             directory
         """
+        installable, message = self.check_llamacpp_installability()
+        if not installable:
+            raise RuntimeError(message)
         self._start_download(
             self.target_dir,
             chunk_size=chunk_size,
@@ -190,8 +212,9 @@ class LlamaCppBackend:
             model_path: Path to a local HF repo directory or GGUF file
             model_name: Name of the model to be used in the server
         """
-        if not self.check_llamacpp_installation():
-            raise RuntimeError("llama.cpp server is not installed")
+        installed, message = self.check_llamacpp_installation()
+        if not installed:
+            raise RuntimeError(message or "llama.cpp server is not installed")
         if not model_path.exists():
             raise FileNotFoundError(f"Model path not found: {model_path}")
 
@@ -282,6 +305,11 @@ class LlamaCppBackend:
             "--alias",
             model_name,
         ]
+
+        # Add GPU layers if NVIDIA GPU is available
+        if self.backend == "cuda" and self.os_name == "windows":
+            command.extend(["--gpu-layers", "auto"])
+
         try:
             logger.info(
                 "Setting up llama.cpp server for model %s at path %s",
@@ -767,6 +795,26 @@ class LlamaCppBackend:
         if arch in ("x64", "arm64"):
             return arch
         raise RuntimeError(f"Unsupported architecture: {arch}")
+
+    def _ensure_supported_macos_version(self) -> tuple[bool, str]:
+        if self.os_name != "macos":
+            return True, ""
+        macos_version = system_info.get_macos_version()
+        if macos_version is None:
+            logger.warning("Unable to determine macOS version for llama.cpp")
+            return False, "Unknown macOS version"
+
+        if macos_version < self._MIN_MACOS_VERSION:
+            current_version = ".".join(str(part) for part in macos_version)
+            min_version = ".".join(
+                str(part) for part in self._MIN_MACOS_VERSION
+            )
+            return (
+                False,
+                f"Unsupported macOS version: {current_version} "
+                f"(requires {min_version} or later)",
+            )
+        return True, ""
 
     def _resolve_backend(self) -> str:
         # On macOS and Linux, only CPU backend is supported

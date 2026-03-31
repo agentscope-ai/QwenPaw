@@ -56,49 +56,67 @@ def _file_url_to_path(url: str) -> str:
 
 logger = logging.getLogger(__name__)
 
+_SUPPORTED_IMAGE_EXTENSIONS: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+_SUPPORTED_VIDEO_EXTENSIONS: dict[str, str] = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mpeg": "video/mpeg",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".mkv": "video/x-matroska",
+}
+
 
 # TODO: remove after agentscope anthropic formatter updated
-def _format_anthropic_image_block(image_block: dict) -> dict:
-    """Format an image block for Anthropic API. If the source is a
-    URLSource pointing to a local file, it will be converted to base64
-    format.
+def _format_anthropic_media_block(block: dict) -> dict:
+    """Format an image or video block for Anthropic API.
+
+    If the source is a URLSource pointing to a local file it will be
+    converted to base64.  Web URLs are passed through as-is.
 
     Args:
-        image_block (`dict`):
-            The image block to format.
+        block (`dict`):
+            A block dict with ``type`` of ``"image"`` or ``"video"``.
 
     Returns:
-        `dict`:
-            A dictionary in Anthropic image block format.
+        `dict`: Formatted block for the Anthropic API.
 
     Raises:
         `ValueError`:
-            If the source type or image format is not supported.
+            If the source type or media format is not supported.
     """
-    support_image_extensions = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-    }
+    typ = block["type"]
+    extensions = (
+        _SUPPORTED_IMAGE_EXTENSIONS
+        if typ == "image"
+        else _SUPPORTED_VIDEO_EXTENSIONS
+    )
 
-    source = image_block["source"]
+    source = block["source"]
 
     if source["type"] == "base64":
-        return {**image_block}
+        return {**block}
 
     url = source["url"]
     raw_url = _file_url_to_path(url)
 
     if os.path.exists(raw_url) and os.path.isfile(raw_url):
         ext = os.path.splitext(raw_url)[1].lower()
-        media_type = support_image_extensions.get(ext)
+        media_type = extensions.get(ext)
         if media_type:
             with open(raw_url, "rb") as f:
-                data = base64.b64encode(f.read()).decode("utf-8")
+                data = base64.b64encode(f.read()).decode(
+                    "utf-8",
+                )
             return {
-                "type": "image",
+                "type": typ,
                 "source": {
                     "type": "base64",
                     "media_type": media_type,
@@ -109,7 +127,7 @@ def _format_anthropic_image_block(image_block: dict) -> dict:
     parsed_url = urlparse(raw_url)
     if parsed_url.scheme not in ("", "file"):
         return {
-            "type": "image",
+            "type": typ,
             "source": {
                 "type": "url",
                 "url": url,
@@ -117,20 +135,116 @@ def _format_anthropic_image_block(image_block: dict) -> dict:
         }
 
     raise ValueError(
-        f'Invalid image URL: "{url}". '
+        f'Invalid {typ} URL: "{url}". '
         "It should be a local file or a web URL.",
     )
+
+
+def _format_openai_video_block(video_block: dict) -> dict:
+    """Format a video block for OpenAI-compatible API.
+
+    Local files are converted to base64 data URLs; web URLs are
+    passed through directly.
+
+    Args:
+        video_block (`dict`):
+            The video block to format.
+
+    Returns:
+        `dict`:
+            ``{"type": "video_url", "video_url": {"url": ...}}``.
+
+    Raises:
+        `ValueError`:
+            If the source type or video format is not supported.
+    """
+    source = video_block["source"]
+    if source["type"] == "base64":
+        media_type = source["media_type"]
+        url = f"data:{media_type};base64,{source['data']}"
+    elif source["type"] == "url":
+        raw_url = source["url"].removeprefix("file://")
+        if os.path.exists(raw_url) and os.path.isfile(raw_url):
+            ext = os.path.splitext(raw_url)[1].lower()
+            media_type = _SUPPORTED_VIDEO_EXTENSIONS.get(ext)
+            if not media_type:
+                raise ValueError(
+                    f"Unsupported video extension: {ext}",
+                )
+            with open(raw_url, "rb") as f:
+                data = base64.b64encode(
+                    f.read(),
+                ).decode("utf-8")
+            url = f"data:{media_type};base64,{data}"
+        else:
+            parsed = urlparse(raw_url)
+            if parsed.scheme not in ("", "file"):
+                url = source["url"]
+            else:
+                raise ValueError(
+                    f"Invalid video URL: "
+                    f'"{source["url"]}". '
+                    "It should be a local file "
+                    "or a web URL.",
+                )
+    else:
+        raise ValueError(
+            "Unsupported video source type: " f"{source['type']}",
+        )
+
+    return {
+        "type": "video_url",
+        "video_url": {"url": url},
+    }
+
+
+def _replace_video_placeholders(
+    messages: list[dict],
+    video_subs: dict[str, dict],
+) -> None:
+    """Replace video placeholder text blocks with formatted
+    video blocks in OpenAI-formatted messages."""
+    for fmt_msg in messages:
+        content = fmt_msg.get("content")
+        if not isinstance(content, list):
+            continue
+        new_content = []
+        for item in content:
+            if (
+                isinstance(item, dict)
+                and item.get("type") == "text"
+                and item.get("text") in video_subs
+            ):
+                new_content.append(
+                    _format_openai_video_block(
+                        video_subs[item["text"]],
+                    ),
+                )
+            else:
+                new_content.append(item)
+        fmt_msg["content"] = new_content
+
+
+def _format_anthropic_output_items(output: list) -> list:
+    """Format a list of tool_result output blocks for Anthropic API,
+    converting image and video blocks as needed."""
+    return [
+        _format_anthropic_media_block(item)
+        if item.get("type") in ("image", "video")
+        else item
+        for item in output
+    ]
 
 
 # TODO: remove after agentscope anthropic formatter updated
 def _format_anthropic_messages(  # pylint: disable=too-many-branches
     msgs: list,
 ) -> list[dict]:
-    """Format messages for Anthropic API with image block support.
+    """Format messages for Anthropic API with image/video block support.
 
     This replaces the default ``AnthropicChatFormatter._format`` so that
-    ``_format_anthropic_image_block`` is applied to both top-level image
-    blocks and image blocks nested inside ``tool_result`` outputs.
+    ``_format_anthropic_media_block`` is applied to both top-level media
+    blocks and media blocks nested inside ``tool_result`` outputs.
     """
     messages: list[dict] = []
     for index, msg in enumerate(msgs):
@@ -141,9 +255,9 @@ def _format_anthropic_messages(  # pylint: disable=too-many-branches
             if typ in ["thinking", "text"]:
                 content_blocks.append({**block})
 
-            elif typ == "image":
+            elif typ in ("image", "video"):
                 content_blocks.append(
-                    _format_anthropic_image_block(block),
+                    _format_anthropic_media_block(block),
                 )
 
             elif typ == "tool_use":
@@ -163,12 +277,7 @@ def _format_anthropic_messages(  # pylint: disable=too-many-branches
                         {"type": "text", "text": None},
                     ]
                 elif isinstance(output, list):
-                    content_value = [
-                        _format_anthropic_image_block(item)
-                        if item.get("type") == "image"
-                        else item
-                        for item in output
-                    ]
+                    content_value = _format_anthropic_output_items(output)
                 else:
                     content_value = [
                         {"type": "text", "text": str(output)},
@@ -229,6 +338,114 @@ def _get_formatter_for_chat_model(
         chat_model_class,
         OpenAIChatFormatter,
     )
+
+
+def _substitute_video_blocks(
+    msgs: list,
+) -> dict[str, dict]:
+    """Replace video blocks in msgs with text placeholders.
+
+    Returns a mapping from placeholder text to the original video
+    block so they can be restored later.
+    """
+    video_subs: dict[str, dict] = {}
+    for msg in msgs:
+        if not isinstance(msg.content, list):
+            continue
+        for i, blk in enumerate(msg.content):
+            if isinstance(blk, dict) and blk.get("type") == "video":
+                ph = f"__COPAW_VID_{id(blk)}__"
+                video_subs[ph] = blk
+                msg.content[i] = {
+                    "type": "text",
+                    "text": ph,
+                }
+    return video_subs
+
+
+def _restore_video_blocks(
+    msgs: list,
+    video_subs: dict[str, dict],
+) -> None:
+    """Restore original video blocks in msgs after formatting."""
+    for msg in msgs:
+        if not isinstance(msg.content, list):
+            continue
+        for i, blk in enumerate(msg.content):
+            if (
+                isinstance(blk, dict)
+                and blk.get("type") == "text"
+                and blk.get("text") in video_subs
+            ):
+                msg.content[i] = video_subs[blk["text"]]
+
+
+def _promote_tool_result_videos(
+    msgs: list,
+    messages: list[dict],
+) -> list[dict]:
+    """Inject promoted video user messages after tool result messages.
+
+    Mirrors the image promotion that agentscope's formatter does
+    for ``promote_tool_result_images``, but for video blocks.
+    """
+    promotions: dict[str, tuple[str, list]] = {}
+    for msg in msgs:
+        for block in msg.get_content_blocks():
+            if block.get("type") != "tool_result":
+                continue
+            output = block.get("output")
+            if not isinstance(output, list):
+                continue
+            videos = [
+                (
+                    item.get("source", {}).get("url", ""),
+                    item,
+                )
+                for item in output
+                if isinstance(item, dict) and item.get("type") == "video"
+            ]
+            if videos:
+                promotions[block.get("id")] = (
+                    block.get("name", ""),
+                    videos,
+                )
+
+    if not promotions:
+        return messages
+
+    new_messages: list[dict] = []
+    for fmt_msg in messages:
+        new_messages.append(fmt_msg)
+        tcid = fmt_msg.get("tool_call_id")
+        if tcid not in promotions:
+            continue
+        tool_name, videos = promotions[tcid]
+        promoted: list[dict] = [
+            {
+                "type": "text",
+                "text": "<system-info>The following are "
+                "the video contents from the tool "
+                f"result of '{tool_name}':",
+            },
+        ]
+        for url, vid_block in videos:
+            promoted.append(
+                {
+                    "type": "text",
+                    "text": f"\n- The video from '{url}': ",
+                },
+            )
+            promoted.append(
+                _format_openai_video_block(vid_block),
+            )
+        promoted.append(
+            {"type": "text", "text": "</system-info>"},
+        )
+        new_messages.append(
+            {"role": "user", "content": promoted},
+        )
+    return new_messages
 
 
 # pylint: disable-next=too-many-statements
@@ -296,7 +513,7 @@ def _create_file_block_support_formatter(
                             source["url"] = _file_url_to_path(source["url"])
 
             # For Anthropic, fully override formatting to handle
-            # image blocks (top-level & inside tool_result output).
+            # media blocks (top-level & inside tool_result output).
             # TODO: remove after agentscope anthropic formatter updated
             if AnthropicChatFormatter is not None and issubclass(
                 base_formatter_class,
@@ -304,7 +521,39 @@ def _create_file_block_support_formatter(
             ):
                 messages = _format_anthropic_messages(msgs)
             else:
+                # Gemini handles video natively; for others
+                # (OpenAI) we inject it via placeholders.
+                _needs_video = not (
+                    GeminiChatFormatter is not None
+                    and issubclass(
+                        base_formatter_class,
+                        GeminiChatFormatter,
+                    )
+                )
+                video_subs: dict[str, dict] = {}
+                if _needs_video:
+                    video_subs = _substitute_video_blocks(
+                        msgs,
+                    )
+
                 messages = await super()._format(msgs)
+
+                if video_subs:
+                    _replace_video_placeholders(
+                        messages,
+                        video_subs,
+                    )
+                    _restore_video_blocks(msgs, video_subs)
+
+                if _needs_video and getattr(
+                    self,
+                    "promote_tool_result_images",
+                    False,
+                ):
+                    messages = _promote_tool_result_videos(
+                        msgs,
+                        messages,
+                    )
 
             if extra_contents:
                 for message in messages:
