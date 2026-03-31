@@ -1024,6 +1024,10 @@ class WecomChannel(BaseChannel):
                     "triggering reconnect",
                     ws_mgr._missed_pong_count,
                 )
+                # Schedule reconnect BEFORE _stop_heartbeat() because
+                # it cancels the current task; any await after that
+                # would raise CancelledError.
+                asyncio.ensure_future(ws_mgr._schedule_reconnect())
                 ws_mgr._stop_heartbeat()
                 if ws_mgr._ws:
                     try:
@@ -1033,9 +1037,6 @@ class WecomChannel(BaseChannel):
                             "wecom heartbeat: failed to close ws: %s",
                             close_err,
                         )
-                # Schedule reconnect in a separate task so it survives
-                # the heartbeat task cancellation above.
-                asyncio.ensure_future(ws_mgr._schedule_reconnect())
                 return
             # Normal path: delegate to original SDK implementation.
             await _original_send_heartbeat()
