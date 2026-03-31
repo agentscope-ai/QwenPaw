@@ -793,7 +793,6 @@ def _do_ensure_qa_agent() -> None:
 
     _initialize_agent_workspace(
         qa_workspace,
-        agent_config,
         skill_names=qa_skill_list,
         builtin_qa_md_seed=True,
     )

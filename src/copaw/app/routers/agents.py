@@ -23,6 +23,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.utils import copy_builtin_qa_md_files
+from ...agents.skills_manager import SkillPoolService
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 
@@ -292,7 +293,6 @@ async def create_agent(
 
     _initialize_agent_workspace(
         workspace_dir,
-        agent_config,
         skill_names=(
             request.skill_names if request.skill_names is not None else []
         ),
@@ -556,10 +556,127 @@ async def list_agent_memory(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _seed_workspace_md_files(
+    workspace_dir: Path,
+    language: str,
+    *,
+    builtin_qa_md_seed: bool,
+) -> None:
+    """Seed workspace markdown files for a new agent."""
+    if builtin_qa_md_seed:
+        try:
+            copy_builtin_qa_md_files(language, workspace_dir)
+        except Exception as e:
+            logger.warning("Failed to seed builtin QA md files: %s", e)
+        return
+
+    md_files_dir = (
+        Path(__file__).parent.parent.parent / "agents" / "md_files" / language
+    )
+    if not md_files_dir.exists():
+        return
+
+    for md_file in md_files_dir.glob("*.md"):
+        target_file = workspace_dir / md_file.name
+        if target_file.exists():
+            continue
+        try:
+            shutil.copy2(md_file, target_file)
+        except Exception as e:
+            logger.warning("Failed to copy %s: %s", md_file.name, e)
+
+
+def _ensure_heartbeat_file(workspace_dir: Path, language: str) -> None:
+    """Create the default HEARTBEAT.md if it is missing."""
+    heartbeat_file = workspace_dir / "HEARTBEAT.md"
+    if heartbeat_file.exists():
+        return
+
+    default_heartbeat_mds = {
+        "zh": """# Heartbeat checklist
+- 扫描收件箱紧急邮件
+- 查看未来 2h 的日历
+- 检查待办是否卡住
+- 若安静超过 8h，轻量 check-in
+""",
+        "en": """# Heartbeat checklist
+- Scan inbox for urgent email
+- Check calendar for next 2h
+- Check tasks for blockers
+- Light check-in if quiet for 8h
+""",
+        "ru": """# Heartbeat checklist
+- Проверить входящие на срочные письма
+- Просмотреть календарь на ближайшие 2 часа
+- Проверить задачи на наличие блокировок
+- Лёгкая проверка при отсутствии активности более 8 часов
+""",
+    }
+    heartbeat_content = default_heartbeat_mds.get(
+        language,
+        default_heartbeat_mds["en"],
+    )
+    with open(heartbeat_file, "w", encoding="utf-8") as file:
+        file.write(heartbeat_content.strip())
+
+
+def _copy_builtin_skills(workspace_dir: Path) -> None:
+    """Copy builtin skills into a new workspace when missing."""
+    builtin_skills_dir = (
+        Path(__file__).parent.parent.parent / "agents" / "skills"
+    )
+    if not builtin_skills_dir.exists():
+        return
+
+    for skill_dir in builtin_skills_dir.iterdir():
+        if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
+            continue
+        target_skill_dir = workspace_dir / "active_skills" / skill_dir.name
+        if target_skill_dir.exists():
+            continue
+        try:
+            shutil.copytree(skill_dir, target_skill_dir)
+        except Exception as e:
+            logger.warning("Failed to copy skill %s: %s", skill_dir.name, e)
+
+
+def _install_initial_skills(
+    workspace_dir: Path,
+    skill_names: list[str] | None,
+) -> None:
+    """Install requested initial skills from the skill pool."""
+    if not skill_names:
+        return
+
+    pool_service = SkillPoolService()
+    for skill_name in skill_names:
+        try:
+            result = pool_service.download_to_workspace(
+                skill_name=skill_name,
+                workspace_dir=workspace_dir,
+                overwrite=False,
+            )
+            if result.get("success"):
+                continue
+            logger.warning(
+                "Failed to install initial skill %s for %s: %s",
+                skill_name,
+                workspace_dir,
+                result.get("reason", "unknown"),
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to install initial skill %s for %s: %s",
+                skill_name,
+                workspace_dir,
+                e,
+            )
+
+
 def _initialize_agent_workspace(
     workspace_dir: Path,
-    agent_config: AgentProfileConfig,
     skill_names: list[str] | None = None,
+    builtin_qa_md_seed: bool = False,
 ) -> None:
     """Initialize agent workspace (similar to copaw init --defaults)."""
     from ...config import load_config as load_global_config
@@ -572,72 +689,14 @@ def _initialize_agent_workspace(
     config = load_global_config()
     language = config.agents.language or "zh"
 
-    md_files_dir = (
-        Path(__file__).parent.parent.parent / "agents" / "md_files" / language
+    _seed_workspace_md_files(
+        workspace_dir,
+        language,
+        builtin_qa_md_seed=builtin_qa_md_seed,
     )
-    if md_files_dir.exists():
-        for md_file in md_files_dir.glob("*.md"):
-            target_file = workspace_dir / md_file.name
-            if not target_file.exists():
-                try:
-                    shutil.copy2(md_file, target_file)
-                except Exception as e:
-                    logger.warning(f"Failed to copy {md_file.name}: {e}")
-
-    heartbeat_file = workspace_dir / "HEARTBEAT.md"
-    if not heartbeat_file.exists():
-        default_heartbeat_mds = {
-            "zh": """# Heartbeat checklist
-- 扫描收件箱紧急邮件
-- 查看未来 2h 的日历
-- 检查待办是否卡住
-- 若安静超过 8h，轻量 check-in
-""",
-            "en": """# Heartbeat checklist
-- Scan inbox for urgent email
-- Check calendar for next 2h
-- Check tasks for blockers
-- Light check-in if quiet for 8h
-""",
-            "ru": """# Heartbeat checklist
-- Проверить входящие на срочные письма
-- Просмотреть календарь на ближайшие 2 часа
-- Проверить задачи на наличие блокировок
-- Лёгкая проверка при отсутствии активности более 8 часов
-""",
-        }
-        heartbeat_content = default_heartbeat_mds.get(
-            language,
-            default_heartbeat_mds["en"],
-        )
-        with open(heartbeat_file, "w", encoding="utf-8") as file:
-            file.write(heartbeat_content.strip())
-
-    builtin_skills_dir = (
-        Path(__file__).parent.parent.parent / "agents" / "skills"
-    )
-    if builtin_skills_dir.exists():
-        for skill_dir in builtin_skills_dir.iterdir():
-            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-                target_skill_dir = (
-                    workspace_dir / "active_skills" / skill_dir.name
-                )
-                if not target_skill_dir.exists():
-                    try:
-                        shutil.copytree(skill_dir, target_skill_dir)
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to copy skill {skill_dir.name}: {e}",
-                        )
-
-    if skill_names:
-        for skill_name in skill_names:
-            try:
-                copy_builtin_qa_md_files(workspace_dir, skill_name)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to copy builtin QA files for {skill_name}: {e}",
-                )
+    _ensure_heartbeat_file(workspace_dir, language)
+    _copy_builtin_skills(workspace_dir)
+    _install_initial_skills(workspace_dir, skill_names)
 
     jobs_file = workspace_dir / "jobs.json"
     if not jobs_file.exists():
