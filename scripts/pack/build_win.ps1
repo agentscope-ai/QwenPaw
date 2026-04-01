@@ -117,6 +117,25 @@ if (Test-Path $CondaUnpack) {
       throw "CRITICAL: huggingface_hub still has import errors after reinstall. See issue.md"
     }
     Write-Host "[build_win] ✓ conda-unpack corruption fixed successfully."
+
+    # Regenerate console script .exe launchers (copaw.exe, etc.)
+    # conda-unpack cannot fix the stale Python path baked into binary
+    # .exe launchers created by pip.  Reinstalling from the wheel
+    # causes pip to regenerate them with the correct sys.executable.
+    Write-Host "[build_win] Regenerating console script launchers..."
+    $CopawWheel = Get-ChildItem -Path (Join-Path $RepoRoot $Dist) `
+      -Filter "copaw-*.whl" -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if ($CopawWheel) {
+      & $pythonExe -m pip install --force-reinstall --no-deps $CopawWheel.FullName
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARN: Failed to regenerate launchers (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
+      } else {
+        Write-Host "[build_win] ✓ Console script launchers regenerated."
+      }
+    } else {
+      Write-Host "  WARN: copaw wheel not found in $Dist, cannot regenerate launchers" -ForegroundColor Yellow
+    }
   } else {
     Write-Host "[build_win] WARN: wheels_cache not found at $WheelsCache" -ForegroundColor Yellow
     Write-Host "[build_win] WARN: Cannot fix conda-unpack corruption. App may fail to start." -ForegroundColor Yellow
@@ -244,6 +263,14 @@ batPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript
 WshShell.Run Chr(34) & batPath & Chr(34), 0, False
 Set WshShell = Nothing
 "@ | Set-Content -Path $LauncherVbs -Encoding ASCII
+
+# Create copaw.cmd wrapper in env root so "copaw" resolves to this
+# instead of Scripts\copaw.exe whose embedded Python path may be stale
+# after conda-pack/unpack.
+$CopawCmd = Join-Path $EnvRoot "copaw.cmd"
+@"
+@"%~dp0python.exe" -u -m copaw %*
+"@ | Set-Content -Path $CopawCmd -Encoding ASCII
 
 # Copy icon.ico to env root so NSIS can find it
 $IconSrc = Join-Path $PackDir "assets\icon.ico"
