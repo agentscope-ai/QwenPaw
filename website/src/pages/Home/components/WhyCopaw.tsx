@@ -149,7 +149,7 @@ export function CopawWhy() {
   return (
     <motion.section
       ref={sectionRef}
-      className="relative h-130 overflow-hidden bg-[#E77C29] px-4 py-4 text-[#ffe8d7] sm:h-[680px] md:h-[700px] md:py-0"
+      className="relative min-h-114 overflow-hidden bg-[#E77C29] px-4 py-4 text-[#ffe8d7] sm:h-[680px] md:h-[700px] md:py-0"
       variants={container}
       initial="hidden"
       whileInView="show"
@@ -163,7 +163,7 @@ export function CopawWhy() {
     >
       <div className="mx-auto flex h-full max-w-7xl flex-col items-center justify-start md:items-stretch md:justify-center">
         <motion.div
-          className="flex w-full flex-col items-center gap-4 border-b border-[rgba(255,235,220,0.35)] pb-5 md:pb-6 md:flex-row md:items-center md:justify-between"
+          className="flex w-full flex-col items-center gap-4 border-b border-[rgba(255,235,220,0.35)] pb-5 md:pb-6 mt-2 md:mt-0 md:flex-row md:items-center md:justify-between"
           variants={item}
         >
           <div className="relative pt-7 md:pt-10">
