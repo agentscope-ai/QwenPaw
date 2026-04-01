@@ -27,7 +27,7 @@ dependencies = [
     "pywebview>=4.0",
     "aiofiles>=24.1.0",
     "paho-mqtt>=2.0.0",
-    "wecom-aibot-python-sdk==1.0.2",
+    "wecom-aibot-sdk==1.0.6",
     "matrix-nio>=0.24.0",
     "shortuuid>=1.0.0",
     "google-genai>=1.67.0",
