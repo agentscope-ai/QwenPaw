@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { getStaticUrl } from "../../../api/config";
 
 const defaultConfig = {
   theme: {
@@ -19,7 +20,7 @@ const defaultConfig = {
     greeting: "Hello, how can I help you today?",
     description:
       "I am a helpful assistant that can help you with your questions.",
-    avatar: `${import.meta.env.BASE_URL}copaw-symbol.svg`,
+    avatar: getStaticUrl("copaw-symbol.svg"),
     prompts: [
       {
         value: "Let's start a new journey!",

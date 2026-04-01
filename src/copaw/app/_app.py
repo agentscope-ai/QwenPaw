@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from agentscope_runtime.engine.app import AgentApp
 
 from ..config import load_config  # pylint: disable=no-name-in-module
@@ -189,15 +189,49 @@ async def lifespan(
     migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
+    provider_manager = ProviderManager.get_instance()
+    try:
+        base_url = os.environ.get("COPAW_DEFAULT_LLM_BASE_URL", "").strip()
+        model_id = os.environ.get("COPAW_DEFAULT_LLM_MODEL", "").strip()
+        if base_url and model_id:
+            from ..config.config import load_agent_config, save_agent_config
+            from ..providers.models import ModelSlotConfig
+
+            config = load_config(get_config_path())
+            target_agent_id = config.agents.active_agent or "default"
+            agent_config = load_agent_config(target_agent_id)
+            provider_id = (
+                os.environ.get(
+                    "COPAW_DEFAULT_LLM_PROVIDER_ID",
+                    "copaw-env",
+                ).strip()
+                or "copaw-env"
+            )
+            if provider_id in provider_manager.builtin_providers:
+                provider_id = f"{provider_id}-env"
+            agent_config.active_model = ModelSlotConfig(
+                provider_id=provider_id,
+                model=model_id,
+            )
+            save_agent_config(target_agent_id, agent_config)
+            logger.info(
+                "Applied agent LLM from env: %s (%s / %s)",
+                target_agent_id,
+                provider_id,
+                model_id,
+            )
+    except Exception as e:
+        logger.warning(
+            "Failed to apply env LLM to active agent: %s",
+            e,
+        )
+
     # --- Multi-agent manager initialization ---
     logger.info("Initializing MultiAgentManager...")
     multi_agent_manager = MultiAgentManager()
 
     # Start all configured agents (handled by manager)
     await multi_agent_manager.start_all_configured_agents()
-
-    # --- Model provider manager (non-reloadable, in-memory) ---
-    provider_manager = ProviderManager.get_instance()
 
     # --- Local model manager initialization ---
     local_model_manager = LocalModelManager.get_instance()
@@ -331,11 +365,93 @@ _CONSOLE_INDEX = (
 )
 logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
 
+_BASE_PATH_ENV = "COPAW_BASE_PATH"
+
+
+def _normalize_base_path(raw: str) -> str:
+    base_path = (raw or "").strip()
+    if not base_path:
+        return ""
+    if not base_path.startswith("/"):
+        base_path = f"/{base_path}"
+    base_path = base_path.rstrip("/")
+    if base_path == "/":
+        return ""
+    return base_path
+
+
+COPAW_BASE_PATH = _normalize_base_path(os.environ.get(_BASE_PATH_ENV, ""))
+
+
+def _prefixed(path: str) -> str:
+    if not path.startswith("/"):
+        path = f"/{path}"
+    if not COPAW_BASE_PATH:
+        return path
+    return f"{COPAW_BASE_PATH}{path}"
+
+
+API_PREFIX = _prefixed("/api")
+
+
+def _rewrite_console_index(html: str, base_path: str) -> str:
+    if not base_path:
+        return html
+
+    injected = (
+        "<script>" f"window.__COPAW_BASE_PATH__ = {base_path!r};" "</script>"
+    )
+    if "</head>" in html:
+        html = html.replace("</head>", f"{injected}</head>", 1)
+    else:
+        html = f"{injected}{html}"
+
+    html = html.replace('href="/assets/', f'href="{base_path}/assets/')
+    html = html.replace('src="/assets/', f'src="{base_path}/assets/')
+    html = html.replace(
+        'href="/copaw-symbol.svg',
+        f'href="{base_path}/copaw-symbol.svg',
+    )
+    html = html.replace(
+        'src="/copaw-symbol.svg',
+        f'src="{base_path}/copaw-symbol.svg',
+    )
+    html = html.replace('href="/logo.png', f'href="{base_path}/logo.png')
+    html = html.replace('src="/logo.png', f'src="{base_path}/logo.png')
+    html = html.replace(
+        'href="/dark-logo.png',
+        f'href="{base_path}/dark-logo.png',
+    )
+    html = html.replace(
+        'src="/dark-logo.png',
+        f'src="{base_path}/dark-logo.png',
+    )
+    html = html.replace(
+        'href="/copaw-dark.png',
+        f'href="{base_path}/copaw-dark.png',
+    )
+    html = html.replace(
+        'src="/copaw-dark.png',
+        f'src="{base_path}/copaw-dark.png',
+    )
+    return html
+
+
+def _serve_console_index():
+    if not (_CONSOLE_INDEX and _CONSOLE_INDEX.exists()):
+        raise HTTPException(status_code=404, detail="Not Found")
+    if not COPAW_BASE_PATH:
+        return FileResponse(_CONSOLE_INDEX)
+    html = _CONSOLE_INDEX.read_text(encoding="utf-8")
+    return HTMLResponse(_rewrite_console_index(html, COPAW_BASE_PATH))
+
 
 @app.get("/")
 def read_root():
+    if COPAW_BASE_PATH:
+        return RedirectResponse(url=f"{COPAW_BASE_PATH}/")
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-        return FileResponse(_CONSOLE_INDEX)
+        return _serve_console_index()
     return {
         "message": (
             "CoPaw Web Console is not available. "
@@ -347,22 +463,22 @@ def read_root():
     }
 
 
-@app.get("/api/version")
+@app.get(f"{API_PREFIX}/version")
 def get_version():
     """Return the current CoPaw version."""
     return {"version": __version__}
 
 
-app.include_router(api_router, prefix="/api")
+app.include_router(api_router, prefix=API_PREFIX)
 
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()
-app.include_router(agent_scoped_router, prefix="/api")
+app.include_router(agent_scoped_router, prefix=API_PREFIX)
 
 
 app.include_router(
     agent_app.router,
-    prefix="/api/agent",
+    prefix=f"{API_PREFIX}/agent",
     tags=["agent"],
 )
 
@@ -378,34 +494,28 @@ register_custom_channel_routes(app)
 if os.path.isdir(_CONSOLE_STATIC_DIR):
     _console_path = Path(_CONSOLE_STATIC_DIR)
 
-    def _serve_console_index():
-        if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-            return FileResponse(_CONSOLE_INDEX)
-
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    @app.get("/logo.png")
+    @app.get(_prefixed("/logo.png"))
     def _console_logo():
         f = _console_path / "logo.png"
         if f.is_file():
             return FileResponse(f, media_type="image/png")
         raise HTTPException(status_code=404, detail="Not Found")
 
-    @app.get("/dark-logo.png")
+    @app.get(_prefixed("/dark-logo.png"))
     def _console_dark_logo():
         f = _console_path / "dark-logo.png"
         if f.is_file():
             return FileResponse(f, media_type="image/png")
         raise HTTPException(status_code=404, detail="Not Found")
 
-    @app.get("/copaw-symbol.svg")
+    @app.get(_prefixed("/copaw-symbol.svg"))
     def _console_icon():
         f = _console_path / "copaw-symbol.svg"
         if f.is_file():
             return FileResponse(f, media_type="image/svg+xml")
         raise HTTPException(status_code=404, detail="Not Found")
 
-    @app.get("/copaw-dark.png")
+    @app.get(_prefixed("/copaw-dark.png"))
     def _console_dark_icon():
         f = _console_path / "copaw-dark.png"
         if f.is_file():
@@ -415,14 +525,14 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
     _assets_dir = _console_path / "assets"
     if _assets_dir.is_dir():
         app.mount(
-            "/assets",
+            _prefixed("/assets"),
             StaticFiles(directory=str(_assets_dir)),
             name="assets",
         )
 
-    @app.get("/console")
-    @app.get("/console/")
-    @app.get("/console/{full_path:path}")
+    @app.get(_prefixed("/console"))
+    @app.get(_prefixed("/console/"))
+    @app.get(_prefixed("/console/{full_path:path}"))
     def _console_spa_alias(full_path: str = ""):
         _ = full_path
         return _serve_console_index()
@@ -437,4 +547,17 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         # Skip API routes (should already be matched due to registration order)
         if full_path.startswith("api/") or full_path == "api":
             raise HTTPException(status_code=404, detail="Not Found")
+        if COPAW_BASE_PATH:
+            base = COPAW_BASE_PATH.lstrip("/")
+            if full_path == base or full_path.startswith(f"{base}/api/"):
+                raise HTTPException(status_code=404, detail="Not Found")
+            if full_path.startswith(f"{base}/assets/"):
+                raise HTTPException(status_code=404, detail="Not Found")
         return _serve_console_index()
+
+
+if COPAW_BASE_PATH:
+
+    @app.api_route(COPAW_BASE_PATH, methods=["GET", "HEAD"])
+    def _base_prefix_redirect():
+        return RedirectResponse(url=f"{COPAW_BASE_PATH}/")

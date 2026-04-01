@@ -170,9 +170,11 @@ def _detect_installation() -> InstallInfo:
 
 def _probe_service(base_url: str) -> RunningServiceInfo:
     """Probe a possible running CoPaw HTTP service."""
+    from .http import normalize_api_base_url
+
     try:
         resp = httpx.get(
-            f"{base_url.rstrip('/')}/api/version",
+            f"{normalize_api_base_url(base_url)}/version",
             timeout=2.0,
             headers={"Accept": "application/json"},
             trust_env=False,

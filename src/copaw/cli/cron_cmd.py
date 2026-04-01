@@ -7,21 +7,8 @@ from typing import Optional
 
 import click
 
-from .http import client, print_json
+from .http import client, print_json, resolve_base_url
 from ..app.channels.schema import DEFAULT_CHANNEL
-
-
-def _base_url(ctx: click.Context, base_url: Optional[str]) -> str:
-    """Resolve base_url with priority:
-    1) command --base-url
-    2) global --host/--port
-        (already resolved in main.py, may come from config.json)
-    """
-    if base_url:
-        return base_url.rstrip("/")
-    host = (ctx.obj or {}).get("host", "127.0.0.1")
-    port = (ctx.obj or {}).get("port", 8088)
-    return f"http://{host}:{port}"
 
 
 @click.group("cron")
@@ -54,7 +41,7 @@ def list_jobs(
     agent_id: str,
 ) -> None:
     """List all cron jobs. Output is JSON from GET /cron/jobs."""
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.get("/cron/jobs", headers=headers)
@@ -82,7 +69,7 @@ def get_job(
     agent_id: str,
 ) -> None:
     """Fetch a cron job by ID. Returns JSON from GET /cron/jobs/<id>."""
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.get(f"/cron/jobs/{job_id}", headers=headers)
@@ -112,7 +99,7 @@ def job_state(
     agent_id: str,
 ) -> None:
     """Get the runtime state of a cron job (e.g. next run time, paused)."""
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.get(f"/cron/jobs/{job_id}/state", headers=headers)
@@ -322,7 +309,7 @@ def create_job(
         from ..config import load_config
 
         timezone = load_config().user_timezone or "UTC"
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     if file_ is not None:
         payload = json.loads(file_.read_text(encoding="utf-8"))
     else:
@@ -377,7 +364,7 @@ def delete_job(
     agent_id: str,
 ) -> None:
     """Permanently delete a cron job. The job is removed from the server."""
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.delete(f"/cron/jobs/{job_id}", headers=headers)
@@ -409,7 +396,7 @@ def pause_job(
     """Pause a cron job so it no longer runs on schedule.
     Use 'resume' to re-enable.
     """
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.post(f"/cron/jobs/{job_id}/pause", headers=headers)
@@ -439,7 +426,7 @@ def resume_job(
     agent_id: str,
 ) -> None:
     """Resume a paused cron job so it runs again on its schedule."""
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.post(f"/cron/jobs/{job_id}/resume", headers=headers)
@@ -469,7 +456,7 @@ def run_job(
     agent_id: str,
 ) -> None:
     """Trigger a one-off run of a cron job immediately (ignores schedule)."""
-    base_url = _base_url(ctx, base_url)
+    base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.post(f"/cron/jobs/{job_id}/run", headers=headers)
