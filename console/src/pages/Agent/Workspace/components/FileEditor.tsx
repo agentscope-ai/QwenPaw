@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, memo } from "react";
 import { Button, Card, Input, Switch, message } from "@agentscope-ai/design";
 
@@ -6,7 +5,6 @@ import { CopyOutlined, UndoOutlined, SaveOutlined } from "@ant-design/icons";
 import type { MarkdownFile } from "../../../../api/types";
 import { XMarkdown } from "@ant-design/x-markdown";
 import { useTranslation } from "react-i18next";
-import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../../../utils/markdown";
 import styles from "../index.module.less";
 
@@ -30,7 +28,6 @@ const FileEditorInner: React.FC<FileEditorProps> = ({
   onReset,
 }) => {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
   const [showMarkdown, setShowMarkdown] = useState(true);
 
   const isMarkdownFile = selectedFile?.filename.endsWith(".md") || false;
