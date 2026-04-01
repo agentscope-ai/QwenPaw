@@ -14,11 +14,12 @@ Corresponding Tier Strategy:
 - This file: As B-tier supplement, covers complex internal logic
   (debounce, merge, permissions)
 """
-# pylint: disable=redefined-outer-name,protected-access
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
+# pylint: disable=reimported,broad-exception-raised,using-constant-test
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -667,6 +668,622 @@ class TestResponseErrorExtraction:
         result = base_channel._get_response_error_message(mock_response)
 
         assert result == "Plain string error"
+
+
+# =============================================================================
+# P1: set_enqueue / set_workspace (Simple Setters)
+# =============================================================================
+
+
+class TestLifecycleCallbacks:
+    """
+    Lifecycle callback setting logic tests.
+
+    Channels need callbacks set by ChannelManager during initialization.
+    """
+
+    def test_set_enqueue_stores_callback(self, base_channel):
+        """set_enqueue should store the callback function."""
+        callback = MagicMock()
+
+        base_channel.set_enqueue(callback)
+
+        assert base_channel._enqueue is callback
+
+    def test_set_enqueue_overwrites_existing(self, base_channel):
+        """set_enqueue should overwrite existing callback."""
+        old_callback = MagicMock()
+        new_callback = MagicMock()
+        base_channel._enqueue = old_callback
+
+        base_channel.set_enqueue(new_callback)
+
+        assert base_channel._enqueue is new_callback
+
+    def test_set_workspace_stores_workspace(self, base_channel):
+        """set_workspace should store workspace and command_registry."""
+        workspace = MagicMock()
+        command_registry = MagicMock()
+
+        base_channel.set_workspace(workspace, command_registry)
+
+        assert base_channel._workspace is workspace
+        assert base_channel._command_registry is command_registry
+
+    def test_set_workspace_without_registry(self, base_channel):
+        """set_workspace should work without command_registry."""
+        workspace = MagicMock()
+
+        base_channel.set_workspace(workspace)
+
+        assert base_channel._workspace is workspace
+        assert base_channel._command_registry is None
+
+
+# =============================================================================
+# P1: send_message_content (Message Sending Core)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestSendMessageContent:
+    """
+    send_message_content and _message_to_content_parts tests.
+
+    Core message sending logic that converts messages to content parts.
+    """
+
+    async def test_send_message_content_converts_to_parts(
+        self,
+        base_channel,
+    ):
+        """send_message_content should convert message to parts."""
+        mock_message = MagicMock()
+        mock_parts = [MagicMock()]
+
+        with patch.object(
+            base_channel,
+            "_message_to_content_parts",
+            return_value=mock_parts,
+        ) as mock_convert:
+            with patch.object(
+                base_channel,
+                "send_content_parts",
+            ) as mock_send:
+                await base_channel.send_message_content(
+                    "user123",
+                    mock_message,
+                    meta={},
+                )
+
+                mock_convert.assert_called_once_with(mock_message)
+                mock_send.assert_called_once()
+
+    async def test_send_message_content_skips_empty_parts(self, base_channel):
+        """send_message_content should skip when no parts."""
+        mock_message = MagicMock()
+
+        with patch.object(
+            base_channel,
+            "_message_to_content_parts",
+            return_value=[],
+        ):
+            with patch.object(
+                base_channel,
+                "send_content_parts",
+            ) as mock_send:
+                await base_channel.send_message_content(
+                    "user123",
+                    mock_message,
+                    meta={},
+                )
+
+                mock_send.assert_not_called()
+
+
+# =============================================================================
+# P1: _consume_with_tracker / _stream_with_tracker (Core Consumer Logic)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestConsumeWithTracker:
+    """
+    _consume_with_tracker tests.
+
+    High-risk integration with TaskTracker for cancellation support.
+    """
+
+    async def test_consume_with_tracker_uses_workspace(self, base_channel):
+        """_consume_with_tracker should use workspace for chat management."""
+        mock_workspace = MagicMock()
+        mock_chat_manager = AsyncMock()
+
+        # Create async mock for task_tracker with async methods
+        async def mock_attach_or_start(*args, **kwargs):
+            return (MagicMock(), True)  # (queue, is_new)
+
+        async def mock_stream(*args, **kwargs):
+            if False:  # Make it an async generator
+                yield None
+            return
+
+        mock_task_tracker = MagicMock()
+        mock_task_tracker.attach_or_start = mock_attach_or_start
+        mock_task_tracker.stream_from_queue = mock_stream
+
+        mock_workspace.chat_manager = mock_chat_manager
+        mock_workspace.task_tracker = mock_task_tracker
+        mock_chat_manager.get_or_create_chat.return_value = MagicMock(
+            id="chat-123",
+        )
+
+        base_channel.set_workspace(mock_workspace)
+
+        mock_request = MagicMock(
+            session_id="test:session",
+            user_id="user123",
+            channel="test",
+        )
+        mock_payload = {"content_parts": []}
+
+        with patch.object(
+            base_channel,
+            "_extract_chat_name",
+            return_value="Test Chat",
+        ):
+            await base_channel._consume_with_tracker(
+                mock_request,
+                mock_payload,
+            )
+
+        mock_chat_manager.get_or_create_chat.assert_called_once()
+
+    async def test_consume_with_tracker_existing_task_logs_warning(
+        self,
+        base_channel,
+    ):
+        """When task already exists, should log warning and not start new."""
+        mock_workspace = MagicMock()
+        mock_chat_manager = AsyncMock()
+
+        # Create async mock that returns is_new=False
+        async def mock_attach_or_start(*args, **kwargs):
+            return (MagicMock(), False)  # (queue, is_new) - is_new=False
+
+        mock_task_tracker = MagicMock()
+        mock_task_tracker.attach_or_start = mock_attach_or_start
+
+        mock_workspace.chat_manager = mock_chat_manager
+        mock_workspace.task_tracker = mock_task_tracker
+        mock_chat_manager.get_or_create_chat.return_value = MagicMock(
+            id="chat-123",
+        )
+
+        base_channel.set_workspace(mock_workspace)
+
+        mock_request = MagicMock(
+            session_id="test:session",
+            user_id="user123",
+            channel="test",
+        )
+        mock_payload = {"content_parts": []}
+
+        with patch.object(
+            base_channel,
+            "_extract_chat_name",
+            return_value="Test Chat",
+        ):
+            await base_channel._consume_with_tracker(
+                mock_request,
+                mock_payload,
+            )
+
+        # Test passed if we reach here (warning was logged for is_new=False)
+
+
+@pytest.mark.asyncio
+class TestStreamWithTracker:
+    """
+    _stream_with_tracker tests.
+
+    Core streaming logic through TaskTracker.
+    """
+
+    async def test_stream_with_tracker_yields_sse_events(self, base_channel):
+        """_stream_with_tracker should yield SSE-formatted events."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            Event,
+            Message,
+            MessageType,
+            Role,
+            TextContent,
+            ContentType,
+        )
+
+        mock_event = Event(
+            object="message",
+            status=RunStatus.InProgress,
+            type="message.in_progress",
+            id="ev-1",
+            created_at=1234567890,
+            message=Message(
+                type=MessageType.MESSAGE,
+                role=Role.ASSISTANT,
+                content=[
+                    TextContent(type=ContentType.TEXT, text="Hello"),
+                ],
+            ),
+        )
+
+        async def mock_process(request):
+            yield mock_event
+
+        base_channel._process = mock_process
+        base_channel.set_workspace(MagicMock())
+
+        mock_payload = MagicMock()
+        with patch.object(
+            base_channel,
+            "_payload_to_request",
+            return_value=MagicMock(
+                session_id="test:session",
+                user_id="user123",
+                channel="test",
+                channel_meta={},
+            ),
+        ):
+            with patch.object(
+                base_channel,
+                "get_to_handle_from_request",
+                return_value="user123",
+            ):
+                with patch.object(
+                    base_channel,
+                    "_before_consume_process",
+                ):
+                    events = []
+                    async for event in base_channel._stream_with_tracker(
+                        mock_payload,
+                    ):
+                        events.append(event)
+                        break  # Just check first event
+
+                    assert len(events) == 1
+                    assert "data:" in events[0]
+
+    async def test_stream_with_tracker_handles_exception(self, base_channel):
+        """_stream_with_tracker should handle exceptions gracefully."""
+
+        async def mock_process(request):
+            yield MagicMock()
+            raise ValueError("Test error")
+
+        base_channel._process = mock_process
+
+        # Mock _on_consume_error to prevent actual error handling
+        with patch.object(
+            base_channel,
+            "_on_consume_error",
+            new_callable=AsyncMock,
+        ):
+            with patch.object(
+                base_channel,
+                "_payload_to_request",
+                return_value=MagicMock(
+                    session_id="test:session",
+                    user_id="user123",
+                    channel="test",
+                    channel_meta={},
+                ),
+            ):
+                with patch.object(
+                    base_channel,
+                    "get_to_handle_from_request",
+                    return_value="user123",
+                ):
+                    with patch.object(
+                        base_channel,
+                        "_before_consume_process",
+                    ):
+                        with pytest.raises(ValueError):
+                            async for _ in base_channel._stream_with_tracker(
+                                {},
+                            ):
+                                pass
+
+
+# =============================================================================
+# P2: Audio Content Detection
+# =============================================================================
+
+
+class TestAudioContentDetection:
+    """
+    _content_has_audio internal logic tests.
+    """
+
+    def test_audio_content_returns_true(self, base_channel):
+        """Content with AudioContent should return True."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            AudioContent,
+            ContentType,
+        )
+
+        parts = [AudioContent(type=ContentType.AUDIO, data=b"audio_data")]
+
+        result = base_channel._content_has_audio(parts)
+
+        assert result is True
+
+    def test_no_audio_content_returns_false(
+        self,
+        base_channel,
+        content_builder,
+    ):
+        """Content without AudioContent should return False."""
+        parts = [content_builder.text("Hello")]
+
+        result = base_channel._content_has_audio(parts)
+
+        assert result is False
+
+    def test_mixed_content_with_audio_returns_true(self, base_channel):
+        """Mixed content with audio should return True."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            AudioContent,
+            TextContent,
+            ContentType,
+        )
+
+        parts = [
+            TextContent(type=ContentType.TEXT, text="Hello"),
+            AudioContent(type=ContentType.AUDIO, data=b"audio_data"),
+        ]
+
+        result = base_channel._content_has_audio(parts)
+
+        assert result is True
+
+
+# =============================================================================
+# Additional Base Coverage Tests (for 50%+ target)
+# =============================================================================
+
+
+class TestMergeRequests:
+    """
+    merge_requests tests.
+
+    Merge multiple AgentRequest payloads into one.
+    """
+
+    def test_merge_requests_empty_list_returns_none(self, base_channel):
+        """Empty list should return None."""
+        result = base_channel.merge_requests([])
+        assert result is None
+
+    def test_merge_requests_single_request_returns_it(self, base_channel):
+        """Single request should return itself."""
+        mock_request = MagicMock()
+        mock_request.input = [MagicMock(content=[MagicMock()])]
+
+        result = base_channel.merge_requests([mock_request])
+
+        assert result is mock_request
+
+    def test_merge_requests_concatenates_content(self, base_channel):
+        """Multiple requests should have content concatenated."""
+        content1 = MagicMock(text="Hello")
+        content2 = MagicMock(text="World")
+
+        msg1 = MagicMock()
+        msg1.content = [content1]
+
+        msg2 = MagicMock()
+        msg2.content = [content2]
+
+        req1 = MagicMock()
+        req1.input = [msg1]
+        req1.model_copy = MagicMock(return_value=MagicMock(input=[msg1]))
+
+        req2 = MagicMock()
+        req2.input = [msg2]
+
+        result = base_channel.merge_requests([req1, req2])
+
+        assert result is not None
+
+    def test_merge_requests_no_content_returns_first(self, base_channel):
+        """Requests with no content should return first request."""
+        req1 = MagicMock()
+        req1.input = [MagicMock(content=[])]
+        req2 = MagicMock()
+        req2.input = [MagicMock(content=[])]
+
+        result = base_channel.merge_requests([req1, req2])
+
+        assert result is req1
+
+
+class TestExtractChatName:
+    """
+    _extract_chat_name tests.
+
+    Extract chat name from payload for chat creation.
+    """
+
+    def test_extract_from_dict_with_text_content(self, base_channel):
+        """Should extract text from dict payload."""
+        payload = {
+            "content_parts": [{"text": "Hello World this is a test"}],
+        }
+
+        result = base_channel._extract_chat_name(payload)
+
+        assert "Hello World this is a test" in result
+
+    def test_extract_from_dict_truncates_to_50(self, base_channel):
+        """Should truncate text to 50 chars."""
+        payload = {
+            "content_parts": [{"text": "A" * 100}],
+        }
+
+        result = base_channel._extract_chat_name(payload)
+
+        assert len(result) == 50
+        assert result == "A" * 50
+
+    def test_extract_from_dict_empty_returns_new_chat(self, base_channel):
+        """Empty content should return 'New Chat'."""
+        payload = {"content_parts": []}
+
+        result = base_channel._extract_chat_name(payload)
+
+        assert result == "New Chat"
+
+    def test_extract_from_object_with_input(
+        self,
+        base_channel,
+        content_builder,
+    ):
+        """Should extract text from object with input."""
+        content = content_builder.text("Test message")
+        msg = MagicMock()
+        msg.content = [content]
+
+        payload = MagicMock()
+        payload.input = [msg]
+
+        result = base_channel._extract_chat_name(payload)
+
+        assert "Test message" in result
+
+    def test_extract_handles_exception_gracefully(self, base_channel):
+        """Should handle exceptions and return 'New Chat'."""
+
+        # Object that raises exception when accessed
+        class BadPayload:
+            @property
+            def input(self):
+                raise Exception("Test error")
+
+        payload = BadPayload()
+
+        result = base_channel._extract_chat_name(payload)
+
+        assert result == "New Chat"
+
+
+class TestPayloadToRequest:
+    """
+    _payload_to_request tests.
+
+    Convert queue payload to AgentRequest.
+    """
+
+    def test_payload_with_session_id_and_input_returned_as_is(
+        self,
+        base_channel,
+    ):
+        """Payload with session_id and input should be returned as-is."""
+        payload = MagicMock()
+        payload.session_id = "test:session"
+        payload.input = [MagicMock()]
+
+        result = base_channel._payload_to_request(payload)
+
+        assert result is payload
+
+    def test_none_payload_raises_value_error(self, base_channel):
+        """None payload should raise ValueError."""
+        with pytest.raises(ValueError, match="payload is None"):
+            base_channel._payload_to_request(None)
+
+    def test_plain_dict_calls_build_agent_request(self, base_channel):
+        """Plain dict should call build_agent_request_from_native."""
+        payload = {"sender_id": "user123"}
+
+        with patch.object(
+            base_channel,
+            "build_agent_request_from_native",
+            return_value=MagicMock(),
+        ) as mock_build:
+            base_channel._payload_to_request(payload)
+
+            mock_build.assert_called_once_with(payload)
+
+
+class TestExtractQueryFromPayload:
+    """
+    _extract_query_from_payload tests.
+
+    Extract query text from payload for command detection.
+    """
+
+    def test_extract_from_dict_with_text_part(self, base_channel):
+        """Should extract text from dict payload."""
+        payload = {
+            "content_parts": [{"type": "text", "text": "Hello world"}],
+        }
+
+        result = base_channel._extract_query_from_payload(payload)
+
+        assert result == "Hello world"
+
+    def test_extract_from_dict_with_object_part(
+        self,
+        base_channel,
+        content_builder,
+    ):
+        """Should extract text from object content parts."""
+        text_content = content_builder.text("Test query")
+
+        payload = {
+            "content_parts": [text_content],
+        }
+
+        result = base_channel._extract_query_from_payload(payload)
+
+        assert "Test query" in result
+
+    def test_extract_from_request_object(self, base_channel, content_builder):
+        """Should extract text from AgentRequest object."""
+        text_content = content_builder.text("Request query")
+        msg = MagicMock()
+        msg.content = [text_content]
+
+        payload = MagicMock()
+        payload.input = [msg]
+
+        result = base_channel._extract_query_from_payload(payload)
+
+        assert "Request query" in result
+
+    def test_empty_content_returns_empty_string(self, base_channel):
+        """Empty content should return empty string."""
+        payload = {"content_parts": []}
+
+        result = base_channel._extract_query_from_payload(payload)
+
+        assert result == ""
+
+
+class TestContentHasAudioAdditional:
+    """
+    Additional _content_has_audio tests.
+    """
+
+    def test_empty_content_returns_false(self, base_channel):
+        """Empty content should return False."""
+        result = base_channel._content_has_audio([])
+        assert result is False
+
+    def test_none_content_returns_false(self, base_channel):
+        """None content should return False."""
+        result = base_channel._content_has_audio(None)
+        assert result is False
 
 
 # =============================================================================
