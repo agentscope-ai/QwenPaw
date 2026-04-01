@@ -241,8 +241,6 @@ class FeishuChannel(BaseChannel):
         # open_id -> nickname (from Contact API) for sender display
         self._nickname_cache: Dict[str, str] = {}
         self._nickname_cache_lock = asyncio.Lock()
-        # Track last sent message_id for DONE reaction
-        self._last_sent_message_id: Optional[str] = None
 
     @classmethod
     def from_env(
@@ -1690,7 +1688,8 @@ class FeishuChannel(BaseChannel):
                 )
                 if msg_id:
                     last_message_id = msg_id
-        self._last_sent_message_id = last_message_id
+        if last_message_id and meta is not None:
+            meta["_last_sent_message_id"] = last_message_id
         return last_message_id
 
     async def _on_process_completed(
@@ -1700,12 +1699,9 @@ class FeishuChannel(BaseChannel):
         send_meta: Dict[str, Any],
     ) -> None:
         """Add DONE reaction to the last sent message."""
-        if self._last_sent_message_id:
-            await self._add_reaction(
-                self._last_sent_message_id,
-                "DONE",
-            )
-            self._last_sent_message_id = None
+        last_msg_id = send_meta.get("_last_sent_message_id")
+        if last_msg_id:
+            await self._add_reaction(last_msg_id, "DONE")
 
     async def send(
         self,
