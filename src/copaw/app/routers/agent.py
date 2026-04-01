@@ -15,6 +15,7 @@ from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.utils import copy_builtin_qa_md_files, copy_md_files
 from ...constant import BUILTIN_QA_AGENT_ID
 from ..agent_context import get_agent_for_request
+from .agents import VALID_AGENT_LANGUAGES
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -197,7 +198,7 @@ async def get_agent_language(request: Request) -> dict:
     summary="Update agent language",
     description=(
         "Update the language for agent MD files (en/zh/ru). "
-        "Optionally copies MD files for the new language to agent workspace."
+        "Falls back to English if an unsupported language is provided."
     ),
 )
 async def put_agent_language(
@@ -209,17 +210,13 @@ async def put_agent_language(
 ) -> dict:
     """
     Update agent language and optionally re-copy MD files to agent workspace.
+    Falls back to English if an unsupported language is provided.
     """
     language = (body.get("language") or "").strip().lower()
-    valid = {"zh", "en", "ru"}
-    if language not in valid:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Invalid language '{language}'. "
-                f"Must be one of: {', '.join(sorted(valid))}"
-            ),
-        )
+
+    # Fallback to English if language is not supported
+    if language not in VALID_AGENT_LANGUAGES:
+        language = "en"
 
     # Get current agent's workspace
     workspace = await get_agent_for_request(request)

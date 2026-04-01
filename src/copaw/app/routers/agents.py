@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
+VALID_AGENT_LANGUAGES = {"en", "zh", "ru"}
+DEFAULT_AGENT_LANGUAGE = "en"
+
 
 class AgentSummary(BaseModel):
     """Agent summary information."""
@@ -66,6 +69,21 @@ class CreateAgentRequest(BaseModel):
             stripped = value.strip()
             return stripped if stripped else None
         return value
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def validate_language(cls, value: str | None) -> str:
+        """Validate language and fallback to default if not supported.
+
+        Agent supports: en, zh, ru (not ja)
+        If an unsupported language is provided (e.g., ja from UI),
+        fallback to English (en).
+        """
+        if isinstance(value, str):
+            language = value.strip().lower()
+            if language in VALID_AGENT_LANGUAGES:
+                return language
+        return DEFAULT_AGENT_LANGUAGE
 
 
 class MdFileInfo(BaseModel):
@@ -598,8 +616,6 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
             HEARTBEAT from the normal language pack, and **omit** BOOTSTRAP.md
             so bootstrap mode never triggers.
     """
-    from ...config import load_config as load_global_config
-
     workspace_dir = Path(workspace_dir).expanduser()
 
     # Create essential subdirectories
@@ -607,9 +623,8 @@ def _initialize_agent_workspace(  # pylint: disable=too-many-branches
     (workspace_dir / "memory").mkdir(exist_ok=True)
     (workspace_dir / "skills").mkdir(exist_ok=True)
 
-    # Get language from global config
-    config = load_global_config()
-    language = config.agents.language or "zh"
+    # Use language from agent config
+    language = agent_config.language or "en"
 
     package_agents_root = Path(__file__).parent.parent.parent / "agents"
     md_files_dir = package_agents_root / "md_files" / language

@@ -88,9 +88,11 @@ export default function AgentsPage() {
         typeof workspaceRaw === "string"
           ? workspaceRaw.trim() || undefined
           : workspaceRaw;
-      const payload = { ...values, workspace_dir };
+
+      const currentLanguage = localStorage.getItem("language") || "en";
 
       if (editingAgent) {
+        const payload = { ...values, workspace_dir };
         const newSkills = selectedSkills.filter(
           (s) => !installedSkillsRef.current.includes(s),
         );
@@ -104,7 +106,9 @@ export default function AgentsPage() {
         message.success(t("agent.updateSuccess"));
       } else {
         const result = await agentsApi.createAgent({
-          ...payload,
+          ...values,
+          workspace_dir,
+          language: currentLanguage,
           skill_names: selectedSkills,
         });
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);

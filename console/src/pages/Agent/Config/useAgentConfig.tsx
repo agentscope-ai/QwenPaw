@@ -1,12 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { useAgentStore } from "../../../stores/agentStore";
 import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 
 export function useAgentConfig() {
   const { t } = useTranslation();
+  const { selectedAgent } = useAgentStore();
   const { message } = useAppMessage();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
@@ -38,6 +40,20 @@ export function useAgentConfig() {
     }
   }, [form, t]);
 
+  // Refresh config when selectedAgent changes
+  const prevSelectedAgentRef = useRef(selectedAgent);
+  useEffect(() => {
+    // Only refresh if selectedAgent actually changed (not initial mount)
+    if (
+      prevSelectedAgentRef.current !== selectedAgent &&
+      prevSelectedAgentRef.current !== undefined
+    ) {
+      fetchConfig();
+    }
+    prevSelectedAgentRef.current = selectedAgent;
+  }, [selectedAgent, fetchConfig]);
+
+  // Fetch config on mount
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
