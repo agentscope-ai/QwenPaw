@@ -1102,6 +1102,53 @@ async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
     return {"cleared": True}
 
 
+@router.post("/batch-delete")
+async def batch_delete_skills(
+    request: Request,
+    skills: list[str],
+) -> dict[str, Any]:
+    """Auto-disable then delete each skill. Per-skill results."""
+    workspace_dir = await _request_workspace_dir(request)
+    service = SkillService(workspace_dir)
+    results: dict[str, Any] = {}
+    for skill_name in skills:
+        try:
+            service.disable_skill(skill_name)
+            deleted = service.delete_skill(skill_name)
+            results[skill_name] = {
+                "success": deleted,
+                "reason": None if deleted else "delete_failed",
+            }
+        except Exception as exc:
+            results[skill_name] = {
+                "success": False,
+                "reason": str(exc),
+            }
+    return {"results": results}
+
+
+@router.post("/pool/batch-delete")
+async def batch_delete_pool_skills(
+    skills: list[str],
+) -> dict[str, Any]:
+    """Delete multiple pool skills. Per-skill results."""
+    service = SkillPoolService()
+    results: dict[str, Any] = {}
+    for skill_name in skills:
+        try:
+            deleted = service.delete_skill(skill_name)
+            results[skill_name] = {
+                "success": deleted,
+                "reason": None if deleted else "delete_failed",
+            }
+        except Exception as exc:
+            results[skill_name] = {
+                "success": False,
+                "reason": str(exc),
+            }
+    return {"results": results}
+
+
 @router.post("/batch-disable")
 async def batch_disable_skills(
     request: Request,
@@ -1185,7 +1232,9 @@ async def delete_skill(
     skill_name: str,
 ) -> dict[str, Any]:
     workspace_dir = await _request_workspace_dir(request)
-    deleted = SkillService(workspace_dir).delete_skill(skill_name)
+    service = SkillService(workspace_dir)
+    service.disable_skill(skill_name)
+    deleted = service.delete_skill(skill_name)
     if not deleted:
         raise HTTPException(
             status_code=409,

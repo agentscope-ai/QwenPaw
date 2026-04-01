@@ -26,6 +26,11 @@ const item = {
 
 const cards = [
   {
+    key: "apps",
+    icon: "/explore-apps.svg",
+    href: "",
+  },
+  {
     key: "skills",
     icon: "/support-skills.svg",
     href: "/docs/security",
@@ -34,11 +39,6 @@ const cards = [
     key: "control",
     icon: "/under-control.svg",
     href: "/docs/multi-agent",
-  },
-  {
-    key: "apps",
-    icon: "/explore-apps.svg",
-    href: "",
   },
 ] as const;
 
@@ -59,7 +59,7 @@ export function CopawWorksForYou() {
           <motion.div variants={item}>
             <h2
               id="copaw-works-heading"
-              className="font-newsreader font-semibold text-[1.8rem] leading-[1.2] text-(--color-text) sm:text-[2rem] md:text-4xl"
+              className="font-newsreader font-semibold text-3xl leading-[1.2] text-(--color-text) sm:text-[2rem] md:text-4xl"
             >
               {t("worksForYou.title")}
             </h2>

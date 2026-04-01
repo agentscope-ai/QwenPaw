@@ -14,7 +14,8 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant,",
     "slogan": "Works for you, grows with you",
-    "sub": "Easy to install, deploy on your own machine & on the cloud; supports multiple IM Apps; with easily extensible capabilities.",
+    "sub": "v1.0.0: CoPaw custom LLMs, safety architecture, multi-agent collaboration,",
+    "sub1": "and memory management — all upgraded, all yours.",
     "releaseNote": "CoPaw v1.0.0 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start"
@@ -53,16 +54,16 @@
     "learnMore": "Learn more",
     "cards": {
       "skills": {
-        "title": "Security",
-        "desc": "Tool guard before execution, file guard on paths, skill scan before install, access control at the edge—four layers, one coherent stack."
+        "title": "Security Architecture",
+        "desc": "CoPaw 1.0 adopts a three-layer defense architecture—Tool Guard, File Guard, and Skill Scanner—to protect against runtime threats, unauthorized file access, and risky skill installations across all agent operations."
       },
       "control": {
         "title": "Multi-agent Workspaces",
-        "desc": "Multiple isolated workspaces in one process—split config and data, route each request to the right agent; scale out roles and let agents message each other when tasks need teamwork."
+        "desc": "CoPaw 1.0 enables multiple isolated agent workspaces to run concurrently within a single instance, each with independent configurations and memory, supporting asynchronous collaboration for complex multi-role tasks."
       },
       "apps": {
         "title": "CoPaw Custom Models",
-        "desc": "CoPaw-Flash, CoPaw's custom on-device small model, is now available—optimized for core CoPaw workflows with a strong balance of usability, cost efficiency, and privacy.",
+        "desc": "CoPaw 1.0 introduces the CoPaw-Flash series—purpose-built small models for local deployment that require no cloud dependency, offer one-click setup, and are specifically optimized for high-frequency tasks such as document processing, memory update, and information retrieval.",
         "learnMoreHref": "https://huggingface.co/agentscope-ai"
       },
       "memory": {

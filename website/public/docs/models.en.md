@@ -4,15 +4,11 @@ Before using CoPaw, you need to configure at least one available model. CoPaw su
 
 ![Settings Models](https://gw.alicdn.com/imgextra/i3/O1CN01MmM8iv1rcfh95wdn3_!!6000000005652-2-tps-3394-1880.png)
 
-## Provider Configuration
-
 CoPaw supports various LLM providers:
 
 - **Local Providers** (llama.cpp / Ollama / LM Studio)
 - **Cloud Providers** (usually require an API Key)
 - **Custom Providers** (if the preset local and cloud providers do not meet your needs)
-
-### Local Provider Configuration
 
 Currently supported local providers include:
 
@@ -24,11 +20,11 @@ CoPaw Local (llama.cpp) is built into CoPaw and does not require additional soft
 
 CoPaw also provides the CoPaw-Flash series for local deployment. It includes 2B, 4B, and 9B variants, with original, 4-bit, and 8-bit versions for different VRAM and performance requirements. These models are open-sourced on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models). The following sections explain how to use CoPaw-Flash with each local provider.
 
-**CoPaw Local (llama.cpp) Configuration**
+## CoPaw Local (llama.cpp) Configuration
+
+> CoPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
 
 CoPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
-
-> CoPaw Local is currently in the beta phase. There may be stability and compatibility issues on different devices. For a more stable local model experience, it is recommended to use Ollama or LM Studio in the short term.
 
 ![CoPaw Local Provider](https://gw.alicdn.com/imgextra/i4/O1CN01OAi8oN1acoLWlsm6B_!!6000000003351-2-tps-2410-1634.png)
 
@@ -50,9 +46,9 @@ When you do not need to use a model temporarily, you can click **Stop** to stop 
 
 CoPaw Local will automatically record the model's running state. If you close the CoPaw process while a CoPaw Local model is running, it will attempt to restart the last used model the next time you open CoPaw, so you do not need to start the model manually each time.
 
-**Ollama Configuration**
+## Ollama Configuration
 
-Before using Ollama, you need to [install Ollama](https://ollama.com/download) on your machine, download at least one model, and set the Context Length to at least 32k on the settings page.
+Before using Ollama, you need to install the latest version of [Ollama](https://ollama.com/download) on your machine, download at least one model, and set the Context Length to at least 32k on the settings page.
 
 ![Ollama Settings](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
 
@@ -101,9 +97,9 @@ After installing and configuring Ollama, go to the **Models** page of the CoPaw 
 
 ![Ollama Model List](https://gw.alicdn.com/imgextra/i3/O1CN01esQyTg1eSyIlpRK69_!!6000000003871-2-tps-1208-1322.png)
 
-**LM Studio Configuration**
+## LM Studio Configuration
 
-Before using LM Studio, you need to [install LM Studio](https://lmstudio.ai/download) on your machine.
+Before using LM Studio, you need to install the latest version of [LM Studio](https://lmstudio.ai/download) on your machine.
 
 By default, LM Studio does not enable the model API service. After installing LM Studio and downloading models, go to **Developer -> Local Server** to start the local model service and note the API address, which defaults to `http://localhost:1234`.
 
@@ -145,7 +141,7 @@ The subsequent process is the same as for Ollama: click **Test Connection** to v
 
 > For users deploying CoPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:1234/v1`.
 
-### Cloud Provider Configuration
+## Cloud Provider Configuration
 
 Currently supported cloud providers include:
 
@@ -178,23 +174,23 @@ If the preset models do not meet your needs, you can also click **Add Model** on
 
 ![Add Model](https://gw.alicdn.com/imgextra/i1/O1CN01FBIdEH1ud4tTIHpEZ_!!6000000006059-2-tps-1148-1342.png)
 
-### Custom Provider Configuration
+## Custom Provider Configuration
 
 If the preset cloud and local providers do not meet your needs, CoPaw also supports custom providers.
 
-#### Add Provider
+### Add Provider
 
 You can add a new provider by clicking **Add Provider** in the upper right corner of **Settings -> Models -> Providers**. When adding, you need to provide the **Provider ID** (for internal indexing in CoPaw) and **Provider Name** (for display in the UI), and select the API compatibility mode (currently supports OpenAI `chat.completions` and Anthropic `messages`). After adding, you can add models under this provider just like with cloud providers, and select the provider's models in chat and other scenarios.
 
 ![Add Provider](https://gw.alicdn.com/imgextra/i1/O1CN01UE3Vbu1hGYPWlzpps_!!6000000004250-2-tps-3394-1882.png)
 
-#### Configure Provider
+### Configure Provider
 
 After adding a provider, go to its **Settings** page to configure the API access information, including _Base URL_ and _API Key_.
 
 ![Custom Provider Settings](https://gw.alicdn.com/imgextra/i1/O1CN01naWZLN1T8OjjlOtWo_!!6000000002337-2-tps-1118-1172.png)
 
-#### Add Model
+### Add Model
 
 After configuring a custom provider, go to its **Models** page and click **Add Model**. When adding, you need to provide the **Model ID** (the identifier used by the API) and **Model Name** (for display in the UI). After adding, you can also use **Test Connection** to verify if the model is working properly.
 

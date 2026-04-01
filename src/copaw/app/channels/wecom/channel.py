@@ -937,8 +937,40 @@ class WecomChannel(BaseChannel):
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _ensure_stdio() -> None:
+        """Redirect broken stdout/stderr to devnull (Windows daemon)."""
+        for name in ("stdout", "stderr"):
+            stream = getattr(sys, name, None)
+            needs_fix = stream is None
+            if not needs_fix:
+                try:
+                    stream.write("")
+                    stream.flush()
+                except (
+                    OSError,
+                    ValueError,
+                    AttributeError,
+                    TypeError,
+                ):
+                    needs_fix = True
+            if needs_fix:
+                setattr(
+                    sys,
+                    name,
+                    open(  # noqa: SIM115  pylint: disable=consider-using-with
+                        os.devnull,
+                        "w",
+                        encoding="utf-8",
+                    ),
+                )
+
     def _run_ws_forever(self) -> None:
         """Background thread: run SDK event loop forever."""
+        # Windows daemon fix: aibot SDK logger calls print() which
+        # crashes when stdout is detached.  Ensure streams are valid.
+        self._ensure_stdio()
+
         # macOS/Python 3.12+ fix: use SelectorEventLoop explicitly
         if sys.platform == "darwin":
             ws_loop = asyncio.SelectorEventLoop()

@@ -65,6 +65,9 @@ def test_download_model_uses_reachable_source(
     downloader = ModelManager()
     captured = {}
     target_dir = tmp_path / "resolved-model-dir"
+    download_tmp_dir = tmp_path / "tmp"
+
+    downloader.__dict__["_download_tmp_dir"] = download_tmp_dir
 
     monkeypatch.setattr(
         downloader,
@@ -127,6 +130,7 @@ def test_download_model_uses_reachable_source(
     assert captured["started"] is True
     assert downloader.get_download_progress()["source"] == "modelscope"
     assert downloader.__dict__["_final_dir"] == target_dir.resolve()
+    assert downloader.__dict__["_staging_dir"].parent == download_tmp_dir
 
 
 def test_get_download_progress_returns_idle_by_default() -> None:
@@ -237,6 +241,9 @@ def test_download_model_uses_explicit_source_without_probe(
     downloader = ModelManager()
     captured = {}
     target_dir = tmp_path / "resolved-model-dir"
+    download_tmp_dir = tmp_path / "tmp"
+
+    downloader.__dict__["_download_tmp_dir"] = download_tmp_dir
 
     monkeypatch.setattr(
         downloader,
@@ -303,6 +310,7 @@ def test_download_model_uses_explicit_source_without_probe(
 
     assert captured["started"] is True
     assert downloader.get_download_progress()["source"] == "huggingface"
+    assert downloader.__dict__["_staging_dir"].parent == download_tmp_dir
 
 
 def test_get_model_dir_preserves_repo_id_path() -> None:

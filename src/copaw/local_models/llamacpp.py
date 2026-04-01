@@ -132,6 +132,8 @@ class LlamaCppBackend:
     def check_llamacpp_installability(self) -> tuple[bool, str]:
         """Check whether the current environment can install llama.cpp."""
         if self.os_name == "macos":
+            if self.arch != "arm64":
+                return False, "Only M series chips are supported."
             supported, message = self._ensure_supported_macos_version()
             if not supported:
                 return False, message
@@ -303,11 +305,9 @@ class LlamaCppBackend:
             str(resolved_model_path),
             "--alias",
             model_name,
+            "--gpu-layers",
+            "auto",
         ]
-
-        # Add GPU layers if NVIDIA GPU is available
-        if self.backend == "cuda" and self.os_name == "windows":
-            command.extend(["--gpu-layers", "auto"])
 
         try:
             logger.info(
