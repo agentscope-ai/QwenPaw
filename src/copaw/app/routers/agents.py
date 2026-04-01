@@ -23,7 +23,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.utils import copy_builtin_qa_md_files
-from ...agents.skills_manager import SkillPoolService
+from ...agents.skills_manager import SkillPoolService, get_workspace_skills_dir
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 
@@ -628,10 +628,13 @@ def _copy_builtin_skills(workspace_dir: Path) -> None:
     if not builtin_skills_dir.exists():
         return
 
+    target_skills_dir = get_workspace_skills_dir(workspace_dir)
+    target_skills_dir.mkdir(parents=True, exist_ok=True)
+
     for skill_dir in builtin_skills_dir.iterdir():
         if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
             continue
-        target_skill_dir = workspace_dir / "active_skills" / skill_dir.name
+        target_skill_dir = target_skills_dir / skill_dir.name
         if target_skill_dir.exists():
             continue
         try:
@@ -683,8 +686,7 @@ def _initialize_agent_workspace(
 
     (workspace_dir / "sessions").mkdir(exist_ok=True)
     (workspace_dir / "memory").mkdir(exist_ok=True)
-    (workspace_dir / "active_skills").mkdir(exist_ok=True)
-    (workspace_dir / "customized_skills").mkdir(exist_ok=True)
+    get_workspace_skills_dir(workspace_dir).mkdir(exist_ok=True)
 
     config = load_global_config()
     language = config.agents.language or "zh"
@@ -711,4 +713,9 @@ def _initialize_agent_workspace(
     chats_file = workspace_dir / "chats.json"
     if not chats_file.exists():
         with open(chats_file, "w", encoding="utf-8") as file:
-            json.dump([], file, ensure_ascii=False, indent=2)
+            json.dump(
+                {"version": 1, "chats": []},
+                file,
+                ensure_ascii=False,
+                indent=2,
+            )

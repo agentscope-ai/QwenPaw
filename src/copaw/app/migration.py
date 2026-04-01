@@ -704,7 +704,7 @@ def _other_agent_owns_workspace(
 def ensure_qa_agent_exists() -> None:
     """Ensure the builtin QA agent profile and workspace exist.
 
-    On **first creation** only, ``active_skills`` is seeded from
+    On **first creation** only, ``skills/`` is seeded from
     ``BUILTIN_QA_AGENT_SKILL_NAMES`` (e.g. ``guidance``,
     ``copaw_source_index``), and built-in tools are restricted (see
     ``build_qa_agent_tools_config``).

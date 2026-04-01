@@ -213,10 +213,7 @@ export function AgentTable({
                 row: SortableAgentRow,
               },
             }}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: false,
-            }}
+            pagination={false}
           />
         </SortableContext>
       </DndContext>
