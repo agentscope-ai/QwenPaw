@@ -254,6 +254,24 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 incoming_message,
             )
             is_group = conversation_type == "group"
+
+            if self._check_allowlist:
+                allowed, error_msg = self._check_allowlist(
+                    sender,
+                    is_group,
+                )
+                if not allowed:
+                    logger.info(
+                        "dingtalk allowlist blocked: sender=%s is_group=%s",
+                        sender,
+                        is_group,
+                    )
+                    self.reply_text(
+                        self._bot_prefix + (error_msg or ""),
+                        incoming_message,
+                    )
+                    return dingtalk_stream.AckMessage.STATUS_OK, "ok"
+
             is_bot_mentioned = bool(raw_data.get("isInAtList"))
 
             loop = asyncio.get_running_loop()
@@ -344,23 +362,6 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 bool(native.get("session_webhook")),
                 bool((native.get("meta") or {}).get("session_webhook")),
             )
-            if self._check_allowlist:
-                allowed, error_msg = self._check_allowlist(
-                    sender,
-                    is_group,
-                )
-                if not allowed:
-                    logger.info(
-                        "dingtalk allowlist blocked: sender=%s is_group=%s",
-                        sender,
-                        is_group,
-                    )
-                    self.reply_text(
-                        self._bot_prefix + (error_msg or ""),
-                        incoming_message,
-                    )
-                    return dingtalk_stream.AckMessage.STATUS_OK, "ok"
-
             logger.info("recv from=%s text=%s", sender, text[:100])
             self._emit_native_threadsafe(native)
 
