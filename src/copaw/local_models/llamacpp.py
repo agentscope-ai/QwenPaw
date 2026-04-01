@@ -303,11 +303,9 @@ class LlamaCppBackend:
             str(resolved_model_path),
             "--alias",
             model_name,
+            "--gpu-layers",
+            "auto",
         ]
-
-        # Add GPU layers if NVIDIA GPU is available
-        if self.backend == "cuda" and self.os_name == "windows":
-            command.extend(["--gpu-layers", "auto"])
 
         try:
             logger.info(

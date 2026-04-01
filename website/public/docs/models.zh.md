@@ -4,7 +4,6 @@
 
 ![设置模型](https://gw.alicdn.com/imgextra/i3/O1CN01MmM8iv1rcfh95wdn3_!!6000000005652-2-tps-3394-1880.png)
 
-## 提供商配置
 
 CoPaw 支持多种 LLM 提供商：
 
@@ -12,7 +11,6 @@ CoPaw 支持多种 LLM 提供商：
 - **云提供商**（一般需要 API Key）
 - **自定义提供商**（如果预设的本地和云提供商无法满足您的需求）
 
-### 本地供应商配置
 
 CoPaw 当前支持的本地供应商包括：
 
@@ -24,7 +22,7 @@ CoPaw 当前支持的本地供应商包括：
 
 CoPaw 官方还提供了适合本地部署的 CoPaw-Flash 系列模型，包含 2B、4B 和 9B 三个版本；除原始模型外，还提供 4 bit 和 8 bit 量化版本，适合不同的显存环境和性能需求。这些模型已经在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 和 [Hugging Face](https://huggingface.co/agentscope-ai/models) 上开源，下面分别介绍如何在三种本地供应商中使用 CoPaw-Flash。
 
-#### CoPaw Local (llama.cpp) 配置
+## CoPaw Local (llama.cpp) 配置
 
 CoPaw Local 是基于 llama.cpp 的本地模型提供商，可以进入 **模型** 界面进行配置和管理。
 
@@ -50,9 +48,9 @@ CoPaw 团队专门训练了一系列适合本地部署的小模型（CoPaw-Flash
 
 CoPaw Local 会自动记录模型启动状态，如果您在关闭 CoPaw 进程时，CoPaw Local 模型正在运行，下次打开时会自动尝试重新启动上次使用的模型，从而无需每次启动 CoPaw 后都手动启动模型。
 
-#### Ollama 配置
+## Ollama 配置
 
-在使用 Ollama 之前，您需要先在机器上[安装 Ollama](https://ollama.com/download)，至少下载一个模型，并且在设置页面中将 Context Length 设置为至少 32k。
+在使用 Ollama 之前，您需要先在机器上安装最新版 [Ollama](https://ollama.com/download)，至少下载一个模型，并且在设置页面中将 Context Length 设置为至少 32k。
 
 ![Ollama 设置](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
 
@@ -101,9 +99,9 @@ Ollama 安装配置完成后，可以进入 CoPaw Ollama 提供商的 **模型**
 
 ![Ollama 模型列表](https://gw.alicdn.com/imgextra/i3/O1CN01esQyTg1eSyIlpRK69_!!6000000003871-2-tps-1208-1322.png)
 
-#### LM Studio 配置
+## LM Studio 配置
 
-在使用 LM Studio 之前，您需要先在机器上[安装 LM Studio](https://lmstudio.ai/download)。
+在使用 LM Studio 之前，您需要先在机器上安装最新版 [LM Studio](https://lmstudio.ai/download)。
 
 LM Studio 默认不会开启模型 API 服务，因此在 LM Studio 安装完成并下载模型后，您需要进入 **Developer -> Local Server** 页面，启动本地模型服务，并记录下 API 地址，默认为 `http://localhost:1234`。
 
@@ -145,7 +143,7 @@ lms import /path/to/your/copaw-xxx.gguf -c -y --user-repo AgentScope/CoPaw-Flash
 
 > 对于将 CoPaw 部署在 Docker 容器中的用户，如果 LM Studio 安装在宿主机上，请确保 Docker 的网络配置允许容器访问宿主机的 LM Studio 服务（在 `docker run` 命令中添加 `--add-host=host.docker.internal:host-gateway`），并将 API 地址设置为 `http://host.docker.internal:1234/v1` 来实现连接。
 
-### 云提供商配置
+## 云提供商配置
 
 CoPaw 当前支持的云提供商包括：
 
@@ -178,23 +176,23 @@ CoPaw 当前支持的云提供商包括：
 
 ![添加模型](https://gw.alicdn.com/imgextra/i1/O1CN01FBIdEH1ud4tTIHpEZ_!!6000000006059-2-tps-1148-1342.png)
 
-### 自定义供应商配置
+## 自定义供应商配置
 
 如果预设的云提供商和本地提供商都无法满足需求，CoPaw 还支持用户自定义提供商。
 
-#### 添加提供商
+### 添加提供商
 
 您可以使用 **设置 -> 模型 -> 提供商** 右上角的 **添加提供商** 来添加一个新的提供商，添加时需要提供 **提供商 ID**（用于 CoPaw 内部索引）以及 **提供商名称** （用于在界面中展示），并选择该供应商的 API 兼容模式（目前支持 OpenAI `chat.completions` 以及 Anthropic `messages` 两种）。添加完成后您可以像云提供商一样在该提供商下添加模型，并且在聊天等场景中选择使用该提供商的模型。
 
 ![添加提供商](https://gw.alicdn.com/imgextra/i1/O1CN01UE3Vbu1hGYPWlzpps_!!6000000004250-2-tps-3394-1882.png)
 
-#### 配置供应商
+### 配置供应商
 
 供应商添加完成后，您可以进入该供应商的 **设置** 页面来配置该供应商的 API 访问信息，包括 _基础 URL_ 以及 _API 秘钥_ 。
 
 ![自定义供应商设置](https://gw.alicdn.com/imgextra/i1/O1CN01UE3Vbu1hGYPWlzpps_!!6000000004250-2-tps-3394-1882.png)
 
-#### 添加模型
+### 添加模型
 
 自定义供应商配置完成后，您可以进入该供应商的 **模型** 页面，点击 **添加模型** 来添加模型，添加时需要提供 **模型 ID**（API 实际使用的模型标识）以及 **模型名称** （用于在界面中展示）。添加完成后同样可以通过 **测试连接** 来验证是否能够正常使用。
 

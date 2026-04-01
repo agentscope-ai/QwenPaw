@@ -16,6 +16,7 @@ from queue import Empty
 from typing import Any, Optional
 from enum import Enum
 
+import traceback
 import httpx
 from pydantic import Field
 
@@ -431,6 +432,11 @@ class ModelManager:
                     status=DownloadTaskStatus.FAILED,
                     error="Download failed: " + str(exc),
                 ).to_dict(),
+            )
+            logger.error(
+                "Error when downloading model [%s]:\n%s",
+                repo_id,
+                traceback.format_exc(),
             )
             raise
 
