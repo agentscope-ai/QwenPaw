@@ -1629,6 +1629,17 @@ class DingTalkChannel(BaseChannel):
         ):
             self._reply_sync(pm, SENT_VIA_WEBHOOK)
 
+    def _resolve_to_handle(self, request: Any) -> str:
+        """Resolve target handle from request using session-aware logic."""
+        user_id = getattr(request, "user_id", "") or ""
+        sid = getattr(request, "session_id", "") or ""
+        if sid:
+            return self.to_handle_from_target(
+                user_id=user_id,
+                session_id=sid,
+            )
+        return user_id
+
     async def _run_process_loop(
         self,
         request: Any,
@@ -1935,19 +1946,10 @@ class DingTalkChannel(BaseChannel):
         if bot_prefix and "bot_prefix" not in send_meta:
             send_meta = {**send_meta, "bot_prefix": bot_prefix}
 
-        # Resolve handle using session-aware logic
-        sender_id = getattr(request, "user_id", "") or ""
-        sid = getattr(request, "session_id", "") or ""
-        to_handle = (
-            self.to_handle_from_target(
-                user_id=sender_id,
-                session_id=sid,
-            )
-            if sid
-            else sender_id
-        )
+        to_handle = self._resolve_to_handle(request)
 
         # Allowlist / mention checks
+        sender_id = getattr(request, "user_id", "") or ""
         is_group = bool(send_meta.get("is_group", False))
         allowed, error_msg = self._check_allowlist(
             sender_id,
@@ -1959,17 +1961,23 @@ class DingTalkChannel(BaseChannel):
                 sender_id,
                 is_group,
             )
+            deny_text = bot_prefix + (error_msg or "")
             sw = self._get_session_webhook(send_meta)
             if sw:
                 await self._send_via_session_webhook(
                     sw,
-                    bot_prefix + (error_msg or ""),
+                    deny_text,
                     bot_prefix="",
                 )
-            self._reply_sync_batch(
-                send_meta,
-                bot_prefix + (error_msg or ""),
-            )
+                self._reply_sync_batch(
+                    send_meta,
+                    SENT_VIA_WEBHOOK,
+                )
+            else:
+                self._reply_sync_batch(
+                    send_meta,
+                    deny_text,
+                )
             return
 
         if not self._check_group_mention(is_group, send_meta):
@@ -2048,16 +2056,7 @@ class DingTalkChannel(BaseChannel):
         """
         meta = getattr(request, "channel_meta", None) or {}
         reply_meta = reply_meta or meta
-
-        sid = getattr(request, "session_id", "") or ""
-        to_handle = (
-            self.to_handle_from_target(
-                user_id=request.user_id or "",
-                session_id=sid,
-            )
-            if sid
-            else (request.user_id or "")
-        )
+        to_handle = self._resolve_to_handle(request)
 
         async for _event in self._process_dingtalk_core(
             request,
