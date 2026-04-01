@@ -1,4 +1,4 @@
-import { Select, message, Tag, Tooltip } from "antd";
+import { Select, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
 import { Bot, CheckCircle, EyeOff, ChevronRight } from "lucide-react";
 import { SparkDownLine, SparkUpLine } from "@agentscope-ai/icons";
@@ -7,6 +7,7 @@ import { agentsApi } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useNavigate } from "react-router-dom";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 interface AgentSelectorProps {
@@ -20,6 +21,7 @@ export default function AgentSelector({
   const navigate = useNavigate();
   const { selectedAgent, agents, setSelectedAgent, setAgents } =
     useAgentStore();
+  const { message } = useAppMessage();
   const [loading, setLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
@@ -58,10 +60,18 @@ export default function AgentSelector({
     message.success(t("agent.switchSuccess"));
   };
 
-  // Check if current agent is disabled, auto-switch to default
+  // Auto-switch to default if the selected agent was deleted or disabled
   useEffect(() => {
-    const currentAgent = agents?.find((a) => a.id === selectedAgent);
-    if (currentAgent && !currentAgent.enabled) {
+    if (!agents?.length || selectedAgent === "default") return;
+
+    const currentAgent = agents.find((a) => a.id === selectedAgent);
+
+    if (!currentAgent) {
+      // Agent was deleted — no longer in the list
+      setSelectedAgent("default");
+      message.warning(t("agent.currentAgentDeleted"));
+    } else if (!currentAgent.enabled) {
+      // Agent exists but was disabled
       setSelectedAgent("default");
       message.warning(t("agent.currentAgentDisabled"));
     }

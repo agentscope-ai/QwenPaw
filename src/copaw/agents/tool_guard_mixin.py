@@ -107,7 +107,9 @@ class ToolGuardMixin:
                     return True
         return False
 
-    def _pop_forced_tool_call(self) -> dict[str, Any] | None:
+    def _pop_forced_tool_call(  # pylint: disable=too-many-branches
+        self,
+    ) -> dict[str, Any] | None:
         """Pop and validate a forced tool call injected by the runner."""
         raw = self._request_context.pop("forced_tool_call_json", "")
         if not raw:
@@ -148,6 +150,7 @@ class ToolGuardMixin:
 
         siblings = tool_call.pop("_sibling_tool_calls", None)
         remaining = tool_call.pop("_remaining_queue", None)
+        thinking_blocks = tool_call.pop("_thinking_blocks", None)
 
         if remaining is not None and isinstance(remaining, list):
             self._tool_guard_replay_queue = remaining
@@ -164,11 +167,17 @@ class ToolGuardMixin:
         else:
             self._tool_guard_replay_queue = []
 
-        return {
+        result = {
             "id": tool_id,
             "name": tool_name,
             "input": tool_input,
         }
+
+        # Preserve thinking blocks for models that require reasoning_content
+        if thinking_blocks is not None and isinstance(thinking_blocks, list):
+            result["_thinking_blocks"] = thinking_blocks
+
+        return result
 
     async def _get_pending_info_for_display(self) -> dict[str, Any]:
         """Return pending tool info aligned with approval queue head."""
@@ -494,13 +503,26 @@ class ToolGuardMixin:
 
         channel = str(self._request_context.get("channel") or "")
 
+        # Find the original assistant message and extract thinking blocks
+        original_msg = None
         for msg, marks in reversed(self.memory.content):
             if msg.role == "assistant":
                 if TOOL_GUARD_DENIED_MARK not in marks:
                     marks.append(TOOL_GUARD_DENIED_MARK)
+                original_msg = msg
                 break
 
         extra: dict[str, Any] = {"tool_call": tool_call}
+
+        # Preserve thinking blocks from the original message
+        if original_msg is not None:
+            thinking_blocks = [
+                b
+                for b in original_msg.get_content_blocks()
+                if isinstance(b, dict) and b.get("type") == "thinking"
+            ]
+            if thinking_blocks:
+                extra["thinking_blocks"] = thinking_blocks
 
         replay_queue = getattr(self, "_tool_guard_replay_queue", None)
         if replay_queue is not None:
@@ -702,16 +724,33 @@ class ToolGuardMixin:
             from agentscope.message import ToolUseBlock
 
             self._tool_guard_forced_replay_active = True
+
+            # Extract thinking blocks if present
+            thinking_blocks = forced_tool_call.pop("_thinking_blocks", None)
+
+            # Build content blocks
+            content_blocks = []
+
+            # Add thinking blocks first (if present)
+            if thinking_blocks is not None and isinstance(
+                thinking_blocks,
+                list,
+            ):
+                content_blocks.extend(thinking_blocks)
+
+            # Add tool use block
+            content_blocks.append(
+                ToolUseBlock(
+                    type="tool_use",
+                    id=forced_tool_call["id"],
+                    name=forced_tool_call["name"],
+                    input=forced_tool_call["input"],
+                ),
+            )
+
             msg = Msg(
                 self.name,
-                [
-                    ToolUseBlock(
-                        type="tool_use",
-                        id=forced_tool_call["id"],
-                        name=forced_tool_call["name"],
-                        input=forced_tool_call["input"],
-                    ),
-                ],
+                content_blocks,
                 "assistant",
             )
             await self.print(msg, True)

@@ -173,6 +173,11 @@ class AgentRunner(Runner):
                     remaining = record.extra.get("remaining_queue")
                     if isinstance(remaining, list):
                         approved_tool_call["_remaining_queue"] = remaining
+                    thinking_blocks = record.extra.get("thinking_blocks")
+                    if isinstance(thinking_blocks, list):
+                        approved_tool_call[
+                            "_thinking_blocks"
+                        ] = thinking_blocks
             return None, True, approved_tool_call
 
         await svc.resolve_request(

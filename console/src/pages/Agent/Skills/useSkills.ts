@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { message, Modal } from "@agentscope-ai/design";
+import { Modal } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { invalidateSkillCache } from "../../../api/modules/skill";
@@ -26,6 +27,7 @@ export function useSkills() {
   const [importing, setImporting] = useState(false);
   const importTaskIdRef = useRef<string | null>(null);
   const importCancelReasonRef = useRef<"manual" | "timeout" | null>(null);
+  const { message } = useAppMessage();
 
   const handleError = useCallback(
     (error: unknown, defaultMsg: string): boolean => {
@@ -58,6 +60,20 @@ export function useSkills() {
     } catch (error) {
       console.error("Failed to load skills", error);
       message.error("Failed to load skills");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedAgent]);
+
+  const hardRefresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      invalidateSkillCache({ agentId: selectedAgent });
+      const data = await api.refreshSkills(selectedAgent);
+      setSkills(data || []);
+    } catch (error) {
+      console.error("Failed to refresh skills", error);
+      message.error("Failed to refresh skills");
     } finally {
       setLoading(false);
     }
@@ -262,11 +278,11 @@ export function useSkills() {
   const deleteSkill = async (skill: SkillSpec) => {
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
-        title: "Confirm Delete",
-        content: `Are you sure you want to delete skill "${skill.name}"?`,
-        okText: "Delete",
+        title: t("common.confirm"),
+        content: t("skills.deleteConfirm"),
+        okText: t("common.delete"),
         okType: "danger",
-        cancelText: "Cancel",
+        cancelText: t("common.cancel"),
         onOk: () => resolve(true),
         onCancel: () => resolve(false),
       });
@@ -277,14 +293,14 @@ export function useSkills() {
     try {
       const result = await api.deleteSkill(skill.name);
       if (result.deleted) {
-        message.success("Deleted successfully");
+        message.success(t("skills.deleteSuccess"));
         invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
         await fetchSkills();
         return true;
       }
     } catch (error) {
       console.error("Failed to delete skill", error);
-      message.error("Failed to delete skill");
+      message.error(t("skills.deleteFailed"));
     }
     return false;
   };
@@ -301,5 +317,6 @@ export function useSkills() {
     toggleEnabled,
     deleteSkill,
     refreshSkills: fetchSkills,
+    hardRefresh,
   };
 }

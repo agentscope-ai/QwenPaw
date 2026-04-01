@@ -1100,7 +1100,8 @@ class ProviderManager:
         if model_id is None:
             return
 
-        if not local_manager.check_llamacpp_installation():
+        installed, _ = local_manager.check_llamacpp_installation()
+        if not installed:
             logger.info(
                 "Skipping local model restore because llama.cpp is not "
                 "installed.",

@@ -6,6 +6,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 /* ─── Header ──────────────────────────────────────────────────────────────── */
@@ -17,6 +18,13 @@
   padding: 20px;
   border-bottom: 1px solid #eae9e7;
   flex-shrink: 0;
+}
+
+/* ─── Scrollable Content ─────────────────────────────────────────────────── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .breadcrumbHeader {

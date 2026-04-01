@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
-import { Card, Button, Form, message } from "antd";
+import { Card, Button, Form } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
@@ -20,6 +21,7 @@ export default function AgentsPage() {
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const installedSkillsRef = useRef<string[]>([]);
+  const { message } = useAppMessage();
 
   const handleCreate = () => {
     setEditingAgent(null);
@@ -47,6 +49,12 @@ export default function AgentsPage() {
   const handleDelete = async (agentId: string) => {
     try {
       await deleteAgent(agentId);
+
+      // If deleting the currently selected agent, fall back to default
+      if (selectedAgent === agentId) {
+        setSelectedAgent("default");
+        message.info(t("agent.switchedToDefault"));
+      }
     } catch {
       // Error already handled in hook
       message.error(t("agent.deleteFailed"));

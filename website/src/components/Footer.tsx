@@ -72,7 +72,7 @@ export function Footer() {
                 <img
                   height={20}
                   width={20}
-                  src="/channelsIcon//DingTalk.png"
+                  src="https://img.alicdn.com/imgextra/i1/O1CN01w5mzV01tFtE37wkJI_!!6000000005873-2-tps-48-48.png"
                   className="block h-6 w-6"
                   style={{
                     filter:

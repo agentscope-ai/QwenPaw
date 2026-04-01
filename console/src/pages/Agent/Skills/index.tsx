@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Form, Tooltip, message } from "@agentscope-ai/design";
+import { Button, Form, Modal, Tooltip } from "@agentscope-ai/design";
 import {
   DownloadOutlined,
   ImportOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SwapOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
@@ -19,6 +20,7 @@ import {
 import { useSkills } from "./useSkills";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import { parseErrorDetail } from "../../../utils/error";
@@ -27,6 +29,7 @@ import styles from "./index.module.less";
 
 function SkillsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
   const {
     skills,
@@ -40,6 +43,7 @@ function SkillsPage() {
     toggleEnabled,
     deleteSkill,
     refreshSkills,
+    hardRefresh,
   } = useSkills();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -310,11 +314,15 @@ function SkillsPage() {
     }
   };
 
-  const handleDownloadFromPool = async (poolSkillNames: string[]) => {
+  const handleDownloadFromPool = async (
+    poolSkillNames: string[],
+    overwrite?: boolean,
+  ) => {
     if (poolSkillNames.length === 0) return;
     try {
       for (const skillName of poolSkillNames) {
         let targetName: string | undefined;
+        let shouldOverwrite = overwrite;
         while (true) {
           try {
             await api.downloadSkillPoolSkill({
@@ -325,11 +333,27 @@ function SkillsPage() {
                   target_name: targetName,
                 },
               ],
+              overwrite: shouldOverwrite,
             });
             break;
           } catch (error) {
             const detail = parseErrorDetail(error);
             const conflict = detail?.conflicts?.[0];
+            if (conflict?.reason === "builtin_upgrade") {
+              const confirmed = await new Promise<boolean>((resolve) => {
+                Modal.confirm({
+                  title: t("skills.builtinUpgradeTitle"),
+                  content: t("skills.builtinUpgradeContent", {
+                    name: conflict.skill_name || skillName,
+                  }),
+                  onOk: () => resolve(true),
+                  onCancel: () => resolve(false),
+                });
+              });
+              if (!confirmed) return;
+              shouldOverwrite = true;
+              continue;
+            }
             if (!conflict?.suggested_name) throw error;
             const renameMap = await showConflictRenameModal([
               {
@@ -370,6 +394,14 @@ function SkillsPage() {
               style={{ display: "none" }}
             />
             <div className={styles.headerActionsLeft}>
+              <Tooltip title={t("skills.refreshHint")}>
+                <Button
+                  type="default"
+                  icon={<ReloadOutlined spin={loading} />}
+                  onClick={hardRefresh}
+                  disabled={loading}
+                />
+              </Tooltip>
               <Tooltip title={t("skills.downloadFromPoolHint")}>
                 <Button
                   type="default"

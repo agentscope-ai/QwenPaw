@@ -13,9 +13,13 @@ class _FakeLlamaCppBackend:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object | None]] = []
 
-    def check_llamacpp_installation(self) -> bool:
+    def check_llamacpp_installability(self) -> tuple[bool, str]:
+        self.calls.append(("installability", None))
+        return True, ""
+
+    def check_llamacpp_installation(self) -> tuple[bool, str]:
         self.calls.append(("check", None))
-        return True
+        return True, ""
 
     def download(self) -> None:
         self.calls.append(("download", None))
@@ -84,7 +88,8 @@ def test_local_model_manager_forwards_sync_calls() -> None:
         llamacpp_backend=fake_llamacpp_backend,
     )
 
-    assert manager.check_llamacpp_installation() is True
+    assert manager.check_llamacpp_installability() == (True, "")
+    assert manager.check_llamacpp_installation() == (True, "")
     manager.start_llamacpp_download()
     assert manager.get_llamacpp_download_progress() == {
         "status": "downloading",
@@ -103,6 +108,7 @@ def test_local_model_manager_forwards_sync_calls() -> None:
     manager.remove_downloaded_model("downloaded-model")
 
     assert fake_llamacpp_backend.calls == [
+        ("installability", None),
         ("check", None),
         ("download", None),
         ("progress", None),

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, message, Table } from "@agentscope-ai/design";
+import { Button, Card, Table } from "@agentscope-ai/design";
 import type { ColumnsType } from "antd/es/table";
 import { DatePicker } from "antd";
 import { useTranslation } from "react-i18next";
@@ -12,6 +12,7 @@ import type {
 import { formatCompact } from "../../../utils/formatNumber";
 import { LoadingState, EmptyState } from "./components";
 import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 type ByModelRow = TokenUsageStats & { key: string };
@@ -19,6 +20,7 @@ type ByDateRow = TokenUsageStats & { key: string; date: string };
 
 function TokenUsagePage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TokenUsageSummary | null>(null);

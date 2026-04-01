@@ -220,6 +220,99 @@ agent.
 You can also use `copaw models` for setup, downloads, and switching. See
 [CLI → Models and environment variables → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
 
+### How to use CoPaw-Flash series models
+
+CoPaw-Flash is a family of models tuned by the CoPaw team for CoPaw's core
+usage scenarios. It comes in 2B, 4B, and 9B sizes. In addition to the original
+models, each version also provides 4-bit and 8-bit quantized variants to suit
+different VRAM budgets and performance needs.
+
+CoPaw-Flash models are currently open-sourced on
+[ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and
+[Hugging Face](https://huggingface.co/agentscope-ai/models), and can be
+downloaded directly from either platform.
+
+All built-in local providers in CoPaw can be used with CoPaw-Flash models:
+
+#### CoPaw Local (llama.cpp)
+
+In the CoPaw Local model interface, simply choose a CoPaw-Flash model to
+download and start it.
+
+![Start Model](https://gw.alicdn.com/imgextra/i1/O1CN01NSNFUN1I21RynZwGy_!!6000000000834-2-tps-1224-1194.png)
+
+> CoPaw Local is still in beta. Compatibility across different devices and
+> runtime stability are still being improved. If you run into issues while
+> using it, please open an issue on GitHub.
+> If CoPaw Local does not work properly in your environment, we recommend
+> deploying CoPaw-Flash with Ollama or LM Studio first.
+
+#### Ollama
+
+1. Download a quantized CoPaw-Flash model from
+   [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model)
+   or [Hugging Face](https://huggingface.co/agentscope-ai/models). These model
+   variants use suffixes such as `Q8_0` or `Q4_K_M`, for example
+   [CoPaw-Flash-4B-Q4_K_M](https://www.modelscope.cn/models/AgentScope/CoPaw-Flash-4B-Q4_K_M).
+
+   - Download with ModelScope CLI:
+
+     ```bash
+     modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M README.md --local_dir ./dir
+     ```
+
+   - Download with Hugging Face CLI:
+
+     ```bash
+     hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+     ```
+
+1. Download and install Ollama from the [official site](https://ollama.com/download),
+   then start it.
+
+1. Import the downloaded model into Ollama with the `ollama create` command:
+
+Create a text file named `copaw-flash.txt` with the following contents. Replace
+`/path/to/your/copaw-xxx.gguf` with the absolute path to the `.gguf` file in
+the CoPaw-Flash model repository you downloaded:
+
+```text
+FROM /path/to/your/copaw-xxx.gguf
+TEMPLATE {{ .Prompt }}
+RENDERER qwen3.5
+PARSER qwen3.5
+PARAMETER presence_penalty 1.5
+PARAMETER temperature 1
+PARAMETER top_k 20
+PARAMETER top_p 0.95
+```
+
+Then run the following command in your terminal:
+
+```bash
+ollama create copaw-flash -f copaw-flash.txt
+```
+
+1. In CoPaw model settings, choose the Ollama provider, then automatically load
+   the model on the Models page.
+
+#### LM Studio
+
+1. Follow step 1 in the Ollama section above to download an appropriate
+   quantized CoPaw-Flash model.
+
+1. Download and install LM Studio from the [official site](https://lmstudio.ai/),
+   then start it.
+
+1. Import the downloaded model into LM Studio with the following command:
+
+```bash
+lms import /path/to/your/copaw-xxx.gguf -c -y --user-repo AgentScope/CoPaw-Flash
+```
+
+1. In CoPaw model settings, choose the LM Studio provider, then automatically
+   load the model on the Models page.
+
 ### When using models deployed with Ollama / LM Studio, why can't CoPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?
 
 In most cases, this is not a CoPaw bug. The root cause is usually that the

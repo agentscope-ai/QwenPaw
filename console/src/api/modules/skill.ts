@@ -142,6 +142,23 @@ export const skillApi = {
     return data;
   },
 
+  refreshSkills: async (agentId?: string) => {
+    const opts: RequestInit = { method: "POST" };
+    if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
+    const data = await request<SkillSpec[]>("/skills/refresh", opts);
+    const cacheKey = `/skills${agentId ? `?agent=${agentId}` : ""}`;
+    setCache(cacheKey, data);
+    return data;
+  },
+
+  refreshSkillPool: async () => {
+    const data = await request<PoolSkillSpec[]>("/skills/pool/refresh", {
+      method: "POST",
+    });
+    setCache("/skills/pool", data);
+    return data;
+  },
+
   searchHubSkills: (q: string, limit: number = 20) =>
     request<HubSkillSpec[]>(
       `/skills/hub/search?q=${encodeURIComponent(q)}&limit=${limit}`,

@@ -5,18 +5,20 @@ import {
   Input,
   Modal,
   Tooltip,
-  message,
   Drawer,
   Form,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   ImportOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SendOutlined,
   SyncOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
+import dayjs from "dayjs";
 import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
@@ -65,6 +67,7 @@ function SkillPoolPage() {
   const [importing, setImporting] = useState(false);
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
+  const { message } = useAppMessage();
 
   // Form state for create/edit drawer
   const [form] = Form.useForm();
@@ -90,6 +93,26 @@ function SkillPoolPage() {
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : "Failed to load skill pool",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      invalidateSkillCache({ pool: true, workspaces: true });
+      const [poolSkills, workspaceSummaries] = await Promise.all([
+        api.refreshSkillPool(),
+        api.listSkillWorkspaces(),
+      ]);
+      setSkills(poolSkills);
+      setWorkspaces(workspaceSummaries);
+      dataLoadedRef.current = true;
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : "Failed to refresh",
       );
     } finally {
       setLoading(false);
@@ -221,54 +244,104 @@ function SkillPoolPage() {
               throw error;
             }
 
-            const renameItems = conflicts
-              .map((c: { workspace_id?: string; suggested_name?: string }) => {
-                if (!c.workspace_id || !c.suggested_name) {
-                  return null;
-                }
-                const w = workspaces.find(
-                  (ws) => ws.agent_id === c.workspace_id,
-                );
-                const workspaceLabel = getAgentDisplayName(
-                  {
-                    id: c.workspace_id,
-                    name: w?.agent_name ?? "",
-                  },
-                  t,
-                );
-                return {
-                  key: c.workspace_id,
-                  label: workspaceLabel,
-                  suggested_name: c.suggested_name,
-                };
-              })
-              .filter(
-                (
-                  item,
-                ): item is {
-                  key: string;
-                  label: string;
-                  suggested_name: string;
-                } => item !== null,
-              );
+            // Separate builtin upgrades from regular conflicts.
+            const builtinUpgrades = conflicts.filter(
+              (c: { reason?: string }) => c.reason === "builtin_upgrade",
+            );
+            const regularConflicts = conflicts.filter(
+              (c: { reason?: string }) => c.reason !== "builtin_upgrade",
+            );
 
-            if (!renameItems.length) {
+            // Handle builtin upgrades: confirm overwrite
+            let needsOverwrite = false;
+            if (builtinUpgrades.length > 0) {
+              const confirmed = await new Promise<boolean>((resolve) => {
+                Modal.confirm({
+                  title: t("skills.builtinUpgradeTitle"),
+                  content: t("skills.builtinUpgradeContent", {
+                    name: skillName,
+                  }),
+                  okText: t("common.confirm"),
+                  cancelText: t("common.cancel"),
+                  onOk: () => resolve(true),
+                  onCancel: () => resolve(false),
+                });
+              });
+              if (!confirmed) return;
+              needsOverwrite = true;
+            }
+
+            // Handle regular conflicts: rename modal
+            if (regularConflicts.length > 0) {
+              const renameItems = regularConflicts
+                .map(
+                  (c: { workspace_id?: string; suggested_name?: string }) => {
+                    if (!c.workspace_id || !c.suggested_name) {
+                      return null;
+                    }
+                    const w = workspaces.find(
+                      (ws) => ws.agent_id === c.workspace_id,
+                    );
+                    const workspaceLabel = getAgentDisplayName(
+                      {
+                        id: c.workspace_id,
+                        name: w?.agent_name ?? "",
+                      },
+                      t,
+                    );
+                    return {
+                      key: c.workspace_id,
+                      label: workspaceLabel,
+                      suggested_name: c.suggested_name,
+                    };
+                  },
+                )
+                .filter(
+                  (
+                    item,
+                  ): item is {
+                    key: string;
+                    label: string;
+                    suggested_name: string;
+                  } => item !== null,
+                );
+
+              if (!renameItems.length && !needsOverwrite) {
+                throw error;
+              }
+
+              if (renameItems.length) {
+                const nextRenameMap = await showConflictRenameModal(
+                  renameItems.map((item) => ({
+                    ...item,
+                    suggested_name: renameMap[item.key] || item.suggested_name,
+                  })),
+                );
+                if (!nextRenameMap) return;
+                renameMap = { ...renameMap, ...nextRenameMap };
+              }
+            }
+
+            // No conflicts left to resolve but nothing actionable
+            if (!needsOverwrite && !regularConflicts.length) {
               throw error;
             }
 
-            const nextRenameMap = await showConflictRenameModal(
-              renameItems.map((item) => ({
-                ...item,
-                suggested_name: renameMap[item.key] || item.suggested_name,
-              })),
-            );
-            if (!nextRenameMap) {
-              return;
+            // Retry: overwrite is safe — renamed targets use new
+            // names so won't be affected by the overwrite flag.
+            if (needsOverwrite) {
+              await api.downloadSkillPoolSkill({
+                skill_name: skillName,
+                targets: targetWorkspaceIds.map((workspace_id) => ({
+                  workspace_id,
+                  target_name: renameMap[workspace_id] || undefined,
+                })),
+                overwrite: true,
+              });
+              break;
             }
-            renameMap = {
-              ...renameMap,
-              ...nextRenameMap,
-            };
+            // Only regular conflicts — renameMap already updated
+            // above; loop continues to retry with new names.
           }
         }
       }
@@ -611,6 +684,14 @@ function SkillPoolPage() {
               style={{ display: "none" }}
             />
             <div className={styles.headerActionsLeft}>
+              <Tooltip title={t("skillPool.refreshHint")}>
+                <Button
+                  type="default"
+                  icon={<ReloadOutlined spin={loading} />}
+                  onClick={handleRefresh}
+                  disabled={loading}
+                />
+              </Tooltip>
               <Tooltip title={t("skillPool.broadcastHint")}>
                 <Button
                   type="default"
@@ -665,86 +746,99 @@ function SkillPoolPage() {
         }
       />
 
-      {loading ? (
-        <div className={styles.loading}>
-          <span className={styles.loadingText}>{t("common.loading")}</span>
-        </div>
-      ) : (
-        <div className={styles.skillsGrid}>
-          {skills.map((skill) => (
-            <Card
-              key={skill.name}
-              className={styles.skillCard}
-              onClick={() => openEdit(skill)}
-              style={{ cursor: "pointer" }}
-            >
-              <div className={styles.cardBody}>
-                <div className={styles.cardHeader}>
-                  <div className={styles.leftSection}>
-                    <span className={styles.fileIcon}>
-                      {getSkillVisual(skill.name, skill.content)}
-                    </span>
-                    <div className={styles.titleRow}>
-                      <h3 className={styles.skillTitle}>{skill.name}</h3>
-                      <span
-                        className={
-                          getSkillDisplaySource(skill.source) === "builtin"
-                            ? styles.builtinTag
-                            : styles.customizedTag
-                        }
-                      >
-                        {getSkillDisplaySource(skill.source) === "builtin"
-                          ? t("skillPool.builtin")
-                          : t("skillPool.custom")}
+      {/* ---- Scrollable Content ---- */}
+      <div className={styles.content}>
+        {loading ? (
+          <div className={styles.loading}>
+            <span className={styles.loadingText}>{t("common.loading")}</span>
+          </div>
+        ) : (
+          <div className={styles.skillsGrid}>
+            {skills.map((skill) => (
+              <Card
+                key={skill.name}
+                className={styles.skillCard}
+                onClick={() => openEdit(skill)}
+                style={{ cursor: "pointer" }}
+              >
+                <div className={styles.cardBody}>
+                  <div className={styles.cardHeader}>
+                    <div className={styles.leftSection}>
+                      <span className={styles.fileIcon}>
+                        {getSkillVisual(skill.name, skill.content)}
                       </span>
-                    </div>
-                    <div className={styles.statusRow}>
-                      <span className={styles.statusLabel}>
-                        {t("skillPool.status")}:
-                      </span>
-                      <span
-                        className={`${styles.statusValue} ${
-                          styles[getPoolBuiltinStatusTone(skill.sync_status)]
-                        }`}
-                      >
-                        {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-                      </span>
+                      <div className={styles.titleRow}>
+                        <h3 className={styles.skillTitle}>{skill.name}</h3>
+                        <span
+                          className={
+                            getSkillDisplaySource(skill.source) === "builtin"
+                              ? styles.builtinTag
+                              : styles.customizedTag
+                          }
+                        >
+                          {getSkillDisplaySource(skill.source) === "builtin"
+                            ? t("skillPool.builtin")
+                            : t("skillPool.custom")}
+                        </span>
+                      </div>
+                      <div className={styles.statusRow}>
+                        <span className={styles.statusLabel}>
+                          {t("skillPool.status")}:
+                        </span>
+                        <span
+                          className={`${styles.statusValue} ${
+                            styles[getPoolBuiltinStatusTone(skill.sync_status)]
+                          }`}
+                        >
+                          {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+                        </span>
+                        {skill.last_updated && (
+                          <>
+                            <span className={styles.statusLabel}>
+                              {t("skills.lastUpdated")}:
+                            </span>
+                            <span className={styles.statusValue}>
+                              {dayjs(skill.last_updated).fromNow()}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  <div className={styles.descriptionContainer}>
+                    <p className={styles.descriptionLabel}>
+                      {t("skillPool.descriptionLabel")}
+                    </p>
+                    <p className={styles.descriptionText}>
+                      {skill.description || "-"}
+                    </p>
+                  </div>
                 </div>
-                <div className={styles.descriptionContainer}>
-                  <p className={styles.descriptionLabel}>
-                    {t("skillPool.descriptionLabel")}
-                  </p>
-                  <p className={styles.descriptionText}>
-                    {skill.description || "-"}
-                  </p>
+                <div className={styles.cardFooter}>
+                  <Button
+                    className={styles.actionButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openBroadcast(skill);
+                    }}
+                  >
+                    {t("skillPool.broadcast")}
+                  </Button>
+                  <Button
+                    className={styles.deleteButton}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDelete(skill);
+                    }}
+                  >
+                    {t("skillPool.delete")}
+                  </Button>
                 </div>
-              </div>
-              <div className={styles.cardFooter}>
-                <Button
-                  className={styles.actionButton}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openBroadcast(skill);
-                  }}
-                >
-                  {t("skillPool.broadcast")}
-                </Button>
-                <Button
-                  className={styles.deleteButton}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDelete(skill);
-                  }}
-                >
-                  {t("skillPool.delete")}
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
 
       <ImportHubModal
         open={importModalOpen}

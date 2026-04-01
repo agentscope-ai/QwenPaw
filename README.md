@@ -86,7 +86,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 >
 > - **🚀 I'm new and want to try quickly**: [Quick Start](#quick-start) → three commands to run → [Configure model](#api-key) → chat in Console
 > - **💬 I want to use in DingTalk/Feishu/WeChat**: Complete Quick Start → [Configure model](#api-key) → [Channel setup](https://copaw.agentscope.io/docs/channels)
-> - **🐍 I don't want to install Python**: [Desktop app](#desktop-application-beta) or [Script install](#script-install) or [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw)
+> - **🐍 I don't want to install Python**: [Desktop app](#option-6-desktop-application-beta) or [Script install](#option-2-script-install) or [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw)
 > - **💻 I want to use local models (no API key needed)**: [Local Models](#local-models) → download model → start using
 > - **🛠️ I want to contribute code or develop new features**: [Install from source](#install-from-source) → [Contributing](#contributing)
 - [News](#news)

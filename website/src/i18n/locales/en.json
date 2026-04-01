@@ -15,6 +15,7 @@
     "titleright": "AI assistant,",
     "slogan": "Works for you, grows with you",
     "sub": "Easy to install, deploy on your own machine & on the cloud; supports multiple IM Apps; with easily extensible capabilities.",
+    "releaseNote": "CoPaw v1.0.0 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start"
   },
@@ -29,6 +30,13 @@
     "titleOperateWith": "operate with",
     "titleEverything": "Everything.",
     "sub": "10+ built-in channels, with more coming soon"
+  },
+  "finalCta": {
+    "titleBefore": "Get your",
+    "titleEmphasis": "paws up now",
+    "titleAfter": ",",
+    "titleLine2": "power your dev life.",
+    "downloadFromGithub": "Download from GitHub"
   },
   "whyCopaw": {
     "headingPrefix": "Why",

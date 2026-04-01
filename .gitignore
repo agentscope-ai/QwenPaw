@@ -57,6 +57,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 openapi-ts*.log
+package-lock.json
+pnpm-lock.yaml
 
 # MacOS
 .DS_Store

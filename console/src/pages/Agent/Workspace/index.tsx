@@ -1,14 +1,16 @@
 import { useAgentsData, FileListPanel, FileEditor } from "./components";
 import styles from "./index.module.less";
 import { UploadOutlined, DownloadOutlined } from "@ant-design/icons";
-import { Button, Tooltip, message } from "@agentscope-ai/design";
+import { Button, Tooltip } from "@agentscope-ai/design";
 import { workspaceApi } from "../../../api/modules/workspace";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 
 export default function WorkspacePage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const {
     files,
     selectedFile,

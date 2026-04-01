@@ -204,6 +204,78 @@ CoPaw 已开源，官方仓库地址：
 
 命令行也可使用 `copaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models)。
 
+### 如何使用 CoPaw-Flash 系列模型
+
+CoPaw-Flash 是 CoPaw 官方根据 CoPaw 的应用场景专门调优的系列模型，共有 2B, 4B 和 9B 三个版本，且每个版本除原始模型外还提供了 4 bit 和 8 bit 两种量化版本，适合不同的显存环境和性能需求。
+
+CoPaw-Flash 模型目前已经在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 以及 [Hugging Face](https://huggingface.co/agentscope-ai/models) 上开源，你可以直接从这两个平台下载使用。
+
+CoPaw 内置的本地提供商均可接入 CoPaw-Flash 模型：
+
+**CoPaw Local (llama.cpp)**
+
+直接在 CoPaw Local 的模型界面中选择下载 CoPaw-Flash 模型并启动即可。
+
+![Start Model](https://gw.alicdn.com/imgextra/i1/O1CN01NSNFUN1I21RynZwGy_!!6000000000834-2-tps-1224-1194.png)
+
+> CoPaw Local 目前仍处于测试阶段，对不同设备的兼容性以及运行稳定性仍在持续优化中，如果你在使用过程中遇到任何问题，欢迎随时在 GitHub 上提 issue 反馈。
+> 如果无法正常使用 CoPaw Local，建议先使用 Ollama 或 LM Studio 部署 CoPaw-Flash 模型。
+
+**Ollama**:
+
+1. 从 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 或 [Hugging Face](https://huggingface.co/agentscope-ai/models) 下载 CoPaw-Flash 量化版模型，这些模型后缀为 `Q8_0` 或 `Q4_K_M`，例如 [CoPaw-Flash-4B-Q4_K_M](https://www.modelscope.cn/models/AgentScope/CoPaw-Flash-4B-Q4_K_M)。
+
+   - 使用 ModelScope CLI 下载：
+
+     ```bash
+     modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M README.md --local_dir ./dir
+     ```
+
+   - 使用 Hugging Face CLI 下载：
+
+     ```bash
+     hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+     ```
+
+2. 从 [Ollama](https://ollama.com/download) 官网下载安装 Ollama 并启动。
+
+3. 借助 Ollama 的 `ollama create` 命令将下载好的模型导入 Ollama：
+
+创建一个包含以下内容的文本文件 `copaw-flash.txt`，注意将 `/path/to/your/copaw-xxx.gguf` 替换为你下载的 CoPaw-Flash 模型仓库中 `.gguf` 文件的绝对路径：
+
+```
+FROM /path/to/your/copaw-xxx.gguf
+TEMPLATE {{ .Prompt }}
+RENDERER qwen3.5
+PARSER qwen3.5
+PARAMETER presence_penalty 1.5
+PARAMETER temperature 1
+PARAMETER top_k 20
+PARAMETER top_p 0.95
+```
+
+然后在终端中运行如下指令：
+
+```bash
+ollama create copaw-flash -f copaw-flash.txt
+```
+
+4. 在 CoPaw 的模型配置中选择 Ollama 提供商，并在模型页面中自动获取模型即可。
+
+**LM Studio**:
+
+1. 参考 Ollama 的步骤 1 下载合适的 CoPaw-Flash 量化版模型。
+
+2. 从 [LM Studio](https://lmstudio.ai/) 官网下载安装 LM Studio 并启动。
+
+3. 在命令行中使用以下指令将下载好的模型导入 LM Studio：
+
+```bash
+lms import /path/to/your/copaw-xxx.gguf -c -y --user-repo AgentScope/CoPaw-Flash
+```
+
+4. 在 CoPaw 的模型配置中选择 LM Studio 提供商，并在模型页面中自动获取模型即可。
+
 ### 使用 Ollama / LM Studio 部署的模型时，为什么 CoPaw 无法完成多轮交互、复杂工具调用，或记不住之前的指令？
 
 这类问题通常不是 CoPaw 本身异常，而是**模型上下文长度配置过小**导致的。

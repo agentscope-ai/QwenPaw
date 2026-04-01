@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "tsc -b --noEmit && prettier --write .",
+    "format:check": "tsc -b --noEmit && prettier --check .",
     "preview": "vite preview"
   },
   "dependencies": {

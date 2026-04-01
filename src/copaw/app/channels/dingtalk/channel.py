@@ -494,10 +494,13 @@ class DingTalkChannel(BaseChannel):
                 if self._is_webhook_expired(entry):
                     logger.info(
                         "dingtalk _load_session_webhook_entry: "
-                        "webhook_key=%s is expired, returning None",
+                        "webhook_key=%s is expired, clearing webhook "
+                        "but keeping conversation_id for Open API fallback",
                         webhook_key,
                     )
-                    return None
+                    # Clear webhook but keep conversation_id etc for fallback
+                    entry = {k: v for k, v in entry.items() if k != "webhook"}
+                    return entry
                 return entry
 
             logger.info(
@@ -2518,11 +2521,30 @@ class DingTalkChannel(BaseChannel):
                         session_webhook = webhook_entry.get("webhook")
 
         if not session_webhook:
-            logger.warning(
-                "DingTalkChannel.send: no sessionWebhook for to_handle=%s. "
-                "User must have chatted with the bot first, or pass "
-                "meta['session_webhook']. Skip sending.",
+            # No valid webhook: try Open API fallback directly
+            logger.info(
+                "DingTalkChannel.send: no sessionWebhook for to_handle=%s, "
+                "trying Open API fallback",
                 to_handle,
+            )
+            params = self._resolve_open_api_params(
+                meta,
+                webhook_entry,
+            )
+            if not params["conversation_id"]:
+                logger.warning(
+                    "DingTalkChannel.send: no sessionWebhook and no "
+                    "conversation_id for to_handle=%s. User must have "
+                    "chatted with the bot first. Skip sending.",
+                    to_handle,
+                )
+                return
+            await self._send_via_open_api(
+                text,
+                conversation_id=params["conversation_id"],
+                conversation_type=params["conversation_type"],
+                sender_staff_id=params["sender_staff_id"],
+                bot_prefix="",
             )
             return
 

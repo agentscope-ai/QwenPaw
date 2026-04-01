@@ -1,5 +1,6 @@
 import { Download } from "lucide-react";
 import { motion } from "motion/react";
+import { useTranslation } from "react-i18next";
 import Grainient from "@/components/Grainient";
 
 const sectionVariants = {
@@ -16,6 +17,8 @@ const sectionVariants = {
 };
 
 export function CopawFinalCTA() {
+  const { t } = useTranslation();
+
   return (
     <section className="relative overflow-hidden">
       <Grainient
@@ -53,14 +56,14 @@ export function CopawFinalCTA() {
           <div className="flex mx-auto w-full max-w-190">
             <div className="relative min-h-75 w-full overflow-hidden rounded-xl border border-[#ece5dc] bg-white px-5 pb-5 pt-5 sm:px-7 sm:pb-6 sm:pt-6 md:min-h-107.5 md:px-8 md:pb-7 md:pt-7">
               <div className="relative z-10 h-[48%] w-full">
-                <h2 className="font-newsreader text-[2rem] leading-[1.2] text-(--color-text) sm:text-[2.3rem]  md:text-[3.05rem]">
-                  Get your{" "}
-                  <em className="font-newsreader font-normal italic">
-                    paws up now
+                <h2 className="font-newsreader text-[2rem] font-medium leading-[1.2] text-(--color-text) sm:text-[2.3rem] md:text-[3.05rem]">
+                  {t("finalCta.titleBefore")}{" "}
+                  <em className="font-newsreader font-medium italic">
+                    {t("finalCta.titleEmphasis")}
                   </em>
-                  ,
+                  {t("finalCta.titleAfter")}
                   <br />
-                  power your dev life.
+                  {t("finalCta.titleLine2")}
                 </h2>
               </div>
               <a
@@ -70,11 +73,11 @@ export function CopawFinalCTA() {
                 className="font-inter absolute bottom-5 left-5 z-10 inline-flex items-center gap-1.5 rounded-md bg-(--color-primary) px-3 py-1.5 text-xs font-normal text-[#6e3b10] transition hover:brightness-105 sm:bottom-6 sm:left-7 sm:text-sm md:bottom-7 md:left-8"
               >
                 <Download size={14} aria-hidden />
-                Download from Github
+                {t("finalCta.downloadFromGithub")}
               </a>
 
               <video
-                src="/copaw-logo2.mp4"
+                src="https://cloud.video.taobao.com/vod/xr9IOUDj4cHliHlhQ0bcd6jfG8_fY7ohNL85pSx-yEs.mp4"
                 autoPlay
                 loop
                 muted

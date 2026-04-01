@@ -1012,43 +1012,44 @@ class WecomChannel(BaseChannel):
         self._client.on("message", self._on_message_sync)
         self._client.on("event.enter_chat", self._on_enter_chat_sync)
 
-        # Patch SDK heartbeat to trigger reconnect on connection death
-        # SDK bug: _send_heartbeat returns without calling _schedule_reconnect
-        # when missed_pong_count exceeds max, causing permanent disconnection.
+        # Patch SDK heartbeat to trigger reconnect on pong timeout.
+        # Use ensure_future so reconnect survives heartbeat task cancel.
+        ws_mgr = self._client._ws_manager
+        _original_send_heartbeat = ws_mgr._send_heartbeat
+
         async def _patched_send_heartbeat() -> None:
-            """Patched heartbeat: trigger reconnect when connection is dead."""
-            ws_mgr = self._client._ws_manager
             if ws_mgr._missed_pong_count >= ws_mgr._max_missed_pong:
+                logger.warning(
+                    "wecom heartbeat: no pong for %d pings, "
+                    "triggering reconnect",
+                    ws_mgr._missed_pong_count,
+                )
+                # Schedule reconnect BEFORE _stop_heartbeat() because
+                # it cancels the current task; any await after that
+                # would raise CancelledError.
+                asyncio.ensure_future(ws_mgr._schedule_reconnect())
                 ws_mgr._stop_heartbeat()
                 if ws_mgr._ws:
                     try:
                         await ws_mgr._ws.close()
-                    except Exception as e:
-                        ws_mgr._logger.warning(
-                            "Failed to close ws on heartbeat failure: %s",
-                            e,
+                    except Exception as close_err:
+                        logger.warning(
+                            "wecom heartbeat: failed to close ws: %s",
+                            close_err,
                         )
-                # Fix: trigger reconnect instead of silent return
-                await ws_mgr._schedule_reconnect()
                 return
+            # Normal path: delegate to original SDK implementation.
+            await _original_send_heartbeat()
 
-            ws_mgr._missed_pong_count += 1
-            try:
-                await ws_mgr.send(
-                    {
-                        "cmd": "heartbeat",
-                        "headers": {"req_id": generate_req_id("heartbeat")},
-                    },
-                )
-            except Exception as e:
-                ws_mgr._logger.error("Failed to send heartbeat: %s", e)
+        ws_mgr._send_heartbeat = _patched_send_heartbeat
 
-        self._client._ws_manager._send_heartbeat = _patched_send_heartbeat
-
-        # Log reconnect events for observability
+        # Log reconnect events for observability.
         self._client.on(
             "disconnected",
-            lambda reason: logger.info("wecom disconnected: %s", reason),
+            lambda reason: logger.info(
+                "wecom disconnected: %s",
+                reason,
+            ),
         )
         self._client.on(
             "reconnecting",
@@ -1059,7 +1060,10 @@ class WecomChannel(BaseChannel):
         )
         self._client.on(
             "error",
-            lambda error: logger.error("wecom error: %s", error),
+            lambda error: logger.error(
+                "wecom error: %s",
+                error,
+            ),
         )
 
         self._ws_thread = threading.Thread(

@@ -151,7 +151,7 @@ function CodeBlock({
           {copied ? t("docs.copied") : t("docs.copy")}
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-x-auto px-4 py-4 text-center md:px-5 md:py-5">
+      <div className="min-h-0 flex-1 overflow-x-auto px-4 py-4 text-center font-mono md:px-5 md:py-5">
         <SyntaxHighlighter
           language="bash"
           style={{
@@ -356,7 +356,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                   </div>
 
                   <motion.div
-                    className="flex flex-col p-3 md:p-7"
+                    className="flex min-h-[420px] flex-col p-3 md:min-h-[400px] md:p-7"
                     layout
                     transition={{ duration: 0.3, ease: "easeInOut" }}
                   >
@@ -364,12 +364,12 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                       {t(`quickstart.desc.${selectedMethod}`)}
                     </p>
 
-                    <div className="overflow-y-hidden">
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                       <AnimatePresence mode="wait" initial={false}>
                         {selectedMethod === "pip" ? (
                           <motion.div
                             key="pip"
-                            className="min-h-[200px]"
+                            className="flex min-h-0 flex-1 flex-col"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
@@ -380,7 +380,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                               copied={copiedId === "pip"}
                               onCopy={() => copyLines("pip", COMMANDS.pip)}
                               t={t}
-                              className="min-h-[200px]"
+                              className="min-h-0 flex-1"
                             />
                           </motion.div>
                         ) : null}
@@ -388,7 +388,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                         {selectedMethod === "script" ? (
                           <motion.div
                             key="script"
-                            className="flex min-h-[200px] flex-col gap-3"
+                            className="flex min-h-0 flex-1 flex-col gap-3"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
@@ -430,7 +430,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                                 )
                               }
                               t={t}
-                              className="min-h-[140px]"
+                              className="min-h-0 flex-1"
                               headerLeft={
                                 scriptPlatform === "windows" ? (
                                   <div className="inline-flex rounded-lg border border-[#e8e8e8] bg-(--color-fill-tertiary) p-1">
@@ -460,7 +460,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                         {selectedMethod === "docker" ? (
                           <motion.div
                             key="docker"
-                            className="min-h-[200px]"
+                            className="flex min-h-0 flex-1 flex-col"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
@@ -473,7 +473,7 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                                 copyLines("docker", COMMANDS.docker)
                               }
                               t={t}
-                              className="min-h-[200px]"
+                              className="min-h-0 flex-1"
                             />
                           </motion.div>
                         ) : null}
@@ -488,14 +488,14 @@ export function CopawQuickStart({ docsBase }: CopawQuickStartProps) {
                             transition={{ duration: 0.2 }}
                           >
                             <div className="flex justify-center">
-                              <div className="inline-flex rounded-xl border border-[#ebe5df] bg-(--color-fill-tertiary) p-1">
+                              <div className="inline-flex h-11 items-center rounded-xl border border-[#ebe5df] bg-(--color-fill-tertiary) p-1 sm:h-11">
                                 {(["aliyun", "modelscope"] as const).map(
                                   (platform) => (
                                     <button
                                       key={platform}
                                       type="button"
                                       onClick={() => setCloudPlatform(platform)}
-                                      className={`rounded-lg px-4 py-1.5 text-sm font-semibold sm:px-6 sm:py-2 sm:text-[1.05rem] ${
+                                      className={`inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg px-4 text-sm font-semibold leading-none sm:h-10 sm:px-6 sm:text-[1.05rem] ${
                                         cloudPlatform === platform
                                           ? "bg-white text-(--color-text) shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
                                           : "text-(--color-text-secondary)"

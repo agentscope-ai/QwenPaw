@@ -25,30 +25,39 @@ const itemVariants = {
   },
 };
 
+const AVATAR_URLS = {
+  a1: "https://img.alicdn.com/imgextra/i1/O1CN01f6Mipz1IfPVi301wi_!!6000000000920-55-tps-156-156.svg",
+  a2: "https://img.alicdn.com/imgextra/i4/O1CN01wn2bMN1n3AWwL2jrD_!!6000000005033-55-tps-156-156.svg",
+  a3: "https://img.alicdn.com/imgextra/i1/O1CN01y6Ss8I27Z2PAlwycK_!!6000000007810-55-tps-154-156.svg",
+  a4: "https://img.alicdn.com/imgextra/i1/O1CN01MU31R81EeiRq4VgqL_!!6000000000377-55-tps-159-156.svg",
+  a5: "https://img.alicdn.com/imgextra/i2/O1CN01hqduGn1dLoUnc22ya_!!6000000003720-55-tps-156-156.svg",
+  a6: "https://img.alicdn.com/imgextra/i1/O1CN01U79L281GFBbPth9hy_!!6000000000592-55-tps-157-156.svg",
+} as const;
+
 const AVATARS = [
   {
     key: "a1",
-    src: "/communityIcon/1.svg",
+    src: AVATAR_URLS.a1,
     alt: "CoPaw user avatar 1",
   },
   {
     key: "a2",
-    src: "/communityIcon/2.svg",
+    src: AVATAR_URLS.a2,
     alt: "CoPaw user avatar 2",
   },
   {
     key: "a3",
-    src: "/communityIcon/3.svg",
+    src: AVATAR_URLS.a3,
     alt: "CoPaw user avatar 3",
   },
   {
     key: "a4",
-    src: "/communityIcon/4.svg",
+    src: AVATAR_URLS.a4,
     alt: "CoPaw user avatar 4",
   },
   {
     key: "a5",
-    src: "/communityIcon/5.svg",
+    src: AVATAR_URLS.a5,
     alt: "CoPaw user avatar 5",
   },
 ] as const;
@@ -57,37 +66,37 @@ const TESTIMONIALS = [
   {
     key: "t1",
     name: "@Shidan Guo",
-    avatarSrc: "/communityIcon/1.svg",
+    avatarSrc: AVATAR_URLS.a1,
     avatarAlt: "Shidan Guo avatar",
   },
   {
     key: "t2",
     name: "@Haunru",
-    avatarSrc: "/communityIcon/2.svg",
+    avatarSrc: AVATAR_URLS.a2,
     avatarAlt: "Hubm avatar",
   },
   {
     key: "t3",
     name: "@ends of the earth",
-    avatarSrc: "/communityIcon/3.svg",
+    avatarSrc: AVATAR_URLS.a3,
     avatarAlt: "ends of the earth avatar",
   },
   {
     key: "t4",
     name: "@FortiCore",
-    avatarSrc: "/communityIcon/4.svg",
+    avatarSrc: AVATAR_URLS.a4,
     avatarAlt: "FortiCore avatar",
   },
   {
     key: "t5",
     name: "@soro",
-    avatarSrc: "/communityIcon/5.svg",
+    avatarSrc: AVATAR_URLS.a5,
     avatarAlt: "soro avatar",
   },
   {
     key: "t6",
     name: "@shanchengzhineng",
-    avatarSrc: "/communityIcon/6.svg",
+    avatarSrc: AVATAR_URLS.a6,
     avatarAlt: "xiangli avatar",
   },
 ] as const;

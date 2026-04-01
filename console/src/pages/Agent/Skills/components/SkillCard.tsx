@@ -13,13 +13,11 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
+import dayjs from "dayjs";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
-import {
-  getSkillDisplaySource,
-  getSkillSyncStatusLabel,
-} from "./skillMetadata";
+import { getSkillDisplaySource } from "./skillMetadata";
 
 interface SkillCardProps {
   skill: SkillSpec;
@@ -188,11 +186,13 @@ export const SkillCard = React.memo(function SkillCard({
                   .join(", ")}
               </span>
             </div>
-            {skill.sync_to_pool && (
+            {skill.last_updated && (
               <div className={styles.metaItem}>
-                <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
+                <span className={styles.metaLabel}>
+                  {t("skills.lastUpdated")}
+                </span>
                 <span className={styles.metaValue}>
-                  {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
+                  {dayjs(skill.last_updated).fromNow()}
                 </span>
               </div>
             )}

@@ -4,7 +4,8 @@ import {
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Modal, Result, Tooltip, message } from "antd";
+import { Button, Modal, Result, Tooltip } from "antd";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
@@ -270,6 +271,7 @@ export default function ChatPage() {
   const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
+  const { message } = useAppMessage();
 
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =

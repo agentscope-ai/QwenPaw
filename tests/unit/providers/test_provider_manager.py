@@ -183,8 +183,8 @@ async def test_resume_local_model_restores_server_and_runtime_state(
         def __init__(self) -> None:
             self.restored_model_id = None
 
-        def check_llamacpp_installation(self) -> bool:
-            return True
+        def check_llamacpp_installation(self) -> tuple[bool, str]:
+            return True, ""
 
         def is_model_downloaded(self, requested_model_id: str) -> bool:
             return requested_model_id == model_id

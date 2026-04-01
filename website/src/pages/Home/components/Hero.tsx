@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { motion } from "motion/react";
-import { DottedlinedownArrowIcon } from "@/components/Icon";
+import { DottedlinedownArrowIcon, PathIcon } from "@/components/Icon";
+import ShinyText from "@/components/ShinyText";
 
 const container = {
   hidden: { opacity: 0, y: 14 },
@@ -27,7 +28,8 @@ const item = {
 };
 
 export function CopawHero() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const isZh = i18n.resolvedLanguage === "zh";
   const [isHovered, setIsHovered] = useState(false);
   const [showIdle, setShowIdle] = useState(false);
   const [idlePlayedOnce, setIdlePlayedOnce] = useState(false);
@@ -45,8 +47,8 @@ export function CopawHero() {
   // Preload images to prevent flash on switch
   useEffect(() => {
     const preloadImages = [
-      "/copaw-slogan-idle.gif",
-      "/copaw-slogan-idle-001.png",
+      "https://img.alicdn.com/imgextra/i1/O1CN016cb70x1KlwOGcvRgb_!!6000000001205-1-tps-120-120.gif",
+      "https://img.alicdn.com/imgextra/i1/O1CN01UzhqBc1tym2X8dhl6_!!6000000005971-2-tps-120-120.png",
     ];
     preloadImages.forEach((src) => {
       const img = new Image();
@@ -70,10 +72,10 @@ export function CopawHero() {
   };
 
   const mascotSrc = !showIdle
-    ? "/copaw-slogan-start.gif"
+    ? "https://img.alicdn.com/imgextra/i4/O1CN01nMDfdp23mXcSGecsm_!!6000000007298-1-tps-120-120.gif"
     : isHovered || !idlePlayedOnce
-    ? "/copaw-slogan-idle.gif"
-    : "/copaw-slogan-idle-001.png";
+    ? "https://img.alicdn.com/imgextra/i1/O1CN016cb70x1KlwOGcvRgb_!!6000000001205-1-tps-120-120.gif"
+    : "https://img.alicdn.com/imgextra/i1/O1CN01UzhqBc1tym2X8dhl6_!!6000000005971-2-tps-120-120.png";
 
   return (
     <>
@@ -84,7 +86,22 @@ export function CopawHero() {
         initial="hidden"
         animate="visible"
       >
-        <div className="mx-auto max-w-7xl px-4 pt-19">
+        <div className="mx-auto max-w-7xl px-4 pt-10">
+          <div className="mx-auto mb-5 inline-flex box-border items-center gap-2 rounded-full border border-(--border) bg-(--surface) px-4 py-1.5 text-sm text-(--color-text-secondary) sm:mb-6">
+            <PathIcon size={16} />
+            <ShinyText
+              text={t("hero.releaseNote")}
+              speed={1.8}
+              delay={0}
+              color="#9c9b9a"
+              shineColor="#cdcdcc"
+              spread={120}
+              direction="left"
+              yoyo={false}
+              pauseOnHover={false}
+              disabled={false}
+            />
+          </div>
           <motion.h1
             id="copaw-hero-heading"
             className="font-newsreader font-semibold leading-[1.1] tracking-[-0.02em] text-(--color-text) sm:leading-[1.08] text-[32px] md:text-[48px] md:leading-[1.06]"
@@ -94,7 +111,7 @@ export function CopawHero() {
               {t("hero.titleleft")}
             </span>
             <span
-              className="ml-4 mr-0 inline-flex -translate-y-[0.08em] items-center align-middle select-none sm:-translate-y-[0.1em] cursor-pointer"
+              className="mx-2 inline-flex -translate-y-[0.08em] items-center align-middle select-none sm:-translate-y-[0.1em] cursor-pointer"
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
             >
@@ -108,7 +125,11 @@ export function CopawHero() {
                 aria-hidden
               />
             </span>
-            <span className="font-newsreader relative top-[0.02em] inline-block font-normal italic leading-[0.9]">
+            <span
+              className={`font-newsreader relative top-[0.02em] inline-block italic leading-[0.9] ${
+                isZh ? "font-medium" : "font-normal"
+              }`}
+            >
               <span className="relative">
                 {t("hero.titleright")}
                 <span
@@ -150,7 +171,7 @@ export function CopawHero() {
             variants={item}
           >
             <motion.img
-              src="/copaw-bg.png"
+              src="https://img.alicdn.com/imgextra/i1/O1CN01omYMId1zLHaFKHulx_!!6000000006697-2-tps-2936-1650.png"
               alt=""
               className="absolute inset-0 h-full w-full object-cover"
               aria-hidden
@@ -172,7 +193,7 @@ export function CopawHero() {
               }}
             >
               <motion.img
-                src="https://img.alicdn.com/imgextra/i3/O1CN016c7HKZ1bRBuniPqeT_!!6000000003461-2-tps-2278-1469.png"
+                src="https://img.alicdn.com/imgextra/i1/O1CN01cIH6fF1g0h4zuKzOZ_!!6000000004080-2-tps-2270-1419.png"
                 alt="CoPaw console preview"
                 className="block h-full w-full rounded-t-2xl object-cover object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)]"
                 loading="lazy"
