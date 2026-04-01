@@ -140,7 +140,8 @@
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
-  padding-bottom: 56px; /* 增加底部padding，为按钮留出空间 */
+  padding-bottom: 56px;
+  /* 增加底部padding，为按钮留出空间 */
 
   :global {
     .ant-card-body {
@@ -193,17 +194,27 @@
 }
 
 .fileIcon {
-  font-size: 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #fcfaf8;
+  font-size: 28px;
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
 .skillEmoji {
-  font-size: 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #fcfaf8;
+  font-size: 24px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 
 .titleRow {
@@ -322,13 +333,21 @@
   flex-shrink: 0;
 }
 
-.metaValue {
+.channelValue {
   font-size: 12px;
   color: rgba(20, 20, 19, 0.88);
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 4px;
   background-color: rgba(239, 240, 243, 0.5);
+}
+
+.metaValue {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.88);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 .builtinTag {
@@ -380,23 +399,7 @@
   flex: 1;
   height: 32px;
   font-size: 14px;
-  background-color: #fff0f0;
-  color: #ff4d4f;
-  border: 1px solid #ffccc7;
   cursor: pointer;
-
-  &:hover {
-    background-color: #ff4d4f;
-    border-color: #ff4d4f;
-    color: #ffffff;
-  }
-
-  &:disabled {
-    background-color: #f5f5f5;
-    color: rgba(0, 0, 0, 0.25);
-    border-color: #d9d9d9;
-    cursor: not-allowed;
-  }
 }
 
 .emptyState {
@@ -648,6 +651,14 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .fileIcon {
+    background: rgba(26, 23, 22, 0.88);
+  }
+
+  .skillEmoji {
+    background: rgba(26, 23, 22, 0.88);
+  }
+
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.2);
   }
@@ -764,9 +775,13 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
-  .metaValue {
+  .channelValue {
     color: rgba(255, 255, 255, 0.88);
     background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .metaValue {
+    color: rgba(255, 255, 255, 0.88);
   }
 
   .builtinTag {
@@ -788,24 +803,6 @@
     &:hover {
       border-color: #777 !important;
       background-color: #555 !important;
-    }
-  }
-
-  /* Delete button */
-  .deleteButton {
-    background-color: #ff4d4f !important;
-    color: #fff !important;
-    border-color: #ff4d4f !important;
-
-    &:hover {
-      background-color: #ff7875 !important;
-      border-color: #ff7875 !important;
-    }
-
-    &:disabled {
-      background-color: #5a3a3a !important;
-      color: rgba(255, 255, 255, 0.4) !important;
-      border-color: #5a3a3a !important;
     }
   }
 
