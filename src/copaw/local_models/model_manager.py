@@ -509,8 +509,11 @@ class ModelManager:
                 if original_tqdm is None:
                     continue
 
-                def _disabled_tqdm(*args: Any, __orig=original_tqdm,
-                                   **kwargs: Any) -> Any:
+                def _disabled_tqdm(
+                    *args: Any,
+                    __orig=original_tqdm,
+                    **kwargs: Any,
+                ) -> Any:
                     kwargs["disable"] = True
                     return __orig(*args, **kwargs)
 
