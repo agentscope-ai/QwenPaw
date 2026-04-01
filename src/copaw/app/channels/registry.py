@@ -67,6 +67,10 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
                     exc_info=True,
                 )
                 raise
+            logger.warning(
+                "built-in channel unavailable: %s (see debug logs for details)",
+                key,
+            )
             logger.debug(
                 "built-in channel unavailable: %s",
                 key,
