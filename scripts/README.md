@@ -2,6 +2,26 @@
 
 Run from **repo root**.
 
+## Local Backend Development
+
+Start backend locally (with hot reload) while keeping console/website/nginx in Docker:
+
+```bash
+bash scripts/backend-dev.sh
+```
+
+- Stops the Docker backend container
+- Updates nginx to route `/api/` to host machine
+- Starts copaw backend locally with `--reload` flag
+- Uses Docker volume data (`/var/lib/docker/volumes/copaw-data/_data`)
+- Code changes in `src/copaw/` auto-restart the server
+
+Restore Docker backend:
+
+```bash
+bash scripts/backend-restore.sh
+```
+
 ## Build wheel (with latest console)
 
 ```bash

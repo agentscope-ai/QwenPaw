@@ -6,17 +6,75 @@ volumes:
   copaw-secrets:
     name: copaw-secrets
 
+networks:
+  copaw-network:
+    driver: bridge
+
 services:
+  # Backend service
   copaw:
     image: agentscope/copaw:latest
     container_name: copaw
     restart: always
     ports:
-      - "127.0.0.1:8088:8088"
-    # environment:
-    #   - COPAW_AUTH_ENABLED=true
-    #   - COPAW_AUTH_USERNAME=admin
-    #   - COPAW_AUTH_PASSWORD=yourpassword
+      - "8088:8088"
     volumes:
       - copaw-data:/app/working
       - copaw-secrets:/app/working.secret
+    networks:
+      - copaw-network
+
+  # Console frontend (Vite dev server)
+  console:
+    build:
+      context: ./console
+      dockerfile: Dockerfile.dev
+    container_name: copaw-console
+    restart: always
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./console:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_BASE_URL=
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+    networks:
+      - copaw-network
+    depends_on:
+      - copaw
+
+  # Website frontend (Vite dev server)
+  website:
+    build:
+      context: ./website
+      dockerfile: Dockerfile.dev
+    container_name: copaw-website
+    restart: always
+    volumes:
+      - ./website:/app
+      - /app/node_modules
+    environment:
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+      - VITE_AUTH_CALLBACK_URL=/auth/callback
+      - VITE_LOGIN_REDIRECT_URL=/console/chat
+    networks:
+      - copaw-network
+
+  # Nginx gateway
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: copaw-nginx
+    restart: always
+    ports:
+      - "80:80"
+    networks:
+      - copaw-network
+    depends_on:
+      - copaw
+      - console
+      - website
