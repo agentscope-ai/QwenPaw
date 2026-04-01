@@ -61,6 +61,7 @@ class DiscordChannel(BaseChannel):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        accept_bot_messages: bool = False,
     ):
         super().__init__(
             process,
@@ -79,6 +80,7 @@ class DiscordChannel(BaseChannel):
         self.http_proxy = http_proxy
         self.http_proxy_auth = http_proxy_auth
         self.bot_prefix = bot_prefix
+        self.accept_bot_messages = accept_bot_messages
         self._task: Optional[asyncio.Task] = None
         self._client = None
         self._processed_message_ids: set[str] = set()
@@ -106,7 +108,12 @@ class DiscordChannel(BaseChannel):
 
             @self._client.event
             async def on_message(message):
-                if message.author.bot:
+                # Always ignore messages from the bot itself
+                if message.author == self._client.user:
+                    return
+                # Filter other bot messages unless
+                # accept_bot_messages is enabled
+                if message.author.bot and not self.accept_bot_messages:
                     return
                 msg_id = str(message.id)
                 if msg_id in self._processed_message_ids:
@@ -137,6 +144,25 @@ class DiscordChannel(BaseChannel):
                         "",
                         text,
                     ).strip()
+                # Check role mentions:
+                # if any mentioned role is one the bot has
+                if not is_bot_mentioned and message.guild and bot_user:
+                    bot_member = message.guild.get_member(bot_user.id)
+                    if bot_member:
+                        mentioned_role_ids = {
+                            r.id for r in getattr(message, "role_mentions", [])
+                        }
+                        bot_role_ids = {r.id for r in bot_member.roles}
+                        matched_role_ids = mentioned_role_ids & bot_role_ids
+                        if matched_role_ids:
+                            is_bot_mentioned = True
+                            # Remove role mention tags from text
+                            for role_id in matched_role_ids:
+                                text = re.sub(
+                                    rf"<@&{role_id}>",
+                                    "",
+                                    text,
+                                ).strip()
 
                 content_parts = []
                 if text:
@@ -206,9 +232,9 @@ class DiscordChannel(BaseChannel):
                 meta = {
                     "user_id": str(message.author.id),
                     "channel_id": str(message.channel.id),
-                    "guild_id": str(message.guild.id)
-                    if message.guild
-                    else None,
+                    "guild_id": (
+                        str(message.guild.id) if message.guild else None
+                    ),
                     "message_id": str(message.id),
                     "is_dm": not is_group,
                     "is_group": is_group,
@@ -273,6 +299,11 @@ class DiscordChannel(BaseChannel):
             allow_from=allow_from,
             deny_message=os.getenv("DISCORD_DENY_MESSAGE", ""),
             require_mention=os.getenv("DISCORD_REQUIRE_MENTION", "0") == "1",
+            accept_bot_messages=os.getenv(
+                "DISCORD_ACCEPT_BOT_MESSAGES",
+                "0",
+            )
+            == "1",
         )
 
     @classmethod
@@ -301,6 +332,7 @@ class DiscordChannel(BaseChannel):
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
             require_mention=config.require_mention,
+            accept_bot_messages=config.accept_bot_messages,
         )
 
     async def _resolve_target(self, to_handle, _meta):

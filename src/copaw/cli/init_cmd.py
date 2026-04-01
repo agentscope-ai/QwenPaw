@@ -145,6 +145,7 @@ def init_cmd(
     from ..app.migration import (
         ensure_default_agent_exists,
         ensure_qa_agent_exists,
+        migrate_legacy_skills_to_skill_pool,
     )
 
     config_path = get_config_path()
@@ -197,9 +198,16 @@ def init_cmd(
     # --- Ensure default agent workspace exists ---
     click.echo("\n=== Default Workspace Initialization ===")
     ensure_default_agent_exists()
+    migrate_legacy_skills_to_skill_pool()
     click.echo("✓ Default workspace initialized")
     ensure_qa_agent_exists()
     click.echo("✓ Builtin QA agent workspace ensured")
+
+    # --- Ensure local skill hub exists ---
+    from ..agents.skills_manager import ensure_skill_pool_initialized
+
+    if ensure_skill_pool_initialized():
+        click.echo("✓ Skill pool initialized")
 
     # Get default workspace path for subsequent operations
     default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
@@ -352,21 +360,28 @@ def init_cmd(
 
     # --- skills (prompt if needed) ---
     if use_defaults:
-        # Using --defaults: enable all skills, skip existing
-        from ..agents.skills_manager import sync_skills_to_working_dir
-
-        click.echo("Enabling all skills by default (skip existing)...")
-        synced, skipped = sync_skills_to_working_dir(
-            workspace_dir=default_workspace,
-            skill_names=None,
-            force=False,
+        # Using --defaults: download all pool skills into workspace, then enable
+        from ..agents.skills_manager import (
+            SkillPoolService,
+            SkillService,
         )
-        if skipped:
-            click.echo(
-                f"✓ Skills synced: {synced}, skipped (existing): {skipped}",
+
+        pool = SkillPoolService()
+        service = SkillService(default_workspace)
+        click.echo("Downloading pool skills into workspace...")
+        for skill in pool.list_all_skills():
+            pool.download_to_workspace(
+                skill.name,
+                default_workspace,
+                overwrite=False,
             )
-        else:
-            click.echo(f"✓ All {synced} skills enabled.")
+        click.echo("Enabling all skills by default...")
+        synced = 0
+        for skill in service.list_all_skills():
+            result = service.enable_skill(skill.name)
+            if result.get("success"):
+                synced += 1
+        click.echo(f"✓ All {synced} skills enabled.")
     elif write_config:
         # Interactive mode and config was written: prompt user
         skills_choice = prompt_choice(
@@ -376,17 +391,33 @@ def init_cmd(
         )
 
         if skills_choice == "all":
-            from ..agents.skills_manager import sync_skills_to_working_dir
-
-            click.echo("Enabling all skills...")
-            synced, skipped = sync_skills_to_working_dir(
-                workspace_dir=default_workspace,
-                skill_names=None,
-                force=False,
+            from ..agents.skills_manager import (
+                SkillPoolService,
+                SkillService,
             )
-            click.echo(f"✓ Skills synced: {synced}, skipped: {skipped}")
+
+            pool = SkillPoolService()
+            service = SkillService(default_workspace)
+            click.echo("Downloading pool skills into workspace...")
+            for skill in pool.list_all_skills():
+                pool.download_to_workspace(
+                    skill.name,
+                    default_workspace,
+                    overwrite=False,
+                )
+            click.echo("Enabling all skills...")
+            synced = 0
+            for skill in service.list_all_skills():
+                result = service.enable_skill(skill.name)
+                if result.get("success"):
+                    synced += 1
+            click.echo(f"✓ Skills synced: {synced}")
         elif skills_choice == "custom":
-            configure_skills_interactive()
+            configure_skills_interactive(
+                agent_id="default",
+                working_dir=default_workspace,
+                include_pool_candidates=True,
+            )
         else:  # none
             click.echo("Skipped skills configuration.")
 

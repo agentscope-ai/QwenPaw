@@ -14,8 +14,7 @@ from ..config.config import load_agent_config
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 
 if TYPE_CHECKING:
-    from .memory import MemoryManager
-    from reme.memory.file_based import ReMeInMemoryMemory
+    from .memory import BaseMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +38,7 @@ class ConversationCommandHandlerMixin:
             "message",
             "dump_history",
             "load_history",
+            "long_term_memory",
         },
     )
 
@@ -62,15 +62,15 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def __init__(
         self,
         agent_name: str,
-        memory: "ReMeInMemoryMemory",
-        memory_manager: "MemoryManager | None" = None,
+        memory,
+        memory_manager: "BaseMemoryManager | None" = None,
         enable_memory_manager: bool = True,
     ):
         """Initialize command handler.
 
         Args:
             agent_name: Name of the agent for message creation
-            memory: Agent's ReMeInMemoryMemory instance
+            memory: Agent's in-memory memory instance
             memory_manager: Optional memory manager instance
             enable_memory_manager: Whether memory manager is enabled
         """
@@ -466,6 +466,30 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return await self._make_system_msg(
                 f"**Load Failed**\n\n" f"- Error: {e}",
             )
+
+    async def _process_long_term_memory(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /long_term_memory to display the long-term memory."""
+        long_term_memory = getattr(self.memory, "_long_term_memory", None)
+        if long_term_memory is None:
+            return await self._make_system_msg(
+                "**Long-Term Memory Not Available**\n\n"
+                "- `_long_term_memory` attribute does not exist "
+                "on this memory instance\n"
+                "- This feature requires a ReMeInMemoryMemory-compatible"
+                " memory backend",
+            )
+        if not long_term_memory:
+            return await self._make_system_msg(
+                "**Long-Term Memory Empty**\n\n"
+                "- `_long_term_memory` exists but contains no content yet",
+            )
+        return await self._make_system_msg(
+            f"**Long-Term Memory**\n\n{long_term_memory}",
+        )
 
     async def handle_conversation_command(self, query: str) -> Msg:
         """Process conversation system commands.

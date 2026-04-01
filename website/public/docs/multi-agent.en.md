@@ -65,7 +65,7 @@ You might need:
 
 #### 1. View and Switch Agents
 
-After starting CoPaw, you'll see the **Agent Selector** in the **top-right corner** of the console:
+After starting CoPaw, you'll see the **Agent Selector** in the **top-left corner** of the console:
 
 ```
 ┌───────────────────────────────────┐
@@ -101,9 +101,9 @@ After creation, the new agent appears in the list and you can immediately switch
 After switching to an agent, you can configure it individually:
 
 - **Channels** - Go to "Control → Channels" page to enable/configure channels
-- **Skills** - Go to "Agent → Skills" page to enable/disable skills
-- **Tools** - Go to "Agent → Tools" page to toggle built-in tools
-- **Persona** - Go to "Agent → Workspace" page to edit AGENTS.md and SOUL.md
+- **Skills** - Go to "Workspace → Skills" page to enable/disable skills
+- **Tools** - Go to "Workspace → Tools" page to toggle built-in tools
+- **Persona** - Go to "Workspace → Files" page to edit AGENTS.md and SOUL.md
 
 These settings **only affect the current agent** and won't impact other agents.
 
@@ -267,7 +267,7 @@ Agents can communicate and collaborate with each other to handle complex tasks t
 #### Method 1: Enable in Console (Recommended)
 
 1. Switch to the agent you want to enable collaboration for
-2. Go to **Agent → Skills** page
+2. Go to **Workspace → Skills** page
 3. Find the **Multi-Agent Collaboration** skill
 4. Check to enable it
 5. Click "Save"
@@ -430,7 +430,7 @@ The system **automatically generates** a `PROFILE.md` file based on the agent's 
 ~/.copaw/workspaces/{agent_id}/PROFILE.md
 ```
 
-You can view the auto-generated PROFILE.md in the **Agent → Workspace** page.
+You can view the auto-generated PROFILE.md in the **Workspace → Files** page.
 
 #### View Agent Information
 
@@ -503,7 +503,7 @@ Agents reference both **Description** and **Profile** when deciding which agent 
 #### Communicate with Other Agents
 
 ```bash
-# Initiate new conversation
+# Initiate new conversation (real-time mode, for quick queries)
 copaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
@@ -515,7 +515,39 @@ copaw agents chat \
   --to-agent <target_agent> \
   --session-id "<session_id>" \
   --text "Follow-up request"
+
+# Complex task (background mode, for data analysis, report generation, etc.)
+copaw agents chat --background \
+  --from-agent <current_agent> \
+  --to-agent <target_agent> \
+  --text "Complex task request"
+# Returns [TASK_ID: xxx] [SESSION: xxx]
+
+# Check background task status (--to-agent is optional when querying)
+copaw agents chat --background \
+  --task-id <task_id>
+# Status flow: submitted → pending → running → finished
+# When finished, result shows: completed (✅) or failed (❌)
 ```
+
+**Background Mode Explanation**:
+
+When tasks are complex (e.g., data analysis, batch processing, report generation), use `--background` to avoid blocking the current agent, allowing it to continue processing other work. After submission, it returns a `task_id` that can be used later to query the task status and result.
+
+**Task Status Flow**:
+
+- `submitted`: Task accepted, waiting to start
+- `pending`: Queued for execution
+- `running`: Currently executing
+- `finished`: Completed (check result for `completed` or `failed`)
+
+**Scenarios for using background mode**:
+
+- Data analysis and statistics
+- Batch file processing
+- Generating detailed reports
+- Calling slow external APIs
+- Complex tasks with uncertain execution time
 
 > **Note**: These commands are executed automatically by agents; users typically don't need to call them manually. See [CLI - Agents](./cli#agents) for details.
 
@@ -632,6 +664,7 @@ If you need to directly edit configuration files:
 ### Plan Your Agent Count Wisely
 
 ✅ **Recommended**: 3-5 agents, organized by primary function or platform
+
 ❌ **Not Recommended**: Creating an agent for every small feature
 
 Too many agents increase management complexity without proportional benefits.

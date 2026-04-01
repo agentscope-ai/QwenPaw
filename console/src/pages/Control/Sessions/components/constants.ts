@@ -4,17 +4,6 @@ export interface Session extends ChatSpec {
   name?: string;
 }
 
-export const CHANNEL_COLORS: Record<string, string> = {
-  imessage: "blue",
-  discord: "purple",
-  dingtalk: "cyan",
-  feishu: "magenta",
-  qq: "orange",
-  telegram: "geekblue",
-  mqtt: "gold",
-  console: "green",
-} as const;
-
 /**
  * Normalize ISO timestamp to ensure UTC timezone is always recognized.
  * Timestamps without timezone suffix (e.g. from datetime.utcnow()) are

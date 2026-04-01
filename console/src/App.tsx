@@ -17,7 +17,9 @@ import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
-import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
+
+import { languageApi } from "./api/modules/language";
+import { getApiUrl, getApiToken, clearAuthToken,setAuthToken } from "./api/config";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -48,6 +50,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   );
 
   useEffect(() => {
+    // If a token is passed in the URL (?token=xxx), store it and clean up the URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get("token");
+    if (urlToken) {
+      setAuthToken(urlToken);
+      urlParams.delete("token");
+      const newSearch = urlParams.toString();
+      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "") + window.location.hash;
+      window.history.replaceState(null, "", newUrl);
+    }
+
     let cancelled = false;
     (async () => {
       try {
@@ -113,6 +126,22 @@ function AppInner() {
   );
 
   useEffect(() => {
+    if (!localStorage.getItem("language")) {
+      languageApi
+        .getLanguage()
+        .then(({ language }) => {
+          if (language && language !== i18n.language) {
+            i18n.changeLanguage(language);
+            localStorage.setItem("language", language);
+          }
+        })
+        .catch((err) =>
+          console.error("Failed to fetch language preference:", err),
+        );
+    }
+  }, []);
+
+  useEffect(() => {
     const handleLanguageChanged = (lng: string) => {
       const shortLng = lng.split("-")[0];
       setAntdLocale(antdLocaleMap[shortLng] ?? enUS);
@@ -141,6 +170,9 @@ function AppInner() {
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
+          token: {
+            colorPrimary: "#FF7F16",
+          },
         }}
       >
         <Routes>

@@ -81,7 +81,11 @@ def build_env_context(
             "Consult the relevant skill documentation if unsure.\n"
             "  2. When using write_file, if you want to avoid overwriting "
             "existing content, use read_file first to inspect the file, "
-            "then use edit_file for partial updates or appending.",
+            "then use edit_file for partial updates or appending.\n"
+            "  3. Use tool calls to perform actions. A response without a "
+            "tool call indicates the task is complete. To continue a task, "
+            "you must generate a tool call or provide useful feedback if "
+            "you are blocked.\n",
         )
 
     return (
@@ -128,7 +132,169 @@ def _resolve_content_url(url: str) -> str:
     return _abspath_from_url(url)
 
 
-# pylint: disable=too-many-branches,too-many-statements
+# pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
+def _build_media_message_from_block(
+    block: dict,
+    role: str,
+    metadata: dict,
+) -> Message:
+    output = block.get("output")
+    media_message = None
+    if isinstance(output, list):
+        media_items = [
+            item
+            for item in output
+            if isinstance(item, dict)
+            and item.get("type") in ("image", "audio", "video", "file")
+        ]
+        if media_items:
+            media_message = Message(
+                type=MessageType.MESSAGE,
+                role=role,
+            )
+            media_message.metadata = metadata
+
+            for item in media_items:
+                itype = item.get("type")
+
+                if itype == "image":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["image_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "image/jpeg",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "image_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    media_message.add_content(
+                        new_content=ImageContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "audio":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        url = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                        kwargs["data"] = url
+                        try:
+                            kwargs["format"] = urlparse(
+                                url,
+                            ).path.split(
+                                ".",
+                            )[-1]
+                        except (
+                            AttributeError,
+                            IndexError,
+                            ValueError,
+                        ):
+                            kwargs["format"] = None
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get("media_type")
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "data"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                        kwargs["format"] = media_type
+                    media_message.add_content(
+                        new_content=AudioContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "video":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["video_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "video/mp4",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "video_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    media_message.add_content(
+                        new_content=VideoContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "file":
+                    kwargs = {"filename": item.get("filename", "")}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["file_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "application/octet-stream",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "file_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    elif isinstance(source, str):
+                        kwargs["file_url"] = _resolve_content_url(
+                            source,
+                        )
+                    media_message.add_content(
+                        new_content=FileContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+    return media_message
+
+
+# pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
 ) -> List[Message]:
@@ -278,6 +444,14 @@ def agentscope_msg_to_message(
                     data=output_data,
                 )
                 current_message.add_content(new_content=data_content)
+
+                media_message = _build_media_message_from_block(
+                    block,
+                    role,
+                    metadata,
+                )
+                if media_message:
+                    results.append(media_message)
 
             elif btype == "image":
                 if current_type != MessageType.MESSAGE:

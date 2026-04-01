@@ -60,6 +60,46 @@ export function useTools() {
     [t],
   );
 
+  const toggleAsyncExecution = useCallback(
+    async (tool: ToolInfo) => {
+      // Optimistic update
+      setTools((prev) =>
+        prev.map((t) =>
+          t.name === tool.name
+            ? { ...t, async_execution: !t.async_execution }
+            : t,
+        ),
+      );
+
+      try {
+        const result = await api.updateAsyncExecution(
+          tool.name,
+          !tool.async_execution,
+        );
+        message.success(
+          result.async_execution
+            ? t("tools.asyncExecutionEnabled")
+            : t("tools.asyncExecutionDisabled"),
+        );
+        // Update with server response
+        setTools((prev) =>
+          prev.map((t) => (t.name === result.name ? result : t)),
+        );
+      } catch (error) {
+        // Revert optimistic update on error
+        setTools((prev) =>
+          prev.map((t) =>
+            t.name === tool.name
+              ? { ...t, async_execution: tool.async_execution }
+              : t,
+          ),
+        );
+        message.error(t("tools.toggleError"));
+      }
+    },
+    [t],
+  );
+
   const enableAll = useCallback(async () => {
     const disabledTools = tools.filter((tool) => !tool.enabled);
     if (disabledTools.length === 0) {
@@ -129,6 +169,7 @@ export function useTools() {
     loading,
     batchLoading,
     toggleEnabled,
+    toggleAsyncExecution,
     enableAll,
     disableAll,
   };

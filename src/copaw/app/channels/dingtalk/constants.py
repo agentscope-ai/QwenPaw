@@ -26,3 +26,7 @@ DINGTALK_TYPE_MAPPING = {
 AI_CARD_TOKEN_PREEMPTIVE_REFRESH_SECONDS = 90 * 60
 AI_CARD_PROCESSING_TEXT = "处理中..."
 AI_CARD_RECOVERY_FINAL_TEXT = "⚠️ 上一次回复处理中断，已自动结束。请重新发送你的问题。"
+
+# Safety margin (ms) before sessionWebhook expiry to consider it expired.
+# Treat webhook as expired 5 minutes before actual expiry time.
+SESSION_WEBHOOK_EXPIRY_SAFETY_MARGIN_MS = 5 * 60 * 1000

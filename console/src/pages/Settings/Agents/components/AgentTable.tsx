@@ -5,7 +5,7 @@ import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
 import { EyeOff, Eye } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
-import styles from "../index.module.less";
+import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 
 interface AgentTableProps {
   agents: AgentSummary[];
@@ -30,12 +30,18 @@ export function AgentTable({
     ? { color: "rgba(255,255,255,0.35)", opacity: 1 }
     : {};
 
+  // Icon style for dark mode - white color
+  const iconStyle: React.CSSProperties = isDark
+    ? { color: "rgba(255,255,255,0.85)" }
+    : {};
+
   const columns: ColumnsType<AgentSummary> = [
     {
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      render: (text: string, record: AgentSummary) => (
+      width: 300,
+      render: (_text: string, record: AgentSummary) => (
         <Space>
           <RobotOutlined
             style={{
@@ -43,7 +49,9 @@ export function AgentTable({
               opacity: record.enabled ? 1 : 0.5,
             }}
           />
-          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>{text}</span>
+          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
+            {getAgentDisplayName(record, t)}
+          </span>
           {!record.enabled && <Tag color="error">{t("agent.disabled")}</Tag>}
         </Space>
       ),
@@ -68,24 +76,21 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
-      width: 400,
       render: (_: any, record: AgentSummary) => (
         <Space>
           <Button
-            type="link"
-            size="small"
+            type="text"
+            size="middle"
             icon={<EditOutlined />}
             onClick={() => onEdit(record)}
             disabled={record.id === "default"}
-            style={record.id === "default" ? disabledStyle : undefined}
+            style={record.id === "default" ? disabledStyle : iconStyle}
             title={
               record.id === "default"
                 ? t("agent.defaultNotEditable")
                 : undefined
             }
-          >
-            {t("common.edit")}
-          </Button>
+          />
           <Popconfirm
             title={
               record.enabled
@@ -103,19 +108,17 @@ export function AgentTable({
             cancelText={t("common.cancel")}
           >
             <Button
-              type="link"
-              size="small"
+              type="text"
+              size="middle"
               icon={record.enabled ? <EyeOff size={14} /> : <Eye size={14} />}
               disabled={record.id === "default"}
-              style={record.id === "default" ? disabledStyle : undefined}
+              style={record.id === "default" ? disabledStyle : iconStyle}
               title={
                 record.id === "default"
                   ? t("agent.defaultNotDisablable")
                   : undefined
               }
-            >
-              {record.enabled ? t("agent.disable") : t("agent.enable")}
-            </Button>
+            />
           </Popconfirm>
           <Popconfirm
             title={t("agent.deleteConfirm")}
@@ -127,7 +130,7 @@ export function AgentTable({
           >
             <Button
               type="link"
-              size="small"
+              size="middle"
               danger
               icon={<DeleteOutlined />}
               disabled={record.id === "default"}
@@ -137,9 +140,7 @@ export function AgentTable({
                   ? t("agent.defaultNotDeletable")
                   : undefined
               }
-            >
-              {t("common.delete")}
-            </Button>
+            />
           </Popconfirm>
         </Space>
       ),
@@ -147,17 +148,15 @@ export function AgentTable({
   ];
 
   return (
-    <div className={styles.tableCard}>
-      <Table
-        dataSource={agents}
-        columns={columns}
-        loading={loading}
-        rowKey="id"
-        pagination={{
-          pageSize: 10,
-          showSizeChanger: false,
-        }}
-      />
-    </div>
+    <Table
+      dataSource={agents}
+      columns={columns}
+      loading={loading}
+      rowKey="id"
+      pagination={{
+        pageSize: 10,
+        showSizeChanger: false,
+      }}
+    />
   );
 }

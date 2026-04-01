@@ -1,0 +1,198 @@
+.chatSessionItem {
+  position: relative;
+  display: flex;
+  height: 77px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  gap: 8px;
+  background-color: var(--colorBgBase, #fff);
+  cursor: pointer;
+  overflow: hidden;
+  transition: background-color 0.2s;
+
+  &:hover {
+    border-radius: 6px;
+    background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.03));
+
+    .actions {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .iconPlaceholder {
+      // Highlight connector line and dot on hover
+      &::before {
+        background-color: var(--colorBorder, #c1bebb);
+        transition: background-color 0.2s;
+      }
+
+      &::after {
+        border: 1px solid var(--colorBorder, #c1bebb);
+        transition: background-color 0.2s;
+      }
+    }
+  }
+
+  &.active {
+    border-radius: 6px;
+    background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.03));
+  }
+
+  // Reserve right-side padding for the edit input in editing mode
+  &.editing {
+    .content {
+      padding-right: 12px;
+    }
+  }
+}
+
+.iconPlaceholder {
+  width: 24px;
+  flex-shrink: 0;
+  position: relative;
+
+  // Vertical connector line centered in the 24px container (x = 11.5px)
+  &::before {
+    content: "";
+    position: absolute;
+    left: calc(50% - 0.5px);
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: var(--colorBorder, #d9d9d9);
+  }
+
+  // Timeline dot (6x6px) centered on the connector line
+  &::after {
+    content: "";
+    position: absolute;
+    left: calc(50% - 3px);
+    top: 20px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background-color: var(--colorBgBase, #fff);
+    border: 1px solid var(--colorBorder, #d9d9d9);
+    z-index: 1;
+  }
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+  color: var(--colorText, #1a1716);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.time {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.45));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channelTag {
+  flex-shrink: 0;
+  max-width: 52%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px 1px 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--colorTextSecondary, rgba(26, 23, 22, 0.55));
+  background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.06));
+  min-width: 0;
+}
+
+.channelIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  object-fit: contain;
+}
+
+.channelTagText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.actions {
+  position: absolute;
+  right: 16px;
+  top: 14px;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+/* Dark mode */
+:global(.dark-mode) {
+  .chatSessionItem {
+    background-color: #1f1f1f;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    &.active {
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+
+  .iconPlaceholder {
+    &::before {
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+
+    &::after {
+      background-color: #1f1f1f;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+  }
+
+  .name {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .time {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .channelTag {
+    color: rgba(255, 255, 255, 0.65);
+    background: rgba(255, 255, 255, 0.1);
+  }
+}

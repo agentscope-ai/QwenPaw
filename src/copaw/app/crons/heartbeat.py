@@ -14,6 +14,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict, Optional
 
+from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ...config import (
     get_heartbeat_config,
     get_heartbeat_query_path,
@@ -149,7 +150,7 @@ async def run_heartbeat_once(
         logger.debug("heartbeat skipped: no file at %s", path)
         return
 
-    query_text = path.read_text(encoding="utf-8").strip()
+    query_text = read_text_file_with_encoding_fallback(path).strip()
     if not query_text:
         logger.debug("heartbeat skipped: empty query file")
         return

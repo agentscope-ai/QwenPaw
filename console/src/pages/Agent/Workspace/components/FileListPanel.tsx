@@ -146,13 +146,8 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
               ? t("workspace.coreFiles")
               : t("workspace.allFiles", "All Files")}
           </h3>
-          <Button
-            size="small"
-            onClick={() => onRefresh()}
-            icon={<ReloadOutlined />}
-          >
-            {t("common.refresh")}
-          </Button>
+          <Button size="small" onClick={onRefresh} icon={<ReloadOutlined />} />
+
         </div>
 
         <Segmented

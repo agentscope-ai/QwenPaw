@@ -8,6 +8,11 @@
     - "(?i)ignore\\s+(all\\s+)?(previous|prior|earlier)\\s+(instructions|rules|prompts|guidelines)"
     - "(?i)disregard\\s+(all\\s+)?(previous|prior)\\s+(instructions|rules)"
     - "(?i)forget\\s+(all\\s+)?(previous|prior)\\s+(instructions|context)"
+    # Chinese: override / disregard prior instructions
+    - "(?:忽略|忘掉|无视)\\s*(?:所有|全部)?\\s*(?:之前|先前|上文|以上|前面|上述)?\\s*(?:的)?\\s*(?:所有|全部)?\\s*(?:指令|指示|规则|提示|要求|设定)"
+    - "请?(?:忽略|忘掉)\\s*(?:上面|上文|以上|前述)\\s*(?:的)?\\s*(?:内容|指令|规则|提示|要求)"
+    - "(?:以上|前述)\\s*(?:指令|规则|提示)\\s*(?:统统|全部)?\\s*(?:作废|无效|不再适用)"
+    - "(?:本条|这条|以下)\\s*(?:指令|规则)\\s*(?:覆盖|取代|替换)\\s*(?:以上|前述|系统|所有)?\\s*(?:规则|指令|提示)?"
   file_types: [markdown]
   description: "Attempts to override previous system instructions"
   remediation: "Remove instructions that attempt to override system behavior"
@@ -19,6 +24,10 @@
     - "(?i)you are now in\\s+(unrestricted|debug|developer|admin|god|jailbreak)\\s+mode"
     - "(?i)enter\\s+(unrestricted|debug|developer)\\s+mode"
     - "(?i)disable\\s+(all\\s+)?(safety|security|content|ethical)\\s+(filters|checks|guidelines)"
+    # Chinese: jailbreak / unrestricted / disable safeguards
+    - "(?:你)?现在(?:处于|进入|切换(?:到)?)?\\s*(?:无限制|越狱|开发者|调试|管理员|上帝)(?:模式)?"
+    - "(?:关闭|禁用|取消)(?:所有)?\\s*(?:安全|内容|伦理|道德)?\\s*(?:过滤|检测|审核|限制|约束|防护)"
+    - "扮演\\s*(?:一个)?\\s*(?:没有任何限制|不受任何约束|可以(?:随意|自由)回答)(?:的)?\\s*(?:AI|助手|模型|机器人)?"
   file_types: [markdown]
   description: "Attempts to enable unrestricted or dangerous modes"
   remediation: "Remove mode-switching instructions that bypass safety"
@@ -30,6 +39,10 @@
     - "(?i)bypass\\s+(content|usage|safety)\\s+policy"
     - "(?i)ignore\\s+(safety|content|ethical)\\s+(guidelines|restrictions|limits)"
     - "(?i)output\\s+disallowed\\s+content\\s+anyway"
+    # Chinese: policy / safety bypass
+    - "(?:绕过|躲开|规避)\\s*(?:内容|使用|安全)?\\s*(?:策略|政策|限制|审核|审查)"
+    - "(?:忽略|无视)\\s*(?:安全|内容|伦理|道德)?\\s*(?:指南|限制|约束|规定|红线)"
+    - "(?:仍然|依旧|强行|强制)?\\s*输出\\s*(?:被禁止|不允许|违规|敏感|违禁)?\\s*(?:的)?\\s*内容"
   file_types: [markdown]
   description: "Attempts to bypass content policy or safety guidelines"
   remediation: "Remove policy bypass instructions"
@@ -41,6 +54,10 @@
     - "(?i)reveal\\s+(your|the)\\s+system\\s+(prompt|instructions|message)"
     - "(?i)show\\s+(me\\s+)?(your|the)\\s+(system|initial)\\s+(prompt|configuration)"
     - "(?i)what\\s+(are|is)\\s+your\\s+(system|initial)\\s+(prompt|instructions)"
+    # Chinese: exfiltrate system prompt / config
+    - "(?:显示|展示|告诉我|说出|透露|打印|输出)\\s*(?:你的|完整的)?\\s*(?:系统|初始|内置)?\\s*(?:提示|指令|prompt|人设|配置)(?:词|内容)?"
+    - "(?:你的|系统的)\\s*(?:系统|初始)?\\s*(?:提示|指令)\\s*(?:是|为)什么"
+    - "(?:完整|原始)\\s*(?:的)?\\s*(?:系统|开发)?\\s*(?:提示|指令)"
   file_types: [markdown]
   description: "Attempts to reveal system prompts or configuration"
   remediation: "Remove instructions asking to reveal system details"
@@ -53,6 +70,10 @@
     - "(?i)hide\\s+(this|that)\\s+(action|operation|step)"
     - "(?i)keep\\s+(this|that)\\s+(secret|hidden)"
     - "(?i)don't\\s+mention\\s+you\\s+used\\s+this\\s+skill"
+    # Chinese: hide actions from the user
+    - "(?:不要|勿|请勿|别)\\s*(?:告诉|告知|通知|提及|跟|让)\\s*(?:用户|使用者)(?:知道)?"
+    - "(?:对用户|向用户)\\s*(?:隐瞒|保密|隐藏)(?:这|该)?\\s*(?:操作|步骤|行为)?"
+    - "(?:不要|勿|别)\\s*提及\\s*你\\s*(?:曾|有)?\\s*使用\\s*(?:此|本)?\\s*(?:技能|工具|插件)"
   file_types: [markdown]
   description: "Attempts to conceal actions from the user"
   remediation: "Ensure transparency - do not hide skill usage from users"

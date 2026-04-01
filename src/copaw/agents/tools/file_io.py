@@ -8,9 +8,16 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ...constant import WORKING_DIR
-from ...config.context import get_current_workspace_dir
-from .utils import truncate_file_output, read_file_safe
+from .utils import (
+    truncate_text_output,
+    read_file_safe,
+    DEFAULT_MAX_BYTES,
+)
+from ...config.context import (
+    get_current_workspace_dir,
+    get_current_recent_max_bytes,
+)
+from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
 
 
 def _resolve_file_path(file_path: str) -> str:
@@ -30,6 +37,30 @@ def _resolve_file_path(file_path: str) -> str:
         # Use current workspace_dir from context, fallback to WORKING_DIR
         workspace_dir = get_current_workspace_dir() or WORKING_DIR
         return str(workspace_dir / file_path)
+
+
+def _get_encoding_for_file(file_path: str) -> str:
+    """Determine the appropriate encoding for a file based on its type.
+
+    For cross-platform compatibility, especially with Windows Excel/Notepad:
+    - CSV/TSV/TXT files: Use UTF-8-BOM (Windows Excel needs BOM to detect UTF-8)
+    - All other files: Use UTF-8 (safer default, no BOM)
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        Encoding string: "utf-8-sig" or "utf-8"
+    """
+    suffix = Path(file_path).suffix.lower()
+
+    # Files that need BOM for Windows compatibility
+    if suffix in {".csv", ".tsv", ".tab", ".txt", ".log"}:
+        return "utf-8-sig"
+
+    # Default: UTF-8 without BOM (safe for all other files)
+    # This includes: .sh, .yaml, .json, .py, .js, .md, etc.
+    return "utf-8"
 
 
 async def read_file(  # pylint: disable=too-many-return-statements
@@ -133,19 +164,31 @@ async def read_file(  # pylint: disable=too-many-return-statements
         selected_content = "\n".join(all_lines[s - 1 : e])
 
         # Apply smart truncation (consistent with shell output format)
-        text = truncate_file_output(
+        max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
+        text = truncate_text_output(
             selected_content,
             start_line=s,
             total_lines=total,
+            file_path=file_path,
+            max_bytes=max_bytes,
         )
 
-        # Add continuation hint if partial read without truncation
+        # Add continuation hint if partial read without truncation.
+        # Use TRUNCATION_NOTICE_MARKER format so ToolResultCompactor can
+        # re-truncate with the correct start_line when compacting old messages.
         if text == selected_content and e < total:
-            remaining = total - e
-            text = (
-                f"{file_path}  (lines {s}-{e} of {total})\n{text}\n\n"
-                f"[{remaining} more lines. Use start_line={e + 1} to continue.]"
+            content_bytes = len(text.encode("utf-8"))
+            notice = (
+                TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
+                f"\nThe full content is saved to the file "
+                f"and contains {total} lines in total."
+                f"\nThis excerpt starts at line {s} and "
+                f"covers the next {content_bytes} bytes."
+                "\nIf the current content is not enough, "
+                f"call `read_file` with file_path={file_path} "
+                f"start_line={e + 1} to read more."
             )
+            text = text + notice
 
         return ToolResponse(
             content=[TextBlock(type="text", text=text)],
@@ -186,9 +229,10 @@ async def write_file(
         )
 
     file_path = _resolve_file_path(file_path)
+    encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "w", encoding="utf-8") as file:
+        with open(file_path, "w", encoding=encoding) as file:
             file.write(content)
         return ToolResponse(
             content=[
@@ -327,9 +371,10 @@ async def append_file(
         )
 
     file_path = _resolve_file_path(file_path)
+    encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "a", encoding="utf-8") as file:
+        with open(file_path, "a", encoding=encoding) as file:
             file.write(content)
         return ToolResponse(
             content=[

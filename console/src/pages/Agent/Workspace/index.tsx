@@ -5,6 +5,7 @@ import { Button, Tooltip, message } from "@agentscope-ai/design";
 import { workspaceApi } from "../../../api/modules/workspace";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function WorkspacePage() {
   const { t } = useTranslation();
@@ -69,10 +70,12 @@ export default function WorkspacePage() {
       return;
     }
 
-    const maxSize = 100 * 1024 * 1024;
+    const maxSizeMb = 100;
+    const maxSize = maxSizeMb * 1024 * 1024;
     if (file.size > maxSize) {
       message.error(
         t("workspace.fileSizeExceeded", {
+          limit: maxSizeMb,
           size: (file.size / (1024 * 1024)).toFixed(2),
         }),
       );
@@ -107,40 +110,52 @@ export default function WorkspacePage() {
   };
 
   return (
-    <div className={styles.agentsPage}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>{t("workspace.title")}</h1>
-        <div className={styles.workspaceInfo}>
+    <div className={styles.workspacePage}>
+      <PageHeader
+        items={[{ title: t("nav.agent") }, { title: t("workspace.title") }]}
+        afterBreadcrumb={
           <p className={styles.workspacePath}>
             {t("workspace.workspacePath")}{" "}
             {workspacePath === null
               ? t("common.loading")
               : workspacePath || t("workspace.noFiles")}
           </p>
-          <div className={styles.actionButtons}>
-            <Tooltip
-              title={t("workspace.uploadTooltip")}
-              placement="top"
-              mouseEnterDelay={0.5}
-            >
+        }
+        extra={
+          <div className={styles.workspaceInfo}>
+            <div className={styles.actionButtons}>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                style={{ display: "none" }}
+                accept=".zip"
+                title="Select a ZIP file (max 100MB)"
+              />
+              <Tooltip
+                title={t("workspace.uploadTooltip")}
+                placement="top"
+                mouseEnterDelay={0.5}
+              >
+                <Button
+                  size="small"
+                  onClick={handleUploadClick}
+                  icon={<UploadOutlined />}
+                >
+                  {t("common.upload")}
+                </Button>
+              </Tooltip>
               <Button
                 size="small"
-                onClick={handleUploadClick}
-                icon={<UploadOutlined />}
+                onClick={handleDownload}
+                icon={<DownloadOutlined />}
               >
-                {t("common.upload")}
+                {t("common.download")}
               </Button>
-            </Tooltip>
-            <Button
-              size="small"
-              onClick={handleDownload}
-              icon={<DownloadOutlined />}
-            >
-              {t("common.download")}
-            </Button>
+            </div>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       <div className={styles.content}>
         <FileListPanel
@@ -171,18 +186,6 @@ export default function WorkspacePage() {
           onReset={handleReset}
         />
       </div>
-
-      <p className={styles.attribution}>{t("workspace.attribution")}</p>
-
-      {/* Hidden file input - only accepts .zip files up to 100MB */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileUpload}
-        style={{ display: "none" }}
-        accept=".zip"
-        title="Select a ZIP file (max 100MB)"
-      />
     </div>
   );
 }

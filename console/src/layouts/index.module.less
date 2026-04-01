@@ -10,12 +10,11 @@
 // ─── Header ───────────────────────────────────────────────────────────────────
 .header {
   height: 64px;
-  padding: 0 24px;
+  padding: 0 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  border-bottom: 1px solid #f0f0f0;
+  background: #f9f8f4;
 }
 
 .headerTitle {
@@ -27,16 +26,163 @@
   white-space: nowrap;
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
 .sider {
-  background: #fff !important;
-  border-right: 1px solid #f0f0f0;
+  background: #f9f8f4 !important;
   overflow: auto;
-  height: 100vh;
+  height: calc(100vh - 64px);
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+
+  // Hide scrollbar in browser
+  &::-webkit-scrollbar {
+    display: none;
+    /* Safari and Chrome */
+  }
+
+  &::-moz-scrollbar {
+    display: none;
+    /* Firefox */
+  }
+
+  &::-ms-scrollbar {
+    display: none;
+    /* IE/Edge */
+  }
+
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
+
+  // AgentSelector container - fixed at top
+  .agentSelectorContainer {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #f9f8f4;
+    margin-bottom: 12px;
+  }
+
+  // Menu takes remaining space
+  .sideMenu {
+    flex: 1;
+    overflow-y: auto;
+
+    // Hide scrollbar for menu too
+    &::-webkit-scrollbar {
+      display: none;
+    }
+
+    &::-moz-scrollbar {
+      display: none;
+    }
+
+    &::-ms-scrollbar {
+      display: none;
+    }
+
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  &.siderCollapsed {
+    padding: 0 8px;
+
+    .agentSelectorContainer {
+      display: flex;
+      justify-content: center;
+    }
+
+    .collapseToggleContainer {
+      justify-content: center;
+      width: calc(100% + 16px);
+      margin: 0 -8px;
+      padding: 8px 0;
+    }
+
+    :global {
+      /* Center icon in collapsed menu items */
+      .copaw-menu-item,
+      .copaw-menu-submenu .copaw-menu-item {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+
+      /* Hide label text in collapsed mode */
+      .copaw-menu-title-content,
+      .copaw-menu-item > span:not([role]),
+      .copaw-menu-item-only-child > span {
+        display: none !important;
+      }
+
+      /* Hide group labels */
+      .copaw-menu-submenu-title {
+        display: none !important;
+      }
+    }
+  }
 
   :global {
     .copaw-menu {
+      background: #f9f8f4 !important;
       border-inline-end: 0 !important;
+    }
+
+    /* Group title (一级菜单分组) */
+    .copaw-menu-submenu-title {
+      font-family: "PingFang SC", sans-serif !important;
+      font-size: 12px !important;
+      font-weight: 500 !important;
+      line-height: 32px !important;
+      letter-spacing: normal !important;
+      color: rgba(26, 23, 22, 0.25) !important;
+      padding-left: 8px !important;
+    }
+
+    /* Hide submenu arrow */
+    .copaw-menu-submenu-arrow {
+      display: none !important;
+    }
+
+    /* Always expand submenus */
+    .copaw-menu-submenu {
+      > .copaw-menu {
+        display: block !important;
+      }
+    }
+
+    /* Menu item padding - align all items */
+    .copaw-menu-item {
+      padding-left: 8px !important;
+    }
+
+    /* Remove submenu indent - align with parent */
+    .copaw-menu-submenu .copaw-menu-item {
+      padding-left: 8px !important;
+    }
+
+    /* Selected item */
+    .copaw-menu-item-selected {
+      background: rgba(43, 18, 0, 0.08) !important;
+      color: inherit !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+
+      .copaw-menu-title-content {
+        display: flex !important;
+        align-items: center !important;
+      }
+    }
+
+    /* Selected submenu item - keep text color unchanged */
+    .copaw-menu-submenu .copaw-menu-item-selected {
+      color: inherit !important;
     }
   }
 }
@@ -45,39 +191,40 @@
   background: #1a1a1a !important;
   border-right-color: rgba(255, 255, 255, 0.08) !important;
 
+  // AgentSelector container - fixed at top (dark mode)
+  .agentSelectorContainer {
+    background: #1a1a1a;
+  }
+
   :global {
     .copaw-menu {
       background: #1a1a1a !important;
       border-inline-end: 0 !important;
     }
+
     /* Group title (sub-menu label) */
     .copaw-menu-submenu-title {
       color: rgba(255, 255, 255, 0.45) !important;
     }
+
     /* Regular menu item */
     .copaw-menu-item {
       color: rgba(255, 255, 255, 0.75) !important;
     }
+
     /* Hover state */
     .copaw-menu-item:hover,
     .copaw-menu-submenu-title:hover {
       background: rgba(255, 255, 255, 0.1) !important;
       color: rgba(255, 255, 255, 0.95) !important;
     }
+
     /* Selected item */
     .copaw-menu-item-selected {
-      background: rgba(97, 92, 237, 0.3) !important;
-      color: #a5a2f3 !important;
+      background: rgba(255, 127, 22, 0.5) !important;
+      color: #ff7f16 !important;
     }
   }
-}
-
-.siderTop {
-  height: 64px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 12px;
 }
 
 .logoWrapper {
@@ -86,17 +233,33 @@
 }
 
 .logoImg {
-  height: 32px;
+  height: 16px;
   width: auto;
 }
 
+.logoDivider {
+  width: 16px;
+  height: 0px;
+  transform: rotate(90deg);
+  border-top: 1px solid rgba(234, 232, 231, 1);
+  margin: 0 8px;
+}
+
+.headerDivider {
+  width: 16px;
+  height: 0px;
+  transform: rotate(90deg);
+  z-index: 4;
+  border-top: 1px solid rgba(234, 232, 231, 1);
+}
+
 .versionBadge {
-  font-size: 10px;
-  color: #615ced;
+  font-size: 12px;
+  color: #1a171673;
   font-weight: 600;
   line-height: 1;
   position: relative;
-  top: 10px;
+  top: 3px;
 }
 
 .versionBadgeClickable {
@@ -109,7 +272,7 @@
 
 .collapseBtn {
   margin: auto;
-  color: #615ced;
+  color: #ff7f16;
 }
 
 // ─── Auth actions (account + logout) ──────────────────────────────────────────
@@ -139,16 +302,150 @@
   margin-top: 4px;
 }
 
+/* Collapse Toggle Button */
+.collapseToggleContainer {
+  flex-shrink: 0;
+  z-index: 10;
+  width: calc(100% + 32px);
+  margin: 0 -16px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.collapseToggle {
+  color: rgba(0, 0, 0, 0.45);
+  border-radius: 8px;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06) !important;
+    color: #ff7f16 !important;
+  }
+}
+
+/* Collapsed nav (icon-only group list) */
+.collapsedNav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.collapsedNavItem {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.55);
+  transition: all 0.15s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.88);
+  }
+}
+
+.collapsedNavItemActive {
+  background: rgba(43, 18, 0, 0.08) !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
 // ─── Update Modal ─────────────────────────────────────────────────────────────
+.updateModal {
+  :global(.copaw-modal-content) {
+    padding: 0 !important;
+    border-radius: 12px !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  :global(.copaw-modal-body) {
+    padding: 0 !important;
+  }
+
+  :global(.copaw-modal-footer) {
+    padding: 12px 24px;
+    margin-top: 0;
+  }
+
+  :global(.copaw-modal-header) {
+    display: none !important;
+  }
+
+  :global(.copaw-modal-close) {
+    display: none !important;
+  }
+}
+
+.updateModalBanner {
+  background: url("https://gw.alicdn.com/imgextra/i3/O1CN013Tuw5Y1sFbMMVSqt7_!!6000000005737-2-tps-960-146.png")
+    no-repeat center top;
+  background-size: contain;
+  padding: 48px 28px 0px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-height: 100px;
+  position: relative;
+  transform: translateY(-48px);
+}
+
+.updateModalBannerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.updateModalVersionTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid rgba(43, 18, 0, 0.12);
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(26, 23, 22, 0.65);
+  width: fit-content;
+}
+
+.updateModalBannerTitle {
+  font-family: Newsreader;
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 64.78px;
+  letter-spacing: normal;
+  color: #ff7f16;
+}
+
 .updateModalTitle {
-  color: #615ced;
+  color: #ff7f16;
 }
 
 .updateModalBody {
-  max-height: 480px;
+  max-height: 400px;
   overflow-y: auto;
-  padding: 8px 4px;
+  padding: 16px 24px 8px;
   min-height: 120px;
+  margin-top: -40px;
 }
 
 .updateModalSpinWrapper {
@@ -158,9 +455,20 @@
   height: 120px;
 }
 
+.updateViewReleasesBtn {
+  background: #ff7f16 !important;
+  border-color: #ff7f16 !important;
+  color: #fff !important;
+
+  &:hover {
+    background: #d45b0a !important;
+    border-color: #d45b0a !important;
+  }
+}
+
 .updateModalPrimaryBtn {
-  background: #615ced;
-  border-color: #615ced;
+  background: #ff7f16;
+  border-color: #ff7f16;
 }
 
 // ─── Code block inside update modal ──────────────────────────────────────────
@@ -193,6 +501,16 @@
   top: 8px;
   right: 8px;
   transition: color 0.2s;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  line-height: 1;
+  border-radius: 4px;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+  }
 }
 
 .copyBtnCopied {
@@ -206,7 +524,7 @@
 /* ─── Dark mode overrides ─────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .header {
-    background: #1f1f1f !important;
+    background: #1a1a1a !important;
     border-bottom-color: rgba(255, 255, 255, 0.08) !important;
     color: rgba(255, 255, 255, 0.85);
 
@@ -246,11 +564,11 @@
   }
 
   .versionBadge {
-    color: #8b87f0;
+    color: #ff7f16;
   }
 
   .collapseBtn {
-    color: #8b87f0;
+    color: #ff7f16;
   }
 
   .authActions {
@@ -264,6 +582,29 @@
       color: rgba(255, 255, 255, 0.9) !important;
       background: rgba(255, 255, 255, 0.06) !important;
     }
+  }
+
+  .collapseToggle {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ff7f16;
+    }
+  }
+
+  .collapsedNavItem {
+    color: rgba(255, 255, 255, 0.5);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .collapsedNavItemActive {
+    background: rgba(255, 127, 22, 0.5) !important;
+    color: rgba(255, 255, 255, 0.88) !important;
   }
 
   .codeBlock {

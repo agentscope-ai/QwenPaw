@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
+from . import control_commands
 from .daemon_commands import (
     DaemonContext,
     DaemonCommandHandlerMixin,
@@ -51,16 +52,26 @@ def _is_conversation_command(query: str | None) -> bool:
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 
+def _is_control_command(query: str | None) -> bool:
+    """True if query is a control command (/stop, etc.)."""
+    return control_commands.is_control_command(query)
+
+
 def _is_command(query: str | None) -> bool:
-    """True if query is any known command (daemon or conversation)."""
+    """True if query is any known command.
+
+    Priority order: daemon > control > conversation
+    """
     if not query or not query.startswith("/"):
         return False
     if parse_daemon_query(query) is not None:
         return True
+    if _is_control_command(query):
+        return True
     return _is_conversation_command(query)
 
 
-async def run_command_path(
+async def run_command_path(  # pylint: disable=too-many-statements
     request,
     msgs,
     runner: AgentRunner,
@@ -110,16 +121,109 @@ async def run_command_path(
             yield hint, True
 
         agent_id = runner.agent_id
-        context = DaemonContext(
+        daemon_ctx = DaemonContext(
             load_config_fn=lambda: load_agent_config(agent_id),
             memory_manager=runner.memory_manager,
             manager=manager,
             agent_id=agent_id,
             session_id=session_id,
         )
-        msg = await handler.handle_daemon_command(query, context)
+        msg = await handler.handle_daemon_command(query, daemon_ctx)
         yield msg, True
         logger.info("handle_daemon_command %s completed", query)
+        return
+
+    # Control command path (e.g. /stop)
+    if _is_control_command(query):
+        workspace = runner._workspace  # pylint: disable=protected-access
+        if workspace is None:
+            logger.error(
+                "run_command_path: control command but workspace not set",
+            )
+            error_msg = Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "**Error**\n\n"
+                            "Control command unavailable "
+                            "(workspace not initialized)"
+                        ),
+                    ),
+                ],
+            )
+            yield error_msg, True
+            return
+
+        # Get channel instance from request
+        channel_id = getattr(request, "channel", "")
+        channel = None
+
+        # Get channel_manager from workspace
+        channel_manager = workspace.channel_manager
+        if channel_manager is not None:
+            channel = await channel_manager.get_channel(channel_id)
+
+        if channel is None:
+            logger.error(
+                f"run_command_path: channel not found: {channel_id}",
+            )
+            error_msg = Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"**Error**\n\nChannel not found: {channel_id}",
+                    ),
+                ],
+            )
+            yield error_msg, True
+            return
+
+        # Extract user_id from request
+        user_id = getattr(request, "user_id", "")
+
+        # Build control context
+        control_ctx = control_commands.ControlContext(
+            workspace=workspace,
+            payload=request,
+            channel=channel,
+            session_id=session_id,
+            user_id=user_id,
+            args={},
+        )
+
+        # Handle control command
+        try:
+            response_text = await control_commands.handle_control_command(
+                query,
+                control_ctx,
+            )
+            response_msg = Msg(
+                name="Friday",
+                role="assistant",
+                content=[TextBlock(type="text", text=response_text)],
+            )
+            yield response_msg, True
+            logger.info("handle_control_command %s completed", query)
+        except Exception as e:
+            logger.exception(
+                f"Control command failed: {query}",
+            )
+            error_msg = Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"**Command Failed**\n\n{str(e)}",
+                    ),
+                ],
+            )
+            yield error_msg, True
         return
 
     # Conversation path: lightweight memory + CommandHandler

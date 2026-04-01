@@ -1,38 +1,55 @@
 import { request } from "../request";
 import type {
-  LocalModelResponse,
-  DownloadModelRequest,
-  DownloadTaskResponse,
+  LocalActionResponse,
+  LocalDownloadProgress,
+  LocalDownloadSource,
+  LocalModelInfo,
+  LocalServerStatus,
+  StartLocalServerRequest,
 } from "../types";
 
 export const localModelApi = {
-  listLocalModels: (backend?: string) => {
-    const params = backend ? `?backend=${encodeURIComponent(backend)}` : "";
-    return request<LocalModelResponse[]>(`/local-models${params}`);
-  },
+  getLocalServerStatus: () =>
+    request<LocalServerStatus>("/local-models/server"),
 
-  downloadModel: (body: DownloadModelRequest) =>
-    request<DownloadTaskResponse>("/local-models/download", {
+  startLlamacppDownload: () =>
+    request<LocalActionResponse>("/local-models/server/download", {
+      method: "POST",
+    }),
+
+  getLlamacppDownloadProgress: () =>
+    request<LocalDownloadProgress>("/local-models/server/download"),
+
+  cancelLlamacppDownload: () =>
+    request<LocalActionResponse>("/local-models/server/download", {
+      method: "DELETE",
+    }),
+
+  listRecommendedLocalModels: () =>
+    request<LocalModelInfo[]>("/local-models/models"),
+
+  startLocalModelDownload: (modelName: string, source: LocalDownloadSource) =>
+    request<LocalActionResponse>("/local-models/models/download", {
+      method: "POST",
+      body: JSON.stringify({ model_name: modelName, source }),
+    }),
+
+  getLocalModelDownloadProgress: () =>
+    request<LocalDownloadProgress>("/local-models/models/download"),
+
+  cancelLocalModelDownload: () =>
+    request<LocalActionResponse>("/local-models/models/download", {
+      method: "DELETE",
+    }),
+
+  startLocalServer: (body: StartLocalServerRequest) =>
+    request<{ port: number; model_name: string }>("/local-models/server", {
       method: "POST",
       body: JSON.stringify(body),
     }),
 
-  getDownloadStatus: (backend?: string) => {
-    const params = backend ? `?backend=${encodeURIComponent(backend)}` : "";
-    return request<DownloadTaskResponse[]>(
-      `/local-models/download-status${params}`,
-    );
-  },
-
-  cancelDownload: (taskId: string) =>
-    request<{ status: string; task_id: string }>(
-      `/local-models/cancel-download/${encodeURIComponent(taskId)}`,
-      { method: "POST" },
-    ),
-
-  deleteLocalModel: (modelId: string) =>
-    request<{ status: string; model_id: string }>(
-      `/local-models/${encodeURIComponent(modelId)}`,
-      { method: "DELETE" },
-    ),
+  stopLocalServer: () =>
+    request<LocalActionResponse>("/local-models/server", {
+      method: "DELETE",
+    }),
 };

@@ -22,9 +22,30 @@ from contextlib import contextmanager
 import frontmatter
 import yaml
 
-from .skills_manager import SkillService
+from .skills_manager import (
+    SkillConflictError,
+    SkillPoolService,
+    SkillService,
+    suggest_conflict_name,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _build_hub_conflict(name: str) -> dict[str, Any]:
+    conflict = {
+        "reason": "conflict",
+        "skill_name": name,
+        "suggested_name": suggest_conflict_name(name),
+    }
+    return {
+        **conflict,
+        "conflicts": [conflict],
+        "message": (
+            f"Failed to create skill '{name}'. " "This skill already exists."
+        ),
+    }
+
 
 _cancel_checker_ctx: contextvars.ContextVar[
     Any | None
@@ -65,6 +86,42 @@ RETRYABLE_HTTP_STATUS = {
 LOBEHUB_MAX_ZIP_ENTRIES = 256
 LOBEHUB_MAX_ZIP_BYTES = 5 * 1024 * 1024
 HTTP_READ_CHUNK_BYTES = 64 * 1024
+
+_GITHUB_CACHE_DEFAULT_TTL = 300  # 5 minutes
+_github_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _github_cache_ttl() -> float:
+    raw = os.environ.get("COPAW_GITHUB_CACHE_TTL", "")
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    return float(_GITHUB_CACHE_DEFAULT_TTL)
+
+
+def _github_cache_get(key: str) -> Any:
+    entry = _github_cache.get(key)
+    if entry is None:
+        return None
+    ts, value = entry
+    if time.monotonic() - ts > _github_cache_ttl():
+        del _github_cache[key]
+        return None
+    return value
+
+
+_GITHUB_CACHE_MISS = object()
+
+
+def _github_cached(key: str) -> Any:
+    val = _github_cache_get(key)
+    return _GITHUB_CACHE_MISS if val is None else val
+
+
+def _github_cache_set(key: str, value: Any) -> None:
+    _github_cache[key] = (time.monotonic(), value)
 
 
 def _hub_http_timeout() -> float:
@@ -327,6 +384,7 @@ def _http_fetch(
                     attempts,
                     delay,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
             raise
@@ -831,11 +889,17 @@ def _extract_github_spec(
 def _github_repo_exists(owner: str, repo: str) -> bool:
     if not owner or not repo:
         return False
+    cache_key = f"repo_exists:{owner}/{repo}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     try:
         data = _http_json_get(_github_api_url(owner, repo, ""))
-        return isinstance(data, dict) and data.get("full_name") is not None
+        result = isinstance(data, dict) and data.get("full_name") is not None
     except Exception:
-        return False
+        result = False
+    _github_cache_set(cache_key, result)
+    return result
 
 
 # pylint: disable-next=too-many-return-statements,too-many-branches
@@ -900,12 +964,18 @@ def _github_encode_path(path: str) -> str:
 
 
 def _github_get_default_branch(owner: str, repo: str) -> str:
+    cache_key = f"default_branch:{owner}/{repo}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     repo_meta = _http_json_get(_github_api_url(owner, repo, ""))
+    branch = "main"
     if isinstance(repo_meta, dict):
-        branch = repo_meta.get("default_branch")
-        if isinstance(branch, str) and branch.strip():
-            return branch.strip()
-    return "main"
+        raw = repo_meta.get("default_branch")
+        if isinstance(raw, str) and raw.strip():
+            branch = raw.strip()
+    _github_cache_set(cache_key, branch)
+    return branch
 
 
 def _normalize_skill_key(text: str) -> str:
@@ -917,6 +987,10 @@ def _github_list_skill_md_roots(
     repo: str,
     ref: str,
 ) -> list[str]:
+    cache_key = f"skill_md_roots:{owner}/{repo}/{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     tree_url = _github_api_url(owner, repo, f"git/trees/{ref}")
     try:
         data = _http_json_get(tree_url, {"recursive": "1"})
@@ -949,6 +1023,7 @@ def _github_list_skill_md_roots(
             continue
         seen.add(root)
         unique.append(root)
+    _github_cache_set(cache_key, unique)
     return unique
 
 
@@ -958,11 +1033,16 @@ def _github_get_content_entry(
     path: str,
     ref: str,
 ) -> dict[str, Any]:
+    cache_key = f"content:{owner}/{repo}/{path}@{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     encoded_path = _github_encode_path(path)
     content_url = _github_api_url(owner, repo, f"contents/{encoded_path}")
     data = _http_json_get(content_url, {"ref": ref})
     if not isinstance(data, dict):
         raise ValueError(f"Unexpected GitHub response for path: {path}")
+    _github_cache_set(cache_key, data)
     return data
 
 
@@ -972,13 +1052,19 @@ def _github_get_dir_entries(
     path: str,
     ref: str,
 ) -> list[dict[str, Any]]:
+    cache_key = f"dir:{owner}/{repo}/{path}@{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     encoded_path = _github_encode_path(path)
     suffix = "contents" if not encoded_path else f"contents/{encoded_path}"
     content_url = _github_api_url(owner, repo, suffix)
     data = _http_json_get(content_url, {"ref": ref})
+    result: list[dict[str, Any]] = []
     if isinstance(data, list):
-        return [x for x in data if isinstance(x, dict)]
-    return []
+        result = [x for x in data if isinstance(x, dict)]
+    _github_cache_set(cache_key, result)
+    return result
 
 
 def _github_read_file(entry: dict[str, Any]) -> str:
@@ -1053,7 +1139,6 @@ def _github_collect_tree_files(
     return files
 
 
-# pylint: disable-next=too-many-branches,too-many-statements
 def _fetch_bundle_from_skills_sh_url(
     bundle_url: str,
     requested_version: str,
@@ -1062,97 +1147,16 @@ def _fetch_bundle_from_skills_sh_url(
     if spec is None:
         raise ValueError("Invalid skills.sh URL format")
     owner, repo, skill = spec
-    if requested_version.strip():
-        branch_candidates = [requested_version.strip()]
-    else:
-        # Prefer repo default branch (e.g. master).
-        default_branch = _github_get_default_branch(owner, repo)
-        branch_candidates = [default_branch] if default_branch else []
-        for b in ("main", "master"):
-            if b and b not in branch_candidates:
-                branch_candidates.append(b)
-
-    selected_root = ""
-    skill_md_entry: dict[str, Any] | None = None
-    branch = branch_candidates[0]
-    for candidate_branch in branch_candidates:
-        branch = candidate_branch
-        roots = [
-            _join_repo_path("skills", skill),
-            skill,
-            "",
-        ]
-        for root in roots:
-            skill_md_path = _join_repo_path(root, "SKILL.md")
-            try:
-                entry = _github_get_content_entry(
-                    owner,
-                    repo,
-                    skill_md_path,
-                    branch,
-                )
-            except HTTPError as e:
-                if getattr(e, "code", 0) == 404:
-                    continue
-                raise
-            if str(entry.get("type") or "") == "file":
-                selected_root = root
-                skill_md_entry = entry
-                break
-        if skill_md_entry is not None:
-            break
-
-    if skill_md_entry is None:
-        # Fallback: discover skill roots from repo tree and fuzzy-match.
-        skill_norm = _normalize_skill_key(skill)
-        for candidate_branch in branch_candidates:
-            branch = candidate_branch
-            for root in _github_list_skill_md_roots(owner, repo, branch):
-                leaf = root.split("/")[-1] if root else root
-                leaf_norm = _normalize_skill_key(leaf)
-                if not leaf_norm:
-                    continue
-                if (
-                    leaf_norm == skill_norm
-                    or leaf_norm in skill_norm
-                    or skill_norm in leaf_norm
-                    or skill_norm.endswith(f"-{leaf_norm}")
-                ):
-                    selected_root = root
-                    skill_md_path = _join_repo_path(root, "SKILL.md")
-                    try:
-                        entry = _github_get_content_entry(
-                            owner,
-                            repo,
-                            skill_md_path,
-                            branch,
-                        )
-                    except HTTPError:
-                        continue
-                    if str(entry.get("type") or "") == "file":
-                        skill_md_entry = entry
-                        break
-            if skill_md_entry is not None:
-                break
-
-    if skill_md_entry is None:
-        raise ValueError(
-            "Could not find SKILL.md from skills.sh source. "
-            "This skill may not expose SKILL.md in the repository.",
-        )
-
-    files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
-    files.update(
-        _github_collect_tree_files(
-            owner=owner,
-            repo=repo,
-            ref=branch,
-            root=selected_root,
-        ),
+    default_branch = _github_get_default_branch(owner, repo) or "main"
+    bundle, source_url = _fetch_bundle_from_repo_and_skill_hint(
+        owner=owner,
+        repo=repo,
+        skill_hint=skill,
+        requested_version=requested_version,
+        default_branch=default_branch,
     )
-
-    source_url = f"https://github.com/{owner}/{repo}"
-    return {"name": skill, "files": files}, source_url
+    bundle["name"] = skill
+    return bundle, source_url
 
 
 # pylint: disable-next=too-many-branches,too-many-statements
@@ -1164,13 +1168,15 @@ def _fetch_bundle_from_repo_and_skill_hint(
     requested_version: str,
     default_branch: str = "main",
 ) -> tuple[Any, str]:
-    branch_candidates = (
-        [requested_version.strip()]
-        if requested_version.strip()
-        else ["main", "master"]
-    )
-    if default_branch and default_branch not in branch_candidates:
-        branch_candidates.append(default_branch)
+    if requested_version.strip():
+        branch_candidates = [requested_version.strip()]
+    else:
+        branch_candidates = []
+        if default_branch:
+            branch_candidates.append(default_branch)
+        for b in ("main", "master"):
+            if b not in branch_candidates:
+                branch_candidates.append(b)
     skill = skill_hint.strip()
 
     selected_root = ""
@@ -1569,8 +1575,9 @@ def install_skill_from_hub(
     workspace_dir: Path,
     bundle_url: str,
     version: str = "",
-    enable: bool = True,
+    enable: bool = False,
     overwrite: bool = False,
+    target_name: str | None = None,
     cancel_checker: Any | None = None,
 ) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
@@ -1588,6 +1595,10 @@ def install_skill_from_hub(
         # Sanitize: "Excel / XLSX" etc. must not be used as dir name
         name = _sanitize_skill_dir_name(name)
 
+        normalized_target = str(target_name or "").strip()
+        if normalized_target:
+            name = _sanitize_skill_dir_name(normalized_target)
+
         _ensure_not_cancelled()
         skill_service = SkillService(workspace_dir)
         created = skill_service.create_skill(
@@ -1599,20 +1610,62 @@ def install_skill_from_hub(
             extra_files=extra_files,
         )
         if not created:
-            raise RuntimeError(
-                f"Failed to create skill '{name}'. "
-                "This skill already exists.",
+            raise SkillConflictError(
+                _build_hub_conflict(name),
             )
 
         _ensure_not_cancelled()
         enabled = False
         if enable:
-            enabled = skill_service.enable_skill(name, force=True)
+            enable_result = skill_service.enable_skill(created)
+            enabled = bool(enable_result.get("success", False))
             if not enabled:
-                logger.warning("Skill '%s' imported but enable failed", name)
+                logger.warning(
+                    "Skill '%s' imported but enable failed",
+                    created,
+                )
 
         return HubInstallResult(
-            name=name,
+            name=created,
             enabled=enabled,
             source_url=source_url,
         )
+
+
+def import_pool_skill_from_hub(
+    *,
+    bundle_url: str,
+    version: str = "",
+    target_name: str | None = None,
+) -> HubInstallResult:
+    if not bundle_url or not _is_http_url(bundle_url):
+        raise ValueError("bundle_url must be a valid http(s) URL")
+
+    data, source_url = _resolve_bundle_from_url(bundle_url, version)
+    name, content, references, scripts, extra_files = _normalize_bundle(data)
+    if not name:
+        fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
+        name = _safe_fallback_name(fallback)
+    name = _sanitize_skill_dir_name(name)
+    normalized_target = str(target_name or "").strip()
+    if normalized_target:
+        name = _sanitize_skill_dir_name(normalized_target)
+
+    pool_service = SkillPoolService()
+    created = pool_service.create_skill(
+        name=name,
+        content=content,
+        references=references,
+        scripts=scripts,
+        extra_files=extra_files,
+    )
+    if not created:
+        raise SkillConflictError(
+            _build_hub_conflict(name),
+        )
+
+    return HubInstallResult(
+        name=created,
+        enabled=False,
+        source_url=source_url,
+    )

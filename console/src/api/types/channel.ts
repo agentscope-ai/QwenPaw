@@ -18,6 +18,7 @@ export interface DiscordConfig extends BaseChannelConfig {
   bot_token: string;
   http_proxy: string;
   http_proxy_auth: string;
+  accept_bot_messages?: boolean;
 }
 
 export interface DingTalkConfig extends BaseChannelConfig {

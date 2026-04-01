@@ -10,18 +10,18 @@ import logging
 from pathlib import Path
 
 from typing import (
+    Any,
     Callable,
+    Dict,
     List,
     Optional,
-    Any,
-    Dict,
-    Set,
-    Tuple,
     TYPE_CHECKING,
 )
 
 from .base import BaseChannel, ContentType, ProcessHandler, TextContent
+from .command_registry import CommandRegistry
 from .registry import get_channel_registry
+from .unified_queue_manager import UnifiedQueueManager
 from ...config import get_available_channels
 
 if TYPE_CHECKING:
@@ -34,32 +34,6 @@ OnLastDispatch = Optional[Callable[[str, str, str], None]]
 
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000
-
-# Workers per channel: drain same-session from queue and process in parallel
-_CONSUMER_WORKERS_PER_CHANNEL = 4
-
-
-def _drain_same_key(
-    q: asyncio.Queue,
-    ch: BaseChannel,
-    key: str,
-    first_payload: Any,
-) -> List[Any]:
-    """Drain queue of payloads with same debounce key; return batch."""
-    batch = [first_payload]
-    put_back: List[Any] = []
-    while True:
-        try:
-            p = q.get_nowait()
-        except asyncio.QueueEmpty:
-            break
-        if ch.get_debounce_key(p) == key:
-            batch.append(p)
-        else:
-            put_back.append(p)
-    for p in put_back:
-        q.put_nowait(p)
-    return batch
 
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
@@ -91,26 +65,6 @@ async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
         await ch.consume_one(batch[0])
 
 
-def _put_pending_merged(
-    ch: BaseChannel,
-    q: asyncio.Queue,
-    pending: List[Any],
-) -> None:
-    """Merge pending items if multiple and put one or more on queue."""
-    if not pending:
-        return
-    merged = None
-    if len(pending) > 1 and ch._is_native_payload(pending[0]):
-        merged = ch.merge_native_items(pending)
-    elif len(pending) > 1:
-        merged = ch.merge_requests(pending)
-    if merged is not None:
-        q.put_nowait(merged)
-    else:
-        for p in pending:
-            q.put_nowait(p)
-
-
 class ChannelManager:
     """Owns queues and consumer loops; channels define how to consume via
     consume_one(). Enqueue via enqueue(channel_id, payload) (thread-safe).
@@ -119,18 +73,15 @@ class ChannelManager:
     def __init__(self, channels: List[BaseChannel]):
         self.channels = channels
         self._lock = asyncio.Lock()
-        self._queues: Dict[str, asyncio.Queue] = {}
-        self._consumer_tasks: List[asyncio.Task[None]] = []
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        # Session in progress: (channel_id, debounce_key) -> True while worker
-        # is processing. New payloads for that key go to _pending, merged
-        # when worker finishes.
-        self._in_progress: Set[Tuple[str, str]] = set()
-        self._pending: Dict[Tuple[str, str], List[Any]] = {}
-        # Per-key lock: same session is claimed by one worker for drain so
-        # [image1, text] are not split across workers (avoids no-text
-        # debounce reordering and duplicate content in AgentRequest).
-        self._key_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
+
+        # New unified queue system
+        self._command_registry = CommandRegistry()
+        self._queue_manager: UnifiedQueueManager | None = None
+        self._workspace = None
+
+        # Track enqueue tasks for graceful shutdown
+        self._enqueue_tasks: set[asyncio.Task] = set()
 
     @classmethod
     def from_env(
@@ -269,47 +220,136 @@ class ChannelManager:
 
         return cb
 
-    def _enqueue_one(self, channel_id: str, payload: Any) -> None:
-        """Run on event loop: enqueue or append to pending if session in
-        progress.
+    def _extract_session_id(
+        self,
+        ch: BaseChannel,
+        payload: Any,
+    ) -> str:
+        """Extract normalized session_id from payload.
+
+        Args:
+            ch: Channel instance
+            payload: Native dict or AgentRequest
+
+        Returns:
+            Normalized session_id (e.g. "console:user1")
+
+        Note:
+            Uses same logic as ch.get_debounce_key for consistency
         """
-        q = self._queues.get(channel_id)
-        if not q:
-            logger.debug("enqueue: no queue for channel=%s", channel_id)
+        # Check if payload already has normalized session_id
+        # (e.g. from batch merge or previous processing)
+        if isinstance(payload, dict):
+            existing_sid = payload.get("session_id")
+            if existing_sid:
+                return existing_sid
+
+        if hasattr(payload, "session_id"):
+            existing_sid = payload.session_id
+            if existing_sid:
+                return existing_sid
+
+        # Use channel's debounce key (delegates to resolve_session_id)
+        return ch.get_debounce_key(payload)
+
+    def _enqueue_one(self, channel_id: str, payload: Any) -> None:
+        """Run on event loop: classify priority and route to queue manager.
+
+        Note:
+            This is the new routing layer using UnifiedQueueManager
+        """
+        if self._queue_manager is None:
+            logger.warning(
+                "enqueue: queue_manager not initialized for channel=%s",
+                channel_id,
+            )
             return
+
+        # Get channel instance
         ch = next(
             (c for c in self.channels if c.channel == channel_id),
             None,
         )
         if not ch:
-            q.put_nowait(payload)
-            return
-        key = ch.get_debounce_key(payload)
-        if channel_id == "dingtalk" and isinstance(payload, dict):
-            logger.info(
-                "manager _enqueue_one dingtalk: key=%s in_progress=%s "
-                "payload_has_sw=%s -> %s",
-                key,
-                (channel_id, key) in self._in_progress,
-                bool(payload.get("session_webhook")),
-                "pending"
-                if (channel_id, key) in self._in_progress
-                else "queue",
+            logger.warning(
+                "enqueue: channel not found: channel_id=%s",
+                channel_id,
             )
-        if (channel_id, key) in self._in_progress:
-            self._pending.setdefault((channel_id, key), []).append(payload)
             return
-        q.put_nowait(payload)
+
+        # Extract query text for priority classification
+        query = ch._extract_query_from_payload(payload)
+
+        # Get priority level
+        priority_level = self._command_registry.get_priority_level(query)
+
+        # Extract normalized session_id
+        session_id = self._extract_session_id(ch, payload)
+
+        # Route to unified queue manager with task tracking
+        task = asyncio.create_task(
+            self._enqueue_with_timeout(
+                channel_id,
+                session_id,
+                priority_level,
+                payload,
+                query,
+            ),
+        )
+        self._enqueue_tasks.add(task)
+        task.add_done_callback(self._enqueue_tasks.discard)
+
+    async def _enqueue_with_timeout(
+        self,
+        channel_id: str,
+        session_id: str,
+        priority_level: int,
+        payload: Any,
+        query: str,
+    ) -> None:
+        """Enqueue with timeout protection to prevent unbounded blocking.
+
+        Args:
+            channel_id: Channel identifier
+            session_id: Normalized session ID
+            priority_level: Priority level
+            payload: Message payload
+            query: Extracted query text for logging
+        """
+        try:
+            await asyncio.wait_for(
+                self._queue_manager.enqueue(
+                    channel_id,
+                    session_id,
+                    priority_level,
+                    payload,
+                ),
+                timeout=30.0,
+            )
+            logger.debug(
+                f"Enqueued: channel={channel_id} "
+                f"session={session_id[:30]} "
+                f"priority={priority_level} "
+                f"query={query[:40] if query else '(empty)'}",
+            )
+        except asyncio.TimeoutError:
+            pass
+        except asyncio.CancelledError:
+            logger.debug(
+                f"Enqueue cancelled: channel={channel_id} "
+                f"session={session_id[:30]}",
+            )
+            raise
+        except Exception as e:
+            logger.exception(
+                f"Enqueue failed: channel={channel_id} "
+                f"session={session_id[:30]} error={e}",
+            )
 
     def enqueue(self, channel_id: str, payload: Any) -> None:
         """Enqueue a payload for the channel. Thread-safe (e.g. from sync
-        WebSocket or polling thread). If this session is already being
-        processed, payload is held in pending and merged when the worker
-        finishes. Call after start_all().
+        WebSocket or polling thread). Call after start_all().
         """
-        if not self._queues.get(channel_id):
-            logger.debug("enqueue: no queue for channel=%s", channel_id)
-            return
         if self._loop is None:
             logger.warning("enqueue: loop not set for channel=%s", channel_id)
             return
@@ -319,72 +359,117 @@ class ChannelManager:
             payload,
         )
 
-    async def _consume_channel_loop(
+    async def _consume_queue(
         self,
+        queue: asyncio.Queue,
         channel_id: str,
-        worker_index: int,
+        session_id: str,
+        priority_level: int,
     ) -> None:
+        """Consumer function for UnifiedQueueManager.
+
+        This implements the per-queue consumer loop with batch merging.
+
+        Args:
+            queue: The queue to consume from
+            channel_id: Channel identifier
+            session_id: Normalized session ID
+            priority_level: Priority level
+
+        Note:
+            Preserves original batch merging logic (drain + merge)
         """
-        Run one consumer worker: pop payload, drain queue of same session,
-        mark session in progress, merge batch (native or requests), process
-        once, then flush any pending for this session (merged) back to queue.
-        Multiple workers per channel allow different sessions in parallel.
-        """
-        q = self._queues.get(channel_id)
-        if not q:
+        logger.info(
+            f"Consumer started: channel={channel_id} "
+            f"session={session_id[:30]} "
+            f"priority={priority_level}",
+        )
+
+        # Get channel instance
+        ch = await self.get_channel(channel_id)
+        if not ch:
+            logger.error(
+                f"Consumer: channel not found: channel_id={channel_id}",
+            )
             return
+
         while True:
             try:
-                payload = await q.get()
-                ch = await self.get_channel(channel_id)
-                if not ch:
-                    continue
-                key = ch.get_debounce_key(payload)
-                key_lock = self._key_locks.setdefault(
-                    (channel_id, key),
-                    asyncio.Lock(),
+                # Get first payload
+                payload = await queue.get()
+
+                # Drain queue for same-key payloads (batch merge logic)
+                # Note: In new architecture, same-key means same QueueKey,
+                # so all payloads in this queue already have same
+                # (channel_id, session_id, priority_level).
+                # We still drain to merge rapid-fire messages (e.g. images)
+                batch = [payload]
+                while True:
+                    try:
+                        next_payload = queue.get_nowait()
+                        batch.append(next_payload)
+                    except asyncio.QueueEmpty:
+                        break
+
+                # Process batch (with merge logic)
+                await _process_batch(ch, batch)
+
+                # Update processed count
+                if self._queue_manager is not None:
+                    await self._queue_manager.increment_processed(
+                        channel_id,
+                        session_id,
+                        priority_level,
+                        count=len(batch),
+                    )
+
+                logger.debug(
+                    f"Processed batch: channel={channel_id} "
+                    f"session={session_id[:30]} "
+                    f"priority={priority_level} "
+                    f"batch_size={len(batch)}",
                 )
-                try:
-                    async with key_lock:
-                        self._in_progress.add((channel_id, key))
-                        batch = _drain_same_key(q, ch, key, payload)
-                    await _process_batch(ch, batch)
-                finally:
-                    self._in_progress.discard((channel_id, key))
-                    pending = self._pending.pop((channel_id, key), [])
-                    _put_pending_merged(ch, q, pending)
+
             except asyncio.CancelledError:
+                logger.debug(
+                    f"Consumer cancelled: channel={channel_id} "
+                    f"session={session_id[:30]} "
+                    f"priority={priority_level}",
+                )
                 break
             except Exception:
                 logger.exception(
-                    "channel consume_one failed: channel=%s worker=%s",
-                    channel_id,
-                    worker_index,
+                    f"Consumer failed: channel={channel_id} "
+                    f"session={session_id[:30]} "
+                    f"priority={priority_level}",
                 )
 
     async def start_all(self) -> None:
+        """Start all channels and queue manager."""
         self._loop = asyncio.get_running_loop()
+
+        # Initialize UnifiedQueueManager with consumer function
+        self._queue_manager = UnifiedQueueManager(
+            consumer_fn=self._consume_queue,
+            queue_maxsize=_CHANNEL_QUEUE_MAXSIZE,
+        )
+
+        # Start cleanup loop
+        self._queue_manager.start_cleanup_loop()
+
+        # Set enqueue callback for each channel
         async with self._lock:
             snapshot = list(self.channels)
+
         for ch in snapshot:
             if getattr(ch, "uses_manager_queue", True):
-                self._queues[ch.channel] = asyncio.Queue(
-                    maxsize=_CHANNEL_QUEUE_MAXSIZE,
-                )
                 ch.set_enqueue(self._make_enqueue_cb(ch.channel))
-        for ch in snapshot:
-            if ch.channel in self._queues:
-                for w in range(_CONSUMER_WORKERS_PER_CHANNEL):
-                    task = asyncio.create_task(
-                        self._consume_channel_loop(ch.channel, w),
-                        name=f"channel_consumer_{ch.channel}_{w}",
-                    )
-                    self._consumer_tasks.append(task)
+
         logger.debug(
-            "starting channels=%s queues=%s",
-            [g.channel for g in snapshot],
-            list(self._queues.keys()),
+            f"Starting channels: {[g.channel for g in snapshot]}",
         )
+
+        # Start each channel
         for g in snapshot:
             try:
                 await g.start()
@@ -392,25 +477,38 @@ class ChannelManager:
                 logger.exception(f"failed to start channels={g.channel}")
 
     async def stop_all(self) -> None:
-        self._in_progress.clear()
-        self._pending.clear()
-        for task in self._consumer_tasks:
-            task.cancel()
-        if self._consumer_tasks:
-            _, pending = await asyncio.wait(
-                self._consumer_tasks,
-                timeout=5.0,
-                return_when=asyncio.ALL_COMPLETED,
+        """Stop all channels and queue manager."""
+        # Cancel all pending enqueue tasks
+        if self._enqueue_tasks:
+            logger.info(
+                f"Cancelling {len(self._enqueue_tasks)} pending enqueue tasks",
             )
-            if pending:
-                logger.warning(
-                    "stop_all: %s consumer task(s) still pending after 5s",
-                    len(pending),
+            for task in self._enqueue_tasks:
+                task.cancel()
+
+            # Wait for tasks to finish cancellation
+            if self._enqueue_tasks:
+                _, pending = await asyncio.wait(
+                    self._enqueue_tasks,
+                    timeout=2.0,
+                    return_when=asyncio.ALL_COMPLETED,
                 )
-        self._consumer_tasks.clear()
-        self._queues.clear()
+                if pending:
+                    logger.warning(
+                        f"stop_all: {len(pending)} enqueue task(s) "
+                        f"still pending after 2s",
+                    )
+            self._enqueue_tasks.clear()
+
+        # Stop queue manager (stops all consumers and cleanup task)
+        if self._queue_manager is not None:
+            await self._queue_manager.stop_all()
+            self._queue_manager = None
+
+        # Stop channels
         async with self._lock:
             snapshot = list(self.channels)
+
         for ch in snapshot:
             ch.set_enqueue(None)
 
@@ -424,6 +522,8 @@ class ChannelManager:
 
         await asyncio.gather(*[_stop(g) for g in reversed(snapshot)])
 
+        logger.info("ChannelManager stopped")
+
     async def get_channel(self, channel: str) -> Optional[BaseChannel]:
         async with self._lock:
             for ch in self.channels:
@@ -431,35 +531,66 @@ class ChannelManager:
                     return ch
             return None
 
+    def set_workspace(self, workspace) -> None:
+        """Set workspace and inject to all channels.
+
+        Args:
+            workspace: Workspace instance with task_tracker and chat_manager
+        """
+        self._workspace = workspace
+        for ch in self.channels:
+            ch.set_workspace(workspace, self._command_registry)
+        logger.info(
+            f"Injected workspace into {len(self.channels)} channels",
+        )
+
+    async def clear_queue(
+        self,
+        channel_id: str,
+        session_id: str,
+        priority_level: int,
+    ) -> int:
+        """Clear a specific queue.
+
+        Args:
+            channel_id: Channel identifier
+            session_id: Session identifier
+            priority_level: Priority level
+
+        Returns:
+            Number of messages cleared
+        """
+        if self._queue_manager is None:
+            return 0
+        return await self._queue_manager.clear_queue(
+            channel_id,
+            session_id,
+            priority_level,
+        )
+
     async def replace_channel(
         self,
         new_channel: BaseChannel,
     ) -> None:
         """Replace a single channel by name.
 
-        Flow: ensure queue+enqueue for new channel → start new (outside lock)
+        Flow: set enqueue callback → start new (outside lock)
         → swap + stop old (inside lock). Lock only guards the swap+stop.
 
         Args:
             new_channel: New channel instance to replace with
+
+        Note:
+            Queue and consumer are created on-demand by UnifiedQueueManager
         """
         new_channel_name = new_channel.channel
-        # 1) Ensure queue and enqueue callback before start() so the channel
-        #    (e.g. DingTalk) registers its handler with a valid callback.
-        if new_channel_name not in self._queues:
-            if getattr(new_channel, "uses_manager_queue", True):
-                self._queues[new_channel_name] = asyncio.Queue(
-                    maxsize=_CHANNEL_QUEUE_MAXSIZE,
-                )
-                for w in range(_CONSUMER_WORKERS_PER_CHANNEL):
-                    task = asyncio.create_task(
-                        self._consume_channel_loop(new_channel_name, w),
-                        name=f"channel_consumer_{new_channel_name}_{w}",
-                    )
-                    self._consumer_tasks.append(task)
-        new_channel.set_enqueue(self._make_enqueue_cb(new_channel_name))
 
-        # 2) Start new channel outside lock (may be slow, e.g. DingTalk stream)
+        # 1) Set enqueue callback before start() so the channel
+        #    (e.g. DingTalk) can register its handler
+        if getattr(new_channel, "uses_manager_queue", True):
+            new_channel.set_enqueue(self._make_enqueue_cb(new_channel_name))
+
+        # 2) Start new channel outside lock (may be slow, e.g. DingTalk)
         logger.info(f"Pre-starting new channel: {new_channel_name}")
         try:
             await new_channel.start()

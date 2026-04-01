@@ -11,6 +11,7 @@ pretty-printed to the terminal.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import sys
@@ -19,7 +20,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
-from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    MessageType,
+    Message,
+    RunStatus,
+)
 
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
@@ -36,6 +41,7 @@ from ..base import (
     VideoContent,
     TextContent,
 )
+from ..utils import file_url_to_local_path
 
 
 logger = logging.getLogger(__name__)
@@ -269,6 +275,47 @@ class ConsoleChannel(BaseChannel):
         request.channel_meta = meta
         return request
 
+    async def _extract_media_message(self, message: Message) -> Message | None:
+        """Extract media message from message."""
+        parts = self._message_to_content_parts(message)
+        media_message = None
+        if message.type in (
+            MessageType.FUNCTION_CALL_OUTPUT,
+            MessageType.PLUGIN_CALL_OUTPUT,
+            MessageType.MCP_TOOL_CALL_OUTPUT,
+        ):
+            new_parts = []
+            for part in parts:
+                if part.type == ContentType.IMAGE:
+                    new_part = copy.deepcopy(part)
+                    new_part.image_url = file_url_to_local_path(
+                        new_part.image_url,
+                    )
+                    new_parts.append(new_part)
+                elif part.type == ContentType.VIDEO:
+                    new_part = copy.deepcopy(part)
+                    new_part.video_url = file_url_to_local_path(
+                        new_part.video_url,
+                    )
+                    new_parts.append(new_part)
+                elif part.type == ContentType.AUDIO:
+                    new_part = copy.deepcopy(part)
+                    new_part.data = file_url_to_local_path(new_part.data)
+                    new_parts.append(new_part)
+                elif part.type == ContentType.FILE:
+                    new_part = copy.deepcopy(part)
+                    new_part.file_url = file_url_to_local_path(
+                        new_part.file_url,
+                    )
+                    new_parts.append(new_part)
+            if new_parts:
+                media_message = Message(
+                    type=MessageType.MESSAGE,
+                    role="assistant",
+                    content=new_parts,
+                )
+        return media_message
+
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
         if isinstance(payload, dict) and "content_parts" in payload:
@@ -320,6 +367,20 @@ class ConsoleChannel(BaseChannel):
                     ev_type,
                 )
 
+                if (
+                    event.object == "response"
+                    and event.status == RunStatus.Completed
+                ):
+                    event_output = event.output
+                    event.output = []
+                    for message in event_output:
+                        event.output.append(message)
+                        media_message = await self._extract_media_message(
+                            message,
+                        )
+                        if media_message:
+                            event.output.append(media_message)
+
                 if hasattr(event, "model_dump_json"):
                     data = event.model_dump_json()
                 elif hasattr(event, "json"):
@@ -329,6 +390,10 @@ class ConsoleChannel(BaseChannel):
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
+                    media_message = await self._extract_media_message(event)
+                    if media_message:
+                        yield f"data: {media_message.model_dump_json()}\n\n"
+
                     parts = self._message_to_content_parts(event)
                     self._print_parts(parts, ev_type)
 

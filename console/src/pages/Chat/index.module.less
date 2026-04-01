@@ -31,6 +31,14 @@
   overflow-y: auto;
   overflow-x: hidden;
 
+  :global {
+    [class*="chat-anywhere-default-header-right"] {
+      flex: 1;
+      display: flex;
+      align-items: center;
+    }
+  }
+
   /* Custom scrollbar */
   &::-webkit-scrollbar {
     width: 8px;
@@ -66,5 +74,54 @@
 
   :global(.dark) & {
     scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+}
+
+.suggestionLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+  line-height: 1.4;
+}
+
+.suggestionCommand {
+  flex: 0 0 88px;
+  color: #1677ff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.suggestionDescription {
+  flex: 1;
+  min-width: 0;
+  color: rgba(0, 0, 0, 0.45);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+:global(.dark) .suggestionDescription {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Prompt star icon - use theme color */
+:global {
+  .chat-anywhere-prompt-icon,
+  [class*="prompt-icon"],
+  [class*="PromptIcon"] {
+    color: #ff7f16 !important;
+  }
+}
+
+/* Dark mode scrollbar for disabled overlay */
+:global(.dark) {
+  .chatDisabledOverlay :global([class*="chat-anywhere-input"]),
+  .chatDisabledOverlay :global([class*="chat-input"]),
+  .chatDisabledOverlay :global(textarea),
+  .chatDisabledOverlay :global(input[type="text"]) {
+    background-color: #2a2a2a !important;
   }
 }

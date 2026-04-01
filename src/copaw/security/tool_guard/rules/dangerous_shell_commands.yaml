@@ -118,3 +118,66 @@
     - "\\bbase64\\s+(-d|--decode)\\s*\\|\\s*\\b(bash|sh|zsh)\\b"
   description: "Detects execution of base64 encoded strings passed directly to a shell interpreter"
   remediation: "Block execution. Agents should use plain text commands."
+
+# ── System Reboot & Shutdown ──────────────────────────────────────────
+- id: TOOL_CMD_SYSTEM_REBOOT
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: CRITICAL
+  patterns:
+    - "\\b(reboot|shutdown|halt|poweroff)\\b"
+    - "\\binit\\s+(0|6)\\b"
+    - "\\btelinit\\s+(0|6)\\b"
+    - "\\bShutdown-Computer\\b"
+    - "\\bRestart-Computer\\b"
+  description: "Detects system reboot or shutdown commands that will terminate the host system"
+  remediation: "Block operation. Agents should not restart or shutdown the system."
+
+# ── Service Management & Restart ──────────────────────────────────────
+- id: TOOL_CMD_SERVICE_RESTART
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: HIGH
+  patterns:
+    - "\\bsystemctl\\s+(restart|stop|start|reload|kill)\\b"
+    - "\\bservice\\s+\\S+\\s+(restart|stop|start|reload)\\b"
+    - "\\b(sc|net)\\s+(start|stop|restart)\\b"
+    - "\\blaunchctl\\s+(load|unload|stop|start|kickstart|kill)\\b"
+    - "\\brc-service\\s+(restart|stop|start)\\b"
+  description: "Detects service management commands that can disrupt system services"
+  remediation: "Confirm with user. Restarting services may cause downtime or data loss."
+
+# ── Process Termination ───────────────────────────────────────────────
+- id: TOOL_CMD_PROCESS_KILL
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: HIGH
+  patterns:
+    - "\\b(pkill|killall)\\b"
+    - "\\bkill\\s+(-(9|KILL|15|TERM|1|HUP|2|INT)\\s+)?[^-\\s]"
+    - "\\btaskkill\\s+\\/F\\b"
+    - "\\bStop-Process\\b.*-Force\\b"
+  exclude_patterns:
+    - "kill\\s+\\$\\$"
+  description: "Detects process termination commands that may kill critical processes"
+  remediation: "Confirm with user. Killing processes may cause data loss or system instability."
+
+# ── Privilege Escalation ──────────────────────────────────────────────
+- id: TOOL_CMD_PRIVILEGE_ESCALATION
+  tools: [execute_shell_command]
+  params: [command]
+  category: privilege_escalation
+  severity: CRITICAL
+  patterns:
+    - "\\bsudo\\s+"
+    - "\\bsu\\b"
+    - "\\bdoas\\s+"
+    - "\\bpkexec\\b"
+    - "\\brunas\\s+\\/user:"
+  exclude_patterns:
+    - "^\\s*#"
+  description: "Detects privilege escalation attempts using sudo, su, doas, pkexec, or runas"
+  remediation: "Block operation. Agents should not execute commands with elevated privileges."

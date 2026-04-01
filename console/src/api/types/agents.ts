@@ -32,6 +32,7 @@ export interface CreateAgentRequest {
   description?: string;
   workspace_dir?: string;
   language?: string;
+  skill_names?: string[];
 }
 
 export interface AgentProfileRef {

@@ -16,6 +16,7 @@ from typing import (
     List,
     Union,
     AsyncIterator,
+    AsyncGenerator,
     Callable,
     TYPE_CHECKING,
 )
@@ -100,6 +101,7 @@ class BaseChannel(ABC):
         self.deny_message = deny_message or ""
         self.require_mention = require_mention
         self._enqueue: EnqueueCallback = None
+        self._workspace = None
         cfg = load_config()
         internal_tools = frozenset(
             name
@@ -318,6 +320,214 @@ class BaseChannel(ABC):
         """Set enqueue callback (called by ChannelManager)."""
         self._enqueue = cb
 
+    def set_workspace(
+        self,
+        workspace,
+        command_registry=None,
+    ) -> None:
+        """Set workspace reference for TaskTracker access.
+
+        Args:
+            workspace: Workspace instance with task_tracker and chat_manager
+            command_registry: CommandRegistry for control command detection
+        """
+        self._workspace = workspace
+        self._command_registry = command_registry
+
+    def _extract_chat_name(self, payload: Any) -> str:
+        """Extract chat name from payload for chat creation.
+
+        Args:
+            payload: Message payload (dict or AgentRequest)
+
+        Returns:
+            Chat name (truncated to 50 chars)
+        """
+        try:
+            if isinstance(payload, dict):
+                parts = payload.get("content_parts", [])
+                if parts:
+                    first = parts[0]
+                    if isinstance(first, dict):
+                        text = first.get("text", "")
+                    elif hasattr(first, "text"):
+                        text = first.text
+                    else:
+                        text = str(first)
+                    if text:
+                        return text[:50]
+                return "New Chat"
+            if hasattr(payload, "input") and payload.input:
+                msg = payload.input[0]
+                if hasattr(msg, "content") and msg.content:
+                    content = msg.content[0]
+                    if hasattr(content, "text"):
+                        return content.text[:50]
+            return "New Chat"
+        except Exception as e:
+            logger.warning(
+                f"Failed to extract chat name from payload: {e}",
+                exc_info=True,
+            )
+            return "New Chat"
+
+    async def _consume_with_tracker(
+        self,
+        request: "AgentRequest",
+        payload: Any,
+    ) -> None:
+        """Consume message with TaskTracker registration for cancellation.
+
+        TaskTracker is used to track the running task so /stop can cancel it.
+        Message serialization is ensured by UnifiedQueueManager which queues
+        messages per (channel, session, priority).
+
+        Args:
+            request: AgentRequest
+            payload: Original payload
+        """
+        session_id = getattr(request, "session_id", "") or ""
+        user_id = getattr(request, "user_id", "") or ""
+        channel_id = getattr(request, "channel", self.channel)
+
+        chat = await self._workspace.chat_manager.get_or_create_chat(
+            session_id,
+            user_id,
+            channel_id,
+            name=self._extract_chat_name(payload),
+        )
+
+        logger.info(
+            f"_consume_with_tracker: chat_id={chat.id} "
+            f"session={session_id[:30]}",
+        )
+
+        queue, is_new = await self._workspace.task_tracker.attach_or_start(
+            chat.id,
+            payload,
+            self._stream_with_tracker,
+        )
+
+        if is_new:
+            try:
+                async for _ in self._workspace.task_tracker.stream_from_queue(
+                    queue,
+                    chat.id,
+                ):
+                    pass
+            except asyncio.CancelledError:
+                logger.info(
+                    f"Task cancelled: chat_id={chat.id} "
+                    f"session={session_id[:30]}",
+                )
+                raise
+        else:
+            logger.warning(
+                f"Message ignored (task already running): "
+                f"chat_id={chat.id} session={session_id[:30]}. "
+                f"This should not happen with UnifiedQueueManager.",
+            )
+
+    async def _stream_with_tracker(
+        self,
+        payload: Any,
+    ) -> AsyncGenerator[str, None]:
+        """Stream events through TaskTracker for task tracking.
+
+        This method wraps _process and yields SSE-formatted events.
+        Called by TaskTracker.attach_or_start to enable task cancellation.
+
+        Args:
+            payload: Message payload (dict or AgentRequest)
+
+        Yields:
+            SSE-formatted event strings
+        """
+        import json
+
+        request = self._payload_to_request(payload)
+
+        if isinstance(payload, dict):
+            send_meta = dict(payload.get("meta") or {})
+            if payload.get("session_webhook"):
+                send_meta["session_webhook"] = payload["session_webhook"]
+        else:
+            send_meta = getattr(request, "channel_meta", None) or {}
+
+        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
+            self,
+            "_bot_prefix",
+            "",
+        )
+        if bot_prefix and "bot_prefix" not in send_meta:
+            send_meta = {**send_meta, "bot_prefix": bot_prefix}
+
+        to_handle = self.get_to_handle_from_request(request)
+
+        await self._before_consume_process(request)
+
+        last_response = None
+        process_iterator = None
+        try:
+            process_iterator = self._process(request)
+            async for event in process_iterator:
+                if hasattr(event, "model_dump_json"):
+                    data = event.model_dump_json()
+                elif hasattr(event, "json"):
+                    data = event.json()
+                else:
+                    data = json.dumps({"text": str(event)})
+
+                yield f"data: {data}\n\n"
+
+                obj = getattr(event, "object", None)
+                status = getattr(event, "status", None)
+
+                if obj == "message" and status == RunStatus.Completed:
+                    await self.on_event_message_completed(
+                        request,
+                        to_handle,
+                        event,
+                        send_meta,
+                    )
+                elif obj == "response":
+                    last_response = event
+                    await self.on_event_response(request, event)
+
+            err_msg = self._get_response_error_message(last_response)
+            if err_msg:
+                await self._on_consume_error(
+                    request,
+                    to_handle,
+                    f"Error: {err_msg}",
+                )
+
+            if self._on_reply_sent:
+                args = self.get_on_reply_sent_args(request, to_handle)
+                self._on_reply_sent(self.channel, *args)
+
+        except asyncio.CancelledError:
+            logger.info(
+                f"channel task cancelled: "
+                f"session={getattr(request, 'session_id', '')[:30]}",
+            )
+            if process_iterator is not None:
+                await process_iterator.aclose()
+            raise
+
+        except Exception as e:
+            logger.exception(
+                f"channel _stream_with_tracker failed: {e}, "
+                f"session={getattr(request, 'session_id', 'N/A')[:30]}, "
+                f"agent={to_handle}",
+            )
+            await self._on_consume_error(
+                request,
+                to_handle,
+                "Internal error",
+            )
+            raise
+
     @classmethod
     def from_env(
         cls,
@@ -478,12 +688,65 @@ class BaseChannel(ABC):
             return
         await self._consume_one_request(payload)
 
+    def _extract_query_from_payload(self, payload: Any) -> str:
+        """Extract query text from payload for command detection.
+
+        Args:
+            payload: Native dict or AgentRequest
+
+        Returns:
+            Query text string (empty if not found)
+        """
+        if isinstance(payload, dict):
+            parts = payload.get("content_parts") or []
+            for part in parts:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    return part.get("text") or ""
+                if hasattr(part, "type") and part.type == "text":
+                    return getattr(part, "text", "") or ""
+            return ""
+        if hasattr(payload, "input"):
+            inp = payload.input or []
+            if inp and hasattr(inp[0], "content"):
+                content = inp[0].content or []
+                for part in content:
+                    if isinstance(part, dict):
+                        if part.get("type") == "text":
+                            return part.get("text") or ""
+                    elif hasattr(part, "type") and part.type == "text":
+                        return getattr(part, "text", "") or ""
+        return ""
+
     async def _consume_one_request(self, payload: Any) -> None:
         """
         Convert payload to request, apply no-text debounce, run _process,
         send messages, handle errors and on_reply_sent. Used by
         consume_one (direct or after time-debounce flush).
+
+        If workspace is available, routes through TaskTracker for tracking.
+        Control commands bypass TaskTracker for immediate response.
         """
+        logger.debug(
+            "base _consume_one_request: "
+            f"has_workspace={self._workspace is not None}",
+        )
+
+        if self._workspace is not None and self._command_registry is not None:
+            query_text = self._extract_query_from_payload(payload)
+            logger.debug(
+                f"base _consume_one_request: query={query_text[:50]}",
+            )
+            is_control = self._command_registry.is_control_command(
+                query_text,
+            )
+            logger.debug(
+                f"base _consume_one_request: is_control={is_control}",
+            )
+            if not is_control:
+                request = self._payload_to_request(payload)
+                await self._consume_with_tracker(request, payload)
+                return
+
         request = self._payload_to_request(payload)
         # Build meta from payload so session_webhook is never lost when
         # request has no channel_meta (e.g. AgentRequest schema has no field).

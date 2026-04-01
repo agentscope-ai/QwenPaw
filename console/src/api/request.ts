@@ -14,7 +14,9 @@ function buildHeaders(method?: string, extra?: HeadersInit): Headers {
   }
 
   for (const [key, value] of Object.entries(buildAuthHeaders())) {
-    headers.set(key, value);
+    if (!headers.has(key)) {
+      headers.set(key, value);
+    }
   }
 
   return headers;

@@ -92,7 +92,7 @@ export function RuleTable({
       width: 100,
       render: (source: string, record: MergedRule) => (
         <Tag
-          color={source === "builtin" ? "geekblue" : "green"}
+          color={source === "builtin" ? "rgba(142, 140, 153, 1)" : "green"}
           style={{ opacity: record.disabled ? 0.4 : 1 }}
         >
           {source === "builtin"
@@ -130,12 +130,11 @@ export function RuleTable({
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 4,
+                gap: 8,
                 ...darkBtnStyle,
               }}
             >
-              <Eye size={14} />
-              {t("security.rules.preview")}
+              <Eye size={16} />
             </Button>
           )}
           {record.source === "custom" && (
