@@ -6,9 +6,10 @@ import {
 } from "@agentscope-ai/icons";
 import { useTheme, type ThemeMode } from "../../contexts/ThemeContext";
 import { useTranslation } from "react-i18next";
+import type { ReactNode } from "react";
 import styles from "./index.module.less";
 
-const ICONS: Record<ThemeMode, React.ReactNode> = {
+const ICONS: Record<ThemeMode, ReactNode> = {
   light: <SparkSunLine />,
   dark: <SparkMoonLine />,
   system: <SparkComputerLine />,
