@@ -792,17 +792,17 @@ function SkillPoolPage() {
                         >
                           {getPoolBuiltinStatusLabel(skill.sync_status, t)}
                         </span>
-                        {skill.last_updated && (
-                          <>
-                            <span className={styles.statusLabel}>
-                              {t("skills.lastUpdated")}:
-                            </span>
-                            <span className={styles.statusValue}>
-                              {dayjs(skill.last_updated).fromNow()}
-                            </span>
-                          </>
-                        )}
                       </div>
+                      {skill.last_updated && (
+                        <div className={styles.statusRow}>
+                          <span className={styles.statusLabel}>
+                            {t("skills.lastUpdated")}:
+                          </span>
+                          <span className={styles.statusValue}>
+                            {dayjs(skill.last_updated).fromNow()}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className={styles.descriptionContainer}>
@@ -825,6 +825,7 @@ function SkillPoolPage() {
                     {t("skillPool.broadcast")}
                   </Button>
                   <Button
+                    danger
                     className={styles.deleteButton}
                     onClick={(e) => {
                       e.stopPropagation();

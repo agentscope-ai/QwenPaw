@@ -108,7 +108,7 @@
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
-  padding-bottom: 56px; /* 增加底部padding，为按钮留出空间 */
+  padding-bottom: 56px;
 
   :global {
     .ant-card-body {
@@ -148,9 +148,14 @@
 }
 
 .fileIcon {
-  font-size: 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #fcfaf8;
+  font-size: 28px;
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -190,24 +195,20 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  border: 1px solid transparent;
 
   &.synced {
     background-color: rgba(82, 196, 26, 0.12);
     color: #389e0d;
-    border-color: rgba(82, 196, 26, 0.24);
   }
 
   &.outdated {
     background-color: rgba(250, 173, 20, 0.14);
     color: #d48806;
-    border-color: rgba(250, 173, 20, 0.28);
   }
 
   &.neutral {
     background-color: rgba(239, 240, 243, 0.8);
     color: rgba(20, 20, 19, 0.65);
-    border-color: rgba(20, 20, 19, 0.08);
   }
 }
 
@@ -362,20 +363,15 @@
   flex: 1;
   height: 32px;
   font-size: 14px;
-  background-color: #fff0f0;
-  color: #ff4d4f;
-  border: 1px solid #ffccc7;
   cursor: pointer;
-
-  &:hover {
-    background-color: #ff4d4f;
-    border-color: #ff4d4f;
-    color: #ffffff;
-  }
 }
 
 /* ─── Dark Mode ───────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .fileIcon {
+    background: rgba(26, 23, 22, 0.88);
+  }
+
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.2);
   }
@@ -446,19 +442,16 @@
     &.synced {
       background-color: rgba(82, 196, 26, 0.18);
       color: #b7eb8f;
-      border-color: rgba(82, 196, 26, 0.32);
     }
 
     &.outdated {
       background-color: rgba(250, 173, 20, 0.2);
       color: #ffd666;
-      border-color: rgba(250, 173, 20, 0.34);
     }
 
     &.neutral {
       background-color: rgba(255, 255, 255, 0.08);
       color: rgba(255, 255, 255, 0.8);
-      border-color: rgba(255, 255, 255, 0.14);
     }
   }
 
@@ -495,18 +488,6 @@
     &:hover {
       border-color: #777 !important;
       background-color: #555 !important;
-    }
-  }
-
-  /* Delete button */
-  .deleteButton {
-    background-color: #ff4d4f !important;
-    color: #fff !important;
-    border-color: #ff4d4f !important;
-
-    &:hover {
-      background-color: #ff7875 !important;
-      border-color: #ff7875 !important;
     }
   }
 }
