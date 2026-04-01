@@ -911,29 +911,31 @@ function SkillPoolPage() {
                             <h3 className={styles.skillTitle}>{skill.name}</h3>
                           </Tooltip>
                         </div>
-                      </div>
-                      <div className={styles.statusRow}>
-                        <span className={styles.statusLabel}>
-                          {t("skillPool.status")}:
-                        </span>
-                        <span
-                          className={`${styles.statusValue} ${
-                            styles[getPoolBuiltinStatusTone(skill.sync_status)]
-                          }`}
-                        >
-                          {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-                        </span>
-                      </div>
-                      {skill.last_updated && (
                         <div className={styles.statusRow}>
                           <span className={styles.statusLabel}>
-                            {t("skills.lastUpdated")}:
+                            {t("skillPool.status")}:
                           </span>
-                          <span className={styles.statusValue}>
-                            {dayjs(skill.last_updated).fromNow()}
+                          <span
+                            className={`${styles.statusValue} ${
+                              styles[
+                                getPoolBuiltinStatusTone(skill.sync_status)
+                              ]
+                            }`}
+                          >
+                            {getPoolBuiltinStatusLabel(skill.sync_status, t)}
                           </span>
                         </div>
-                      )}
+                        {skill.last_updated && (
+                          <div className={styles.statusRow}>
+                            <span className={styles.statusLabel}>
+                              {t("skills.lastUpdated")}:
+                            </span>
+                            <span className={styles.statusValue}>
+                              {dayjs(skill.last_updated).fromNow()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className={styles.descriptionContainer}>
                       <p className={styles.descriptionLabel}>
