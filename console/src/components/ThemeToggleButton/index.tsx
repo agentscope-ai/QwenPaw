@@ -44,7 +44,6 @@ export default function ThemeToggleButton() {
       menu={{ items, selectedKeys: [themeMode] }}
       placement="bottomRight"
       overlayClassName={styles.themeDropdown}
-      trigger={["click"]}
     >
       <Button className={styles.toggleBtn} type="text" icon={icon} />
     </Dropdown>
