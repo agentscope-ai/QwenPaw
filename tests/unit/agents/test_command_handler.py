@@ -95,6 +95,7 @@ def test_is_conversation_command_accepts_compact_with_args() -> None:
 
     assert handler.is_conversation_command("/compact")
     assert handler.is_conversation_command("/compact keep requirements")
+    assert not handler.is_conversation_command("/ compact")
     assert not handler.is_conversation_command("/compact_keep requirements")
 
 

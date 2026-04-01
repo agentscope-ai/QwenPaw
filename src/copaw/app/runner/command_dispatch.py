@@ -49,7 +49,7 @@ def _is_conversation_command(query: str | None) -> bool:
     if not query or not query.startswith("/"):
         return False
     stripped = query.strip().lstrip("/")
-    cmd = stripped.split()[0] if stripped else ""
+    cmd = stripped.split(" ", 1)[0] if stripped else ""
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 
