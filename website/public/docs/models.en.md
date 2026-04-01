@@ -22,9 +22,9 @@ CoPaw also provides the CoPaw-Flash series for local deployment. It includes 2B,
 
 ## CoPaw Local (llama.cpp) Configuration
 
-CoPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
+> CoPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
 
-> CoPaw Local is currently in the beta phase. There may be stability and compatibility issues on different devices. For a more stable local model experience, it is recommended to use Ollama or LM Studio in the short term.
+CoPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
 
 ![CoPaw Local Provider](https://gw.alicdn.com/imgextra/i4/O1CN01OAi8oN1acoLWlsm6B_!!6000000003351-2-tps-2410-1634.png)
 
