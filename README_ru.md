@@ -470,7 +470,7 @@ cp -R console/dist/. src/copaw/console/
 pip install -e .
 ```
 
-- **Разработка** (тесты, форматирование): `pip install -e ".[dev]"`
+- **Разработка** (тесты, форматирование): `pip install -e ".[dev,full]"`
 - **Затем**: Выполните `copaw init --defaults`, затем `copaw app`.
 
 > **Примечание при обновлении версии:** После выполнения `git pull` для обновления до новой мажорной версии, пересоберите frontend, переустановите Python-пакет (`pip install -e .`), перезапустите `copaw app` и очистите кэш браузера (`Ctrl+Shift+R` или `Cmd+Shift+R` на macOS).

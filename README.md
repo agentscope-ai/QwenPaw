@@ -452,7 +452,7 @@ cp -R console/dist/. src/copaw/console/
 pip install -e .
 ```
 
-- **Dev** (tests, formatting): `pip install -e ".[dev]"`
+- **Dev** (tests, formatting): `pip install -e ".[dev,full]"`
 - **Then**: Run `copaw init --defaults`, then `copaw app`.
 
 > **Note for updates:** When updating to a new major version after `git pull`, please also rebuild the frontend, reinstall the package (`pip install -e .`), restart `copaw app`, and clear your browser cache with `Ctrl+Shift+R` (or `Cmd+Shift+R` on macOS).

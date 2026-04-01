@@ -71,7 +71,7 @@ docs(skills): 记录 Skills Hub 导入
 
 - **必需的本地检查（提交/PR 前必须通过）：**
   ```bash
-  pip install -e ".[dev]"
+  pip install -e ".[dev,full]"
   pre-commit install
   pre-commit run --all-files
   pytest
