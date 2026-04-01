@@ -947,7 +947,12 @@ class WecomChannel(BaseChannel):
                 try:
                     stream.write("")
                     stream.flush()
-                except OSError:
+                except (
+                    OSError,
+                    ValueError,
+                    AttributeError,
+                    TypeError,
+                ):
                     needs_fix = True
             if needs_fix:
                 setattr(
