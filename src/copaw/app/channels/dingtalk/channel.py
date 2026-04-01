@@ -1631,32 +1631,7 @@ class DingTalkChannel(BaseChannel):
         """Use webhook multi-message send instead of default loop."""
         del to_handle
 
-        sender_id = getattr(request, "user_id", "") or ""
         is_group = bool((send_meta or {}).get("is_group", False))
-        allowed, error_msg = self._check_allowlist(
-            sender_id,
-            is_group,
-        )
-        if not allowed:
-            logger.info(
-                "dingtalk allowlist blocked: sender=%s is_group=%s",
-                sender_id,
-                is_group,
-            )
-            session_webhook = self._get_session_webhook(send_meta)
-            if session_webhook:
-                await self._send_via_session_webhook(
-                    session_webhook,
-                    self.bot_prefix + (error_msg or ""),
-                    bot_prefix="",
-                )
-            else:
-                self._reply_sync_batch(
-                    send_meta,
-                    self.bot_prefix + (error_msg or ""),
-                )
-            return
-
         if not self._check_group_mention(is_group, send_meta):
             return
 
@@ -2059,6 +2034,7 @@ class DingTalkChannel(BaseChannel):
             bot_prefix=self.bot_prefix,
             download_url_fetcher=self._fetch_and_download_media,
             try_accept_message=self._try_accept_message,
+            check_allowlist=self._check_allowlist,
         )
         self._client.register_callback_handler(
             ChatbotMessage.TOPIC,
