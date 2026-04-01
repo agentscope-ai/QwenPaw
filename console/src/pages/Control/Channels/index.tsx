@@ -77,7 +77,7 @@ function ChannelsPage() {
       ...savedConfig,
       ...values,
     };
-    
+
     if (typeof values.filter_tool_messages === "boolean") {
       updatedChannel.filter_tool_messages = !values.filter_tool_messages;
     }
