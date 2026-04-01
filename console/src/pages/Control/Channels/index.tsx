@@ -76,8 +76,14 @@ function ChannelsPage() {
     const updatedChannel: Record<string, unknown> = {
       ...savedConfig,
       ...values,
-      filter_tool_messages: !values.filter_tool_messages,
-      filter_thinking: !values.filter_thinking,
+      filter_tool_messages:
+        values.filter_tool_messages !== undefined
+          ? !values.filter_tool_messages
+          : savedConfig.filter_tool_messages,
+      filter_thinking:
+        values.filter_thinking !== undefined
+          ? !values.filter_thinking
+          : savedConfig.filter_thinking,
     };
 
     setSaving(true);
