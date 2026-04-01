@@ -95,6 +95,54 @@
   padding: 16px;
 }
 
+/* ─── Select Circle (batch selection) ─────────────────────────────────────── */
+.selectCircle {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px dashed #ccc;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+
+  &:hover {
+    border-color: #ff7f16;
+  }
+}
+
+.selectCircleSelected {
+  opacity: 1;
+  background: #ff7f16;
+  border: 1.5px solid #ff7f16;
+}
+
+.selectedCard {
+  border-color: #ff7f16 !important;
+  box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.2) !important;
+}
+
+.batchActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batchCount {
+  font-size: 13px;
+  color: #666;
+  margin-right: 4px;
+}
+
 /* ─── Skill Card ──────────────────────────────────────────────────────────── */
 .skillCard {
   min-height: 178px;
@@ -123,6 +171,10 @@
   &:hover {
     border-color: var(--color-border, #d9d9d9);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+
+  &:hover .selectCircle {
+    opacity: 1;
   }
 }
 
@@ -183,6 +235,9 @@
   align-items: center;
   gap: 6px;
   font-size: 11px;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  column-gap: 12px;
 }
 
 .statusLabel {
@@ -390,6 +445,24 @@
 
   .loadingText {
     color: rgba(255, 255, 255, 0.35);
+  }
+
+  .selectCircle {
+    border-color: rgba(255, 255, 255, 0.3);
+    background: rgba(30, 30, 30, 0.85);
+
+    &:hover {
+      border-color: #ff7f16;
+    }
+  }
+
+  .selectedCard {
+    border-color: #ff7f16 !important;
+    box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.3) !important;
+  }
+
+  .batchCount {
+    color: rgba(255, 255, 255, 0.65);
   }
 
   .skillCard {

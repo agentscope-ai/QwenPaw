@@ -236,6 +236,22 @@ export const skillApi = {
       body: JSON.stringify(skillNames),
     }),
 
+  batchDeleteSkills: (skillNames: string[]) =>
+    request<{
+      results: Record<string, { success: boolean; reason?: string }>;
+    }>("/skills/batch-delete", {
+      method: "POST",
+      body: JSON.stringify(skillNames),
+    }),
+
+  batchDeletePoolSkills: (skillNames: string[]) =>
+    request<{
+      results: Record<string, { success: boolean; reason?: string }>;
+    }>("/skills/pool/batch-delete", {
+      method: "POST",
+      body: JSON.stringify(skillNames),
+    }),
+
   deleteSkill: (skillName: string) =>
     request<{ deleted: boolean }>(`/skills/${encodeURIComponent(skillName)}`, {
       method: "DELETE",

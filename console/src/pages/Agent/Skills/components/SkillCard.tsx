@@ -10,6 +10,7 @@ import {
   FilePptFilled,
   FileImageFilled,
   CodeFilled,
+  CheckOutlined,
   EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
@@ -22,6 +23,8 @@ import { getSkillDisplaySource } from "./skillMetadata";
 interface SkillCardProps {
   skill: SkillSpec;
   isHover: boolean;
+  selected?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
   onClick: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -132,6 +135,8 @@ export const getSkillVisual = (name: string, content?: string) => {
 export const SkillCard = React.memo(function SkillCard({
   skill,
   isHover,
+  selected,
+  onSelect,
   onClick,
   onMouseEnter,
   onMouseLeave,
@@ -141,6 +146,7 @@ export const SkillCard = React.memo(function SkillCard({
   const { t } = useTranslation();
   const displaySource = getSkillDisplaySource(skill.source);
   const isBuiltin = displaySource === "builtin";
+  const batchMode = selected !== undefined;
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -154,16 +160,40 @@ export const SkillCard = React.memo(function SkillCard({
     }
   };
 
+  const handleSelectClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSelect?.(e);
+  };
+
+  const handleCardClick = () => {
+    if (batchMode && onSelect) {
+      onSelect({} as React.MouseEvent);
+    } else {
+      onClick();
+    }
+  };
+
   return (
     <Card
       hoverable
-      onClick={onClick}
+      onClick={handleCardClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={`${styles.skillCard} ${
         skill.enabled ? styles.enabledCard : ""
-      } ${isHover ? styles.hover : styles.normal}`}
+      } ${isHover ? styles.hover : styles.normal} ${
+        selected ? styles.selectedCard : ""
+      }`}
     >
+      {/* Selection circle — top-left overlay */}
+      <div
+        className={`${styles.selectCircle} ${
+          selected ? styles.selectCircleSelected : ""
+        } ${isHover || selected ? styles.selectCircleVisible : ""}`}
+        onClick={handleSelectClick}
+      >
+        {selected && <CheckOutlined />}
+      </div>
       {/* Header: Icon + Title + Badge + Status */}
       <div className={styles.cardHeader}>
         <div className={styles.leftSection}>
