@@ -5,13 +5,10 @@ import atexit
 import asyncio
 import logging
 import os
-import signal
 import shutil
 import socket
-import subprocess
 import tempfile
 import threading
-import time
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Optional
@@ -27,6 +24,13 @@ from .download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
+from ..utils.command_runner import (
+    ManagedProcess,
+    run_command_async,
+    shutdown_process,
+    shutdown_process_sync,
+    start_process_async,
+)
 from ..utils import system_info
 
 logger = logging.getLogger(__name__)
@@ -34,45 +38,6 @@ logger = logging.getLogger(__name__)
 
 class DownloadCancelled(Exception):
     pass
-
-
-class _ThreadedProcessStdout:
-    """Async adapter for a blocking subprocess stdout stream."""
-
-    def __init__(self, stream: Any) -> None:
-        self._stream = stream
-
-    async def readline(self) -> bytes:
-        return await asyncio.to_thread(self._stream.readline)
-
-
-class _ThreadedServerProcess:
-    """Minimal async-compatible wrapper around subprocess.Popen."""
-
-    def __init__(self, process: subprocess.Popen[bytes]) -> None:
-        self._process = process
-        self.stdout = (
-            _ThreadedProcessStdout(process.stdout)
-            if process.stdout is not None
-            else None
-        )
-
-    @property
-    def pid(self) -> int:
-        return self._process.pid
-
-    @property
-    def returncode(self) -> int | None:
-        return self._process.poll()
-
-    async def wait(self) -> int:
-        return await asyncio.to_thread(self._process.wait)
-
-    def terminate(self) -> None:
-        self._process.terminate()
-
-    def kill(self) -> None:
-        self._process.kill()
 
 
 class LlamaCppBackend:
@@ -92,12 +57,11 @@ class LlamaCppBackend:
         self.cuda_version = self._resolve_cuda_version()
         self.backend = self._resolve_backend()
         self.target_dir = DEFAULT_LOCAL_PROVIDER_DIR / "bin"
-        self._server_process: Any | None = None
+        self._server_process: ManagedProcess | None = None
         self._server_log_task: asyncio.Task[None] | None = None
         self._server_port: int | None = None
         self._server_model_name: str | None = None
         self._server_transitioning = False
-        self._server_owns_process_group = False
         self._download_lock = threading.Lock()
         self._download_thread: threading.Thread | None = None
         self._download_cancel_event: threading.Event | None = None
@@ -225,8 +189,7 @@ class LlamaCppBackend:
         ):
             if self._server_process.returncode is None:
                 logger.info(
-                    "Requested model %s is already served by llama.cpp on "
-                    "port %s",
+                    "Requested model %s is already served on port %s",
                     model_name,
                     self._server_port,
                 )
@@ -258,7 +221,6 @@ class LlamaCppBackend:
         self._server_process = process
         self._server_port = port
         self._server_model_name = model_name
-        self._server_owns_process_group = bool(process_kwargs)
         self._server_log_task = asyncio.create_task(
             self._drain_server_logs(),
             name="llamacpp_server_logs",
@@ -281,6 +243,35 @@ class LlamaCppBackend:
         )
         return port
 
+    async def list_devices(self) -> list[str]:
+        """List available devices for llama.cpp using
+        `llama-server --list-devices`."""
+        installed, message = self.check_llamacpp_installation()
+        if not installed:
+            raise RuntimeError(message or "llama.cpp server is not installed")
+
+        result = await run_command_async(
+            [str(self.executable), "--list-devices"],
+            timeout=10,
+        )
+        return [
+            line.strip()
+            for line in result.combined_output.splitlines()
+            if line.strip()
+        ]
+
+    async def get_version(self) -> str:
+        """get llama.cpp server version using `llama-server --version`."""
+        installed, message = self.check_llamacpp_installation()
+        if not installed:
+            raise RuntimeError(message or "llama.cpp server is not installed")
+
+        result = await run_command_async(
+            [str(self.executable), "--version"],
+            timeout=10,
+        )
+        return result.combined_output.strip()
+
     def _is_download_active(self) -> bool:
         """Return whether the background download thread is active."""
         return (
@@ -294,7 +285,7 @@ class LlamaCppBackend:
         model_name: str,
         port: int,
         process_kwargs: dict[str, Any],
-    ) -> Any:
+    ) -> ManagedProcess:
         command = [
             str(self.executable),
             "--host",
@@ -309,40 +300,17 @@ class LlamaCppBackend:
             "auto",
         ]
 
-        try:
-            logger.info(
-                "Setting up llama.cpp server for model %s at path %s",
-                model_name,
-                resolved_model_path,
-            )
-            return await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                **process_kwargs,
-            )
-        except NotImplementedError:
-            if os.name != "nt":
-                raise
-            logger.warning(
-                "Async subprocess creation is unavailable on this Windows "
-                "event loop; falling back to threaded subprocess launch.",
-            )
-            return await asyncio.to_thread(
-                self._create_threaded_server_process,
-                command,
-            )
-
-    def _create_threaded_server_process(
-        self,
-        command: list[str],
-    ) -> _ThreadedServerProcess:
-        process = subprocess.Popen(  # pylint: disable=consider-using-with
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+        logger.info(
+            "Setting up llama.cpp server for model %s at path %s",
+            model_name,
+            resolved_model_path,
         )
-        return _ThreadedServerProcess(process)
+        return await start_process_async(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            **process_kwargs,
+        )
 
     async def shutdown_server(self) -> None:
         """Shutdown the llama.cpp server if it's running."""
@@ -351,12 +319,7 @@ class LlamaCppBackend:
 
         process = self._server_process
         if process and process.returncode is None:
-            self._terminate_server_process()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                self._kill_server_process()
-                await process.wait()
+            await shutdown_process(process, graceful_timeout=5.0)
 
         self._reset_server_state()
 
@@ -367,10 +330,11 @@ class LlamaCppBackend:
 
         process = self._server_process
         if process and process.returncode is None:
-            self._terminate_server_process()
-            if not self._wait_for_process_exit(process.pid, timeout=5.0):
-                self._kill_server_process()
-                self._wait_for_process_exit(process.pid, timeout=1.0)
+            shutdown_process_sync(
+                process,
+                graceful_timeout=5.0,
+                kill_timeout=1.0,
+            )
 
         self._reset_server_state()
 
@@ -592,8 +556,7 @@ class LlamaCppBackend:
                         return True
 
                     logger.info(
-                        "llama.cpp health check returned %s "
-                        "while waiting for %s",
+                        "llama.cpp health check returned %s while waiting for %s",
                         response.status_code,
                         health_url,
                     )
@@ -632,72 +595,12 @@ class LlamaCppBackend:
         if task and not task.done():
             task.cancel()
 
-    def _terminate_server_process(self) -> None:
-        process = self._server_process
-        if process is None or process.returncode is not None:
-            return
-
-        if self._server_owns_process_group and os.name != "nt":
-            with suppress(ProcessLookupError):
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            return
-
-        with suppress(ProcessLookupError):
-            process.terminate()
-
-    def _kill_server_process(self) -> None:
-        process = self._server_process
-        if process is None or process.returncode is not None:
-            return
-
-        if self._server_owns_process_group and os.name != "nt":
-            with suppress(ProcessLookupError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            return
-
-        with suppress(ProcessLookupError):
-            process.kill()
-
-    def _wait_for_process_exit(self, pid: int, timeout: float) -> bool:
-        deadline = time.monotonic() + timeout
-        while True:
-            if not self._is_pid_running(pid):
-                return True
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            sleep_for = min(0.1, remaining)
-            threading.Event().wait(sleep_for)
-        return not self._is_pid_running(pid)
-
-    @staticmethod
-    def _is_pid_running(pid: int) -> bool:
-        if os.name == "nt":
-            try:
-                output = subprocess.check_output(
-                    ["tasklist", "/fi", f"PID eq {pid}"],
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                return False
-            return str(pid) in output
-
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
-
     def _reset_server_state(self) -> None:
         self._server_process = None
         self._server_log_task = None
         self._server_port = None
         self._server_model_name = None
         self._server_transitioning = False
-        self._server_owns_process_group = False
 
     def _shutdown_server_at_exit(self) -> None:
         with suppress(Exception):
