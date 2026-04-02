@@ -2,6 +2,7 @@
 # pylint: disable=too-many-branches
 # mypy: ignore-errors
 """ReMeLight-backed memory manager for CoPaw agents."""
+
 import importlib.metadata
 import json
 import logging
@@ -24,7 +25,7 @@ from copaw.config.context import (
     set_current_workspace_dir,
     set_current_recent_max_bytes,
 )
-from copaw.constant import EnvVarLoader
+from copaw.configs import copaw_config
 
 if TYPE_CHECKING:
     from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
@@ -67,7 +68,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             f"agent_id={agent_id}, working_dir={working_dir}",
         )
 
-        backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
+        backend_env = copaw_config.MEMORY_STORE_BACKEND
         if backend_env == "auto":
             if platform.system() == "Windows":
                 memory_backend = "local"
@@ -105,7 +106,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
         )
 
-        fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
+        fts_enabled = copaw_config.FTS_ENABLED
 
         agent_config = load_agent_config(self.agent_id)
         rebuild_on_start = (
@@ -187,12 +188,9 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         cfg = load_agent_config(self.agent_id).running.embedding_config
         return {
             "backend": cfg.backend,
-            "api_key": cfg.api_key
-            or EnvVarLoader.get_str("EMBEDDING_API_KEY"),
-            "base_url": cfg.base_url
-            or EnvVarLoader.get_str("EMBEDDING_BASE_URL"),
-            "model_name": cfg.model_name
-            or EnvVarLoader.get_str("EMBEDDING_MODEL_NAME"),
+            "api_key": cfg.api_key or copaw_config.EMBEDDING_API_KEY,
+            "base_url": cfg.base_url or copaw_config.EMBEDDING_BASE_URL,
+            "model_name": cfg.model_name or copaw_config.EMBEDDING_MODEL_NAME,
             "dimensions": cfg.dimensions,
             "enable_cache": cfg.enable_cache,
             "use_dimensions": cfg.use_dimensions,
@@ -233,8 +231,9 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             return True
         result = await self._reme.close()
         logger.info(
-            f"ReMeLightMemoryManager closed: "
-            f"agent_id={self.agent_id}, result={result}",
+            "ReMeLight closed: agent_id=%s, result=%s",
+            self.agent_id,
+            result,
         )
         return result
 
