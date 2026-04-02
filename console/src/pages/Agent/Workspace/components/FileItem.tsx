@@ -33,7 +33,7 @@ export const FileItem: React.FC<FileItemProps> = ({
   onDailyMemoryClick,
   onToggleEnabled,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isSelected = selectedFile?.filename === file.filename;
   const isMemoryFile = file.filename === "MEMORY.md";
 
@@ -92,7 +92,7 @@ export const FileItem: React.FC<FileItemProps> = ({
               {file.filename}
             </div>
             <div className={styles.fileItemMeta}>
-              {formatFileSize(file.size)} · {formatTimeAgo(file.modified_time)}
+              {formatFileSize(file.size)} · {formatTimeAgo(file.modified_time, i18n.language)}
             </div>
           </div>
           <div className={styles.fileItemActions}>
@@ -132,7 +132,7 @@ export const FileItem: React.FC<FileItemProps> = ({
                 <div className={styles.dailyMemoryName}>{daily.date}.md</div>
                 <div className={styles.dailyMemoryMeta}>
                   {formatFileSize(daily.size)} ·{" "}
-                  {formatTimeAgo(daily.updated_at)}
+                  {formatTimeAgo(daily.updated_at, i18n.language)}
                 </div>
               </div>
             );
