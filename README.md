@@ -330,12 +330,6 @@ When you download the CoPaw macOS app from Releases, macOS may show: *"Apple can
   `xattr -cr /Applications/CoPaw.app`
   (or use the path to the `.app` after unzipping). This clears the "downloaded from the internet" quarantine flag so the warning usually does not appear, but is less safe and controllable than using **Right-click → Open**.
 
-#### Windows: Blank Screen (WebView2 Missing)
-
-On some Windows 10 systems, the app window may appear as a blank white screen. This is caused by a missing **Microsoft WebView2** runtime. Download and install it from:
-[https://developer.microsoft.com/en-us/microsoft-edge/webview2/](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
-Then restart the application.
-
 For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://copaw.agentscope.io/docs/desktop).
 
 ---

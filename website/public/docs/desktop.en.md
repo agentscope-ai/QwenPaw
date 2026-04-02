@@ -75,7 +75,7 @@ After installation, you'll see **two launch shortcuts**:
 **Q: The app window is blank/white screen and cannot display properly?**
 A: This is usually because the system is missing the **Microsoft WebView2** runtime (some Windows 10 systems do not have it pre-installed).
 Download and install it from the Microsoft website:
-[https://developer.microsoft.com/en-us/microsoft-edge/webview2/](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+[Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 Restart the application after installation.
 
 **Q: Application doesn't respond after launch?**
