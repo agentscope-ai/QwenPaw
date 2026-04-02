@@ -172,7 +172,9 @@ html.dark-mode .ant-table-ping-left .ant-table-cell-fix-left-last::before {
   background: transparent !important;
 }
 
-html.dark-mode .copaw-table-ping-right .copaw-table-cell-fix-right-first::before,
+html.dark-mode
+  .copaw-table-ping-right
+  .copaw-table-cell-fix-right-first::before,
 html.dark-mode .ant-table-ping-right .ant-table-cell-fix-right-first::before {
   background: transparent !important;
 }
