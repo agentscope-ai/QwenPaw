@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { Drawer, Input, List, Typography, Empty, Tooltip } from "antd";
+import { Drawer, Input, List, Typography, Empty } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine, SparkSearchLine } from "@agentscope-ai/icons";
 import {
@@ -222,7 +222,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                   </div>
                   <div className={styles.resultContent}>
                     <Typography.Text
-                      ellipsis={{ rows: 3 }}
+                      ellipsis
                       style={{ fontSize: 13 }}
                     >
                       {item.matchedText}
