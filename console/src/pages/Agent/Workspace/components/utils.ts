@@ -19,10 +19,10 @@ export const formatTimeAgo = (
     typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp;
   if (isNaN(time)) return "-";
 
+  const dayjsInstance = dayjs(time);
   const shortLocale = locale.split("-")[0];
-  return dayjs(time)
-    .locale(DAYJS_LOCALE[shortLocale] || shortLocale)
-    .fromNow();
+  dayjsInstance.locale(DAYJS_LOCALE[shortLocale] || shortLocale);
+  return dayjsInstance.fromNow();
 };
 
 export const isDailyMemoryFile = (filename: string): boolean => {
