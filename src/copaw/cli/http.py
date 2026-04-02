@@ -17,7 +17,7 @@ from ..app.auth import (
 )
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
-_LOCAL_API_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "0.0.0.0"})
+_LOCAL_API_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 def _build_auth_headers(base_url: str) -> dict[str, str]:
@@ -35,7 +35,7 @@ def _build_auth_headers(base_url: str) -> dict[str, str]:
         return {}
 
     data = _load_auth_data()
-    if data.get("_auth_load_error"):
+    if data.get("_auth_load_error") or not data.get("jwt_secret"):
         return {}
 
     username = str((data.get("user") or {}).get("username") or "").strip()
