@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Regression tests for agent workspace initialization."""
 
 import json
@@ -26,7 +27,9 @@ def test_copy_builtin_skills_targets_unified_skills_dir(monkeypatch, tmp_path):
     agents_router._copy_builtin_skills(tmp_path)
 
     assert copied_targets
-    assert all(target.parent == tmp_path / "skills" for target in copied_targets)
+    assert all(
+        target.parent == tmp_path / "skills" for target in copied_targets
+    )
 
 
 def test_initialize_agent_workspace_creates_runtime_compatible_files(
@@ -55,11 +58,15 @@ def test_initialize_agent_workspace_creates_runtime_compatible_files(
     assert (tmp_path / "skills").is_dir()
     assert not (tmp_path / "active_skills").exists()
     assert not (tmp_path / "customized_skills").exists()
-    assert json.loads((tmp_path / "jobs.json").read_text(encoding="utf-8")) == {
+    assert json.loads(
+        (tmp_path / "jobs.json").read_text(encoding="utf-8"),
+    ) == {
         "version": 1,
         "jobs": [],
     }
-    assert json.loads((tmp_path / "chats.json").read_text(encoding="utf-8")) == {
+    assert json.loads(
+        (tmp_path / "chats.json").read_text(encoding="utf-8"),
+    ) == {
         "version": 1,
         "chats": [],
     }
@@ -69,7 +76,7 @@ def test_initialize_agent_workspace_builtin_qa_seed_passes_language_first(
     monkeypatch,
     tmp_path,
 ):
-    """Builtin QA seeding should call the helper with language then workspace."""
+    """Builtin QA seeding should pass language before workspace."""
     import copaw.config as config_module
 
     recorded_calls: list[tuple[str, Path]] = []
