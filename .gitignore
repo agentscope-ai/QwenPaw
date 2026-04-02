@@ -102,3 +102,6 @@ src/.hypothesis/
 
 # Qoder IDE
 .qoder/
+
+# Worktrees
+.worktrees/
