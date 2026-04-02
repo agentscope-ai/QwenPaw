@@ -81,6 +81,10 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
         </div>
       </div>
 
+      <div className={styles.localSectionNotice}>
+        {t("models.localRuntimeComputeHint")}
+      </div>
+
       <div className={styles.localEngineStatusRow}>
         <div className={styles.localEngineStatusItem}>
           <span className={styles.localEngineMetricLabel}>

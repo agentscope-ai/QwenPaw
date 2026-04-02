@@ -33,6 +33,7 @@ export function SiteLanguageProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void i18n.changeLanguage(lang);
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   }, [lang]);
 
   const toggleLang = useCallback(() => {

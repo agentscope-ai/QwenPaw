@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Form, Tooltip } from "@agentscope-ai/design";
+import { Button, Form, Modal, Tooltip } from "@agentscope-ai/design";
 import {
+  CloseOutlined,
+  DeleteOutlined,
   DownloadOutlined,
   ImportOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SwapOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
@@ -42,6 +45,7 @@ function SkillsPage() {
     toggleEnabled,
     deleteSkill,
     refreshSkills,
+    hardRefresh,
   } = useSkills();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -55,6 +59,21 @@ function SkillsPage() {
   );
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
+  const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
+  const batchMode = selectedSkills.size > 0;
+
+  const toggleSelect = (name: string) => {
+    setSelectedSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedSkills(new Set());
+
+  const selectAll = () => setSelectedSkills(new Set(skills.map((s) => s.name)));
 
   const MAX_UPLOAD_SIZE_MB = 100;
 
@@ -312,11 +331,15 @@ function SkillsPage() {
     }
   };
 
-  const handleDownloadFromPool = async (poolSkillNames: string[]) => {
+  const handleDownloadFromPool = async (
+    poolSkillNames: string[],
+    overwrite?: boolean,
+  ) => {
     if (poolSkillNames.length === 0) return;
     try {
       for (const skillName of poolSkillNames) {
         let targetName: string | undefined;
+        let shouldOverwrite = overwrite;
         while (true) {
           try {
             await api.downloadSkillPoolSkill({
@@ -327,11 +350,27 @@ function SkillsPage() {
                   target_name: targetName,
                 },
               ],
+              overwrite: shouldOverwrite,
             });
             break;
           } catch (error) {
             const detail = parseErrorDetail(error);
             const conflict = detail?.conflicts?.[0];
+            if (conflict?.reason === "builtin_upgrade") {
+              const confirmed = await new Promise<boolean>((resolve) => {
+                Modal.confirm({
+                  title: t("skills.builtinUpgradeTitle"),
+                  content: t("skills.builtinUpgradeContent", {
+                    name: conflict.skill_name || skillName,
+                  }),
+                  onOk: () => resolve(true),
+                  onCancel: () => resolve(false),
+                });
+              });
+              if (!confirmed) return;
+              shouldOverwrite = true;
+              continue;
+            }
             if (!conflict?.suggested_name) throw error;
             const renameMap = await showConflictRenameModal([
               {
@@ -358,6 +397,59 @@ function SkillsPage() {
     }
   };
 
+  const handleBatchDelete = async () => {
+    const names = Array.from(selectedSkills);
+    if (names.length === 0) return;
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title: t("skills.batchDeleteTitle", { count: names.length }),
+        content: (
+          <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
+            {names.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        ),
+        okText: t("common.delete"),
+        okType: "danger",
+        cancelText: t("common.cancel"),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+    if (!confirmed) return;
+    try {
+      const { results } = await api.batchDeleteSkills(names);
+      const failed = Object.entries(results).filter(([, r]) => !r.success);
+      if (failed.length > 0) {
+        message.warning(
+          t("skills.batchDeletePartial", {
+            deleted: names.length - failed.length,
+            failed: failed.length,
+          }),
+        );
+      } else {
+        message.success(
+          t("skills.batchDeleteSuccess", { count: names.length }),
+        );
+      }
+      clearSelection();
+      invalidateSkillCache({ agentId: selectedAgent });
+      await refreshSkills();
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : t("skills.batchDeleteFailed"),
+      );
+    }
+  };
+
+  const handleBatchUploadToPool = () => {
+    const names = Array.from(selectedSkills);
+    if (names.length === 0) return;
+    clearSelection();
+    void handleUploadToPool(names);
+  };
+
   return (
     <div className={styles.skillsPage}>
       <PageHeader
@@ -371,62 +463,111 @@ function SkillsPage() {
               onChange={handleFileChange}
               style={{ display: "none" }}
             />
-            <div className={styles.headerActionsLeft}>
-              <Tooltip title={t("skills.downloadFromPoolHint")}>
-                <Button
-                  type="default"
-                  className={styles.primaryTransferButton}
-                  onClick={() => setPoolModal("download")}
-                  icon={<DownloadOutlined />}
-                >
-                  {t("skills.downloadFromPool")}
+            {batchMode ? (
+              <div className={styles.batchActions}>
+                <span className={styles.batchCount}>
+                  {t("skills.selectedCount", {
+                    count: selectedSkills.size,
+                  })}
+                </span>
+                <Button type="link" size="small" onClick={selectAll}>
+                  {t("skills.selectAll")}
                 </Button>
-              </Tooltip>
-              <Tooltip title={t("skills.uploadToPoolHint")}>
                 <Button
-                  type="default"
-                  className={styles.primaryTransferButton}
-                  onClick={() => setPoolModal("upload")}
-                  icon={<SwapOutlined />}
+                  type="link"
+                  size="small"
+                  onClick={clearSelection}
+                  icon={<CloseOutlined />}
                 >
-                  {t("skills.uploadToPool")}
+                  {t("skills.clearSelection")}
                 </Button>
-              </Tooltip>
-            </div>
-            <div className={styles.headerActionsRight}>
-              <Tooltip title={t("skills.uploadZipHint")}>
+                <Tooltip title={t("skills.uploadToPoolHint")}>
+                  <Button
+                    type="default"
+                    className={styles.primaryTransferButton}
+                    onClick={handleBatchUploadToPool}
+                    icon={<SwapOutlined />}
+                  >
+                    {t("skills.uploadToPool")}
+                  </Button>
+                </Tooltip>
                 <Button
-                  type="default"
-                  className={styles.creationActionButton}
-                  onClick={handleUploadClick}
-                  icon={<UploadOutlined />}
-                  loading={uploading}
-                  disabled={uploading}
-                >
-                  {t("skills.uploadZip")}
-                </Button>
-              </Tooltip>
-              <Tooltip title={t("skills.importHubHint")}>
-                <Button
-                  type="default"
-                  className={styles.creationActionButton}
-                  onClick={() => setImportModalOpen(true)}
-                  icon={<ImportOutlined />}
-                >
-                  {t("skills.importHub")}
-                </Button>
-              </Tooltip>
-              <Tooltip title={t("skills.createSkillHint")}>
-                <Button
+                  danger
                   type="primary"
-                  className={styles.primaryActionButton}
-                  onClick={handleCreate}
-                  icon={<PlusOutlined />}
+                  icon={<DeleteOutlined />}
+                  onClick={handleBatchDelete}
                 >
-                  {t("skills.createSkill")}
+                  {t("common.delete")} ({selectedSkills.size})
                 </Button>
-              </Tooltip>
-            </div>
+              </div>
+            ) : (
+              <>
+                <div className={styles.headerActionsLeft}>
+                  <Tooltip title={t("skills.refreshHint")}>
+                    <Button
+                      type="default"
+                      icon={<ReloadOutlined spin={loading} />}
+                      onClick={hardRefresh}
+                      disabled={loading}
+                    />
+                  </Tooltip>
+                  <Tooltip title={t("skills.downloadFromPoolHint")}>
+                    <Button
+                      type="default"
+                      className={styles.primaryTransferButton}
+                      onClick={() => setPoolModal("download")}
+                      icon={<DownloadOutlined />}
+                    >
+                      {t("skills.downloadFromPool")}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={t("skills.uploadToPoolHint")}>
+                    <Button
+                      type="default"
+                      className={styles.primaryTransferButton}
+                      onClick={() => setPoolModal("upload")}
+                      icon={<SwapOutlined />}
+                    >
+                      {t("skills.uploadToPool")}
+                    </Button>
+                  </Tooltip>
+                </div>
+                <div className={styles.headerActionsRight}>
+                  <Tooltip title={t("skills.uploadZipHint")}>
+                    <Button
+                      type="default"
+                      className={styles.creationActionButton}
+                      onClick={handleUploadClick}
+                      icon={<UploadOutlined />}
+                      loading={uploading}
+                      disabled={uploading}
+                    >
+                      {t("skills.uploadZip")}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={t("skills.importHubHint")}>
+                    <Button
+                      type="default"
+                      className={styles.creationActionButton}
+                      onClick={() => setImportModalOpen(true)}
+                      icon={<ImportOutlined />}
+                    >
+                      {t("skills.importHub")}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={t("skills.createSkillHint")}>
+                    <Button
+                      type="primary"
+                      className={styles.primaryActionButton}
+                      onClick={handleCreate}
+                      icon={<PlusOutlined />}
+                    >
+                      {t("skills.createSkill")}
+                    </Button>
+                  </Tooltip>
+                </div>
+              </>
+            )}
           </div>
         }
       />
@@ -486,6 +627,10 @@ function SkillsPage() {
                 key={skill.name}
                 skill={skill}
                 isHover={hoverKey === skill.name}
+                selected={
+                  batchMode ? selectedSkills.has(skill.name) : undefined
+                }
+                onSelect={() => toggleSelect(skill.name)}
                 onClick={() => handleEdit(skill)}
                 onMouseEnter={() => setHoverKey(skill.name)}
                 onMouseLeave={() => setHoverKey(null)}

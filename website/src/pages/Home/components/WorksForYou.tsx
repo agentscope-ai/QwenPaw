@@ -26,6 +26,11 @@ const item = {
 
 const cards = [
   {
+    key: "apps",
+    icon: "/explore-apps.svg",
+    href: "",
+  },
+  {
     key: "skills",
     icon: "/support-skills.svg",
     href: "/docs/security",
@@ -35,21 +40,6 @@ const cards = [
     icon: "/under-control.svg",
     href: "/docs/multi-agent",
   },
-  {
-    key: "apps",
-    icon: "/explore-apps.svg",
-    href: "",
-  },
-  // {
-  //   key: "memory",
-  //   icon: "/works-memory.svg",
-  //   href: "/docs/memory",
-  // },
-  // {
-  //   key: "toolkit",
-  //   icon: "/works-toolkit.svg",
-  //   href: "/docs/skills",
-  // },
 ] as const;
 
 export function CopawWorksForYou() {
@@ -69,7 +59,7 @@ export function CopawWorksForYou() {
           <motion.div variants={item}>
             <h2
               id="copaw-works-heading"
-              className="font-newsreader font-semibold text-[1.8rem] leading-[1.2] text-(--color-text) sm:text-[2rem] md:text-4xl"
+              className="font-newsreader font-semibold text-3xl leading-[1.2] text-(--color-text) sm:text-[2rem] md:text-4xl"
             >
               {t("worksForYou.title")}
             </h2>
@@ -107,7 +97,7 @@ export function CopawWorksForYou() {
                       aria-hidden
                       className="h-20 w-20 object-contain opacity-80 md:h-23 md:w-23"
                     />
-                    <h3 className="font-newsreader mt-3 text-[1.65rem] leading-[1.1] text-(--color-text) sm:text-[1.8rem] md:mt-4 md:text-[1.8rem]">
+                    <h3 className="font-newsreader mt-3 text-[1.65rem] leading-[1.1] text-(--color-text) sm:text-[1.8rem] md:mt-6 md:text-[1.8rem]">
                       {t(`worksForYou.cards.${card.key}.title`)}
                     </h3>
                     <p className="font-inter mt-2 text-[13px] leading-[1.65] text-(--color-text-secondary) md:text-base">

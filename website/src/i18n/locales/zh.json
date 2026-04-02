@@ -11,10 +11,12 @@
     "agentscopeTeam": "AgentScope"
   },
   "hero": {
-    "titleleft": "你的",
-    "titleright": "AI个人助理，",
+    "titleleft": "欢迎使用你的",
+    "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "安装极简、本地与云上均可部署；支持多端接入、能力轻松扩展。",
+    "sub": "v1.0.0 四大方面能力升级：",
+    "sub1": "为 CoPaw 量身定制的小模型、安全机制、多智能体协同、以及记忆管理",
+    "releaseNote": "CoPaw v1.0.0版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始"
   },
@@ -25,10 +27,17 @@
     "x": "X："
   },
   "channels": {
-    "titleWe": "我们",
-    "titleOperateWith": "operate",
-    "titleEverything": "于一切。",
+    "titleWe": "使用",
+    "titleOperateWith": "",
+    "titleEverything": "全域互联",
     "sub": "内置 10+ 个频道，更多即将上线"
+  },
+  "finalCta": {
+    "titleBefore": "欢迎使用",
+    "titleEmphasis": "CoPaw",
+    "titleAfter": "，",
+    "titleLine2": "懂你所需，伴你左右",
+    "downloadFromGithub": "前往 GitHub 下载"
   },
   "whyCopaw": {
     "headingPrefix": "Why",
@@ -45,16 +54,16 @@
     "learnMore": "了解更多",
     "cards": {
       "skills": {
-        "title": "安全",
-        "desc": "执行前工具护栏、路径级文件护栏、安装前技能扫描、接入面白名单与鉴权——四层收口，一套体系。"
+        "title": "安全机制",
+        "desc": "CoPaw 1.0 构建了工具守卫、文件防护与技能扫描器三层防御体系，覆盖运行时拦截、访问控制与安装审计，全方位守护智能体的操作安全边界。"
       },
       "control": {
         "title": "多智能体",
-        "desc": "一进程多工作区，配置与数据隔离，请求按 Agent 路由；支持分工扩展，Agent 之间可通信协作。"
+        "desc": " CoPaw 1.0 支持在同一实例内并发运行多个隔离的智能体工作区，各自独立配置与记忆，并可通过异步协作机制共同完成复杂的多角色任务。"
       },
       "apps": {
         "title": "CoPaw 定制模型",
-        "desc": "CoPaw 专门定制的本地小模型 CoPaw-Flash 已上线，围绕 CoPaw 核心场景优化，兼顾使用体验、推理成本与隐私安全。",
+        "desc": "CoPaw 1.0 推出专为本地场景定制的 CoPaw-Flash 系列小模型，支持一键部署、数据不出设备，针对文档处理、记忆更新、信息检索等高频任务进行了专项优化。",
         "learnMoreHref": "https://www.modelscope.cn/organization/AgentScope"
       },
       "memory": {
@@ -68,7 +77,7 @@
     }
   },
   "clientVoices": {
-    "title": "听听社区怎么说",
+    "title": "聆听来自我们社区的用户之声",
     "sub": "来自真实 CoPaw 用户的反馈",
     "items": {
       "t1": {
@@ -125,8 +134,8 @@
     "3": "想完全掌控的团队用着很顺手。"
   },
   "usecases": {
-    "title": "你可以用 CoPaw 做什么",
-    "sub": "记忆与个性化由你掌控。",
+    "title": "CoPaw可以为你做些什么",
+    "sub": "记忆配置与个性化设置，由你掌控。",
     "categories": {
       "social": {
         "title": "社交媒体",
@@ -134,7 +143,7 @@
       },
       "creative": {
         "title": "创意与构建",
-        "description": "CoPaw 可以整夜运行，从创意到草稿，支持内容创作的完整流程。"
+        "description": "CoPaw 可以全天候在您的设备上运行，帮助您实现想法，并支持从创意构思到实现的整个内容创作过程。"
       },
       "productivity": {
         "title": "生产力",
@@ -142,7 +151,7 @@
       },
       "research": {
         "title": "研究与学习",
-        "description": "CoPaw 追踪重要的公司动态，构建个人知识库，便于检索与复用。"
+        "description": "CoPaw 帮助您追踪重要的企业动态，并支持建立您的个人通用知识库，以便日常轻松检索和重复使用。"
       }
     }
   },

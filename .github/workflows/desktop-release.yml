@@ -7,6 +7,12 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      upload_to_oss:
+        description: 'Upload to OSS'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -151,6 +157,8 @@ jobs:
 
   upload-oss:
     needs: [build-windows, build-macos]
+    # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (for scripts)

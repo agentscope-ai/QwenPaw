@@ -1,20 +1,72 @@
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
-const CHANNEL_ICON_BASE = "/channelsIcon";
-
 const TOP_CHANNELS = [
-  { iconSrc: `${CHANNEL_ICON_BASE}/WeChar.png`, name: "WeChat" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/Xiaoyi.png`, name: "Xiaoyi" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/Wattermost.png`, name: "Mattermost" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/Discord.png`, name: "Discord" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/Feishu.png`, name: "Feishu" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/QQ.png`, name: "QQ" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/WeCom.png`, name: "WeCom" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/DingTalk.png`, name: "DingTalk" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/Matrix.png`, name: "Matrix" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/Telegram.png`, name: "Telegram" },
-  { iconSrc: `${CHANNEL_ICON_BASE}/iMessage.png`, name: "iMessage" },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01ikAjLG1jhh721iEUc_!!6000000004580-2-tps-48-48.png",
+    name: "WeChat",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN01o4Bmgr1OsabSKSh4X_!!6000000001761-2-tps-58-60.png",
+    name: "Xiaoyi",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01qu8Gf51LvqZZqjmU5_!!6000000001362-2-tps-48-48.png",
+    name: "Mattermost",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01OsQiMO1ZYrJXp3TmX_!!6000000003207-2-tps-42-48.png",
+    name: "Discord",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN01wCpTM41LOPeyP7wKc_!!6000000001289-2-tps-48-48.png",
+    name: "Feishu",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i3/O1CN01ApVkC91JeKBkQfgj9_!!6000000001053-2-tps-41-48.png",
+    name: "QQ",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01oWpOyx1TPnmnrzxlq_!!6000000002375-2-tps-48-48.png",
+    name: "WeCom",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i1/O1CN01w5mzV01tFtE37wkJI_!!6000000005873-2-tps-48-48.png",
+    name: "DingTalk",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i3/O1CN01YfEzZu1DWdqgAdqtu_!!6000000000224-2-tps-48-48.png",
+    name: "Matrix",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN013VVoKf1jsgcNn40KA_!!6000000004604-2-tps-48-48.png",
+    name: "Telegram",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN01QtLiI31uAgL02USNH_!!6000000005997-2-tps-48-48.png",
+    name: "iMessage",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i4/O1CN014ALZcD1iBnv2GeYdE_!!6000000004375-2-tps-64-64.png",
+    name: "MQTT",
+  },
+  {
+    iconSrc:
+      "https://img.alicdn.com/imgextra/i2/O1CN01nwY8ZK1eY0etBKDWb_!!6000000003882-2-tps-48-48.png",
+    name: "Twilio",
+  },
 ];
 
 const sectionVariants = {
@@ -59,7 +111,8 @@ function ChannelPill({ iconSrc, name }: { iconSrc: string; name: string }) {
 }
 
 export function CopawChannels() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const isZh = i18n.resolvedLanguage === "zh";
 
   return (
     <motion.section
@@ -80,14 +133,26 @@ export function CopawChannels() {
           <span className="inline-flex items-center whitespace-nowrap">
             <span className="mr-2">{t("channels.titleWe")}</span>
             <img
-              src="/copaw-logo3.svg"
+              src={
+                isZh
+                  ? "https://img.alicdn.com/imgextra/i1/O1CN0187d8Zq1U51Qw6WTtl_!!6000000002465-2-tps-4167-981.png"
+                  : "https://img.alicdn.com/imgextra/i1/O1CN01achIdX1jY4nMdPgQN_!!6000000004559-55-tps-41-26.svg"
+              }
               alt=""
-              className="mb-1.5 block h-5 w-auto shrink-0 pr-0 sm:mb-2 sm:h-6 sm:pr-0.5 md:mb-3 md:h-7 md:translate-y-[1px]"
+              className={`inline-block h-6 w-auto shrink-0 pr-0 sm:h-6 sm:pr-0.5 md:h-7 ${
+                isZh
+                  ? "mb-0 sm:mb-0 md:mb-0 md:translate-y-0"
+                  : "mb-1.5 sm:mb-2 md:mb-3 md:translate-y-[1px]"
+              }`}
               aria-hidden
             />
             <span>{t("channels.titleOperateWith")}</span>
           </span>
-          <em className="mt-1 block font-normal italic text-[#301601] md:mt-0 md:ml-1 md:inline">
+          <em
+            className={`mt-1 block italic text-[#301601] md:mt-0 md:ml-1 md:inline ${
+              isZh ? "font-semibold" : "font-normal"
+            }`}
+          >
             {t("channels.titleEverything")}
           </em>
         </motion.h2>
@@ -101,10 +166,22 @@ export function CopawChannels() {
 
       <motion.div className="relative mt-12 w-full" variants={itemVariants}>
         <div className="group/row-top overflow-hidden">
-          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-1 will-change-transform animate-[copaw-channels-marquee-right_62s_linear_infinite] group-hover/row-top:[animation-play-state:paused]">
+          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-1 will-change-transform animate-[copaw-channels-marquee-right_72s_linear_infinite] group-hover/row-top:[animation-play-state:paused]">
             {[...TOP_CHANNELS, ...TOP_CHANNELS].map((item, idx) => (
               <ChannelPill
                 key={`${item.name}-${idx}`}
+                iconSrc={item.iconSrc}
+                name={item.name}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="group/row-bottom mt-3 overflow-hidden">
+          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-2 will-change-transform animate-[copaw-channels-marquee-left_72s_linear_infinite] group-hover/row-bottom:[animation-play-state:paused]">
+            {[...TOP_CHANNELS, ...TOP_CHANNELS].map((item, idx) => (
+              <ChannelPill
+                key={`${item.name}-bottom-${idx}`}
                 iconSrc={item.iconSrc}
                 name={item.name}
               />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
@@ -31,6 +31,8 @@ export function CopawWhy() {
   const { t } = useTranslation();
   const [progress, setProgress] = useState(0);
   const [animationsStarted, setAnimationsStarted] = useState(false);
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const [isInView, setIsInView] = useState(false);
 
   const heroLine = t("whyCopaw.heroLine");
   const secondPrefix = t("whyCopaw.secondPrefix");
@@ -45,11 +47,39 @@ export function CopawWhy() {
     setAnimationsStarted(true);
   };
 
+  const prefersReducedMotion = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  }, []);
+
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setIsInView(true);
+      return;
+    }
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setIsInView(Boolean(entry?.isIntersecting));
+      },
+      { threshold: 0.15 },
+    );
+
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!animationsStarted) return;
+    if (!isInView) return;
+    if (prefersReducedMotion) return;
     let rafId = 0;
     const durationMs = PAW_ANIMATION_DURATION * 1000;
-    const start = performance.now();
+    // Preserve phase when leaving/entering viewport.
+    const start = performance.now() - progress * durationMs;
 
     const tick = (now: number) => {
       const nextProgress = ((now - start) % durationMs) / durationMs;
@@ -59,7 +89,7 @@ export function CopawWhy() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [animationsStarted]);
+  }, [animationsStarted, isInView, prefersReducedMotion, progress]);
 
   const isTopPhase = progress < 0.5;
   const topPhaseProgress = Math.min(1, progress / 0.5);
@@ -118,7 +148,8 @@ export function CopawWhy() {
 
   return (
     <motion.section
-      className="relative h-[260px] overflow-y-auto overflow-x-hidden bg-[#E77C29] px-4 py-4 text-[#ffe8d7] sm:h-[340px] md:h-[350px] md:py-0"
+      ref={sectionRef}
+      className="relative min-h-114 overflow-hidden bg-[#E77C29] px-4 py-4 text-[#ffe8d7] sm:h-[680px] md:h-[700px] md:py-0"
       variants={container}
       initial="hidden"
       whileInView="show"
@@ -132,17 +163,17 @@ export function CopawWhy() {
     >
       <div className="mx-auto flex h-full max-w-7xl flex-col items-center justify-start md:items-stretch md:justify-center">
         <motion.div
-          className="flex w-full flex-col items-center gap-2 border-b border-[rgba(255,235,220,0.35)] pb-2.5 md:pb-3 md:flex-row md:items-center md:justify-between"
+          className="flex w-full flex-col items-center gap-4 border-b border-[rgba(255,235,220,0.35)] pb-5 md:pb-6 mt-2 md:mt-0 md:flex-row md:items-center md:justify-between"
           variants={item}
         >
-          <div className="relative pt-3.5 md:pt-5">
+          <div className="relative pt-7 md:pt-10">
             <img
-              src="/leopard.png"
+              src="https://img.alicdn.com/imgextra/i1/O1CN01g2HNmz1NwshO2uhvo_!!6000000001635-2-tps-222-222.png"
               alt=""
               aria-hidden
-              className="pointer-events-none absolute -top-1 left-0 z-20 h-[22px] w-[22px] object-contain md:-top-3 md:h-10 md:w-10"
+              className="pointer-events-none absolute -top-2 left-0 z-20 h-11 w-11 object-contain md:-top-6 md:h-20 md:w-20"
             />
-            <h2 className="font-newsreader font-semibold relative z-10 text-[19px] leading-[0.98] text-[#ffffff] sm:text-[21px] md:text-[26px]">
+            <h2 className="font-newsreader font-semibold relative z-10 text-3xl leading-[0.98] text-[#ffffff] sm:text-[42px] md:text-[52px]">
               <span>{t("whyCopaw.headingPrefix")} </span>
               <span className="inline-block italic whitespace-nowrap">
                 {t("whyCopaw.headingEmphasis")}
@@ -159,7 +190,7 @@ export function CopawWhy() {
                   ry="50"
                   fill="none"
                   stroke="rgba(255, 241, 230, 0.95)"
-                  strokeWidth="1.2"
+                  strokeWidth="2.4"
                   strokeDasharray="1070"
                   initial={{ strokeDashoffset: 1070 }}
                   animate={{ strokeDashoffset: animationsStarted ? 0 : 1070 }}
@@ -168,7 +199,7 @@ export function CopawWhy() {
               </svg>
             </h2>
           </div>
-          <p className="font-inter text-center text-[14px] leading-5 text-[rgba(255,255,255,0.7)] sm:text-sm sm:leading-6 md:text-right md:text-base md:leading-6 md:pt-4">
+          <p className="font-inter text-center text-[13px] leading-5 text-[rgba(255,255,255,0.7)] sm:text-sm sm:leading-6 md:text-right md:text-base md:pt-8">
             {t("whyCopaw.sub")
               .split("\n")
               .map((line, idx) => (
@@ -181,7 +212,7 @@ export function CopawWhy() {
         </motion.div>
 
         <motion.div
-          className="font-newsreader mt-3 max-w-4xl text-center text-[10px] leading-[1.38] tracking-[-0.01em] text-[#ffffff] sm:mt-3.5 sm:text-[12px] md:mt-5 md:text-left md:text-[18px]"
+          className="font-newsreader mt-6 max-w-4xl text-center text-[20px] leading-[1.38] tracking-[-0.01em] text-[#ffffff] sm:mt-7 sm:text-[24px] md:mt-10 md:text-left md:text-4xl"
           variants={item}
         >
           <p
@@ -196,7 +227,7 @@ export function CopawWhy() {
                   alt=""
                   aria-hidden
                   className="h-full w-full object-contain"
-                  animate={{ y: [0, -0.9, 0] }}
+                  animate={{ y: [0, -1.8, 0] }}
                   transition={{
                     duration: 0.9,
                     ease: "easeInOut",
@@ -208,7 +239,7 @@ export function CopawWhy() {
             <span className="text-[rgba(255,255,255,0.45)]">{rightText}</span>
           </p>
           <p
-            className="mt-2 whitespace-pre-line text-[rgba(220,210,201,0.9)] sm:mt-2.5 md:mt-4"
+            className="mt-4 whitespace-pre-line text-[rgba(220,210,201,0.9)] sm:mt-5 md:mt-8"
             style={{ lineHeight: "1.6em" }}
           >
             {renderSecondText(0, secondSplit, true)}

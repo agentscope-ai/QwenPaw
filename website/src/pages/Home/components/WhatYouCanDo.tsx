@@ -13,7 +13,7 @@ const CATEGORY_CONFIG: Array<{
   {
     key: "social",
     background:
-      "https://img.alicdn.com/imgextra/i3/O1CN01LXpygR1HHlRkroefl_!!6000000000733-2-tps-1708-954.png",
+      "https://img.alicdn.com/imgextra/i4/O1CN01tdSfuK1X2DrN462ga_!!6000000002865-2-tps-1578-946.png",
     preview:
       "https://img.alicdn.com/imgextra/i2/O1CN01EfhcLH1zgoCNkLp8g_!!6000000006744-2-tps-1362-894.png",
   },
@@ -72,8 +72,11 @@ export function CopawWhatYouCanDo() {
       CATEGORY_CONFIG.find((cat) => cat.key === key) ?? CATEGORY_CONFIG[0];
     return (
       <motion.div
-        className="relative flex flex-col overflow-hidden"
-        variants={item}
+        key={`preview-${key}`}
+        className="relative flex flex-col overflow-hidden h-[200px] sm:h-[380px]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
       >
         <motion.img
           key={`${active.key}-bg`}
@@ -110,7 +113,7 @@ export function CopawWhatYouCanDo() {
             src={active.preview}
             alt=""
             aria-hidden
-            className="block w-full object-cover object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)]"
+            className="block w-full object-cover object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)] rounded-[8px]"
             loading="lazy"
             initial={{ opacity: 0, y: 32 }}
             animate={{ opacity: 1, y: 0 }}
@@ -175,7 +178,7 @@ export function CopawWhatYouCanDo() {
                         {active && (
                           <motion.img
                             layoutId="copaw-usecase-active-logo"
-                            src="/copaw-logo.svg"
+                            src="https://img.alicdn.com/imgextra/i4/O1CN01vcAthP1tSFv3dB8Bd_!!6000000005900-55-tps-29-29.svg"
                             alt=""
                             aria-hidden
                             className="h-6 w-6 object-contain md:h-7 md:w-7"
@@ -235,7 +238,9 @@ export function CopawWhatYouCanDo() {
 
                   {/* Mobile: show active preview under item */}
                   {active ? (
-                    <div className="mt-3 md:hidden">{renderPreview(key)}</div>
+                    <div key={key} className="mt-3 md:hidden">
+                      {renderPreview(key)}
+                    </div>
                   ) : null}
                 </div>
               );

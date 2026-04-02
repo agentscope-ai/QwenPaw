@@ -7,7 +7,6 @@ import type { FormInstance } from "antd";
 import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { api } from "../../../../api";
-import { getSkillSyncStatusLabel } from "./skillMetadata";
 
 /**
  * Parse frontmatter from content string.
@@ -58,7 +57,6 @@ export interface SkillDrawerFormValues {
   enabled?: boolean;
   channels?: string[];
   source?: string;
-  syncStatus?: string;
   config?: Record<string, unknown>;
 }
 
@@ -126,10 +124,6 @@ export function SkillDrawer({
         content: editingSkill.content,
         channels,
         source: editingSkill.source,
-        syncStatus: getSkillSyncStatusLabel(
-          editingSkill.sync_to_pool?.status,
-          t,
-        ),
       });
       setConfigError("");
       let active = true;
@@ -346,10 +340,6 @@ export function SkillDrawer({
         {editingSkill && (
           <>
             <Form.Item name="source" label={t("skills.type")}>
-              <Input disabled />
-            </Form.Item>
-
-            <Form.Item name="syncStatus" label={t("skills.poolSync")}>
               <Input disabled />
             </Form.Item>
           </>
