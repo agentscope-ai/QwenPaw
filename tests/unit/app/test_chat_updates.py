@@ -3,12 +3,14 @@
 """Regression tests for chat update semantics."""
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from copaw.app.runner import manager as chat_manager_module
 from copaw.app.runner.api import get_chat_manager, router
 from copaw.app.runner.manager import ChatManager
 from copaw.app.runner.models import ChatSpec
@@ -76,6 +78,7 @@ async def test_put_chat_accepts_partial_rename_payload(
 
 async def test_touch_chat_updates_timestamp_without_overwriting_name(
     chat_manager: ChatManager,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Touching a chat for activity bookkeeping should preserve title."""
     chat = await _seed_chat(chat_manager)
@@ -88,6 +91,16 @@ async def test_touch_chat_updates_timestamp_without_overwriting_name(
     renamed_after_update = await chat_manager.get_chat(chat.id)
     assert renamed_after_update is not None
     previous_updated_at = renamed_after_update.updated_at
+
+    class FixedDateTime:
+        """Deterministic clock for timestamp-sensitive assertions."""
+
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == previous_updated_at.tzinfo
+            return previous_updated_at + timedelta(seconds=1)
+
+    monkeypatch.setattr(chat_manager_module, "datetime", FixedDateTime)
 
     touch_chat = getattr(chat_manager, "touch_chat", None)
     assert callable(touch_chat)

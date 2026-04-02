@@ -200,14 +200,6 @@ async def update_chat(
             detail="chat_id mismatch",
         )
 
-    # Check if exists
-    existing = await mgr.get_chat(chat_id)
-    if not existing:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Chat not found: {chat_id}",
-        )
-
     updated = await mgr.patch_chat(chat_id, spec)
     if updated is None:
         raise HTTPException(
