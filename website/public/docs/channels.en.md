@@ -554,7 +554,8 @@ The WeChat iLink Bot channel lets you run an AI bot via a **personal WeChat acco
 
 - **Authentication**: On first use, scan a QR code to authorize. The token is automatically persisted to a local file (default `~/.copaw/weixin_bot_token`), so you won't need to scan again on subsequent starts.
 - **Receiving messages**: Uses HTTP long-polling (`getupdates`) to continuously fetch new messages. Supports text, images, voice (ASR transcription), files, and videos.
-- **Sending messages**: Replies via `sendmessage`. Currently only text is supported (iLink API limitation).
+- **Sending messages**: Replies via `sendmessage`. Supports text, image, video, and file sending (uploaded via CDN with AES encryption).
+- **Typing indicator**: Automatically shows "typing..." status before replying to improve user experience.
 
 ### QR code login (recommended via Console)
 
@@ -1029,7 +1030,7 @@ done). **✗** = not supported (not possible on this channel).
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | WeCom      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| WeChat     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| WeChat     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | 🚧         | ✓         |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
 | Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
@@ -1051,7 +1052,7 @@ Notes:
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports receiving and sending text, image, voice, video, and file.
-- **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending currently supports text only (iLink API limitation).
+- **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending supports text, images, videos, and files (uploaded via CDN with AES encryption); audio sending is not yet supported. Automatically shows "typing..." indicator before replying.
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
 - **Voice**: Phone call interaction via Twilio ConversationRelay. Receives audio (speech) and sends audio (TTS). All communication is voice-based; text/image/video/file are not supported over phone calls.
