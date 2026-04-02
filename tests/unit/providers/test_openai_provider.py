@@ -4,7 +4,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import copaw.providers.openai_provider as openai_provider_module
-from copaw.providers.openai_provider import OpenAIProvider
+from copaw.providers.openai_provider import OpenAIProvider, _max_tokens_param
 
 
 def _make_provider(is_custom: bool = False) -> OpenAIProvider:
@@ -16,6 +16,24 @@ def _make_provider(is_custom: bool = False) -> OpenAIProvider:
         is_custom=is_custom,
         chat_model="OpenAIChatModel",
     )
+
+
+def test_max_tokens_param_legacy_models():
+    assert _max_tokens_param("gpt-4o", 10) == {"max_tokens": 10}
+    assert _max_tokens_param("gpt-4o-mini", 1) == {"max_tokens": 1}
+    assert _max_tokens_param("gpt-4-turbo", 200) == {"max_tokens": 200}
+
+
+def test_max_tokens_param_new_style_models():
+    assert _max_tokens_param("gpt-5", 1) == {"max_completion_tokens": 1}
+    assert _max_tokens_param("gpt-5.2", 200) == {"max_completion_tokens": 200}
+    assert _max_tokens_param("gpt-5-mini", 1) == {"max_completion_tokens": 1}
+    assert _max_tokens_param("o1", 1) == {"max_completion_tokens": 1}
+    assert _max_tokens_param("o1-mini", 1) == {"max_completion_tokens": 1}
+    assert _max_tokens_param("o3", 1) == {"max_completion_tokens": 1}
+    assert _max_tokens_param("o4-mini", 1) == {"max_completion_tokens": 1}
+    # Namespaced model IDs (e.g. "openai/gpt-5")
+    assert _max_tokens_param("openai/gpt-5", 1) == {"max_completion_tokens": 1}
 
 
 async def test_check_connection_success(monkeypatch) -> None:
@@ -124,6 +142,38 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     assert captured[0]["timeout"] == 4
     assert captured[0]["max_tokens"] == 1
     assert captured[0]["stream"] is True
+
+
+async def test_check_model_connection_gpt5_uses_max_completion_tokens(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    captured: list[dict] = []
+
+    class FakeStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured.append(kwargs)
+            return FakeStream()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    ok, msg = await provider.check_model_connection("gpt-5.2", timeout=4)
+
+    assert ok is True
+    assert msg == ""
+    assert "max_completion_tokens" in captured[0]
+    assert "max_tokens" not in captured[0]
+    assert captured[0]["max_completion_tokens"] == 1
 
 
 async def test_check_model_connection_api_error_returns_false(

@@ -21,6 +21,25 @@ logger = logging.getLogger(__name__)
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 
+# Models in the o1/o3/o4 and GPT-5 families reject the legacy ``max_tokens``
+# parameter and require ``max_completion_tokens`` instead.
+_MAX_COMPLETION_TOKENS_PREFIXES = ("o1", "o3", "o4", "gpt-5")
+
+
+def _max_tokens_param(model_id: str, n: int) -> dict:
+    """Return the correct max-tokens keyword argument for the given model.
+
+    Newer OpenAI reasoning and GPT-5 family models do not accept the legacy
+    ``max_tokens`` parameter and raise a 400 error if it is passed.  Use
+    ``max_completion_tokens`` for those models and ``max_tokens`` for all
+    others.
+    """
+    # Strip an optional org/namespace prefix (e.g. "openai/gpt-5" → "gpt-5")
+    name = model_id.lower().split("/")[-1]
+    if name.startswith(_MAX_COMPLETION_TOKENS_PREFIXES):
+        return {"max_completion_tokens": n}
+    return {"max_tokens": n}
+
 
 class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
@@ -108,7 +127,7 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=timeout,
-                max_tokens=1,
+                **_max_tokens_param(model_id, 1),
                 stream=True,
             )
             # consume the stream to ensure the model is actually responsive
@@ -258,7 +277,7 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
+                **_max_tokens_param(model_id, 200),
                 timeout=timeout,
             )
             return self._evaluate_image_response(
@@ -429,7 +448,7 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
+                **_max_tokens_param(model_id, 200),
                 timeout=req_timeout,
             )
             return self._evaluate_video_response(
