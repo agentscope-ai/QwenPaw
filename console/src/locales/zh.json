@@ -1052,6 +1052,7 @@
   "chat": {
     "modelSelectTooltip": "模型选择",
     "newChatTooltip": "新建聊天",
+    "searchTooltip": "搜索当前聊天",
     "chatHistoryTooltip": "聊天历史",
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",
@@ -1086,6 +1087,15 @@
       "multimodalWarning": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理",
       "imageOnlyAccept": "当前模型仅支持图片文件",
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
+    },
+    "search": {
+      "title": "搜索聊天",
+      "tooltip": "搜索当前聊天",
+      "placeholder": "搜索消息...",
+      "noResults": "未找到结果",
+      "resultsCount": "找到 {{count}} 个结果",
+      "userMessage": "用户",
+      "assistantMessage": "助手"
     }
   },
   "security": {
