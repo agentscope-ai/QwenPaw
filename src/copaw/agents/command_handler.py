@@ -115,10 +115,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
     async def _process_compact(
         self,
         messages: list[Msg],
-        _args: str = "",
+        args: str = "",
     ) -> Msg:
         """Process /compact command."""
-        extra_instruction = _args.strip()
+        extra_instruction = args.strip()
         if not messages:
             return await self._make_system_msg(
                 "**No messages to compact.**\n\n"
@@ -133,11 +133,17 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         self.memory_manager.add_async_summary_task(messages=messages)
-        compact_content = await self.memory_manager.compact_memory(
-            messages=messages,
-            previous_summary=self.memory.get_compressed_summary(),
-            extra_instruction=extra_instruction,
-        )
+        if extra_instruction:
+            compact_content = await self.memory_manager.compact_memory(
+                messages=messages,
+                previous_summary=self.memory.get_compressed_summary(),
+                extra_instruction=extra_instruction,
+            )
+        else:
+            compact_content = await self.memory_manager.compact_memory(
+                messages=messages,
+                previous_summary=self.memory.get_compressed_summary(),
+            )
 
         if not compact_content:
             return await self._make_system_msg(
