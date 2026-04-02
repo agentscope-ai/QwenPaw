@@ -474,6 +474,73 @@ You can also fill them in the Console UI.
 
 ---
 
+## OneBot v11 (NapCat / QQ full protocol)
+
+The **OneBot** channel connects CoPaw to [NapCat](https://github.com/NapNeko/NapCatQQ), [go-cqhttp](https://github.com/Mrs4s/go-cqhttp), [Lagrange](https://github.com/LagrangeDev/Lagrange.Core), or any other [OneBot v11](https://github.com/botuniverse/onebot-11) compatible implementation via **reverse WebSocket**.
+
+Unlike the built-in QQ channel (which uses the official QQ Bot API with limited features), OneBot v11 provides **full QQ protocol** support: personal accounts, group messages without @mention, rich media, and more.
+
+### How it works
+
+CoPaw starts a WebSocket server; the OneBot implementation (e.g. NapCat) connects to it as a client:
+
+```
+NapCat  ──reverse WS──▶  CoPaw (:6199/ws)
+```
+
+### Setup NapCat
+
+1. Run NapCat via Docker:
+
+   ```bash
+   docker run -d \
+     --name napcat \
+     -e ACCOUNT=<your_qq_number> \
+     -p 6099:6099 \
+     mlikiowa/napcat-docker:latest
+   ```
+
+2. Open NapCat WebUI at `http://localhost:6099`, scan the QR code with QQ to log in.
+
+3. Go to **Network Config** → **New** → **WebSocket Client** (reverse WS):
+   - URL: `ws://<copaw_host>:6199/ws`
+   - Access Token: same as `access_token` in CoPaw config (optional)
+
+### Fill agent.json
+
+```json
+"onebot": {
+  "enabled": true,
+  "ws_host": "0.0.0.0",
+  "ws_port": 6199,
+  "access_token": "",
+  "share_session_in_group": false
+}
+```
+
+**OneBot-specific fields:**
+
+| Field                      | Type   | Default   | Description                                                                                              |
+| -------------------------- | ------ | --------- | -------------------------------------------------------------------------------------------------------- |
+| `ws_host`                  | string | `0.0.0.0` | WebSocket server listen address                                                                          |
+| `ws_port`                  | int    | `6199`    | WebSocket server listen port                                                                             |
+| `access_token`             | string | `""`      | Optional token for authentication (must match NapCat config)                                             |
+| `share_session_in_group`   | bool   | `false`   | If `true`, all members in a group share one session; if `false`, each member gets an independent session  |
+
+> **Docker Compose tip:** When running CoPaw and NapCat in Docker Compose, set the NapCat reverse WS URL to `ws://copaw:6199/ws` (using the service name).
+
+**Multimodal support:**
+
+| Type  | Receive | Send |
+| ----- | ------- | ---- |
+| Text  | ✓       | ✓    |
+| Image | ✓       | ✓    |
+| Audio | ✓       | ✓    |
+| Video | ✓       | ✓    |
+| File  | ✓       | ✗    |
+
+---
+
 ## WeCom (WeChat Work)
 
 ### Create a new enterprise

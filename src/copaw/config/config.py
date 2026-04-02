@@ -95,6 +95,15 @@ class QQConfig(BaseChannelConfig):
     max_reconnect_attempts: int = 100
 
 
+class OneBotConfig(BaseChannelConfig):
+    """OneBot v11 channel: reverse WebSocket for NapCat/go-cqhttp/Lagrange."""
+
+    ws_host: str = "0.0.0.0"
+    ws_port: int = 6199
+    access_token: str = ""
+    share_session_in_group: bool = False
+
+
 class TelegramConfig(BaseChannelConfig):
     bot_token: str = ""
     http_proxy: str = ""
@@ -212,6 +221,7 @@ class ChannelConfig(BaseModel):
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
     weixin: WeixinConfig = WeixinConfig()
+    onebot: OneBotConfig = OneBotConfig()
 
 
 class LastApiConfig(BaseModel):
