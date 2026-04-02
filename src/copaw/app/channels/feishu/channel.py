@@ -1905,27 +1905,8 @@ class FeishuChannel(BaseChannel):
 
     # ----- _stream_with_tracker override (CoPaw post-1.0 architecture)
 
-    def _extract_streaming_text(
-        self,
-        ev: Any,
-        is_streaming: bool = False,
-    ) -> Optional[str]:
-        """Extract text from a streaming event.
-
-        When is_streaming=False (message Completed), uses
-        _message_to_content_parts. When is_streaming=True (InProgress),
-        tries delta/content/text/content_part attributes.
-        """
-        if not is_streaming:
-            parts = self._message_to_content_parts(ev)
-            texts = [
-                getattr(p, "text", "")
-                for p in parts
-                if getattr(p, "type", None) in ("text", "markdown")
-            ]
-            joined = "".join(texts).strip()
-            return joined or None
-
+    def _extract_streaming_text(self, ev: Any) -> Optional[str]:
+        """Extract text from a streaming event (message InProgress)."""
         for attr in ("delta", "content", "text", "content_part"):
             val = getattr(ev, attr, None)
             if val and isinstance(val, str) and val.strip():
@@ -2004,6 +1985,7 @@ class FeishuChannel(BaseChannel):
                     else:
                         card_id = ""
                         return
+
         async def _stop_updater() -> None:
             nonlocal _updater_task
             if _updater_task and not _updater_task.done():
@@ -2137,10 +2119,7 @@ class FeishuChannel(BaseChannel):
 
                 # --- InProgress streaming deltas ---
                 if st == RunStatus.InProgress:
-                    text = self._extract_streaming_text(
-                        event,
-                        is_streaming=True,
-                    )
+                    text = self._extract_streaming_text(event)
                     if not text:
                         continue
                     text_acc = text
@@ -2151,14 +2130,19 @@ class FeishuChannel(BaseChannel):
         except asyncio.CancelledError:
             if process_iterator is not None:
                 await process_iterator.aclose()
-            if card_id and card_id != "":
-                await _close_card("")
+            if card_id:
+                await _close_card(text_acc)
             raise
 
         except Exception:
             logger.exception("streaming _stream_with_tracker error")
-            if card_id and card_id != "":
-                await _close_card("")
+            if process_iterator is not None:
+                try:
+                    await process_iterator.aclose()
+                except Exception:
+                    pass
+            if card_id:
+                await _close_card(text_acc)
             return
 
         # --- Post-processing ---
