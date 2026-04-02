@@ -1001,13 +1001,47 @@ html.dark-mode .copaw-btn-default {
 }
 
 /* Dark mode - text/icon buttons */
-html.dark-mode .ant-btn-text,
-html.dark-mode .copaw-btn-text,
-html.dark-mode .ant-btn-variant-text,
-html.dark-mode .copaw-btn-variant-text,
-html.dark-mode .ant-btn-color-default.ant-btn-variant-text,
-html.dark-mode .copaw-btn-color-default.copaw-btn-variant-text {
+html.dark-mode
+  .ant-btn-text:not(:disabled):not([disabled]):not(.ant-btn-disabled),
+html.dark-mode
+  .copaw-btn-text:not(:disabled):not([disabled]):not(.copaw-btn-disabled),
+html.dark-mode
+  .ant-btn-variant-text:not(:disabled):not([disabled]):not(.ant-btn-disabled),
+html.dark-mode
+  .copaw-btn-variant-text:not(:disabled):not([disabled]):not(
+    .copaw-btn-disabled
+  ),
+html.dark-mode
+  .ant-btn-color-default.ant-btn-variant-text:not(:disabled):not(
+    [disabled]
+  ):not(.ant-btn-disabled),
+html.dark-mode
+  .copaw-btn-color-default.copaw-btn-variant-text:not(:disabled):not(
+    [disabled]
+  ):not(.copaw-btn-disabled) {
   color: rgba(255, 255, 255, 0.72) !important;
+}
+
+html.dark-mode .ant-btn-text:disabled,
+html.dark-mode .ant-btn-text[disabled],
+html.dark-mode .ant-btn-text.ant-btn-disabled,
+html.dark-mode .copaw-btn-text:disabled,
+html.dark-mode .copaw-btn-text[disabled],
+html.dark-mode .copaw-btn-text.copaw-btn-disabled,
+html.dark-mode .ant-btn-variant-text:disabled,
+html.dark-mode .ant-btn-variant-text[disabled],
+html.dark-mode .ant-btn-variant-text.ant-btn-disabled,
+html.dark-mode .copaw-btn-variant-text:disabled,
+html.dark-mode .copaw-btn-variant-text[disabled],
+html.dark-mode .copaw-btn-variant-text.copaw-btn-disabled,
+html.dark-mode .ant-btn-color-default.ant-btn-variant-text:disabled,
+html.dark-mode .ant-btn-color-default.ant-btn-variant-text[disabled],
+html.dark-mode .ant-btn-color-default.ant-btn-variant-text.ant-btn-disabled,
+html.dark-mode .copaw-btn-color-default.copaw-btn-variant-text:disabled,
+html.dark-mode .copaw-btn-color-default.copaw-btn-variant-text[disabled],
+html.dark-mode
+  .copaw-btn-color-default.copaw-btn-variant-text.copaw-btn-disabled {
+  color: rgba(255, 255, 255, 0.3) !important;
 }
 
 html.dark-mode .ant-btn-text .anticon,
@@ -1022,14 +1056,32 @@ html.dark-mode .copaw-btn-variant-text svg {
   fill: currentColor !important;
 }
 
-html.dark-mode .ant-table .ant-btn-text:hover,
-html.dark-mode .ant-table .ant-btn-variant-text:hover,
-html.dark-mode .ant-table .ant-btn-color-default.ant-btn-variant-text:hover,
-html.dark-mode .copaw-table .copaw-btn-text:hover,
-html.dark-mode .copaw-table .copaw-btn-variant-text:hover,
+html.dark-mode
+  .ant-table
+  .ant-btn-text:not(:disabled):not([disabled]):not(.ant-btn-disabled):hover,
+html.dark-mode
+  .ant-table
+  .ant-btn-variant-text:not(:disabled):not([disabled]):not(
+    .ant-btn-disabled
+  ):hover,
+html.dark-mode
+  .ant-table
+  .ant-btn-color-default.ant-btn-variant-text:not(:disabled):not(
+    [disabled]
+  ):not(.ant-btn-disabled):hover,
 html.dark-mode
   .copaw-table
-  .copaw-btn-color-default.copaw-btn-variant-text:hover {
+  .copaw-btn-text:not(:disabled):not([disabled]):not(.copaw-btn-disabled):hover,
+html.dark-mode
+  .copaw-table
+  .copaw-btn-variant-text:not(:disabled):not([disabled]):not(
+    .copaw-btn-disabled
+  ):hover,
+html.dark-mode
+  .copaw-table
+  .copaw-btn-color-default.copaw-btn-variant-text:not(:disabled):not(
+    [disabled]
+  ):not(.copaw-btn-disabled):hover {
   color: rgba(255, 255, 255, 0.9) !important;
   background: rgba(255, 255, 255, 0.08) !important;
 }
