@@ -135,7 +135,19 @@
 .resultHeader {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 6px;
+  gap: 8px;
+}
+
+.resultChatName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
 }
 
 .resultRole {
@@ -145,12 +157,19 @@
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--colorBgContainer, rgba(0, 0, 0, 0.02));
+  flex-shrink: 0;
 }
 
 .resultContent {
   font-size: 13px;
   color: var(--colorText, rgba(0, 0, 0, 0.88));
   line-height: 1.5;
+}
+
+.resultTime {
+  font-size: 12px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  margin-top: 6px;
 }
 
 /* Dark mode */
@@ -207,7 +226,15 @@
     background: rgba(255, 255, 255, 0.06);
   }
 
+  .resultChatName {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
   .resultContent {
     color: rgba(255, 255, 255, 0.85);
+  }
+
+  .resultTime {
+    color: rgba(255, 255, 255, 0.45);
   }
 }

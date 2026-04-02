@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { Drawer, Input, List, Typography, Empty, Spin } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine, SparkSearchLine } from "@agentscope-ai/icons";
@@ -6,8 +6,8 @@ import {
   useChatAnywhereSessionsState,
 } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { chatApi } from "../../../../api/modules/chat";
-import type { Message } from "../../../../api/types";
 import sessionApi from "../../sessionApi";
 import styles from "./index.module.less";
 
@@ -35,85 +35,34 @@ const getRoleLabel = (role: string, t: (key: string) => string): string => {
 };
 
 interface SearchResult {
+  chatId: string;
+  chatName: string;
   messageId: string;
   role: string;
   roleLabel: string;
   text: string;
   matchedText: string;
+  timestamp?: string | null;
 }
+
+/** Format timestamp for display */
+const formatTimestamp = (raw: string | null | undefined): string => {
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
 
 const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   const { t } = useTranslation();
-  const { sessions, currentSessionId } = useChatAnywhereSessionsState();
+  const navigate = useNavigate();
+  const { sessions, setCurrentSessionId } = useChatAnywhereSessionsState();
   const [searchQuery, setSearchQuery] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Get current session and its real ID
-  const currentSession = useMemo(() => {
-    return sessions.find((s) => s.id === currentSessionId);
-  }, [sessions, currentSessionId]);
-
-  // Fetch messages when session changes
-  useEffect(() => {
-    if (!currentSession || !open) {
-      setMessages([]);
-      return;
-    }
-
-    const realId = sessionApi.getRealIdForSession(currentSessionId || "");
-    const chatId = realId || (currentSessionId && !/^\d+$/.test(currentSessionId) ? currentSessionId : null);
-
-    if (!chatId) {
-      setMessages([]);
-      return;
-    }
-
-    setLoading(true);
-    chatApi.getChat(chatId)
-      .then((history) => {
-        setMessages(history.messages || []);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch chat history:", err);
-        setMessages([]);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [currentSession, currentSessionId, open]);
-
-  // Search results
-  const searchResults = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-
-    const query = searchQuery.toLowerCase();
-    const results: SearchResult[] = [];
-
-    for (const msg of messages) {
-      const text = extractTextFromContent(msg.content);
-      if (text.toLowerCase().includes(query)) {
-        // Find the matching portion
-        const lowerText = text.toLowerCase();
-        const matchIndex = lowerText.indexOf(query);
-        const contextLength = 100;
-        const start = Math.max(0, matchIndex - contextLength);
-        const end = Math.min(text.length, matchIndex + searchQuery.length + contextLength);
-        const matchedText = text.slice(start, end);
-
-        results.push({
-          messageId: String(msg.id || ""),
-          role: msg.role || "",
-          roleLabel: getRoleLabel(msg.role || "", t),
-          text,
-          matchedText: start > 0 ? `...${matchedText}` : matchedText,
-        });
-      }
-    }
-
-    return results;
-  }, [messages, searchQuery, t]);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Focus input when drawer opens
   useEffect(() => {
@@ -123,14 +72,113 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
       }, 100);
     } else {
       setSearchQuery("");
+      setSearchResults([]);
     }
   }, [open]);
 
-  // Scroll to message (placeholder - would need integration with chat UI library)
+  // Search across all sessions
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    // Debounce search
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const query = searchQuery.toLowerCase();
+        const results: SearchResult[] = [];
+
+        // Get all chats from backend
+        const chats = await chatApi.listChats();
+
+        // Search in each chat
+        for (const chat of chats) {
+          if (!chat.id) continue;
+
+          try {
+            const history = await chatApi.getChat(chat.id);
+            const messages = history.messages || [];
+            const chatName = chat.name || "New Chat";
+            const chatTimestamp = chat.created_at;
+
+            for (const msg of messages) {
+              const text = extractTextFromContent(msg.content);
+              if (text.toLowerCase().includes(query)) {
+                const lowerText = text.toLowerCase();
+                const matchIndex = lowerText.indexOf(query);
+                const contextLength = 80;
+                const start = Math.max(0, matchIndex - contextLength);
+                const end = Math.min(text.length, matchIndex + searchQuery.length + contextLength);
+                const matchedText = text.slice(start, end);
+
+                results.push({
+                  chatId: chat.id,
+                  chatName,
+                  messageId: String(msg.id || ""),
+                  role: msg.role || "",
+                  roleLabel: getRoleLabel(msg.role || "", t),
+                  text,
+                  matchedText: start > 0 ? `...${matchedText}` : matchedText,
+                  timestamp: chatTimestamp,
+                });
+              }
+            }
+          } catch (err) {
+            // Skip chats that fail to load
+            console.warn(`Failed to load chat ${chat.id}:`, err);
+          }
+        }
+
+        // Sort by timestamp descending
+        results.sort((a, b) => {
+          if (!a.timestamp && !b.timestamp) return 0;
+          if (!a.timestamp) return 1;
+          if (!b.timestamp) return -1;
+          return new Date(b.timestamp!).getTime() - new Date(a.timestamp!).getTime();
+        });
+
+        setSearchResults(results);
+      } catch (err) {
+        console.error("Search failed:", err);
+        setSearchResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, t]);
+
+  // Navigate to chat when clicking result
   const handleResultClick = useCallback((result: SearchResult) => {
-    // TODO: Implement scroll to message in chat
-    console.log("Scroll to message:", result.messageId);
-  }, []);
+    // Find the session in the local list
+    const session = sessions.find((s) => {
+      const realId = sessionApi.getRealIdForSession(s.id || "");
+      return realId === result.chatId || s.id === result.chatId;
+    });
+
+    if (session?.id) {
+      // Switch to that session
+      setCurrentSessionId(session.id);
+      // Navigate to the chat URL
+      navigate(`/chat/${session.id}`);
+    } else {
+      // Session not in local list, navigate by chat ID directly
+      navigate(`/chat/${result.chatId}`);
+    }
+
+    onClose();
+  }, [sessions, setCurrentSessionId, navigate, onClose]);
 
   return (
     <Drawer
@@ -181,7 +229,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
       </div>
 
       {/* Results count */}
-      {searchQuery.trim() && (
+      {searchQuery.trim() && !loading && (
         <div className={styles.resultsCount}>
           <Typography.Text type="secondary">
             {t("chat.search.resultsCount", { count: searchResults.length })}
@@ -211,6 +259,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                   onClick={() => handleResultClick(item)}
                 >
                   <div className={styles.resultHeader}>
+                    <span className={styles.resultChatName}>{item.chatName}</span>
                     <span className={styles.resultRole}>{item.roleLabel}</span>
                   </div>
                   <div className={styles.resultContent}>
@@ -221,6 +270,11 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                       {item.matchedText}
                     </Typography.Text>
                   </div>
+                  {item.timestamp && (
+                    <div className={styles.resultTime}>
+                      {formatTimestamp(item.timestamp)}
+                    </div>
+                  )}
                 </div>
               )}
             />
