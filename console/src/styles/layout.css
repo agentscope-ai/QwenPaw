@@ -157,17 +157,13 @@ html.dark-mode
   background: rgba(97, 92, 237, 0.12) !important;
 }
 
-html.dark-mode .copaw-table-cell-fix-left-first::after,
-html.dark-mode .copaw-table-cell-fix-left-last::after,
-html.dark-mode .ant-table-cell-fix-left-first::after,
-html.dark-mode .ant-table-cell-fix-left-last::after {
+html.dark-mode .copaw-table-ping-left .copaw-table-cell-fix-left-last::after,
+html.dark-mode .ant-table-ping-left .ant-table-cell-fix-left-last::after {
   box-shadow: inset 10px 0 8px -8px rgba(0, 0, 0, 0.45) !important;
 }
 
-html.dark-mode .copaw-table-cell-fix-right-first::after,
-html.dark-mode .copaw-table-cell-fix-right-last::after,
-html.dark-mode .ant-table-cell-fix-right-first::after,
-html.dark-mode .ant-table-cell-fix-right-last::after {
+html.dark-mode .copaw-table-ping-right .copaw-table-cell-fix-right-first::after,
+html.dark-mode .ant-table-ping-right .ant-table-cell-fix-right-first::after {
   box-shadow: inset -10px 0 8px -8px rgba(0, 0, 0, 0.45) !important;
 }
 
