@@ -239,6 +239,18 @@ If your environment uses a SOCKS proxy, also install `python-socks` (for example
 > **Note:** You can also fill in **App ID** and **App Secret** in the Console UI, but you must restart the copaw service before continuing with the long-connection configuration.
 > ![console](https://img.alicdn.com/imgextra/i2/O1CN01ybSbN01luB8jyt9BD_!!6000000004878-2-tps-3822-2064.png)
 
+### Streaming Typewriter Effect (Optional)
+
+The Feishu channel supports a **streaming typewriter card** — AI replies are displayed character by character in real time, instead of being sent all at once after generation completes.
+
+**How to enable:** Set the environment variable `FEISHU_STREAMING_ENABLED=true` and restart CoPaw. When disabled, output automatically falls back to normal messages.
+
+**How it works:** Uses the Feishu Cardkit v1 Streaming Card API. On the first token, a streaming card is created and sent. A background task pushes accumulated text every 60ms; Feishu renders it character by character. When generation completes, streaming mode is closed and the card is finalized.
+
+**Additional permissions:** Add `im:card:write` and `im:card:read` to your app's permission JSON.
+
+**Fallback:** If any streaming API call fails, the channel automatically falls back to normal message output with no visible disruption. Lark (international version) is also supported — set `domain` to `"lark"`.
+
 ### Recommended bot permissions
 
 The JSON in step 6 grants the following permissions (app identity) for messaging and files:
