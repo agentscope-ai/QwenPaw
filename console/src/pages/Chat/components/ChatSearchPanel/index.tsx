@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import { Drawer, Input, List, Typography, Empty, Spin } from "antd";
+import type { InputRef } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine, SparkSearchLine } from "@agentscope-ai/icons";
 import {
@@ -61,7 +62,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<InputRef>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Focus input when drawer opens
@@ -97,41 +98,50 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         // Get all chats from backend
         const chats = await chatApi.listChats();
 
-        // Search in each chat
-        for (const chat of chats) {
-          if (!chat.id) continue;
-
-          try {
-            const history = await chatApi.getChat(chat.id);
-            const messages = history.messages || [];
-            const chatName = chat.name || "New Chat";
-            const chatTimestamp = chat.created_at;
-
-            for (const msg of messages) {
-              const text = extractTextFromContent(msg.content);
-              if (text.toLowerCase().includes(query)) {
-                const lowerText = text.toLowerCase();
-                const matchIndex = lowerText.indexOf(query);
-                const contextLength = 80;
-                const start = Math.max(0, matchIndex - contextLength);
-                const end = Math.min(text.length, matchIndex + searchQuery.length + contextLength);
-                const matchedText = text.slice(start, end);
-
-                results.push({
-                  chatId: chat.id,
-                  chatName,
-                  messageId: String(msg.id || ""),
-                  role: msg.role || "",
-                  roleLabel: getRoleLabel(msg.role || "", t),
-                  text,
-                  matchedText: start > 0 ? `...${matchedText}` : matchedText,
-                  timestamp: chatTimestamp,
-                });
+        // Fetch all chat histories in parallel using Promise.all
+        const chatHistories = await Promise.all(
+          chats
+            .filter((chat) => chat.id)
+            .map(async (chat) => {
+              try {
+                const history = await chatApi.getChat(chat.id!);
+                return { chat, history };
+              } catch (err) {
+                console.warn(`Failed to load chat ${chat.id}:`, err);
+                return null;
               }
+            })
+        );
+
+        // Search in each chat
+        for (const item of chatHistories) {
+          if (!item) continue;
+          const { chat, history } = item;
+          const messages = history.messages || [];
+          const chatName = chat.name || "New Chat";
+          const chatTimestamp = chat.created_at;
+
+          for (const msg of messages) {
+            const text = extractTextFromContent(msg.content);
+            if (text.toLowerCase().includes(query)) {
+              const lowerText = text.toLowerCase();
+              const matchIndex = lowerText.indexOf(query);
+              const contextLength = 80;
+              const start = Math.max(0, matchIndex - contextLength);
+              const end = Math.min(text.length, matchIndex + searchQuery.length + contextLength);
+              const matchedText = text.slice(start, end);
+
+              results.push({
+                chatId: chat.id!,
+                chatName,
+                messageId: String(msg.id || ""),
+                role: msg.role || "",
+                roleLabel: getRoleLabel(msg.role || "", t),
+                text,
+                matchedText: start > 0 ? `...${matchedText}` : matchedText,
+                timestamp: chatTimestamp,
+              });
             }
-          } catch (err) {
-            // Skip chats that fail to load
-            console.warn(`Failed to load chat ${chat.id}:`, err);
           }
         }
 
@@ -218,7 +228,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
       {/* Search input */}
       <div className={styles.searchSection}>
         <Input
-          ref={inputRef as any}
+          ref={inputRef}
           placeholder={t("chat.search.placeholder")}
           prefix={<SparkSearchLine style={{ color: "rgba(0,0,0,0.25)" }} />}
           value={searchQuery}

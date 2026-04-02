@@ -1080,7 +1080,7 @@
   "chat": {
     "modelSelectTooltip": "Select model",
     "newChatTooltip": "New chat",
-    "searchTooltip": "Search current chat",
+    "searchTooltip": "Search all chats",
     "chatHistoryTooltip": "Chat history",
     "allChats": "All Chats",
     "createNewChat": "Create New Chat",

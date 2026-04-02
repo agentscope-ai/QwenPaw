@@ -1020,7 +1020,7 @@
   "chat": {
     "modelSelectTooltip": "Выбор модели",
     "newChatTooltip": "Новый чат",
-    "searchTooltip": "Поиск в текущем чате",
+    "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
     "allChats": "Все чаты",
     "createNewChat": "Создать новый чат",

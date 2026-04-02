@@ -1052,7 +1052,7 @@
   "chat": {
     "modelSelectTooltip": "模型选择",
     "newChatTooltip": "新建聊天",
-    "searchTooltip": "搜索当前聊天",
+    "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",

@@ -1015,7 +1015,7 @@
   "chat": {
     "modelSelectTooltip": "モデルを選択",
     "newChatTooltip": "新しいチャット",
-    "searchTooltip": "現在のチャットを検索",
+    "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
