@@ -1,12 +1,14 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { Drawer, Input, List, Typography, Empty } from "antd";
+import { Drawer, Input, List, Typography, Empty, Spin } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine, SparkSearchLine } from "@agentscope-ai/icons";
 import {
   useChatAnywhereSessionsState,
-  type IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
+import { chatApi } from "../../../../api/modules/chat";
+import type { Message } from "../../../../api/types";
+import sessionApi from "../../sessionApi";
 import styles from "./index.module.less";
 
 interface ChatSearchPanelProps {
@@ -15,56 +17,18 @@ interface ChatSearchPanelProps {
 }
 
 /** Extract plain text from message content for search */
-const extractMessageText = (msg: IAgentScopeRuntimeWebUIMessage): string => {
-  const texts: string[] = [];
-
-  // Extract from cards
-  if (msg.cards) {
-    for (const card of msg.cards) {
-      if (card.code === "AgentScopeRuntimeRequestCard") {
-        // User message
-        const input = card.data?.input;
-        if (Array.isArray(input)) {
-          for (const item of input) {
-            const content = item?.content;
-            if (Array.isArray(content)) {
-              for (const c of content) {
-                if (c?.type === "text" && c?.text) {
-                  texts.push(c.text);
-                }
-              }
-            } else if (typeof content === "string") {
-              texts.push(content);
-            }
-          }
-        }
-      } else if (card.code === "AgentScopeRuntimeResponseCard") {
-        // Assistant response
-        const output = card.data?.output;
-        if (Array.isArray(output)) {
-          for (const item of output) {
-            const content = item?.content;
-            if (typeof content === "string") {
-              texts.push(content);
-            } else if (Array.isArray(content)) {
-              for (const c of content) {
-                if (c?.type === "text" && c?.text) {
-                  texts.push(c.text);
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  return texts.join("\n");
+const extractTextFromContent = (content: unknown): string => {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return (content as Array<{ type: string; text?: string }>)
+    .filter((c) => c.type === "text" && c.text)
+    .map((c) => c.text || "")
+    .join("\n");
 };
 
 /** Get role label for message */
-const getRoleLabel = (msg: IAgentScopeRuntimeWebUIMessage, t: (key: string) => string): string => {
-  if (msg.role === "user") {
+const getRoleLabel = (role: string, t: (key: string) => string): string => {
+  if (role === "user") {
     return t("chat.search.userMessage");
   }
   return t("chat.search.assistantMessage");
@@ -82,16 +46,43 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   const { t } = useTranslation();
   const { sessions, currentSessionId } = useChatAnywhereSessionsState();
   const [searchQuery, setSearchQuery] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Get current session messages
+  // Get current session and its real ID
   const currentSession = useMemo(() => {
     return sessions.find((s) => s.id === currentSessionId);
   }, [sessions, currentSessionId]);
 
-  const messages = useMemo(() => {
-    return currentSession?.messages || [];
-  }, [currentSession]);
+  // Fetch messages when session changes
+  useEffect(() => {
+    if (!currentSession || !open) {
+      setMessages([]);
+      return;
+    }
+
+    const realId = sessionApi.getRealIdForSession(currentSessionId || "");
+    const chatId = realId || (currentSessionId && !/^\d+$/.test(currentSessionId) ? currentSessionId : null);
+
+    if (!chatId) {
+      setMessages([]);
+      return;
+    }
+
+    setLoading(true);
+    chatApi.getChat(chatId)
+      .then((history) => {
+        setMessages(history.messages || []);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch chat history:", err);
+        setMessages([]);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [currentSession, currentSessionId, open]);
 
   // Search results
   const searchResults = useMemo(() => {
@@ -101,7 +92,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
     const results: SearchResult[] = [];
 
     for (const msg of messages) {
-      const text = extractMessageText(msg);
+      const text = extractTextFromContent(msg.content);
       if (text.toLowerCase().includes(query)) {
         // Find the matching portion
         const lowerText = text.toLowerCase();
@@ -112,9 +103,9 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         const matchedText = text.slice(start, end);
 
         results.push({
-          messageId: msg.id || "",
+          messageId: String(msg.id || ""),
           role: msg.role || "",
-          roleLabel: getRoleLabel(msg, t),
+          roleLabel: getRoleLabel(msg.role || "", t),
           text,
           matchedText: start > 0 ? `...${matchedText}` : matchedText,
         });
@@ -138,8 +129,6 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   // Scroll to message (placeholder - would need integration with chat UI library)
   const handleResultClick = useCallback((result: SearchResult) => {
     // TODO: Implement scroll to message in chat
-    // This would require integration with the @agentscope-ai/chat library
-    // to scroll to the specific message
     console.log("Scroll to message:", result.messageId);
   }, []);
 
@@ -204,7 +193,11 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
       <div className={styles.listWrapper}>
         <div className={styles.topGradient} />
         <div className={styles.list}>
-          {searchQuery.trim() && searchResults.length === 0 ? (
+          {loading ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+              <Spin />
+            </div>
+          ) : searchQuery.trim() && searchResults.length === 0 ? (
             <Empty
               description={t("chat.search.noResults")}
               style={{ marginTop: 40 }}
