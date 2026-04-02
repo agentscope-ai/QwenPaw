@@ -92,7 +92,7 @@ export const FileItem: React.FC<FileItemProps> = ({
               {file.filename}
             </div>
             <div className={styles.fileItemMeta}>
-              {formatFileSize(file.size)} · {formatTimeAgo(file.updated_at)}
+              {formatFileSize(file.size)} · {formatTimeAgo(file.modified_time)}
             </div>
           </div>
           <div className={styles.fileItemActions}>

@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, Button } from "@agentscope-ai/design";
+import { Card, Button, Checkbox } from "@agentscope-ai/design";
 import {
   CalendarFilled,
   FileTextFilled,
@@ -10,7 +10,6 @@ import {
   FilePptFilled,
   FileImageFilled,
   CodeFilled,
-  CheckOutlined,
   EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
@@ -183,16 +182,7 @@ export const SkillCard = React.memo(function SkillCard({
         selected ? styles.selectedCard : ""
       }`}
     >
-      {/* Selection circle — top-left overlay */}
-      <div
-        className={`${styles.selectCircle} ${
-          selected ? styles.selectCircleSelected : ""
-        } ${isHover || selected ? styles.selectCircleVisible : ""}`}
-        onClick={handleSelectClick}
-      >
-        {selected && <CheckOutlined />}
-      </div>
-      {/* Header: Icon + Title + Badge + Status */}
+      {/* Header: Icon + Title + Badge + Status + Select */}
       <div className={styles.cardHeader}>
         <div className={styles.leftSection}>
           <span className={styles.fileIcon}>
@@ -226,19 +216,24 @@ export const SkillCard = React.memo(function SkillCard({
             )}
           </div>
         </div>
-        <div className={styles.statusContainer}>
-          <span
-            className={`${styles.statusDot} ${
-              skill.enabled ? styles.enabled : styles.disabled
-            }`}
-          />
-          <span
-            className={`${styles.statusText} ${
-              skill.enabled ? styles.enabled : styles.disabled
-            }`}
-          >
-            {skill.enabled ? t("common.enabled") : t("common.disabled")}
-          </span>
+        <div className={styles.statusWithSelect}>
+          <div className={styles.statusContainer}>
+            <span
+              className={`${styles.statusDot} ${
+                skill.enabled ? styles.enabled : styles.disabled
+              }`}
+            />
+            <span
+              className={`${styles.statusText} ${
+                skill.enabled ? styles.enabled : styles.disabled
+              }`}
+            >
+              {skill.enabled ? t("common.enabled") : t("common.disabled")}
+            </span>
+          </div>
+          {batchMode && (
+            <Checkbox checked={selected} onClick={handleSelectClick} />
+          )}
         </div>
       </div>
 
@@ -250,12 +245,13 @@ export const SkillCard = React.memo(function SkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer with buttons - always show */}
+      {/* Footer with buttons - always show, disabled in batch mode */}
       <div className={styles.cardFooter}>
         <Button
           className={styles.actionButton}
           onClick={handleToggleClick}
           icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          disabled={batchMode}
         >
           {skill.enabled ? t("common.disable") : t("common.enable")}
         </Button>
@@ -264,6 +260,7 @@ export const SkillCard = React.memo(function SkillCard({
             danger
             className={styles.deleteButton}
             onClick={handleDeleteClick}
+            disabled={batchMode}
           >
             {t("common.delete")}
           </Button>
