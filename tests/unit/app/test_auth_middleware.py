@@ -13,8 +13,8 @@ from httpx import ASGITransport, AsyncClient
 from copaw.app.auth import AuthMiddleware
 
 
-@pytest.fixture
-def app() -> FastAPI:
+@pytest.fixture(name="test_app")
+def fixture_test_app() -> FastAPI:
     """Create a minimal app protected by the auth middleware."""
     test_app = FastAPI()
     test_app.add_middleware(AuthMiddleware)
@@ -26,10 +26,10 @@ def app() -> FastAPI:
     return test_app
 
 
-@pytest.fixture
-def api_client(app: FastAPI) -> AsyncClient:
+@pytest.fixture(name="loopback_client")
+def fixture_loopback_client(test_app: FastAPI) -> AsyncClient:
     """Create an ASGI client whose requests originate from loopback."""
-    transport = ASGITransport(app=app, client=("127.0.0.1", 54321))
+    transport = ASGITransport(app=test_app, client=("127.0.0.1", 54321))
     return AsyncClient(transport=transport, base_url="http://127.0.0.1:8088")
 
 
@@ -48,11 +48,12 @@ def test_localhost_requests_no_longer_skip_auth() -> None:
             return_value=True,
         ),
     ):
+        # pylint: disable=protected-access
         assert AuthMiddleware._should_skip_auth(request) is False
 
 
 async def test_private_api_requires_auth_on_loopback(
-    api_client: AsyncClient,
+    loopback_client: AsyncClient,
 ) -> None:
     """Protected API routes should reject unauthenticated loopback callers."""
     with (
@@ -62,15 +63,15 @@ async def test_private_api_requires_auth_on_loopback(
             return_value=True,
         ),
     ):
-        async with api_client:
-            response = await api_client.get("/api/private")
+        async with loopback_client:
+            response = await loopback_client.get("/api/private")
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Not authenticated"}
 
 
 async def test_private_api_accepts_valid_bearer_on_loopback(
-    api_client: AsyncClient,
+    loopback_client: AsyncClient,
 ) -> None:
     """Valid bearer tokens should still work for local callers."""
     with (
@@ -81,8 +82,8 @@ async def test_private_api_accepts_valid_bearer_on_loopback(
         ),
         patch("copaw.app.auth.verify_token", return_value="alice"),
     ):
-        async with api_client:
-            response = await api_client.get(
+        async with loopback_client:
+            response = await loopback_client.get(
                 "/api/private",
                 headers={"Authorization": "Bearer local-token"},
             )

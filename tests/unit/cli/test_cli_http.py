@@ -42,7 +42,7 @@ def test_build_auth_headers_skips_remote_hosts(monkeypatch) -> None:
 
     headers = _build_auth_headers("https://copaw.example.com")
 
-    assert headers == {}
+    assert not headers
 
 
 def test_client_attaches_local_auth_header(monkeypatch) -> None:

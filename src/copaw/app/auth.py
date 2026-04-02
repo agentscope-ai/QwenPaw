@@ -382,7 +382,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return True
 
-        if path in _PUBLIC_PATHS or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+        if path in _PUBLIC_PATHS or any(
+            path.startswith(p) for p in _PUBLIC_PREFIXES
+        ):
             return True
 
         # Only protect /api/ routes
