@@ -245,6 +245,14 @@ WshShell.Run Chr(34) & batPath & Chr(34), 0, False
 Set WshShell = Nothing
 "@ | Set-Content -Path $LauncherVbs -Encoding ASCII
 
+# Create copaw.cmd wrapper in env root so "copaw" resolves to this
+# instead of Scripts\copaw.exe whose embedded Python path may be stale
+# after conda-pack/unpack.
+$CopawCmd = Join-Path $EnvRoot "copaw.cmd"
+@"
+@"%~dp0python.exe" -u -m copaw %*
+"@ | Set-Content -Path $CopawCmd -Encoding ASCII
+
 # Copy icon.ico to env root so NSIS can find it
 $IconSrc = Join-Path $PackDir "assets\icon.ico"
 if (Test-Path $IconSrc) {

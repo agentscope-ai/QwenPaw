@@ -24,7 +24,14 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Dict,
+    List,
+    Optional,
+)
 from uuid import uuid4
 from urllib.parse import urlparse
 
@@ -1622,6 +1629,17 @@ class DingTalkChannel(BaseChannel):
         ):
             self._reply_sync(pm, SENT_VIA_WEBHOOK)
 
+    def _resolve_to_handle(self, request: Any) -> str:
+        """Resolve target handle from request using session-aware logic."""
+        user_id = getattr(request, "user_id", "") or ""
+        sid = getattr(request, "session_id", "") or ""
+        if sid:
+            return self.to_handle_from_target(
+                user_id=user_id,
+                session_id=sid,
+            )
+        return user_id
+
     async def _run_process_loop(
         self,
         request: Any,
@@ -1668,30 +1686,40 @@ class DingTalkChannel(BaseChannel):
             )
             raise
 
-    async def _process_one_request(
+    async def _process_dingtalk_core(  # noqa: C901
         self,
         request: Any,
-        reply_meta: Optional[Dict[str, Any]] = None,
-    ) -> None:  # pylint: disable=too-many-branches
+        *,
+        reply_meta: Dict[str, Any],
+        to_handle: str,
+    ) -> AsyncGenerator[Any, None]:
+        """Core DingTalk processing shared by both paths.
+
+        Handles AI Card creation, streaming updates, webhook sends,
+        media delivery, finalization and reply_future resolution.
+        Yields raw events from ``self._process(request)`` so callers
+        can optionally serialize them (e.g. as SSE).
+
+        Args:
+            request: AgentRequest
+            reply_meta: Meta dict that carries reply_future /
+                reply_loop for ACK and _reply_sync_batch.
+            to_handle: Resolved target handle for
+                send_content_parts / _on_consume_error.
+        """
         meta = getattr(request, "channel_meta", None) or {}
-        reply_meta = reply_meta or meta
         session_webhook = self._get_session_webhook(meta)
         use_multi = bool(session_webhook)
-        logger.debug(
-            "dingtalk _process_one_request: has_session_webhook=%s",
-            use_multi,
-        )
+        bot_prefix = self.bot_prefix or ""
+
         logger.info(
-            "dingtalk _process_one_request: meta has_sw=%s use_multi=%s",
+            "dingtalk core: meta has_sw=%s use_multi=%s",
             bool(meta.get("session_webhook")),
             use_multi,
         )
+
         last_response = None
         accumulated_parts: list = []
-        event_count = 0
-        # _acked_early: reply_future already resolved so DingTalk handler
-        # returned STATUS_OK quickly; msg_ids still held for dedup until
-        # streaming fully completes (_reply_sync_batch at the end).
         _acked_early = False
         conversation_id = str(meta.get("conversation_id") or "")
         use_ai_card = self._ai_card_enabled() and bool(conversation_id)
@@ -1705,6 +1733,7 @@ class DingTalkChannel(BaseChannel):
             bool(self.robot_code),
             bool(conversation_id),
         )
+
         card: Optional[ActiveAICard] = None
         card_full_text = ""
         if use_ai_card:
@@ -1714,15 +1743,14 @@ class DingTalkChannel(BaseChannel):
                     meta=meta,
                     inbound=True,
                 )
-                # AI card created: ACK DingTalk immediately so the stream
-                # callback handler returns STATUS_OK without waiting for
-                # the full LLM response. This stops DingTalk retry storms
-                # on long-form generations. Dedup msg_ids are kept until
-                # streaming finishes (see _reply_sync_batch below).
+                # ACK DingTalk immediately so the stream callback
+                # handler returns STATUS_OK without waiting for the
+                # full LLM response.  Dedup msg_ids are kept until
+                # streaming finishes (_reply_sync_batch below).
                 self._ack_early(reply_meta, SENT_VIA_AI_CARD)
                 _acked_early = True
                 logger.info(
-                    "dingtalk _ack_early: AI card created, "
+                    "dingtalk core: AI card created, "
                     "handler unblocked early",
                 )
             except Exception:
@@ -1732,35 +1760,26 @@ class DingTalkChannel(BaseChannel):
                 use_ai_card = False
 
         async for event in self._process(request):
-            event_count += 1
+            # Yield raw event so callers can do SSE / debug log
+            yield event
+
             obj = getattr(event, "object", None)
             status = getattr(event, "status", None)
-            ev_type = getattr(event, "type", None)
-            logger.debug(
-                "dingtalk event #%s: object=%s status=%s type=%s",
-                event_count,
-                obj,
-                status,
-                ev_type,
-            )
+
             if obj == "message" and status == RunStatus.Completed:
                 parts = self._message_to_content_parts(event)
-                logger.info(
-                    f"dingtalk completed message: type={ev_type} "
-                    f"parts_count={len(parts)}",
-                )
                 body = self._parts_to_single_text(
                     parts,
                     bot_prefix="",
                 )
                 if use_ai_card and card:
-                    next_card_text = self._merge_ai_card_text(
+                    next_text = self._merge_ai_card_text(
                         card_full_text,
                         body,
                     )
                     try:
-                        if next_card_text != card_full_text:
-                            card_full_text = next_card_text
+                        if next_text != card_full_text:
+                            card_full_text = next_text
                             await self._stream_ai_card(
                                 card,
                                 card_full_text,
@@ -1771,13 +1790,15 @@ class DingTalkChannel(BaseChannel):
                             "dingtalk stream ai card failed,"
                             " fallback to markdown",
                         )
-                        await self._mark_card_failed(conversation_id)
+                        await self._mark_card_failed(
+                            conversation_id,
+                        )
                         use_ai_card = False
-                        fallback_body = body.strip() or card_full_text.strip()
-                        if use_multi and session_webhook and fallback_body:
+                        fb = body.strip() or card_full_text.strip()
+                        if use_multi and session_webhook and fb:
                             await self._send_via_session_webhook(
                                 session_webhook,
-                                fallback_body,
+                                fb,
                                 bot_prefix="",
                             )
                         else:
@@ -1789,16 +1810,12 @@ class DingTalkChannel(BaseChannel):
                             body.strip(),
                             bot_prefix="",
                         )
-                        # First webhook message sent: ACK DingTalk early so
-                        # handler returns STATUS_OK without waiting for the
-                        # full LLM response.
                         if not _acked_early:
-                            self._ack_early(reply_meta, SENT_VIA_WEBHOOK)
-                            _acked_early = True
-                            logger.info(
-                                "dingtalk _ack_early: first webhook chunk "
-                                "sent, handler unblocked early",
+                            self._ack_early(
+                                reply_meta,
+                                SENT_VIA_WEBHOOK,
                             )
+                            _acked_early = True
                     _media_types = (
                         ContentType.IMAGE,
                         ContentType.FILE,
@@ -1816,22 +1833,22 @@ class DingTalkChannel(BaseChannel):
             elif obj == "response":
                 last_response = event
 
-        logger.info(
-            "dingtalk stream done: event_count=%s parts=%s webhook=%s",
-            event_count,
-            len(accumulated_parts),
-            use_multi,
-        )
-
+        # ---- Finalize ----
         err_msg = self._get_response_error_message(last_response)
         if use_ai_card and card:
             final_text = card_full_text or self._build_ai_card_initial_text()
             try:
                 if err_msg:
-                    final_text = self.bot_prefix + f"Error: {err_msg}"
-                await self._stream_ai_card(card, final_text, finalize=True)
+                    final_text = bot_prefix + f"Error: {err_msg}"
+                await self._stream_ai_card(
+                    card,
+                    final_text,
+                    finalize=True,
+                )
             except Exception:
-                logger.exception("dingtalk finalize ai card failed")
+                logger.exception(
+                    "dingtalk finalize ai card failed",
+                )
                 await self._mark_card_failed(conversation_id)
                 if use_multi and session_webhook:
                     await self._send_via_session_webhook(
@@ -1839,9 +1856,12 @@ class DingTalkChannel(BaseChannel):
                         final_text,
                         bot_prefix="",
                     )
-            self._reply_sync_batch(reply_meta, SENT_VIA_AI_CARD)
+            self._reply_sync_batch(
+                reply_meta,
+                SENT_VIA_AI_CARD,
+            )
         elif err_msg:
-            err_text = self.bot_prefix + f"Error: {err_msg}"
+            err_text = bot_prefix + f"Error: {err_msg}"
             if use_multi and session_webhook:
                 await self._send_via_session_webhook(
                     session_webhook,
@@ -1853,17 +1873,11 @@ class DingTalkChannel(BaseChannel):
                 SENT_VIA_WEBHOOK if use_multi else err_text,
             )
         elif use_multi:
-            self._reply_sync_batch(reply_meta, SENT_VIA_WEBHOOK)
-        elif accumulated_parts:
-            sid = getattr(request, "session_id", "") or ""
-            to_handle = (
-                self.to_handle_from_target(
-                    user_id=request.user_id or "",
-                    session_id=sid,
-                )
-                if sid
-                else (request.user_id or "")
+            self._reply_sync_batch(
+                reply_meta,
+                SENT_VIA_WEBHOOK,
             )
+        elif accumulated_parts:
             await self.send_content_parts(
                 to_handle,
                 accumulated_parts,
@@ -1872,8 +1886,8 @@ class DingTalkChannel(BaseChannel):
         elif last_response is None:
             self._reply_sync_batch(
                 reply_meta,
-                self.bot_prefix
-                + "An error occurred while processing your request.",
+                bot_prefix + "An error occurred while processing "
+                "your request.",
             )
 
         if self._on_reply_sent:
@@ -1882,6 +1896,149 @@ class DingTalkChannel(BaseChannel):
                 request.user_id or "",
                 request.session_id or f"{self.channel}:{request.user_id}",
             )
+
+    # -- workspace path (TaskTracker) --------------------------
+
+    async def _stream_with_tracker(
+        self,
+        payload: Any,
+    ) -> AsyncGenerator[str, None]:
+        """Override to integrate AI Card logic in workspace path.
+
+        Delegates to _process_dingtalk_core and yields SSE events
+        for TaskTracker.
+        """
+        request = self._payload_to_request(payload)
+
+        if isinstance(payload, dict):
+            send_meta = dict(payload.get("meta") or {})
+            if payload.get("session_webhook"):
+                send_meta["session_webhook"] = payload["session_webhook"]
+        else:
+            send_meta = getattr(request, "channel_meta", None) or {}
+
+        bot_prefix = self.bot_prefix or ""
+        if bot_prefix and "bot_prefix" not in send_meta:
+            send_meta = {**send_meta, "bot_prefix": bot_prefix}
+
+        to_handle = self._resolve_to_handle(request)
+
+        # Allowlist / mention checks
+        sender_id = getattr(request, "user_id", "") or ""
+        is_group = bool(send_meta.get("is_group", False))
+        allowed, error_msg = self._check_allowlist(
+            sender_id,
+            is_group,
+        )
+        if not allowed:
+            logger.info(
+                "dingtalk allowlist blocked: sender=%s is_group=%s",
+                sender_id,
+                is_group,
+            )
+            deny_text = bot_prefix + (error_msg or "")
+            sw = self._get_session_webhook(send_meta)
+            if sw:
+                await self._send_via_session_webhook(
+                    sw,
+                    deny_text,
+                    bot_prefix="",
+                )
+                self._reply_sync_batch(
+                    send_meta,
+                    SENT_VIA_WEBHOOK,
+                )
+            else:
+                self._reply_sync_batch(
+                    send_meta,
+                    deny_text,
+                )
+            return
+
+        if not self._check_group_mention(is_group, send_meta):
+            return
+
+        # Strip non-serializable keys for request.channel_meta
+        safe_meta = {
+            k: v
+            for k, v in send_meta.items()
+            if k not in self._NON_SERIALIZABLE_META_KEYS
+        }
+        request.channel_meta = safe_meta
+
+        await self._before_consume_process(request)
+
+        core_iter = None
+        try:
+            core_iter = self._process_dingtalk_core(
+                request,
+                reply_meta=send_meta,
+                to_handle=to_handle,
+            )
+            async for event in core_iter:
+                # SSE serialization
+                if hasattr(event, "model_dump_json"):
+                    data = event.model_dump_json()
+                elif hasattr(event, "json"):
+                    data = event.json()
+                else:
+                    data = json.dumps({"text": str(event)})
+                yield f"data: {data}\n\n"
+
+                obj = getattr(event, "object", None)
+                if obj == "response":
+                    await self.on_event_response(
+                        request,
+                        event,
+                    )
+
+        except asyncio.CancelledError:
+            logger.info(
+                "dingtalk task cancelled: session=%s",
+                getattr(request, "session_id", "")[:30],
+            )
+            if core_iter is not None:
+                await core_iter.aclose()
+            raise
+
+        except Exception as exc:
+            logger.exception(
+                "dingtalk _stream_with_tracker failed: %s",
+                exc,
+            )
+            err_detail = str(exc).strip() or "Internal error"
+            await self._on_consume_error(
+                request,
+                to_handle,
+                err_detail,
+            )
+            self._reply_sync_batch(
+                send_meta,
+                bot_prefix + err_detail,
+            )
+            raise
+
+    # -- legacy path -------------------------------------------
+
+    async def _process_one_request(
+        self,
+        request: Any,
+        reply_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Process a single request using the shared core.
+
+        Called by _run_process_loop (legacy / non-workspace path).
+        """
+        meta = getattr(request, "channel_meta", None) or {}
+        reply_meta = reply_meta or meta
+        to_handle = self._resolve_to_handle(request)
+
+        async for _event in self._process_dingtalk_core(
+            request,
+            reply_meta=reply_meta,
+            to_handle=to_handle,
+        ):
+            pass  # events consumed by core; nothing extra needed
 
     def _merge_native(self, items: list) -> dict:
         """Merge multiple native payloads into one (content_parts + meta)."""

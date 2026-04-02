@@ -739,6 +739,8 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
                     str(model_path.resolve()),
                     "--alias",
                     "demo-model",
+                    "--gpu-layers",
+                    "auto",
                 ],
             ),
             {

@@ -10,12 +10,13 @@ import shutil
 import threading
 import time
 import uuid
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from queue import Empty
 from typing import Any, Optional
 from enum import Enum
 
+import traceback
 import httpx
 from pydantic import Field
 
@@ -72,6 +73,7 @@ class ModelManager:
         self._final_dir: Optional[Path] = None
         self._resolved_source: Optional[DownloadSource] = None
         self._model_dir = DEFAULT_LOCAL_PROVIDER_DIR / "models"
+        self._download_tmp_dir = DEFAULT_LOCAL_PROVIDER_DIR / "tmp"
         self._progress = DownloadProgressTracker()
 
     def get_recommended_models(self) -> list[LocalModelInfo]:
@@ -190,6 +192,7 @@ class ModelManager:
             )
 
             final_dir.parent.mkdir(parents=True, exist_ok=True)
+            self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
             resolved_source = source or self._resolve_download_source()
             total_bytes = self._estimate_download_size(
                 repo_id=repo_id,
@@ -205,9 +208,7 @@ class ModelManager:
             self._resolved_source = resolved_source
             task_id = uuid.uuid4().hex
             self._final_dir = final_dir
-            self._staging_dir = (
-                final_dir.parent / f".{final_dir.name}.{task_id}.downloading"
-            )
+            self._staging_dir = self._download_tmp_dir / task_id
             self._queue = self._context.Queue()
             payload = {
                 "repo_id": repo_id,
@@ -432,6 +433,11 @@ class ModelManager:
                     error="Download failed: " + str(exc),
                 ).to_dict(),
             )
+            logger.error(
+                "Error when downloading model [%s]:\n%s",
+                repo_id,
+                traceback.format_exc(),
+            )
             raise
 
     @staticmethod
@@ -475,10 +481,49 @@ class ModelManager:
         local_dir: Path,
     ) -> str:
         """Download a model repository from ModelScope."""
-        return ModelManager._get_modelscope_snapshot_download()(
-            model_id=repo_id,
-            local_dir=str(local_dir),
+        with ModelManager._with_modelscope_tqdm_disabled():
+            return ModelManager._get_modelscope_snapshot_download()(
+                model_id=repo_id,
+                local_dir=str(local_dir),
+            )
+
+    @staticmethod
+    @contextmanager
+    def _with_modelscope_tqdm_disabled() -> Any:
+        """Temporarily disable ModelScope tqdm output.
+
+        Windows desktop installs can run without a valid stderr console handle,
+        which makes tqdm initialization fail with ``OSError: [Errno 22]
+        Invalid argument`` when it tries to flush the stream.
+        """
+        patched_modules: list[tuple[Any, Any]] = []
+        module_names = (
+            "modelscope.utils.thread_utils",
+            "modelscope.hub.callback",
         )
+
+        try:
+            for module_name in module_names:
+                module = importlib.import_module(module_name)
+                original_tqdm = getattr(module, "tqdm", None)
+                if original_tqdm is None:
+                    continue
+
+                def _disabled_tqdm(
+                    *args: Any,
+                    __orig=original_tqdm,
+                    **kwargs: Any,
+                ) -> Any:
+                    kwargs["disable"] = True
+                    return __orig(*args, **kwargs)
+
+                setattr(module, "tqdm", _disabled_tqdm)
+                patched_modules.append((module, original_tqdm))
+
+            yield
+        finally:
+            for module, original_tqdm in reversed(patched_modules):
+                setattr(module, "tqdm", original_tqdm)
 
     def _estimate_huggingface_size(
         self,
