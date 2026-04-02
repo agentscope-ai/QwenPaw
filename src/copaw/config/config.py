@@ -640,7 +640,12 @@ class PlanConfig(BaseModel):
     )
     agent_managed: bool = Field(
         default=True,
-        description="Whether agent can create plans autonomously",
+        description=(
+            "Profile flag for agent-driven planning; CoPaw does not inject "
+            "a default 'create a plan' hint on every turn. Users start "
+            "plans with `/plan`, the console Plan panel, or after a plan "
+            "already exists (see plan_to_hint)."
+        ),
     )
 
 

@@ -295,6 +295,14 @@ export default function ChatPage() {
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
+  const handlePlanStartExecution = useCallback(() => {
+    const query = t(
+      "plan.executionKickoffMessage",
+      "[Started from Plan panel] Please continue executing the current plan.",
+    );
+    chatRef.current?.input.submit({ query });
+  }, [t]);
+
   // Tell sessionApi which session to put first in getSessionList, so the library's
   // useMount auto-selects the correct session without an extra getSession round-trip.
   if (chatId && sessionApi.preferredChatId !== chatId) {
@@ -542,6 +550,11 @@ export default function ChatPage() {
         description: t("chat.commands.compact.description"),
       },
       {
+        command: "/plan",
+        value: "plan ",
+        description: t("chat.commands.plan.description"),
+      },
+      {
         command: "/approve",
         value: "approve",
         description: t("chat.commands.approve.description"),
@@ -573,7 +586,7 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             <ModelSelector />
-            <ChatActionGroup />
+            <ChatActionGroup onPlanStartExecution={handlePlanStartExecution} />
           </>
         ),
       },
@@ -668,7 +681,15 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
+  }, [
+    customFetch,
+    copyResponse,
+    handleFileUpload,
+    t,
+    isDark,
+    multimodalCaps,
+    handlePlanStartExecution,
+  ]);
 
   return (
     <div

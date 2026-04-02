@@ -84,6 +84,9 @@ class CommandRegistry:
         self.register_command("/logs", priority_level=10)
         self.register_command("/approve", priority_level=10)
 
+        # Same priority as normal chat; explicit registration for routing
+        self.register_command("/plan", priority="normal")
+
         # Note: Conversation commands (/compact, /new) remain at
         # default level (20) and do not need explicit registration
 

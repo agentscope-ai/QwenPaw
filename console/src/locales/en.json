@@ -1051,13 +1051,16 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
-    "inputPlaceholder": "Type / to see commands; use /approve or /deny during approval...",
+    "inputPlaceholder": "Type / for commands (/plan, /clear, …); use /approve or /deny during approval...",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"
       },
       "compact": {
         "description": "Clear the conversation context and generate a summary of the conversation history"
+      },
+      "plan": {
+        "description": "Enable plan mode or start a structured plan for a task (/plan <description>)"
       },
       "approve": {
         "description": "Approve the pending tool action and continue execution"
@@ -1076,6 +1079,25 @@
       "imageOnlyAccept": "Current model only supports image files",
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     }
+  },
+  "plan": {
+    "executionKickoffMessage": "[Started from Plan panel] Please continue executing the current plan.",
+    "confirmedAndStarted": "Plan confirmed. Execution started from the console.",
+    "startExecution": "Start execution",
+    "startExecutionConfirm": "Start executing this plan now?",
+    "startExecutionConfirmHint": "The agent will run tools according to the plan. This matches sending a follow-up message in chat.",
+    "noPlanHint": "Use `/plan <description>` in chat to create a plan.",
+    "stopPlan": "Stop Plan",
+    "stopConfirm": "Stop this plan? The plan will be marked as abandoned.",
+    "stoppedSuccess": "Plan has been stopped",
+    "stoppedError": "Failed to stop plan",
+    "restoreSuccess": "Plan restored successfully",
+    "restoreError": "Failed to restore plan",
+    "deleteHistoryConfirm": "Delete this historical plan?",
+    "deleteHistorySuccess": "Historical plan deleted",
+    "deleteHistoryError": "Failed to delete plan",
+    "cancelledSuccess": "Plan cancelled",
+    "cancelledError": "Failed to cancel plan"
   },
   "security": {
     "parent": "Settings",

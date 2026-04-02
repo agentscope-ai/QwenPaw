@@ -19,6 +19,9 @@ from dotenv import load_dotenv
 from .command_dispatch import (
     _get_last_user_text,
     _is_command,
+    ensure_plan_mode_enabled,
+    is_plan_with_inline_description,
+    rewrite_msgs_strip_plan_prefix,
     run_command_path,
 )
 from .query_error_dump import write_query_error_dump
@@ -222,6 +225,27 @@ class AgentRunner(Runner):
         )
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
+
+        if query and is_plan_with_inline_description(query):
+            if not await ensure_plan_mode_enabled(self):
+                err = Msg(
+                    name="Friday",
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "**Plan**\n\n"
+                                "Could not enable plan mode for `/plan …`. "
+                                "Check AgentScope plan support and logs."
+                            ),
+                        ),
+                    ],
+                )
+                yield err, True
+                return
+            msgs = rewrite_msgs_strip_plan_prefix(msgs)
+            query = _get_last_user_text(msgs)
 
         (
             approval_response,

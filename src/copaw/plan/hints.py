@@ -12,6 +12,13 @@ Key differences from the AgentScope default:
    constant regardless of how many subtasks have finished.  This
    prevents the "overflow -> truncate -> retry -> overflow" loop that
    occurs when the plan hint grows unboundedly.
+4. **No automatic plans** -- ``no_plan`` is empty so the model is not
+   nudged to create a plan on every turn.  Users start planning with
+   the ``/plan`` command or the console Plan panel instead.
+5. **Stall guard** -- if the same subtask stays ``in_progress`` across
+   many consecutive hint generations, the hint escalates to force
+   ``finish_subtask`` so the ReAct loop does not repeat the same tool
+   calls until ``max_iters`` is hit.
 """
 from __future__ import annotations
 
@@ -32,6 +39,10 @@ except ImportError:
 
 _DESC_LIMIT = 80
 _PLAN_DESC_LIMIT = 200
+
+# After this many consecutive system-hint generations for the same
+# in_progress subtask, replace the normal hint with a forced-finish hint.
+_STALL_THRESHOLD = 12
 
 
 def _compact_plan_text(plan: "Plan") -> str:
@@ -95,6 +106,24 @@ if _HAS_DEFAULT_HINT:
         the full ``plan.to_markdown()`` is used because it is small
         and the agent needs full details to present the plan.
         """
+
+        def __init__(self) -> None:
+            self._ip_call_count: int = 0
+            self._last_ip_idx: int | None = None
+
+        _stalled_subtask: str = (
+            "The current plan:\n"
+            "```\n"
+            "{plan}\n"
+            "```\n"
+            "IMPORTANT: Subtask {subtask_idx} ('{subtask_name}') has been "
+            "in_progress for {call_count} iterations without completion.\n"
+            "You MUST call 'finish_subtask' NOW with subtask_idx={subtask_idx} "
+            "and a summary of what you have accomplished so far (even if "
+            "incomplete). Do NOT invoke any other tool before that. If you "
+            "have not accomplished anything meaningful, state that clearly "
+            "in the outcome and move on.\n"
+        )
 
         at_the_beginning: str = (
             "The current plan:\n"
@@ -162,6 +191,10 @@ if _HAS_DEFAULT_HINT:
             "the user.\n"
         )
 
+        # Empty: do not prompt the model to create plans unless the user
+        # explicitly uses /plan <task> or equivalent (see runner pre-process).
+        no_plan: str | None = None
+
         # ---- override __call__ for compact context ----
 
         def __call__(  # noqa: C901
@@ -176,6 +209,8 @@ if _HAS_DEFAULT_HINT:
             completed-subtask outcomes never inflate the hint.
             """
             if plan is None:
+                self._last_ip_idx = None
+                self._ip_call_count = 0
                 hint = self.no_plan
             else:
                 n_todo = n_ip = n_done = n_abn = 0
@@ -191,22 +226,39 @@ if _HAS_DEFAULT_HINT:
                     elif st.state == "abandoned":
                         n_abn += 1
 
+                if n_ip == 0:
+                    self._last_ip_idx = None
+                    self._ip_call_count = 0
+
                 hint = None
                 if n_ip == 0 and n_done == 0:
                     hint = self.at_the_beginning.format(
                         plan=plan.to_markdown(),
                     )
                 elif n_ip > 0 and ip_idx is not None:
+                    if ip_idx == self._last_ip_idx:
+                        self._ip_call_count += 1
+                    else:
+                        self._last_ip_idx = ip_idx
+                        self._ip_call_count = 1
                     st = plan.subtasks[ip_idx]
                     compact = _compact_plan_text(plan)
-                    hint = (
-                        self.when_a_subtask_in_progress.format(
+                    if self._ip_call_count > _STALL_THRESHOLD:
+                        hint = self._stalled_subtask.format(
                             plan=compact,
                             subtask_idx=ip_idx,
                             subtask_name=st.name,
-                            subtask=_subtask_text(st),
+                            call_count=self._ip_call_count,
                         )
-                    )
+                    else:
+                        hint = (
+                            self.when_a_subtask_in_progress.format(
+                                plan=compact,
+                                subtask_idx=ip_idx,
+                                subtask_name=st.name,
+                                subtask=_subtask_text(st),
+                            )
+                        )
                 elif n_done + n_abn == len(plan.subtasks):
                     compact = _compact_plan_text(plan)
                     hint = self.at_the_end.format(

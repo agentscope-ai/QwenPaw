@@ -28,7 +28,7 @@ import { SparkOperateRightLine } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../api";
 import { subscribePlanUpdates } from "../../api/modules/plan";
-import type { Plan, PlanSummary, SubTask, SubTaskInput } from "../../api/types";
+import type { Plan, PlanSummary, SubTask } from "../../api/types";
 import styles from "./index.module.less";
 
 const { Text, Title, Paragraph } = Typography;
@@ -54,21 +54,26 @@ const stateIcon = (state: SubTask["state"]) => {
 interface PlanPanelProps {
   open: boolean;
   onClose: () => void;
+  /** After plan is confirmed via API, submit the same chat kickoff as typing in the input. */
+  onStartExecution?: () => void;
 }
 
-const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
+const PlanPanel: React.FC<PlanPanelProps> = ({
+  open,
+  onClose,
+  onStartExecution,
+}) => {
   const { t } = useTranslation();
   const [plan, setPlan] = useState<Plan | null>(null);
   const [planEnabled, setPlanEnabled] = useState<boolean | null>(null);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<PlanSummary[]>([]);
-  const [createOpen, setCreateOpen] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [addForm] = Form.useForm();
 
@@ -120,24 +125,58 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
     }
   }, []);
 
-  const handleRecover = useCallback(async (planId: string) => {
-    try {
-      const recovered = await api.recoverPlan(planId);
-      setPlan(recovered);
-      setHistoryOpen(false);
-    } catch {
-      // ignore
-    }
-  }, []);
+  const handleRecover = useCallback(
+    async (planId: string) => {
+      try {
+        const recovered = await api.recoverPlan(planId);
+        setPlan(recovered);
+        setHistoryOpen(false);
+        message.success(
+          t("plan.restoreSuccess", "Plan restored successfully"),
+        );
+      } catch {
+        message.error(t("plan.restoreError", "Failed to restore plan"));
+      }
+    },
+    [t],
+  );
 
-  const handleFinish = useCallback(async () => {
+  const handleStopPlan = useCallback(async () => {
+    setStopping(true);
     try {
-      await api.finishPlan({ state: "done", outcome: "" });
+      await api.finishPlan({
+        state: "abandoned",
+        outcome: "Manually stopped by user",
+      });
       setPlan(null);
+      message.success(
+        t("plan.stoppedSuccess", "Plan has been stopped"),
+      );
     } catch {
-      // ignore
+      message.error(
+        t("plan.stoppedError", "Failed to stop plan"),
+      );
+    } finally {
+      setStopping(false);
     }
-  }, []);
+  }, [t]);
+
+  const handleDeleteHistoryPlan = useCallback(
+    async (planId: string) => {
+      try {
+        await api.deletePlan(planId);
+        setHistory((prev) => prev.filter((h) => h.plan_id !== planId));
+        message.success(
+          t("plan.deleteHistorySuccess", "Historical plan deleted"),
+        );
+      } catch {
+        message.error(
+          t("plan.deleteHistoryError", "Failed to delete plan"),
+        );
+      }
+    },
+    [t],
+  );
 
   const handleEnablePlan = useCallback(async () => {
     setEnabling(true);
@@ -164,18 +203,28 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
     setConfirming(true);
     try {
       await api.confirmPlan();
-      message.success(
-        t(
-          "plan.confirmedSuccess",
-          "Plan confirmed! Send a message to start execution.",
-        ),
-      );
+      if (onStartExecution) {
+        onStartExecution();
+        message.success(
+          t(
+            "plan.confirmedAndStarted",
+            "Plan confirmed. Execution started from the console.",
+          ),
+        );
+      } else {
+        message.success(
+          t(
+            "plan.confirmedSuccess",
+            "Plan confirmed! Send a message to start execution.",
+          ),
+        );
+      }
     } catch {
       message.error(t("plan.confirmedError", "Failed to confirm plan"));
     } finally {
       setConfirming(false);
     }
-  }, [t]);
+  }, [t, onStartExecution]);
 
   const handleAbandonPlan = useCallback(async () => {
     try {
@@ -184,34 +233,13 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
         outcome: "Cancelled by user",
       });
       setPlan(null);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const handleCreateSubmit = useCallback(async () => {
-    try {
-      const values = await form.validateFields();
-      const subtasks: SubTaskInput[] = (values.subtasks || []).map(
-        (s: SubTaskInput) => ({
-          name: s.name,
-          description: s.description,
-          expected_outcome: s.expected_outcome,
-        }),
+      message.success(
+        t("plan.cancelledSuccess", "Plan cancelled"),
       );
-      const created = await api.createPlan({
-        name: values.name,
-        description: values.description,
-        expected_outcome: values.expected_outcome,
-        subtasks,
-      });
-      setPlan(created);
-      setCreateOpen(false);
-      form.resetFields();
     } catch {
-      // validation or API error
+      message.error(t("plan.cancelledError", "Failed to cancel plan"));
     }
-  }, [form]);
+  }, [t]);
 
   // --- subtask edit / add / delete (available in confirmation state) ---
 
@@ -310,11 +338,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
             </Text>
           </Flex>
           {needsConfirmation && (
-            <Flex
-              gap={4}
-              align="center"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <Flex gap={4} align="center" onClick={(e) => e.stopPropagation()}>
               <Tooltip title={t("common.edit", "Edit")}>
                 <EditOutlined
                   style={{ fontSize: 13, color: "#1677ff", cursor: "pointer" }}
@@ -474,30 +498,49 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
               <div className={styles.footer}>
                 {needsConfirmation ? (
                   <Flex gap={8}>
-                    <Button
-                      type="primary"
-                      size="small"
-                      loading={confirming}
-                      onClick={handleConfirmPlan}
+                    <Popconfirm
+                      title={t(
+                        "plan.startExecutionConfirm",
+                        "Start executing this plan now?",
+                      )}
+                      description={t(
+                        "plan.startExecutionConfirmHint",
+                        "The agent will run tools according to the plan. This matches sending a follow-up message in chat.",
+                      )}
+                      okText={t("plan.startExecution", "Start execution")}
+                      cancelText={t("common.cancel", "Cancel")}
+                      okButtonProps={{ loading: confirming }}
+                      onConfirm={handleConfirmPlan}
                     >
-                      {t("plan.confirm", "Confirm & Start")}
-                    </Button>
+                      <Button type="primary" size="small" disabled={confirming}>
+                        {t("plan.startExecution", "Start execution")}
+                      </Button>
+                    </Popconfirm>
                     <Button size="small" onClick={handleAbandonPlan}>
                       {t("plan.cancel", "Cancel Plan")}
                     </Button>
                   </Flex>
                 ) : (
-                  <Button size="small" onClick={handleFinish}>
-                    {t("plan.finish", "Finish Plan")}
-                  </Button>
+                  <Popconfirm
+                    title={t(
+                      "plan.stopConfirm",
+                      "Stop this plan? The plan will be marked as abandoned.",
+                    )}
+                    okText={t("plan.stopPlan", "Stop Plan")}
+                    cancelText={t("common.cancel", "Cancel")}
+                    okButtonProps={{ loading: stopping }}
+                    onConfirm={handleStopPlan}
+                  >
+                    <Button size="small" loading={stopping}>
+                      {t("plan.stopPlan", "Stop Plan")}
+                    </Button>
+                  </Popconfirm>
                 )}
               </div>
             </>
           ) : (
             <div className={styles.empty}>
-              <Text type="secondary">
-                {t("plan.noPlan", "No active plan")}
-              </Text>
+              <Text type="secondary">{t("plan.noPlan", "No active plan")}</Text>
               <Paragraph
                 type="secondary"
                 style={{
@@ -509,16 +552,9 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
               >
                 {t(
                   "plan.noPlanHint",
-                  "Send a complex task to the agent and it will automatically create a plan, or create one manually below.",
+                  "Use `/plan <description>` in chat to create a plan.",
                 )}
               </Paragraph>
-              <Button
-                type="primary"
-                style={{ marginTop: 16 }}
-                onClick={() => setCreateOpen(true)}
-              >
-                {t("plan.create", "Create Plan")}
-              </Button>
             </div>
           )}
         </div>
@@ -552,113 +588,32 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
                   &middot; {h.created_at}
                 </Text>
               </div>
-              <AntButton size="small" onClick={() => handleRecover(h.plan_id)}>
-                {t("plan.restore", "Restore")}
-              </AntButton>
+              <Flex gap={8} align="center">
+                <AntButton size="small" onClick={() => handleRecover(h.plan_id)}>
+                  {t("plan.restore", "Restore")}
+                </AntButton>
+                <Popconfirm
+                  title={t(
+                    "plan.deleteHistoryConfirm",
+                    "Delete this historical plan?",
+                  )}
+                  okText={t("common.delete", "Delete")}
+                  cancelText={t("common.cancel", "Cancel")}
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => handleDeleteHistoryPlan(h.plan_id)}
+                >
+                  <Tooltip title={t("common.delete", "Delete")}>
+                    <AntButton
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                    />
+                  </Tooltip>
+                </Popconfirm>
+              </Flex>
             </Flex>
           ))
         )}
-      </Modal>
-
-      {/* Create Plan Modal */}
-      <Modal
-        open={createOpen}
-        onCancel={() => setCreateOpen(false)}
-        title={t("plan.createTitle", "Create Plan")}
-        onOk={handleCreateSubmit}
-        okText={t("common.create", "Create")}
-        width={600}
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item
-            name="name"
-            label={t("plan.planName", "Plan Name")}
-            rules={[{ required: true }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="description"
-            label={t("plan.description", "Description")}
-            rules={[{ required: true }]}
-          >
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item
-            name="expected_outcome"
-            label={t("plan.expectedOutcome", "Expected Outcome")}
-            rules={[{ required: true }]}
-          >
-            <Input.TextArea rows={2} />
-          </Form.Item>
-
-          <Text strong>{t("plan.subtasks", "Subtasks")}</Text>
-          <Form.List name="subtasks">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map((field) => (
-                  <div
-                    key={field.key}
-                    style={{
-                      border: "1px solid #f0f0f0",
-                      borderRadius: 6,
-                      padding: 12,
-                      marginTop: 8,
-                      position: "relative",
-                    }}
-                  >
-                    <Form.Item
-                      {...field}
-                      name={[field.name, "name"]}
-                      label={t("plan.subtaskName", "Subtask Name")}
-                      rules={[{ required: true }]}
-                      style={{ marginBottom: 8 }}
-                    >
-                      <Input />
-                    </Form.Item>
-                    <Form.Item
-                      {...field}
-                      name={[field.name, "description"]}
-                      label={t("plan.description", "Description")}
-                      rules={[{ required: true }]}
-                      style={{ marginBottom: 8 }}
-                    >
-                      <Input.TextArea rows={1} />
-                    </Form.Item>
-                    <Form.Item
-                      {...field}
-                      name={[field.name, "expected_outcome"]}
-                      label={t("plan.expectedOutcome", "Expected Outcome")}
-                      rules={[{ required: true }]}
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Input.TextArea rows={1} />
-                    </Form.Item>
-                    <CloseCircleOutlined
-                      onClick={() => remove(field.name)}
-                      style={{
-                        position: "absolute",
-                        top: 8,
-                        right: 8,
-                        color: "#ff4d4f",
-                        cursor: "pointer",
-                      }}
-                    />
-                  </div>
-                ))}
-                <AntButton
-                  type="dashed"
-                  onClick={() => add()}
-                  block
-                  icon={<PlusOutlined />}
-                  style={{ marginTop: 8 }}
-                >
-                  {t("plan.addSubtask", "Add Subtask")}
-                </AntButton>
-              </>
-            )}
-          </Form.List>
-        </Form>
       </Modal>
 
       {/* Edit Subtask Modal */}

@@ -984,13 +984,16 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
-    "inputPlaceholder": "/ を入力してコマンドを表示。承認時は /approve または /deny を使えます...",
+    "inputPlaceholder": "/ でコマンド表示（/plan、/clear など）。承認時は /approve または /deny...",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"
       },
       "compact": {
         "description": "会話のコンテキストをクリアし、会話履歴の要約を生成"
+      },
+      "plan": {
+        "description": "プランモードを有効にする、またはタスクの構造化プランを開始（/plan <説明>）"
       },
       "approve": {
         "description": "保留中のツール操作を承認して実行を続行"
@@ -1009,6 +1012,25 @@
       "imageOnlyAccept": "現在のモデルは画像ファイルのみ対応しています",
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     }
+  },
+  "plan": {
+    "executionKickoffMessage": "[プランパネルから開始] 現在のプランの実行を続けてください。",
+    "confirmedAndStarted": "プランを確認しました。コンソールから実行を開始しました。",
+    "startExecution": "実行を開始",
+    "startExecutionConfirm": "このプランの実行を今すぐ開始しますか？",
+    "startExecutionConfirmHint": "エージェントはプランに従ってツールを実行します。チャットでフォローアップを送るのと同じです。",
+    "noPlanHint": "チャットで `/plan <説明>` を使ってプランを作成してください。",
+    "stopPlan": "プランを停止",
+    "stopConfirm": "このプランを停止しますか？プランは放棄としてマークされます。",
+    "stoppedSuccess": "プランを停止しました",
+    "stoppedError": "プランの停止に失敗しました",
+    "restoreSuccess": "プランを復元しました",
+    "restoreError": "プランの復元に失敗しました",
+    "deleteHistoryConfirm": "この履歴プランを削除しますか？",
+    "deleteHistorySuccess": "履歴プランを削除しました",
+    "deleteHistoryError": "プランの削除に失敗しました",
+    "cancelledSuccess": "プランをキャンセルしました",
+    "cancelledError": "プランのキャンセルに失敗しました"
   },
   "security": {
     "parent": "設定",

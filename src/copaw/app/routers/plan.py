@@ -149,12 +149,36 @@ async def recover_plan(plan_id: str, request: Request):
     """Recover a historical plan by ID."""
     nb, _ = await _get_plan_notebook(request)
     await nb.recover_historical_plan(plan_id=plan_id)
-    if nb.current_plan is None:
+    # recover_historical_plan leaves current_plan unchanged when *plan_id*
+    # is missing; do not mutate an unrelated active plan in that case.
+    if nb.current_plan is None or nb.current_plan.id != plan_id:
         raise HTTPException(
             status_code=404,
             detail=f"Plan '{plan_id}' not found in storage",
         )
+    # Historical plans are stored as done/abandoned; reset so the UI treats
+    # the restored plan as active and subtasks can be re-run from todo.
+    plan = nb.current_plan
+    plan.state = "todo"
+    plan.outcome = None
+    plan.finished_at = None
+    for st in plan.subtasks:
+        st.state = "todo"
+        st.outcome = None
+        st.finished_at = None
+    await nb._trigger_plan_change_hooks()
     return plan_to_response(nb.current_plan)
+
+
+@router.delete(
+    "/history/{plan_id}",
+    summary="Delete a historical plan",
+)
+async def delete_historical_plan(plan_id: str, request: Request):
+    """Remove a plan from storage by ID (does not affect current_plan)."""
+    nb, _ = await _get_plan_notebook(request)
+    await nb.storage.delete_plan(plan_id)
+    return {"success": True}
 
 
 @router.get(

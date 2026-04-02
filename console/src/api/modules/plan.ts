@@ -38,6 +38,11 @@ export const planApi = {
       method: "POST",
     }),
 
+  deletePlan: (planId: string) =>
+    request<{ success: boolean }>(`/plan/history/${planId}`, {
+      method: "DELETE",
+    }),
+
   getPlanConfig: () => request<PlanConfig>("/plan/config"),
 
   updatePlanConfig: (config: PlanConfig) =>

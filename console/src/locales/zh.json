@@ -1021,13 +1021,16 @@
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
-    "inputPlaceholder": "输入 / 查看快捷指令；审批时可使用 /approve 或 /deny ...",
+    "inputPlaceholder": "输入 / 查看指令（/plan、/clear 等）；审批时可使用 /approve 或 /deny ...",
     "commands": {
       "clear": {
         "description": "清空对话上下文"
       },
       "compact": {
         "description": "清空对话上下文并生成历史对话摘要"
+      },
+      "plan": {
+        "description": "开启计划模式或为任务创建结构化计划（/plan <描述>）"
       },
       "approve": {
         "description": "批准待执行的工具操作并继续执行"
@@ -1046,6 +1049,25 @@
       "imageOnlyAccept": "当前模型仅支持图片文件",
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
     }
+  },
+  "plan": {
+    "executionKickoffMessage": "[从计划面板启动] 请继续执行当前计划。",
+    "confirmedAndStarted": "计划已确认，已从控制台开始执行。",
+    "startExecution": "开始执行",
+    "startExecutionConfirm": "立即开始执行此计划？",
+    "startExecutionConfirmHint": "智能体将按计划调用工具，效果与在聊天中发送后续消息相同。",
+    "noPlanHint": "请在聊天中使用 `/plan <描述>` 创建计划。",
+    "stopPlan": "停止计划",
+    "stopConfirm": "确定要停止此计划吗？计划将标记为已放弃。",
+    "stoppedSuccess": "计划已停止",
+    "stoppedError": "停止计划失败",
+    "restoreSuccess": "计划已恢复",
+    "restoreError": "恢复计划失败",
+    "deleteHistoryConfirm": "删除此历史计划？",
+    "deleteHistorySuccess": "历史计划已删除",
+    "deleteHistoryError": "删除计划失败",
+    "cancelledSuccess": "计划已取消",
+    "cancelledError": "取消计划失败"
   },
   "security": {
     "parent": "设置",

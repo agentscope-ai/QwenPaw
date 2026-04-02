@@ -8,7 +8,13 @@ import { Flex, Tooltip } from "antd";
 import ChatSessionDrawer from "../ChatSessionDrawer";
 import PlanPanel from "../../../../components/PlanPanel";
 
-const ChatActionGroup: React.FC = () => {
+interface ChatActionGroupProps {
+  onPlanStartExecution?: () => void;
+}
+
+const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
+  onPlanStartExecution,
+}) => {
   const { t } = useTranslation();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
@@ -41,7 +47,11 @@ const ChatActionGroup: React.FC = () => {
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
       />
-      <PlanPanel open={planOpen} onClose={() => setPlanOpen(false)} />
+      <PlanPanel
+        open={planOpen}
+        onClose={() => setPlanOpen(false)}
+        onStartExecution={onPlanStartExecution}
+      />
     </Flex>
   );
 };

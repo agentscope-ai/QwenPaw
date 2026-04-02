@@ -14,7 +14,7 @@ from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 from agentscope.agent import ReActAgent
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 from agentscope.memory import InMemoryMemory
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit
 from anyio import ClosedResourceError
 from pydantic import BaseModel
@@ -51,6 +51,11 @@ from .tools import (
     create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
+from ..app.runner.command_dispatch import (
+    is_bare_plan_command,
+    is_plan_with_inline_description,
+    rewrite_msgs_strip_plan_prefix,
+)
 from ..constant import (
     WORKING_DIR,
 )
@@ -1095,6 +1100,53 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         return total_stripped
 
+    def _assistant_plan_status_msg(self) -> Msg:
+        """Assistant message for bare ``/plan`` outside the HTTP runner."""
+        from ..plan.schemas import plan_to_response
+
+        if not self._agent_config.plan.enabled:
+            body = (
+                "**Plan**\n\n"
+                "Plan mode is disabled. Enable it in agent settings, "
+                "or use `/plan` from the web console."
+            )
+        elif getattr(self, "plan_notebook", None) is None:
+            body = (
+                "**Plan**\n\n"
+                "Plan mode is enabled in configuration but no plan "
+                "notebook is attached to this agent instance."
+            )
+        else:
+            nb = self.plan_notebook
+            if nb.current_plan is None:
+                body = (
+                    "**Plan mode is on.**\n\n"
+                    "- No active plan yet.\n"
+                    "- Use `/plan <description>` or the Plan panel.\n"
+                )
+            else:
+                p = plan_to_response(nb.current_plan)
+                lines = [
+                    "**Current plan**",
+                    f"- **{p.name}** (state: `{p.state}`)",
+                ]
+                if p.description:
+                    desc = p.description
+                    if len(desc) > 280:
+                        desc = desc[:277] + "..."
+                    lines.append(f"- {desc}")
+                lines.append("")
+                lines.append("**Subtasks:**")
+                for st in p.subtasks:
+                    lines.append(f"  - [{st.state}] {st.name}")
+                body = "\n".join(lines)
+
+        return Msg(
+            name=self.name,
+            role="assistant",
+            content=[TextBlock(type="text", text=body)],
+        )
+
     # pylint: disable=protected-access
     async def reply(
         self,
@@ -1130,6 +1182,36 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         query = (
             last_msg.get_text_content() if isinstance(last_msg, Msg) else None
         )
+
+        if query and is_bare_plan_command(query):
+            plan_reply = self._assistant_plan_status_msg()
+            await self.print(plan_reply)
+            return plan_reply
+
+        was_list = isinstance(msg, list)
+        work_msgs: list[Msg] = list(msg) if was_list else [msg]
+        if query and is_plan_with_inline_description(query):
+            if not self._agent_config.plan.enabled:
+                need_plan = Msg(
+                    name=self.name,
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "**Plan**\n\n"
+                                "Enable plan mode in agent settings before "
+                                "using `/plan <description>`."
+                            ),
+                        ),
+                    ],
+                )
+                await self.print(need_plan)
+                return need_plan
+            work_msgs = rewrite_msgs_strip_plan_prefix(work_msgs)
+            msg = work_msgs if was_list else work_msgs[0]
+            last_msg = work_msgs[-1]
+            query = last_msg.get_text_content()
 
         if self.command_handler.is_command(query):
             logger.info(f"Received command: {query}")
