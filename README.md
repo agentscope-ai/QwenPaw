@@ -330,6 +330,12 @@ When you download the CoPaw macOS app from Releases, macOS may show: *"Apple can
   `xattr -cr /Applications/CoPaw.app`
   (or use the path to the `.app` after unzipping). This clears the "downloaded from the internet" quarantine flag so the warning usually does not appear, but is less safe and controllable than using **Right-click → Open**.
 
+#### Windows: Blank Screen (WebView2 Missing)
+
+On some Windows 10 systems, the app window may appear as a blank white screen. This is caused by a missing **Microsoft WebView2** runtime. Download and install it from:
+[https://developer.microsoft.com/en-us/microsoft-edge/webview2/](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+Then restart the application.
+
 For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://copaw.agentscope.io/docs/desktop).
 
 ---
@@ -392,6 +398,7 @@ CoPaw includes multi-layer security mechanisms to protect your data and system:
 - **File access guard** — Restricts agent access to sensitive paths (e.g., `~/.ssh`, key files, system directories, etc.)
 - **Skill security scanning** — Automatically scans before installing skills, detecting risks like prompt injection, command injection, hardcoded keys, data exfiltration, etc.
 - **Local deployment** — All data and memory stored locally, no third-party upload (when using cloud LLM APIs, conversation content is sent to the corresponding API provider)
+- **Web Authentication** — Optional login protection for the Console. Disabled by default; set `COPAW_AUTH_ENABLED=true` to enable. See [Web Authentication](https://copaw.agentscope.io/docs/security#Web-Authentication) for details.
 
 See [Security documentation](https://copaw.agentscope.io/docs/security) for details.
 

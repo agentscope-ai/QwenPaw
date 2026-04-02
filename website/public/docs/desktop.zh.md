@@ -72,6 +72,12 @@
 
 ### 常见问题
 
+**Q: 应用启动后窗口白屏，无法正常显示？**
+A: 这通常是因为系统缺少 **Microsoft WebView2** 运行时（部分 Windows 10 系统未预装）。
+请前往微软官网下载并安装：
+[https://developer.microsoft.com/en-us/microsoft-edge/webview2/](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+安装完成后重启应用即可。
+
 **Q: 应用启动后没有反应？**
 A: 使用 "CoPaw Desktop (Debug)" 模式启动，查看终端输出的错误信息
 

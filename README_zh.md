@@ -456,6 +456,7 @@ CoPaw 内置多层安全防护机制，保障你的数据与系统安全：
 - **文件访问守卫** — 限制智能体访问敏感路径（如 `~/.ssh`、密钥文件、系统目录等）
 - **技能安全扫描** — 安装技能前自动扫描，检测提示词注入、命令注入、硬编码密钥、数据外泄等风险
 - **本地部署** — 所有数据与记忆存储在本地，无第三方上传（使用云端 LLM API 时，对话内容会发送到对应的 API 提供商）
+- **Web 登录认证** — 可选的控制台登录防护，默认关闭；设置 `COPAW_AUTH_ENABLED=true` 即可开启。详见 [Web 登录认证](https://copaw.agentscope.io/docs/security#Web-登录认证)。
 
 详见 [安全文档](https://copaw.agentscope.io/docs/security)。
 
