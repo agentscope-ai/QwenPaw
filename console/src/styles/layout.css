@@ -763,6 +763,10 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   background: #fff !important;
 }
 
+.copaw-chat-anywhere-message-list-welcome {
+  background: #fff !important;
+}
+
 /* Chat bubble list max-width override */
 .copaw-chat-anywhere-message-list .copaw-bubble-list {
   max-width: 960px !important;
@@ -975,4 +979,8 @@ html.dark-mode .ant-empty-image {
 html.dark-mode .copaw-empty-description,
 html.dark-mode .ant-empty-description {
   color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark-mode .copaw-input-prefix {
+  color: rgba(255, 255, 255, 0.85) !important;
 }
