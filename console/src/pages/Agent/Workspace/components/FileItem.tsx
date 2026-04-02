@@ -132,7 +132,7 @@ export const FileItem: React.FC<FileItemProps> = ({
                 <div className={styles.dailyMemoryName}>{daily.date}.md</div>
                 <div className={styles.dailyMemoryMeta}>
                   {formatFileSize(daily.size)} ·{" "}
-                  {formatTimeAgo(daily.modified_time)}
+                  {formatTimeAgo(daily.updated_at)}
                 </div>
               </div>
             );
