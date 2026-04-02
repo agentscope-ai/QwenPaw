@@ -17,6 +17,7 @@ from copaw.utils.command_runner import (
     run_command_async,
     shutdown_process,
     shutdown_process_sync,
+    start_multiprocessing_process,
     start_process_async,
 )
 
@@ -257,6 +258,97 @@ async def test_start_process_async_raises_for_missing_executable(
         match="Command executable not found",
     ):
         await start_process_async(["missing-binary"])
+
+
+def test_start_multiprocessing_process_wraps_process() -> None:
+    class _FakeMultiprocessingProcess:
+        def __init__(self) -> None:
+            self.pid = 6789
+            self.exitcode: int | None = None
+            self.started = False
+            self.closed = False
+
+        def start(self) -> None:
+            self.started = True
+
+        def is_alive(self) -> bool:
+            return self.exitcode is None
+
+        def join(self, timeout=None) -> None:
+            del timeout
+            self.exitcode = 0
+
+        def terminate(self) -> None:
+            self.exitcode = -15
+
+        def kill(self) -> None:
+            self.exitcode = -9
+
+        def close(self) -> None:
+            self.closed = True
+
+    raw_process = _FakeMultiprocessingProcess()
+
+    managed = start_multiprocessing_process(
+        raw_process,
+        command=["copaw-model-download", "demo/repo", "modelscope"],
+    )
+
+    assert isinstance(managed, ManagedProcess)
+    assert managed.creation_mode == "multiprocessing"
+    assert managed.command == [
+        "copaw-model-download",
+        "demo/repo",
+        "modelscope",
+    ]
+    assert managed.is_alive() is True
+    assert raw_process.started is True
+
+
+def test_wait_for_process_exit_prefers_process_liveness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pid_checks: list[tuple[int, str]] = []
+
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.pid = 2468
+            self.returncode = 0
+            self.stdout = None
+
+        async def wait(self) -> int:
+            return 0
+
+        def terminate(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def is_alive(self) -> bool:
+            return False
+
+        def join(self, timeout=None) -> int:
+            del timeout
+            return 0
+
+    monkeypatch.setattr(
+        command_runner,
+        "_is_pid_running",
+        lambda pid, platform_name: (
+            pid_checks.append((pid, platform_name)) or True
+        ),
+    )
+
+    managed = ManagedProcess(
+        _FakeProcess(),
+        command=["demo"],
+        owns_process_group=False,
+        creation_mode="multiprocessing",
+    )
+
+    assert command_runner._wait_for_process_exit(managed, timeout=1.0) is True
+    assert pid_checks == []
 
 
 @pytest.mark.asyncio

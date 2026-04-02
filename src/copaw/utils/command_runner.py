@@ -103,6 +103,18 @@ class ThreadedProcess:
     def kill(self) -> None:
         self._process.kill()
 
+    def is_alive(self) -> bool:
+        return self.returncode is None
+
+    def join(self, timeout: float | None = None) -> int | None:
+        try:
+            return self._process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return None
+
+    def close(self) -> None:
+        return None
+
 
 class ManagedProcess:
     """Unified wrapper for long-lived processes across launch modes."""
@@ -127,14 +139,29 @@ class ManagedProcess:
 
     @property
     def returncode(self) -> int | None:
-        return self._process.returncode
+        if hasattr(self._process, "returncode"):
+            return self._process.returncode
+        return getattr(self._process, "exitcode", None)
 
     @property
     def stdout(self) -> Any | None:
         return getattr(self._process, "stdout", None)
 
     async def wait(self) -> int:
-        return await self._process.wait()
+        if hasattr(self._process, "wait"):
+            return await self._process.wait()
+
+        return await asyncio.to_thread(self._wait_via_join)
+
+    def _wait_via_join(self) -> int:
+        join = getattr(self._process, "join", None)
+        if join is None:
+            raise RuntimeError("Managed process does not support waiting")
+        join()
+        returncode = self.returncode
+        if returncode is None:
+            raise RuntimeError("Managed process did not exit")
+        return returncode
 
     def terminate(self) -> None:
         if self.owns_process_group and self.platform_name != "nt":
@@ -153,6 +180,20 @@ class ManagedProcess:
 
         with suppress(ProcessLookupError):
             self._process.kill()
+
+    def is_alive(self) -> bool:
+        if hasattr(self._process, "is_alive"):
+            return bool(self._process.is_alive())
+        return self.returncode is None
+
+    def join(self, timeout: float | None = None) -> int | None:
+        if hasattr(self._process, "join"):
+            return self._process.join(timeout=timeout)
+        return self.returncode
+
+    def close(self) -> None:
+        if hasattr(self._process, "close"):
+            self._process.close()
 
 
 def run_command(
@@ -276,6 +317,29 @@ async def start_process_async(
             command_list,
             f"Failed to start process: {exc}",
         ) from exc
+
+
+def start_multiprocessing_process(
+    process: Any,
+    *,
+    command: Sequence[str],
+    creation_mode: str = "multiprocessing",
+) -> ManagedProcess:
+    command_list = list(command)
+    try:
+        process.start()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ProcessLaunchError(
+            command_list,
+            f"Failed to start process: {exc}",
+        ) from exc
+
+    return ManagedProcess(
+        process,
+        command=command_list,
+        owns_process_group=False,
+        creation_mode=creation_mode,
+    )
 
 
 def _start_threaded_process(
@@ -426,19 +490,31 @@ def _wait_for_process_exit(
     process: ManagedProcess,
     timeout: float | None,
 ) -> bool:
+    if not process.is_alive():
+        process.join(timeout=0)
+        return True
+
     if timeout is None:
-        while _is_pid_running(process.pid, process.platform_name):
+        while process.is_alive():
             time.sleep(0.1)
+        process.join(timeout=0)
         return True
 
     deadline = time.monotonic() + timeout
     while True:
+        if not process.is_alive():
+            process.join(timeout=0)
+            return True
         if not _is_pid_running(process.pid, process.platform_name):
+            process.join(timeout=0)
             return True
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         time.sleep(min(0.1, remaining))
+    if not process.is_alive():
+        process.join(timeout=0)
+        return True
     return not _is_pid_running(process.pid, process.platform_name)
 
 
