@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import {
   Button,
   Checkbox,
@@ -82,13 +82,15 @@ function SkillsPage() {
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredSkills = skills.filter((skill) => {
+  const filteredSkills = useMemo(() => {
     const query = searchQuery.toLowerCase();
-    return (
-      skill.name.toLowerCase().includes(query) ||
-      (skill.description && skill.description.toLowerCase().includes(query))
-    );
-  });
+    return skills.filter((skill) => {
+      return (
+        skill.name.toLowerCase().includes(query) ||
+        (skill.description && skill.description.toLowerCase().includes(query))
+      );
+    });
+  }, [skills, searchQuery]);
 
   const toggleSelect = (name: string) => {
     setSelectedSkills((prev) => {

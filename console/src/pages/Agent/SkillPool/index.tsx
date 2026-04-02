@@ -1010,6 +1010,7 @@ function SkillPoolPage() {
                       {t("skillPool.broadcast")}
                     </Button>
                     <Button
+                      danger
                       className={styles.deleteButton}
                       disabled={poolBatchMode}
                       onClick={(e) => {
