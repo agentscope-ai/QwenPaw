@@ -7,6 +7,7 @@ import {
   getPoolBuiltinStatusTone,
   getSkillVisual,
 } from "../../Skills/components";
+import { SkillCategoryBadges, SkillTagChips } from "./SkillMeta";
 import styles from "../index.module.less";
 
 interface SkillPoolListItemProps {
@@ -55,11 +56,12 @@ export function SkillPoolListItem({
       )}
       <div className={styles.listItemLeft}>
         <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.content)}
+          {getSkillVisual(skill.name, skill.emoji)}
         </span>
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>
             <span className={styles.skillTitle}>{skill.name}</span>
+            <SkillCategoryBadges categories={skill.categories} />
             <span
               className={`${styles.statusValue} ${
                 styles[getPoolBuiltinStatusTone(skill.sync_status)]
@@ -74,6 +76,7 @@ export function SkillPoolListItem({
             )}
           </div>
           <p className={styles.listItemDesc}>{skill.description || "-"}</p>
+          <SkillTagChips tags={skill.tags} />
         </div>
       </div>
       <div className={styles.listItemRight}>

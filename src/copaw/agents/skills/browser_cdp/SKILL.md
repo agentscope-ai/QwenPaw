@@ -1,15 +1,19 @@
 ---
 name: browser_cdp
 description: "当用户明确希望连接到已运行的 Chrome 浏览器（connect_cdp）、扫描本地 CDP 端口、或以暴露 CDP 端口的方式启动浏览器（start + cdp_port）时，使用本 skill。用户没有明确提到 CDP、共享浏览器或远程调试时，启动浏览器不得携带 cdp_port，也不得使用 connect_cdp。CDP 模式会暴露浏览器历史、Cookies 等敏感信息，使用前须告知用户；同一 workspace 同时只能运行或连接一个浏览器。"
+categories:
+  - automation
+  - browser
+tags:
+  - cdp
+  - chrome
+  - headless
+  - debugging
 metadata:
-  {
-    "builtin_skill_version": "1.0",
-    "copaw":
-      {
-        "emoji": "🔌",
-        "requires": {}
-      }
-  }
+  builtin_skill_version: "1.0"
+  copaw:
+    emoji: "🔌"
+    requires: {}
 ---
 
 # 浏览器 CDP 连接参考

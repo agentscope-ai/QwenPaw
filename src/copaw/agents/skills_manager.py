@@ -73,8 +73,11 @@ class SkillInfo(BaseModel):
     version_text: str = ""
     content: str
     source: str
+    categories: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     references: dict[str, Any] = Field(default_factory=dict)
     scripts: dict[str, Any] = Field(default_factory=dict)
+    emoji: str = ""
 
 
 class SkillRequirements(BaseModel):
@@ -1276,10 +1279,27 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
     try:
         content = read_text_file_with_encoding_fallback(skill_md)
         description = ""
+        categories = []
+        tags = []
+        emoji = ""
         post: Any = {}
         try:
             post = frontmatter.loads(content)
             description = str(post.get("description", "") or "")
+            # Extract categories and tags from frontmatter
+            raw_categories = post.get("categories", [])
+            raw_tags = post.get("tags", [])
+            if isinstance(raw_categories, list):
+                categories = [str(c).strip() for c in raw_categories if c]
+            if isinstance(raw_tags, list):
+                tags = [str(t).strip() for t in raw_tags if t]
+            
+            # Extract emoji from metadata.copaw.emoji
+            metadata = post.get("metadata", {})
+            if isinstance(metadata, dict):
+                copaw = metadata.get("copaw", {})
+                if isinstance(copaw, dict):
+                    emoji = str(copaw.get("emoji", "") or "")
         except Exception:
             pass
 
@@ -1298,8 +1318,11 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
             version_text=_extract_version(post),
             content=content,
             source=source,
+            categories=categories,
+            tags=tags,
             references=references,
             scripts=scripts,
+            emoji=emoji,
         )
     except Exception as exc:
         logger.error("Failed to read skill %s: %s", skill_dir, exc)

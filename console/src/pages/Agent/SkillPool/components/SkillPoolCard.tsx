@@ -7,6 +7,7 @@ import {
   getPoolBuiltinStatusTone,
   getSkillVisual,
 } from "../../Skills/components";
+import { SkillCategoryBadges, SkillTagChips } from "./SkillMeta";
 import styles from "../index.module.less";
 
 interface SkillPoolCardProps {
@@ -54,7 +55,7 @@ export function SkillPoolCard({
           <div className={styles.leftSection}>
             <div className={styles.fileIconWrapper}>
               <span className={styles.fileIcon}>
-                {getSkillVisual(skill.name, skill.content)}
+                {getSkillVisual(skill.name, skill.emoji)}
               </span>
               {batchMode && (
                 <Checkbox checked={isSelected} onClick={handleSelectClick} />
@@ -63,6 +64,7 @@ export function SkillPoolCard({
 
             <div className={styles.titleRow}>
               <h3 className={styles.skillTitle}>{skill.name}</h3>
+              <SkillCategoryBadges categories={skill.categories} />
             </div>
           </div>
           <div className={styles.statusWithSelect}>
@@ -97,6 +99,7 @@ export function SkillPoolCard({
             {t("skillPool.descriptionLabel")}
           </p>
           <p className={styles.descriptionText}>{skill.description || "-"}</p>
+          <SkillTagChips tags={skill.tags} />
         </div>
       </div>
       <div className={styles.cardFooter}>

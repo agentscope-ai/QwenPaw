@@ -138,6 +138,12 @@ export const skillApi = {
     if (cached) return cached;
 
     const data = await request<PoolSkillSpec[]>("/skills/pool");
+    // Ensure data is an array
+    if (!Array.isArray(data)) {
+      throw new Error(
+        `Expected array from /skills/pool but got ${typeof data}`,
+      );
+    }
     setCache(cacheKey, data);
     return data;
   },
@@ -155,6 +161,12 @@ export const skillApi = {
     const data = await request<PoolSkillSpec[]>("/skills/pool/refresh", {
       method: "POST",
     });
+    // Ensure data is an array
+    if (!Array.isArray(data)) {
+      throw new Error(
+        `Expected array from /skills/pool/refresh but got ${typeof data}`,
+      );
+    }
     setCache("/skills/pool", data);
     return data;
   },

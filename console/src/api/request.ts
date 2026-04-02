@@ -109,7 +109,14 @@ export async function request<T = unknown>(
 
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    return (await response.text()) as unknown as T;
+    // This should not happen for API endpoints - treat as error
+    const text = await response.text();
+    throw new Error(
+      `Expected JSON response from ${url} but got content-type: ${contentType}. Body: ${text.substring(
+        0,
+        200,
+      )}`,
+    );
   }
 
   return (await response.json()) as T;
