@@ -1254,6 +1254,8 @@ class QQChannel(BaseChannel):
                 state.last_connect_time = time.time()
                 logger.info("qq ready session_id=%s", state.session_id)
             elif t == "RESUMED":
+                state.identify_fail_count = 0
+                state.reconnect_attempts = 0
                 logger.info("qq session resumed")
             elif t in _MESSAGE_EVENT_SPECS:
                 self._handle_msg_event(t, d or {})
