@@ -8,6 +8,7 @@ from typing import Any
 
 from copaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
+    _strip_leaked_thinking_prefix,
     _sanitize_tool_call,
 )
 
@@ -169,3 +170,24 @@ def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:
     assert sanitized_missing_name_and_arguments is not None
     assert sanitized_missing_name_and_arguments.function.name == ""
     assert sanitized_missing_name_and_arguments.function.arguments == ""
+
+
+def test_strip_leaked_thinking_prefix_for_structured_answer() -> None:
+    leaked = (
+        "Thinking\n"
+        "## ✅ 当前进展确认 - 没有丢失！\n"
+        "根据我刚才的读取验证，所有成果都已保存。"
+    )
+
+    cleaned = _strip_leaked_thinking_prefix(leaked)
+
+    assert cleaned.startswith("## ✅ 当前进展确认 - 没有丢失！")
+    assert "Thinking\n" not in cleaned
+
+
+def test_strip_leaked_thinking_prefix_keeps_normal_text() -> None:
+    normal = "Thinking\nI will compare A and B before deciding."
+
+    cleaned = _strip_leaked_thinking_prefix(normal)
+
+    assert cleaned == normal
