@@ -15,6 +15,7 @@ Uses only Python stdlib (hashlib, hmac, secrets) to avoid adding new
 dependencies.  The password is stored as a salted SHA-256 hash in
 ``auth.json`` under ``SECRET_DIR``.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -381,18 +382,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return True
 
-        if path in _PUBLIC_PATHS or any(
-            path.startswith(p) for p in _PUBLIC_PREFIXES
-        ):
+        if path in _PUBLIC_PATHS or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
             return True
 
         # Only protect /api/ routes
         if not path.startswith("/api/"):
             return True
 
-        # Allow localhost requests without auth (CLI runs locally)
-        client_host = request.client.host if request.client else ""
-        return client_host in ("127.0.0.1", "::1")
+        return False
 
     @staticmethod
     def _extract_token(request: Request) -> Optional[str]:

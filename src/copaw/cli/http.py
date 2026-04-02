@@ -2,13 +2,47 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import click
 import httpx
 
+from ..app.auth import (
+    _load_auth_data,
+    create_token,
+    has_registered_users,
+    is_auth_enabled,
+)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
+_LOCAL_API_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "0.0.0.0"})
+
+
+def _build_auth_headers(base_url: str) -> dict[str, str]:
+    """Return auth headers for CLI API requests when local auth is enabled."""
+    explicit_token = os.environ.get("COPAW_API_TOKEN", "").strip()
+    if explicit_token:
+        return {"Authorization": f"Bearer {explicit_token}"}
+
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").strip().lower()
+    if host not in _LOCAL_API_HOSTS:
+        return {}
+
+    if not is_auth_enabled() or not has_registered_users():
+        return {}
+
+    data = _load_auth_data()
+    if data.get("_auth_load_error"):
+        return {}
+
+    username = str((data.get("user") or {}).get("username") or "").strip()
+    if not username:
+        return {}
+
+    return {"Authorization": f"Bearer {create_token(username)}"}
 
 
 def client(base_url: str) -> httpx.Client:
@@ -17,7 +51,11 @@ def client(base_url: str) -> httpx.Client:
     base = base_url.rstrip("/")
     if not base.endswith("/api"):
         base = f"{base}/api"
-    return httpx.Client(base_url=base, timeout=30.0)
+    return httpx.Client(
+        base_url=base,
+        timeout=30.0,
+        headers=_build_auth_headers(base_url),
+    )
 
 
 def print_json(data: Any) -> None:
