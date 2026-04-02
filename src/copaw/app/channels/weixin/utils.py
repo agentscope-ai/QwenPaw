@@ -112,7 +112,37 @@ def aes_ecb_encrypt(data: bytes, key_b64: str) -> bytes:
     return cipher.encrypt(pad(data, AES.block_size))
 
 
+def generate_aes_key() -> bytes:
+    """Generate a random 16-byte AES key (raw bytes)."""
+    return bytes([random.randint(0, 255) for _ in range(16)])
+
+
 def generate_aes_key_b64() -> str:
     """Generate a random 16-byte AES key, base64-encoded."""
-    key = bytes([random.randint(0, 255) for _ in range(16)])
-    return base64.b64encode(key).decode()
+    return base64.b64encode(generate_aes_key()).decode()
+
+
+def aes_ecb_encrypt_bytes(plaintext: bytes, key: bytes) -> bytes:
+    """Encrypt with AES-128-ECB + PKCS7 padding using raw bytes key.
+
+    Args:
+        plaintext: Data to encrypt.
+        key: 16-byte AES key.
+
+    Returns:
+        Encrypted bytes.
+    """
+    try:
+        from Crypto.Cipher import AES
+        from Crypto.Util.Padding import pad
+    except ImportError as exc:
+        raise ImportError(
+            "pycryptodome is required for WeChat media encryption. "
+            "Install with: pip install pycryptodome",
+        ) from exc
+
+    if len(key) != 16:
+        raise ValueError(f"AES key must be 16 bytes, got {len(key)}")
+
+    cipher = AES.new(key, AES.MODE_ECB)
+    return cipher.encrypt(pad(plaintext, AES.block_size))

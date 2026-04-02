@@ -44,10 +44,21 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from ..utils import split_text
+from ..utils import split_text, file_url_to_local_path
 from .client import ILinkClient, _DEFAULT_BASE_URL
 
 logger = logging.getLogger(__name__)
+
+# Media type constants for upload (API parameter)
+_MEDIA_TYPE_IMAGE = 1
+_MEDIA_TYPE_VIDEO = 2
+_MEDIA_TYPE_FILE = 3
+
+# Message item type constants (message.item_list[].type)
+_MSG_ITEM_TEXT = 1
+_MSG_ITEM_IMAGE = 2
+_MSG_ITEM_FILE = 4
+_MSG_ITEM_VIDEO = 5
 
 # Max dedup set size
 _WEIXIN_PROCESSED_IDS_MAX = 2000
@@ -745,13 +756,153 @@ class WeixinChannel(BaseChannel):
         except Exception:
             logger.exception("weixin _send_text_direct failed")
 
+    async def _get_typing_ticket(
+        self,
+        user_id: str,
+        context_token: str,
+    ) -> Optional[str]:
+        """Get typing_ticket from getconfig API."""
+        if not self._client or not user_id or not context_token:
+            return None
+        try:
+            config = await self._client.getconfig(user_id, context_token)
+            return config.get("typing_ticket")
+        except Exception as e:
+            logger.debug("weixin getconfig failed: %s", e)
+            return None
+
+    async def _send_typing_with_ticket(
+        self,
+        user_id: str,
+        typing_ticket: Optional[str],
+        status: int = 1,
+    ) -> None:
+        """Send typing indicator using cached ticket."""
+        if not self._client or not user_id or not typing_ticket:
+            return
+        try:
+            await self._client.sendtyping(user_id, typing_ticket, status)
+            logger.debug(
+                "weixin sendtyping: user=%s status=%s",
+                user_id[:20],
+                status,
+            )
+        except Exception as e:
+            logger.debug("weixin sendtyping failed (non-critical): %s", e)
+
+    async def _upload_and_send_media(
+        self,
+        user_id: str,
+        context_token: str,
+        file_path: str,
+        media_type: int,
+        filename: Optional[str] = None,
+    ) -> bool:
+        """Upload media file and send to user.
+
+        Args:
+            user_id: Target user ID.
+            context_token: Context token from inbound message.
+            file_path: Local file path.
+            media_type: 1=image, 2=video, 3=file.
+            filename: Optional filename (for file type).
+
+        Returns:
+            True if sent successfully.
+        """
+        if not self._client:
+            logger.warning("weixin: cannot send media, client not available")
+            return False
+
+        try:
+            path = Path(file_path)
+            data = path.read_bytes()
+
+            # Upload to CDN
+            upload_result = await self._client.upload_media(
+                user_id=user_id,
+                data=data,
+                media_type=media_type,
+            )
+
+            encrypt_query_param = upload_result.get("encrypt_query_param", "")
+            aes_key = upload_result.get("aes_key", "")
+            encrypted_size = upload_result.get("encrypted_size", 0)
+
+            if not encrypt_query_param:
+                logger.warning("weixin: upload failed, no encrypt_query_param")
+                return False
+
+            # Build item based on media type
+            if media_type == _MEDIA_TYPE_IMAGE:
+                item = {
+                    "type": _MSG_ITEM_IMAGE,
+                    "image_item": {
+                        "media": {
+                            "encrypt_query_param": encrypt_query_param,
+                            "aes_key": aes_key,
+                            "encrypt_type": 1,
+                        },
+                        "mid_size": encrypted_size,
+                    },
+                }
+            elif media_type == _MEDIA_TYPE_VIDEO:
+                item = {
+                    "type": _MSG_ITEM_VIDEO,
+                    "video_item": {
+                        "media": {
+                            "encrypt_query_param": encrypt_query_param,
+                            "aes_key": aes_key,
+                            "encrypt_type": 1,
+                        },
+                        "video_size": encrypted_size,
+                    },
+                }
+            else:  # FILE
+                item = {
+                    "type": _MSG_ITEM_FILE,
+                    "file_item": {
+                        "media": {
+                            "encrypt_query_param": encrypt_query_param,
+                            "aes_key": aes_key,
+                            "encrypt_type": 1,
+                        },
+                        "file_name": filename or path.name,
+                        "len": str(len(data)),
+                    },
+                }
+
+            # Build and send message
+            msg = self._client.build_media_message(
+                user_id=user_id,
+                context_token=context_token,
+                item_list=[item],
+            )
+            await self._client.sendmessage(msg)
+            logger.info("weixin: sent media to %s", user_id[:20])
+            return True
+
+        except FileNotFoundError:
+            logger.warning("weixin: media file not found: %s", file_path)
+            return False
+
+        except Exception:
+            logger.exception(
+                "weixin: failed to upload/send media: %s",
+                file_path,
+            )
+            return False
+
     async def send_content_parts(
         self,
         to_handle: str,
         parts: List[OutgoingContentPart],
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Send agent response content back to the WeChat user."""
+        """Send agent response content back to the WeChat user.
+
+        Supports text, image, video, and file content types.
+        """
         if not self.enabled:
             return
         m = meta or {}
@@ -771,6 +922,17 @@ class WeixinChannel(BaseChannel):
         prefix = m.get("bot_prefix", "") or self.bot_prefix or ""
         text_parts: List[str] = []
 
+        # Get typing_ticket once and send typing indicator
+        typing_ticket = await self._get_typing_ticket(
+            to_user_id,
+            context_token,
+        )
+        await self._send_typing_with_ticket(
+            to_user_id,
+            typing_ticket,
+            status=1,
+        )
+
         for p in parts:
             t = getattr(p, "type", None) or (
                 p.get("type") if isinstance(p, dict) else None
@@ -781,21 +943,57 @@ class WeixinChannel(BaseChannel):
             refusal_val = getattr(p, "refusal", None) or (
                 p.get("refusal") if isinstance(p, dict) else None
             )
+
             if t == ContentType.TEXT and text_val:
                 text_parts.append(text_val)
             elif t == ContentType.REFUSAL and refusal_val:
                 text_parts.append(refusal_val)
-            # Media send not yet implemented for iLink (no upload API)
+            elif t == ContentType.IMAGE:
+                image_url = getattr(p, "image_url", None)
+                if image_url:
+                    local_path = file_url_to_local_path(image_url)
+                    if local_path:
+                        await self._upload_and_send_media(
+                            user_id=to_user_id,
+                            context_token=context_token,
+                            file_path=local_path,
+                            media_type=_MEDIA_TYPE_IMAGE,
+                        )
+            elif t == ContentType.VIDEO:
+                video_url = getattr(p, "video_url", None)
+                if video_url:
+                    local_path = file_url_to_local_path(video_url)
+                    if local_path:
+                        await self._upload_and_send_media(
+                            user_id=to_user_id,
+                            context_token=context_token,
+                            file_path=local_path,
+                            media_type=_MEDIA_TYPE_VIDEO,
+                        )
+            elif t == ContentType.FILE:
+                file_url = getattr(p, "file_url", None)
+                filename = getattr(p, "filename", None)
+                if file_url:
+                    local_path = file_url_to_local_path(file_url)
+                    if local_path:
+                        await self._upload_and_send_media(
+                            user_id=to_user_id,
+                            context_token=context_token,
+                            file_path=local_path,
+                            media_type=_MEDIA_TYPE_FILE,
+                            filename=filename,
+                        )
+            elif t == ContentType.AUDIO:
+                logger.warning("weixin: audio send not supported")
 
+        # Send text parts
         body = "\n".join(text_parts).strip()
         if prefix and body:
             body = prefix + "  " + body
 
-        if not body:
-            return
-
-        for chunk in split_text(body):
-            await self._send_text_direct(to_user_id, chunk, context_token)
+        if body:
+            for chunk in split_text(body):
+                await self._send_text_direct(to_user_id, chunk, context_token)
 
     async def send(
         self,

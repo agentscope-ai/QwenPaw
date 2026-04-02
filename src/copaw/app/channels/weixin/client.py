@@ -14,22 +14,34 @@ Authentication flow:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
 import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import quote
 
 import httpx
 
-from .utils import aes_ecb_decrypt, make_headers
+from .utils import (
+    aes_ecb_decrypt,
+    aes_ecb_encrypt_bytes,
+    generate_aes_key,
+    make_headers,
+)
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
+_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
 _CHANNEL_VERSION = "2.0.1"
 # Long-poll hold time is up to 35 seconds (server-controlled)
 _GETUPDATES_TIMEOUT = 45.0
 _DEFAULT_TIMEOUT = 15.0
+
+
+def _base_info() -> Dict[str, str]:
+    return {"channel_version": _CHANNEL_VERSION}
 
 
 class ILinkClient:
@@ -239,24 +251,41 @@ class ILinkClient:
             },
         )
 
-    async def getconfig(self) -> Dict[str, Any]:
+    async def getconfig(
+        self,
+        user_id: str,
+        context_token: str,
+    ) -> Dict[str, Any]:
         """Fetch bot config (e.g. typing_ticket).
 
+        Args:
+            user_id: User ID (ilink_user_id).
+            context_token: Context token from inbound message.
+
         Returns:
-            API response dict.
+            API response dict with typing_ticket.
         """
-        return await self._post("ilink/bot/getconfig", {})
+        return await self._post(
+            "ilink/bot/getconfig",
+            {
+                "ilink_user_id": user_id,
+                "context_token": context_token,
+                "base_info": _base_info(),
+            },
+        )
 
     async def sendtyping(
         self,
-        to_user_id: str,
+        user_id: str,
         typing_ticket: str,
+        status: int = 1,
     ) -> Dict[str, Any]:
         """Send "typing..." indicator to a user.
 
         Args:
-            to_user_id: Recipient user ID.
+            user_id: Recipient user ID (ilink_user_id).
             typing_ticket: Ticket from getconfig().
+            status: 1 = start typing, 2 = stop typing.
 
         Returns:
             API response dict.
@@ -264,8 +293,10 @@ class ILinkClient:
         return await self._post(
             "ilink/bot/sendtyping",
             {
-                "to_user_id": to_user_id,
+                "ilink_user_id": user_id,
                 "typing_ticket": typing_ticket,
+                "status": status,
+                "base_info": _base_info(),
             },
         )
 
@@ -316,3 +347,168 @@ class ILinkClient:
         if aes_key_b64:
             data = aes_ecb_decrypt(data, aes_key_b64)
         return data
+
+    async def getuploadurl(
+        self,
+        user_id: str,
+        filekey: str,
+        media_type: int,
+        raw_size: int,
+        encrypted_size: int,
+        raw_md5: str,
+        aes_key_hex: str,
+    ) -> Dict[str, Any]:
+        """Get CDN upload URL.
+
+        Args:
+            user_id: Target user ID.
+            filekey: Random 32-char hex string.
+            media_type: 1=image, 2=video, 3=file, 4=voice.
+            raw_size: Original file size.
+            encrypted_size: Encrypted file size.
+            raw_md5: MD5 hash of original file.
+            aes_key_hex: AES key as hex string.
+
+        Returns:
+            Dict with upload_param for CDN upload.
+        """
+        return await self._post(
+            "ilink/bot/getuploadurl",
+            {
+                "filekey": filekey,
+                "media_type": media_type,
+                "to_user_id": user_id,
+                "rawsize": raw_size,
+                "rawfilemd5": raw_md5,
+                "filesize": encrypted_size,
+                "no_need_thumb": True,
+                "aeskey": aes_key_hex,
+                "base_info": _base_info(),
+            },
+        )
+
+    async def upload_to_cdn(
+        self,
+        upload_param: str,
+        filekey: str,
+        encrypted_data: bytes,
+    ) -> str:
+        """Upload encrypted data to CDN.
+
+        Args:
+            upload_param: Upload parameter from getuploadurl.
+            filekey: File key used in getuploadurl.
+            encrypted_data: AES-encrypted file content.
+
+        Returns:
+            encrypt_query_param for sending in message.
+        """
+        assert self._client is not None, "ILinkClient not started"
+
+        upload_url = (
+            f"{_CDN_BASE_URL}/upload"
+            f"?encrypted_query_param={quote(upload_param)}"
+            f"&filekey={quote(filekey)}"
+        )
+
+        resp = await self._client.post(
+            upload_url,
+            content=encrypted_data,
+            headers={"Content-Type": "application/octet-stream"},
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+
+        encrypt_query_param = resp.headers.get("x-encrypted-param")
+        if not encrypt_query_param:
+            raise RuntimeError(
+                "CDN upload succeeded but x-encrypted-param header missing",
+            )
+
+        return encrypt_query_param
+
+    async def upload_media(
+        self,
+        user_id: str,
+        data: bytes,
+        media_type: int,
+    ) -> Dict[str, Any]:
+        """Upload media file to CDN.
+
+        Args:
+            user_id: Target user ID.
+            data: Raw file content.
+            media_type: 1=image, 2=video, 3=file.
+
+        Returns:
+            Dict with:
+                encrypt_query_param: For sending in message.
+                aes_key: Base64-encoded AES key (for message).
+                encrypted_size: Size of encrypted data.
+        """
+        # Generate AES key and encrypt
+        aes_key = generate_aes_key()
+        encrypted_data = aes_ecb_encrypt_bytes(data, aes_key)
+
+        # Generate filekey and MD5
+        filekey = os.urandom(16).hex()
+        raw_md5 = hashlib.md5(data).hexdigest()
+
+        # Get upload URL
+        upload_info = await self.getuploadurl(
+            user_id=user_id,
+            filekey=filekey,
+            media_type=media_type,
+            raw_size=len(data),
+            encrypted_size=len(encrypted_data),
+            raw_md5=raw_md5,
+            aes_key_hex=aes_key.hex(),
+        )
+
+        upload_param = upload_info.get("upload_param")
+        if not upload_param:
+            raise RuntimeError("getuploadurl did not return upload_param")
+
+        # Upload to CDN
+        encrypt_query_param = await self.upload_to_cdn(
+            upload_param=upload_param,
+            filekey=filekey,
+            encrypted_data=encrypted_data,
+        )
+
+        # Encode aes_key as base64(hex) format for message
+        import base64
+
+        aes_key_b64 = base64.b64encode(aes_key.hex().encode()).decode()
+
+        return {
+            "encrypt_query_param": encrypt_query_param,
+            "aes_key": aes_key_b64,
+            "encrypted_size": len(encrypted_data),
+        }
+
+    def build_media_message(
+        self,
+        user_id: str,
+        context_token: str,
+        item_list: list,
+    ) -> Dict[str, Any]:
+        """Build a media message dict.
+
+        Args:
+            user_id: Target user ID.
+            context_token: Context token from inbound message.
+            item_list: List of message items.
+
+        Returns:
+            Message dict for sendmessage.
+        """
+        return {
+            "from_user_id": "",
+            "to_user_id": user_id,
+            "client_id": str(uuid.uuid4()),
+            "message_type": 2,
+            "message_state": 2,
+            "context_token": context_token,
+            "item_list": item_list,
+        }
