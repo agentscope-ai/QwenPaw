@@ -148,6 +148,10 @@ Currently supported cloud providers include:
 - ModelScope
 - DashScope
 - Aliyun Coding Plan
+- Zhipu (BigModel)
+- Zhipu Coding Plan (BigModel)
+- Zhipu (Z.AI)
+- Zhipu Coding Plan (Z.AI)
 - OpenAI
 - Azure OpenAI
 - Anthropic
@@ -155,6 +159,18 @@ Currently supported cloud providers include:
 - MiniMax
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
+
+For Zhipu providers, CoPaw includes the following built-in options:
+
+- `zhipu-cn`: `https://open.bigmodel.cn/api/paas/v4`
+- `zhipu-cn-codingplan`: `https://open.bigmodel.cn/api/coding/paas/v4`
+- `zhipu-intl`: `https://api.z.ai/api/paas/v4`
+- `zhipu-intl-codingplan`: `https://api.z.ai/api/coding/paas/v4`
+
+The preset Zhipu models are `glm-5`, `glm-5.1`, `glm-5-turbo`, and
+`glm-5v-turbo`. The Coding Plan endpoints are intended for supported coding
+tools and provider quotas; use the standard API endpoints for general API
+scenarios.
 
 ![Cloud Provider List](https://gw.alicdn.com/imgextra/i3/O1CN01EoK2LV2AH7lFM4GJu_!!6000000008177-2-tps-3402-1942.png)
 

@@ -97,7 +97,7 @@ class ExpectedCapabilityRegistry:
         self._data[(cap.provider_id, cap.model_id)] = cap
 
     def _load_baseline(self) -> None:
-        """Load baseline data for all 16 built-in providers."""
+        """Load baseline data for built-in providers."""
 
         # ---------------------------------------------------------------
         # 1. ModelScope
@@ -250,6 +250,110 @@ class ExpectedCapabilityRegistry:
                 expected_video=False,
                 doc_url=_acp_doc,
                 note="Qwen3 Coder series is code-only text model",
+            ),
+        )
+
+        # ---------------------------------------------------------------
+        # Zhipu (BigModel)
+        # ---------------------------------------------------------------
+        _zhipu_cn_doc = "https://docs.bigmodel.cn/"
+        for mid in ("glm-5", "glm-5.1", "glm-5-turbo"):
+            self._register(
+                ExpectedCapability(
+                    provider_id="zhipu-cn",
+                    model_id=mid,
+                    expected_image=False,
+                    expected_video=False,
+                    doc_url=_zhipu_cn_doc,
+                    note="GLM text/code models are text-only",
+                ),
+            )
+        self._register(
+            ExpectedCapability(
+                provider_id="zhipu-cn",
+                model_id="glm-5v-turbo",
+                expected_image=True,
+                expected_video=False,
+                doc_url=_zhipu_cn_doc,
+                note="GLM vision model supports image input",
+            ),
+        )
+
+        # ---------------------------------------------------------------
+        # Zhipu Coding Plan (BigModel)
+        # ---------------------------------------------------------------
+        _zhipu_cn_cp_doc = "https://docs.bigmodel.cn/cn/coding-plan"
+        for mid in ("glm-5", "glm-5.1", "glm-5-turbo"):
+            self._register(
+                ExpectedCapability(
+                    provider_id="zhipu-cn-codingplan",
+                    model_id=mid,
+                    expected_image=False,
+                    expected_video=False,
+                    doc_url=_zhipu_cn_cp_doc,
+                    note="GLM text/code models are text-only",
+                ),
+            )
+        self._register(
+            ExpectedCapability(
+                provider_id="zhipu-cn-codingplan",
+                model_id="glm-5v-turbo",
+                expected_image=True,
+                expected_video=False,
+                doc_url=_zhipu_cn_cp_doc,
+                note="GLM vision model supports image input",
+            ),
+        )
+
+        # ---------------------------------------------------------------
+        # Zhipu (Z.AI)
+        # ---------------------------------------------------------------
+        _zhipu_intl_doc = "https://docs.z.ai/"
+        for mid in ("glm-5", "glm-5.1", "glm-5-turbo"):
+            self._register(
+                ExpectedCapability(
+                    provider_id="zhipu-intl",
+                    model_id=mid,
+                    expected_image=False,
+                    expected_video=False,
+                    doc_url=_zhipu_intl_doc,
+                    note="GLM text/code models are text-only",
+                ),
+            )
+        self._register(
+            ExpectedCapability(
+                provider_id="zhipu-intl",
+                model_id="glm-5v-turbo",
+                expected_image=True,
+                expected_video=False,
+                doc_url=_zhipu_intl_doc,
+                note="GLM vision model supports image input",
+            ),
+        )
+
+        # ---------------------------------------------------------------
+        # Zhipu Coding Plan (Z.AI)
+        # ---------------------------------------------------------------
+        _zhipu_intl_cp_doc = "https://docs.z.ai/coding-plan"
+        for mid in ("glm-5", "glm-5.1", "glm-5-turbo"):
+            self._register(
+                ExpectedCapability(
+                    provider_id="zhipu-intl-codingplan",
+                    model_id=mid,
+                    expected_image=False,
+                    expected_video=False,
+                    doc_url=_zhipu_intl_cp_doc,
+                    note="GLM text/code models are text-only",
+                ),
+            )
+        self._register(
+            ExpectedCapability(
+                provider_id="zhipu-intl-codingplan",
+                model_id="glm-5v-turbo",
+                expected_image=True,
+                expected_video=False,
+                doc_url=_zhipu_intl_cp_doc,
+                note="GLM vision model supports image input",
             ),
         )
 

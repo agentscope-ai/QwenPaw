@@ -133,6 +133,37 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
     ),
 ]
 
+ZHIPU_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="glm-5",
+        name="glm-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="glm-5.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5-turbo",
+        name="glm-5-turbo",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5v-turbo",
+        name="glm-5v-turbo",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
 OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="gpt-5.2",
@@ -448,6 +479,44 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_ZHIPU_CN = OpenAIProvider(
+    id="zhipu-cn",
+    name="Zhipu (BigModel)",
+    base_url="https://open.bigmodel.cn/api/paas/v4",
+    api_key_prefix="",
+    models=ZHIPU_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
+    id="zhipu-cn-codingplan",
+    name="Zhipu Coding Plan (BigModel)",
+    base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+    api_key_prefix="",
+    models=ZHIPU_MODELS,
+    freeze_url=True,
+    support_connection_check=False,
+)
+
+PROVIDER_ZHIPU_INTL = OpenAIProvider(
+    id="zhipu-intl",
+    name="Zhipu (Z.AI)",
+    base_url="https://api.z.ai/api/paas/v4",
+    api_key_prefix="",
+    models=ZHIPU_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
+    id="zhipu-intl-codingplan",
+    name="Zhipu Coding Plan (Z.AI)",
+    base_url="https://api.z.ai/api/coding/paas/v4",
+    api_key_prefix="",
+    models=ZHIPU_MODELS,
+    freeze_url=True,
+    support_connection_check=False,
+)
+
 PROVIDER_COPAW = OpenAIProvider(
     id="copaw-local",
     name="CoPaw Local",
@@ -602,6 +671,10 @@ class ProviderManager:
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
+        self._add_builtin(PROVIDER_ZHIPU_CN)
+        self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
+        self._add_builtin(PROVIDER_ZHIPU_INTL)
+        self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_KIMI_CN)

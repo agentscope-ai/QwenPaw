@@ -148,6 +148,10 @@ CoPaw 当前支持的云提供商包括：
 - ModelScope
 - DashScope
 - Aliyun Coding Plan
+- Zhipu（BigModel）
+- Zhipu Coding Plan（BigModel）
+- Zhipu（Z.AI）
+- Zhipu Coding Plan（Z.AI）
 - OpenAI
 - Azure OpenAI
 - Anthropic
@@ -155,6 +159,17 @@ CoPaw 当前支持的云提供商包括：
 - MiniMax
 
 > 由于部分供应商针对中国大陆以及其他地区提供了不同的 API 域名，请根据您所在的地区选择正确的供应商
+
+对于 Zhipu 提供商，CoPaw 内置了以下几种配置：
+
+- `zhipu-cn`：`https://open.bigmodel.cn/api/paas/v4`
+- `zhipu-cn-codingplan`：`https://open.bigmodel.cn/api/coding/paas/v4`
+- `zhipu-intl`：`https://api.z.ai/api/paas/v4`
+- `zhipu-intl-codingplan`：`https://api.z.ai/api/coding/paas/v4`
+
+预设模型为 `glm-5`、`glm-5.1`、`glm-5-turbo` 和 `glm-5v-turbo`。
+其中 Coding Plan 端点主要用于支持的 Coding 工具及对应额度场景，
+普通 API 调用请使用标准 API 端点。
 
 ![云供应商列表](https://gw.alicdn.com/imgextra/i3/O1CN01EoK2LV2AH7lFM4GJu_!!6000000008177-2-tps-3402-1942.png)
 
