@@ -94,19 +94,27 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Open drawer → refresh session list (same deduped fetch as getSessionList). */
   useEffect(() => {
     if (!props.open) return;
-    let cancelled = false;
-    void (async () => {
+
+    let isCancelled = false;
+
+    const fetchSessions = async () => {
       try {
         const list = await sessionApi.getSessionList();
-        if (!cancelled) setSessions(list);
-      } catch {
-        if (!cancelled) await refreshSessions();
+        if (!isCancelled) {
+          setSessions(list);
+        }
+      } catch (error) {
+        // It's good practice to log errors.
+        console.error("Failed to refresh session list:", error);
       }
-    })();
-    return () => {
-      cancelled = true;
     };
-  }, [props.open, setSessions, refreshSessions]);
+
+    void fetchSessions();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [props.open, setSessions]);
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
