@@ -1027,7 +1027,9 @@ html.dark-mode .ant-table .ant-btn-variant-text:hover,
 html.dark-mode .ant-table .ant-btn-color-default.ant-btn-variant-text:hover,
 html.dark-mode .copaw-table .copaw-btn-text:hover,
 html.dark-mode .copaw-table .copaw-btn-variant-text:hover,
-html.dark-mode .copaw-table .copaw-btn-color-default.copaw-btn-variant-text:hover {
+html.dark-mode
+  .copaw-table
+  .copaw-btn-color-default.copaw-btn-variant-text:hover {
   color: rgba(255, 255, 255, 0.9) !important;
   background: rgba(255, 255, 255, 0.08) !important;
 }
