@@ -365,6 +365,26 @@ class TestHandleWsPayload:
         assert state.session_id == "new_sess"
         assert state.last_seq == 1
 
+    def test_dispatch_resumed_resets_reconnect_state(self):
+        ch, ws, state, hb = self._make_deps()
+        state.identify_fail_count = 2
+        state.reconnect_attempts = 5
+        state.last_connect_time = 1.0
+        payload = {
+            "op": OP_DISPATCH,
+            "d": {},
+            "s": 7,
+            "t": "RESUMED",
+        }
+        before = time.time()
+        result = ch._handle_ws_payload(payload, ws, "tok", state, hb)
+        after = time.time()
+        assert result is None
+        assert state.identify_fail_count == 0
+        assert state.reconnect_attempts == 0
+        assert before <= state.last_connect_time <= after
+        assert state.last_seq == 7
+
     def test_dispatch_message_calls_handle_msg_event(self):
         ch, ws, state, hb = self._make_deps()
         ch._handle_msg_event = MagicMock()
