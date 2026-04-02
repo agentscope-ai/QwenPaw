@@ -24,6 +24,7 @@ import time
 from email.utils import parsedate_to_datetime
 import types
 from collections import OrderedDict
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -1886,7 +1887,6 @@ class FeishuChannel(BaseChannel):
         except Exception:
             logger.exception("card close error")
 
-
     # ----- _stream_with_tracker override (CoPaw post-1.0 architecture)
 
     async def _stream_with_tracker(
@@ -1905,11 +1905,13 @@ class FeishuChannel(BaseChannel):
         Falls back to super() if streaming is disabled.
         """
         if not self._is_streaming_enabled():
-            async for chunk in super()._stream_with_tracker(payload):  # type: ignore[misc]
+            async for chunk in super()._stream_with_tracker(
+                payload,
+            ):  # type: ignore[misc]
                 yield chunk
             return
 
-        # --- Build request & meta (mirror BaseChannel._stream_with_tracker) ---
+        # Build request and meta (mirror BaseChannel._stream_with_tracker)
         request = self._payload_to_request(payload)
 
         if isinstance(payload, dict):
@@ -1920,7 +1922,9 @@ class FeishuChannel(BaseChannel):
             send_meta = getattr(request, "channel_meta", None) or {}
 
         bot_prefix = getattr(self, "bot_prefix", None) or getattr(
-            self, "_bot_prefix", ""
+            self,
+            "_bot_prefix",
+            "",
         )
         if bot_prefix and "bot_prefix" not in send_meta:
             send_meta = {**send_meta, "bot_prefix": bot_prefix}
@@ -1966,6 +1970,19 @@ class FeishuChannel(BaseChannel):
                 await self._card_close(card_id)
             card_id = None
             text_acc = ""
+
+        async def _send_others(parts: list) -> None:
+            nonlocal last_msg_id
+            try:
+                mid = await self.send_content_parts(
+                    to_handle,
+                    parts,
+                    send_meta,
+                )
+                if mid:
+                    last_msg_id = mid
+            except Exception:
+                pass
 
         async def _create_card() -> bool:
             nonlocal card_id, last_msg_id, _updater_task
@@ -2027,77 +2044,49 @@ class FeishuChannel(BaseChannel):
                     texts = [
                         p
                         for p in parts
-                        if getattr(p, "type", None)
-                        in ("text", "markdown")
+                        if getattr(p, "type", None) in ("text", "markdown")
                     ]
                     others = [
                         p
                         for p in parts
-                        if getattr(p, "type", None)
-                        not in ("text", "markdown")
+                        if getattr(p, "type", None) not in ("text", "markdown")
                     ]
-                    new_text = "".join(
-                        getattr(t, "text", "") for t in texts
-                    )
+                    new_text = "".join(getattr(t, "text", "") for t in texts)
 
                     if card_id == "":
                         # Streaming failed, normal send
-                        mid = await self.send_content_parts(
-                            to_handle, parts, send_meta
-                        )
-                        if mid:
-                            last_msg_id = mid
+                        await _send_others(parts)
                         continue
 
                     if card_id and card_id != "":
                         final = new_text or text_acc
                         await _close_card(final)
                         if others:
-                            try:
-                                mid = await self.send_content_parts(
-                                    to_handle, others, send_meta
-                                )
-                                if mid:
-                                    last_msg_id = mid
-                            except Exception:
-                                pass
+                            await _send_others(others)
                         continue
 
                     # No card yet: quick create + close
                     if new_text:
                         if await _create_card():
                             await self._card_update_text(
-                                card_id, new_text  # type: ignore[arg-type]
+                                card_id,  # type: ignore[arg-type]
+                                new_text,
                             )
                             await _close_card(new_text)
                             if others:
-                                try:
-                                    mid = await self.send_content_parts(
-                                        to_handle, others, send_meta
-                                    )
-                                    if mid:
-                                        last_msg_id = mid
-                                except Exception:
-                                    pass
+                                await _send_others(others)
                         else:
-                            mid = await self.send_content_parts(
-                                to_handle, parts, send_meta
-                            )
-                            if mid:
-                                last_msg_id = mid
+                            await _send_others(parts)
                     else:
                         if others:
-                            mid = await self.send_content_parts(
-                                to_handle, others, send_meta
-                            )
-                            if mid:
-                                last_msg_id = mid
+                            await _send_others(others)
                     continue
 
                 # --- InProgress streaming deltas ---
                 if st == RunStatus.InProgress:
                     text = self._extract_streaming_text(
-                        event, is_streaming=True
+                        event,
+                        is_streaming=True,
                     )
                     if not text:
                         continue
@@ -2110,13 +2099,13 @@ class FeishuChannel(BaseChannel):
             if process_iterator is not None:
                 await process_iterator.aclose()
             if card_id and card_id != "":
-                await _card_close(card_id)
+                await self._card_close(card_id)
             raise
 
         except Exception:
             logger.exception("streaming _stream_with_tracker error")
             if card_id and card_id != "":
-                await _card_close(card_id)
+                await self._card_close(card_id)
             return
 
         # --- Post-processing ---
@@ -2127,7 +2116,9 @@ class FeishuChannel(BaseChannel):
         if err:
             try:
                 await self._on_consume_error(
-                    request, to_handle, f"Error: {err}"
+                    request,
+                    to_handle,
+                    f"Error: {err}",
                 )
             except Exception:
                 pass

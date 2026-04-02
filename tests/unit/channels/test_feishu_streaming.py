@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -447,23 +447,31 @@ class TestStreamWithTrackerRouting:
         monkeypatch.setenv("FEISHU_STREAMING_ENABLED", "true")
 
         monkeypatch.setattr(
-            channel, "_payload_to_request", lambda p: MagicMock()
+            channel,
+            "_payload_to_request",
+            lambda p: MagicMock(),
         )
         monkeypatch.setattr(
-            channel, "get_to_handle_from_request", lambda r: "test_user"
+            channel,
+            "get_to_handle_from_request",
+            lambda r: "test_user",
         )
         monkeypatch.setattr(channel, "_before_consume_process", AsyncMock())
         monkeypatch.setattr(
-            channel, "_get_receive_for_send",
+            channel,
+            "_get_receive_for_send",
             AsyncMock(return_value=("open_id", "ou_123")),
         )
         monkeypatch.setattr(
-            channel, "_streaming_auth_headers",
+            channel,
+            "_streaming_auth_headers",
             lambda: {"Authorization": "Bearer t"},
         )
         monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
         monkeypatch.setattr(
-            channel, "_feishu_base_url", lambda: "https://open.feishu.cn"
+            channel,
+            "_feishu_base_url",
+            lambda: "https://open.feishu.cn",
         )
 
         from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
@@ -488,17 +496,25 @@ class TestStreamWithTrackerRouting:
         content_part.type = "text"
         content_part.text = "Hello"
         monkeypatch.setattr(
-            channel, "_message_to_content_parts", lambda ev: [content_part]
+            channel,
+            "_message_to_content_parts",
+            lambda ev: [content_part],
         )
         monkeypatch.setattr(
-            channel, "send_content_parts", AsyncMock(return_value="m1")
+            channel,
+            "send_content_parts",
+            AsyncMock(return_value="m1"),
         )
         monkeypatch.setattr(
-            channel, "_get_response_error_message", lambda r: None
+            channel,
+            "_get_response_error_message",
+            lambda r: None,
         )
         monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
         monkeypatch.setattr(
-            channel, "get_on_reply_sent_args", lambda r, t: (r, t)
+            channel,
+            "get_on_reply_sent_args",
+            lambda r, t: (r, t),
         )
         monkeypatch.setattr(channel, "_on_reply_sent", None)
 
@@ -515,33 +531,44 @@ class TestStreamWithTrackerStreaming:
 
     @pytest.mark.asyncio
     async def test_card_lifecycle_via_tracker(
-        self, channel, mock_http, monkeypatch
+        self,
+        channel,
+        mock_http,
+        monkeypatch,
     ):
         """Full lifecycle: create card -> stream -> close via tracker."""
         monkeypatch.setenv("FEISHU_STREAMING_ENABLED", "true")
 
         monkeypatch.setattr(
-            channel, "_payload_to_request", lambda p: MagicMock()
+            channel,
+            "_payload_to_request",
+            lambda p: MagicMock(),
         )
         monkeypatch.setattr(
-            channel, "get_to_handle_from_request", lambda r: "test_user"
+            channel,
+            "get_to_handle_from_request",
+            lambda r: "test_user",
         )
         monkeypatch.setattr(channel, "_before_consume_process", AsyncMock())
         monkeypatch.setattr(
-            channel, "_get_receive_for_send",
+            channel,
+            "_get_receive_for_send",
             AsyncMock(return_value=("open_id", "ou_123")),
         )
         monkeypatch.setattr(
-            channel, "_streaming_auth_headers",
+            channel,
+            "_streaming_auth_headers",
             lambda: {"Authorization": "Bearer t"},
         )
         monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
         monkeypatch.setattr(
-            channel, "_feishu_base_url", lambda: "https://open.feishu.cn"
+            channel,
+            "_feishu_base_url",
+            lambda: "https://open.feishu.cn",
         )
 
         mock_http.post.return_value = _ok_feishu(
-            data={"card_id": "card_test123"}
+            data={"card_id": "card_test123"},
         )
         mock_http.put.return_value = _ok_feishu()
         mock_http.patch.return_value = _ok_feishu()
@@ -572,17 +599,25 @@ class TestStreamWithTrackerStreaming:
         content_part.type = "text"
         content_part.text = "Hello world"
         monkeypatch.setattr(
-            channel, "_message_to_content_parts", lambda ev: [content_part]
+            channel,
+            "_message_to_content_parts",
+            lambda ev: [content_part],
         )
         monkeypatch.setattr(
-            channel, "send_content_parts", AsyncMock(return_value="m1")
+            channel,
+            "send_content_parts",
+            AsyncMock(return_value="m1"),
         )
         monkeypatch.setattr(
-            channel, "_get_response_error_message", lambda r: None
+            channel,
+            "_get_response_error_message",
+            lambda r: None,
         )
         monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
         monkeypatch.setattr(
-            channel, "get_on_reply_sent_args", lambda r, t: (r, t)
+            channel,
+            "get_on_reply_sent_args",
+            lambda r, t: (r, t),
         )
         monkeypatch.setattr(channel, "_on_reply_sent", None)
 
@@ -596,29 +631,40 @@ class TestStreamWithTrackerStreaming:
 
     @pytest.mark.asyncio
     async def test_fallback_on_card_failure_via_tracker(
-        self, channel, mock_http, monkeypatch
+        self,
+        channel,
+        mock_http,
+        monkeypatch,
     ):
         """Card creation fails -> fall back to normal send via tracker."""
         monkeypatch.setenv("FEISHU_STREAMING_ENABLED", "true")
 
         monkeypatch.setattr(
-            channel, "_payload_to_request", lambda p: MagicMock()
+            channel,
+            "_payload_to_request",
+            lambda p: MagicMock(),
         )
         monkeypatch.setattr(
-            channel, "get_to_handle_from_request", lambda r: "test_user"
+            channel,
+            "get_to_handle_from_request",
+            lambda r: "test_user",
         )
         monkeypatch.setattr(channel, "_before_consume_process", AsyncMock())
         monkeypatch.setattr(
-            channel, "_get_receive_for_send",
+            channel,
+            "_get_receive_for_send",
             AsyncMock(return_value=("open_id", "ou_123")),
         )
         monkeypatch.setattr(
-            channel, "_streaming_auth_headers",
+            channel,
+            "_streaming_auth_headers",
             lambda: {"Authorization": "Bearer t"},
         )
         monkeypatch.setattr(channel, "_next_stream_seq", lambda: 1)
         monkeypatch.setattr(
-            channel, "_feishu_base_url", lambda: "https://open.feishu.cn"
+            channel,
+            "_feishu_base_url",
+            lambda: "https://open.feishu.cn",
         )
 
         mock_http.post.return_value = _fail_http(500, "Server Error")
@@ -639,17 +685,25 @@ class TestStreamWithTrackerStreaming:
         content_part.type = "text"
         content_part.text = "Hello"
         monkeypatch.setattr(
-            channel, "_message_to_content_parts", lambda ev: [content_part]
+            channel,
+            "_message_to_content_parts",
+            lambda ev: [content_part],
         )
         monkeypatch.setattr(
-            channel, "send_content_parts", AsyncMock(return_value="m_fallback")
+            channel,
+            "send_content_parts",
+            AsyncMock(return_value="m_fallback"),
         )
         monkeypatch.setattr(
-            channel, "_get_response_error_message", lambda r: None
+            channel,
+            "_get_response_error_message",
+            lambda r: None,
         )
         monkeypatch.setattr(channel, "_add_reaction", AsyncMock())
         monkeypatch.setattr(
-            channel, "get_on_reply_sent_args", lambda r, t: (r, t)
+            channel,
+            "get_on_reply_sent_args",
+            lambda r, t: (r, t),
         )
         monkeypatch.setattr(channel, "_on_reply_sent", None)
 
@@ -657,4 +711,3 @@ class TestStreamWithTrackerStreaming:
             pass
 
         channel.send_content_parts.assert_awaited()
-
