@@ -937,8 +937,40 @@ class WecomChannel(BaseChannel):
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _ensure_stdio() -> None:
+        """Redirect broken stdout/stderr to devnull (Windows daemon)."""
+        for name in ("stdout", "stderr"):
+            stream = getattr(sys, name, None)
+            needs_fix = stream is None
+            if not needs_fix:
+                try:
+                    stream.write("")
+                    stream.flush()
+                except (
+                    OSError,
+                    ValueError,
+                    AttributeError,
+                    TypeError,
+                ):
+                    needs_fix = True
+            if needs_fix:
+                setattr(
+                    sys,
+                    name,
+                    open(  # noqa: SIM115  pylint: disable=consider-using-with
+                        os.devnull,
+                        "w",
+                        encoding="utf-8",
+                    ),
+                )
+
     def _run_ws_forever(self) -> None:
         """Background thread: run SDK event loop forever."""
+        # Windows daemon fix: aibot SDK logger calls print() which
+        # crashes when stdout is detached.  Ensure streams are valid.
+        self._ensure_stdio()
+
         # macOS/Python 3.12+ fix: use SelectorEventLoop explicitly
         if sys.platform == "darwin":
             ws_loop = asyncio.SelectorEventLoop()
@@ -1011,6 +1043,60 @@ class WecomChannel(BaseChannel):
         # Register event handlers
         self._client.on("message", self._on_message_sync)
         self._client.on("event.enter_chat", self._on_enter_chat_sync)
+
+        # Patch SDK heartbeat to trigger reconnect on pong timeout.
+        # Use ensure_future so reconnect survives heartbeat task cancel.
+        ws_mgr = self._client._ws_manager
+        _original_send_heartbeat = ws_mgr._send_heartbeat
+
+        async def _patched_send_heartbeat() -> None:
+            if ws_mgr._missed_pong_count >= ws_mgr._max_missed_pong:
+                logger.warning(
+                    "wecom heartbeat: no pong for %d pings, "
+                    "triggering reconnect",
+                    ws_mgr._missed_pong_count,
+                )
+                # Schedule reconnect BEFORE _stop_heartbeat() because
+                # it cancels the current task; any await after that
+                # would raise CancelledError.
+                asyncio.ensure_future(ws_mgr._schedule_reconnect())
+                ws_mgr._stop_heartbeat()
+                if ws_mgr._ws:
+                    try:
+                        await ws_mgr._ws.close()
+                    except Exception as close_err:
+                        logger.warning(
+                            "wecom heartbeat: failed to close ws: %s",
+                            close_err,
+                        )
+                return
+            # Normal path: delegate to original SDK implementation.
+            await _original_send_heartbeat()
+
+        ws_mgr._send_heartbeat = _patched_send_heartbeat
+
+        # Log reconnect events for observability.
+        self._client.on(
+            "disconnected",
+            lambda reason: logger.info(
+                "wecom disconnected: %s",
+                reason,
+            ),
+        )
+        self._client.on(
+            "reconnecting",
+            lambda attempt: logger.info(
+                "wecom reconnecting: attempt %d",
+                attempt,
+            ),
+        )
+        self._client.on(
+            "error",
+            lambda error: logger.error(
+                "wecom error: %s",
+                error,
+            ),
+        )
 
         self._ws_thread = threading.Thread(
             target=self._run_ws_forever,

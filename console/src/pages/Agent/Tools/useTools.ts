@@ -108,7 +108,7 @@ export function useTools() {
       return;
     }
 
-    // Optimistic update
+    // Optimistic update - preserve async_execution state
     setTools((prev) => prev.map((t) => ({ ...t, enabled: true })));
 
     setBatchLoading(true);
@@ -117,11 +117,11 @@ export function useTools() {
         disabledTools.map((tool) => api.toggleTool(tool.name)),
       );
       message.success(t("tools.enableAllSuccess"));
-      // Update with server responses
+      // Update with server responses, but preserve async_execution
       setTools((prev) =>
         prev.map((t) => {
           const result = results.find((r) => r.name === t.name);
-          return result || t;
+          return result ? { ...result, async_execution: t.async_execution } : t;
         }),
       );
     } catch (error) {
@@ -140,7 +140,7 @@ export function useTools() {
       return;
     }
 
-    // Optimistic update
+    // Optimistic update - preserve async_execution state
     setTools((prev) => prev.map((t) => ({ ...t, enabled: false })));
 
     setBatchLoading(true);
@@ -149,11 +149,11 @@ export function useTools() {
         enabledTools.map((tool) => api.toggleTool(tool.name)),
       );
       message.success(t("tools.disableAllSuccess"));
-      // Update with server responses
+      // Update with server responses, but preserve async_execution
       setTools((prev) =>
         prev.map((t) => {
           const result = results.find((r) => r.name === t.name);
-          return result || t;
+          return result ? { ...result, async_execution: t.async_execution } : t;
         }),
       );
     } catch (error) {

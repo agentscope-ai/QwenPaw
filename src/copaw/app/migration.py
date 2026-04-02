@@ -342,10 +342,17 @@ def _do_migrate_legacy_skills() -> bool:
         _mutate_json,
         _timestamp,
         ensure_skill_pool_initialized,
+        get_pool_skill_manifest_path,
         get_workspace_skill_manifest_path,
         get_workspace_skills_dir,
         reconcile_workspace_manifest,
     )
+
+    # --- Phase 0: Check if migration already completed ---
+    # If skill pool manifest exists, migration has been done
+    pool_manifest = get_pool_skill_manifest_path()
+    if pool_manifest.exists():
+        return False
 
     def _has_legacy_skill_root(root: Path) -> bool:
         return any(
@@ -394,7 +401,7 @@ def _do_migrate_legacy_skills() -> bool:
         _copy_skill_dir(source_dir, target_dir)
         return True
 
-    # --- Phase 0: Initialize pool ---
+    # --- Phase 1: Initialize pool ---
     try:
         ensure_skill_pool_initialized()
     except Exception as e:
@@ -487,6 +494,14 @@ def _do_migrate_legacy_skills() -> bool:
         if not customized and not active:
             continue
 
+        logger.debug(
+            "Found legacy skills in %s (%s): %d customized, %d active",
+            source_root,
+            source_kind,
+            len(customized),
+            len(active),
+        )
+
         active_names = workspace_active_names.setdefault(
             target_workspace,
             set(),
@@ -545,17 +560,11 @@ def _do_migrate_legacy_skills() -> bool:
                     copied_workspace_skills += 1
                 active_names.add(skill_name)  # Mark as enabled
             # else: already handled in customized loop
-        logger.debug(
-            "Prepared legacy skill migration from %s to %s (%s)",
-            source_root,
-            target_workspace,
-            source_kind,
-        )
 
     # --- Phase 4: Reconcile workspace manifests ---
     for workspace_dir in workspace_dirs:
         # reconcile discovers on-disk skills and populates skill.json
-        # with correct source, metadata, signature, and sync_to_pool.
+        # with correct source, metadata, and signature.
         reconcile_workspace_manifest(workspace_dir)
         active_names = workspace_active_names.get(workspace_dir, set())
 

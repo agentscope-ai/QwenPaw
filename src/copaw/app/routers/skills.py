@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -33,15 +34,20 @@ from ...agents.skills_manager import (
     SkillService,
     _default_pool_manifest,
     _default_workspace_manifest,
+    _get_skill_mtime,
     _mutate_json,
+    _read_skill_from_dir,
     get_pool_builtin_sync_status,
     get_pool_skill_manifest_path,
+    get_skill_pool_dir,
     get_workspace_skill_manifest_path,
+    get_workspace_skills_dir,
     import_builtin_skills,
     list_builtin_import_candidates,
     list_workspaces,
     read_skill_pool_manifest,
     read_skill_manifest,
+    reconcile_pool_manifest,
     reconcile_workspace_manifest,
     suggest_conflict_name,
     update_single_builtin,
@@ -100,8 +106,8 @@ def _scan_error_response(exc: SkillScanError) -> JSONResponse:
 class SkillSpec(SkillInfo):
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
-    sync_to_pool: dict[str, Any] = Field(default_factory=dict)
     config: dict[str, Any] = Field(default_factory=dict)
+    last_updated: str = ""
 
 
 class PoolSkillSpec(SkillInfo):
@@ -110,6 +116,7 @@ class PoolSkillSpec(SkillInfo):
     sync_status: str = ""
     latest_version_text: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
+    last_updated: str = ""
 
 
 class WorkspaceSkillSummary(BaseModel):
@@ -453,34 +460,55 @@ async def _run_hub_install_task(
         await _hub_task_pop_runtime(task_id)
 
 
+def _mtime_to_iso(mtime: float) -> str:
+    """Convert a POSIX mtime float to an ISO-8601 UTC string."""
+    if not mtime:
+        return ""
+    return (
+        datetime.fromtimestamp(mtime, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
 def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
-    manifest = read_skill_manifest(workspace_dir)
-    service = SkillService(workspace_dir)
+    manifest = read_skill_manifest(workspace_dir, reconcile=False)
     entries = manifest.get("skills", {})
+    skill_root = get_workspace_skills_dir(workspace_dir)
     specs: list[SkillSpec] = []
-    for skill in service.list_all_skills():
-        entry = entries.get(skill.name, {})
+    for skill_name, entry in sorted(entries.items()):
+        source = entry.get("source", "customized")
+        skill_dir = skill_root / skill_name
+        skill = _read_skill_from_dir(skill_dir, source)
+        if skill is None:
+            continue
+        mtime = _get_skill_mtime(skill_dir)
         specs.append(
             SkillSpec(
                 **skill.model_dump(),
                 enabled=entry.get("enabled", False),
                 channels=entry.get("channels") or ["all"],
-                sync_to_pool=entry.get("sync_to_pool") or {},
                 config=entry.get("config") or {},
+                last_updated=_mtime_to_iso(mtime),
             ),
         )
     return specs
 
 
 def _build_pool_skill_specs() -> list[PoolSkillSpec]:
-    manifest = read_skill_pool_manifest()
-    service = SkillPoolService()
+    manifest = read_skill_pool_manifest(reconcile=False)
     entries = manifest.get("skills", {})
+    pool_dir = get_skill_pool_dir()
     sync_info = get_pool_builtin_sync_status()
     specs: list[PoolSkillSpec] = []
-    for skill in service.list_all_skills():
-        entry = entries.get(skill.name, {})
-        info = sync_info.get(skill.name, {})
+    for skill_name, entry in sorted(entries.items()):
+        source = entry.get("source", "customized")
+        skill_dir = pool_dir / skill_name
+        skill = _read_skill_from_dir(skill_dir, source)
+        if skill is None:
+            continue
+        info = sync_info.get(skill_name, {})
+        mtime = _get_skill_mtime(skill_dir)
         specs.append(
             PoolSkillSpec(
                 **skill.model_dump(exclude={"version_text"}),
@@ -492,6 +520,7 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     info.get("latest_version_text", "") or "",
                 ),
                 config=entry.get("config") or {},
+                last_updated=_mtime_to_iso(mtime),
             ),
         )
     return specs
@@ -500,6 +529,14 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
 @router.get("")
 async def list_skills(request: Request) -> list[SkillSpec]:
     workspace_dir = await _request_workspace_dir(request)
+    return _build_workspace_skill_specs(workspace_dir)
+
+
+@router.post("/refresh")
+async def refresh_skills(request: Request) -> list[SkillSpec]:
+    """Force reconcile and return updated workspace skill list."""
+    workspace_dir = await _request_workspace_dir(request)
+    reconcile_workspace_manifest(workspace_dir)
     return _build_workspace_skill_specs(workspace_dir)
 
 
@@ -604,6 +641,13 @@ async def list_pool_skills() -> list[PoolSkillSpec]:
     return _build_pool_skill_specs()
 
 
+@router.post("/pool/refresh")
+async def refresh_pool_skills() -> list[PoolSkillSpec]:
+    """Force reconcile and return updated pool skill list."""
+    reconcile_pool_manifest()
+    return _build_pool_skill_specs()
+
+
 @router.get("/pool/builtin-sources")
 async def list_pool_builtin_sources() -> list[BuiltinImportSpec]:
     return [
@@ -642,7 +686,6 @@ async def create_skill(
                 "suggested_name": suggest_conflict_name(body.name),
             },
         )
-    reconcile_workspace_manifest(workspace_dir)
     if body.enable:
         schedule_agent_reload(request, workspace.agent_id)
     return {"created": True, "name": created}
@@ -1059,6 +1102,53 @@ async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
     return {"cleared": True}
 
 
+@router.post("/batch-delete")
+async def batch_delete_skills(
+    request: Request,
+    skills: list[str],
+) -> dict[str, Any]:
+    """Auto-disable then delete each skill. Per-skill results."""
+    workspace_dir = await _request_workspace_dir(request)
+    service = SkillService(workspace_dir)
+    results: dict[str, Any] = {}
+    for skill_name in skills:
+        try:
+            service.disable_skill(skill_name)
+            deleted = service.delete_skill(skill_name)
+            results[skill_name] = {
+                "success": deleted,
+                "reason": None if deleted else "delete_failed",
+            }
+        except Exception as exc:
+            results[skill_name] = {
+                "success": False,
+                "reason": str(exc),
+            }
+    return {"results": results}
+
+
+@router.post("/pool/batch-delete")
+async def batch_delete_pool_skills(
+    skills: list[str],
+) -> dict[str, Any]:
+    """Delete multiple pool skills. Per-skill results."""
+    service = SkillPoolService()
+    results: dict[str, Any] = {}
+    for skill_name in skills:
+        try:
+            deleted = service.delete_skill(skill_name)
+            results[skill_name] = {
+                "success": deleted,
+                "reason": None if deleted else "delete_failed",
+            }
+        except Exception as exc:
+            results[skill_name] = {
+                "success": False,
+                "reason": str(exc),
+            }
+    return {"results": results}
+
+
 @router.post("/batch-disable")
 async def batch_disable_skills(
     request: Request,
@@ -1142,7 +1232,9 @@ async def delete_skill(
     skill_name: str,
 ) -> dict[str, Any]:
     workspace_dir = await _request_workspace_dir(request)
-    deleted = SkillService(workspace_dir).delete_skill(skill_name)
+    service = SkillService(workspace_dir)
+    service.disable_skill(skill_name)
+    deleted = service.delete_skill(skill_name)
     if not deleted:
         raise HTTPException(
             status_code=409,
@@ -1196,7 +1288,6 @@ async def save_workspace_skill(
             raise HTTPException(status_code=409, detail=result)
         raise HTTPException(status_code=404, detail="Skill not found")
     if result.get("mode") != "noop":
-        reconcile_workspace_manifest(workspace_dir)
         schedule_agent_reload(request, workspace.agent_id)
     return result
 
