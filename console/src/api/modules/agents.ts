@@ -1,4 +1,5 @@
 import { request } from "../request";
+import { getApiUrl, getApiToken } from "../config";
 import type {
   AgentListResponse,
   AgentProfileConfig,
@@ -47,17 +48,53 @@ export const agentsApi = {
     ),
 
   // Agent workspace files
-  listAgentFiles: (agentId: string) =>
-    request<MdFileInfo[]>(`/agents/${agentId}/files`),
+  listAgentFiles: (agentId: string, all: boolean = false) =>
+    request<MdFileInfo[]>(`/agents/${agentId}/files${all ? "?all=true" : ""}`),
+
+  downloadSelectedFiles: async (agentId: string, files: string[]) => {
+    const response = await fetch(
+      getApiUrl(`/agents/${agentId}/files/download`),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(getApiToken()
+            ? { Authorization: `Bearer ${getApiToken()}` }
+            : {}),
+        },
+        body: JSON.stringify({ files }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Download failed: ${response.status} ${response.statusText}`,
+      );
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `selected_files.zip`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
 
   readAgentFile: (agentId: string, filename: string) =>
     request<MdFileContent>(
-      `/agents/${agentId}/files/${encodeURIComponent(filename)}`,
+      `/agents/${agentId}/files/${filename
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
     ),
 
   writeAgentFile: (agentId: string, filename: string, content: string) =>
     request<{ written: boolean; filename: string }>(
-      `/agents/${agentId}/files/${encodeURIComponent(filename)}`,
+      `/agents/${agentId}/files/${filename
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
       {
         method: "PUT",
         body: JSON.stringify({ content }),

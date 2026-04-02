@@ -54,6 +54,7 @@
     "noFiles": "没有文件",
     "coreFiles": "核心文件",
     "coreFilesDesc": "引导角色、身份和工具指南。",
+    "allFiles": "所有文件",
     "uploadTooltip": "引导角色、身份和工具指南。（仅支持 ZIP 文件，最大 100MB）",
     "selectFile": "选择文件进行编辑",
     "fileContent": "文件内容...",
@@ -69,7 +70,9 @@
     "configUpdateFailed": "更新系统提示词配置失败",
     "attribution": "工作区设计部分灵感源自 OpenClaw 项目，在此表示感谢 🐾",
     "saveSuccess": "保存成功",
-    "saveFailed": "保存失败"
+    "saveFailed": "保存失败",
+    "searchPlaceholder": "搜索文件…",
+    "noSearchResults": "没有匹配的文件"
   },
   "agent": {
     "parent": "设置",

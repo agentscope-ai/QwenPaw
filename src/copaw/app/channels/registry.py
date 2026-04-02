@@ -59,7 +59,7 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
                 raise TypeError(
                     f"{module_name}.{class_name} is not a BaseChannel subtype",
                 )
-        except Exception:
+        except Exception as e:
             if key in _REQUIRED_CHANNEL_KEYS:
                 logger.error(
                     'failed to load required built-in channel "%s"',
@@ -67,10 +67,11 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
                     exc_info=True,
                 )
                 raise
-            logger.debug(
-                "built-in channel unavailable: %s",
+            logger.warning(
+                "built-in channel unavailable: %s (%s: %s)",
                 key,
-                exc_info=True,
+                type(e).__name__,
+                e,
             )
             continue
         out[key] = cls

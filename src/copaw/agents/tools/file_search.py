@@ -15,8 +15,8 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
+from ...constant import WORKING_DIR
 from .file_io import _resolve_file_path
 
 # ---------------------------------------------------------------------------

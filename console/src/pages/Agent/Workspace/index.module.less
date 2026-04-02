@@ -423,7 +423,87 @@
   flex-shrink: 0;
 }
 
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+/* ─── Search input ─────────────────────────────────────────────────────────── */
+.searchInput {
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+/* ─── Folder tree ──────────────────────────────────────────────────────────── */
+.folderNode {
+  margin-bottom: 4px;
+}
+
+.folderRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s;
+  background-color: #f5f5f5;
+  margin-bottom: 4px;
+
+  &:hover {
+    background-color: #ebebeb;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #615ced;
+    outline-offset: -2px;
+  }
+}
+
+.folderChevron {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  color: #999;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.folderChevronOpen {
+  transform: rotate(90deg);
+}
+
+.folderIcon {
+  font-size: 14px;
+  color: #f5a623;
+  flex-shrink: 0;
+}
+
+.folderName {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #333;
+}
+
+.folderCount {
+  font-size: 11px;
+  color: #fff;
+  background-color: #bbb;
+  border-radius: 10px;
+  padding: 0 6px;
+  min-width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.folderChildren {
+  padding-left: 16px;
+  border-left: 2px solid #f0f0f0;
+  margin-left: 8px;
+  margin-bottom: 4px;
+}
+
 :global(.dark-mode) {
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.08);
@@ -556,5 +636,35 @@
     background: #2a2a2a !important;
     color: rgba(255, 255, 255, 0.85) !important;
     border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+
+  /* Folder tree */
+  .folderRow {
+    background-color: rgba(255, 255, 255, 0.05);
+
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .folderName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .folderCount {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .folderChildren {
+    border-left-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .folderChevron {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .folderIcon {
+    color: #f5a623;
   }
 }

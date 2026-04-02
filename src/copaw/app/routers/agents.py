@@ -3,28 +3,35 @@
 
 Provides RESTful API for managing multiple agent instances.
 """
+
+import io
 import json
 import logging
+import zipfile
+from datetime import datetime, timezone
 import shutil
 from pathlib import Path
-from fastapi import APIRouter, Body, HTTPException, Request
+
+from fastapi import APIRouter, Body, HTTPException
 from fastapi import Path as PathParam
-from pydantic import BaseModel, field_validator
+from fastapi import Query, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel,field_validator
 
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..utils import schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
     AgentProfileRef,
+    generate_short_agent_id,
     load_agent_config,
     save_agent_config,
-    generate_short_agent_id,
 )
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.utils import copy_builtin_qa_md_files
-from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
+from ..multi_agent_manager import MultiAgentManager
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +80,7 @@ class MdFileInfo(BaseModel):
 
     filename: str
     path: str
+    rel_path: str = ""
     size: int
     created_time: str
     modified_time: str
@@ -82,6 +90,12 @@ class MdFileContent(BaseModel):
     """Markdown file content."""
 
     content: str
+
+
+class DownloadFilesRequest(BaseModel):
+    """Request model for downloading multiple files."""
+
+    files: list[str]
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -238,8 +252,8 @@ async def create_agent(
     # Build complete agent config with generated ID
     from ...config.config import (
         ChannelConfig,
-        MCPConfig,
         HeartbeatConfig,
+        MCPConfig,
         ToolsConfig,
     )
 
@@ -430,10 +444,11 @@ async def toggle_agent_enabled(
     "/{agentId}/files",
     response_model=list[MdFileInfo],
     summary="List agent workspace files",
-    description="List all markdown files in agent's workspace",
+    description="List files in agent's workspace",
 )
 async def list_agent_files(
     agentId: str = PathParam(...),
+    include_all: bool = Query(False, alias="all"),
     request: Request = None,
 ) -> list[MdFileInfo]:
     """List agent workspace files."""
@@ -447,17 +462,19 @@ async def list_agent_files(
     workspace_manager = AgentMdManager(str(workspace.workspace_dir))
 
     try:
-        files = [
-            MdFileInfo.model_validate(file)
-            for file in workspace_manager.list_working_mds()
-        ]
+        source = (
+            workspace_manager.list_all_working_files()
+            if include_all
+            else workspace_manager.list_working_mds()
+        )
+        files = [MdFileInfo.model_validate(file) for file in source]
         return files
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
-    "/{agentId}/files/{filename}",
+    "/{agentId}/files/{filename:path}",
     response_model=MdFileContent,
     summary="Read agent workspace file",
     description="Read a markdown file from agent's workspace",
@@ -490,7 +507,7 @@ async def read_agent_file(
 
 
 @router.put(
-    "/{agentId}/files/{filename}",
+    "/{agentId}/files/{filename:path}",
     response_model=dict,
     summary="Write agent workspace file",
     description="Create or update a markdown file in agent's workspace",
@@ -516,6 +533,53 @@ async def write_agent_file(
         return {"written": True, "filename": filename}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post(
+    "/{agentId}/files/download",
+    summary="Download selected files as ZIP",
+    description="Download the selected files as a compressed zip archive.",
+)
+async def download_selected_files(
+    agentId: str = PathParam(...),
+    payload: DownloadFilesRequest = Body(...),
+    request: Request = None,
+):
+    """Download selected files as a zip archive."""
+    manager = _get_multi_agent_manager(request)
+
+    try:
+        workspace = await manager.get_agent(agentId)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    workspace_dir = Path(workspace.workspace_dir).resolve()
+
+    if not workspace_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fpath in payload.files:
+            resolved = (workspace_dir / fpath).resolve()
+            if (
+                str(resolved).startswith(str(workspace_dir))
+                and resolved.is_file()
+            ):
+                arcname = resolved.relative_to(workspace_dir).as_posix()
+                zf.write(resolved, arcname)
+
+    buf.seek(0)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"selected_files_{timestamp}.zip"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 @router.get(
