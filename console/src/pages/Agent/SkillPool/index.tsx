@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
+  Checkbox,
   Input,
   Modal,
   Tooltip,
@@ -10,14 +11,16 @@ import {
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
-  CheckOutlined,
+  AppstoreOutlined,
   CloseOutlined,
   DeleteOutlined,
   ImportOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   SendOutlined,
   SyncOutlined,
+  UnorderedListOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -74,7 +77,10 @@ function SkillPoolPage() {
   const [selectedPoolSkills, setSelectedPoolSkills] = useState<Set<string>>(
     new Set(),
   );
-  const poolBatchMode = selectedPoolSkills.size > 0;
+  const [batchModeEnabled, setBatchModeEnabled] = useState(false);
+  const poolBatchMode = batchModeEnabled;
+  const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const togglePoolSelect = (name: string) => {
     setSelectedPoolSkills((prev) => {
@@ -85,10 +91,29 @@ function SkillPoolPage() {
     });
   };
 
-  const clearPoolSelection = () => setSelectedPoolSkills(new Set());
+  const clearPoolSelection = () => {
+    setSelectedPoolSkills(new Set());
+    setBatchModeEnabled(false);
+  };
+
+  const toggleBatchMode = () => {
+    if (batchModeEnabled) {
+      clearPoolSelection();
+    } else {
+      setBatchModeEnabled(true);
+    }
+  };
 
   const selectAllPool = () =>
     setSelectedPoolSkills(new Set(skills.map((s) => s.name)));
+
+  const filteredSkills = skills.filter(
+    (skill) =>
+      skill.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (skill.description || "")
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase()),
+  );
 
   // Form state for create/edit drawer
   const [form] = Form.useForm();
@@ -739,14 +764,6 @@ function SkillPoolPage() {
     }
   };
 
-  const handleBatchBroadcast = () => {
-    const names = Array.from(selectedPoolSkills);
-    if (names.length === 0) return;
-    clearPoolSelection();
-    setMode("broadcast");
-    setBroadcastInitialNames(names);
-  };
-
   return (
     <div className={styles.skillsPage}>
       <PageHeader
@@ -767,34 +784,25 @@ function SkillPoolPage() {
                     count: selectedPoolSkills.size,
                   })}
                 </span>
-                <Button type="link" size="small" onClick={selectAllPool}>
+                <Button type="default" onClick={selectAllPool}>
                   {t("skills.selectAll")}
                 </Button>
                 <Button
-                  type="link"
-                  size="small"
+                  type="default"
                   onClick={clearPoolSelection}
                   icon={<CloseOutlined />}
                 >
                   {t("skills.clearSelection")}
                 </Button>
-                <Tooltip title={t("skillPool.broadcastHint")}>
-                  <Button
-                    type="default"
-                    className={styles.primaryTransferButton}
-                    icon={<SendOutlined />}
-                    onClick={handleBatchBroadcast}
-                  >
-                    {t("skillPool.broadcast")}
-                  </Button>
-                </Tooltip>
                 <Button
                   danger
-                  type="primary"
                   icon={<DeleteOutlined />}
                   onClick={handleBatchDeletePool}
                 >
                   {t("common.delete")} ({selectedPoolSkills.size})
+                </Button>
+                <Button type="primary" onClick={toggleBatchMode}>
+                  {t("skills.exitBatch")}
                 </Button>
               </div>
             ) : (
@@ -847,6 +855,9 @@ function SkillPoolPage() {
                       {t("skills.importHub")}
                     </Button>
                   </Tooltip>
+                  <Button type="primary" onClick={toggleBatchMode}>
+                    {t("skills.batchOperation")}
+                  </Button>
                   <Tooltip title={t("skills.createSkillHint")}>
                     <Button
                       type="primary"
@@ -866,13 +877,49 @@ function SkillPoolPage() {
 
       {/* ---- Scrollable Content ---- */}
       <div className={styles.content}>
+        {/* Toolbar */}
+        {!loading && skills.length > 0 && (
+          <div className={styles.toolbar}>
+            <Input
+              className={styles.searchInput}
+              placeholder={t("skills.searchPlaceholder")}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              allowClear
+              prefix={<SearchOutlined />}
+            />
+            <div className={styles.toolbarRight}>
+              <div className={styles.viewToggle}>
+                <button
+                  className={`${styles.viewToggleBtn} ${
+                    viewMode === "list" ? styles.viewToggleBtnActive : ""
+                  }`}
+                  onClick={() => setViewMode("list")}
+                  title={t("skills.listView")}
+                >
+                  <UnorderedListOutlined />
+                </button>
+                <button
+                  className={`${styles.viewToggleBtn} ${
+                    viewMode === "card" ? styles.viewToggleBtnActive : ""
+                  }`}
+                  onClick={() => setViewMode("card")}
+                  title={t("skills.gridView")}
+                >
+                  <AppstoreOutlined />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className={styles.loading}>
             <span className={styles.loadingText}>{t("common.loading")}</span>
           </div>
-        ) : (
+        ) : viewMode === "card" ? (
           <div className={styles.skillsGrid}>
-            {skills.map((skill) => {
+            {filteredSkills.map((skill) => {
               const isSelected = selectedPoolSkills.has(skill.name);
               return (
                 <Card
@@ -889,51 +936,58 @@ function SkillPoolPage() {
                   }}
                   style={{ cursor: "pointer" }}
                 >
-                  <div
-                    className={`${styles.selectCircle} ${
-                      isSelected ? styles.selectCircleSelected : ""
-                    }`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      togglePoolSelect(skill.name);
-                    }}
-                  >
-                    {isSelected && <CheckOutlined style={{ fontSize: 10 }} />}
-                  </div>
                   <div className={styles.cardBody}>
                     <div className={styles.cardHeader}>
                       <div className={styles.leftSection}>
-                        <span className={styles.fileIcon}>
-                          {getSkillVisual(skill.name, skill.content)}
-                        </span>
+                        <div className={styles.fileIconWrapper}>
+                          <span className={styles.fileIcon}>
+                            {getSkillVisual(skill.name, skill.content)}
+                          </span>
+                          {poolBatchMode && (
+                            <Checkbox
+                              checked={isSelected}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                togglePoolSelect(skill.name);
+                              }}
+                            />
+                          )}
+                        </div>
+
                         <div className={styles.titleRow}>
                           <Tooltip title={skill.name}>
                             <h3 className={styles.skillTitle}>{skill.name}</h3>
                           </Tooltip>
                         </div>
                       </div>
-                      <div className={styles.statusRow}>
-                        <span className={styles.statusLabel}>
-                          {t("skillPool.status")}:
-                        </span>
-                        <span
-                          className={`${styles.statusValue} ${
-                            styles[getPoolBuiltinStatusTone(skill.sync_status)]
-                          }`}
-                        >
-                          {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-                        </span>
-                      </div>
-                      {skill.last_updated && (
-                        <div className={styles.statusRow}>
-                          <span className={styles.statusLabel}>
-                            {t("skills.lastUpdated")}:
-                          </span>
-                          <span className={styles.statusValue}>
-                            {dayjs(skill.last_updated).fromNow()}
-                          </span>
+                      <div className={styles.statusWithSelect}>
+                        <div>
+                          <div className={styles.statusRow}>
+                            <span className={styles.statusLabel}>
+                              {t("skillPool.status")}:
+                            </span>
+                            <span
+                              className={`${styles.statusValue} ${
+                                styles[
+                                  getPoolBuiltinStatusTone(skill.sync_status)
+                                ]
+                              }`}
+                            >
+                              {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+                            </span>
+                          </div>
+                          {skill.last_updated && (
+                            <div className={styles.statusRow}>
+                              <span className={styles.statusLabel}>
+                                {t("skills.lastUpdated")}:
+                              </span>
+                              <span className={styles.statusValue}>
+                                {dayjs(skill.last_updated).fromNow()}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                     <div className={styles.descriptionContainer}>
                       <p className={styles.descriptionLabel}>
@@ -947,6 +1001,7 @@ function SkillPoolPage() {
                   <div className={styles.cardFooter}>
                     <Button
                       className={styles.actionButton}
+                      disabled={poolBatchMode}
                       onClick={(e) => {
                         e.stopPropagation();
                         openBroadcast(skill);
@@ -956,6 +1011,7 @@ function SkillPoolPage() {
                     </Button>
                     <Button
                       className={styles.deleteButton}
+                      disabled={poolBatchMode}
                       onClick={(e) => {
                         e.stopPropagation();
                         void handleDelete(skill);
@@ -965,6 +1021,86 @@ function SkillPoolPage() {
                     </Button>
                   </div>
                 </Card>
+              );
+            })}
+          </div>
+        ) : (
+          <div className={styles.skillsList}>
+            {filteredSkills.map((skill) => {
+              const isSelected = selectedPoolSkills.has(skill.name);
+              return (
+                <div
+                  key={skill.name}
+                  className={`${styles.skillListItem} ${
+                    isSelected ? styles.selectedListItem : ""
+                  }`}
+                  onClick={() => {
+                    if (poolBatchMode) {
+                      togglePoolSelect(skill.name);
+                    } else {
+                      openEdit(skill);
+                    }
+                  }}
+                >
+                  {poolBatchMode && (
+                    <Checkbox
+                      checked={isSelected}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        togglePoolSelect(skill.name);
+                      }}
+                    />
+                  )}
+                  <div className={styles.listItemLeft}>
+                    <span className={styles.fileIcon}>
+                      {getSkillVisual(skill.name, skill.content)}
+                    </span>
+                    <div className={styles.listItemInfo}>
+                      <div className={styles.listItemHeader}>
+                        <span className={styles.skillTitle}>{skill.name}</span>
+                        <span
+                          className={`${styles.statusValue} ${
+                            styles[getPoolBuiltinStatusTone(skill.sync_status)]
+                          }`}
+                        >
+                          {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+                        </span>
+                        {skill.last_updated && (
+                          <span className={styles.listItemTime}>
+                            {t("skills.lastUpdated")}{" "}
+                            {dayjs(skill.last_updated).fromNow()}
+                          </span>
+                        )}
+                      </div>
+                      <p className={styles.listItemDesc}>
+                        {skill.description || "-"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={styles.listItemRight}>
+                    <Button
+                      className={styles.actionButton}
+                      disabled={poolBatchMode}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openBroadcast(skill);
+                      }}
+                    >
+                      {t("skillPool.broadcast")}
+                    </Button>
+                    <Button
+                      danger
+                      className={styles.deleteButton}
+                      disabled={poolBatchMode}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDelete(skill);
+                      }}
+                    >
+                      {t("skillPool.delete")}
+                    </Button>
+                  </div>
+                </div>
               );
             })}
           </div>

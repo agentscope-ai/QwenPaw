@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
+  Checkbox,
   Form,
   Modal,
   Tooltip,
@@ -8,7 +9,6 @@ import {
   Input,
 } from "@agentscope-ai/design";
 import {
-  CheckOutlined,
   CloseOutlined,
   DeleteOutlined,
   DownloadOutlined,
@@ -531,7 +531,6 @@ function SkillsPage() {
                   </Tooltip>
                   <Button
                     danger
-                    type="primary"
                     icon={<DeleteOutlined />}
                     onClick={handleBatchDelete}
                   >
@@ -740,17 +739,13 @@ function SkillsPage() {
                   }}
                 >
                   {batchMode && (
-                    <div
-                      className={`${styles.listSelectCircle} ${
-                        isSelected ? styles.listSelectCircleSelected : ""
-                      }`}
+                    <Checkbox
+                      checked={isSelected}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleSelect(skill.name);
                       }}
-                    >
-                      {isSelected && <CheckOutlined style={{ fontSize: 10 }} />}
-                    </div>
+                    />
                   )}
                   <div className={styles.listItemLeft}>
                     <span className={styles.fileIcon}>
