@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from .models import ChatSpec
+from .models import ChatSpec, ChatUpdate
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
 
@@ -160,6 +160,31 @@ class ChatManager:
             spec.updated_at = datetime.now(timezone.utc)
             await self._repo.upsert_chat(spec)
             return spec
+
+    async def patch_chat(
+        self,
+        chat_id: str,
+        patch: ChatUpdate,
+    ) -> Optional[ChatSpec]:
+        """Merge a partial update into the latest persisted chat spec."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+
+            updates = patch.model_dump(
+                exclude={"id"},
+                exclude_none=True,
+                exclude_unset=True,
+            )
+            merged = existing.model_copy(update=updates)
+            merged.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(merged)
+            return merged
+
+    async def touch_chat(self, chat_id: str) -> Optional[ChatSpec]:
+        """Refresh updated_at without rewriting other chat fields."""
+        return await self.patch_chat(chat_id, ChatUpdate())
 
     async def delete_chats(self, chat_ids: list[str]) -> bool:
         """Delete a chat spec.
