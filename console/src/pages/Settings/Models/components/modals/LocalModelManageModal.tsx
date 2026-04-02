@@ -31,6 +31,7 @@ function isSameServerStatus(
 ): boolean {
   return (
     left?.available === right?.available &&
+    left?.has_update === right?.has_update &&
     left?.installable === right?.installable &&
     left?.installed === right?.installed &&
     left?.port === right?.port &&

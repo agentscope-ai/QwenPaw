@@ -741,6 +741,8 @@
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
     "localRuntimeComputeHint": "默认使用 CPU，如需 GPU 加速功能，请使用 Ollama 或 LM Studio",
     "localRuntimeInstalled": "已安装",
+    "localRuntimeUpdateAvailable": "可更新",
+    "localRuntimeUpdateAction": "点击下载最新版本",
     "localRuntimeUnsupported": "当前环境不支持",
     "localRuntimeMissing": "未安装",
     "localServerRunningTitle": "当前本地服务",

@@ -25,14 +25,9 @@ class LocalModelManager:
         *,
         model_manager: ModelManager | None = None,
         llamacpp_backend: LlamaCppBackend | None = None,
-        llama_cpp_base_url: str = DEFAULT_LLAMA_CPP_BASE_URL,
-        llama_cpp_release_tag: str = DEFAULT_LLAMA_CPP_RELEASE_TAG,
     ) -> None:
         self._model_manager = model_manager or ModelManager()
-        self._llamacpp_backend = llamacpp_backend or LlamaCppBackend(
-            base_url=llama_cpp_base_url,
-            release_tag=llama_cpp_release_tag,
-        )
+        self._llamacpp_backend = llamacpp_backend or LlamaCppBackend()
         self._server_lifecycle_lock = asyncio.Lock()
 
     def check_llamacpp_installation(self) -> tuple[bool, str]:
@@ -45,7 +40,16 @@ class LocalModelManager:
 
     def start_llamacpp_download(self) -> None:
         """Start the llama.cpp binary download task."""
-        self._llamacpp_backend.download()
+        self._llamacpp_backend.download(
+            self.DEFAULT_LLAMA_CPP_BASE_URL,
+            self.DEFAULT_LLAMA_CPP_RELEASE_TAG,
+        )
+
+    async def has_update(self) -> bool:
+        """Return whether a llama.cpp update is available for download."""
+        return await self._llamacpp_backend.has_update(
+            self.DEFAULT_LLAMA_CPP_RELEASE_TAG,
+        )
 
     async def check_llamacpp_server_ready(
         self,

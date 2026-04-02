@@ -712,6 +712,8 @@
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
     "localRuntimeComputeHint": "По умолчанию используется CPU. Если нужна GPU-акселерация, используйте Ollama или LM Studio.",
     "localRuntimeInstalled": "Установлен",
+    "localRuntimeUpdateAvailable": "Доступно обновление",
+    "localRuntimeUpdateAction": "Нажмите, чтобы скачать последнюю версию",
     "localRuntimeUnsupported": "Не поддерживается",
     "localRuntimeMissing": "Не установлен",
     "localServerRunningTitle": "Текущий локальный сервер",

@@ -769,6 +769,8 @@
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
     "localRuntimeComputeHint": "CPU is used by default. For GPU acceleration, use Ollama or LM Studio.",
     "localRuntimeInstalled": "Installed",
+    "localRuntimeUpdateAvailable": "Update available",
+    "localRuntimeUpdateAction": "Click to download the latest version",
     "localRuntimeUnsupported": "Unsupported",
     "localRuntimeMissing": "Missing",
     "localServerRunningTitle": "Current local server",

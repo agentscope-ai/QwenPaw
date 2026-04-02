@@ -831,6 +831,18 @@
   white-space: nowrap;
 }
 
+.localStatusBadgeButton {
+  cursor: pointer;
+  appearance: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  outline: none;
+}
+
+.localStatusBadgeButton:hover {
+  filter: brightness(0.98);
+}
+
 .localStatusBadgeInstalled,
 .localStatusBadgeRunning {
   color: rgba(20, 184, 166, 1);
@@ -1033,22 +1045,6 @@
   gap: 10px;
 }
 
-.localStatusActionPill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  box-sizing: border-box;
-}
 
 .localStatusHint {
   color: #7a7f8f;

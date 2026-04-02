@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from copaw.local_models.manager import LocalModelManager, DownloadSource
+from copaw.local_models.llamacpp import LlamaCppBackend
+from copaw.local_models.model_manager import ModelManager
 
 
 class _FakeLlamaCppBackend:
@@ -21,8 +24,8 @@ class _FakeLlamaCppBackend:
         self.calls.append(("check", None))
         return True, ""
 
-    def download(self) -> None:
-        self.calls.append(("download", None))
+    def download(self, base_url: str, tag: str) -> None:
+        self.calls.append(("download", (base_url, tag)))
 
     def get_download_progress(self) -> dict[str, object]:
         self.calls.append(("progress", None))
@@ -84,8 +87,8 @@ def test_local_model_manager_forwards_sync_calls() -> None:
     fake_model_manager = _FakeModelManager()
     fake_llamacpp_backend = _FakeLlamaCppBackend()
     manager = LocalModelManager(
-        model_manager=fake_model_manager,
-        llamacpp_backend=fake_llamacpp_backend,
+        model_manager=cast(ModelManager, fake_model_manager),
+        llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
 
     assert manager.check_llamacpp_installability() == (True, "")
@@ -110,7 +113,13 @@ def test_local_model_manager_forwards_sync_calls() -> None:
     assert fake_llamacpp_backend.calls == [
         ("installability", None),
         ("check", None),
-        ("download", None),
+        (
+            "download",
+            (
+                LocalModelManager.DEFAULT_LLAMA_CPP_BASE_URL,
+                LocalModelManager.DEFAULT_LLAMA_CPP_RELEASE_TAG,
+            ),
+        ),
         ("progress", None),
         ("cancel", None),
     ]
@@ -129,8 +138,8 @@ def test_local_model_manager_forwards_sync_calls() -> None:
 async def test_local_model_manager_forwards_async_server_calls() -> None:
     fake_llamacpp_backend = _FakeLlamaCppBackend()
     manager = LocalModelManager(
-        model_manager=_FakeModelManager(),
-        llamacpp_backend=fake_llamacpp_backend,
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
 
     ready = await manager.check_llamacpp_server_ready(timeout=7.5)

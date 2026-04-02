@@ -707,6 +707,8 @@
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
     "localRuntimeComputeHint": "デフォルトでは CPU を使用します。GPU アクセラレーションが必要な場合は、Ollama または LM Studio を使用してください。",
     "localRuntimeInstalled": "インストール済み",
+    "localRuntimeUpdateAvailable": "更新可能",
+    "localRuntimeUpdateAction": "クリックして最新バージョンをダウンロード",
     "localRuntimeUnsupported": "未対応",
     "localRuntimeMissing": "未導入",
     "localServerRunningTitle": "現在のローカルサーバー",

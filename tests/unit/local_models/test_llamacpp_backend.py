@@ -226,10 +226,7 @@ def _build_downloader(
         "get_macos_version",
         lambda: (13, 0),
     )
-    return LlamaCppBackend(
-        base_url="https://example.com/releases",
-        release_tag="b1234",
-    )
+    return LlamaCppBackend()
 
 
 def test_init_rejects_macos_lower_than_13(
@@ -256,10 +253,7 @@ def test_init_rejects_macos_lower_than_13(
         lambda: (12, 7, 6),
     )
 
-    llamacpp = LlamaCppBackend(
-        base_url="https://example.com/releases",
-        release_tag="b1234",
-    )
+    llamacpp = LlamaCppBackend()
     ok, message = llamacpp.check_llamacpp_installability()
     assert not ok
     assert (
@@ -291,10 +285,7 @@ def test_init_allows_macos_13_and_above(
         lambda: (13, 3),
     )
 
-    downloader = LlamaCppBackend(
-        base_url="https://example.com/releases",
-        release_tag="b1234",
-    )
+    downloader = LlamaCppBackend()
 
     assert downloader.os_name == "macos"
 
@@ -353,9 +344,12 @@ Available devices:
     assert await downloader.list_devices() == []
     assert calls == [[str(downloader.executable), "--list-devices"]]
 
-    base_stderr = base_stderr + """
+    base_stderr = (
+        base_stderr
+        + """
   MTL0: Apple M1 Pro (10922 MiB, 10922 MiB free)
   BLAS: Accelerate (0 MiB, 0 MiB free)"""
+    )
 
     assert await downloader.list_devices() == [
         "MTL0: Apple M1 Pro (10922 MiB, 10922 MiB free)",
@@ -497,10 +491,7 @@ def test_init_maps_supported_windows_cuda_versions(
         lambda: None,
     )
 
-    downloader = LlamaCppBackend(
-        base_url="https://example.com/releases",
-        release_tag="b1234",
-    )
+    downloader = LlamaCppBackend()
 
     assert downloader.cuda_version == expected
 
@@ -525,17 +516,6 @@ def _patch_httpx_client(
         lambda **kwargs: fake_client,
     )
     return fake_client
-
-
-def _patch_download_url(
-    monkeypatch: pytest.MonkeyPatch,
-    url: str,
-) -> None:
-    monkeypatch.setattr(
-        LlamaCppBackend,
-        "download_url",
-        property(lambda self: url),
-    )
 
 
 class _FakeDownloadController:
@@ -581,29 +561,28 @@ def test_start_download_delegates_to_process_controller(
     downloader.target_dir = tmp_path / "install"
     controller = _FakeDownloadController()
     downloader.__dict__["_download_controller"] = controller
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
-        ),
-    )
 
-    downloader.start_download(chunk_size=64, timeout=15)
+    downloader.start_download(
+        base_url="https://example.com/releases",
+        tag="b1234",
+        chunk_size=64,
+        timeout=15,
+    )
 
     assert controller.started_spec is not None
     assert controller.started_spec.command == [
         "copaw-llamacpp-download",
         "https://example.com/releases/b1234/"
-        "llama-b1234-bin-win-cpu-x64.zip",
+        "llama-b1234-bin-ubuntu-x64.tar.gz",
     ]
     assert controller.started_spec.source == (
-        "https://example.com/releases/b1234/" "llama-b1234-bin-win-cpu-x64.zip"
+        "https://example.com/releases/b1234/"
+        "llama-b1234-bin-ubuntu-x64.tar.gz"
     )
     assert controller.started_spec.task.payload["chunk_size"] == 64
     assert controller.started_spec.task.payload["timeout"] == 15
     assert controller.started_spec.task.payload["file_name"] == (
-        "llama-b1234-bin-win-cpu-x64.zip"
+        "llama-b1234-bin-ubuntu-x64.tar.gz"
     )
 
 
@@ -618,7 +597,10 @@ async def test_download_rejects_existing_file_dest(
     downloader.target_dir = dest_file
 
     with pytest.raises(ValueError, match="dest must be a directory path"):
-        downloader.download()
+        downloader.download(
+            base_url="https://example.com/releases",
+            tag="b1234",
+        )
 
 
 def test_download_worker_uses_browser_like_headers(
@@ -628,12 +610,8 @@ def test_download_worker_uses_browser_like_headers(
     downloader = _build_downloader(monkeypatch)
     staging_dir = tmp_path / "header-install"
     fake_client = _patch_httpx_client(monkeypatch, _make_zip_payload())
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
-        ),
+    download_url = (
+        "https://example.com/releases/b1234/llama-b1234-bin-win-cpu-x64.zip"
     )
 
     messages: list[dict[str, object]] = []
@@ -644,7 +622,7 @@ def test_download_worker_uses_browser_like_headers(
 
     downloader._download_worker(
         {
-            "url": downloader.download_url,
+            "url": download_url,
             "staging_dir": str(staging_dir),
             "file_name": "llama-b1234-bin-win-cpu-x64.zip",
             "chunk_size": 64,
@@ -657,8 +635,7 @@ def test_download_worker_uses_browser_like_headers(
     assert fake_client.stream_calls == [
         (
             "GET",
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip",
+            download_url,
             downloader._download_headers,
         ),
     ]
@@ -674,17 +651,13 @@ def test_download_worker_emits_failure_result(
 ) -> None:
     downloader = _build_downloader(monkeypatch)
     request = httpx.Request("GET", "https://example.com/fail")
+    download_url = (
+        "https://example.com/releases/b1234/" "llama-b1234-bin-win-cpu-x64.zip"
+    )
     _patch_httpx_client(
         monkeypatch,
         b"",
         exc=httpx.ReadError("boom", request=request),
-    )
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
-        ),
     )
 
     messages: list[dict[str, object]] = []
@@ -696,7 +669,7 @@ def test_download_worker_emits_failure_result(
     with pytest.raises(httpx.ReadError, match="boom"):
         downloader._download_worker(
             {
-                "url": downloader.download_url,
+                "url": download_url,
                 "staging_dir": str(tmp_path / "failure"),
                 "file_name": "llama-b1234-bin-win-cpu-x64.zip",
                 "chunk_size": 64,
@@ -754,16 +727,13 @@ def test_download_worker_flattens_single_top_level_archive_dir(
 ) -> None:
     downloader = _build_downloader(monkeypatch)
     staging_dir = tmp_path / "flattened-install"
+    download_url = (
+        "https://example.com/releases/b1234/"
+        "llama-b1234-bin-ubuntu-x64.tar.gz"
+    )
     _patch_httpx_client(
         monkeypatch,
         _make_tar_gz_payload_with_top_level_dir(),
-    )
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-ubuntu-x64.tar.gz"
-        ),
     )
 
     messages: list[dict[str, object]] = []
@@ -774,7 +744,7 @@ def test_download_worker_flattens_single_top_level_archive_dir(
 
     downloader._download_worker(
         {
-            "url": downloader.download_url,
+            "url": download_url,
             "staging_dir": str(staging_dir),
             "file_name": "llama-b1234-bin-ubuntu-x64.tar.gz",
             "chunk_size": 64,

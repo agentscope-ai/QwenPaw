@@ -48,10 +48,7 @@ class LlamaCppBackend:
 
     _MIN_MACOS_VERSION = (13, 3)
 
-    def __init__(self, base_url: str, release_tag: str):
-        self.base_url = base_url.rstrip("/")
-        self.release_tag = release_tag
-
+    def __init__(self):
         self.os_name = self._resolve_os_name()
         self.arch = self._resolve_arch()
         self.cuda_version = self._resolve_cuda_version()
@@ -73,13 +70,6 @@ class LlamaCppBackend:
     # -----------------------------
     # Public APIs
     # -----------------------------
-    @property
-    def download_url(self) -> str:
-        """Get the download URL for the current environment configuration."""
-        filename = self._build_filename()
-        base_url = self.base_url
-        return f"{base_url}/{self.release_tag}/{filename}"
-
     @property
     def executable(self) -> Path:
         """The expected path of the llama.cpp server executable after download
@@ -105,7 +95,7 @@ class LlamaCppBackend:
                 return False, message
 
         try:
-            self._build_filename()
+            self._build_filename("b0")
         except RuntimeError as exc:
             return False, str(exc)
 
@@ -134,18 +124,36 @@ class LlamaCppBackend:
         """Request cancellation of the current llama.cpp download."""
         self._download_controller.cancel()
 
+    async def has_update(self, latest_version: str) -> bool:
+        """Check if there is a newer version of llama.cpp available."""
+        if not self.check_llamacpp_installation()[0]:
+            return False
+        try:
+            return int(latest_version[1:]) > int(
+                (await self.get_version())[1:],
+            )
+        except Exception:
+            logger.warning("Failed to check for llama.cpp updates")
+            return True
+
     def download(
         self,
+        base_url: str,
+        tag: str,
         chunk_size: int = 1024 * 1024,
         timeout: int = 30,
     ) -> None:
         self.start_download(
+            base_url=base_url,
+            tag=tag,
             chunk_size=chunk_size,
             timeout=timeout,
         )
 
     def start_download(
         self,
+        base_url: str,
+        tag: str,
         chunk_size: int = 1024 * 1024,
         timeout: int = 30,
     ) -> None:
@@ -172,16 +180,17 @@ class LlamaCppBackend:
             )
 
         staging_dir = dest_dir.parent / f".llamacpp-{uuid.uuid4().hex}"
-        url = self.download_url
+        filename = self._build_filename(tag)
+        download_url = f"{base_url}/{tag}/{filename}"
         spec = ProcessDownloadTaskSpec(
             process_name=f"copaw-llamacpp-download-{staging_dir.name}",
-            command=["copaw-llamacpp-download", url],
+            command=["copaw-llamacpp-download", download_url],
             task=ProcessDownloadTask(
                 target=type(self)._download_worker,
                 payload={
-                    "url": url,
+                    "url": download_url,
                     "staging_dir": str(staging_dir),
-                    "file_name": url.rsplit("/", 1)[-1],
+                    "file_name": filename,
                     "chunk_size": chunk_size,
                     "timeout": timeout,
                     "headers": self._download_headers,
@@ -193,7 +202,7 @@ class LlamaCppBackend:
                 ),
                 cleanup=lambda: self._cleanup_download_path(staging_dir),
             ),
-            source=url,
+            source=download_url,
             poll_interval=0.2,
         )
         self._download_controller.start(spec)
@@ -745,9 +754,7 @@ class LlamaCppBackend:
             return "13.1"
         return None
 
-    def _build_filename(self) -> str:
-        tag = self.release_tag
-
+    def _build_filename(self, tag: str) -> str:
         if self.os_name == "macos":
             return f"llama-{tag}-bin-macos-{self.arch}.tar.gz"
 

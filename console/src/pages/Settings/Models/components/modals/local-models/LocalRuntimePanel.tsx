@@ -32,11 +32,17 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   const { t } = useTranslation();
   const installable = serverStatus?.installable ?? true;
   const installed = Boolean(serverStatus?.installed);
+  const hasUpdate = Boolean(serverStatus?.has_update);
   const isDownloading = isDownloadActive(progress);
   const isCanceling = progress?.status === "canceling";
   const isRunning = Boolean(serverStatus?.model_name);
   const showFooterHint = installed || isDownloading;
-  const installBadge = installed
+  const installBadge = hasUpdate
+    ? {
+        className: styles.localStatusBadgeInstalled,
+        label: t("models.localRuntimeUpdateAvailable"),
+      }
+    : installed
     ? {
         className: styles.localStatusBadgeInstalled,
         label: t("models.localRuntimeInstalled"),
@@ -67,6 +73,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
         };
   const progressPercent = getProgressPercent(progress);
   const progressText = isDownloading ? formatProgressText(progress) : null;
+  const canTriggerUpdate = hasUpdate && !isDownloading;
 
   return (
     <div className={styles.localRuntimePanel}>
@@ -90,7 +97,17 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           <span className={styles.localEngineMetricLabel}>
             {t("models.localEngineInstallStateLabel")}
           </span>
-          {!installable && serverStatus?.message ? (
+          {canTriggerUpdate ? (
+            <Tooltip title={t("models.localRuntimeUpdateAction")}>
+              <button
+                type="button"
+                className={`${styles.localStatusBadge} ${installBadge.className} ${styles.localStatusBadgeButton}`}
+                onClick={onStart}
+              >
+                {installBadge.label}
+              </button>
+            </Tooltip>
+          ) : !installable && serverStatus?.message ? (
             <Tooltip title={serverStatus.message}>
               <span
                 className={`${styles.localStatusBadge} ${installBadge.className}`}

@@ -29,6 +29,10 @@ class ServerStatus(BaseModel):
         ...,
         description="Whether llama.cpp is running and responding",
     )
+    has_update: bool = Field(
+        ...,
+        description="Whether a newer llama.cpp package is available",
+    )
     installable: bool = Field(
         ...,
         description="Whether the current environment can install llama.cpp",
@@ -112,6 +116,7 @@ async def server_available(
     if not installable:
         return ServerStatus(
             available=False,
+            has_update=False,
             installable=False,
             installed=False,
             port=None,
@@ -128,12 +133,15 @@ async def server_available(
     if not installed:
         return ServerStatus(
             available=False,
+            has_update=False,
             installable=installable,
             installed=False,
             port=None,
             model_name=None,
             message=message or install_message,
         )
+
+    has_update = await manager.has_update()
 
     server_state = manager.get_llamacpp_server_status()
 
@@ -158,6 +166,7 @@ async def server_available(
 
     return ServerStatus(
         available=installed and ready,
+        has_update=has_update,
         installable=installable,
         installed=installed,
         port=server_state["port"],
