@@ -1,16 +1,7 @@
 import dayjs from "dayjs";
-import relativeTime from "dayjs/plugin/relativeTime";
-import "dayjs/locale/zh-cn";
-import "dayjs/locale/ja";
-import "dayjs/locale/ru";
 
-dayjs.extend(relativeTime);
-
-const LOCALE_MAP: Record<string, string> = {
-  en: "en",
+const DAYJS_LOCALE: Record<string, string> = {
   zh: "zh-cn",
-  ja: "ja",
-  ru: "ru",
 };
 
 export const formatFileSize = (bytes: number): string => {
@@ -22,16 +13,16 @@ export const formatFileSize = (bytes: number): string => {
 
 export const formatTimeAgo = (
   timestamp: number | string,
-  locale: string = "en",
+  locale = "en",
 ): string => {
   const time =
     typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp;
-  if (isNaN(time)) {
-    return "-";
-  }
+  if (isNaN(time)) return "-";
 
-  const dayjsLocale = LOCALE_MAP[locale] || "en";
-  return dayjs(time).locale(dayjsLocale).fromNow();
+  const shortLocale = locale.split("-")[0];
+  return dayjs(time)
+    .locale(DAYJS_LOCALE[shortLocale] || shortLocale)
+    .fromNow();
 };
 
 export const isDailyMemoryFile = (filename: string): boolean => {
