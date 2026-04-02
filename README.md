@@ -392,6 +392,7 @@ CoPaw includes multi-layer security mechanisms to protect your data and system:
 - **File access guard** — Restricts agent access to sensitive paths (e.g., `~/.ssh`, key files, system directories, etc.)
 - **Skill security scanning** — Automatically scans before installing skills, detecting risks like prompt injection, command injection, hardcoded keys, data exfiltration, etc.
 - **Local deployment** — All data and memory stored locally, no third-party upload (when using cloud LLM APIs, conversation content is sent to the corresponding API provider)
+- **Web Authentication** — Optional login protection for the Console. Disabled by default; set `COPAW_AUTH_ENABLED=true` to enable. See [Web Authentication](https://copaw.agentscope.io/docs/security#Web-Authentication) for details.
 
 See [Security documentation](https://copaw.agentscope.io/docs/security) for details.
 
