@@ -112,15 +112,68 @@ html.dark-mode .ant-table-tbody > tr.ant-table-row-selected > td {
   background: rgba(97, 92, 237, 0.12) !important;
 }
 
-/* Table fixed columns shadow in dark mode */
-html.dark-mode .copaw-table-cell-fix-right,
-html.dark-mode .ant-table-cell-fix-right {
+/* Table fixed columns in dark mode */
+html.dark-mode .copaw-table-thead > tr > th.copaw-table-cell-fix-left,
+html.dark-mode .copaw-table-thead > tr > th.copaw-table-cell-fix-right,
+html.dark-mode .copaw-table-thead > tr > td.copaw-table-cell-fix-left,
+html.dark-mode .copaw-table-thead > tr > td.copaw-table-cell-fix-right,
+html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-left,
+html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-right,
+html.dark-mode .ant-table-thead > tr > td.ant-table-cell-fix-left,
+html.dark-mode .ant-table-thead > tr > td.ant-table-cell-fix-right {
+  background: #262626 !important;
+}
+
+html.dark-mode .copaw-table-tbody > tr > td.copaw-table-cell-fix-left,
+html.dark-mode .copaw-table-tbody > tr > td.copaw-table-cell-fix-right,
+html.dark-mode .ant-table-tbody > tr > td.ant-table-cell-fix-left,
+html.dark-mode .ant-table-tbody > tr > td.ant-table-cell-fix-right {
   background: #1f1f1f !important;
 }
 
+html.dark-mode .copaw-table-tbody > tr:hover > td.copaw-table-cell-fix-left,
+html.dark-mode .copaw-table-tbody > tr:hover > td.copaw-table-cell-fix-right,
+html.dark-mode .ant-table-tbody > tr:hover > td.ant-table-cell-fix-left,
+html.dark-mode .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right {
+  background: #2a2a2a !important;
+}
+
+html.dark-mode
+  .copaw-table-tbody
+  > tr.copaw-table-row-selected
+  > td.copaw-table-cell-fix-left,
+html.dark-mode
+  .copaw-table-tbody
+  > tr.copaw-table-row-selected
+  > td.copaw-table-cell-fix-right,
+html.dark-mode
+  .ant-table-tbody
+  > tr.ant-table-row-selected
+  > td.ant-table-cell-fix-left,
+html.dark-mode
+  .ant-table-tbody
+  > tr.ant-table-row-selected
+  > td.ant-table-cell-fix-right {
+  background: rgba(97, 92, 237, 0.12) !important;
+}
+
+html.dark-mode .copaw-table-cell-fix-left-first::after,
+html.dark-mode .copaw-table-cell-fix-left-last::after,
+html.dark-mode .ant-table-cell-fix-left-first::after,
+html.dark-mode .ant-table-cell-fix-left-last::after {
+  box-shadow: inset 10px 0 8px -8px rgba(0, 0, 0, 0.45) !important;
+}
+
 html.dark-mode .copaw-table-cell-fix-right-first::after,
-html.dark-mode .ant-table-cell-fix-right-first::after {
+html.dark-mode .copaw-table-cell-fix-right-last::after,
+html.dark-mode .ant-table-cell-fix-right-first::after,
+html.dark-mode .ant-table-cell-fix-right-last::after {
   box-shadow: inset -10px 0 8px -8px rgba(0, 0, 0, 0.45) !important;
+}
+
+html.dark-mode .copaw-table-ping-left .copaw-table-cell-fix-left-last::before,
+html.dark-mode .ant-table-ping-left .ant-table-cell-fix-left-last::before {
+  background: transparent !important;
 }
 
 /* Table pagination */
@@ -939,6 +992,38 @@ html.dark-mode .copaw-btn-default {
   color: rgba(255, 235, 218, 0.88) !important;
   background-color: #000000 !important;
   border: 1px solid #3a312a !important;
+}
+
+/* Dark mode - text/icon buttons */
+html.dark-mode .ant-btn-text,
+html.dark-mode .copaw-btn-text,
+html.dark-mode .ant-btn-variant-text,
+html.dark-mode .copaw-btn-variant-text,
+html.dark-mode .ant-btn-color-default.ant-btn-variant-text,
+html.dark-mode .copaw-btn-color-default.copaw-btn-variant-text {
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+
+html.dark-mode .ant-btn-text .anticon,
+html.dark-mode .copaw-btn-text .anticon,
+html.dark-mode .ant-btn-variant-text .anticon,
+html.dark-mode .copaw-btn-variant-text .anticon,
+html.dark-mode .ant-btn-text svg,
+html.dark-mode .copaw-btn-text svg,
+html.dark-mode .ant-btn-variant-text svg,
+html.dark-mode .copaw-btn-variant-text svg {
+  color: inherit !important;
+  fill: currentColor !important;
+}
+
+html.dark-mode .ant-btn-text:hover,
+html.dark-mode .copaw-btn-text:hover,
+html.dark-mode .ant-btn-variant-text:hover,
+html.dark-mode .copaw-btn-variant-text:hover,
+html.dark-mode .ant-btn-color-default.ant-btn-variant-text:hover,
+html.dark-mode .copaw-btn-color-default.copaw-btn-variant-text:hover {
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
 }
 
 /* Dark mode - danger button */
