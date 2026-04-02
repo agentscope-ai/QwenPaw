@@ -133,17 +133,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         self.memory_manager.add_async_summary_task(messages=messages)
-        if extra_instruction:
-            compact_content = await self.memory_manager.compact_memory(
-                messages=messages,
-                previous_summary=self.memory.get_compressed_summary(),
-                extra_instruction=extra_instruction,
-            )
-        else:
-            compact_content = await self.memory_manager.compact_memory(
-                messages=messages,
-                previous_summary=self.memory.get_compressed_summary(),
-            )
+        compact_content = await self.memory_manager.compact_memory(
+            messages=messages,
+            previous_summary=self.memory.get_compressed_summary(),
+            extra_instruction=extra_instruction,
+        )
 
         if not compact_content:
             return await self._make_system_msg(

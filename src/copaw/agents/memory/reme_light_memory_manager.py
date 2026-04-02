@@ -268,19 +268,34 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         agent_config = load_agent_config(self.agent_id)
         cc = agent_config.running.context_compact
 
-        result = await self._reme.compact_memory(
-            messages=messages,
-            as_llm=self.chat_model,
-            as_llm_formatter=self.formatter,
-            as_token_counter=get_copaw_token_counter(agent_config),
-            language=agent_config.language,
-            max_input_length=agent_config.running.max_input_length,
-            compact_ratio=cc.memory_compact_ratio,
-            previous_summary=previous_summary,
-            return_dict=True,
-            add_thinking_block=cc.compact_with_thinking_block,
-            extra_instruction=extra_instruction,
-        )
+        if extra_instruction:
+            result = await self._reme.compact_memory(
+                messages=messages,
+                as_llm=self.chat_model,
+                as_llm_formatter=self.formatter,
+                as_token_counter=get_copaw_token_counter(agent_config),
+                language=agent_config.language,
+                max_input_length=agent_config.running.max_input_length,
+                compact_ratio=cc.memory_compact_ratio,
+                previous_summary=previous_summary,
+                return_dict=True,
+                add_thinking_block=cc.compact_with_thinking_block,
+                extra_instruction=extra_instruction,
+            )
+        else:
+            # Compatible with older versions of ReMe
+            result = await self._reme.compact_memory(
+                messages=messages,
+                as_llm=self.chat_model,
+                as_llm_formatter=self.formatter,
+                as_token_counter=get_copaw_token_counter(agent_config),
+                language=agent_config.language,
+                max_input_length=agent_config.running.max_input_length,
+                compact_ratio=cc.memory_compact_ratio,
+                previous_summary=previous_summary,
+                return_dict=True,
+                add_thinking_block=cc.compact_with_thinking_block,
+            )
 
         if isinstance(result, str):
             logger.error(
