@@ -13,11 +13,8 @@ export interface SkillSpec {
   source: string;
   enabled?: boolean;
   channels?: string[];
-  sync_to_pool?: {
-    status?: SkillSyncStatus;
-    pool_name?: string;
-  };
   config?: Record<string, unknown>;
+  last_updated?: string;
 }
 
 export interface PoolSkillSpec {
@@ -31,6 +28,7 @@ export interface PoolSkillSpec {
   sync_status?: SkillSyncStatus | "";
   latest_version_text?: string;
   config?: Record<string, unknown>;
+  last_updated?: string;
 }
 
 export interface WorkspaceSkillSummary {

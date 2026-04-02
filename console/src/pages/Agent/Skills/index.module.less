@@ -127,6 +127,35 @@
   padding: 16px;
 }
 
+/* ─── Status with Select (batch selection) ───────────────────────────────── */
+.statusWithSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.selectedCard {
+  box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.2) !important;
+}
+
+.selectedListItem {
+  background: rgba(255, 127, 22, 0.02);
+}
+
+/* ─── Batch Mode Header ──────────────────────────────────────────────────── */
+.batchActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batchCount {
+  font-size: 13px;
+  color: #666;
+  margin-right: 4px;
+}
+
 /* ─── Skill Card ──────────────────────────────────────────────────────────── */
 .skillCard {
   min-height: 178px;
@@ -140,7 +169,7 @@
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
-  padding-bottom: 56px; /* 增加底部padding，为按钮留出空间 */
+  padding-bottom: 56px;
 
   :global {
     .ant-card-body {
@@ -193,17 +222,27 @@
 }
 
 .fileIcon {
-  font-size: 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #fcfaf8;
+  font-size: 28px;
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
 .skillEmoji {
-  font-size: 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #fcfaf8;
+  font-size: 24px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 
 .titleRow {
@@ -322,13 +361,21 @@
   flex-shrink: 0;
 }
 
-.metaValue {
+.channelValue {
   font-size: 12px;
   color: rgba(20, 20, 19, 0.88);
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 4px;
   background-color: rgba(239, 240, 243, 0.5);
+}
+
+.metaValue {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.88);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 .builtinTag {
@@ -380,23 +427,7 @@
   flex: 1;
   height: 32px;
   font-size: 14px;
-  background-color: #fff0f0;
-  color: #ff4d4f;
-  border: 1px solid #ffccc7;
   cursor: pointer;
-
-  &:hover {
-    background-color: #ff4d4f;
-    border-color: #ff4d4f;
-    color: #ffffff;
-  }
-
-  &:disabled {
-    background-color: #f5f5f5;
-    color: rgba(0, 0, 0, 0.25);
-    border-color: #d9d9d9;
-    cursor: not-allowed;
-  }
 }
 
 .emptyState {
@@ -646,8 +677,154 @@
   padding-right: 18px;
 }
 
+/* ─── Toolbar (search + view toggle) ─────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+}
+
+.searchInput {
+  width: 240px;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.viewToggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.viewToggleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: rgba(20, 20, 19, 0.45);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+  transition: all 0.2s;
+
+  &:hover {
+    color: rgba(20, 20, 19, 0.88);
+    background: rgba(0, 0, 0, 0.04);
+  }
+
+  &.viewToggleBtnActive {
+    color: rgba(20, 20, 19, 0.88);
+    background: rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* ─── List Mode ─────────────────────────────────────────────────────────── */
+.skillsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 16px;
+}
+
+.skillListItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border-bottom: none;
+  background: var(--color-bg-base, #ffffff);
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:first-child {
+    border-radius: 8px 8px 0 0;
+  }
+
+  &:last-child {
+    border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+    border-radius: 0 0 8px 8px;
+  }
+
+  &:only-child {
+    border-radius: 8px;
+    border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+  }
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.02);
+  }
+}
+
+.listItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.listItemInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.listItemHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.channelBadge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  background-color: rgba(239, 240, 243, 0.8);
+  color: #8e8c99;
+}
+
+.listItemTime {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.listItemDesc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listItemRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-left: 24px;
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .fileIcon {
+    background: rgba(26, 23, 22, 0.88);
+  }
+
+  .skillEmoji {
+    background: rgba(26, 23, 22, 0.88);
+  }
+
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.2);
   }
@@ -764,9 +941,13 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
-  .metaValue {
+  .channelValue {
     color: rgba(255, 255, 255, 0.88);
     background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .metaValue {
+    color: rgba(255, 255, 255, 0.88);
   }
 
   .builtinTag {
@@ -791,22 +972,13 @@
     }
   }
 
-  /* Delete button */
-  .deleteButton {
-    background-color: #ff4d4f !important;
-    color: #fff !important;
-    border-color: #ff4d4f !important;
+  .selectedCard {
+    border-color: #ff7f16 !important;
+    box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.3) !important;
+  }
 
-    &:hover {
-      background-color: #ff7875 !important;
-      border-color: #ff7875 !important;
-    }
-
-    &:disabled {
-      background-color: #5a3a3a !important;
-      color: rgba(255, 255, 255, 0.4) !important;
-      border-color: #5a3a3a !important;
-    }
+  .batchCount {
+    color: rgba(255, 255, 255, 0.65);
   }
 
   /* Card picker */
@@ -841,5 +1013,43 @@
         background: #2d2d2d;
       }
     }
+  }
+
+  /* View toggle buttons - dark mode */
+  .viewToggleBtn {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    &.viewToggleBtnActive {
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  /* List mode - dark mode */
+  .skillListItem {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.15);
+
+    &:hover {
+      background: #2a2a2a;
+    }
+  }
+
+  .listItemTime {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .listItemDesc {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .channelBadge {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.8);
   }
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Dropdown, message, Spin, Tooltip } from "antd";
+import { Dropdown, Spin, Tooltip } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   CheckOutlined,
   LoadingOutlined,
@@ -31,6 +32,7 @@ export default function ModelSelector() {
   const savingRef = useRef(false);
   const location = useLocation();
   const { selectedAgent } = useAgentStore();
+  const { message } = useAppMessage();
 
   const fetchData = useCallback(async () => {
     setLoading(true);

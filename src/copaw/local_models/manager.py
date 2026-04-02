@@ -15,9 +15,10 @@ class LocalModelManager:
     """Single entry point for local runtime downloads and server control."""
 
     DEFAULT_LLAMA_CPP_BASE_URL = (
-        "https://github.com/ggml-org/llama.cpp/releases/download"
+        # Mirror of "https://github.com/ggml-org/llama.cpp/releases/download"
+        "https://download.copaw.agentscope.io/files/models/llama_cpp"
     )
-    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8513"
+    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8514"
 
     def __init__(
         self,
@@ -34,9 +35,13 @@ class LocalModelManager:
         )
         self._server_lifecycle_lock = asyncio.Lock()
 
-    def check_llamacpp_installation(self) -> bool:
+    def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Return whether llama.cpp is already installed locally."""
         return self._llamacpp_backend.check_llamacpp_installation()
+
+    def check_llamacpp_installability(self) -> tuple[bool, str]:
+        """Return whether the current environment can install llama.cpp."""
+        return self._llamacpp_backend.check_llamacpp_installability()
 
     def start_llamacpp_download(self) -> None:
         """Start the llama.cpp binary download task."""

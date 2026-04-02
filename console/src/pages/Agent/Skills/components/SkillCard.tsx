@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, Button } from "@agentscope-ai/design";
+import { Card, Button, Checkbox } from "@agentscope-ai/design";
 import {
   CalendarFilled,
   FileTextFilled,
@@ -13,17 +13,17 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
+import dayjs from "dayjs";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
-import {
-  getSkillDisplaySource,
-  getSkillSyncStatusLabel,
-} from "./skillMetadata";
+import { getSkillDisplaySource } from "./skillMetadata";
 
 interface SkillCardProps {
   skill: SkillSpec;
   isHover: boolean;
+  selected?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
   onClick: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -61,13 +61,13 @@ export const getFileIcon = (filePath: string) => {
 
   switch (skillKey) {
     case "docx":
-      return <FileWordFilled style={{ color: "#2b579a" }} />;
+      return <FileWordFilled style={{ color: "#2B8DFF" }} />;
     case "xlsx":
-      return <FileExcelFilled style={{ color: "#217346" }} />;
+      return <FileExcelFilled style={{ color: "#44C161" }} />;
     case "pptx":
-      return <FilePptFilled style={{ color: "#d24726" }} />;
+      return <FilePptFilled style={{ color: "#FF5B3B" }} />;
     case "pdf":
-      return <FilePdfFilled style={{ color: "#f5222d" }} />;
+      return <FilePdfFilled style={{ color: "#F04B57" }} />;
     case "cron":
       return <CalendarFilled style={{ color: "#13c2c2" }} />;
     default:
@@ -88,16 +88,16 @@ export const getFileIcon = (filePath: string) => {
     case "gz":
       return <FileZipFilled style={{ color: "#fa8c16" }} />;
     case "pdf":
-      return <FilePdfFilled style={{ color: "#f5222d" }} />;
+      return <FilePdfFilled style={{ color: "#F04B57" }} />;
     case "doc":
     case "docx":
-      return <FileWordFilled style={{ color: "#2b579a" }} />;
+      return <FileWordFilled style={{ color: "#2B8DFF" }} />;
     case "xls":
     case "xlsx":
-      return <FileExcelFilled style={{ color: "#217346" }} />;
+      return <FileExcelFilled style={{ color: "#44C161" }} />;
     case "ppt":
     case "pptx":
-      return <FilePptFilled style={{ color: "#d24726" }} />;
+      return <FilePptFilled style={{ color: "#FF5B3B" }} />;
     case "jpg":
     case "jpeg":
     case "png":
@@ -134,6 +134,8 @@ export const getSkillVisual = (name: string, content?: string) => {
 export const SkillCard = React.memo(function SkillCard({
   skill,
   isHover,
+  selected,
+  onSelect,
   onClick,
   onMouseEnter,
   onMouseLeave,
@@ -143,6 +145,7 @@ export const SkillCard = React.memo(function SkillCard({
   const { t } = useTranslation();
   const displaySource = getSkillDisplaySource(skill.source);
   const isBuiltin = displaySource === "builtin";
+  const batchMode = selected !== undefined;
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -151,22 +154,35 @@ export const SkillCard = React.memo(function SkillCard({
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!skill.enabled && onDelete) {
-      onDelete(e);
+    onDelete?.(e);
+  };
+
+  const handleSelectClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSelect?.(e);
+  };
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (batchMode && onSelect) {
+      onSelect(e);
+    } else {
+      onClick();
     }
   };
 
   return (
     <Card
       hoverable
-      onClick={onClick}
+      onClick={handleCardClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={`${styles.skillCard} ${
         skill.enabled ? styles.enabledCard : ""
-      } ${isHover ? styles.hover : styles.normal}`}
+      } ${isHover ? styles.hover : styles.normal} ${
+        selected ? styles.selectedCard : ""
+      }`}
     >
-      {/* Header: Icon + Title + Badge + Status */}
+      {/* Header: Icon + Title + Badge + Status + Select */}
       <div className={styles.cardHeader}>
         <div className={styles.leftSection}>
           <span className={styles.fileIcon}>
@@ -182,35 +198,42 @@ export const SkillCard = React.memo(function SkillCard({
           <div className={styles.metaContainer}>
             <div className={styles.metaItem}>
               <span className={styles.metaLabel}>{t("skills.channels")}</span>
-              <span className={styles.metaValue}>
+              <span className={styles.channelValue}>
                 {(skill.channels || ["all"])
                   .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
                   .join(", ")}
               </span>
             </div>
-            {skill.sync_to_pool && (
+            {skill.last_updated && (
               <div className={styles.metaItem}>
-                <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
+                <span className={styles.metaLabel}>
+                  {t("skills.lastUpdated")}
+                </span>
                 <span className={styles.metaValue}>
-                  {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
+                  {dayjs(skill.last_updated).fromNow()}
                 </span>
               </div>
             )}
           </div>
         </div>
-        <div className={styles.statusContainer}>
-          <span
-            className={`${styles.statusDot} ${
-              skill.enabled ? styles.enabled : styles.disabled
-            }`}
-          />
-          <span
-            className={`${styles.statusText} ${
-              skill.enabled ? styles.enabled : styles.disabled
-            }`}
-          >
-            {skill.enabled ? t("common.enabled") : t("common.disabled")}
-          </span>
+        <div className={styles.statusWithSelect}>
+          <div className={styles.statusContainer}>
+            <span
+              className={`${styles.statusDot} ${
+                skill.enabled ? styles.enabled : styles.disabled
+              }`}
+            />
+            <span
+              className={`${styles.statusText} ${
+                skill.enabled ? styles.enabled : styles.disabled
+              }`}
+            >
+              {skill.enabled ? t("common.enabled") : t("common.disabled")}
+            </span>
+          </div>
+          {batchMode && (
+            <Checkbox checked={selected} onClick={handleSelectClick} />
+          )}
         </div>
       </div>
 
@@ -222,12 +245,13 @@ export const SkillCard = React.memo(function SkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer with buttons - always show */}
+      {/* Footer with buttons - always show, disabled in batch mode */}
       <div className={styles.cardFooter}>
         <Button
           className={styles.actionButton}
           onClick={handleToggleClick}
           icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          disabled={batchMode}
         >
           {skill.enabled ? t("common.disable") : t("common.enable")}
         </Button>
@@ -236,7 +260,7 @@ export const SkillCard = React.memo(function SkillCard({
             danger
             className={styles.deleteButton}
             onClick={handleDeleteClick}
-            disabled={skill.enabled}
+            disabled={batchMode}
           >
             {t("common.delete")}
           </Button>

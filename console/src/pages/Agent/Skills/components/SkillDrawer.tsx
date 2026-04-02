@@ -1,19 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Drawer,
-  Form,
-  Input,
-  Button,
-  Select,
-  message,
-} from "@agentscope-ai/design";
+import { Drawer, Form, Input, Button, Select } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
 import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { api } from "../../../../api";
-import { getSkillSyncStatusLabel } from "./skillMetadata";
 
 /**
  * Parse frontmatter from content string.
@@ -64,7 +57,6 @@ export interface SkillDrawerFormValues {
   enabled?: boolean;
   channels?: string[];
   source?: string;
-  syncStatus?: string;
   config?: Record<string, unknown>;
 }
 
@@ -92,6 +84,7 @@ export function SkillDrawer({
   const abortControllerRef = useRef<AbortController | null>(null);
   const [configText, setConfigText] = useState("{}");
   const [configError, setConfigError] = useState("");
+  const { message } = useAppMessage();
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {
@@ -131,10 +124,6 @@ export function SkillDrawer({
         content: editingSkill.content,
         channels,
         source: editingSkill.source,
-        syncStatus: getSkillSyncStatusLabel(
-          editingSkill.sync_to_pool?.status,
-          t,
-        ),
       });
       setConfigError("");
       let active = true;
@@ -351,10 +340,6 @@ export function SkillDrawer({
         {editingSkill && (
           <>
             <Form.Item name="source" label={t("skills.type")}>
-              <Input disabled />
-            </Form.Item>
-
-            <Form.Item name="syncStatus" label={t("skills.poolSync")}>
               <Input disabled />
             </Form.Item>
           </>

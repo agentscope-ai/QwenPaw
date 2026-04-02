@@ -69,7 +69,7 @@ file anytime; after save, the **next** heartbeat uses the new content.
 
 ## Step 2: Configure heartbeat
 
-<!--TODO: add fig-->
+![heartbeat](https://img.alicdn.com/imgextra/i3/O1CN01qtGUD61scVAD28zPS_!!6000000005787-2-tps-3822-2064.png)
 
 Prefer configuring on the Console **Heartbeat** page. To edit **`agent.json`**
 instead, use the following.

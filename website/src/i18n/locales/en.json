@@ -1,0 +1,478 @@
+{
+  "nav": {
+    "docs": "Docs",
+    "more": "More",
+    "releaseNotes": "Release Notes",
+    "copaw": "Copaw",
+    "download": "Download",
+    "github": "GitHub",
+    "githubComingSoon": "Coming Soon",
+    "lang": "中文",
+    "agentscopeTeam": "AgentScope"
+  },
+  "hero": {
+    "titleleft": "Your Personal",
+    "titleright": "AI assistant,",
+    "slogan": "Works for you, grows with you",
+    "sub": "v1.0.0: CoPaw custom LLMs, safety architecture, multi-agent collaboration,",
+    "sub1": "and memory management — all upgraded, all yours.",
+    "releaseNote": "CoPaw v1.0.0 is released",
+    "cta": "Read the docs",
+    "quickStart": "Quick Start"
+  },
+  "follow": {
+    "title": "Follow us",
+    "sub": "Follow us for the latest CoPaw updates",
+    "xiaohongshu": "Rednote:",
+    "x": "X:"
+  },
+  "channels": {
+    "titleWe": "We",
+    "titleOperateWith": "operate with",
+    "titleEverything": "Everything.",
+    "sub": "10+ built-in channels, with more coming soon"
+  },
+  "finalCta": {
+    "titleBefore": "Get your",
+    "titleEmphasis": "paws up now",
+    "titleAfter": ",",
+    "titleLine2": "power your dev life.",
+    "downloadFromGithub": "Download from GitHub"
+  },
+  "whyCopaw": {
+    "headingPrefix": "Why",
+    "headingEmphasis": "CoPaw?",
+    "sub": "Easy to install, deploy on your own machine & on the cloud;\nsupports multiple IM Apps; with easily extensible capabilities.",
+    "heroLine": "CoPaw represents both a Co Personal Agent Workstation\nand a \"co-paw\" —— a partner always by your side.",
+    "secondPrefix": "More than just a cold tool,\n(CoPaw always ready to lend a paw)\nIt is the ultimate teammate for your digital life.",
+    "secondEmphasis": "",
+    "secondSuffix": ""
+  },
+  "worksForYou": {
+    "title": "Works for you, grows with you",
+    "sub": "Memory and personalization under your control.",
+    "learnMore": "Learn more",
+    "cards": {
+      "skills": {
+        "title": "Security Architecture",
+        "desc": "CoPaw 1.0 adopts a three-layer defense architecture—Tool Guard, File Guard, and Skill Scanner—to protect against runtime threats, unauthorized file access, and risky skill installations across all agent operations."
+      },
+      "control": {
+        "title": "Multi-agent Workspaces",
+        "desc": "CoPaw 1.0 enables multiple isolated agent workspaces to run concurrently within a single instance, each with independent configurations and memory, supporting asynchronous collaboration for complex multi-role tasks."
+      },
+      "apps": {
+        "title": "CoPaw Custom Models",
+        "desc": "CoPaw 1.0 introduces the CoPaw-Flash series—purpose-built small models for local deployment that require no cloud dependency, offer one-click setup, and are specifically optimized for high-frequency tasks such as document processing, memory update, and information retrieval.",
+        "learnMoreHref": "https://huggingface.co/agentscope-ai"
+      },
+      "memory": {
+        "title": "Memory",
+        "desc": "Compress context and tool output; turn experience into reusable memory—personalization stays under your control."
+      },
+      "toolkit": {
+        "title": "Tools, Skills & MCP",
+        "desc": "20+ built-in tools and skills with hot reload; plug in MCP and add skills anytime—your toolkit grows with CoPaw."
+      }
+    }
+  },
+  "clientVoices": {
+    "title": "Listen to what the community says about CoPaw",
+    "sub": "See real feedback from CoPaw users",
+    "items": {
+      "t1": {
+        "text": "CoPaw is a truly out-of-the-box, general-purpose AI agent framework. As CoPaw's underlying capabilities continue to iterate, our self-developed business agents can also achieve a leap in intelligence, significantly reducing long-term maintenance costs and technical liabilities.",
+        "role": "Alibaba Cloud Development Engineer"
+      },
+      "t2": {
+        "text": "Alibaba Tongyi’s move this time is very solid. CoPaw strengthens the “local + cloud” dual-deployment model, which is highly practical in today’s environment where privacy sensitivity and computing demands coexist. The open-source strategy also reflects Alibaba’s openness in building its AI ecosystem.",
+        "role": "Developer"
+      },
+      "t3": {
+        "text": "It's great, very easy to use, and responds quickly when used with Qwen's models. I suggest you consider using it on embedded devices to reduce resource consumption.",
+        "role": "Independent Developer"
+      },
+      "t4": {
+        "text": "The code looks so clean and easy to understand. Being a developer myself, would love to play with it more.",
+        "role": "Developer"
+      },
+      "t5": {
+        "text": "MCP hot-swapping without restarting is the standout feature for agent workflows. That means you can extend CoPaw's toolset mid-session, no context break, no restart penalty. Skill Hub + Claw Hub integration means the ecosystem compounds fast.",
+        "role": "Developer"
+      },
+      "t6": {
+        "text": "The CoPaw open-source project from Tongyi Lab is truly impressive! It’s great to see that people are not only enjoying successful experiences while using it, but also sharing amusing mishaps—like trying to tidy up the desktop and accidentally deleting files. Open-source AI agent frameworks are extremely important for advancing the entire industry, and I look forward to seeing more innovative applications built on CoPaw.",
+        "role": "Developer"
+      }
+    }
+  },
+  "brandstory": {
+    "title": "Why CoPaw?",
+    "para1": "CoPaw represents both a Co Personal Agent Workstation and a \"co-paw\"—a partner always by your side.",
+    "para2": "More than just a cold tool, CoPaw is a warm \"little paw\" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life."
+  },
+  "features": {
+    "title": "Key capabilities",
+    "channels": {
+      "title": "Every channel",
+      "desc": "DingTalk, Feishu, QQ, Discord, iMessage, and more — one assistant, connect as you need."
+    },
+    "private": {
+      "title": "Under your control",
+      "desc": "Memory and personalization under your control. Deploy locally or in the cloud; scheduled reminders and collaboration to any channel."
+    },
+    "skills": {
+      "title": "Skills",
+      "desc": "Built-in Cron; custom skills in your workspace, auto-loaded."
+    }
+  },
+  "testimonials": {
+    "title": "What people say",
+    "viewAll": "View all",
+    "1": "This is what a personal assistant should be: one entry, every channel.",
+    "2": "Cron and heartbeat are super practical. Add your own skills; data stays local.",
+    "3": "Teams who want full control love it."
+  },
+  "usecases": {
+    "title": "What you can do with CoPaw",
+    "sub": "Memory and personalization under your control.",
+    "categories": {
+      "social": {
+        "title": "Social Media",
+        "description": "CoPaw helps you stay on top of social content by summarizing trending posts, new videos, and account patterns based on your interests."
+      },
+      "creative": {
+        "title": "Creative & building",
+        "description": "CoPaw can run overnight on your goals and support the entire content creation process from idea to draft."
+      },
+      "productivity": {
+        "title": "Productivity",
+        "description": "CoPaw boosts productivity by summarizing updates, organizing contacts, and analyzing personal logs for useful patterns."
+      },
+      "research": {
+        "title": "Research & learning",
+        "description": "CoPaw tracks important company updates and builds your personal knowledge base for easy retrieval and reuse."
+      }
+    }
+  },
+  "quickstart": {
+    "title": "Quick start",
+    "heroTitle": "Do it yourself, done easily.",
+    "heroSub": "Your personal AI assistant in minutes. One command, or double-click the app",
+    "serviceNotice": "Your personal AI assistant in minutes. One command, or double-click the app—do it yourself, done easily.",
+    "hintBefore": "Install → init → start. Configure channels to use CoPaw on DingTalk, Feishu, QQ, etc. See ",
+    "hintLink": "docs",
+    "hintAfter": ".",
+    "method": {
+      "pip": "pip",
+      "script": "Script",
+      "docker": "Docker",
+      "cloud": "Cloud",
+      "desktop": "Desktop"
+    },
+    "desc": {
+      "pip": "If you prefer managing Python yourself, we would like to recommand:",
+      "script": "No Python pre-setup required, one command installs everything.",
+      "docker": "Quick deployment with official Docker images, isolated environment and easy management",
+      "cloud": "One-click cloud deployment or online execution, no local setup required.",
+      "desktop": "Standalone desktop app with bundled Python environment, all dependencies, and frontend assets. Double-click to run, no command line, no prerequisites required."
+    },
+    "platform": {
+      "mac": "macOS / Linux",
+      "windows": "Windows"
+    },
+    "shell": {
+      "cmd": "CMD",
+      "ps": "PowerShell"
+    },
+    "docker": {
+      "hub": "Docker Hub"
+    },
+    "cloud": {
+      "aliyun": "Aliyun",
+      "modelscope": "ModelScope",
+      "aliyunDeploy": "Deploy on Aliyun ECS",
+      "aliyunDoc": "View Documentation",
+      "modelscopeGo": "Go to ModelScope Studio"
+    },
+    "desktop": {
+      "platforms": "Supported Platforms",
+      "viewDownloads": "View Downloads",
+      "downloadGithub": "Download from GitHub",
+      "viewGuide": "View User Guide",
+      "recommended": "recommended"
+    },
+    "badgeBeta": "Beta"
+  },
+  "contributors": {
+    "titlePrefix": "Thank you to every",
+    "titleHighlight": "contributor",
+    "sub": "Every line of code and every pull request in CoPaw embodies the hard work and passion of the community members.",
+    "prev": "Previous contributors page",
+    "next": "Next contributors page",
+    "noteLine1Prefix": "The list of contributors is arranged alphabetically by their GitHub IDs. Please feel free to",
+    "contactUs": "contact us",
+    "noteLine1Suffix": "if you have any questions about the list.",
+    "noteLine2Prefix": "The data comes from all pull requests from"
+  },
+  "footer": {
+    "text": "CoPaw — Works for you, grows with you",
+    "sections": {
+      "builtBy": "Built by",
+      "resources": "Resources",
+      "terms": "Terms"
+    },
+    "links": {
+      "docs": "Docs",
+      "blog": "Blog",
+      "changelog": "Changelog",
+      "termsOfService": "Terms of Service",
+      "privacyPolicy": "Privacy Policy"
+    },
+    "social": {
+      "x": "X",
+      "github": "GitHub",
+      "discord": "Discord",
+      "youtube": "YouTube"
+    },
+    "copyright": "© 2026 COPAW PRIVATE LIMITED, All rights reserved.",
+    "poweredBy": {
+      "p1": "Built by ",
+      "p2": " with ",
+      "p3": ", ",
+      "p3b": ", and ",
+      "p4": ".",
+      "team": "AgentScope team",
+      "agentscope": "AgentScope",
+      "runtime": "AgentScope Runtime",
+      "reme": "ReMe"
+    },
+    "inspiredBy": {
+      "text": "Partly inspired by ",
+      "name": "OpenClaw"
+    },
+    "thanksSkills": {
+      "text": "Thanks to ",
+      "name": "anthropics/skills",
+      "suffix": " for the Agent Skills spec and examples."
+    }
+  },
+  "docs": {
+    "intro": "Introduction",
+    "quickstart": "Quick start",
+    "desktop": "Desktop App",
+    "console": "Console",
+    "multiAgent": "Multi-Agent",
+    "models": "Models",
+    "channels": "Channels",
+    "skills": "Skills",
+    "mcp": "MCP & Built-in Tools",
+    "memory": "Memory",
+    "context": "Context",
+    "commands": "Magic commands",
+    "heartbeat": "Heartbeat",
+    "config": "Config & working dir",
+    "security": "Security",
+    "cli": "CLI",
+    "faq": "FAQ",
+    "community": "Bug reports & community",
+    "contributing": "Open source & contribution",
+    "roadmap": "Roadmap",
+    "groupWelcome": "Welcome",
+    "groupControl": "Control",
+    "groupAgent": "Agent",
+    "groupSettings": "Settings",
+    "groupOthers": "Others",
+    "toggleSidebar": "Toggle sidebar",
+    "closeSidebar": "Close sidebar",
+    "onThisPage": "On this page",
+    "videoNotSupported": "Your browser does not support the video tag.",
+    "backToTop": "Back to top",
+    "copy": "Copy",
+    "copied": "Copied",
+    "searchPlaceholder": "Search docs",
+    "searchLoading": "Loading…",
+    "searchNoResults": "No results",
+    "searchResultsTitle": "Search results",
+    "searchResultsTitleEmpty": "Search docs",
+    "searchHint": "Enter a keyword and press Enter to search.",
+    "agentPersona": "Agent Persona"
+  },
+  "homeFaq": {
+    "title": "Frequently asked questions",
+    "sub": "Memory and personalization under your control.",
+    "intro": "Here's everything you need to know to get started, manage your account, and troubleshoot the most frequent issues.",
+    "categories": {
+      "quickStart": "Quick Start",
+      "features": "Features",
+      "troubleshooting": "Troubleshooting"
+    },
+    "quickStart": {
+      "install": {
+        "q": "How to install CoPaw",
+        "p1": "CoPaw supports multiple installation methods, including:",
+        "li1": "Desktop Application (Beta): download and run the desktop app with no command line required, suitable for users unfamiliar with terminals.",
+        "li2": "Script install: run on your machine with no Python setup required.",
+        "li3": "pip install: if you prefer managing Python yourself.",
+        "li4": "Docker: use official images from Docker Hub (ACR is also available for users in China).",
+        "li5": "ModelScope Studio: one-click cloud deployment, no local install needed.",
+        "li6": "Alibaba Cloud ECS: one-click deployment on Alibaba Cloud, no local install.",
+        "ctaPrefix": "See",
+        "ctaLink": "Quick Start",
+        "ctaSuffix": "for details."
+      },
+      "update": {
+        "q": "How to update CoPaw",
+        "p1": "To update CoPaw, use the method matching your installation type:",
+        "li1": "If installed via one-line script, re-run the installer to upgrade.",
+        "li2Prefix": "If installed via pip, run:",
+        "li3": "If installed from source, pull the latest code and reinstall.",
+        "li4": "If using Docker, pull the latest image and restart the container.",
+        "li5Prefix": "If using the Windows Desktop App (exe), currently you need to uninstall and reinstall:",
+        "li5a": "Uninstall CoPaw from your PC.",
+        "li5bPrefix": "Download the latest version from:",
+        "li5bLink": "GitHub Releases",
+        "li5bSuffix": ".",
+        "li5c": "Reinstall."
+      },
+      "initialize": {
+        "q": "How to initialize and start CoPaw service",
+        "p1": "Recommended quick initialization:",
+        "p2": "Start service:",
+        "p3Prefix": "The default Console URL is",
+        "p3Suffix": ". After quick init, you can open Console and customize settings."
+      },
+      "upgrade": {
+        "q": "Where to check latest version upgrade details",
+        "p1": "You can check version changes in the Change Log section of Console, or on the CoPaw",
+        "link": "GitHub Releases",
+        "p2": "page."
+      }
+    },
+    "features": {
+      "jobs": {
+        "q": "How to manage cron jobs",
+        "a": "The easiest way to create a cron job is to ask CoPaw directly in your target channel. For example: Create a scheduled task that reminds me to drink water every five minutes.\" You can also create and manage cron jobs manually in Console → Control → Cron Jobs."
+      },
+      "models": {
+        "q": "How to configure models",
+        "p1Prefix": "In Console, go to",
+        "p1Strong": "Settings → Models",
+        "p1Mid": "to configure. See the",
+        "modelsLink": "Models",
+        "p1Suffix": "doc for details:",
+        "li1": "Cloud models: enter the provider API key (e.g. ModelScope, DashScope, or a custom provider).",
+        "li2Prefix": "Local models: supports",
+        "li2Suffix": "and Ollama.",
+        "p2": "After configuration, choose the target provider and model under Default LLM at the top of the Models page and Save — that becomes the global default.",
+        "p3": "To use a different model per agent, switch the agent with the selector at the top-left of Console, then pick a model in the top-right of the Chat page for that agent.",
+        "p4Prefix": "You can also use",
+        "p4Mid": "for setup, downloads, and switching. See",
+        "cliLink": "CLI → Models and environment variables → copaw models",
+        "p4Suffix": "."
+      },
+      "skills": {
+        "q": "How to manage Skills",
+        "p1Prefix": "Go to",
+        "p1Strong": "Agent → Skills",
+        "p1Mid": "in Console. You can enable/disable Skills, create custom Skills, and import Skills from Skills Hub. See",
+        "link": "Skills",
+        "p1Suffix": "."
+      },
+      "mcp": {
+        "q": "How to configure MCP",
+        "p1Prefix": "Go to",
+        "p1Strong": "Agent → MCP",
+        "p1Mid": "in Console. You can enable/disable/delete/create MCP clients there. See",
+        "link": "MCP",
+        "p1Suffix": "."
+      }
+    },
+    "troubleshooting": {
+      "error401": {
+        "q": "Getting Error Code 401",
+        "p1": "If you encounter the following error:",
+        "err": "Error code: 401 - {'error': {'message': \"You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth (i.e. Authorization: Bearer YOUR_KEY).\"}}",
+        "p2": "This is typically caused by one of the following:",
+        "li1": "No API key is configured. Get an API key and configure it in Console → Settings → Models.",
+        "li2Prefix": "An API key is configured but authentication still fails. In most cases, one of the configuration fields is incorrect. Check the following:",
+        "li2a": "Base URL — Make sure it is correct.",
+        "li2b": "API key — Make sure it is copied in full, with no extra spaces.",
+        "li2c": "Model name — Make sure it exactly matches the provider's value (case-sensitive)."
+      },
+      "localModels": {
+        "q": "Troubleshooting local models",
+        "p1": "In most cases, this is not a CoPaw bug. The root cause is usually that the model's context length is configured too small.",
+        "p2": "When you deploy a local model with Ollama or LM Studio, if the model's context length is too low, CoPaw may show problems such as:",
+        "li1": "failing to sustain multi-turn conversations reliably",
+        "li2": "losing context during complex tool calls",
+        "li3": "forgetting instructions given in earlier turns",
+        "li4": "drifting away from the task during long-running interactions",
+        "fixTitle": "How to fix it:",
+        "fix1": "Before running CoPaw, set the model's context length to at least 32K.",
+        "fix2": "For more complex tasks, frequent tool calls, or longer conversations, you may need a value higher than 32K."
+      },
+      "cron": {
+        "q": "Troubleshooting cron jobs",
+        "p1": "If a scheduled task doesn't run as expected, try the following steps:",
+        "s1": "Confirm that the CoPaw service is running.",
+        "s2": "In Console, go to Control → Cron Jobs and ensure the task Status is set to Enabled.",
+        "s3": "On the same page, confirm that Dispatch Channel is set to your intended channel (e.g., Console, DingTalk, Feishu, Discord, iMessage).",
+        "s4": "Also confirm that Dispatch Target User ID and Dispatch Target Session ID are correctly configured.",
+        "s5": "In Console, go to Control → Sessions and locate the session used when creating the task. The User ID and Session ID there must match the task's Dispatch Target User ID and Dispatch Target Session ID for replies to appear in that session.",
+        "s6": "If the task runs at the wrong time, go back to Control → Cron Jobs and verify the Schedule (Cron) expression.",
+        "s7": "To manually test the task, click Execute Now on the Cron Jobs page. If successful, the reply will appear in the target channel. Alternatively, you can ask CoPaw directly: \"Trigger the 'drink water reminder' task I just created.\""
+      },
+      "help": {
+        "q": "Here's the polished version",
+        "p1": "If you need help, you can:",
+        "s1Prefix": "Join our",
+        "s1Mid": "or",
+        "s1Suffix": "group to ask questions.",
+        "dingtalk": "DingTalk",
+        "discord": "Discord",
+        "s2Prefix": "Open an issue on",
+        "githubIssues": "CoPaw GitHub",
+        "s2Mid": "with the full error message, the error detail file (e.g.",
+        "s2Suffix": "), your model provider, model name, and CoPaw version."
+      }
+    }
+  },
+  "downloads": {
+    "title": "Downloads",
+    "subtitle": "Get CoPaw installers, tools, and resources",
+    "loading": "Loading...",
+    "emptyTitle": "No downloads available yet",
+    "emptyDesc": "Desktop builds are in progress. Please check back later.",
+    "emptyCta": "View other installation methods",
+    "desktopTitle": "Desktop Application",
+    "desktopDesc": "Standalone desktop app with bundled Python environment and all dependencies. Double-click to run, no command line required.",
+    "recommended": "Recommended",
+    "selectVersion": "Select Version",
+    "latest": "Latest",
+    "download": "Download",
+    "version": "Version",
+    "size": "Size",
+    "updated": "Updated",
+    "otherMethodsTitle": "Other Installation Methods",
+    "otherMethodsDesc": "Choose the installation method that fits your needs",
+    "pip": "pip",
+    "pipDesc": "Install via pip to existing Python environment",
+    "script": "Script",
+    "scriptDesc": "One-line script with automatic setup",
+    "docker": "Docker",
+    "dockerDesc": "Quick deployment with Docker images",
+    "cloud": "Cloud",
+    "cloudDesc": "Deploy on Aliyun, ModelScope, etc.",
+    "verifyTitle": "Verify Download",
+    "verifyDesc": "After downloading the desktop app, verify file integrity using the SHA256 checksum.",
+    "helpTitle": "Need Help?",
+    "helpPrefix": "See the",
+    "helpLink": "installation guide",
+    "helpSuffix": "for detailed setup instructions."
+  },
+  "releaseNotes": {
+    "title": "Release Notes",
+    "noReleases": "No release notes available"
+  }
+}

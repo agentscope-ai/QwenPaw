@@ -4,11 +4,11 @@ import {
   Button,
   Input,
   Table,
-  message,
   Popconfirm,
   Tag,
   Switch,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Space } from "antd";
 import {
   PlusCircleOutlined,
@@ -35,6 +35,7 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [newPath, setNewPath] = useState("");
+  const { message } = useAppMessage();
 
   const fetchData = useCallback(async () => {
     try {

@@ -95,6 +95,7 @@
     "enableSuccess": "エージェントが有効化されました",
     "toggleFailed": "エージェント状態の切り替えに失敗しました",
     "defaultNotDisablable": "デフォルトのエージェントは無効化できません",
+    "currentAgentDeleted": "現在のエージェントが削除されました。デフォルトエージェントに自動切り替えしました",
     "currentAgentDisabled": "現在のエージェントが無効化されました。デフォルトエージェントに自動切り替えしました",
     "switchedToDefault": "デフォルトエージェントに自動切り替えしました",
     "cannotSwitchToDisabled": "このエージェントは無効化されています。管理ページで有効化してください"
@@ -150,6 +151,13 @@
     "deleteConfirm": "このスキルを削除してもよろしいですか？",
     "deleteSuccess": "スキルを削除しました",
     "deleteFailed": "スキルの削除に失敗しました",
+    "batchDeleteTitle": "{{count}}個のスキルを削除しますか？",
+    "batchDeleteSuccess": "{{count}}個のスキルを削除しました",
+    "batchDeletePartial": "{{deleted}}個削除、{{failed}}個失敗",
+    "batchDeleteFailed": "一括削除に失敗しました",
+    "selectedCount": "{{count}}個選択中",
+    "selectAll": "すべて選択",
+    "clearSelection": "クリア",
     "updateSuccess": "スキルを更新しました",
     "updateFailed": " スキルの更新に失敗しました",
     "frontmatterRequired": "スキルは --- で始まり --- で終わる必要があります",
@@ -172,9 +180,16 @@
     "fileSizeExceeded": "ファイルサイズが{{limit}}MBの制限を超えています。現在のファイル: {{size}}MB",
     "channels": "適用チャンネル",
     "allChannels": "すべて",
+    "lastUpdated": "更新日時",
+    "searchPlaceholder": "名前で絞り込み",
+    "listView": "リスト表示",
+    "gridView": "カード表示",
+    "refreshHint": "ディスクからスキルを更新",
     "poolSync": "同期状態",
     "uploadedToPool": "スキルプールにアップロードしました",
     "downloadedToWorkspace": "現在のワークスペースにダウンロードしました",
+    "builtinUpgradeTitle": "ビルトインスキルのアップグレード",
+    "builtinUpgradeContent": "スキルプールにビルトインスキル「{{name}}」の新しいバージョンがあります。現在のバージョンを上書きしますか？",
     "nameConflict": "名前の競合が検出されました。推奨される名前変更が入力されました。",
     "uploadToPoolHint": "選択したワークスペーススキルを共有ローカルスキルプールにアップロードします",
     "downloadFromPoolHint": "選択したスキルプールのスキルを現在のワークスペースにダウンロードします",
@@ -191,12 +206,26 @@
     "config": "設定",
     "configPlaceholder": "{\"KEY\": \"value\"}",
     "configInvalidJson": "無効な JSON 形式",
-    "configSaved": "設定を保存しました"
+    "configSaved": "設定を保存しました",
+    "loadFailed": "スキルの読み込みに失敗しました",
+    "refreshFailed": "スキルの更新に失敗しました",
+    "createdSuccessfully": "作成しました",
+    "saveFailed": "保存に失敗しました",
+    "importFailed": "インポートに失敗しました",
+    "disabledSuccessfully": "無効化しました",
+    "enabledSuccessfully": "有効化しました",
+    "operationFailed": "操作に失敗しました",
+    "provideUrl": "ハブスキルのURLを入力してください",
+    "validUrl": "http:// または https:// で始まる有効なURLを入力してください",
+    "importedSkill": "スキルをインポートしました: {{name}}",
+    "batchOperation": "一括操作",
+    "exitBatch": "一括操作を終了"
   },
   "skillPool": {
     "description": "ビルトインスキルとワークスペースアップロード用の共有ローカルスキルプール。ClawHub や LobeHub などの外部インポートは別機能です。",
     "broadcast": "ブロードキャスト",
     "broadcastHint": "スキルプールのスキルを全てまたは選択したワークスペースにブロードキャスト",
+    "refreshHint": "ディスクからスキルプールを更新",
     "broadcastTitle": "{{name}} をブロードキャスト",
     "importBuiltin": "ビルトインを取り込む",
     "importBuiltinHint": "ソースからビルトインスキルをプールに取り込みます",
@@ -228,6 +257,10 @@
     "deleteBuiltinConfirm": "このビルトインスキルをプールから削除します。後でソースから再度取り込めます。",
     "deleteConfirm": "共有ローカルスキルプールからこのスキルを削除します。",
     "deleteTitle": "{{name}} を削除しますか？",
+    "batchDeleteTitle": "{{count}}個のプールスキルを削除しますか？",
+    "batchDeleteSuccess": "{{count}}個のプールスキルを削除しました",
+    "batchDeletePartial": "{{deleted}}個削除、{{failed}}個失敗",
+    "batchDeleteFailed": "一括削除に失敗しました",
     "imported": "インポート済み：{{names}}",
     "noNewImports": "新しいスキルはインポートされませんでした",
     "allBuiltin": "すべての組み込み",
@@ -277,7 +310,8 @@
     "toggleError": "MCPクライアントのステータス変更に失敗しました",
     "deleteConfirm": "このMCPクライアントを削除してもよろしいですか？",
     "deleteSuccess": "MCPクライアントを削除しました",
-    "deleteError": "MCPクライアントの削除に失敗しました"
+    "deleteError": "MCPクライアントの削除に失敗しました",
+    "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。"
   },
   "heartbeat": {
     "title": "ハートビート",
@@ -478,6 +512,10 @@
     "batchDeleteConfirm": "選択した {{count}} 件のセッションを削除してもよろしいですか？",
     "deleteSuccess": "セッションを削除しました",
     "deleteFailed": "セッションの削除に失敗しました",
+    "batchDeleteSuccess": "{{count}} 件のセッションを削除しました",
+    "batchDeleteFailed": "セッションの一括削除に失敗しました",
+    "saveSuccess": "セッションを保存しました",
+    "saveFailed": "セッションの保存に失敗しました",
     "batchDeleteButton": "一括削除",
     "filterUserId": "ユーザーIDで絞り込み",
     "filterChannel": "チャンネルで絞り込み",
@@ -684,10 +722,11 @@
     "localLlamacppInstallStarted": "llama.cpp のダウンロードを開始しました",
     "localLlamacppInstallSuccess": "llama.cpp のインストールが完了しました",
     "localLlamacppInstallFailed": "llama.cpp のインストールに失敗しました",
-    "localModelsModalDescription": "最初にローカル推論エンジンを準備し、その後で推奨モデルをダウンロードしてローカルサーバーを起動します。モーダルを閉じてもダウンロードは中断されません。",
     "localRuntimeSectionTitle": "Inference Engine",
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
+    "localRuntimeComputeHint": "デフォルトでは CPU を使用します。GPU アクセラレーションが必要な場合は、Ollama または LM Studio を使用してください。",
     "localRuntimeInstalled": "インストール済み",
+    "localRuntimeUnsupported": "未対応",
     "localRuntimeMissing": "未導入",
     "localServerRunningTitle": "現在のローカルサーバー",
     "localServerOnline": "稼働中",
@@ -701,7 +740,7 @@
     "localEngineCurrentModelLabel": "現在提供中のモデル",
     "localEngineNextStepLabel": "次のステップ",
     "localEngineHealthLabel": "エンジン状態",
-    "localEngineStatusHint": "インストール後は、ダウンロード済みモデルを直接起動するか、下の一覧から推奨モデルをダウンロードできます。",
+    "localEngineStatusHint": "下の一覧から適切なモデルをダウンロードして起動してください",
     "localStartServer": "起動",
     "localStopServer": "停止",
     "localServerStartFailed": "ローカルサーバーの起動に失敗しました",
@@ -712,11 +751,12 @@
     "localModelPathMissing": "このダウンロード済みモデルにはローカルパス情報がありません。",
     "localModelsSectionTitle": "ローカルモデル",
     "localModelsSectionDescription": "ダウンロード済みモデルはすぐに起動できます。同時に実行できるのは 1 つのモデルダウンロードと 1 つのローカルサーバーだけです。",
-    "localModelsLockedHint": "推奨モデルを管理する前にローカル推論エンジンをインストールしてください。",
+    "localModelsLockedHint": "先に llama.cpp をインストールしてください",
+    "localAlternativeRuntimeHint": "Ollama または LM Studio をお試しください",
     "localModelsCount": "ダウンロード済み {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "現在のダウンロード",
     "localCustomModelTitle": "カスタムモデルのダウンロード",
-    "localCustomModelHint": "モデルリポジトリIDとソースを入力します。",
+    "localCustomModelHint": "モデルリポジトリIDを入力します。GGUF形式のみ対応。",
     "localSourceHuggingFace": "Hugging Face",
     "localSourceModelScope": "ModelScope",
     "ollamaModelNamePlaceholder": "例: mistral:7b, qwen3:8b",
@@ -962,10 +1002,7 @@
   "theme": {
     "dark": "ダーク",
     "light": "ライト",
-    "darkMode": "ダークモード",
-    "lightMode": "ライトモード",
-    "switchToDark": "ダークモードに切り替え",
-    "switchToLight": "ライトモードに切り替え"
+    "system": "システムに従う"
   },
   "sidebar": {
     "newVersion": "新しいバージョンが利用可能です: v{{version}}、クリックしてアップグレード",
@@ -981,6 +1018,8 @@
     "chatHistoryTooltip": "チャット履歴",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
+    "statusIdle": "待機",
+    "statusInProgress": "処理中",
     "disclaimer": "あなたのために働き、あなたと共に成長します",
     "greeting": "こんにちは、今日はどんなお手伝いができますか？",
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
@@ -992,7 +1031,7 @@
         "description": "会話のコンテキストをクリア"
       },
       "compact": {
-        "description": "会話のコンテキストをクリアし、会話履歴の要約を生成"
+        "description": "会話コンテキストを圧縮して要約を生成。追加指示にも対応"
       },
       "approve": {
         "description": "保留中のツール操作を承認して実行を続行"
@@ -1150,7 +1189,8 @@
         "title": "セキュリティ問題が検出されました",
         "description": "以下のセキュリティ問題が見つかりました：",
         "warnDescription": "セキュリティ問題が見つかりましたが、スキルは引き続き有効です（警告モード）：",
-        "goToWhitelist": "ホワイトリストへ"
+        "goToWhitelist": "ホワイトリストへ",
+        "moreFindings": "他に {{count}} 件は表示していません（一覧は 設定 → セキュリティ → スキルスキャナ を参照）。"
       }
     }
   },

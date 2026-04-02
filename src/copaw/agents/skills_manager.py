@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import hashlib
 import io
 import json
@@ -88,6 +87,31 @@ class SkillRequirements(BaseModel):
 _ACTIVE_SKILL_ENV_ENTRIES: dict[str, dict[str, Any]] = {}
 _ENV_LOCK = threading.Lock()
 
+_BUILTIN_SIGNATURES: dict[str, str] = {}
+_BUILTIN_SIG_LOCK = threading.Lock()
+
+
+def _get_builtin_signatures() -> dict[str, str]:
+    """Return cached signatures for all packaged builtin skills.
+
+    Computed once on first access; subsequent calls return the same dict.
+    Thread-safe: a local dict is built first, then merged in one shot
+    so concurrent callers never observe a partially-filled cache.
+    """
+    if _BUILTIN_SIGNATURES:
+        return _BUILTIN_SIGNATURES
+    with _BUILTIN_SIG_LOCK:
+        if _BUILTIN_SIGNATURES:
+            return _BUILTIN_SIGNATURES
+        sigs: dict[str, str] = {}
+        builtin_dir = get_builtin_skills_dir()
+        if builtin_dir.exists():
+            for skill_dir in sorted(builtin_dir.iterdir()):
+                if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                    sigs[skill_dir.name] = _build_signature(skill_dir)
+        _BUILTIN_SIGNATURES.update(sigs)
+    return _BUILTIN_SIGNATURES
+
 
 def get_builtin_skills_dir() -> Path:
     """Return the packaged built-in skill directory."""
@@ -145,6 +169,21 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _get_skill_mtime(skill_dir: Path) -> float:
+    """Return max of SKILL.md mtime and skill_dir mtime.
+
+    Uses two cheap ``stat()`` calls — no file content I/O.
+    Returns ``0.0`` on any filesystem error.
+    """
+    try:
+        dir_mtime = skill_dir.stat().st_mtime
+        skill_md = skill_dir / "SKILL.md"
+        md_mtime = skill_md.stat().st_mtime if skill_md.exists() else 0.0
+        return max(dir_mtime, md_mtime)
+    except OSError:
+        return 0.0
+
+
 def _directory_tree(directory: Path) -> dict[str, Any]:
     """Recursively describe a directory tree for UI display."""
     tree: dict[str, Any] = {}
@@ -161,9 +200,45 @@ def _directory_tree(directory: Path) -> dict[str, Any]:
 
 
 def _read_frontmatter(skill_dir: Path) -> Any:
+    """Read and parse SKILL.md frontmatter.
+
+    Args:
+        skill_dir: Path to skill directory containing SKILL.md
+
+    Returns:
+        Parsed frontmatter as dict-like object
+    """
     return frontmatter.loads(
         read_text_file_with_encoding_fallback(skill_dir / "SKILL.md"),
     )
+
+
+def _read_frontmatter_safe(
+    skill_dir: Path,
+    skill_name: str = "",
+) -> dict[str, Any]:
+    """Safely read SKILL.md frontmatter with fallback on errors.
+
+    Args:
+        skill_dir: Path to skill directory containing SKILL.md
+        skill_name: Optional skill name for logging (defaults to dir name)
+
+    Returns:
+        Parsed frontmatter dict, or fallback dict with name/description
+        on any error (file not found, YAML syntax error, etc.)
+    """
+    if not skill_name:
+        skill_name = skill_dir.name
+
+    try:
+        return _read_frontmatter(skill_dir)
+    except Exception as e:
+        logger.warning(
+            f"Failed to read SKILL.md frontmatter for '{skill_name}' "
+            f"at {skill_dir}: {e}. Using fallback values.",
+        )
+        # Return minimal valid frontmatter
+        return {"name": skill_name, "description": ""}
 
 
 def _extract_version(post: Any) -> str:
@@ -178,22 +253,35 @@ def _extract_version(post: Any) -> str:
     return ""
 
 
+_IGNORED_SKILL_ARTIFACTS = {
+    "__pycache__",
+    "__MACOSX",
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+}
+
+
+def _is_ignored_skill_path(path: Path) -> bool:
+    return bool(_IGNORED_SKILL_ARTIFACTS & set(path.parts))
+
+
 def _build_signature(skill_dir: Path) -> str:
     """Hash the full skill tree using real file paths and real contents.
 
-    This is the canonical content identity used by migration, pool sync,
-    and conflict detection. If any file changes, including ``SKILL.md``,
-    the signature changes.
+    This is the canonical content identity used by pool sync and conflict
+    detection. If any file changes, including ``SKILL.md``, the signature
+    changes.
 
-    Example:
-        ``skill_pool/docx`` and ``workspaces/a1/skills/docx`` with identical
-        files produce the same signature and are treated as synced.
-        If the workspace copy edits ``SKILL.md`` or ``scripts/run.py``,
-        the signatures diverge and sync status becomes ``conflict``.
+    OS/cache artifacts (``__pycache__``, ``.DS_Store``, etc.) are excluded
+    so that the signature stays consistent with ``_copy_skill_dir``.
     """
     digest = hashlib.sha256()
     for path in sorted(p for p in skill_dir.rglob("*") if p.is_file()):
-        digest.update(str(path.relative_to(skill_dir)).encode("utf-8"))
+        rel = path.relative_to(skill_dir)
+        if _is_ignored_skill_path(rel):
+            continue
+        digest.update(str(rel).encode("utf-8"))
         digest.update(path.read_bytes())
     return digest.hexdigest()
 
@@ -209,14 +297,7 @@ def _copy_skill_dir(source: Path, target: Path) -> None:
         shutil.rmtree(target)
 
     def _ignore(_dir: str, names: list[str]) -> set[str]:
-        ignored_names = {
-            "__pycache__",
-            "__MACOSX",
-            ".DS_Store",
-            "Thumbs.db",
-            "desktop.ini",
-        }
-        return {name for name in names if name in ignored_names}
+        return {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
 
     shutil.copytree(
         source,
@@ -319,20 +400,6 @@ def _default_pool_manifest() -> dict[str, Any]:
     }
 
 
-def _get_builtin_skill_names() -> list[str]:
-    """Get list of builtin skill names from src/copaw/agents/skills/."""
-    builtin_dir = get_builtin_skills_dir()
-    if not builtin_dir.exists():
-        return []
-    return sorted(
-        [
-            p.name
-            for p in builtin_dir.iterdir()
-            if p.is_dir() and (p / "SKILL.md").exists()
-        ],
-    )
-
-
 def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
     """Check if skill name is in builtin list."""
     return skill_name in builtin_names
@@ -348,7 +415,6 @@ def _classify_pool_skill_source(
     skill_dir: Path,
     existing: dict[str, Any],
     builtin_names: list[str],
-    builtin_dir: Path,
 ) -> tuple[str, bool]:
     """Classify one pool skill against packaged builtins.
 
@@ -359,8 +425,7 @@ def _classify_pool_skill_source(
     if not _is_builtin_skill(skill_name, builtin_names):
         return "customized", False
 
-    src_skill_dir = builtin_dir / skill_name
-    if not src_skill_dir.exists():
+    if skill_name not in _get_builtin_signatures():
         return "customized", False
 
     if existing:
@@ -369,7 +434,7 @@ def _classify_pool_skill_source(
         return "customized", False
 
     pool_signature = _build_signature(skill_dir)
-    builtin_signature = _build_signature(src_skill_dir)
+    builtin_signature = _get_builtin_signatures().get(skill_name, "")
     if pool_signature == builtin_signature:
         return "builtin", False
     return "customized", False
@@ -458,44 +523,31 @@ def _resolve_skill_name(skill_dir: Path) -> str:
     here so zip imports behave consistently whether a skill is packed at the
     archive root or nested under a folder.
     """
-    try:
-        post = _read_frontmatter(skill_dir)
-        name = str(post.get("name") or "").strip()
-        if name:
-            return name
-    except Exception:
-        pass
+    post = _read_frontmatter_safe(skill_dir)
+    name = str(post.get("name") or "").strip()
+    if name:
+        return name
     return skill_dir.name
 
 
-def _find_skill_dirs(root: Path) -> list[tuple[Path, str]]:
-    if (root / "SKILL.md").exists():
-        return [(root, _resolve_skill_name(root))]
-    return [
-        (path, _resolve_skill_name(path))
-        for path in sorted(root.iterdir())
-        if not _is_hidden(path.name)
-        and path.is_dir()
-        and (path / "SKILL.md").exists()
-    ]
-
-
-def read_skill_requirements(skill_dir: Path) -> SkillRequirements:
-    """Parse skill requirements from frontmatter metadata."""
-    skill_md = skill_dir / "SKILL.md"
-    if not skill_md.exists():
-        return SkillRequirements()
-
-    post = frontmatter.loads(
-        read_text_file_with_encoding_fallback(skill_md),
-    )
+def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
+    """Extract requirements from a parsed frontmatter dict."""
     metadata = post.get("metadata") or {}
     if "openclaw" in metadata:
         requires = metadata["openclaw"].get("requires", {})
     elif "copaw" in metadata:
         requires = metadata["copaw"].get("requires", {})
     else:
-        requires = metadata.get("requires", {})
+        requires = metadata.get(
+            "requires",
+            post.get("requires", {}),
+        )
+
+    if isinstance(requires, list):
+        return SkillRequirements(require_bins=list(requires), require_envs=[])
+
+    if not isinstance(requires, dict):
+        return SkillRequirements()
 
     return SkillRequirements(
         require_bins=list(requires.get("bins", [])),
@@ -653,6 +705,7 @@ def _build_skill_metadata(
     *,
     source: str,
     protected: bool = False,
+    compute_signature: bool = True,
 ) -> dict[str, Any]:
     """Build the manifest-facing metadata for one concrete skill directory.
 
@@ -660,20 +713,18 @@ def _build_skill_metadata(
     reconcile. That keeps the manifest descriptive rather than authoritative
     for content details.
 
-    Example:
-        if ``skills/docx/SKILL.md`` changes description text, the next
-        reconcile updates ``description`` and ``signature`` here without the
-        caller manually editing ``skill.json``.
+    Set ``compute_signature=False`` when the caller does not need a content
+    hash (e.g. workspace reconcile where signatures are unused).
     """
-    post = _read_frontmatter(skill_dir)
-    requirements = read_skill_requirements(skill_dir)
+    post = _read_frontmatter_safe(skill_dir, skill_name)
+    requirements = _extract_requirements(post)
     now = _timestamp()
     return {
         "name": skill_name,
         "description": str(post.get("description", "") or ""),
         "version_text": _extract_version(post),
         "commit_text": "",
-        "signature": _build_signature(skill_dir),
+        "signature": _build_signature(skill_dir) if compute_signature else "",
         "source": source,
         "protected": protected,
         "requirements": requirements.model_dump(),
@@ -732,19 +783,16 @@ def _build_import_conflict(
 def list_builtin_import_candidates() -> list[dict[str, Any]]:
     """List builtin skills available from packaged source."""
     builtin_dir = get_builtin_skills_dir()
-    if not builtin_dir.exists():
+    builtin_sigs = _get_builtin_signatures()
+    if not builtin_sigs:
         return []
 
-    manifest = reconcile_pool_manifest()
+    manifest = read_skill_pool_manifest(reconcile=False)
     pool_skills = manifest.get("skills", {})
     candidates: list[dict[str, Any]] = []
 
-    for skill_dir in sorted(builtin_dir.iterdir()):
-        if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
-            continue
-        skill_name = skill_dir.name
-        post = _read_frontmatter(skill_dir)
-        source_signature = _build_signature(skill_dir)
+    for skill_name, source_signature in sorted(builtin_sigs.items()):
+        post = _read_frontmatter_safe(builtin_dir / skill_name, skill_name)
         current = pool_skills.get(skill_name) or {}
         current_signature = str(current.get("signature", "") or "")
         current_source = str(current.get("source", "") or "")
@@ -822,14 +870,16 @@ def import_builtin_skills(
     manifest_path = get_pool_skill_manifest_path()
     manifest_default = _default_pool_manifest()
 
+    builtin_sigs = _get_builtin_signatures()
+
     def _process(payload: dict[str, Any]) -> dict[str, list[Any]]:
         skills = payload.setdefault("skills", {})
-        payload["builtin_skill_names"] = _get_builtin_skill_names()
+        payload["builtin_skill_names"] = sorted(builtin_sigs.keys())
         for skill_name in selected_names:
             skill_dir = builtin_dir / skill_name
             target = pool_dir / skill_name
             existing = skills.get(skill_name) or {}
-            source_signature = _build_signature(skill_dir)
+            source_signature = builtin_sigs.get(skill_name, "")
             current_signature = (
                 _build_signature(target) if target.exists() else ""
             )
@@ -903,8 +953,12 @@ def reconcile_pool_manifest() -> dict[str, Any]:
     if not manifest_path.exists():
         _write_json_atomic(manifest_path, _default_pool_manifest())
 
-    builtin_names = _get_builtin_skill_names()
-    builtin_dir = get_builtin_skills_dir()
+    # Clear cached builtin signatures so reconcile always compares
+    # against the current packaged builtins on disk.
+    with _BUILTIN_SIG_LOCK:
+        _BUILTIN_SIGNATURES.clear()
+    builtin_sigs = _get_builtin_signatures()
+    builtin_names = sorted(builtin_sigs.keys())
 
     def _update(payload: dict[str, Any]) -> dict[str, Any]:
         payload.setdefault("skills", {})
@@ -924,7 +978,6 @@ def reconcile_pool_manifest() -> dict[str, Any]:
                 skill_dir,
                 existing,
                 builtin_names,
-                builtin_dir,
             )
             has_config = "config" in existing
             config = existing.get("config") if has_config else None
@@ -933,6 +986,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
                 skill_dir,
                 source=source,
                 protected=protected,
+                compute_signature=source == "builtin",
             )
             if has_config:
                 skills[skill_name]["config"] = config
@@ -948,62 +1002,6 @@ def reconcile_pool_manifest() -> dict[str, Any]:
         _default_pool_manifest(),
         _update,
     )
-
-
-def _compute_sync_to_pool(
-    skill_name: str,
-    workspace_skill_dir: Path,
-    pool_manifest: dict[str, Any],
-    entry: dict[str, Any],
-) -> dict[str, Any]:
-    """Compute one workspace skill's relationship to the shared pool.
-
-    Status values:
-    - ``not_synced``: this workspace skill has no pool relationship
-    - ``synced``: workspace and pool signatures match exactly
-    - ``conflict``: workspace copy differs from its pool source
-
-    Example:
-        workspace ``docx`` downloaded from pool and left untouched ->
-        ``synced``.
-        If the workspace user edits ``SKILL.md`` afterwards the workspace
-        copy diverges from its pool source and the stored status becomes
-        ``conflict``.
-    """
-    sync_to_pool = entry.get("sync_to_pool") or {}
-    source = str(entry.get("source") or "")
-    pool_name = str(sync_to_pool.get("pool_name") or "").strip()
-
-    if not pool_name:
-        if source == "builtin":
-            pool_name = skill_name
-        else:
-            return {"status": "not_synced", "pool_name": skill_name}
-
-    pool_entry = pool_manifest.get("skills", {}).get(pool_name)
-
-    if pool_entry is None:
-        return {"status": "not_synced", "pool_name": pool_name}
-
-    workspace_signature = _build_signature(workspace_skill_dir)
-    pool_signature = pool_entry.get("signature", "")
-    if workspace_signature == pool_signature:
-        return {"status": "synced", "pool_name": pool_name}
-
-    return {"status": "conflict", "pool_name": pool_name}
-
-
-def _not_synced_sync_to_pool(
-    skill_name: str,
-    sync_to_pool: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Persist an unlinked workspace skill with a stable sync placeholder."""
-    current = sync_to_pool or {}
-    pool_name = str(current.get("pool_name") or "").strip()
-    return {
-        "status": "not_synced",
-        "pool_name": pool_name or skill_name,
-    }
 
 
 def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
@@ -1027,8 +1025,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
     workspace_skills_dir = get_workspace_skills_dir(workspace_dir)
     workspace_skills_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = get_workspace_skill_manifest_path(workspace_dir)
-    pool_manifest = reconcile_pool_manifest()
-    builtin_names = pool_manifest.get("builtin_skill_names", [])
+    builtin_sigs = _get_builtin_signatures()
 
     if not manifest_path.exists():
         _write_json_atomic(manifest_path, _default_workspace_manifest())
@@ -1038,9 +1035,6 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         skills = payload["skills"]
 
         discovered = {
-            # Workspace identity is the directory name on disk. Frontmatter is
-            # metadata/validation, but the manifest key must stay stable even
-            # if a user edits ``name:`` inside ``SKILL.md``.
             path.name: path
             for path in workspace_skills_dir.iterdir()
             if path.is_dir() and (path / "SKILL.md").exists()
@@ -1051,32 +1045,22 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
             enabled = bool(existing.get("enabled", False))
             channels = existing.get("channels") or ["all"]
 
-            # Source logic:
-            # - If name NOT in builtin_names -> customized
-            # - If name IN builtin_names AND signature matches pool builtin
-            #   -> builtin
-            # - If name IN builtin_names BUT signature differs -> customized
-            workspace_signature = _build_signature(skill_dir)
-            is_builtin_name = _is_builtin_skill(skill_name, builtin_names)
-
-            if is_builtin_name:
-                pool_entry = pool_manifest.get("skills", {}).get(skill_name)
-                pool_signature = (
-                    pool_entry.get("signature", "") if pool_entry else ""
-                )
-                source = (
-                    "builtin"
-                    if workspace_signature == pool_signature
-                    else "customized"
-                )
+            # Inherit source from manifest when the entry already exists.
+            # For new skills, default to "builtin" if name matches a
+            # packaged builtin, otherwise "customized".
+            if existing:
+                source = existing.get("source", "customized")
             else:
-                source = "customized"
+                source = (
+                    "builtin" if skill_name in builtin_sigs else "customized"
+                )
 
             metadata = _build_skill_metadata(
                 skill_name,
                 skill_dir,
                 source=source,
                 protected=False,
+                compute_signature=False,
             )
             next_entry = {
                 "enabled": enabled,
@@ -1084,21 +1068,13 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                 "source": source,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
-                "sync_to_pool": _compute_sync_to_pool(
-                    skill_name,
-                    skill_dir,
-                    pool_manifest,
-                    {
-                        "source": source,
-                        "sync_to_pool": existing.get("sync_to_pool") or {},
-                    },
-                ),
                 "updated_at": _timestamp(),
             }
             if "config" in existing:
                 next_entry["config"] = existing.get("config")
             skills[skill_name] = next_entry
             skills[skill_name].pop("sync_to_hub", None)
+            skills[skill_name].pop("sync_to_pool", None)
 
         for skill_name in list(skills):
             if skill_name not in discovered:
@@ -1148,14 +1124,37 @@ def list_workspaces() -> list[dict[str, str]]:
     return workspaces
 
 
-def read_skill_manifest(workspace_dir: Path) -> dict[str, Any]:
-    """Public helper returning a reconciled workspace manifest."""
-    return reconcile_workspace_manifest(workspace_dir)
+def read_skill_manifest(
+    workspace_dir: Path,
+    *,
+    reconcile: bool = True,
+) -> dict[str, Any]:
+    """Return the workspace skill manifest.
+
+    When *reconcile* is ``True`` (default) the manifest is refreshed
+    from disk first.  Pass ``reconcile=False`` in read-only list paths
+    to skip the reconciliation and just return the cached JSON.
+    """
+    if reconcile:
+        return reconcile_workspace_manifest(workspace_dir)
+    path = get_workspace_skill_manifest_path(workspace_dir)
+    return _read_json_unlocked(path, _default_workspace_manifest())
 
 
-def read_skill_pool_manifest() -> dict[str, Any]:
-    """Public helper returning a reconciled pool manifest."""
-    return reconcile_pool_manifest()
+def read_skill_pool_manifest(
+    *,
+    reconcile: bool = True,
+) -> dict[str, Any]:
+    """Return the pool skill manifest.
+
+    When *reconcile* is ``True`` (default) the manifest is refreshed
+    from disk first.  Pass ``reconcile=False`` in read-only list paths
+    to skip the expensive reconciliation.
+    """
+    if reconcile:
+        return reconcile_pool_manifest()
+    path = get_pool_skill_manifest_path()
+    return _read_json_unlocked(path, _default_pool_manifest())
 
 
 def resolve_effective_skills(
@@ -1193,8 +1192,8 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
     - ``synced``: pool copy matches the packaged builtin exactly
     - ``outdated``: pool copy differs from the packaged builtin
     """
-    builtin_dir = get_builtin_skills_dir()
-    if not builtin_dir.exists():
+    builtin_sigs = _get_builtin_signatures()
+    if not builtin_sigs:
         return {}
 
     manifest = _read_json(
@@ -1202,66 +1201,35 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
         _default_pool_manifest(),
     )
     pool_skills = manifest.get("skills", {})
+    builtin_dir = get_builtin_skills_dir()
 
-    # Collect all skill directories that need checking
-    skill_dirs_to_check = []
-    for skill_dir in sorted(builtin_dir.iterdir()):
-        if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
-            continue
-        name = skill_dir.name
-        pool_entry = pool_skills.get(name)
-        if pool_entry is None:
-            continue
-        if not _is_pool_builtin_entry(pool_entry):
-            continue
-        skill_dirs_to_check.append((name, skill_dir, pool_entry))
-
-    # Process skills in parallel
     result: dict[str, dict[str, Any]] = {}
-
-    def _check_single_skill(item):
-        name, skill_dir, pool_entry = item
-        builtin_sig = _build_signature(skill_dir)
+    for name, builtin_sig in builtin_sigs.items():
+        pool_entry = pool_skills.get(name)
+        if pool_entry is None or not _is_pool_builtin_entry(pool_entry):
+            continue
         pool_sig = str(pool_entry.get("signature", ""))
         if pool_sig and pool_sig != builtin_sig:
-            post = _read_frontmatter(skill_dir)
-            return name, {
+            post = _read_frontmatter_safe(builtin_dir / name, name)
+            result[name] = {
                 "sync_status": "outdated",
                 "latest_version_text": _extract_version(post),
             }
         else:
-            return name, {
+            result[name] = {
                 "sync_status": "synced",
                 "latest_version_text": "",
             }
-
-    # Use ThreadPoolExecutor for parallel I/O operations
-    # For I/O-bound tasks, use more threads than CPU count
-    max_workers = min(32, (os.cpu_count() or 1) + 4)
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=max_workers,
-    ) as executor:
-        futures = [
-            executor.submit(_check_single_skill, item)
-            for item in skill_dirs_to_check
-        ]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                name, status_info = future.result()
-                result[name] = status_info
-            except Exception as exc:
-                logger.warning("Failed to check skill sync status: %s", exc)
-
     return result
 
 
 def update_single_builtin(skill_name: str) -> dict[str, Any]:
     """Update one builtin skill in the pool to the latest packaged version."""
-    builtin_names = _get_builtin_skill_names()
-    if skill_name not in builtin_names:
+    builtin_sigs = _get_builtin_signatures()
+    if skill_name not in builtin_sigs:
         raise ValueError(f"'{skill_name}' is not a builtin skill")
 
-    manifest = reconcile_pool_manifest()
+    manifest = read_skill_pool_manifest(reconcile=False)
     existing = manifest.get("skills", {}).get(skill_name)
     if existing is None or not _is_pool_builtin_entry(existing):
         raise ValueError(
@@ -1355,11 +1323,19 @@ def _import_skill_dir(
     skill_name: str,
     overwrite: bool,
 ) -> bool:
-    try:
-        post = _read_frontmatter(src_dir)
-        if not post.get("name") or not post.get("description"):
-            return False
-    except Exception:
+    """Import a skill directory to target location.
+
+    Args:
+        src_dir: Source skill directory
+        target_root: Target root directory
+        skill_name: Name of the skill
+        overwrite: Whether to overwrite existing skill
+
+    Returns:
+        bool: True if import succeeded, False otherwise
+    """
+    post = _read_frontmatter_safe(src_dir, skill_name)
+    if not post.get("name") or not post.get("description"):
         return False
 
     target_dir = target_root / skill_name
@@ -1474,6 +1450,13 @@ class SkillService:
     def _manifest(self) -> dict[str, Any]:
         return reconcile_workspace_manifest(self.workspace_dir)
 
+    def _read_manifest(self) -> dict[str, Any]:
+        """Read workspace manifest without triggering reconcile."""
+        return read_skill_manifest(
+            self.workspace_dir,
+            reconcile=False,
+        )
+
     def list_all_skills(self) -> list[SkillInfo]:
         manifest = self._manifest()
         skill_root = get_workspace_skills_dir(self.workspace_dir)
@@ -1538,14 +1521,16 @@ class SkillService:
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
             entry = payload["skills"].get(skill_name) or {}
+            if "source" in entry:
+                source = entry["source"]
+            elif skill_name in _get_builtin_signatures():
+                source = "builtin"
+            else:
+                source = "customized"
             metadata = _build_skill_metadata(
                 skill_name,
                 skill_dir,
-                source=(
-                    "builtin"
-                    if entry.get("source", "customized") == "builtin"
-                    else "customized"
-                ),
+                source=source,
                 protected=False,
             )
             payload["skills"][skill_name] = {
@@ -1559,15 +1544,6 @@ class SkillService:
                 ),
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
-                "sync_to_pool": (
-                    dict(entry.get("sync_to_pool") or {})
-                    if metadata["source"] == "builtin"
-                    else (
-                        dict(entry.get("sync_to_pool") or {})
-                        if entry.get("sync_to_pool")
-                        else _not_synced_sync_to_pool(skill_name)
-                    )
-                ),
                 "updated_at": _timestamp(),
             }
 
@@ -1576,7 +1552,6 @@ class SkillService:
             _default_workspace_manifest(),
             _update,
         )
-        reconcile_workspace_manifest(self.workspace_dir)
         return skill_name
 
     def save_skill(
@@ -1592,7 +1567,7 @@ class SkillService:
     ) -> dict[str, Any]:
         """Edit-in-place or rename-save a workspace skill."""
         final_name = _normalize_skill_dir_name(target_name or skill_name)
-        manifest = self._manifest()
+        manifest = self._read_manifest()
         old_entry = manifest.get("skills", {}).get(skill_name)
         if old_entry is None:
             return {"success": False, "reason": "not_found"}
@@ -1642,15 +1617,6 @@ class SkillService:
             def _edit(payload: dict[str, Any]) -> None:
                 payload.setdefault("skills", {})
                 entry = payload["skills"].get(skill_name) or {}
-                next_sync_to_pool = (
-                    dict(entry.get("sync_to_pool") or {})
-                    if metadata["source"] == "builtin"
-                    else (
-                        dict(entry.get("sync_to_pool") or {})
-                        if entry.get("sync_to_pool")
-                        else _not_synced_sync_to_pool(skill_name)
-                    )
-                )
                 payload["skills"][skill_name] = {
                     "enabled": bool(entry.get("enabled", False)),
                     "channels": entry.get("channels") or ["all"],
@@ -1658,7 +1624,6 @@ class SkillService:
                     "config": new_config,
                     "metadata": metadata,
                     "requirements": metadata["requirements"],
-                    "sync_to_pool": next_sync_to_pool,
                     "updated_at": _timestamp(),
                 }
 
@@ -1708,11 +1673,6 @@ class SkillService:
             config if config is not None else old_entry.get("config") or {}
         )
         old_channels = old_entry.get("channels") or ["all"]
-        old_sync_to_pool = (
-            dict(old_entry.get("sync_to_pool") or {})
-            if old_entry.get("sync_to_pool")
-            else _not_synced_sync_to_pool(final_name)
-        )
         source = (
             old_entry.get("source", "customized")
             if final_name == skill_name
@@ -1734,7 +1694,6 @@ class SkillService:
                 "config": old_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
-                "sync_to_pool": old_sync_to_pool,
                 "updated_at": _timestamp(),
             }
             payload["skills"].pop(skill_name, None)
@@ -1957,7 +1916,7 @@ class SkillService:
 
     def delete_skill(self, name: str) -> bool:
         skill_name = str(name or "")
-        manifest = self._manifest()
+        manifest = self._read_manifest()
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None or entry.get("enabled", False):
             return False
@@ -1992,7 +1951,7 @@ class SkillService:
         ):
             return None
 
-        manifest = self._manifest()
+        manifest = self._read_manifest()
         if skill_name not in manifest.get("skills", {}):
             return None
 
@@ -2036,7 +1995,7 @@ class SkillPoolService:
         ensure_skill_pool_initialized()
 
     def list_all_skills(self) -> list[SkillInfo]:
-        manifest = reconcile_pool_manifest()
+        manifest = read_skill_pool_manifest(reconcile=False)
         pool_dir = get_skill_pool_dir()
         skills: list[SkillInfo] = []
         for skill_name, entry in sorted(manifest.get("skills", {}).items()):
@@ -2061,7 +2020,7 @@ class SkillPoolService:
         skill_name = _normalize_skill_dir_name(name)
         pool_dir = get_skill_pool_dir()
         skill_dir = pool_dir / skill_name
-        manifest = reconcile_pool_manifest()
+        manifest = read_skill_pool_manifest(reconcile=False)
         existing = manifest.get("skills", {}).get(skill_name)
         if existing is not None or skill_dir.exists():
             return None
@@ -2121,7 +2080,7 @@ class SkillPoolService:
                 (d, _normalize_skill_dir_name(renames.get(n, n)))
                 for d, n in found
             ]
-            manifest = reconcile_pool_manifest()
+            manifest = read_skill_pool_manifest(reconcile=False)
             existing_pool_names = (
                 set(
                     manifest.get("skills", {}).keys(),
@@ -2206,7 +2165,7 @@ class SkillPoolService:
 
     def delete_skill(self, name: str) -> bool:
         skill_name = str(name or "")
-        manifest = reconcile_pool_manifest()
+        manifest = read_skill_pool_manifest(reconcile=False)
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return False
@@ -2231,7 +2190,7 @@ class SkillPoolService:
         *,
         target_name: str | None = None,
     ) -> dict[str, Any]:
-        manifest = reconcile_pool_manifest()
+        manifest = read_skill_pool_manifest(reconcile=False)
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return {"success": False, "reason": "not_found"}
@@ -2276,7 +2235,7 @@ class SkillPoolService:
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         _validate_skill_content(content)
-        manifest = reconcile_pool_manifest()
+        manifest = read_skill_pool_manifest(reconcile=False)
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return {"success": False, "reason": "not_found"}
@@ -2379,7 +2338,7 @@ class SkillPoolService:
 
         final_name = _normalize_skill_dir_name(target_name or skill_name)
         target_dir = get_skill_pool_dir() / final_name
-        manifest = reconcile_pool_manifest()
+        manifest = read_skill_pool_manifest(reconcile=False)
         existing = manifest.get("skills", {}).get(final_name)
         if existing:
             if _is_pool_builtin_entry(existing):
@@ -2429,23 +2388,6 @@ class SkillPoolService:
             _update,
         )
 
-        def _mark_synced(payload: dict[str, Any]) -> None:
-            entry = payload.get("skills", {}).get(skill_name)
-            if entry is None:
-                return
-            entry["sync_to_pool"] = {
-                "status": "synced",
-                "pool_name": final_name,
-            }
-            entry.pop("sync_to_hub", None)
-            entry["updated_at"] = _timestamp()
-
-        _mutate_json(
-            get_workspace_skill_manifest_path(workspace_dir),
-            _default_workspace_manifest(),
-            _mark_synced,
-        )
-
         return {"success": True, "name": final_name}
 
     def download_to_workspace(
@@ -2456,7 +2398,7 @@ class SkillPoolService:
         target_name: str | None = None,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        manifest = reconcile_pool_manifest()
+        manifest = read_skill_pool_manifest(reconcile=False)
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return {"success": False, "reason": "not_found"}
@@ -2464,10 +2406,38 @@ class SkillPoolService:
         source_dir = get_skill_pool_dir() / skill_name
         final_name = _normalize_skill_dir_name(target_name or skill_name)
         target_dir = get_workspace_skills_dir(workspace_dir) / final_name
-        workspace_manifest = reconcile_workspace_manifest(workspace_dir)
+        workspace_manifest = read_skill_manifest(
+            workspace_dir,
+            reconcile=False,
+        )
         existing = workspace_manifest.get("skills", {}).get(final_name)
         workspace_identity = get_workspace_identity(workspace_dir)
         if existing and not overwrite:
+            # Both builtin: compare version to decide action.
+            if (
+                entry.get("source") == "builtin"
+                and existing.get("source") == "builtin"
+            ):
+                pool_ver = entry.get("version_text", "")
+                ws_ver = (existing.get("metadata") or {}).get(
+                    "version_text",
+                    "",
+                )
+                if pool_ver and ws_ver and pool_ver == ws_ver:
+                    return {
+                        "success": True,
+                        "mode": "unchanged",
+                        "name": final_name,
+                        "workspace_id": workspace_identity["workspace_id"],
+                        "workspace_name": workspace_identity["workspace_name"],
+                    }
+                return {
+                    "success": False,
+                    "reason": "builtin_upgrade",
+                    "workspace_id": workspace_identity["workspace_id"],
+                    "workspace_name": workspace_identity["workspace_name"],
+                    "skill_name": final_name,
+                }
             return {
                 "success": False,
                 "reason": "conflict",
@@ -2503,10 +2473,6 @@ class SkillPoolService:
                 "config": pool_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
-                "sync_to_pool": {
-                    "status": "synced",
-                    "pool_name": skill_name,
-                },
                 "updated_at": _timestamp(),
             }
 
@@ -2530,16 +2496,43 @@ class SkillPoolService:
         target_name: str | None = None,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        manifest = reconcile_pool_manifest()
+        manifest = read_skill_pool_manifest(reconcile=False)
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return {"success": False, "reason": "not_found"}
 
         final_name = _normalize_skill_dir_name(target_name or skill_name)
-        workspace_manifest = reconcile_workspace_manifest(workspace_dir)
+        workspace_manifest = read_skill_manifest(
+            workspace_dir,
+            reconcile=False,
+        )
         existing = workspace_manifest.get("skills", {}).get(final_name)
         workspace_identity = get_workspace_identity(workspace_dir)
         if existing and not overwrite:
+            if (
+                entry.get("source") == "builtin"
+                and existing.get("source") == "builtin"
+            ):
+                pool_ver = entry.get("version_text", "")
+                ws_ver = (existing.get("metadata") or {}).get(
+                    "version_text",
+                    "",
+                )
+                if pool_ver and ws_ver and pool_ver == ws_ver:
+                    return {
+                        "success": True,
+                        "mode": "unchanged",
+                        "name": final_name,
+                        "workspace_id": workspace_identity["workspace_id"],
+                        "workspace_name": workspace_identity["workspace_name"],
+                    }
+                return {
+                    "success": False,
+                    "reason": "builtin_upgrade",
+                    "workspace_id": workspace_identity["workspace_id"],
+                    "workspace_name": workspace_identity["workspace_name"],
+                    "skill_name": final_name,
+                }
             return {
                 "success": False,
                 "reason": "conflict",

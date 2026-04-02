@@ -9,7 +9,7 @@
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 .header {
-  height: 64px;
+  height: 56px;
   padding: 0 28px;
   display: flex;
   align-items: center;
@@ -142,6 +142,12 @@
       letter-spacing: normal !important;
       color: rgba(26, 23, 22, 0.25) !important;
       padding-left: 8px !important;
+
+      /* No hover effect for group titles */
+      &:hover {
+        background: transparent !important;
+        color: rgba(26, 23, 22, 0.25) !important;
+      }
     }
 
     /* Hide submenu arrow */
@@ -205,6 +211,12 @@
     /* Group title (sub-menu label) */
     .copaw-menu-submenu-title {
       color: rgba(255, 255, 255, 0.45) !important;
+
+      /* No hover effect for group titles in dark mode */
+      &:hover {
+        background: transparent !important;
+        color: rgba(255, 255, 255, 0.45) !important;
+      }
     }
 
     /* Regular menu item */
@@ -212,9 +224,8 @@
       color: rgba(255, 255, 255, 0.75) !important;
     }
 
-    /* Hover state */
-    .copaw-menu-item:hover,
-    .copaw-menu-submenu-title:hover {
+    /* Hover state - only for menu items, not group titles */
+    .copaw-menu-item:hover {
       background: rgba(255, 255, 255, 0.1) !important;
       color: rgba(255, 255, 255, 0.95) !important;
     }

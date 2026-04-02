@@ -25,7 +25,7 @@ copaw init --force      # Overwrite existing config files
 
 **What the interactive flow covers (in order):**
 
-1. **Default Workspace Initialization** — automatically create default workspace and configuration files
+1. **Default Workspace Initialization** — automatically create default workspace and configuration files.
 2. **LLM provider** — select provider, enter API key, choose model
    (**required**).
 3. **Environment variables** — optionally add key-value pairs for tools.
@@ -120,8 +120,8 @@ copaw models set-llm                 # Change active model only
 
 #### Local models
 
-CoPaw can also run models locally via llama.cpp — no API key needed.
-Install the backend first: `pip install 'copaw[local]'`
+CoPaw can also run models locally via llama.cpp, Ollama, or LM Studio — no API key needed.
+But you need to download the corresponding application first, such as [Ollama](https://ollama.com/download) or [LM Studio](https://lmstudio.ai/download).
 
 ```bash
 # Download a model (auto-selects Q4_K_M GGUF)

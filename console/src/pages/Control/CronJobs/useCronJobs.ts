@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { message } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { CronJobSpecOutput } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -10,6 +10,7 @@ export function useCronJobs() {
   const { selectedAgent } = useAgentStore();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const { message } = useAppMessage();
 
   const fetchJobs = async () => {
     setLoading(true);

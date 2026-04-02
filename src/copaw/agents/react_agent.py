@@ -47,6 +47,7 @@ from .tools import (
     send_file_to_user,
     set_user_timezone,
     view_image,
+    view_video,
     write_file,
     create_memory_search_tool,
 )
@@ -232,6 +233,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "browser_use": browser_use,
             "desktop_screenshot": desktop_screenshot,
             "view_image": view_image,
+            "view_video": view_video,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
@@ -247,9 +249,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 
-            if tool_name == "view_image" and not multimodal:
+            if tool_name in ("view_image", "view_video") and not multimodal:
                 logger.debug(
-                    "Skipped view_image — model does not support multimodal",
+                    "Skipped %s — model does not support multimodal",
+                    tool_name,
                 )
                 continue
 

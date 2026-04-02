@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { message } from "@agentscope-ai/design";
+import { useState, useEffect } from "react";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
@@ -15,7 +15,7 @@ const getParentDir = (filePath: string): string => {
 
 export const useAgentsData = () => {
   const { t } = useTranslation();
-  const { selectedAgent, agents } = useAgentStore();
+  const { selectedAgent } = useAgentStore();
   const [files, setFiles] = useState<MarkdownFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<MarkdownFile | null>(null);
   const [dailyMemories, setDailyMemories] = useState<DailyMemoryFile[]>([]);
@@ -23,90 +23,57 @@ export const useAgentsData = () => {
   const [fileContent, setFileContent] = useState("");
   const [originalContent, setOriginalContent] = useState("");
   const [loading, setLoading] = useState(false);
-  const [listLoading, setListLoading] = useState(false);
   const [workspacePath, setWorkspacePath] = useState<string | null>(null);
   const [enabledFiles, setEnabledFiles] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<"core" | "all">("core");
-  // Track previous agent to distinguish agent-switch vs viewMode-switch
-  const prevAgentRef = useRef<string | undefined>(undefined);
-  // Flag to skip the re-sort effect during bulk initialization
-  const isInitializingRef = useRef(false);
+  const { message } = useAppMessage();
 
   useEffect(() => {
     const initializeData = async () => {
-      isInitializingRef.current = true;
-      try {
-        const previouslySelectedFilename = selectedFile?.filename;
-        const isAgentSwitch = selectedAgent !== prevAgentRef.current;
-        prevAgentRef.current = selectedAgent;
+      // Remember currently selected file name
+      const previouslySelectedFilename = selectedFile?.filename;
 
-        // When switching agents, clear everything including content and memory expansion
-        if (isAgentSwitch) {
-          setFileContent("");
-          setOriginalContent("");
-          setExpandedMemory(false);
-        }
+      // Clear content first
+      setFileContent("");
+      setOriginalContent("");
+      setExpandedMemory(false);
 
-        // Clear the file list immediately so the old large list is unmounted
-        // before the network request completes, avoiding a double heavy render.
-        setFiles([]);
-        setListLoading(true);
+      const enabled = await fetchEnabledFiles();
+      const fileList = await agentsApi.listAgentFiles(selectedAgent);
+      const sortedFiles = sortFilesByEnabled(
+        fileList as unknown as MarkdownFile[],
+        enabled,
+      );
+      setFiles(sortedFiles);
 
-        // Fetch enabled files and file list concurrently
-        const [enabled, fileList] = await Promise.all([
-          fetchEnabledFiles(),
-          agentsApi.listAgentFiles(selectedAgent, viewMode === "all"),
-        ]);
+      // Set workspace path (handle both Unix '/' and Windows '\' separators)
+      if (fileList.length > 0) {
+        setWorkspacePath(getParentDir(fileList[0].path));
+      } else {
+        setWorkspacePath("");
+      }
 
-        const sortedFiles = sortFilesByEnabled(
-          fileList as unknown as MarkdownFile[],
-          enabled,
+      // Try to re-select the same file in new workspace
+      if (previouslySelectedFilename) {
+        const sameFile = sortedFiles.find(
+          (f) => f.filename === previouslySelectedFilename,
         );
-        setFiles(sortedFiles);
-        setListLoading(false);
-
-        // Set workspace path (handle both Unix '/' and Windows '\' separators)
-        if (fileList.length > 0) {
-          setWorkspacePath(getParentDir(fileList[0].path));
+        if (sameFile) {
+          // Auto-load the same file from new workspace
+          await handleFileClick(sameFile);
         } else {
-          setWorkspacePath("");
-        }
-
-        if (previouslySelectedFilename) {
-          const sameFile = sortedFiles.find(
-            (f) => f.filename === previouslySelectedFilename,
-          );
-          if (sameFile) {
-            if (isAgentSwitch) {
-              // Agent switched: re-load file content from the new agent's workspace
-              await handleFileClick(sameFile);
-            } else {
-              // viewMode switched: file list changed but content is unchanged,
-              // just update the file reference (metadata may differ)
-              setSelectedFile(sameFile);
-            }
-          } else {
-            // File no longer visible in this view (e.g. all→core hides non-core files)
-            setSelectedFile(null);
-            setFileContent("");
-            setOriginalContent("");
-          }
-        } else {
+          // File doesn't exist in new workspace, clear selection
           setSelectedFile(null);
         }
-      } finally {
-        setListLoading(false);
-        isInitializingRef.current = false;
+      } else {
+        setSelectedFile(null);
       }
     };
     initializeData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgent, viewMode]);
+  }, [selectedAgent]);
 
-  // Re-sort when enabledFiles changes (for toggle/reorder operations only,
-  // skipped during bulk initialization to avoid redundant re-renders)
+  // Re-sort when enabledFiles changes (for toggle/reorder operations)
   useEffect(() => {
-    if (isInitializingRef.current) return;
     if (files.length > 0 && enabledFiles.length >= 0) {
       const sortedFiles = sortFilesByEnabled(files, enabledFiles);
 
@@ -121,7 +88,7 @@ export const useAgentsData = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledFiles]);
 
-  const fetchEnabledFiles = useCallback(async () => {
+  const fetchEnabledFiles = async () => {
     try {
       const result = await workspaceApi.getSystemPromptFiles();
       const enabled = Array.isArray(result) ? result : [];
@@ -131,9 +98,9 @@ export const useAgentsData = () => {
       console.error("Failed to fetch enabled files", error);
       return [];
     }
-  }, []);
+  };
 
-  const sortFilesByEnabled = useCallback((
+  const sortFilesByEnabled = (
     fileList: MarkdownFile[],
     currentEnabledFiles: string[],
   ) => {
@@ -153,29 +120,16 @@ export const useAgentsData = () => {
       if (bEnabled) return 1;
       return a.filename.localeCompare(b.filename);
     });
-  }, []);
+  };
 
-  const fetchDailyMemories = useCallback(async () => {
-    try {
-      const memoryList = await api.listDailyMemory();
-      setDailyMemories(memoryList);
-    } catch (error) {
-      console.error("Failed to fetch daily memories", error);
-      message.error("Failed to load memory list");
-    }
-  }, []);
-  
-  const fetchFiles = useCallback(async (latestEnabledFiles?: string[]) => {
+  const fetchFiles = async (latestEnabledFiles?: string[]) => {
     try {
       // Validate with Array.isArray: onClick handlers may pass a MouseEvent as the first argument
       const enabled = Array.isArray(latestEnabledFiles)
         ? latestEnabledFiles
         : await fetchEnabledFiles();
       // Use agent-specific API
-      const fileList = await agentsApi.listAgentFiles(
-        selectedAgent,
-        viewMode === "all",
-      );
+      const fileList = await agentsApi.listAgentFiles(selectedAgent);
       const sortedFiles = sortFilesByEnabled(
         fileList as unknown as MarkdownFile[],
         enabled,
@@ -191,9 +145,19 @@ export const useAgentsData = () => {
       console.error("Failed to fetch files", error);
       message.error("Failed to load file list");
     }
-  }, [selectedAgent, viewMode, fetchEnabledFiles, sortFilesByEnabled]);
-  
-  const handleFileClick = useCallback(async (file: MarkdownFile) => {
+  };
+
+  const fetchDailyMemories = async () => {
+    try {
+      const memoryList = await api.listDailyMemory();
+      setDailyMemories(memoryList);
+    } catch (error) {
+      console.error("Failed to fetch daily memories", error);
+      message.error("Failed to load memory list");
+    }
+  };
+
+  const handleFileClick = async (file: MarkdownFile) => {
     if (file.filename === "MEMORY.md") {
       if (expandedMemory && selectedFile?.filename === "MEMORY.md") {
         setExpandedMemory(false);
@@ -203,15 +167,12 @@ export const useAgentsData = () => {
         fetchDailyMemories();
       }
     }
-  
+
     setSelectedFile(file);
     setLoading(true);
     try {
       // Use agent-specific API
-      const data = await agentsApi.readAgentFile(
-        selectedAgent,
-        file.rel_path || file.filename,
-      );
+      const data = await agentsApi.readAgentFile(selectedAgent, file.filename);
       setFileContent(data.content);
       setOriginalContent(data.content);
     } catch (error) {
@@ -220,9 +181,9 @@ export const useAgentsData = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedAgent, expandedMemory, selectedFile, fetchDailyMemories]);
-  
-  const handleDailyMemoryClick = useCallback(async (daily: DailyMemoryFile) => {
+  };
+
+  const handleDailyMemoryClick = async (daily: DailyMemoryFile) => {
     setSelectedFile({
       filename: `${daily.date}.md`,
       path: daily.path,
@@ -242,9 +203,9 @@ export const useAgentsData = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
-  
-  const handleSave = useCallback(async () => {
+  };
+
+  const handleSave = async () => {
     if (!selectedFile) return;
     setLoading(true);
     try {
@@ -252,11 +213,7 @@ export const useAgentsData = () => {
         const date = selectedFile.filename.replace(".md", "");
         await api.saveDailyMemory(date, fileContent);
       } else {
-        await agentsApi.writeAgentFile(
-          selectedAgent,
-          selectedFile.rel_path || selectedFile.filename,
-          fileContent,
-        );
+        await api.saveFile(selectedFile.filename, fileContent);
       }
       setOriginalContent(fileContent);
       message.success("Saved successfully");
@@ -271,15 +228,15 @@ export const useAgentsData = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedFile, fileContent, selectedAgent, fetchDailyMemories, fetchFiles]);
-  
-  const handleReset = useCallback(() => {
+  };
+
+  const handleReset = () => {
     setFileContent(originalContent);
-  }, [originalContent]);
-  
-  const handleToggleFileEnabled = useCallback(async (filename: string) => {
+  };
+
+  const handleToggleFileEnabled = async (filename: string) => {
     const isEnabling = !enabledFiles.includes(filename);
-  
+
     // Show warning for MEMORY.md
     if (isEnabling && filename === "MEMORY.md") {
       message.warning({
@@ -287,11 +244,11 @@ export const useAgentsData = () => {
         duration: 5,
       });
     }
-  
+
     const newEnabledFiles = enabledFiles.includes(filename)
       ? enabledFiles.filter((f) => f !== filename)
       : [...enabledFiles, filename];
-  
+
     try {
       await workspaceApi.setSystemPromptFiles(newEnabledFiles);
       setEnabledFiles(newEnabledFiles);
@@ -305,9 +262,9 @@ export const useAgentsData = () => {
           "Failed to update system prompt configuration",
       );
     }
-  }, [enabledFiles, t]);
-  
-  const handleReorderFiles = useCallback(async (newOrder: string[]) => {
+  };
+
+  const handleReorderFiles = async (newOrder: string[]) => {
     try {
       await workspaceApi.setSystemPromptFiles(newOrder);
       setEnabledFiles(newOrder);
@@ -315,25 +272,9 @@ export const useAgentsData = () => {
       console.error("Failed to reorder files", error);
       message.error("Failed to update file order");
     }
-  }, []);
-  
-  const handleDownloadSelected = useCallback(async (paths: string[]) => {
-    try {
-      setLoading(true);
-      await agentsApi.downloadSelectedFiles(selectedAgent, paths);
-      message.success(t("workspace.downloadSuccess", "Download started"));
-    } catch (e) {
-      console.error("Failed to download files", e);
-      message.error(t("workspace.downloadFailed", "Download failed"));
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedAgent, t]);
+  };
 
   const hasChanges = fileContent !== originalContent;
-
-  const currentAgent = agents.find((a) => a.id === selectedAgent);
-  const effectiveWorkspacePath = currentAgent?.workspace_dir || workspacePath;
 
   return {
     files,
@@ -342,12 +283,9 @@ export const useAgentsData = () => {
     expandedMemory,
     fileContent,
     loading,
-    listLoading,
-    workspacePath: effectiveWorkspacePath,
+    workspacePath,
     hasChanges,
     enabledFiles,
-    viewMode,
-    setViewMode,
     setFileContent,
     fetchFiles,
     fetchDailyMemories,
@@ -357,6 +295,5 @@ export const useAgentsData = () => {
     handleReset,
     handleToggleFileEnabled,
     handleReorderFiles,
-    handleDownloadSelected,
   };
 };

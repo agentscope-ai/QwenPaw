@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Card, Button, Modal, message } from "@agentscope-ai/design";
+import { Card, Button, Modal } from "@agentscope-ai/design";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../../../api/types";
 import { ProviderConfigModal } from "../modals/ProviderConfigModal";
 import { ModelManageModal } from "../modals/ModelManageModal";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
 import { providerIcon } from "../providerIcon";
 
@@ -30,6 +31,7 @@ export function RemoteProviderCard({
   onMouseLeave,
 }: RemoteProviderCardProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [modalOpen, setModalOpen] = useState(false);
   const [modelManageOpen, setModelManageOpen] = useState(false);
 
@@ -61,7 +63,7 @@ export function RemoteProviderCard({
 
   let isConfigured = false;
 
-  if (provider.is_local) {
+  if (provider.id === "copaw-local") {
     isConfigured = true;
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
@@ -148,7 +150,7 @@ export function RemoteProviderCard({
       {/* Info Section */}
       <div className={styles.cardInfo}>
         <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Bot URL:</span>
+          <span className={styles.infoLabel}>Base URL:</span>
           {provider.base_url ? (
             <span className={styles.infoValue} title={provider.base_url}>
               {provider.base_url}

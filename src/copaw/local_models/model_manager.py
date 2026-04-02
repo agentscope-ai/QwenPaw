@@ -10,12 +10,13 @@ import shutil
 import threading
 import time
 import uuid
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from queue import Empty
 from typing import Any, Optional
 from enum import Enum
 
+import traceback
 import httpx
 from pydantic import Field
 
@@ -72,6 +73,7 @@ class ModelManager:
         self._final_dir: Optional[Path] = None
         self._resolved_source: Optional[DownloadSource] = None
         self._model_dir = DEFAULT_LOCAL_PROVIDER_DIR / "models"
+        self._download_tmp_dir = DEFAULT_LOCAL_PROVIDER_DIR / "tmp"
         self._progress = DownloadProgressTracker()
 
     def get_recommended_models(self) -> list[LocalModelInfo]:
@@ -84,40 +86,46 @@ class ModelManager:
         if memory_gb <= 8:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-2B-Q4_K_M",
-                    name="CoPaw-flash-2B-Q4_K_M",
+                    id="AgentScope/CoPaw-Flash-2B-Q4_K_M",
+                    name="CoPaw-Flash-2B-Q4_K_M",
                     size_bytes=1560460768,
+                    source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-2B-Q8_0",
-                    name="CoPaw-flash-2B-Q8_0",
+                    id="AgentScope/CoPaw-Flash-2B-Q8_0",
+                    name="CoPaw-Flash-2B-Q8_0",
                     size_bytes=2552356320,
+                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
         elif memory_gb <= 16:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-4B-Q4_K_M",
-                    name="CoPaw-flash-4B-Q4_K_M",
+                    id="AgentScope/CoPaw-Flash-4B-Q4_K_M",
+                    name="CoPaw-Flash-4B-Q4_K_M",
                     size_bytes=3066384736,
+                    source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-4B-Q8_0",
-                    name="CoPaw-flash-4B-Q8_0",
+                    id="AgentScope/CoPaw-Flash-4B-Q8_0",
+                    name="CoPaw-Flash-4B-Q8_0",
                     size_bytes=5157833056,
+                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
         else:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-9B-Q4_K_M",
-                    name="CoPaw-flash-9B-Q4_K_M",
+                    id="AgentScope/CoPaw-Flash-9B-Q4_K_M",
+                    name="CoPaw-Flash-9B-Q4_K_M",
                     size_bytes=5476080128,
+                    source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-flash-9B-Q8_0",
-                    name="CoPaw-flash-9B-Q8_0",
+                    id="AgentScope/CoPaw-Flash-9B-Q8_0",
+                    name="CoPaw-Flash-9B-Q8_0",
                     size_bytes=10590617600,
+                    source=DownloadSource.MODELSCOPE,
                 ),
             ]
 
@@ -184,17 +192,23 @@ class ModelManager:
             )
 
             final_dir.parent.mkdir(parents=True, exist_ok=True)
-            self._resolved_source = source or self._resolve_download_source()
+            self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
+            resolved_source = source or self._resolve_download_source()
             total_bytes = self._estimate_download_size(
                 repo_id=repo_id,
-                source=self._resolved_source,
+                source=resolved_source,
             )
+            has_gguf, error_msg = self._check_gguf_exists(
+                repo_id=repo_id,
+                source=resolved_source,
+            )
+            if not has_gguf:
+                raise ValueError(error_msg)
 
+            self._resolved_source = resolved_source
             task_id = uuid.uuid4().hex
             self._final_dir = final_dir
-            self._staging_dir = (
-                final_dir.parent / f".{final_dir.name}.{task_id}.downloading"
-            )
+            self._staging_dir = self._download_tmp_dir / task_id
             self._queue = self._context.Queue()
             payload = {
                 "repo_id": repo_id,
@@ -377,6 +391,20 @@ class ModelManager:
             repo_id=repo_id,
         )
 
+    def _check_gguf_exists(
+        self,
+        repo_id: str,
+        source: DownloadSource,
+    ) -> tuple[bool, str]:
+        """Return whether the remote repository contains at least one GGUF."""
+        if source == DownloadSource.HUGGINGFACE:
+            return self._check_huggingface_gguf_exists(
+                repo_id=repo_id,
+            )
+        return self._check_modelscope_gguf_exists(
+            repo_id=repo_id,
+        )
+
     @staticmethod
     def _download_worker(payload: dict[str, Any], queue: Any) -> None:
         """Run the blocking SDK download in a child process."""
@@ -404,6 +432,11 @@ class ModelManager:
                     status=DownloadTaskStatus.FAILED,
                     error="Download failed: " + str(exc),
                 ).to_dict(),
+            )
+            logger.error(
+                "Error when downloading model [%s]:\n%s",
+                repo_id,
+                traceback.format_exc(),
             )
             raise
 
@@ -448,10 +481,49 @@ class ModelManager:
         local_dir: Path,
     ) -> str:
         """Download a model repository from ModelScope."""
-        return ModelManager._get_modelscope_snapshot_download()(
-            model_id=repo_id,
-            local_dir=str(local_dir),
+        with ModelManager._with_modelscope_tqdm_disabled():
+            return ModelManager._get_modelscope_snapshot_download()(
+                model_id=repo_id,
+                local_dir=str(local_dir),
+            )
+
+    @staticmethod
+    @contextmanager
+    def _with_modelscope_tqdm_disabled() -> Any:
+        """Temporarily disable ModelScope tqdm output.
+
+        Windows desktop installs can run without a valid stderr console handle,
+        which makes tqdm initialization fail with ``OSError: [Errno 22]
+        Invalid argument`` when it tries to flush the stream.
+        """
+        patched_modules: list[tuple[Any, Any]] = []
+        module_names = (
+            "modelscope.utils.thread_utils",
+            "modelscope.hub.callback",
         )
+
+        try:
+            for module_name in module_names:
+                module = importlib.import_module(module_name)
+                original_tqdm = getattr(module, "tqdm", None)
+                if original_tqdm is None:
+                    continue
+
+                def _disabled_tqdm(
+                    *args: Any,
+                    __orig=original_tqdm,
+                    **kwargs: Any,
+                ) -> Any:
+                    kwargs["disable"] = True
+                    return __orig(*args, **kwargs)
+
+                setattr(module, "tqdm", _disabled_tqdm)
+                patched_modules.append((module, original_tqdm))
+
+            yield
+        finally:
+            for module, original_tqdm in reversed(patched_modules):
+                setattr(module, "tqdm", original_tqdm)
 
     def _estimate_huggingface_size(
         self,
@@ -513,6 +585,51 @@ class ModelManager:
                 total += size
                 found = True
         return total if found else None
+
+    def _check_huggingface_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
+        try:
+            from huggingface_hub import HfApi
+            from huggingface_hub.errors import RepositoryNotFoundError
+        except ImportError:
+            return False, "`huggingface_hub` is not installed"
+        try:
+            files = HfApi().list_repo_files(repo_id=repo_id)
+            if any(f.endswith(".gguf") for f in files):
+                return True, ""
+            return (
+                False,
+                (
+                    f"{repo_id} is not supported by Llama.cpp because it does "
+                    "not contain any .gguf files."
+                ),
+            )
+        except RepositoryNotFoundError:
+            return False, f"Repository {repo_id} not found"
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
+            return False, f"Error when checking repository: {e}"
+
+    def _check_modelscope_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
+        try:
+            hub_api_module = importlib.import_module("modelscope.hub.api")
+        except ImportError:
+            return False, "`modelscope` is not installed"
+        try:
+            files = hub_api_module.HubApi().get_model_files(repo_id)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False, f"Failed to fetch info from {repo_id}"
+
+        if any(
+            isinstance(f, dict) and f.get("Name", "").endswith(".gguf")
+            for f in files
+        ):
+            return True, ""
+        return (
+            False,
+            (
+                f"{repo_id} is not supported by Llama.cpp because it does "
+                "not contain any .gguf files."
+            ),
+        )
 
     def _detect_available_memory_gb(self) -> float:
         """Prefer VRAM when available, otherwise use system memory."""

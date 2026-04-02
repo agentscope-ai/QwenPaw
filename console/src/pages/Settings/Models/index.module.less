@@ -1,3 +1,12 @@
+/* ---- Page Layout ---- */
+.settingsPage {
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ---- Page Header (breadcrumb style) ---- */
 .pageHeader {
   display: flex;
@@ -7,6 +16,14 @@
   padding: 20px;
   border-bottom: 1px solid #eae9e7;
   margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+/* ---- Scrollable Content ---- */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .breadcrumbHeader {
@@ -73,7 +90,7 @@
 /* ---- Provider Groups ---- */
 
 .providerGroup {
-  padding: 16px;
+  padding: 0 16px;
 
   &:last-of-type {
     margin-bottom: 0;
@@ -116,6 +133,10 @@
   &.normal {
     border: 1px solid rgba(0, 0, 0, 0.04);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  }
+
+  &.hover {
+    border: 1px solid rgba(0, 0, 0, 0.04);
   }
 
   :global(.ant-card-body) {
@@ -222,7 +243,6 @@
   font-weight: 500;
   background-color: rgba(29, 212, 215, 0.15);
   color: rgba(29, 212, 215, 1);
-  border: 1px solid rgba(29, 212, 215, 0.25);
 }
 
 .statusContainer {
@@ -995,9 +1015,16 @@
 .localStatusCardFooter {
   margin-top: 12px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: stretch;
   gap: 12px;
+}
+
+.localStatusFooterContent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
 }
 
 .localStatusActions {
@@ -1108,6 +1135,14 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .settingsPage {
+    :global {
+      .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+        background: rgba(255, 255, 255, 0.04) !important;
+      }
+    }
+  }
+
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.12);
   }
@@ -1248,7 +1283,6 @@
   .localTag {
     background-color: rgba(29, 212, 215, 0.15);
     color: rgba(29, 212, 215, 1);
-    border-color: rgba(29, 212, 215, 0.3);
   }
 
   .infoRow {

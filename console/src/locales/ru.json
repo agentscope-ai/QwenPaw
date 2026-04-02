@@ -95,6 +95,7 @@
     "enableSuccess": "Агент успешно включён",
     "toggleFailed": "Не удалось переключить состояние агента",
     "defaultNotDisablable": "Агент по умолчанию нельзя отключить",
+    "currentAgentDeleted": "Текущий агент был удалён, автоматически переключено на агента по умолчанию",
     "currentAgentDisabled": "Текущий агент был отключён, автоматически переключено на агента по умолчанию",
     "switchedToDefault": "Автоматически переключено на агента по умолчанию",
     "cannotSwitchToDisabled": "Этот агент отключён, пожалуйста, сначала включите его на странице управления"
@@ -150,6 +151,13 @@
     "deleteConfirm": "Вы уверены, что хотите удалить этот навык?",
     "deleteSuccess": "Навык успешно удалён",
     "deleteFailed": "Не удалось удалить навык",
+    "batchDeleteTitle": "Удалить {{count}} навыков?",
+    "batchDeleteSuccess": "{{count}} навыков удалено",
+    "batchDeletePartial": "{{deleted}} удалено, {{failed}} не удалось",
+    "batchDeleteFailed": "Не удалось выполнить пакетное удаление",
+    "selectedCount": "Выбрано {{count}}",
+    "selectAll": "Выбрать все",
+    "clearSelection": "Очистить",
     "updateSuccess": "Навык успешно обновлён",
     "updateFailed": "Не удалось обновить навык",
     "frontmatterRequired": "Навык должен начинаться и заканчиваться ---",
@@ -177,9 +185,16 @@
     "fileSizeExceeded": "Размер файла превышает лимит {{limit}}МБ. Текущий файл: {{size}}МБ",
     "channels": "Применимые каналы",
     "allChannels": "Все",
+    "lastUpdated": "Обновлено",
+    "searchPlaceholder": "Фильтр по названию",
+    "listView": "Список",
+    "gridView": "Сетка",
+    "refreshHint": "Обновить навыки с диска",
     "poolSync": "Статус синхронизации",
     "uploadedToPool": "Загружено в пул навыков",
     "downloadedToWorkspace": "Скачано в текущее рабочее пространство",
+    "builtinUpgradeTitle": "Обновить встроенный навык",
+    "builtinUpgradeContent": "В пуле доступна новая версия встроенного навыка «{{name}}». Перезаписать текущую версию?",
     "nameConflict": "Обнаружен конфликт имён. Предложенное переименование заполнено.",
     "uploadToPool": "Синхронизировать с пулом навыков",
     "uploadToPoolHint": "Загрузить выбранные навыки рабочего пространства в общий локальный пул навыков",
@@ -196,12 +211,26 @@
     "config": "Конфигурация",
     "configPlaceholder": "{\"KEY\": \"value\"}",
     "configInvalidJson": "Неверный формат JSON",
-    "configSaved": "Конфигурация сохранена"
+    "configSaved": "Конфигурация сохранена",
+    "loadFailed": "Не удалось загрузить навыки",
+    "refreshFailed": "Не удалось обновить навыки",
+    "createdSuccessfully": "Создано успешно",
+    "saveFailed": "Не удалось сохранить",
+    "importFailed": "Не удалось импортировать",
+    "disabledSuccessfully": "Отключено успешно",
+    "enabledSuccessfully": "Включено успешно",
+    "operationFailed": "Операция не удалась",
+    "provideUrl": "Пожалуйста, укажите URL навыка хаба",
+    "validUrl": "Пожалуйста, введите действительный URL, начинающийся с http:// или https://",
+    "importedSkill": "Импортирован навык: {{name}}",
+    "batchOperation": "Пакетная операция",
+    "exitBatch": "Выйти из режима"
   },
   "skillPool": {
     "description": "Общий локальный пул навыков для встроенных навыков и загрузок из рабочих пространств. Внешние импорты (ClawHub, LobeHub) — отдельная функция.",
     "broadcast": "Трансляция",
     "broadcastHint": "Транслировать навыки пула во все или выбранные рабочие пространства",
+    "refreshHint": "Обновить пул навыков с диска",
     "broadcastTitle": "Транслировать {{name}}",
     "importBuiltin": "Импорт встроенных",
     "importBuiltinHint": "Импортировать встроенные навыки из исходников в пул",
@@ -233,6 +262,10 @@
     "deleteBuiltinConfirm": "Это удалит встроенный навык из пула. Позже его можно снова импортировать из исходников.",
     "deleteConfirm": "Это удалит навык из общего локального пула навыков.",
     "deleteTitle": "Удалить {{name}}?",
+    "batchDeleteTitle": "Удалить {{count}} навыков из пула?",
+    "batchDeleteSuccess": "{{count}} навыков из пула удалено",
+    "batchDeletePartial": "{{deleted}} удалено, {{failed}} не удалось",
+    "batchDeleteFailed": "Не удалось выполнить пакетное удаление",
     "imported": "Импортировано: {{names}}",
     "noNewImports": "Новые навыки не импортированы",
     "allBuiltin": "Все встроенные",
@@ -282,7 +315,8 @@
     "toggleError": "Не удалось переключить статус MCP-клиента",
     "deleteConfirm": "Вы уверены, что хотите удалить этот MCP-клиент?",
     "deleteSuccess": "MCP-клиент успешно удалён",
-    "deleteError": "Не удалось удалить MCP-клиент"
+    "deleteError": "Не удалось удалить MCP-клиент",
+    "maskedFieldHint": "Чувствительные поля скрыты ***. Редактирование скрытых значений не поддерживается — замените полным новым значением."
   },
   "heartbeat": {
     "title": "Пульс",
@@ -483,6 +517,10 @@
     "batchDeleteConfirm": "Вы уверены, что хотите удалить выбранные сессии ({{count}})?",
     "deleteSuccess": "Сессия успешно удалена",
     "deleteFailed": "Не удалось удалить сессию",
+    "batchDeleteSuccess": "Успешно удалено сессий: {{count}}",
+    "batchDeleteFailed": "Не удалось массово удалить сессии",
+    "saveSuccess": "Сессия успешно сохранена",
+    "saveFailed": "Не удалось сохранить сессию",
     "batchDeleteButton": "Массовое удаление",
     "filterUserId": "Фильтр по ID пользователя",
     "filterChannel": "Фильтр по каналу",
@@ -689,10 +727,11 @@
     "localLlamacppInstallStarted": "Загрузка llama.cpp началась",
     "localLlamacppInstallSuccess": "llama.cpp успешно установлен",
     "localLlamacppInstallFailed": "Не удалось установить llama.cpp",
-    "localModelsModalDescription": "Сначала подготовьте локальный движок инференса, затем скачайте рекомендованную модель и запустите локальный сервер. Закрытие этого окна не прерывает загрузку.",
     "localRuntimeSectionTitle": "Inference Engine",
     "localRuntimeSectionDescription": "Powered by Llama.cpp",
+    "localRuntimeComputeHint": "По умолчанию используется CPU. Если нужна GPU-акселерация, используйте Ollama или LM Studio.",
     "localRuntimeInstalled": "Установлен",
+    "localRuntimeUnsupported": "Не поддерживается",
     "localRuntimeMissing": "Не установлен",
     "localServerRunningTitle": "Текущий локальный сервер",
     "localServerOnline": "Работает",
@@ -706,7 +745,7 @@
     "localEngineCurrentModelLabel": "Текущая обслуживаемая модель",
     "localEngineNextStepLabel": "Следующий шаг",
     "localEngineHealthLabel": "Состояние движка",
-    "localEngineStatusHint": "После установки можно сразу запустить загруженную модель или скачать подходящую из списка ниже.",
+    "localEngineStatusHint": "Скачайте и запустите подходящую модель из списка ниже",
     "localStartServer": "Запустить",
     "localStopServer": "Остановить",
     "localServerStartFailed": "Не удалось запустить локальный сервер",
@@ -717,11 +756,12 @@
     "localModelPathMissing": "Для этой загруженной модели отсутствует локальный путь.",
     "localModelsSectionTitle": "Локальные модели",
     "localModelsSectionDescription": "Загруженные модели можно запускать сразу. Одновременно может выполняться только одна загрузка модели и один локальный сервер.",
-    "localModelsLockedHint": "Установите локальный движок инференса перед управлением рекомендуемыми моделями.",
+    "localModelsLockedHint": "Сначала установите llama.cpp",
+    "localAlternativeRuntimeHint": "Попробуйте использовать Ollama или LM Studio",
     "localModelsCount": "Загружено {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "Текущая загрузка",
     "localCustomModelTitle": "Загрузка пользовательской модели",
-    "localCustomModelHint": "Введите ID репозитория модели и источник.",
+    "localCustomModelHint": "Введите ID репозитория модели. Поддерживается только GGUF.",
     "localSourceHuggingFace": "Hugging Face",
     "localSourceModelScope": "ModelScope",
     "ollamaModelNamePlaceholder": "например: mistral:7b, qwen3:8b",
@@ -967,10 +1007,7 @@
   "theme": {
     "dark": "Тёмная",
     "light": "Светлая",
-    "darkMode": "Тёмный режим",
-    "lightMode": "Светлый режим",
-    "switchToDark": "Переключить на тёмный режим",
-    "switchToLight": "Переключить на светлый режим"
+    "system": "Как в системе"
   },
   "sidebar": {
     "newVersion": "Доступна новая версия: v{{version}}, нажмите для обновления",
@@ -986,6 +1023,8 @@
     "chatHistoryTooltip": "История чатов",
     "allChats": "Все чаты",
     "createNewChat": "Создать новый чат",
+    "statusIdle": "Ожидание",
+    "statusInProgress": "Выполняется",
     "disclaimer": "Работает для вас, растёт вместе с вами",
     "greeting": "Привет, чем я могу помочь вам сегодня?",
     "description": "Я полезный ассистент, который поможет вам с вашими вопросами.",
@@ -997,7 +1036,7 @@
         "description": "Очистить контекст диалога"
       },
       "compact": {
-        "description": "Очистить контекст диалога и сгенерировать краткое содержание истории диалога"
+        "description": "Сжать контекст диалога и создать резюме; поддерживается доп. инструкция"
       },
       "approve": {
         "description": "Подтвердить ожидающее действие инструмента и продолжить выполнение"
@@ -1155,7 +1194,8 @@
         "title": "Обнаружены проблемы безопасности",
         "description": "Обнаружены следующие проблемы безопасности:",
         "warnDescription": "Обнаружены проблемы безопасности, но навык был включён (режим предупреждения):",
-        "goToWhitelist": "Перейти к белому списку"
+        "goToWhitelist": "Перейти к белому списку",
+        "moreFindings": "Ещё {{count}} записей не показано (полный список: Настройки → Безопасность → Сканер навыков)."
       }
     }
   },

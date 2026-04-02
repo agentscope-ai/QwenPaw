@@ -9,7 +9,9 @@ import time
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
+import httpx
 import pytest
 
 import copaw.local_models.llamacpp as downloader_module
@@ -89,6 +91,82 @@ class _FakeResponse:
         return None
 
 
+class _FakeStreamResponse:
+    def __init__(
+        self,
+        payload: bytes,
+        *,
+        chunk_delay: float = 0.0,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self._payload = payload
+        self._chunk_delay = chunk_delay
+        self.status_code = status_code
+        self.headers = headers or {"Content-Length": str(len(payload))}
+        self.request = httpx.Request("GET", "https://example.com/file")
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                "download failed",
+                request=self.request,
+                response=httpx.Response(
+                    self.status_code,
+                    request=self.request,
+                ),
+            )
+
+    def iter_bytes(self, chunk_size: int) -> object:
+        for index in range(0, len(self._payload), chunk_size):
+            if self._chunk_delay:
+                time.sleep(self._chunk_delay)
+            yield self._payload[index : index + chunk_size]
+
+    def __enter__(self) -> _FakeStreamResponse:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+class _FakeHttpxClient:
+    def __init__(
+        self,
+        payload: bytes,
+        *,
+        chunk_delay: float = 0.0,
+        status_code: int = 200,
+        exc: Exception | None = None,
+    ) -> None:
+        self._payload = payload
+        self._chunk_delay = chunk_delay
+        self._status_code = status_code
+        self._exc = exc
+        self.stream_calls: list[tuple[str, str, dict[str, str] | None]] = []
+
+    def stream(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str] | None = None,
+    ) -> _FakeStreamResponse:
+        self.stream_calls.append((method, url, headers))
+        if self._exc is not None:
+            raise self._exc
+        return _FakeStreamResponse(
+            self._payload,
+            chunk_delay=self._chunk_delay,
+            status_code=self._status_code,
+        )
+
+    def __enter__(self) -> _FakeHttpxClient:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
 def _make_zip_payload() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -134,10 +212,125 @@ def _build_downloader(
         "get_cuda_version",
         lambda: None,
     )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_macos_version",
+        lambda: (13, 0),
+    )
     return LlamaCppBackend(
         base_url="https://example.com/releases",
         release_tag="b1234",
     )
+
+
+def test_init_rejects_macos_lower_than_13(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_os_name",
+        lambda: "macos",
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_architecture",
+        lambda: "arm64",
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_cuda_version",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_macos_version",
+        lambda: (12, 7, 6),
+    )
+
+    llamacpp = LlamaCppBackend(
+        base_url="https://example.com/releases",
+        release_tag="b1234",
+    )
+    ok, message = llamacpp.check_llamacpp_installability()
+    assert not ok
+    assert (
+        message == "Unsupported macOS version: 12.7.6 (requires 13.3 or later)"
+    )
+
+
+def test_init_allows_macos_13_and_above(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_os_name",
+        lambda: "macos",
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_architecture",
+        lambda: "arm64",
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_cuda_version",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_macos_version",
+        lambda: (13, 3),
+    )
+
+    downloader = LlamaCppBackend(
+        base_url="https://example.com/releases",
+        release_tag="b1234",
+    )
+
+    assert downloader.os_name == "macos"
+
+
+@pytest.mark.parametrize(
+    ("cuda_version", "expected"),
+    [
+        ("12.3", None),
+        ("12.4", "12.4"),
+        ("12.8", "12.4"),
+        ("13.0", "13.1"),
+    ],
+)
+def test_init_maps_supported_windows_cuda_versions(
+    monkeypatch: pytest.MonkeyPatch,
+    cuda_version: str,
+    expected: str | None,
+) -> None:
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_os_name",
+        lambda: "windows",
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_architecture",
+        lambda: "x64",
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_cuda_version",
+        lambda: cuda_version,
+    )
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_macos_version",
+        lambda: None,
+    )
+
+    downloader = LlamaCppBackend(
+        base_url="https://example.com/releases",
+        release_tag="b1234",
+    )
+
+    assert downloader.cuda_version == expected
 
 
 def _patch_urlopen(
@@ -147,9 +340,9 @@ def _patch_urlopen(
     chunk_delay: float = 0.0,
 ) -> None:
     monkeypatch.setattr(
-        downloader_module.urllib.request,
-        "urlopen",
-        lambda request, timeout=30: _FakeResponse(
+        downloader_module.httpx,
+        "Client",
+        lambda **kwargs: _FakeHttpxClient(
             payload,
             chunk_delay=chunk_delay,
         ),
@@ -284,7 +477,7 @@ def test_download_sync_closes_temp_fd_before_request_failure(
     original_mkstemp = downloader_module.tempfile.mkstemp
     original_close = downloader_module.os.close
 
-    def tracked_mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
+    def tracked_mkstemp(*args: Any, **kwargs: Any) -> tuple[int, str]:
         nonlocal created_temp_path
         fd, temp_name = original_mkstemp(*args, **kwargs)
         created_temp_path = Path(temp_name)
@@ -300,10 +493,14 @@ def test_download_sync_closes_temp_fd_before_request_failure(
         tracked_mkstemp,
     )
     monkeypatch.setattr(downloader_module.os, "close", tracked_close)
+    request = httpx.Request("GET", "https://example.com/fail")
     monkeypatch.setattr(
-        downloader_module.urllib.request,
-        "urlopen",
-        lambda request, timeout=30: (_ for _ in ()).throw(OSError("boom")),
+        downloader_module.httpx,
+        "Client",
+        lambda **kwargs: _FakeHttpxClient(
+            b"",
+            exc=httpx.ReadError("boom", request=request),
+        ),
     )
     _patch_download_url(
         monkeypatch,
@@ -313,12 +510,45 @@ def test_download_sync_closes_temp_fd_before_request_failure(
         ),
     )
 
-    with pytest.raises(OSError, match="boom"):
+    with pytest.raises(httpx.ReadError, match="boom"):
         downloader._download_sync(dest)
 
     assert created_temp_path is not None
     assert closed_fds
     assert not created_temp_path.exists()
+
+
+def test_download_sync_uses_browser_like_headers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    dest = tmp_path / "header-install"
+    fake_client = _FakeHttpxClient(_make_zip_payload())
+
+    monkeypatch.setattr(
+        downloader_module.httpx,
+        "Client",
+        lambda **kwargs: fake_client,
+    )
+    _patch_download_url(
+        monkeypatch,
+        (
+            "https://example.com/releases/b1234/"
+            "llama-b1234-bin-win-cpu-x64.zip"
+        ),
+    )
+
+    downloader._download_sync(dest)
+
+    assert fake_client.stream_calls == [
+        (
+            "GET",
+            "https://example.com/releases/b1234/"
+            "llama-b1234-bin-win-cpu-x64.zip",
+            downloader._download_headers,
+        ),
+    ]
 
 
 @pytest.mark.asyncio
@@ -472,7 +702,7 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     monkeypatch.setattr(
         downloader,
         "check_llamacpp_installation",
-        lambda: True,
+        lambda: (True, ""),
     )
     monkeypatch.setattr(
         downloader_module.asyncio,
@@ -509,6 +739,8 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
                     str(model_path.resolve()),
                     "--alias",
                     "demo-model",
+                    "--gpu-layers",
+                    "auto",
                 ],
             ),
             {
@@ -535,7 +767,10 @@ def test_force_shutdown_server_kills_process_group_on_posix(
     downloader._server_port = 8080
     downloader._server_model_name = "demo"
     downloader._server_owns_process_group = True
-    downloader._server_log_task = SimpleNamespace(done=lambda: True)
+    downloader._server_log_task = cast(
+        asyncio.Task[None],
+        SimpleNamespace(done=lambda: True),
+    )
 
     monkeypatch.setattr(downloader_module, "os", fake_os)
     monkeypatch.setattr(
@@ -564,7 +799,10 @@ def test_force_shutdown_server_escalates_to_kill_when_needed(
 
     downloader._server_process = process
     downloader._server_owns_process_group = False
-    downloader._server_log_task = SimpleNamespace(done=lambda: True)
+    downloader._server_log_task = cast(
+        asyncio.Task[None],
+        SimpleNamespace(done=lambda: True),
+    )
 
     monkeypatch.setattr(
         downloader,
@@ -588,7 +826,10 @@ def test_force_shutdown_server_uses_process_kill_on_windows(
 
     downloader._server_process = process
     downloader._server_owns_process_group = False
-    downloader._server_log_task = SimpleNamespace(done=lambda: True)
+    downloader._server_log_task = cast(
+        asyncio.Task[None],
+        SimpleNamespace(done=lambda: True),
+    )
 
     monkeypatch.setattr(downloader_module.os, "name", "nt", raising=False)
     monkeypatch.setattr(

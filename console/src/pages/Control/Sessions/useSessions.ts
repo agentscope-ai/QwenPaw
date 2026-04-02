@@ -1,13 +1,16 @@
 import { useState, useEffect } from "react";
-import { message } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { Session } from "./components/constants";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useTranslation } from "react-i18next";
 
 export function useSessions() {
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const { selectedAgent } = useAgentStore();
+  const { message } = useAppMessage();
 
   const fetchSessions = async () => {
     setLoading(true);
@@ -43,11 +46,11 @@ export function useSessions() {
     try {
       const result = await api.updateSession(sessionId, values);
       setSessions(sessions.map((s) => (s.id === sessionId ? result : s)));
-      message.success("Saved successfully");
+      message.success(t("sessions.saveSuccess"));
       return true;
     } catch (error) {
       console.error("❌ Failed to save session:", error);
-      message.error("Save failed");
+      message.error(t("sessions.saveFailed"));
       return false;
     }
   };
@@ -56,11 +59,11 @@ export function useSessions() {
     try {
       await api.deleteSession(sessionId);
       setSessions(sessions.filter((s) => s.id !== sessionId));
-      message.success("Deleted successfully");
+      message.success(t("sessions.deleteSuccess"));
       return true;
     } catch (error) {
       console.error("❌ Failed to delete session:", error);
-      message.error("Failed to delete");
+      message.error(t("sessions.deleteFailed"));
       return false;
     }
   };
@@ -69,11 +72,13 @@ export function useSessions() {
     try {
       await api.batchDeleteSessions(sessionIds);
       setSessions(sessions.filter((s) => !sessionIds.includes(s.id)));
-      message.success(`Successfully deleted ${sessionIds.length} session(s)`);
+      message.success(
+        t("sessions.batchDeleteSuccess", { count: sessionIds.length }),
+      );
       return true;
     } catch (error) {
       console.error("❌ Failed to batch delete sessions:", error);
-      message.error("Failed to batch delete sessions");
+      message.error(t("sessions.batchDeleteFailed"));
       return false;
     }
   };

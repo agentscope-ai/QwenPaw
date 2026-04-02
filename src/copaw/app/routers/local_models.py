@@ -29,6 +29,10 @@ class ServerStatus(BaseModel):
         ...,
         description="Whether llama.cpp is running and responding",
     )
+    installable: bool = Field(
+        ...,
+        description="Whether the current environment can install llama.cpp",
+    )
     installed: bool = Field(..., description="Whether llama.cpp is installed")
     port: Optional[int] = Field(
         default=None,
@@ -103,17 +107,32 @@ async def server_available(
     manager: LocalModelManager = Depends(get_local_model_manager),
 ) -> ServerStatus:
     """Check if the local model server is properly installed and ready."""
-    installed = manager.check_llamacpp_installation()
+    installable, install_message = manager.check_llamacpp_installability()
+
+    if not installable:
+        return ServerStatus(
+            available=False,
+            installable=False,
+            installed=False,
+            port=None,
+            model_name=None,
+            message=(
+                install_message
+                or "Current environment does not support llama.cpp"
+            ),
+        )
+
+    installed, message = manager.check_llamacpp_installation()
     ready = False
-    message = ""
 
     if not installed:
         return ServerStatus(
             available=False,
+            installable=installable,
             installed=False,
             port=None,
             model_name=None,
-            message="llama.cpp is not installed",
+            message=message or install_message,
         )
 
     server_state = manager.get_llamacpp_server_status()
@@ -130,13 +149,16 @@ async def server_available(
         except ValueError:
             message = "llama.cpp server status is temporarily unavailable"
     else:
-        message = "llama.cpp server is not running"
+        message = (
+            "llama.cpp server is not running, please start the server first"
+        )
 
     if server_state["running"] and not ready and not message:
         message = "llama.cpp server is not responding"
 
     return ServerStatus(
         available=installed and ready,
+        installable=installable,
         installed=installed,
         port=server_state["port"],
         model_name=server_state["model_name"],
@@ -295,6 +317,8 @@ async def start_local_model_download(
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return ActionResponse(
         status="accepted",
