@@ -56,16 +56,14 @@ _XML_PARAM_RE = re.compile(
 #   <function=func_name>
 #     <parameter=param_name>value
 #     <parameter=param_name2>value2
-# The function body is everything after <function=...> to end of text.
 _XML_FUNC_LENIENT_RE = re.compile(
-    r"<function=([^>]+)>(.*)",
+    r"<function=([^>]+)>(.*?)(?=<function=|</function>|\Z)",
     re.DOTALL,
 )
-# Each parameter value runs from after the tag to the next <parameter= or end.
-# Use \Z (absolute string end) instead of $ to avoid per-line matching
-# under re.DOTALL when values span multiple lines.
+# Each parameter value runs from after the tag to the next tag or end.
 _XML_PARAM_LENIENT_RE = re.compile(
-    r"<parameter=([^>]+)>(.*?)(?=<parameter=|\Z)",
+    r"<parameter=([^>]+)>(.*?)"
+    r"(?=<parameter=|</parameter>|<function=|</function>|\Z)",
     re.DOTALL,
 )
 
@@ -129,11 +127,6 @@ def _extract_params_lenient(body: str) -> dict:
     for param_match in _XML_PARAM_LENIENT_RE.finditer(body):
         param_name = param_match.group(1).strip()
         param_value = param_match.group(2).strip()
-        param_value = re.sub(
-            r"\s*</(?:parameter|function)>\s*$",
-            "",
-            param_value,
-        ).strip()
         if param_name:
             arguments[param_name] = param_value
     return arguments
