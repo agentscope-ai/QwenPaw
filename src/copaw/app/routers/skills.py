@@ -12,7 +12,6 @@ import tempfile
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -181,12 +180,18 @@ class SkillConfigRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
-class SavePoolSkillRequest(CreateSkillRequest):
+class SavePoolSkillRequest(BaseModel):
+    name: str
+    content: str
     source_name: str | None = None
+    config: dict[str, Any] | None = None
 
 
-class SaveSkillRequest(CreateSkillRequest):
+class SaveSkillRequest(BaseModel):
+    name: str
+    content: str
     source_name: str | None = None
+    config: dict[str, Any] | None = None
 
 
 class HubInstallRequest(BaseModel):
@@ -460,19 +465,8 @@ async def _run_hub_install_task(
         await _hub_task_pop_runtime(task_id)
 
 
-def _mtime_to_iso(mtime: float) -> str:
-    """Convert a POSIX mtime float to an ISO-8601 UTC string."""
-    if not mtime:
-        return ""
-    return (
-        datetime.fromtimestamp(mtime, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-
-
 def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
-    manifest = read_skill_manifest(workspace_dir, reconcile=False)
+    manifest = read_skill_manifest(workspace_dir)
     entries = manifest.get("skills", {})
     skill_root = get_workspace_skills_dir(workspace_dir)
     specs: list[SkillSpec] = []
@@ -482,21 +476,20 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
         skill = _read_skill_from_dir(skill_dir, source)
         if skill is None:
             continue
-        mtime = _get_skill_mtime(skill_dir)
         specs.append(
             SkillSpec(
                 **skill.model_dump(),
                 enabled=entry.get("enabled", False),
                 channels=entry.get("channels") or ["all"],
                 config=entry.get("config") or {},
-                last_updated=_mtime_to_iso(mtime),
+                last_updated=_get_skill_mtime(skill_dir),
             ),
         )
     return specs
 
 
 def _build_pool_skill_specs() -> list[PoolSkillSpec]:
-    manifest = read_skill_pool_manifest(reconcile=False)
+    manifest = read_skill_pool_manifest()
     entries = manifest.get("skills", {})
     pool_dir = get_skill_pool_dir()
     sync_info = get_pool_builtin_sync_status()
@@ -508,7 +501,6 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
         if skill is None:
             continue
         info = sync_info.get(skill_name, {})
-        mtime = _get_skill_mtime(skill_dir)
         specs.append(
             PoolSkillSpec(
                 **skill.model_dump(exclude={"version_text"}),
@@ -520,7 +512,7 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     info.get("latest_version_text", "") or "",
                 ),
                 config=entry.get("config") or {},
-                last_updated=_mtime_to_iso(mtime),
+                last_updated=_get_skill_mtime(skill_dir),
             ),
         )
     return specs
@@ -1241,18 +1233,16 @@ async def delete_skill(
     return {"deleted": True}
 
 
-@router.get("/{skill_name}/files/{source}/{file_path:path}")
+@router.get("/{skill_name}/files/{file_path:path}")
 async def load_skill_file(
     request: Request,
     skill_name: str,
-    source: str,
     file_path: str,
 ) -> dict[str, Any]:
     workspace_dir = await _request_workspace_dir(request)
     content = SkillService(workspace_dir).load_skill_file(
         skill_name=skill_name,
         file_path=file_path,
-        source=source,
     )
     if content is None:
         raise HTTPException(status_code=404, detail="File not found")
