@@ -236,6 +236,18 @@
 > 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 CoPaw 服务，才能继续配置长链接的操作。
 > ![console](https://img.alicdn.com/imgextra/i1/O1CN019Gfox81MMPXosAHhC_!!6000000001420-2-tps-3822-2064.png)
 
+### 流式打字机效果（可选）
+
+飞书频道支持**流式打字机卡片**——AI 回复时实时逐字显示，而非等全部生成完毕后一次性发送。
+
+**启用方式：** 设置环境变量 `FEISHU_STREAMING_ENABLED=true`，重启 CoPaw 即可生效。关闭后自动回退为普通消息。
+
+**工作原理：** 利用飞书 Cardkit v1 Streaming Card API，收到首个 token 时创建流式卡片并推送，后台每 60ms 更新卡片文本，飞书端逐字打印；生成完毕后关闭流式模式，卡片固化。
+
+**额外权限：** 需在应用权限 JSON 中添加 `im:card:write` 和 `im:card:read`。
+
+**回退机制：** 流式 API 调用失败时自动回退到普通消息，用户端无感知断裂。Lark（国际版）同样支持，`domain` 设为 `"lark"` 即可。
+
 ### 机器人权限建议
 
 第6步中的json文件为应用配备了以下权限（应用身份、已开通），以保证收发消息与文件正常：
