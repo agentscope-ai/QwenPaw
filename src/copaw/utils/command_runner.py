@@ -12,12 +12,6 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
-if not hasattr(os, "getpgid"):
-    os.getpgid = None  # type: ignore[attr-defined]
-if not hasattr(os, "killpg"):
-    os.killpg = None  # type: ignore[attr-defined]
-
-
 @dataclass(frozen=True)
 class CommandResult:
     command: list[str]
@@ -283,14 +277,14 @@ async def run_command_async(
     )
 
 
-async def start_process_async(
+async def start_command_async(
     command: Sequence[str],
     *,
     cwd: str | Path | None = None,
     env: Mapping[str, str] | None = None,
     **process_kwargs: Any,
 ) -> ManagedProcess:
-    """Start a long-lived process with a Windows-safe fallback path."""
+    """Start a long-lived command with a Windows-safe fallback path."""
     command_list = list(command)
     popen_kwargs = dict(process_kwargs)
     if cwd is not None:
@@ -339,6 +333,7 @@ def start_multiprocessing_process(
     command: Sequence[str],
     creation_mode: str = "multiprocessing",
 ) -> ManagedProcess:
+    """Start a long-lived process using the multiprocessing module.1"""
     command_list = list(command)
     try:
         process.start()

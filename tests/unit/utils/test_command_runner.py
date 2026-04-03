@@ -18,7 +18,7 @@ from copaw.utils.command_runner import (
     shutdown_process,
     shutdown_process_sync,
     start_multiprocessing_process,
-    start_process_async,
+    start_command_async,
 )
 
 
@@ -110,7 +110,7 @@ async def test_run_command_async_uses_sync_runner(
 
 
 @pytest.mark.asyncio
-async def test_start_process_async_uses_asyncio_subprocess(
+async def test_start_command_async_uses_asyncio_subprocess(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recorded: dict[str, object] = {}
@@ -147,7 +147,7 @@ async def test_start_process_async_uses_asyncio_subprocess(
         fake_create_subprocess_exec,
     )
 
-    result = await start_process_async(
+    result = await start_command_async(
         ["demo", "--serve"],
         cwd=Path("/tmp/demo"),
         env={"A": "1"},
@@ -170,7 +170,7 @@ async def test_start_process_async_uses_asyncio_subprocess(
 
 
 @pytest.mark.asyncio
-async def test_start_process_async_falls_back_to_threaded_popen_on_windows(
+async def test_start_command_async_falls_back_to_threaded_popen_on_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     popen_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
@@ -218,7 +218,7 @@ async def test_start_process_async_falls_back_to_threaded_popen_on_windows(
         fake_popen_factory,
     )
 
-    result = await start_process_async(
+    result = await start_command_async(
         ["demo", "--serve"],
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -240,7 +240,7 @@ async def test_start_process_async_falls_back_to_threaded_popen_on_windows(
 
 
 @pytest.mark.asyncio
-async def test_start_process_async_raises_for_missing_executable(
+async def test_start_command_async_raises_for_missing_executable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fail_create_subprocess_exec(*args, **kwargs):
@@ -257,7 +257,7 @@ async def test_start_process_async_raises_for_missing_executable(
         ProcessLaunchError,
         match="Command executable not found",
     ):
-        await start_process_async(["missing-binary"])
+        await start_command_async(["missing-binary"])
 
 
 def test_start_multiprocessing_process_wraps_process() -> None:
@@ -470,11 +470,18 @@ def test_shutdown_process_sync_uses_process_group_on_posix(
                 "kill should not be used for process groups",
             )
 
-    monkeypatch.setattr(command_runner.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(command_runner.os, "name", "posix", raising=False)
+    monkeypatch.setattr(
+        command_runner.os,
+        "getpgid",
+        lambda pid: pid,
+        raising=False,
+    )
     monkeypatch.setattr(
         command_runner.os,
         "killpg",
         lambda pgid, sig: signals.append((pgid, int(sig))),
+        raising=False,
     )
     monkeypatch.setattr(
         command_runner,

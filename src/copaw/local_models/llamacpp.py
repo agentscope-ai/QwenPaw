@@ -32,7 +32,7 @@ from ..utils.command_runner import (
     run_command_async,
     shutdown_process,
     shutdown_process_sync,
-    start_process_async,
+    start_command_async,
 )
 from ..utils import system_info
 from ..utils.stdio import ensure_standard_streams
@@ -344,7 +344,7 @@ class LlamaCppBackend:
             model_name,
             resolved_model_path,
         )
-        return await start_process_async(
+        return await start_command_async(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
