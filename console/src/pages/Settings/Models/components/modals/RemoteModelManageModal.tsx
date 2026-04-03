@@ -5,7 +5,6 @@ import {
   Input,
   Modal,
   Tag,
-  message,
   Checkbox,
   Collapse,
 } from "@agentscope-ai/design";
