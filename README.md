@@ -62,7 +62,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 - **[v1.0.1] Added:** Zhipu AI model support; video analysis for multimodal models; per-model generate parameters configuration; CoPaw local provider auto-update mechanism; Agent drag-and-drop ordering; Batch skill operations; WeChat file upload and typing improvements; Extra instructions for manual compact.
 - **[v1.0.1] Changed:** Website UI modernization; enhanced skill card and list view; MCP console UI refresh.
-- **[v1.0.1] Fixed:** DingTalk sessionWebhook and allowlist handling; WeCom WebSocket reliability; QQ reconnect state; console UI fixes; Windows tool compatibility; tool guard with thinking models; llama.cpp Windows NVIDIA GPU support.
+- **[v1.0.1] Fixed:** DingTalk sessionWebhook and allowlist handling; WeCom WebSocket reliability; QQ reconnect state; console UI fixes; Windows tool compatibility; browser idle watchdog; tool guard with thinking models; llama.cpp Windows NVIDIA GPU support.
 - **[v1.0.1] Documentation:** CoPaw-Flash deployment FAQ; skill documentation updates.
 - **[v1.0.1] Contributors:** Thanks to new contributors: [@Jacky51351684](https://github.com/Jacky51351684), [@xianzhisheng](https://github.com/xianzhisheng), [@kobewl](https://github.com/kobewl), [@rikey123](https://github.com/rikey123), [@solarhell](https://github.com/solarhell).
 
