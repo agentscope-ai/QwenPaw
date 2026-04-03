@@ -58,6 +58,14 @@
 
 ## 新闻
 
+[2026-04-04] 我们发布了 v1.0.1！完整更新说明见 [v1.0.1 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+
+- **[v1.0.1] 新增：** 智谱 AI 模型支持；多模态模型视频分析；模型参数配置；CoPaw本地模型提供商自动更新；智能体拖拽排序；技能批量操作；微信文件上传优化；记忆压缩额外指令。
+- **[v1.0.1] 优化：** 官网界面焕新；技能卡片与列表视图；MCP 控制台优化。
+- **[v1.0.1] 修复：** 钉钉 sessionWebhook 和白名单处理；企业微信 WebSocket 可靠性；QQ 重连状态；控制台 UI 修复；Windows 工具兼容性；思考模型工具防护；llama.cpp Windows NVIDIA GPU 支持。
+- **[v1.0.1] 文档：** CoPaw-Flash 部署 FAQ；技能文档更新。
+- **[v1.0.1] 贡献者：** 感谢新贡献者：[@Jacky51351684](https://github.com/Jacky51351684)、[@xianzhisheng](https://github.com/xianzhisheng)、[@kobewl](https://github.com/kobewl)、[@rikey123](https://github.com/rikey123)、[@solarhell](https://github.com/solarhell)。
+
 [2026-03-30] 我们发布了 v1.0.0！完整更新说明见 [v1.0.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 - **[v1.0.0] 新增：**
