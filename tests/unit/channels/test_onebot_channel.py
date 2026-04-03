@@ -466,17 +466,62 @@ class TestSendMedia:
         args = ch._call_api.call_args[0]
         assert args[1]["message"][0]["type"] == "video"
 
-    async def test_send_unsupported_type_noop(self):
+    async def test_send_file_private(self):
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            FileContent,
+        )
+
+        ch = _make_channel()
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+        part = FileContent(
+            type=ContentType.FILE,
+            file_url="https://f.com/doc.pdf",
+            filename="doc.pdf",
+        )
+        await ch.send_media("12345", part, {"sender_id": "12345"})
+        ch._call_api.assert_called_once_with(
+            "upload_private_file",
+            {
+                "user_id": 12345,
+                "file": "https://f.com/doc.pdf",
+                "name": "doc.pdf",
+            },
+        )
+
+    async def test_send_file_to_group(self):
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            FileContent,
+        )
+
+        ch = _make_channel()
+        ch._call_api = AsyncMock(return_value={"retcode": 0})
+        part = FileContent(
+            type=ContentType.FILE,
+            file_url="https://f.com/report.xlsx",
+            filename="report.xlsx",
+        )
+        await ch.send_media(
+            "group:67890",
+            part,
+            {"is_group": True, "group_id": "67890"},
+        )
+        ch._call_api.assert_called_once_with(
+            "upload_group_file",
+            {
+                "group_id": 67890,
+                "file": "https://f.com/report.xlsx",
+                "name": "report.xlsx",
+            },
+        )
+
+    async def test_send_file_no_url_noop(self):
         from agentscope_runtime.engine.schemas.agent_schemas import (
             FileContent,
         )
 
         ch = _make_channel()
         ch._call_api = AsyncMock()
-        part = FileContent(
-            type=ContentType.FILE,
-            file_url="https://f.com/doc.pdf",
-        )
+        part = FileContent(type=ContentType.FILE, file_url="")
         await ch.send_media("12345", part, {"sender_id": "12345"})
         ch._call_api.assert_not_called()
 

@@ -547,6 +547,16 @@ class OneBotChannel(BaseChannel):
             if not url:
                 return
             segments = [{"type": "video", "data": {"file": url}}]
+        elif t == ContentType.FILE:
+            url = getattr(part, "file_url", "") or getattr(
+                part,
+                "file_id",
+                "",
+            )
+            name = getattr(part, "filename", "") or "file"
+            if not url:
+                return
+            return await self._send_file(to_handle, url, name, meta)
         else:
             return
 
@@ -564,6 +574,31 @@ class OneBotChannel(BaseChannel):
             await self._call_api(
                 "send_private_msg",
                 {"user_id": int(uid), "message": segments},
+            )
+
+    async def _send_file(
+        self,
+        to_handle: str,
+        file: str,
+        name: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Send a file via NapCat upload_group_file / upload_private_file."""
+        meta = meta or {}
+        is_group = meta.get("is_group", False) or to_handle.startswith(
+            "group:",
+        )
+        if is_group:
+            gid = meta.get("group_id") or to_handle.removeprefix("group:")
+            await self._call_api(
+                "upload_group_file",
+                {"group_id": int(gid), "file": file, "name": name},
+            )
+        else:
+            uid = meta.get("sender_id") or to_handle
+            await self._call_api(
+                "upload_private_file",
+                {"user_id": int(uid), "file": file, "name": name},
             )
 
     # ------------------------------------------------------------------

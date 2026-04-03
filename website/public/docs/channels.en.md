@@ -537,7 +537,7 @@ NapCat  ──reverse WS──▶  CoPaw (:6199/ws)
 | Image | ✓       | ✓    |
 | Audio | ✓       | ✓    |
 | Video | ✓       | ✓    |
-| File  | ✓       | ✗    |
+| File  | ✓       | ✓    |
 
 ---
 
