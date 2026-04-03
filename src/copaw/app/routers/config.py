@@ -263,14 +263,16 @@ async def get_wecom_qrcode() -> dict:
     """Return a QR code image (base64 PNG) for WeCom bot authorization."""
     import base64
     import io
+    import json
     import re
+    import time
     import httpx
 
-    state = f"state_{int(__import__('time').time() * 1000)}"
+    state = f"state_{int(time.time() * 1000)}"
     gen_url = (
         f"{_WECOM_AUTH_ORIGIN}/ai/qc/gen"
         f"?source={_WECOM_SOURCE}&state={state}"
-        f"&timestamp={int(__import__('time').time() * 1000)}"
+        f"&timestamp={int(time.time() * 1000)}"
     )
 
     try:
@@ -289,7 +291,7 @@ async def get_wecom_qrcode() -> dict:
 
     # Extract scode and auth_url from window.settings in the HTML
     settings_match = re.search(
-        r"window\.settings\s*=\s*(\{.*?\})",
+        r"window\.settings\s*=\s*(\{.*\})",
         html,
         re.DOTALL,
     )
@@ -298,8 +300,6 @@ async def get_wecom_qrcode() -> dict:
             status_code=502,
             detail="Failed to parse WeCom auth page settings",
         )
-
-    import json
 
     try:
         settings = json.loads(settings_match.group(1))
@@ -339,11 +339,11 @@ async def get_wecom_qrcode() -> dict:
 )
 async def get_wecom_qrcode_status(scode: str) -> dict:
     """Poll WeCom authorization status. Returns {status, bot_id, secret}."""
+    from urllib.parse import quote
     import httpx
 
     query_url = (
-        f"{_WECOM_AUTH_ORIGIN}/ai/qc/query_result"
-        f"?scode={__import__('urllib.parse', fromlist=['quote']).quote(scode)}"
+        f"{_WECOM_AUTH_ORIGIN}/ai/qc/query_result" f"?scode={quote(scode)}"
     )
 
     try:

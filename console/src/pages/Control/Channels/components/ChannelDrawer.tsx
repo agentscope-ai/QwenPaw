@@ -12,7 +12,7 @@ import { Alert, ConfigProvider, Spin } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
@@ -205,6 +205,16 @@ export function ChannelDrawer({
       setWecomQrcodeLoading(false);
     }
   }, [t, form, stopWecomPoll, message]);
+
+  // Cleanup WeCom and WeChat polling on unmount or drawer close
+  useEffect(() => {
+    if (!open) {
+      stopWecomPoll();
+      setWecomQrcodeImg("");
+      stopWeixinPoll();
+      setWeixinQrcodeImg("");
+    }
+  }, [open, stopWecomPoll, stopWeixinPoll]);
 
   // ── Access control fields (shared across multiple channels) ──────────────
 
