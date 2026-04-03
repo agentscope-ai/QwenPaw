@@ -21,9 +21,11 @@ from .auth import router as auth_router
 from .messages import router as messages_router
 from .files import router as files_router
 from .settings import router as settings_router
+from .health import router as health_router
 
 router = APIRouter()
 
+router.include_router(health_router)
 router.include_router(agents_router)
 router.include_router(agent_router)
 router.include_router(config_router)
