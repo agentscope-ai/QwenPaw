@@ -126,32 +126,47 @@ class OpenAIProvider(Provider):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
-        client_kwargs = {"base_url": self.base_url}
+        client_kwargs: dict[str, Any] = {"base_url": self.base_url}
+
+        # Start with any user-supplied custom headers.
+        merged_headers: dict[str, str] = (
+            dict(self.headers) if self.headers else {}
+        )
+
+        dashscope_app_payload = json.dumps(
+            {
+                "agentType": "CoPaw",
+                "deployType": "UnKnown",
+                "moduleCode": "model",
+                "agentCode": "UnKnown",
+            },
+            ensure_ascii=False,
+        )
 
         if self.base_url == DASHSCOPE_BASE_URL:
-            client_kwargs["default_headers"] = {
-                "x-dashscope-agentapp": json.dumps(
-                    {
-                        "agentType": "CoPaw",
-                        "deployType": "UnKnown",
-                        "moduleCode": "model",
-                        "agentCode": "UnKnown",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
+            merged_headers.setdefault(
+                "x-dashscope-agentapp",
+                dashscope_app_payload,
+            )
         elif self.base_url == CODING_DASHSCOPE_BASE_URL:
-            client_kwargs["default_headers"] = {
-                "X-DashScope-Cdpl": json.dumps(
-                    {
-                        "agentType": "CoPaw",
-                        "deployType": "UnKnown",
-                        "moduleCode": "model",
-                        "agentCode": "UnKnown",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
+            merged_headers.setdefault(
+                "X-DashScope-Cdpl",
+                dashscope_app_payload,
+            )
+
+        if merged_headers:
+            client_kwargs["default_headers"] = merged_headers
+
+        if self.wire_api == "responses":
+            from .openai_responses_model import OpenAIResponsesChatModel
+
+            return OpenAIResponsesChatModel(
+                model_name=model_id,
+                stream=False,
+                api_key=self.api_key,
+                client_kwargs=client_kwargs,
+                generate_kwargs=self.generate_kwargs,
+            )
 
         return OpenAIChatModelCompat(
             model_name=model_id,

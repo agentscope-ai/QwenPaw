@@ -1046,6 +1046,8 @@ class ProviderManager:
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
                 builtin.generate_kwargs.update(provider.generate_kwargs)
+                builtin.headers = provider.headers
+                builtin.wire_api = provider.wire_api
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

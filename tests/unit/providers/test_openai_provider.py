@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 import copaw.providers.openai_provider as openai_provider_module
 from copaw.providers.openai_provider import OpenAIProvider
 
@@ -266,3 +268,105 @@ async def test_update_config_does_not_update_base_url_when_frozen() -> None:
     assert provider.api_key == "sk-frozen"
     assert info.base_url == "https://mock-openai.local/v1"
     assert info.api_key == "sk-frozen"
+
+
+# ------------------------------------------------------------------
+# wire_api / headers support
+# ------------------------------------------------------------------
+
+
+async def test_update_config_wire_api_valid() -> None:
+    provider = _make_provider()
+
+    provider.update_config({"wire_api": "responses"})
+    assert provider.wire_api == "responses"
+
+    provider.update_config({"wire_api": "chat_completions"})
+    assert provider.wire_api == "chat_completions"
+
+
+async def test_update_config_wire_api_invalid() -> None:
+    provider = _make_provider()
+
+    with pytest.raises(ValueError, match="wire_api must be one of"):
+        provider.update_config({"wire_api": "invalid"})
+
+
+async def test_update_config_wire_api_none_skipped() -> None:
+    provider = _make_provider()
+    provider.wire_api = "responses"
+
+    provider.update_config({"wire_api": None})
+
+    assert provider.wire_api == "responses"
+
+
+async def test_update_config_headers_valid() -> None:
+    provider = _make_provider()
+
+    provider.update_config({"headers": {"X-Custom": "value"}})
+    assert provider.headers == {"X-Custom": "value"}
+
+
+async def test_update_config_headers_empty_dict() -> None:
+    provider = _make_provider()
+    provider.headers = {"Old": "val"}
+
+    provider.update_config({"headers": {}})
+
+    assert provider.headers == {}
+
+
+async def test_update_config_headers_invalid_type() -> None:
+    provider = _make_provider()
+
+    with pytest.raises(ValueError, match="headers must be a dict"):
+        provider.update_config({"headers": "not a dict"})
+
+
+async def test_update_config_headers_none_skipped() -> None:
+    provider = _make_provider()
+    provider.headers = {"Keep": "me"}
+
+    provider.update_config({"headers": None})
+
+    assert provider.headers == {"Keep": "me"}
+
+
+async def test_get_info_masks_headers() -> None:
+    provider = _make_provider()
+    provider.headers = {"Authorization": "Bearer sk-secret-key-12345"}
+
+    info = await provider.get_info(mock_secret=True)
+
+    assert "Authorization" in info.headers
+    assert info.headers["Authorization"] != "Bearer sk-secret-key-12345"
+    assert "***" in info.headers["Authorization"]
+
+
+async def test_get_info_raw_headers() -> None:
+    provider = _make_provider()
+    provider.headers = {"X-Token": "abc123"}
+
+    info = await provider.get_info(mock_secret=False)
+
+    assert info.headers == {"X-Token": "abc123"}
+
+
+async def test_get_info_wire_api() -> None:
+    provider = _make_provider()
+    provider.wire_api = "responses"
+
+    info = await provider.get_info()
+
+    assert info.wire_api == "responses"
+
+
+def test_get_chat_model_instance_returns_responses_model() -> None:
+    provider = _make_provider()
+    provider.wire_api = "responses"
+    provider.api_key = "sk-test"
+    model = provider.get_chat_model_instance("gpt-4o")
+    from copaw.providers.openai_responses_model import OpenAIResponsesChatModel
+
+    assert isinstance(model, OpenAIResponsesChatModel)
