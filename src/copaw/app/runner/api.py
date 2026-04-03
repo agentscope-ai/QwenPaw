@@ -18,6 +18,24 @@ from .utils import agentscope_msg_to_message
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
+async def _load_persisted_messages(
+    session: SafeJSONSession,
+    *,
+    session_id: str,
+    user_id: str,
+):
+    """Load persisted chat messages from session state."""
+    state = await session.get_session_state_dict(session_id, user_id)
+    if not state:
+        return []
+
+    memory_state = state.get("agent", {}).get("memory", {})
+    memory = InMemoryMemory()
+    memory.load_state_dict(memory_state, strict=False)
+    memories = await memory.get_memory(prepend_summary=False)
+    return agentscope_msg_to_message(memories)
+
+
 async def get_workspace(request: Request):
     """Get the workspace for the active agent."""
     from ..agent_context import get_agent_for_request
@@ -158,19 +176,18 @@ async def get_chat(
             detail=f"Chat not found: {chat_id}",
         )
 
-    state = await session.get_session_state_dict(
-        chat_spec.session_id,
-        chat_spec.user_id,
-    )
     status = await workspace.task_tracker.get_status(chat_id)
-    if not state:
-        return ChatHistory(messages=[], status=status)
-    memory_state = state.get("agent", {}).get("memory", {})
-    memory = InMemoryMemory()
-    memory.load_state_dict(memory_state, strict=False)
+    runtime_messages = await workspace.task_tracker.get_runtime_messages(
+        chat_id,
+    )
+    if status == "running" and runtime_messages:
+        return ChatHistory(messages=runtime_messages, status=status)
 
-    memories = await memory.get_memory(prepend_summary=False)
-    messages = agentscope_msg_to_message(memories)
+    messages = await _load_persisted_messages(
+        session,
+        session_id=chat_spec.session_id,
+        user_id=chat_spec.user_id,
+    )
     return ChatHistory(messages=messages, status=status)
 
 

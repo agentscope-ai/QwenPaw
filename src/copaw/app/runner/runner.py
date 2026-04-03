@@ -23,7 +23,7 @@ from .command_dispatch import (
 )
 from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
-from .utils import build_env_context
+from .utils import build_env_context, agentscope_msg_to_message
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
@@ -57,6 +57,71 @@ def _is_approval(text: str) -> bool:
     """
     normalized = " ".join(text.split()).lower()
     return normalized in _APPROVE_EXACT
+
+
+class _ThrottledSessionPersistence:
+    """Persist session state only on stable message boundaries."""
+
+    def __init__(
+        self,
+        session: SafeJSONSession,
+        *,
+        session_id: str,
+        user_id: str,
+    ) -> None:
+        self._session = session
+        self._session_id = session_id
+        self._user_id = user_id
+
+    async def maybe_persist(
+        self,
+        *,
+        agent: Any,
+        is_message_boundary: bool = False,
+        force: bool = False,
+    ) -> bool:
+        """Persist only when a streaming message is fully emitted."""
+        if not force and not is_message_boundary:
+            return False
+
+        await self._session.save_session_state(
+            session_id=self._session_id,
+            user_id=self._user_id,
+            agent=agent,
+        )
+        return True
+
+
+class _ThrottledRuntimeHistory:
+    """Snapshot runtime history only on stable message boundaries."""
+
+    def __init__(
+        self,
+        task_tracker: Any,
+        *,
+        chat_id: str,
+    ) -> None:
+        self._task_tracker = task_tracker
+        self._chat_id = chat_id
+
+    async def maybe_update(
+        self,
+        *,
+        agent: Any,
+        is_message_boundary: bool = False,
+        force: bool = False,
+    ) -> bool:
+        """Update runtime history only when a message is complete."""
+        if not force and not is_message_boundary:
+            return False
+
+        memories = await agent.memory.get_memory(prepend_summary=False)
+        messages = agentscope_msg_to_message(memories)
+        await self._task_tracker.update_runtime_messages(
+            self._chat_id,
+            messages,
+        )
+        return True
 
 
 class AgentRunner(Runner):
@@ -252,6 +317,8 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        progress_persistence: _ThrottledSessionPersistence | None = None
+        runtime_history: _ThrottledRuntimeHistory | None = None
         try:
             session_id = request.session_id
             user_id = request.user_id
@@ -369,6 +436,17 @@ class AgentRunner(Runner):
                     e,
                 )
             session_state_loaded = True
+            progress_persistence = _ThrottledSessionPersistence(
+                self.session,
+                session_id=session_id,
+                user_id=user_id,
+            )
+            if chat is not None and self._task_tracker is not None:
+                await self._task_tracker.ensure_runtime_run(chat.id)
+                runtime_history = _ThrottledRuntimeHistory(
+                    self._task_tracker,
+                    chat_id=chat.id,
+                )
 
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
@@ -379,6 +457,33 @@ class AgentRunner(Runner):
                 agents=[agent],
                 coroutine_task=agent(msgs),
             ):
+                if runtime_history is not None:
+                    try:
+                        await runtime_history.maybe_update(
+                            agent=agent,
+                            is_message_boundary=last,
+                        )
+                    except Exception:  # pylint: disable=broad-except
+                        logger.warning(
+                            (
+                                "Intermediate runtime history update "
+                                "failed for %s"
+                            ),
+                            session_id,
+                            exc_info=True,
+                        )
+                if progress_persistence is not None:
+                    try:
+                        await progress_persistence.maybe_persist(
+                            agent=agent,
+                            is_message_boundary=last,
+                        )
+                    except Exception:  # pylint: disable=broad-except
+                        logger.warning(
+                            "Intermediate session save failed for %s",
+                            session_id,
+                            exc_info=True,
+                        )
                 yield msg, last
 
         except asyncio.CancelledError as exc:
@@ -408,6 +513,18 @@ class AgentRunner(Runner):
                 ) + e.args[1:]
             raise
         finally:
+            if runtime_history is not None and agent is not None:
+                try:
+                    await runtime_history.maybe_update(
+                        agent=agent,
+                        force=True,
+                    )
+                except Exception:  # pylint: disable=broad-except
+                    logger.warning(
+                        "Final runtime history update failed for %s",
+                        session_id,
+                        exc_info=True,
+                    )
             if agent is not None and session_state_loaded:
                 await self.session.save_session_state(
                     session_id=session_id,
@@ -417,6 +534,8 @@ class AgentRunner(Runner):
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.update_chat(chat)
+            if self._task_tracker is not None and chat is not None:
+                await self._task_tracker.finish_runtime_run(chat.id)
 
     async def _cleanup_denied_session_memory(
         self,

@@ -7,6 +7,7 @@ Reconnects get buffer replay + new events. Cleanup when task completes.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import weakref
@@ -25,6 +26,8 @@ class _RunState:
     task: asyncio.Future
     queues: list[asyncio.Queue] = field(default_factory=list)
     buffer: list[str] = field(default_factory=list)
+    runtime_messages: list[Any] = field(default_factory=list)
+    managed_by_runner: bool = False
 
 
 class TaskTracker:
@@ -139,6 +142,63 @@ class TaskTracker:
             state.task.cancel()
             return True
 
+    async def ensure_runtime_run(self, run_key: str) -> bool:
+        """Register a runner-owned active run when no tracker run exists."""
+        task = asyncio.current_task()
+        if task is None:
+            raise RuntimeError("ensure_runtime_run must run inside a task")
+
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is not None and not state.task.done():
+                return False
+            self._runs[run_key] = _RunState(
+                task=task,
+                managed_by_runner=True,
+            )
+            return True
+
+    async def update_runtime_messages(
+        self,
+        run_key: str,
+        messages: list[Any],
+    ) -> bool:
+        """Store a structured runtime snapshot for an active run."""
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is None or state.task.done():
+                return False
+            state.runtime_messages = copy.deepcopy(messages)
+            return True
+
+    async def get_runtime_messages(
+        self,
+        run_key: str,
+    ) -> list[Any] | None:
+        """Return a copy of the structured runtime snapshot, if any."""
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is None or state.task.done():
+                return None
+            if not state.runtime_messages:
+                return None
+            return copy.deepcopy(state.runtime_messages)
+
+    async def finish_runtime_run(self, run_key: str) -> None:
+        """Remove a runner-owned active run when the handler exits."""
+        task = asyncio.current_task()
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is None or not state.managed_by_runner:
+                return
+            if (
+                task is not None
+                and state.task is not task
+                and not state.task.done()
+            ):
+                return
+            self._runs.pop(run_key, None)
+
     async def attach_or_start(
         self,
         run_key: str,
@@ -163,6 +223,7 @@ class TaskTracker:
                 task=asyncio.Future(),  # placeholder, replaced below
                 queues=[my_queue],
                 buffer=[],
+                managed_by_runner=False,
             )
             self._runs[run_key] = run
 
