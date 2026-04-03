@@ -1,0 +1,26 @@
+INFO src/copaw/app/channels/onebot/channel.py:182 | 2026-04-03 10:37:51 | onebot: reverse WS server listening on 0.0.0.0:6199
+INFO src/copaw/app/channels/onebot/channel.py:235 | 2026-04-03 10:37:52 | onebot: client connected from 127.0.0.1
+INFO src/copaw/app/channels/onebot/channel.py:284 | 2026-04-03 10:37:52 | onebot: lifecycle connect, self_id=2705949256
+INFO src/copaw/app/channels/onebot/channel.py:346 | 2026-04-03 10:38:32 | onebot recv private from=solarhell text='你好'
+INFO src/copaw/app/channels/unified_queue_manager.py:206 | 2026-04-03 10:38:32 | Created queue: channel=onebot session=onebot:243656083 priority=20
+INFO src/copaw/app/channels/unified_queue_manager.py:234 | 2026-04-03 10:38:32 | Consumer started: channel=onebot session=onebot:243656083 priority=20
+INFO src/copaw/app/channels/manager.py:382 | 2026-04-03 10:38:32 | Consumer started: channel=onebot session=onebot:243656083 priority=20
+INFO src/copaw/app/channels/base.py:400 | 2026-04-03 10:38:32 | _consume_with_tracker: chat_id=5dfe414d-37f7-415c-a1e3-5246ec184419 session=onebot:243656083
+  "session_id": "onebot:243656083",
+  "channel": "onebot",
+INFO src/copaw/app/runner/session.py:117 | 2026-04-03 10:38:32 | Load session state from /Users/jiaxin/.copaw/workspaces/default/sessions/243656083_onebot--243656083.json successfully.
+INFO src/copaw/app/runner/session.py:90 | 2026-04-03 10:38:59 | Saved session state to /Users/jiaxin/.copaw/workspaces/default/sessions/243656083_onebot--243656083.json successfully.
+INFO src/copaw/app/channels/onebot/channel.py:346 | 2026-04-03 10:40:21 | onebot recv group from=jiaxin group=792632446 text='测试'
+INFO src/copaw/app/channels/unified_queue_manager.py:206 | 2026-04-03 10:40:21 | Created queue: channel=onebot session=onebot:792632446:243656083 priority=20
+INFO src/copaw/app/channels/unified_queue_manager.py:234 | 2026-04-03 10:40:21 | Consumer started: channel=onebot session=onebot:792632446:243656083 priority=20
+INFO src/copaw/app/channels/manager.py:382 | 2026-04-03 10:40:21 | Consumer started: channel=onebot session=onebot:792632446:243656083 priority=20
+INFO src/copaw/app/channels/base.py:400 | 2026-04-03 10:40:21 | _consume_with_tracker: chat_id=7f84e766-8467-497a-b467-a81919c00b7a session=onebot:792632446:243656083
+  "session_id": "onebot:792632446:243656083",
+  "channel": "onebot",
+INFO src/copaw/app/runner/session.py:123 | 2026-04-03 10:40:21 | Session file /Users/jiaxin/.copaw/workspaces/default/sessions/243656083_onebot--792632446--243656083.json does not exist. Skip loading session state.
+INFO src/copaw/app/runner/session.py:90 | 2026-04-03 10:40:28 | Saved session state to /Users/jiaxin/.copaw/workspaces/default/sessions/243656083_onebot--792632446--243656083.json successfully.
+INFO src/copaw/app/channels/onebot/channel.py:346 | 2026-04-03 10:40:55 | onebot recv group from=jiaxin group=792632446 text='挺不错的 copaw'
+INFO src/copaw/app/channels/base.py:400 | 2026-04-03 10:40:55 | _consume_with_tracker: chat_id=7f84e766-8467-497a-b467-a81919c00b7a session=onebot:792632446:243656083
+  "session_id": "onebot:792632446:243656083",
+  "channel": "onebot",
+INFO src/copaw/app/runner/session.py:117 | 2026-04-03 10:40:55 | Load session state from /Users/jiaxin/.copaw/workspaces/default/sessions/243656083_onebot--792632446--243656083.json successfully.

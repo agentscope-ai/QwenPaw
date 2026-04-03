@@ -122,6 +122,15 @@ class OneBotChannel(BaseChannel):
             access_token=os.getenv("ONEBOT_ACCESS_TOKEN", ""),
             bot_prefix=os.getenv("ONEBOT_BOT_PREFIX", ""),
             on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("ONEBOT_DM_POLICY", "open"),
+            group_policy=os.getenv("ONEBOT_GROUP_POLICY", "open"),
+            allow_from=(
+                os.getenv("ONEBOT_ALLOW_FROM", "").split(",")
+                if os.getenv("ONEBOT_ALLOW_FROM")
+                else []
+            ),
+            deny_message=os.getenv("ONEBOT_DENY_MESSAGE", ""),
+            require_mention=(os.getenv("ONEBOT_REQUIRE_MENTION", "0") == "1"),
             share_session_in_group=(
                 os.getenv("ONEBOT_SHARE_SESSION_IN_GROUP", "0") == "1"
             ),
@@ -326,7 +335,11 @@ class OneBotChannel(BaseChannel):
         if not allowed:
             if deny_msg:
                 to = f"group:{group_id}" if is_group else user_id
-                await self.send(to, deny_msg, meta)
+                # Fire-and-forget to avoid deadlock: the WS read loop
+                # is blocked on this handler, so awaiting send() (which
+                # calls _call_api and waits for a WS response) would
+                # never complete.
+                asyncio.create_task(self.send(to, deny_msg, meta))
             return
 
         # Mention check (group messages may require @bot)
@@ -580,13 +593,22 @@ class OneBotChannel(BaseChannel):
             ensure_ascii=False,
         )
 
-        # Send to first available connection
-        ws = next(iter(self._connections))
-        try:
-            await ws.send_str(payload)
-        except Exception:
+        # Try each connection until one succeeds (handles stale connections
+        # during reconnection windows).
+        sent = False
+        for ws in list(self._connections):
+            try:
+                await ws.send_str(payload)
+                sent = True
+                break
+            except Exception:
+                logger.debug(
+                    "onebot: send failed on one connection, trying next",
+                )
+                continue
+        if not sent:
             self._pending_calls.pop(echo, None)
-            logger.exception("onebot: failed to send API call %s", action)
+            logger.warning("onebot: all connections failed for %s", action)
             return {}
 
         try:
