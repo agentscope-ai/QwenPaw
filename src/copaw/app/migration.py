@@ -335,12 +335,13 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
 
 def _do_migrate_legacy_skills() -> bool:
     """Internal implementation of legacy skills migration."""
+    from datetime import datetime, timezone
+
     from ..agents.skills_manager import (
         _build_signature,
         _copy_skill_dir,
         _default_workspace_manifest,
         _mutate_json,
-        _timestamp,
         ensure_skill_pool_initialized,
         get_pool_skill_manifest_path,
         get_workspace_skill_manifest_path,
@@ -583,7 +584,11 @@ def _do_migrate_legacy_skills() -> bool:
                     continue
                 if not entry.get("enabled", False):
                     entry["enabled"] = True
-                    entry["updated_at"] = _timestamp()
+                    entry["updated_at"] = (
+                        datetime.now(timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                    )
                     changed += 1
             return changed
 
@@ -704,7 +709,7 @@ def _other_agent_owns_workspace(
 def ensure_qa_agent_exists() -> None:
     """Ensure the builtin QA agent profile and workspace exist.
 
-    On **first creation** only, ``active_skills`` is seeded from
+    On **first creation** only, ``skills/`` is seeded from
     ``BUILTIN_QA_AGENT_SKILL_NAMES`` (e.g. ``guidance``,
     ``copaw_source_index``), and built-in tools are restricted (see
     ``build_qa_agent_tools_config``).
@@ -793,7 +798,6 @@ def _do_ensure_qa_agent() -> None:
 
     _initialize_agent_workspace(
         qa_workspace,
-        agent_config,
         skill_names=qa_skill_list,
         builtin_qa_md_seed=True,
     )

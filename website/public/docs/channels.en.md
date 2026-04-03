@@ -1051,7 +1051,7 @@ Notes:
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports receiving and sending text, image, voice, video, and file.
-- **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending currently supports text only (iLink API limitation).
+- **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending supports text, images, files, and videos; audio files (e.g., MP3) are not supported due to iLink API limitations.
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
 - **Voice**: Phone call interaction via Twilio ConversationRelay. Receives audio (speech) and sends audio (TTS). All communication is voice-based; text/image/video/file are not supported over phone calls.

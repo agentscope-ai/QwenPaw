@@ -504,7 +504,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
       return next as IAgentScopeRuntimeWebUISession;
     });
-
+    if (this.preferredChatId) {
+      const preferredId = this.preferredChatId;
+      this.preferredChatId = null;
+      const idx = this.sessionList.findIndex((s) => s.id === preferredId);
+      if (idx > 0) {
+        const [preferred] = this.sessionList.splice(idx, 1);
+        this.sessionList.unshift(preferred);
+      }
+    }
     return [...this.sessionList];
   }
 

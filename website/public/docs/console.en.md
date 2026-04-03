@@ -270,8 +270,9 @@ Click a skill card → turn off content preview → edit → **Save**.
 2. Enter the skill URL, then import.
 3. Wait for completion; the skill appears enabled in the list.
 
-**Delete a custom skill:**
-Disable the skill first, then click **Delete** on the card and confirm.
+**Delete a skill:**
+Click **Delete** on the card and confirm. If the skill is enabled, it is
+automatically disabled first.
 
 ---
 

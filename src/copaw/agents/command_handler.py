@@ -115,10 +115,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
     async def _process_compact(
         self,
         messages: list[Msg],
-        _args: str = "",
+        args: str = "",
     ) -> Msg:
         """Process /compact command."""
-        extra_instruction = _args.strip()
+        extra_instruction = args.strip()
         if not messages:
             return await self._make_system_msg(
                 "**No messages to compact.**\n\n"

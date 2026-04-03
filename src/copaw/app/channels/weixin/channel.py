@@ -24,7 +24,7 @@ import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import base64 as _b64
 
@@ -126,6 +126,19 @@ class WeixinChannel(BaseChannel):
 
         # Cache last context_token per user for proactive sends
         self._user_context_tokens: Dict[str, str] = {}
+
+        # Cache typing tickets per user (24h TTL)
+        self._typing_tickets: Dict[
+            str,
+            Tuple[str, float],
+        ] = {}  # user_id -> (ticket, expiry_time)
+        self._typing_lock = threading.Lock()
+        # Store stop functions for active typing indicators
+        self._typing_stop_funcs: Dict[
+            str,
+            Callable[[], None],
+        ] = {}  # user_id -> stop function
+        self._typing_stop_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Factory methods
@@ -514,8 +527,42 @@ class WeixinChannel(BaseChannel):
                     text = (
                         (item.get("text_item") or {}).get("text", "").strip()
                     )
+                    # Filter out empty text or text that looks like a filename
+                    # (e.g., "document.pdf", "image.jpg") to avoid triggering
+                    # immediate agent replies for file-only messages.
+                    # This allows BaseChannel._apply_no_text_debounce to work
+                    # correctly for media-only messages.
                     if text:
-                        text_parts.append(text)
+                        # Check if text looks like a filename (has extension)
+                        # Common file extensions to filter out
+                        filename_extensions = (
+                            ".txt",
+                            ".doc",
+                            ".docx",
+                            ".pdf",
+                            ".jpg",
+                            ".jpeg",
+                            ".png",
+                            ".gif",
+                            ".mp4",
+                            ".avi",
+                            ".mov",
+                            ".mp3",
+                            ".wav",
+                            ".zip",
+                            ".rar",
+                            ".xlsx",
+                            ".xls",
+                            ".ppt",
+                            ".pptx",
+                        )
+                        is_filename = any(
+                            text.lower().endswith(ext)
+                            for ext in filename_extensions
+                        )
+                        # Only add text if it's not just a filename
+                        if not is_filename:
+                            text_parts.append(text)
 
                 elif item_type == 2:
                     # Image (AES-128-ECB encrypted on CDN)
@@ -667,6 +714,32 @@ class WeixinChannel(BaseChannel):
                 self._user_context_tokens[from_user_id] = context_token
                 self._save_context_tokens()
 
+            # Start typing indicator for this user
+            if from_user_id and context_token:
+
+                async def _start_typing_async():
+                    # Stop any existing typing indicator to prevent task leak
+                    with self._typing_stop_lock:
+                        old_stop = self._typing_stop_funcs.pop(
+                            from_user_id,
+                            None,
+                        )
+                    if old_stop:
+                        old_stop()
+
+                    stop_func = await self.start_typing(
+                        from_user_id,
+                        context_token,
+                    )
+                    with self._typing_stop_lock:
+                        self._typing_stop_funcs[from_user_id] = stop_func
+
+                if self._loop and self._loop.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        _start_typing_async(),
+                        self._loop,
+                    )
+
             session_id = self.resolve_session_id(from_user_id, meta)
             native = {
                 "channel_id": self.channel,
@@ -745,6 +818,74 @@ class WeixinChannel(BaseChannel):
         except Exception:
             logger.exception("weixin _send_text_direct failed")
 
+    async def _send_media_file(
+        self,
+        to_user_id: str,
+        context_token: str,
+        file_path: str,
+        content_type: ContentType,
+    ) -> None:
+        """Send a media file (image/file/video) to WeChat.
+
+        Args:
+            to_user_id: Recipient user ID.
+            context_token: Context token from inbound message.
+            file_path: Local path to the media file.
+            content_type: Type of media (IMAGE/FILE/VIDEO).
+        """
+        if not self._client or not to_user_id or not context_token:
+            logger.warning(
+                "weixin _send_media_file: missing required parameters",
+            )
+            return
+
+        try:
+            # Convert URL to local path if it's a file:// URL
+            if file_path.startswith("file://"):
+                file_path = file_path[7:]
+
+            # Check if file exists
+            path_obj = Path(file_path)
+            if not path_obj.exists():
+                logger.warning(
+                    "weixin _send_media_file: file not found: %s",
+                    file_path,
+                )
+                return
+
+            # Send based on content type
+            if content_type == ContentType.IMAGE:
+                await self._client.send_image(
+                    to_user_id,
+                    str(path_obj),
+                    context_token,
+                )
+            elif content_type == ContentType.FILE:
+                filename = path_obj.name
+                await self._client.send_file(
+                    to_user_id,
+                    str(path_obj),
+                    filename,
+                    context_token,
+                )
+            elif content_type == ContentType.VIDEO:
+                await self._client.send_video(
+                    to_user_id,
+                    str(path_obj),
+                    context_token,
+                )
+            else:
+                logger.warning(
+                    "weixin _send_media_file: unsupported content type: %s",
+                    content_type,
+                )
+        except Exception:
+            logger.exception(
+                "weixin _send_media_file failed type=%s path=%s",
+                content_type,
+                file_path[:60],
+            )
+
     async def send_content_parts(
         self,
         to_handle: str,
@@ -768,6 +909,28 @@ class WeixinChannel(BaseChannel):
             logger.warning("weixin send_content_parts: no to_user_id")
             return
 
+        # Stop any existing typing indicator before starting a new one
+        # (prevents multiple typing loops running simultaneously)
+        with self._typing_stop_lock:
+            old_stop = self._typing_stop_funcs.pop(to_user_id, None)
+        if old_stop:
+            old_stop()
+
+        # Start typing indicator for this reply
+        # (like Telegram/Mattermost: restart typing for each send)
+        stop_typing = None
+        if to_user_id and context_token:
+            try:
+                stop_typing = await self.start_typing(
+                    to_user_id,
+                    context_token,
+                )
+                # Store stop function for cleanup
+                with self._typing_stop_lock:
+                    self._typing_stop_funcs[to_user_id] = stop_typing
+            except Exception as e:
+                logger.warning(f"weixin start_typing failed: {e}")
+
         prefix = m.get("bot_prefix", "") or self.bot_prefix or ""
         text_parts: List[str] = []
 
@@ -785,17 +948,58 @@ class WeixinChannel(BaseChannel):
                 text_parts.append(text_val)
             elif t == ContentType.REFUSAL and refusal_val:
                 text_parts.append(refusal_val)
-            # Media send not yet implemented for iLink (no upload API)
+            elif t == ContentType.IMAGE:
+                # Send image
+                image_url = getattr(p, "image_url", None) or (
+                    p.get("image_url") if isinstance(p, dict) else None
+                )
+                if image_url:
+                    await self._send_media_file(
+                        to_user_id,
+                        context_token,
+                        image_url,
+                        ContentType.IMAGE,
+                    )
+            elif t == ContentType.FILE:
+                # Send file
+                file_url = getattr(p, "file_url", None) or (
+                    p.get("file_url") if isinstance(p, dict) else None
+                )
+                if file_url:
+                    await self._send_media_file(
+                        to_user_id,
+                        context_token,
+                        file_url,
+                        ContentType.FILE,
+                    )
+            elif t == ContentType.VIDEO:
+                # Send video
+                video_url = getattr(p, "video_url", None) or (
+                    p.get("video_url") if isinstance(p, dict) else None
+                )
+                if video_url:
+                    await self._send_media_file(
+                        to_user_id,
+                        context_token,
+                        video_url,
+                        ContentType.VIDEO,
+                    )
 
         body = "\n".join(text_parts).strip()
         if prefix and body:
             body = prefix + "  " + body
 
         if not body:
+            if stop_typing:
+                stop_typing()
             return
 
         for chunk in split_text(body):
             await self._send_text_direct(to_user_id, chunk, context_token)
+
+        # Stop typing indicator after sending all messages
+        if stop_typing:
+            stop_typing()
 
     async def send(
         self,
@@ -821,6 +1025,203 @@ class WeixinChannel(BaseChannel):
             return
         for chunk in split_text(body):
             await self._send_text_direct(to_user_id, chunk, context_token)
+
+    # ------------------------------------------------------------------
+    # Typing Indicator
+    # ------------------------------------------------------------------
+
+    async def _get_typing_ticket(
+        self,
+        user_id: str,
+        context_token: str,
+    ) -> str:
+        """Get or fetch typing ticket for a user.
+
+        Args:
+            user_id: User ID
+            context_token: Context token for the user
+
+        Returns:
+            Typing ticket string (empty if failed)
+        """
+        import time
+
+        now = time.time()
+        cache_ttl = 24 * 3600  # 24 hours
+
+        logger.debug(
+            "weixin _get_typing_ticket called for user_id="
+            f"{user_id}, context_token="
+            f"{context_token[:20] if context_token else 'NONE'}...",
+        )
+
+        with self._typing_lock:
+            # Check cache
+            if user_id in self._typing_tickets:
+                ticket, expiry = self._typing_tickets[user_id]
+                if now < expiry:
+                    logger.debug(
+                        f"weixin using cached typing_ticket for {user_id}",
+                    )
+                    return ticket
+                # Expired, remove from cache
+                del self._typing_tickets[user_id]
+
+        # Fetch new ticket from API
+        try:
+            logger.info(f"weixin calling getconfig API for {user_id}")
+            resp = await self._client.getconfig(
+                ilink_user_id=user_id,
+                context_token=context_token,
+            )
+            ret = resp.get("ret", 1)
+            errcode = resp.get("errcode") or 0  # Treat None as 0
+            logger.info(
+                f"weixin getconfig response: ret={ret}, "
+                f"errcode={resp.get('errcode')}, "
+                f"ticket={'FOUND' if resp.get('typing_ticket') else 'EMPTY'}",
+            )
+            if ret == 0 and errcode == 0:
+                ticket = resp.get("typing_ticket", "").strip()
+                if ticket:
+                    with self._typing_lock:
+                        self._typing_tickets[user_id] = (
+                            ticket,
+                            now + cache_ttl,
+                        )
+                    logger.info(
+                        f"weixin got typing_ticket for {user_id}: "
+                        f"{ticket[:20]}... (length={len(ticket)})",
+                    )
+                    return ticket
+                else:
+                    logger.warning(
+                        "weixin getconfig returned no typing_ticket",
+                    )
+            else:
+                logger.warning(
+                    f"weixin getconfig failed: ret={ret}, "
+                    f"errcode={resp.get('errcode')}",
+                )
+        except Exception as e:
+            logger.warning(f"weixin getconfig failed: {e}")
+
+        return ""
+
+    async def start_typing(
+        self,
+        user_id: str,
+        context_token: str,
+    ) -> Callable[[], None]:
+        """Start typing indicator for a user.
+
+        Args:
+            user_id: User ID
+            context_token: Context token for the user
+
+        Returns:
+            A stop function that cancels the typing indicator
+        """
+        logger.info(f"weixin start_typing called for user_id={user_id}")
+        ticket = await self._get_typing_ticket(user_id, context_token)
+        if not ticket:
+            logger.warning(f"weixin start_typing: no ticket for {user_id}")
+            # Return empty function if no ticket
+            return lambda: None
+
+        stop_event = asyncio.Event()
+        stop_called = False
+
+        async def refresh_typing():
+            """Refresh typing indicator every 5 seconds."""
+            logger.info(f"weixin refresh_typing task started for {user_id}")
+            while not stop_event.is_set():
+                try:
+                    await self._client.sendtyping(user_id, ticket, status=1)
+                    logger.info(
+                        "weixin refresh_typing: sent typing status "
+                        f"for {user_id}",
+                    )
+                except Exception as e:
+                    logger.warning(f"weixin sendtyping refresh failed: {e}")
+                # Wait for 5 seconds or until stop
+                try:
+                    await asyncio.wait_for(
+                        stop_event.wait(),
+                        timeout=5.0,
+                    )
+                except asyncio.TimeoutError:
+                    pass  # Timeout, continue refreshing
+                # If wait_for completes without timeout, stop_event was set,
+                # so loop will exit
+            logger.info(f"weixin refresh_typing task stopped for {user_id}")
+
+        # Start refresh task in background
+        task = None
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = self._loop
+
+        logger.info(
+            f"weixin start_typing: loop={loop}, "
+            f"is_running={loop.is_running() if loop else False}",
+        )
+        if loop and loop.is_running():
+            task = asyncio.create_task(refresh_typing())
+            logger.info(f"weixin start_typing: refresh task created: {task}")
+        else:
+            logger.warning(
+                "weixin start_typing: no event loop "
+                "available for refresh task",
+            )
+
+        # Send initial typing status
+        try:
+            logger.info(
+                f"weixin sending initial typing status for {user_id} "
+                f"with ticket={ticket[:20]}...",
+            )
+            await self._client.sendtyping(user_id, ticket, status=1)
+            logger.info(
+                "weixin initial typing status sent successfully "
+                f"for {user_id}",
+            )
+        except Exception as e:
+            logger.warning(f"weixin sendtyping initial failed: {e}")
+
+        def stop(send_cancel: bool = True):
+            """Stop typing indicator.
+
+            Args:
+                send_cancel: If True, send explicit cancel (status=2) to
+                    immediately hide typing indicator. Set to False to let
+                    it timeout naturally.
+            """
+            nonlocal stop_called
+            if stop_called:
+                return
+            stop_called = True
+            stop_event.set()
+
+            # Send cancel status to immediately hide typing indicator
+            if send_cancel:
+
+                async def _cancel():
+                    try:
+                        await self._client.sendtyping(
+                            user_id,
+                            ticket,
+                            status=2,
+                        )
+                    except Exception as e:
+                        logger.debug(f"weixin sendtyping cancel failed: {e}")
+
+                # Run cancel in background
+                if loop and loop.is_running():
+                    asyncio.create_task(_cancel())
+
+        return stop
 
     # ------------------------------------------------------------------
     # Lifecycle

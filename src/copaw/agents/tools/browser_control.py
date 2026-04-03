@@ -616,9 +616,15 @@ def _start_idle_watchdog(state: dict) -> None:
 
 
 def _cancel_idle_watchdog(state: dict) -> None:
-    """Cancel the idle watchdog, if running."""
+    """Cancel the idle watchdog, if running.
+
+    Note: If called from within the watchdog task itself (e.g., during _action_stop
+    triggered by idle timeout), we don't cancel the current task - just clear the
+    reference and let the watchdog exit naturally after _action_stop returns.
+    """
     task = state.get("_idle_task")
-    if task and not task.done():
+    current = asyncio.current_task()
+    if task and not task.done() and task is not current:
         task.cancel()
     state["_idle_task"] = None
 
