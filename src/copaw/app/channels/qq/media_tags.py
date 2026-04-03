@@ -18,8 +18,8 @@ from typing import Literal
 
 MEDIA_TAG_REGEX = re.compile(
     r"<(?P<tag>qqimg|qqvoice|qqvideo|qqfile|qqmedia|img)\b"
-    r"(?P<attrs>[^>]*?)"
-    r"(?:/>|>(?P<body>.*?)</(?P=tag)\s*>)",
+    + r"(?P<attrs>[^>]*?)"
+    + r"(?:/>|>(?P<body>.*?)</(?P=tag)\s*>)",
     re.IGNORECASE | re.DOTALL,
 )
 # Matches ``<qqimg>``, ``<qqvoice>``, ``<qqvideo>``, ``<qqfile>``,
@@ -27,7 +27,7 @@ MEDIA_TAG_REGEX = re.compile(
 
 _ATTR_REGEX = re.compile(
     r"(?P<name>[\w:-]+)\s*=\s*"
-    r"(?P<quote>['\"])(?P<value>.*?)(?P=quote)",
+    + r"(?P<quote>['\"])(?P<value>.*?)(?P=quote)",
     re.DOTALL,
 )
 
