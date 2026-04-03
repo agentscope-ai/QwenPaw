@@ -175,7 +175,10 @@ def test_coerce_subprocess_path_supports_generic_pathlike() -> None:
         def __fspath__(self) -> str:
             return "custom/path"
 
-    assert command_runner._coerce_subprocess_path(_CustomPathLike()) == "custom/path"
+    assert (
+        command_runner._coerce_subprocess_path(_CustomPathLike())
+        == "custom/path"
+    )
 
 
 @pytest.mark.asyncio
