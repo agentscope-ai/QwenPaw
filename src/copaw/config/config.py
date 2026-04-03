@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ConfigDict,
+    model_validator,
+    field_validator,
+)
 import shortuuid
 
 from .timezone import detect_system_timezone
@@ -594,6 +600,16 @@ class AgentsLLMRoutingConfig(BaseModel):
             "providers.json active_llm."
         ),
     )
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _normalize_legacy_mode(cls, value):
+        """Accept legacy mode values persisted by older routing flows."""
+        if value == "cloud_only":
+            return "cloud_first"
+        if value == "local_only":
+            return "local_first"
+        return value
 
 
 class AgentProfileRef(BaseModel):

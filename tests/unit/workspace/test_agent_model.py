@@ -293,3 +293,28 @@ def test_agent_running_config_rejects_backoff_cap_below_base():
             llm_backoff_base=2.0,
             llm_backoff_cap=1.0,
         )
+
+
+def test_load_agent_config_normalizes_legacy_llm_routing_mode(
+    mock_agent_workspace,
+):  # pylint: disable=redefined-outer-name
+    """Legacy cloud_only/local_only routing modes should still load."""
+    import json
+
+    agent_json_path = mock_agent_workspace / "agent.json"
+    with open(agent_json_path, "r", encoding="utf-8") as f:
+        raw_data = json.load(f)
+
+    raw_data["llm_routing"] = {
+        "enabled": True,
+        "mode": "cloud_only",
+        "local": {"provider_id": "copaw-local", "model": "copaw-flash"},
+    }
+
+    with open(agent_json_path, "w", encoding="utf-8") as f:
+        json.dump(raw_data, f, ensure_ascii=False, indent=2)
+
+    reloaded = load_agent_config("test_agent")
+
+    assert reloaded.llm_routing.enabled is True
+    assert reloaded.llm_routing.mode == "cloud_first"
