@@ -813,29 +813,15 @@ class ToolGuardMixin:
 
         # Extract remediation hint from guard result if available
         remediation_hint = ""
-        if (
-            guard_result
-            and guard_result.findings
-            and guard_result.findings[0].remediation
-        ):
-            remediation = guard_result.findings[0].remediation
-            hint_lines = []
-            for line in remediation.split("\n"):
-                # Include custom warning/reminder lines
-                if any(
-                    marker in line
-                    for marker in [
-                        "⚠️",
-                        "💡",
-                        "❌",
-                        "以下文件位于工作区外",
-                        "Files outside workspace",
-                        "  •",
-                    ]
-                ):
-                    hint_lines.append(line)
-            if hint_lines:
-                remediation_hint = "\n\n" + "\n\n".join(hint_lines)
+        if guard_result and guard_result.findings:
+            finding = guard_result.findings[0]
+            # Use structured metadata for custom hints
+            if finding.metadata and "custom_hint" in finding.metadata:
+                custom_hint = finding.metadata["custom_hint"]
+                if "messages" in custom_hint:
+                    remediation_hint = "\n\n" + "\n".join(
+                        custom_hint["messages"],
+                    )
 
         return await self._emit_assistant_msg(
             "⏳ Waiting for approval / 等待审批\n\n"

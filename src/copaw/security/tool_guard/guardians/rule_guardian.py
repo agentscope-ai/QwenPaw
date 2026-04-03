@@ -161,7 +161,10 @@ def _is_outside_workspace(abs_path: Path) -> bool:
         return True
 
 
-def _extract_rm_targets(command: str) -> list[str]:
+# pylint: disable=too-many-branches,too-many-statements
+def _extract_rm_targets(
+    command: str,
+) -> list[str]:
     """Extract target paths from rm command.
 
     Handles:
@@ -179,7 +182,38 @@ def _extract_rm_targets(command: str) -> list[str]:
         return []
 
     # Find rm command execution (not just mentions)
-    command_parts = re.split(r"[|;&]", normalized)
+    # Use a more robust approach to split commands while respecting quotes
+    command_parts = []
+    current_part = []
+    in_quote = None
+    i = 0
+    while i < len(normalized):
+        char = normalized[i]
+        # Handle quotes
+        if char in ('"', "'") and (i == 0 or normalized[i - 1] != "\\"):
+            if in_quote is None:
+                in_quote = char
+            elif in_quote == char:
+                in_quote = None
+            current_part.append(char)
+        # Handle command separators outside quotes
+        elif char in ("|", ";", "&") and in_quote is None:
+            if current_part:
+                command_parts.append("".join(current_part).strip())
+                current_part = []
+            # Skip consecutive separators
+            while i + 1 < len(normalized) and normalized[i + 1] in (
+                "|",
+                ";",
+                "&",
+            ):
+                i += 1
+        else:
+            current_part.append(char)
+        i += 1
+    # Add the last part
+    if current_part:
+        command_parts.append("".join(current_part).strip())
 
     rm_part = None
     for part in command_parts:
@@ -225,10 +259,25 @@ def _extract_rm_targets(command: str) -> list[str]:
             continue
 
         # Skip options/flags
-        if (
-            token.startswith("-") or token.startswith("/") and len(token) == 2
-        ):  # Windows /F style
+        is_windows = platform.system() == "Windows"
+        if token.startswith("-"):
+            # Unix-style flags: -r, -f, -rf, etc.
             continue
+        if is_windows and token.startswith("/"):
+            # Windows-style flags for del/Remove-Item
+            # del uses short flags like /F, /Q, /S
+            # Remove-Item uses PowerShell parameters like -Force, -Recurse
+            # Check if it's a flag vs an absolute path
+            try:
+                # If it can be parsed as an absolute path, treat as path
+                if Path(token).is_absolute():
+                    pass  # Not a flag, continue to process as target
+                else:
+                    # Likely a flag
+                    continue
+            except (OSError, ValueError):
+                # Can't parse as path, likely a flag
+                continue
 
         # Stop at shell operators
         if token in {"|", "||", "&&", ";", ">", ">>", "<", "&"}:
@@ -594,6 +643,7 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                     remediation = rule.remediation
 
                     # Special handling for rm command to check workspace
+                    metadata = {}
                     if (
                         rule.id == "TOOL_CMD_DANGEROUS_RM"
                         and tool_name == "execute_shell_command"
@@ -633,17 +683,55 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                                 "❌ If unsure or unexpected, please reject "
                                 "this operation."
                             )
+
+                            # Store structured metadata for UI
+                            metadata["custom_hint"] = {
+                                "type": "outside_workspace",
+                                "files": outside_paths,
+                                "messages": [
+                                    "⚠️  警告：检测到工作区外文件，请谨慎确认！",
+                                    "⚠️  Warning: Files outside workspace "
+                                    "detected!\n\n",
+                                    f"以下文件位于工作区外 Files outside "
+                                    f"workspace:\n{outside_list}\n\n",
+                                    (
+                                        "⚠️  删除工作区外文件可能导致系统"
+                                        "文件丢失或数据损坏，请仔细确认路径。"
+                                    ),
+                                    (
+                                        "⚠️  Deleting files outside workspace "
+                                        "may cause data loss. "
+                                        "Verify paths carefully.\n\n"
+                                    ),
+                                    "❌ 如不确定或非预期删除，请拒绝本次操作。",
+                                    "❌ If unsure or unexpected, please reject "
+                                    "this operation.",
+                                ],
+                            }
                         else:
                             # No files detected outside workspace
                             # but add reminder to verify
                             remediation = (
                                 f"{remediation or ''}\n\n"
-                                "💡 提示：请确认删除的文件位置和内容。\n"
+                                "💡 提示：请确认删除的文件位置和内容。"
                                 "💡 Reminder: Please verify file location "
-                                "and content.\n"
-                                "❌ 如不确定，请拒绝本次删除。\n"
+                                "and content.\n\n"
+                                "❌ 如不确定，请拒绝本次删除。"
                                 "❌ If unsure, please reject this operation."
                             )
+
+                            # Store structured metadata for UI
+                            metadata["custom_hint"] = {
+                                "type": "general_reminder",
+                                "messages": [
+                                    "💡 提示：请确认删除的文件位置和内容。",
+                                    "💡 Reminder: Please verify file location "
+                                    "and content.",
+                                    "❌ 如不确定，请拒绝本次删除。",
+                                    "❌ If unsure, please reject this "
+                                    "operation.",
+                                ],
+                            }
 
                     findings.append(
                         GuardFinding(
@@ -663,6 +751,7 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                             snippet=snippet,
                             remediation=remediation,
                             guardian=self.name,
+                            metadata=metadata,
                         ),
                     )
         return findings
