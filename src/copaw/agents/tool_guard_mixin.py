@@ -814,14 +814,25 @@ class ToolGuardMixin:
         # Extract remediation hint from guard result if available
         remediation_hint = ""
         if guard_result and guard_result.findings:
-            finding = guard_result.findings[0]
-            # Use structured metadata for custom hints
-            if finding.metadata and "custom_hint" in finding.metadata:
-                custom_hint = finding.metadata["custom_hint"]
-                if "messages" in custom_hint:
-                    remediation_hint = "\n\n" + "\n".join(
-                        custom_hint["messages"],
-                    )
+            try:
+                finding = guard_result.findings[0]
+                # Use structured metadata for custom hints
+                if finding.metadata and "custom_hint" in finding.metadata:
+                    custom_hint = finding.metadata["custom_hint"]
+                    if (
+                        isinstance(custom_hint, dict)
+                        and "messages" in custom_hint
+                    ):
+                        messages = custom_hint["messages"]
+                        if isinstance(messages, list) and all(
+                            isinstance(m, str) for m in messages
+                        ):
+                            remediation_hint = "\n\n" + "\n".join(messages)
+            except (KeyError, TypeError, AttributeError) as e:
+                logger.debug(
+                    "Failed to extract remediation hint from metadata: %s",
+                    e,
+                )
 
         return await self._emit_assistant_msg(
             "⏳ Waiting for approval / 等待审批\n\n"
