@@ -535,9 +535,11 @@ NapCat  ──reverse WS──▶  CoPaw (:6199/ws)
 | ----- | ------- | ---- |
 | Text  | ✓       | ✓    |
 | Image | ✓       | ✓    |
-| Audio | ✓       | ✓    |
-| Video | ✓       | ✓    |
+| Audio | 🚧      | ✓    |
+| Video | 🚧      | ✓    |
 | File  | ✓       | ✓    |
+
+> **Note:** Audio and video are received at the channel level, but require CoPaw's transcription provider (`transcription_provider_type`) to be configured for the LLM to process them. Without transcription, voice messages are shown as placeholders.
 
 ---
 
