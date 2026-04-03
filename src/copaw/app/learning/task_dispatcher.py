@@ -177,6 +177,8 @@ class HeartbeatTaskDispatcher:
                 content = event.get("content", "")
                 if isinstance(content, str):
                     text += content
+            elif isinstance(event, str):
+                text += event
         return text
 
     def _match_agent(self, task: TaskItem) -> str:

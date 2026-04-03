@@ -40,6 +40,10 @@ _MD_DONE = re.compile(
     r"^-\s*\[x\]\s*(?P<body>.+)$",
     re.MULTILINE | re.IGNORECASE,
 )
+_MD_FAILED = re.compile(
+    r"^-\s*\[!\]\s*(?P<body>.+)$",
+    re.MULTILINE,
+)
 _TAG_PATTERN = re.compile(r"#(\w[\w-]*)")
 _AGENT_PATTERN = re.compile(r"@(\w[\w-]*)")
 _STARTED_PATTERN = re.compile(r"\(started:\s*([^)]+)\)")
@@ -65,9 +69,13 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _md_id(description: str) -> str:
-    """Stable ID from the task *description* (tags/timestamps stripped)."""
-    return hashlib.sha256(description.encode()).hexdigest()[:12]
+def _md_id(
+    description: str,
+    tags: tuple[str, ...] = (),
+) -> str:
+    """Stable ID from the task description and tags."""
+    key = f"{description}|{sorted(tags)}"
+    return hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
 _TaskStatus = Literal["pending", "in_progress", "done", "failed"]
@@ -97,7 +105,7 @@ def _parse_md_task(
     desc = desc.strip()
 
     return TaskItem(
-        id=_md_id(desc),
+        id=_md_id(desc, tags),
         description=desc,
         status=status,
         tags=tags,
@@ -166,7 +174,7 @@ class TaskBoardManager:
     ) -> TaskItem:
         """Add a new pending task."""
         task = TaskItem(
-            id=_md_id(description),
+            id=_md_id(description, tags),
             description=description,
             status="pending",
             tags=tags,
@@ -251,6 +259,8 @@ class TaskBoardManager:
             )
         for m in _MD_DONE.finditer(text):
             tasks.append(_parse_md_task(m.group("body"), "done"))
+        for m in _MD_FAILED.finditer(text):
+            tasks.append(_parse_md_task(m.group("body"), "failed"))
         return tasks
 
     def _write_md(self, tasks: list[TaskItem]) -> None:
