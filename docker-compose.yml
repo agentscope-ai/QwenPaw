@@ -21,49 +21,12 @@ services:
     volumes:
       - copaw-data:/app/working
       - copaw-secrets:/app/working.secret
-    networks:
-      - copaw-network
-
-  # Console frontend (Vite dev server)
-  console:
-    build:
-      context: ./console
-      dockerfile: Dockerfile.dev
-    container_name: copaw-console
-    restart: always
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./console:/app
-      - /app/node_modules
     environment:
-      - VITE_API_BASE_URL=
-      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
-      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
-    networks:
-      - copaw-network
-    depends_on:
-      - copaw
-
-  # Website frontend (Vite dev server)
-  website:
-    build:
-      context: ./website
-      dockerfile: Dockerfile.dev
-    container_name: copaw-website
-    restart: always
-    volumes:
-      - ./website:/app
-      - /app/node_modules
-    environment:
-      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
-      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
-      - VITE_AUTH_CALLBACK_URL=/auth/callback
-      - VITE_LOGIN_REDIRECT_URL=/console/chat
+      - COPAW_AUTH_ENABLED=true
     networks:
       - copaw-network
 
-  # Nginx gateway
+  # Nginx gateway (serves static dist files directly)
   nginx:
     build:
       context: ./nginx
@@ -72,9 +35,10 @@ services:
     restart: always
     ports:
       - "80:80"
+    volumes:
+      - ./console/dist:/var/www/console:ro
+      - ./website/dist:/var/www/website:ro
     networks:
       - copaw-network
     depends_on:
       - copaw
-      - console
-      - website
