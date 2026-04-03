@@ -148,15 +148,14 @@ Currently supported cloud providers include:
 - ModelScope
 - DashScope
 - Aliyun Coding Plan
-- Zhipu (BigModel)
-- Zhipu Coding Plan (BigModel)
-- Zhipu (Z.AI)
-- Zhipu Coding Plan (Z.AI)
 - OpenAI
 - Azure OpenAI
 - Anthropic
 - Google Gemini
+- DeepSeek
+- Kimi
 - MiniMax
+- Zhipu
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 
