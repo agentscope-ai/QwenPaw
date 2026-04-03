@@ -974,7 +974,7 @@ class ProviderManager:
         active_path = self.root_path / "active_model.json"
         try:
             active_path.unlink()
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError):
             pass
         return True
 

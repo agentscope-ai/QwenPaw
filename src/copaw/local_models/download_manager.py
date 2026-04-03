@@ -490,14 +490,11 @@ class ProcessDownloadController:
         queue: Any,
         spec: ProcessDownloadTaskSpec,
     ) -> bool:
-        handled_terminal = False
         while True:
             try:
                 message = queue.get_nowait()
-            except Empty:
-                return handled_terminal
-            except (ValueError, OSError):
-                return handled_terminal
+            except (Empty, ValueError, OSError):
+                return False
 
             message_type = message.get("type")
             if message_type == DownloadTaskMessageType.PROGRESS.value:
