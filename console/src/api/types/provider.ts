@@ -90,12 +90,15 @@ export type LocalDownloadSource = "huggingface" | "modelscope" | "auto";
 
 export interface LocalServerStatus {
   available: boolean;
-  has_update: boolean;
   installable: boolean;
   installed: boolean;
   port: number | null;
   model_name: string | null;
   message: string | null;
+}
+
+export interface LocalServerUpdateStatus {
+  has_update: boolean;
 }
 
 export interface LocalDownloadProgress {

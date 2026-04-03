@@ -18,7 +18,7 @@ class LocalModelManager:
         # Mirror of "https://github.com/ggml-org/llama.cpp/releases/download"
         "https://download.copaw.agentscope.io/files/models/llama_cpp"
     )
-    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8514"
+    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8635"
 
     def __init__(
         self,

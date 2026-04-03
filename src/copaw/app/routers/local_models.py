@@ -29,10 +29,6 @@ class ServerStatus(BaseModel):
         ...,
         description="Whether llama.cpp is running and responding",
     )
-    has_update: bool = Field(
-        ...,
-        description="Whether a newer llama.cpp package is available",
-    )
     installable: bool = Field(
         ...,
         description="Whether the current environment can install llama.cpp",
@@ -94,6 +90,13 @@ class ActionResponse(BaseModel):
     message: str = Field(..., description="Human-readable operation result")
 
 
+class ServerUpdateStatus(BaseModel):
+    has_update: bool = Field(
+        ...,
+        description="Whether a newer llama.cpp package is available",
+    )
+
+
 # =========================================================================
 # llama.cpp server related endpoints
 # ========================================================================
@@ -116,7 +119,6 @@ async def server_available(
     if not installable:
         return ServerStatus(
             available=False,
-            has_update=False,
             installable=False,
             installed=False,
             port=None,
@@ -133,15 +135,12 @@ async def server_available(
     if not installed:
         return ServerStatus(
             available=False,
-            has_update=False,
             installable=installable,
             installed=False,
             port=None,
             model_name=None,
             message=message or install_message,
         )
-
-    has_update = await manager.has_update()
 
     server_state = manager.get_llamacpp_server_status()
 
@@ -166,13 +165,32 @@ async def server_available(
 
     return ServerStatus(
         available=installed and ready,
-        has_update=has_update,
         installable=installable,
         installed=installed,
         port=server_state["port"],
         model_name=server_state["model_name"],
         message=message,
     )
+
+
+@router.get(
+    "/server/update",
+    response_model=ServerUpdateStatus,
+    summary="Check if a llama.cpp update is available",
+)
+async def get_llamacpp_update_status(
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> ServerUpdateStatus:
+    """Check whether an installed llama.cpp runtime has an update."""
+    installable, _ = manager.check_llamacpp_installability()
+    if not installable:
+        return ServerUpdateStatus(has_update=False)
+
+    installed, _ = manager.check_llamacpp_installation()
+    if not installed:
+        return ServerUpdateStatus(has_update=False)
+
+    return ServerUpdateStatus(has_update=await manager.has_update())
 
 
 @router.post(

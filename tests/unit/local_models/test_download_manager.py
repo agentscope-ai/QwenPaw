@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 from copaw.local_models.download_manager import (
     DownloadProgressUpdate,
     DownloadProgressTracker,
+    ProcessDownloadController,
+    ProcessDownloadTaskSpec,
     ProcessDownloadTask,
     DownloadTaskResult,
     DownloadTaskStatus,
@@ -136,3 +138,72 @@ def test_process_download_task_wraps_worker_hooks() -> None:
     assert result == finalized_result
     assert downloaded_bytes == 7
     assert cleanup_calls == ["cleanup"]
+
+
+def test_handle_message_returns_when_queue_is_closed() -> None:
+    progress = DownloadProgressTracker()
+    controller = ProcessDownloadController(
+        context=object(),
+        progress=progress,
+    )
+    spec = ProcessDownloadTaskSpec(
+        process_name="demo-process",
+        command=["demo"],
+        task=ProcessDownloadTask(
+            target=lambda payload, queue: None,
+            payload={},
+        ),
+    )
+
+    class _ClosedQueue:
+        def get_nowait(self):
+            raise ValueError("Queue is closed")
+
+    assert controller._handle_message(_ClosedQueue(), spec) is False
+
+
+def test_handle_message_stops_after_terminal_result() -> None:
+    progress = DownloadProgressTracker()
+    progress.begin(total_bytes=5, source="example")
+    controller = ProcessDownloadController(
+        context=object(),
+        progress=progress,
+    )
+    finished: list[dict[str, object]] = []
+    spec = ProcessDownloadTaskSpec(
+        process_name="demo-process",
+        command=["demo"],
+        task=ProcessDownloadTask(
+            target=lambda payload, queue: None,
+            payload={},
+        ),
+    )
+
+    def _fake_finish_task(**kwargs):
+        finished.append(kwargs)
+
+    controller._finish_task = _fake_finish_task  # type: ignore[method-assign]
+
+    terminal_message = DownloadTaskResult(
+        status=DownloadTaskStatus.FAILED,
+        error="boom",
+    ).to_message()
+
+    class _Queue:
+        def __init__(self) -> None:
+            self._messages = [terminal_message]
+            self.calls = 0
+
+        def get_nowait(self):
+            self.calls += 1
+            if self._messages:
+                return self._messages.pop(0)
+            raise AssertionError(
+                "queue should not be polled after terminal result",
+            )
+
+    queue = _Queue()
+
+    assert controller._handle_message(queue, spec) is True
+    assert queue.calls == 1
+    assert len(finished) == 1

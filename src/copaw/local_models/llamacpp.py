@@ -487,7 +487,6 @@ class LlamaCppBackend:
             LlamaCppBackend._extract_archive(
                 temp_path,
                 staging_dir,
-                archive_name=file_name,
             )
             temp_path.unlink(missing_ok=True)
             queue.put(
@@ -498,13 +497,54 @@ class LlamaCppBackend:
             )
         except Exception as exc:
             LlamaCppBackend._cleanup_download_files(temp_path)
+            error_message = LlamaCppBackend._format_download_error(exc, url)
             queue.put(
                 DownloadTaskResult(
                     status=DownloadTaskStatus.FAILED,
-                    error=str(exc),
+                    error=error_message,
                 ).to_message(),
             )
-            raise
+            logger.warning(
+                "llama.cpp download failed for %s: %s",
+                url,
+                error_message,
+            )
+            return
+
+    @staticmethod
+    def _format_download_error(exc: Exception, url: str) -> str:
+        if isinstance(exc, httpx.HTTPStatusError):
+            status_code = exc.response.status_code
+            if status_code == 404:
+                return (
+                    "llama.cpp download package was not found (HTTP 404). "
+                    "The requested version may not exist, is no longer "
+                    "available, or your hardware or operating system "
+                    "version is not supported."
+                )
+            if status_code in {401, 403}:
+                return (
+                    "llama.cpp download address is unavailable or access is "
+                    f"denied (HTTP {status_code}). Your hardware or operating"
+                    " system version may not be supported."
+                )
+            if status_code >= 500:
+                return (
+                    "llama.cpp download server is temporarily unavailable "
+                    f"(HTTP {status_code}). Please try again later."
+                )
+            return (
+                "llama.cpp download failed with an unexpected server "
+                f"response (HTTP {status_code})."
+            )
+
+        if isinstance(exc, httpx.RequestError):
+            return (
+                "Unable to connect to the llama.cpp download server. "
+                f"Request URL: {url}."
+            )
+
+        return f"llama.cpp download failed: {exc}"
 
     @staticmethod
     def _find_free_port(host: str = "127.0.0.1") -> int:
@@ -590,7 +630,6 @@ class LlamaCppBackend:
     def _extract_archive(
         archive_path: Path,
         dest_dir: Path,
-        archive_name: str | None = None,
     ) -> None:
         staging_dir = Path(
             tempfile.mkdtemp(
@@ -603,7 +642,6 @@ class LlamaCppBackend:
             LlamaCppBackend._merge_extracted_content(
                 staging_dir,
                 dest_dir,
-                archive_name or archive_path.name,
             )
         finally:
             shutil.rmtree(staging_dir, ignore_errors=True)
@@ -612,41 +650,14 @@ class LlamaCppBackend:
     def _merge_extracted_content(
         staging_dir: Path,
         dest_dir: Path,
-        archive_name: str,
     ) -> None:
         extracted_entries = list(staging_dir.iterdir())
         source_root = staging_dir
-        if (
-            len(extracted_entries) == 1
-            and extracted_entries[0].is_dir()
-            and LlamaCppBackend._should_flatten_archive_root(
-                extracted_entries[0],
-                archive_name,
-            )
-        ):
+        if len(extracted_entries) == 1 and extracted_entries[0].is_dir():
             source_root = extracted_entries[0]
 
         for item in source_root.iterdir():
             LlamaCppBackend._merge_path(item, dest_dir / item.name)
-
-    @staticmethod
-    def _should_flatten_archive_root(
-        root_dir: Path,
-        archive_name: str,
-    ) -> bool:
-        dir_name = root_dir.name
-        archive_names = {
-            archive_name,
-            Path(archive_name).stem,
-        }
-        for suffix in (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".zip"):
-            if archive_name.endswith(suffix):
-                archive_names.add(archive_name[: -len(suffix)])
-
-        return any(
-            candidate == dir_name or candidate.startswith(dir_name)
-            for candidate in archive_names
-        )
 
     @staticmethod
     def _merge_path(source: Path, destination: Path) -> None:

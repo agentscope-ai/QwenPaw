@@ -9,6 +9,7 @@ import type {
   LocalDownloadSource,
   LocalModelInfo,
   LocalServerStatus,
+  LocalServerUpdateStatus,
 } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -31,13 +32,19 @@ function isSameServerStatus(
 ): boolean {
   return (
     left?.available === right?.available &&
-    left?.has_update === right?.has_update &&
     left?.installable === right?.installable &&
     left?.installed === right?.installed &&
     left?.port === right?.port &&
     left?.model_name === right?.model_name &&
     left?.message === right?.message
   );
+}
+
+function isSameServerUpdateStatus(
+  left: LocalServerUpdateStatus | null,
+  right: LocalServerUpdateStatus | null,
+): boolean {
+  return left?.has_update === right?.has_update;
 }
 
 function isSameDownloadProgress(
@@ -90,6 +97,8 @@ export function LocalModelManageModal({
   const [serverStatus, setServerStatus] = useState<LocalServerStatus | null>(
     null,
   );
+  const [serverUpdateStatus, setServerUpdateStatus] =
+    useState<LocalServerUpdateStatus | null>(null);
   const [llamacppDownload, setLlamacppDownload] =
     useState<LocalDownloadProgress | null>(null);
   const [modelDownload, setModelDownload] =
@@ -149,6 +158,38 @@ export function LocalModelManageModal({
     [],
   );
 
+  const refreshUpdateStatus = useCallback(
+    async (nextServerStatus?: LocalServerStatus | null) => {
+      const effectiveServerStatus = nextServerStatus ?? serverStatus;
+
+      if (
+        !effectiveServerStatus?.installable ||
+        !effectiveServerStatus.installed
+      ) {
+        const fallbackStatus = { has_update: false };
+        setServerUpdateStatus((prev) =>
+          isSameServerUpdateStatus(prev, fallbackStatus)
+            ? prev
+            : fallbackStatus,
+        );
+        return fallbackStatus;
+      }
+
+      try {
+        const nextUpdateStatus = await api.getLocalServerUpdateStatus();
+        setServerUpdateStatus((prev) =>
+          isSameServerUpdateStatus(prev, nextUpdateStatus)
+            ? prev
+            : nextUpdateStatus,
+        );
+        return nextUpdateStatus;
+      } catch {
+        return null;
+      }
+    },
+    [serverStatus],
+  );
+
   const refreshStatus = useCallback(
     async (showLoading = false) => {
       if (showLoading) {
@@ -165,6 +206,13 @@ export function LocalModelManageModal({
         setServerStatus((prev) =>
           isSameServerStatus(prev, nextServerStatus) ? prev : nextServerStatus,
         );
+        if (!nextServerStatus.installable || !nextServerStatus.installed) {
+          setServerUpdateStatus((prev) =>
+            isSameServerUpdateStatus(prev, { has_update: false })
+              ? prev
+              : { has_update: false },
+          );
+        }
         setLlamacppDownload((prev) =>
           isSameDownloadProgress(prev, nextLlamacppDownload)
             ? prev
@@ -182,6 +230,7 @@ export function LocalModelManageModal({
           nextLlamacppDownload.status === "completed"
         ) {
           message.success(t("models.localLlamacppInstallSuccess"));
+          void refreshUpdateStatus(nextServerStatus);
         }
 
         if (
@@ -232,7 +281,7 @@ export function LocalModelManageModal({
         }
       }
     },
-    [fetchLocalModels, onSaved, stopPolling, t],
+    [fetchLocalModels, onSaved, refreshUpdateStatus, stopPolling, t],
   );
 
   const startPolling = useCallback(() => {
@@ -247,6 +296,7 @@ export function LocalModelManageModal({
 
     void Promise.all([fetchLocalModels(), refreshStatus(true)]).then(
       ([, statuses]) => {
+        void refreshUpdateStatus(statuses?.server ?? null);
         if (
           statuses &&
           (isBusyDownloadStatus(statuses.llamacpp.status) ||
@@ -258,7 +308,14 @@ export function LocalModelManageModal({
     );
 
     return () => stopPolling();
-  }, [fetchLocalModels, open, refreshStatus, startPolling, stopPolling]);
+  }, [
+    fetchLocalModels,
+    open,
+    refreshStatus,
+    refreshUpdateStatus,
+    startPolling,
+    stopPolling,
+  ]);
 
   const handleStartLlamacppDownload = useCallback(async () => {
     const previousLlamacppDownload = llamacppDownload;
@@ -279,6 +336,7 @@ export function LocalModelManageModal({
     try {
       await api.startLlamacppDownload();
       message.success(t("models.localLlamacppInstallStarted"));
+      setServerUpdateStatus({ has_update: false });
       await refreshStatus();
       startPolling();
     } catch (error) {
@@ -524,6 +582,7 @@ export function LocalModelManageModal({
       <section className={styles.localSection}>
         <LocalRuntimePanel
           serverStatus={serverStatus}
+          hasUpdate={Boolean(serverUpdateStatus?.has_update)}
           progress={llamacppDownload}
           onStart={handleStartLlamacppDownload}
           onCancel={handleCancelLlamacppDownload}

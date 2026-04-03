@@ -203,6 +203,16 @@ def _make_tar_gz_payload_with_top_level_dir() -> bytes:
     return buffer.getvalue()
 
 
+def _make_tar_gz_payload_with_mismatched_top_level_dir() -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        content = b"tar-binary"
+        info = tarfile.TarInfo(name="build-5930836305/bin/server")
+        info.size = len(content)
+        archive.addfile(info, io.BytesIO(content))
+    return buffer.getvalue()
+
+
 def _build_downloader(
     monkeypatch: pytest.MonkeyPatch,
 ) -> LlamaCppBackend:
@@ -652,7 +662,7 @@ def test_download_worker_emits_failure_result(
     downloader = _build_downloader(monkeypatch)
     request = httpx.Request("GET", "https://example.com/fail")
     download_url = (
-        "https://example.com/releases/b1234/" "llama-b1234-bin-win-cpu-x64.zip"
+        "https://example.com/releases/b1234/llama-b1234-bin-win-cpu-x64.zip"
     )
     _patch_httpx_client(
         monkeypatch,
@@ -666,21 +676,83 @@ def test_download_worker_emits_failure_result(
         def put(self, item):
             messages.append(item)
 
-    with pytest.raises(httpx.ReadError, match="boom"):
-        downloader._download_worker(
-            {
-                "url": download_url,
-                "staging_dir": str(tmp_path / "failure"),
-                "file_name": "llama-b1234-bin-win-cpu-x64.zip",
-                "chunk_size": 64,
-                "timeout": 30,
-                "headers": downloader._download_headers,
-            },
-            _Queue(),
-        )
+    downloader._download_worker(
+        {
+            "url": download_url,
+            "staging_dir": str(tmp_path / "failure"),
+            "file_name": "llama-b1234-bin-win-cpu-x64.zip",
+            "chunk_size": 64,
+            "timeout": 30,
+            "headers": downloader._download_headers,
+        },
+        _Queue(),
+    )
 
     assert messages[-1]["type"] == "result"
-    assert messages[-1]["payload"]["status"] == "failed"  # type: ignore[index]
+    assert isinstance(messages[-1]["payload"], dict)
+    assert messages[-1]["payload"]["status"] == "failed"
+    assert messages[-1]["payload"]["error"] == (
+        "Unable to connect to the llama.cpp download server. "
+        f"Request URL: {download_url}."
+    )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_error"),
+    [
+        (
+            403,
+            "llama.cpp download address is unavailable or access is denied "
+            "(HTTP 403). Please verify the requested version, or check "
+            "whether your hardware or operating system version is "
+            "supported.",
+        ),
+        (
+            404,
+            "llama.cpp download package was not found (HTTP 404). The "
+            "requested version may not exist, is no longer available, or "
+            "your hardware or operating system version is not supported.",
+        ),
+    ],
+)
+def test_download_worker_maps_http_status_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status_code: int,
+    expected_error: str,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    download_url = (
+        "https://example.com/releases/b1234/llama-b1234-bin-win-cpu-x64.zip"
+    )
+    _patch_httpx_client(
+        monkeypatch,
+        b"",
+        status_code=status_code,
+    )
+
+    messages: list[dict[str, object]] = []
+
+    class _Queue:
+        def put(self, item):
+            messages.append(item)
+
+    downloader._download_worker(
+        {
+            "url": download_url,
+            "staging_dir": str(tmp_path / f"failure-{status_code}"),
+            "file_name": "llama-b1234-bin-win-cpu-x64.zip",
+            "chunk_size": 64,
+            "timeout": 30,
+            "headers": downloader._download_headers,
+        },
+        _Queue(),
+    )
+
+    assert messages[-1]["type"] == "result"
+    assert isinstance(messages[-1]["payload"], dict)
+    assert messages[-1]["payload"]["status"] == "failed"
+    assert messages[-1]["payload"]["error"] == expected_error
 
 
 def test_cancel_download_delegates_to_controller(
@@ -756,6 +828,45 @@ def test_download_worker_flattens_single_top_level_archive_dir(
 
     assert (staging_dir / "bin" / "server").read_text() == "tar-binary"
     assert not (staging_dir / "llama-b1234").exists()
+    assert isinstance(messages[-1]["payload"], dict)
+    assert messages[-1]["payload"]["status"] == "completed"
+
+
+def test_download_worker_flattens_dir_on_name_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    staging_dir = tmp_path / "flattened-install"
+    download_url = (
+        "https://example.com/releases/b5678/"
+        "llama-b5678-bin-ubuntu-x64.tar.gz"
+    )
+    _patch_httpx_client(
+        monkeypatch,
+        _make_tar_gz_payload_with_mismatched_top_level_dir(),
+    )
+
+    messages: list[dict[str, object]] = []
+
+    class _Queue:
+        def put(self, item):
+            messages.append(item)
+
+    downloader._download_worker(
+        {
+            "url": download_url,
+            "staging_dir": str(staging_dir),
+            "file_name": "llama-b5678-bin-ubuntu-x64.tar.gz",
+            "chunk_size": 64,
+            "timeout": 30,
+            "headers": downloader._download_headers,
+        },
+        _Queue(),
+    )
+
+    assert (staging_dir / "bin" / "server").read_text() == "tar-binary"
+    assert not (staging_dir / "build-5930836305").exists()
     assert isinstance(messages[-1]["payload"], dict)
     assert messages[-1]["payload"]["status"] == "completed"
 

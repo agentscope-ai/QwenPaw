@@ -496,6 +496,8 @@ class ProcessDownloadController:
                 message = queue.get_nowait()
             except Empty:
                 return handled_terminal
+            except (ValueError, OSError):
+                return handled_terminal
 
             message_type = message.get("type")
             if message_type == DownloadTaskMessageType.PROGRESS.value:
@@ -516,7 +518,7 @@ class ProcessDownloadController:
                 downloaded_bytes=downloaded_bytes,
                 cleanup_spec=result.status != DownloadTaskStatus.COMPLETED,
             )
-            handled_terminal = True
+            return True
 
     def _get_task_for_spec(
         self,

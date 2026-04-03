@@ -16,6 +16,7 @@ import {
 
 interface LocalRuntimePanelProps {
   serverStatus: LocalServerStatus | null;
+  hasUpdate: boolean;
   progress: LocalDownloadProgress | null;
   onStart: () => void;
   onCancel: () => void;
@@ -25,6 +26,7 @@ interface LocalRuntimePanelProps {
 
 export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   serverStatus,
+  hasUpdate,
   progress,
   onStart,
   onCancel,
@@ -32,7 +34,6 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   const { t } = useTranslation();
   const installable = serverStatus?.installable ?? true;
   const installed = Boolean(serverStatus?.installed);
-  const hasUpdate = Boolean(serverStatus?.has_update);
   const isDownloading = isDownloadActive(progress);
   const isCanceling = progress?.status === "canceling";
   const isRunning = Boolean(serverStatus?.model_name);
