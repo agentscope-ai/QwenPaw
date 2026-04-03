@@ -173,7 +173,6 @@ class ChatManager:
                 return None
 
             updates = patch.model_dump(
-                exclude={"id"},
                 exclude_none=True,
                 exclude_unset=True,
             )

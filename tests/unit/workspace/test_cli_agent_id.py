@@ -242,6 +242,5 @@ def test_chats_update_uses_minimal_payload():
         assert call_args is not None
         assert call_args.args[0] == "/chats/chat-1"
         assert call_args.kwargs["json"] == {
-            "id": "chat-1",
             "name": "Renamed",
         }

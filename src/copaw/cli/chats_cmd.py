@@ -230,7 +230,7 @@ def update_chat(
     """
     base_url = resolve_base_url(ctx, base_url)
     headers = {"X-Agent-Id": agent_id}
-    payload = {"id": chat_id, "name": name}
+    payload = {"name": name}
     with client(base_url) as c:
         r = c.put(f"/chats/{chat_id}", json=payload, headers=headers)
         if r.status_code == 404:

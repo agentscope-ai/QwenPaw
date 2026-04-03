@@ -5,6 +5,7 @@ import type {
   ChatSpec,
   ChatHistory,
   ChatDeleteResponse,
+  ChatUpdateRequest,
   Session,
 } from "../types";
 
@@ -69,7 +70,7 @@ export const chatApi = {
   getChat: (chatId: string) =>
     request<ChatHistory>(`/chats/${encodeURIComponent(chatId)}`),
 
-  updateChat: (chatId: string, chat: Partial<ChatSpec>) =>
+  updateChat: (chatId: string, chat: ChatUpdateRequest) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {
       method: "PUT",
       body: JSON.stringify(chat),

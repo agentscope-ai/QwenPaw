@@ -171,7 +171,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
     if (backendId && newName && session) {
       await chatApi.updateChat(backendId, {
-        id: backendId,
         name: newName,
       });
     }

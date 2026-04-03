@@ -59,7 +59,7 @@ async def test_put_chat_accepts_partial_rename_payload(
     async with api_client:
         response = await api_client.put(
             f"/api/chats/{chat.id}",
-            json={"id": chat.id, "name": "Renamed Chat"},
+            json={"name": "Renamed Chat"},
         )
 
     assert response.status_code == 200
@@ -74,6 +74,34 @@ async def test_put_chat_accepts_partial_rename_payload(
     assert saved is not None
     assert saved.name == "Renamed Chat"
     assert saved.meta == {"source": "test"}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"id": "chat-1"},
+        {"session_id": "console:other"},
+    ],
+)
+async def test_put_chat_rejects_read_only_fields(
+    api_client: AsyncClient,
+    chat_manager: ChatManager,
+    payload: dict[str, str],
+) -> None:
+    """PUT should reject read-only chat identity fields."""
+    chat = await _seed_chat(chat_manager)
+
+    async with api_client:
+        response = await api_client.put(
+            f"/api/chats/{chat.id}",
+            json=payload,
+        )
+
+    assert response.status_code == 422
+
+    saved = await chat_manager.get_chat(chat.id)
+    assert saved is not None
+    assert saved.session_id == chat.session_id
 
 
 async def test_touch_chat_updates_timestamp_without_overwriting_name(

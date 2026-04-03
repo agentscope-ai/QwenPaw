@@ -192,14 +192,8 @@ async def update_chat(
         Updated chat spec
 
     Raises:
-        HTTPException: If chat_id mismatch (400) or not found (404)
+        HTTPException: If chat not found (404)
     """
-    if spec.id and spec.id != chat_id:
-        raise HTTPException(
-            status_code=400,
-            detail="chat_id mismatch",
-        )
-
     updated = await mgr.patch_chat(chat_id, spec)
     if updated is None:
         raise HTTPException(
