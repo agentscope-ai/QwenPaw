@@ -25,6 +25,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   const [isHover, setIsHover] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modelManageOpen, setModelManageOpen] = useState(false);
+  const [runDiscover, setRunDiscover] = useState(false);
 
   const handleDeleteProvider = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -213,12 +214,20 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSaved={onSaved}
+        onRequestDiscover={() => {
+          setRunDiscover(true);
+          setModelManageOpen(true);
+        }}
       />
       <ModelManageModal
         provider={provider}
         open={modelManageOpen}
-        onClose={() => setModelManageOpen(false)}
+        onClose={() => {
+          setModelManageOpen(false);
+          setRunDiscover(false);
+        }}
         onSaved={onSaved}
+        runDiscover={runDiscover}
       />
     </Card>
   );

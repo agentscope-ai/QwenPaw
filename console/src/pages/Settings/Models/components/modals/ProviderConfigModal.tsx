@@ -247,12 +247,14 @@ interface ProviderConfigModalProps {
     freeze_url: boolean;
     chat_model: string;
     support_connection_check: boolean;
+    support_model_discovery: boolean;
     generate_kwargs: Record<string, unknown>;
   };
   activeModels: any;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onRequestDiscover?: () => void;
 }
 
 export function ProviderConfigModal({
@@ -261,6 +263,7 @@ export function ProviderConfigModal({
   open,
   onClose,
   onSaved,
+  onRequestDiscover,
 }: ProviderConfigModalProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
@@ -415,6 +418,19 @@ export function ProviderConfigModal({
       setFormDirty(false);
       onClose();
       message.success(t("models.configurationSaved", { name: provider.name }));
+
+      // Prompt to discover models if provider supports it
+      if (provider.support_model_discovery) {
+        Modal.confirm({
+          title: t("models.discoverModelsConfirmTitle"),
+          content: t("models.discoverModelsConfirmContent", {
+            name: provider.name,
+          }),
+          okText: t("models.discoverModelsConfirmOk"),
+          cancelText: t("models.discoverModelsConfirmCancel"),
+          onOk: () => onRequestDiscover?.(),
+        });
+      }
     } catch (error) {
       if (error && typeof error === "object" && "errorFields" in error) return;
       const errMsg =

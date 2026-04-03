@@ -142,6 +142,7 @@ interface RemoteModelManageModalProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+  runDiscover?: boolean;
 }
 
 export function RemoteModelManageModal({
@@ -149,6 +150,7 @@ export function RemoteModelManageModal({
   open,
   onClose,
   onSaved,
+  runDiscover = false,
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -164,6 +166,7 @@ export function RemoteModelManageModal({
   const [form] = Form.useForm();
   const isLocalProvider = provider.is_local ?? false;
   const canDiscover = isLocalProvider && provider.support_model_discovery;
+  const fetchedRef = useRef(false);
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -353,9 +356,14 @@ export function RemoteModelManageModal({
   };
 
   useEffect(() => {
-    // Do not auto-discover models when modal opens, as it may take some time and we don't want to block the UI.
-    // Instead, users can click the "Discover Models" button to trigger discovery when needed.
-  }, [open, canDiscover, provider.id, provider.models.length]);
+    if (open && runDiscover && canDiscover && !fetchedRef.current) {
+      fetchedRef.current = true;
+      void handleDiscoverModels();
+    }
+    if (!open) {
+      fetchedRef.current = false;
+    }
+  }, [open, runDiscover, canDiscover]);
 
   const all_models = [
     ...(provider.models ?? []),
