@@ -956,6 +956,28 @@ class ProviderManager:
         except OSError:
             pass
 
+    def clear_active_model(self, provider_id: str | None = None) -> bool:
+        """Clear the active provider/model configuration.
+
+        If provider_id is provided, only clear when it matches the current
+        active provider.
+        """
+        if self.active_model is None:
+            return False
+        if (
+            provider_id is not None
+            and self.active_model.provider_id != provider_id
+        ):
+            return False
+
+        self.active_model = None
+        active_path = self.root_path / "active_model.json"
+        try:
+            active_path.unlink()
+        except FileNotFoundError:
+            pass
+        return True
+
     def load_active_model(self) -> ModelSlotConfig | None:
         """Load the active provider/model configuration from disk."""
         active_path = self.root_path / "active_model.json"

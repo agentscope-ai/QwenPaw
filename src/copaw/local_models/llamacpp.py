@@ -130,7 +130,7 @@ class LlamaCppBackend:
             return False
         try:
             return int(latest_version[1:]) > int(
-                (await self.get_version())[1:],
+                (await self.get_version()),
             )
         except Exception:
             logger.warning("Failed to check for llama.cpp updates")
@@ -525,8 +525,9 @@ class LlamaCppBackend:
             if status_code in {401, 403}:
                 return (
                     "llama.cpp download address is unavailable or access is "
-                    f"denied (HTTP {status_code}). Your hardware or operating"
-                    " system version may not be supported."
+                    f"denied (HTTP {status_code}). Please verify the "
+                    "requested version, or check whether your hardware or "
+                    "operating system version is supported."
                 )
             if status_code >= 500:
                 return (

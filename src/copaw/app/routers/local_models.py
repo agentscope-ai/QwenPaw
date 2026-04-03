@@ -24,6 +24,20 @@ def get_provider_manager(request: Request) -> ProviderManager:
     return request.app.state.provider_manager
 
 
+def _clear_local_runtime_provider_state(
+    provider_manager: ProviderManager,
+) -> None:
+    """Reset persisted provider state for the managed local runtime."""
+    provider_manager.update_provider(
+        "copaw-local",
+        {
+            "base_url": "",
+            "extra_models": [],
+        },
+    )
+    provider_manager.clear_active_model("copaw-local")
+
+
 class ServerStatus(BaseModel):
     available: bool = Field(
         ...,
@@ -200,12 +214,15 @@ async def get_llamacpp_update_status(
 )
 async def start_llamacpp_download(
     manager: LocalModelManager = Depends(get_local_model_manager),
+    provider_manager: ProviderManager = Depends(get_provider_manager),
 ) -> ActionResponse:
     """Start downloading the llama.cpp binary package."""
     try:
-        manager.start_llamacpp_download()
+        server_stopped = await manager.start_llamacpp_download()
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if server_stopped:
+        _clear_local_runtime_provider_state(provider_manager)
     return ActionResponse(
         status="accepted",
         message="llama.cpp download started",
@@ -291,13 +308,7 @@ async def stop_llamacpp_server(
 ) -> ActionResponse:
     """Stop the active llama.cpp server."""
     await model_manager.shutdown_server()
-    provider_manager.update_provider(
-        "copaw-local",
-        {
-            "base_url": "",
-            "extra_models": [],
-        },
-    )
+    _clear_local_runtime_provider_state(provider_manager)
 
     return ActionResponse(
         status="ok",

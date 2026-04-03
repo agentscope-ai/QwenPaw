@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Button, Tooltip } from "@agentscope-ai/design";
+import { Button, Modal, Tooltip } from "@agentscope-ai/design";
 import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import { Progress } from "antd";
 import { useTranslation } from "react-i18next";
@@ -76,6 +76,20 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   const progressText = isDownloading ? formatProgressText(progress) : null;
   const canTriggerUpdate = hasUpdate && !isDownloading;
 
+  const handleConfirmUpdate = () => {
+    Modal.confirm({
+      title: t("models.localRuntimeUpdateConfirmTitle"),
+      content: isRunning
+        ? t("models.localRuntimeUpdateConfirmContentWithServer", {
+            model: serverStatus?.model_name ?? t("models.localLlamacppName"),
+          })
+        : t("models.localRuntimeUpdateConfirmContent"),
+      okText: t("common.confirm"),
+      cancelText: t("common.cancel"),
+      onOk: onStart,
+    });
+  };
+
   return (
     <div className={styles.localRuntimePanel}>
       <div className={styles.localRuntimePanelHeader}>
@@ -103,7 +117,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
               <button
                 type="button"
                 className={`${styles.localStatusBadge} ${styles.localStatusBadgeAction} ${styles.localStatusBadgeButton}`}
-                onClick={onStart}
+                onClick={handleConfirmUpdate}
               >
                 {installBadge.label}
               </button>

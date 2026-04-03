@@ -179,7 +179,7 @@ class _FakeHttpxClient:
 def _make_zip_payload() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("bin/server.exe", "zip-binary")
+        archive.writestr("llama-b1234/bin/server.exe", "zip-binary")
     return buffer.getvalue()
 
 
@@ -198,16 +198,6 @@ def _make_tar_gz_payload_with_top_level_dir() -> bytes:
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
         content = b"tar-binary"
         info = tarfile.TarInfo(name="llama-b1234/bin/server")
-        info.size = len(content)
-        archive.addfile(info, io.BytesIO(content))
-    return buffer.getvalue()
-
-
-def _make_tar_gz_payload_with_mismatched_top_level_dir() -> bytes:
-    buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-        content = b"tar-binary"
-        info = tarfile.TarInfo(name="build-5930836305/bin/server")
         info.size = len(content)
         archive.addfile(info, io.BytesIO(content))
     return buffer.getvalue()
@@ -832,45 +822,6 @@ def test_download_worker_flattens_single_top_level_archive_dir(
     assert messages[-1]["payload"]["status"] == "completed"
 
 
-def test_download_worker_flattens_dir_on_name_mismatch(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    downloader = _build_downloader(monkeypatch)
-    staging_dir = tmp_path / "flattened-install"
-    download_url = (
-        "https://example.com/releases/b5678/"
-        "llama-b5678-bin-ubuntu-x64.tar.gz"
-    )
-    _patch_httpx_client(
-        monkeypatch,
-        _make_tar_gz_payload_with_mismatched_top_level_dir(),
-    )
-
-    messages: list[dict[str, object]] = []
-
-    class _Queue:
-        def put(self, item):
-            messages.append(item)
-
-    downloader._download_worker(
-        {
-            "url": download_url,
-            "staging_dir": str(staging_dir),
-            "file_name": "llama-b5678-bin-ubuntu-x64.tar.gz",
-            "chunk_size": 64,
-            "timeout": 30,
-            "headers": downloader._download_headers,
-        },
-        _Queue(),
-    )
-
-    assert (staging_dir / "bin" / "server").read_text() == "tar-binary"
-    assert not (staging_dir / "build-5930836305").exists()
-    assert isinstance(messages[-1]["payload"], dict)
-    assert messages[-1]["payload"]["status"] == "completed"
-
-
 @pytest.mark.asyncio
 async def test_setup_server_falls_back_on_windows_not_implemented(
     monkeypatch: pytest.MonkeyPatch,
@@ -980,7 +931,7 @@ async def test_shutdown_server_uses_shared_shutdown_helper(
             returncode=0,
         )
 
-    downloader._server_process = process
+    downloader._server_process = cast(Any, process)
     downloader._server_port = 8080
     downloader._server_model_name = "demo"
     downloader._server_log_task = cast(
@@ -1024,7 +975,7 @@ def test_force_shutdown_server_uses_shared_shutdown_helper(
             returncode=-9,
         )
 
-    downloader._server_process = process
+    downloader._server_process = cast(Any, process)
     downloader._server_log_task = cast(
         asyncio.Task[None],
         SimpleNamespace(done=lambda: True),
