@@ -521,12 +521,12 @@ NapCat  ──反向 WS──▶  CoPaw (:6199/ws)
 
 **OneBot 专属字段说明：**
 
-| 字段                       | 类型   | 默认值    | 说明                                                                 |
-| -------------------------- | ------ | --------- | -------------------------------------------------------------------- |
-| `ws_host`                  | string | `0.0.0.0` | WebSocket 服务器监听地址                                             |
-| `ws_port`                  | int    | `6199`    | WebSocket 服务器监听端口                                             |
-| `access_token`             | string | `""`      | 可选的认证 Token（需与 NapCat 配置一致）                             |
-| `share_session_in_group`   | bool   | `false`   | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话        |
+| 字段                     | 类型   | 默认值    | 说明                                                          |
+| ------------------------ | ------ | --------- | ------------------------------------------------------------- |
+| `ws_host`                | string | `0.0.0.0` | WebSocket 服务器监听地址                                      |
+| `ws_port`                | int    | `6199`    | WebSocket 服务器监听端口                                      |
+| `access_token`           | string | `""`      | 可选的认证 Token（需与 NapCat 配置一致）                      |
+| `share_session_in_group` | bool   | `false`   | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话 |
 
 > **Docker Compose 提示：** CoPaw 和 NapCat 一起用 Docker Compose 部署时，NapCat 的反向 WS 地址填 `ws://copaw:6199/ws`（使用服务名）。
 
@@ -536,8 +536,8 @@ NapCat  ──反向 WS──▶  CoPaw (:6199/ws)
 | ---- | ---- | ---- |
 | 文本 | ✓    | ✓    |
 | 图片 | ✓    | ✓    |
-| 语音 | 🚧    | ✓    |
-| 视频 | 🚧    | ✓    |
+| 语音 | 🚧   | ✓    |
+| 视频 | 🚧   | ✓    |
 | 文件 | ✓    | ✓    |
 
 > **提示：** 语音和视频在渠道层已正确接收，但需要配置 CoPaw 的转写服务（`transcription_provider_type`）才能让 LLM 理解内容。未配置时语音消息显示为占位符。

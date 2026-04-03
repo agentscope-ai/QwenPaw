@@ -520,12 +520,12 @@ NapCat  ──reverse WS──▶  CoPaw (:6199/ws)
 
 **OneBot-specific fields:**
 
-| Field                      | Type   | Default   | Description                                                                                              |
-| -------------------------- | ------ | --------- | -------------------------------------------------------------------------------------------------------- |
-| `ws_host`                  | string | `0.0.0.0` | WebSocket server listen address                                                                          |
-| `ws_port`                  | int    | `6199`    | WebSocket server listen port                                                                             |
-| `access_token`             | string | `""`      | Optional token for authentication (must match NapCat config)                                             |
-| `share_session_in_group`   | bool   | `false`   | If `true`, all members in a group share one session; if `false`, each member gets an independent session  |
+| Field                    | Type   | Default   | Description                                                                                              |
+| ------------------------ | ------ | --------- | -------------------------------------------------------------------------------------------------------- |
+| `ws_host`                | string | `0.0.0.0` | WebSocket server listen address                                                                          |
+| `ws_port`                | int    | `6199`    | WebSocket server listen port                                                                             |
+| `access_token`           | string | `""`      | Optional token for authentication (must match NapCat config)                                             |
+| `share_session_in_group` | bool   | `false`   | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
 
 > **Docker Compose tip:** When running CoPaw and NapCat in Docker Compose, set the NapCat reverse WS URL to `ws://copaw:6199/ws` (using the service name).
 
