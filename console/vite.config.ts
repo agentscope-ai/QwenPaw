@@ -8,7 +8,14 @@ export default defineConfig(({ mode }) => {
   // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
   const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
 
+  const hmrConfig = env.VITE_HMR_HOST ? {
+    host: env.VITE_HMR_HOST,
+    protocol: env.VITE_HMR_PROTOCOL || "wss",
+    clientPort: parseInt(env.VITE_HMR_CLIENT_PORT || "443"),
+  } : undefined;
+
   return {
+    base: '/console/',
     define: {
       VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
@@ -34,6 +41,8 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: 5173,
+      allowedHosts: ["copaw-comokiki.gd.ddnsto.com"],
+      hmr: hmrConfig,
     },
     optimizeDeps: {
       include: ["diff"],
