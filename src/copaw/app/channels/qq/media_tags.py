@@ -49,17 +49,20 @@ _PREFERRED_ATTRS = (
     "value",
 )
 
+# Chinese characters used to detect mojibake (encoding corruption) in paths.
+# These represent common GB2312 characters that appear as garbage when
+# UTF-8 bytes are decoded as Latin-1/CP1252.
 _MOJIBAKE_MARKERS = (
-    "脙",
-    "脗",
-    "脜",
-    "脝",
-    "脨",
-    "脩",
-    "脴",
-    "芒",
-    "鈧?",
-    "鈩?",
+    "\u8183",  # 脙
+    "\u8157",  # 脗
+    "\u815C",  # 脜
+    "\u815D",  # 脝
+    "\u8168",  # 脨
+    "\u8169",  # 脩
+    "\u8174",  # 脴
+    "\u82CD",  # 芒
+    "\u9127",  # 鈧
+    "\u9129",  # 鈩
 )
 
 
