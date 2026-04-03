@@ -23,7 +23,10 @@ Rule format (one YAML file per threat category)::
 from __future__ import annotations
 
 import logging
+import os
+import platform
 import re
+import shlex
 import uuid
 from pathlib import Path
 from typing import Any
@@ -42,6 +45,233 @@ _DEFAULT_RULES_DIR = Path(__file__).resolve().parent.parent / "rules"
 _DEFAULT_RULE_FILES: list[str] = [
     "dangerous_shell_commands.yaml",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Workspace detection helpers for rm command enhancement
+# ---------------------------------------------------------------------------
+
+# Pre-compiled regex patterns for better performance
+_RE_COMMENT = re.compile(r"^\s*#")
+_RE_RM_COMMAND = re.compile(
+    r"^\s*(?:rm|del)\b|^\s*Remove-Item\b",
+    re.IGNORECASE,
+)
+_RE_RM_TOKEN = re.compile(r"^(?:rm|del|Remove-Item)$", re.IGNORECASE)
+
+# Escape pattern replacements
+_RM_ESCAPE_PATTERNS = [
+    (re.compile(r"\$\([^)]*rm[^)]*\)"), "rm"),
+    (re.compile(r"`[^`]*rm[^`]*`"), "rm"),
+    (
+        re.compile(r"[/\\](?:usr[/\\])?s?bin[/\\]rm\b"),
+        "rm",
+    ),  # Unix and Windows paths
+    (re.compile(r"\\+rm\b"), "rm"),
+    (re.compile(r"\b(?:command|env)\s+rm\b"), "rm"),
+    (re.compile(r"\$\{[^}]+\}"), ""),  # Remove ${VAR} syntax for detection
+]
+
+
+def _get_workspace_root() -> Path:
+    """Return current workspace root for resolving relative paths."""
+    try:
+        from copaw.config.context import get_current_workspace_dir
+        from copaw.constant import WORKING_DIR
+
+        workspace_dir = get_current_workspace_dir() or WORKING_DIR
+        return Path(workspace_dir)
+    except (ImportError, AttributeError, OSError) as e:
+        logger.debug("Failed to get workspace dir, falling back to cwd: %s", e)
+        return Path.cwd()
+    except Exception as e:
+        logger.warning("Unexpected error getting workspace dir: %s", e)
+        return Path.cwd()
+
+
+def _normalize_path(raw_path: str) -> Path:
+    """Normalize path with environment variable and tilde expansion.
+
+    Handles:
+    - Environment variables: $HOME, ${HOME}, %USERPROFILE% (Windows)
+    - Tilde expansion: ~, ~/path
+    - Relative to absolute path conversion
+    - Path resolution (symlinks, .., .)
+    """
+    try:
+        # Expand environment variables (works for both $VAR and %VAR% syntax)
+        expanded = os.path.expandvars(raw_path)
+        p = Path(expanded).expanduser()
+        if not p.is_absolute():
+            p = _get_workspace_root() / p
+        return p.resolve(strict=False)
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.debug("Failed to normalize path '%s': %s", raw_path, e)
+        return Path(raw_path).absolute()
+    except Exception as e:
+        logger.warning(
+            "Unexpected error normalizing path '%s': %s",
+            raw_path,
+            e,
+        )
+        return Path(raw_path).absolute()
+
+
+def _is_outside_workspace(abs_path: Path) -> bool:
+    """Check if the given absolute path is outside the workspace.
+
+    Handles:
+    - Windows: Different drive letters are always outside workspace
+    - Unix/macOS: Standard relative_to check
+    """
+    try:
+        workspace = _get_workspace_root().resolve()
+
+        # Windows: Different drives are always outside workspace
+        if (
+            os.name == "nt"
+            and hasattr(abs_path, "drive")
+            and hasattr(workspace, "drive")
+        ):
+            if (
+                abs_path.drive
+                and workspace.drive
+                and abs_path.drive != workspace.drive
+            ):
+                return True
+
+        abs_path.relative_to(workspace)
+        return False
+    except ValueError:
+        # Path is not relative to workspace
+        return True
+    except (OSError, RuntimeError) as e:
+        logger.debug(
+            "Error checking workspace boundary for '%s': %s",
+            abs_path,
+            e,
+        )
+        return True
+    except Exception as e:
+        logger.warning(
+            "Unexpected error checking workspace for '%s': %s",
+            abs_path,
+            e,
+        )
+        return True
+
+
+def _extract_rm_targets(command: str) -> list[str]:
+    """Extract target paths from rm command.
+
+    Handles:
+    - Multiple rm commands in one line (separated by |, ;, &)
+    - Escape patterns: \\rm, /bin/rm, $(which rm), `which rm`, etc.
+    - Unix commands: rm, /bin/rm, /usr/bin/rm
+    - Windows commands: del, Remove-Item
+    - Multiple file arguments
+    - Options/flags (skips them)
+    """
+    normalized = command.strip()
+
+    # Skip comments
+    if _RE_COMMENT.match(normalized):
+        return []
+
+    # Find rm command execution (not just mentions)
+    command_parts = re.split(r"[|;&]", normalized)
+
+    rm_part = None
+    for part in command_parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        # Normalize escape patterns using pre-compiled patterns
+        normalized_part = part
+        for pattern, replacement in _RM_ESCAPE_PATTERNS:
+            normalized_part = pattern.sub(replacement, normalized_part)
+
+        # Check if this part executes rm
+        if _RE_RM_COMMAND.search(normalized_part):
+            rm_part = normalized_part
+            break
+
+    if rm_part is None:
+        return []
+
+    # Parse tokens with platform-appropriate quoting rules
+    try:
+        is_windows = platform.system() == "Windows"
+        tokens = shlex.split(rm_part, posix=not is_windows)
+    except ValueError as e:
+        logger.debug(
+            "shlex parsing failed for '%s': %s, falling back to split()",
+            rm_part,
+            e,
+        )
+        tokens = rm_part.split()
+
+    # Extract targets
+    targets: list[str] = []
+    found_rm = False
+
+    for token in tokens:
+        if _RE_RM_TOKEN.match(token):
+            found_rm = True
+            continue
+
+        if not found_rm:
+            continue
+
+        # Skip options/flags
+        if (
+            token.startswith("-") or token.startswith("/") and len(token) == 2
+        ):  # Windows /F style
+            continue
+
+        # Stop at shell operators
+        if token in {"|", "||", "&&", ";", ">", ">>", "<", "&"}:
+            break
+
+        targets.append(token)
+
+    return targets
+
+
+def _check_rm_targets_outside_workspace(
+    command: str,
+) -> tuple[bool, list[str]]:
+    """Check if rm command targets files outside workspace.
+
+    Returns:
+        (has_outside_targets, list_of_outside_paths)
+
+    Each path in the list is formatted as:
+        "original_path → resolved_absolute_path"
+    """
+    targets = _extract_rm_targets(command)
+    if not targets:
+        return False, []
+
+    outside_paths: list[str] = []
+    for target in targets:
+        try:
+            abs_path = _normalize_path(target)
+            if _is_outside_workspace(abs_path):
+                outside_paths.append(f"{target} → {abs_path}")
+        except (OSError, ValueError, RuntimeError) as e:
+            logger.debug("Failed to check target '%s': %s", target, e)
+            # Conservative: if we can't determine, assume it might be outside
+            outside_paths.append(f"{target} → (could not resolve)")
+        except Exception as e:
+            logger.warning(
+                "Unexpected error checking target '%s': %s",
+                target,
+                e,
+            )
+
+    return len(outside_paths) > 0, outside_paths
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +586,65 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                     end = min(len(value_str), m.end() + 40)
                     snippet = value_str[start:end]
 
+                    # Enhanced description for rm commands
+                    description = (
+                        f"Rule {rule.id} matched parameter "
+                        f"'{param_name}' of tool '{tool_name}'."
+                    )
+                    remediation = rule.remediation
+
+                    # Special handling for rm command to check workspace
+                    if (
+                        rule.id == "TOOL_CMD_DANGEROUS_RM"
+                        and tool_name == "execute_shell_command"
+                        and param_name == "command"
+                    ):
+                        (
+                            has_outside,
+                            outside_paths,
+                        ) = _check_rm_targets_outside_workspace(
+                            value_str,
+                        )
+                        if has_outside:
+                            # Build outside paths list
+                            outside_list = "\n".join(
+                                f"  • {path}" for path in outside_paths
+                            )
+
+                            # Add file list to description for visibility
+                            description += (
+                                f"\n\n以下文件位于工作区外 Files outside "
+                                f"workspace:\n{outside_list}"
+                            )
+
+                            # Add detailed warning to remediation
+                            remediation = (
+                                f"{remediation or ''}\n\n"
+                                "⚠️  警告：检测到工作区外文件，请谨慎确认！\n"
+                                "⚠️  Warning: Files outside workspace "
+                                "detected!\n\n"
+                                f"以下文件位于工作区外 Files outside "
+                                f"workspace:\n{outside_list}\n\n"
+                                "⚠️  删除工作区外文件可能导致系统文件丢失或"
+                                "数据损坏，请仔细确认路径。\n"
+                                "⚠️  Deleting files outside workspace may "
+                                "cause data loss. Verify paths carefully.\n"
+                                "❌ 如不确定或非预期删除，请拒绝本次操作。\n"
+                                "❌ If unsure or unexpected, please reject "
+                                "this operation."
+                            )
+                        else:
+                            # No files detected outside workspace
+                            # but add reminder to verify
+                            remediation = (
+                                f"{remediation or ''}\n\n"
+                                "💡 提示：请确认删除的文件位置和内容。\n"
+                                "💡 Reminder: Please verify file location "
+                                "and content.\n"
+                                "❌ 如不确定，请拒绝本次删除。\n"
+                                "❌ If unsure, please reject this operation."
+                            )
+
                     findings.append(
                         GuardFinding(
                             id=f"GUARD-{uuid.uuid4().hex}",
@@ -366,16 +655,13 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                                 f"[{rule.severity.value}]"
                                 f" {rule.description}"
                             ),
-                            description=(
-                                f"Rule {rule.id} matched parameter "
-                                f"'{param_name}' of tool '{tool_name}'."
-                            ),
+                            description=description,
                             tool_name=tool_name,
                             param_name=param_name,
                             matched_value=m.group(0),
                             matched_pattern=pattern_str,
                             snippet=snippet,
-                            remediation=rule.remediation,
+                            remediation=remediation,
                             guardian=self.name,
                         ),
                     )
