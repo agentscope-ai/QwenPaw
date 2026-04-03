@@ -70,12 +70,15 @@ def generate_qrcode_image(scan_url: str) -> str:
             detail=f"QR code image generation failed: {exc}",
         ) from exc
 
+
 # ---------------------------------------------------------------------------
 # WeChat (iLink) handler
 # ---------------------------------------------------------------------------
 
+
 class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
     """QR code auth handler for WeChat iLink Bot login."""
+
     async def _get_base_url(self, request: Request) -> str:
         from ..channels.weixin.client import _DEFAULT_BASE_URL
 
@@ -164,6 +167,7 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
 _WECOM_AUTH_ORIGIN = "https://work.weixin.qq.com"
 _WECOM_SOURCE = "copaw"
 
+
 class WecomQRCodeAuthHandler(QRCodeAuthHandler):
     """QR code auth handler for WeCom bot authorization."""
 
@@ -183,7 +187,8 @@ class WecomQRCodeAuthHandler(QRCodeAuthHandler):
 
         try:
             async with httpx.AsyncClient(
-                timeout=15, follow_redirects=True,
+                timeout=15,
+                follow_redirects=True,
             ) as client:
                 resp = await client.get(gen_url)
                 resp.raise_for_status()
@@ -195,7 +200,9 @@ class WecomQRCodeAuthHandler(QRCodeAuthHandler):
             ) from exc
 
         settings_match = re.search(
-            r"window\.settings\s*=\s*(\{.*\})", html, re.DOTALL,
+            r"window\.settings\s*=\s*(\{.*\})",
+            html,
+            re.DOTALL,
         )
         if not settings_match:
             raise HTTPException(
@@ -227,8 +234,7 @@ class WecomQRCodeAuthHandler(QRCodeAuthHandler):
         import httpx
 
         query_url = (
-            f"{_WECOM_AUTH_ORIGIN}/ai/qc/query_result"
-            f"?scode={quote(token)}"
+            f"{_WECOM_AUTH_ORIGIN}/ai/qc/query_result" f"?scode={quote(token)}"
         )
 
         try:
@@ -252,6 +258,7 @@ class WecomQRCodeAuthHandler(QRCodeAuthHandler):
                 "secret": bot_info.get("secret", ""),
             },
         )
+
 
 # ---------------------------------------------------------------------------
 # Handler registry – add new channels here
