@@ -16,11 +16,7 @@
     "preview:test": "vite preview --mode test"
   },
   "dependencies": {
-<<<<<<< HEAD
-    "@agentscope-ai/chat": "^1.1.4",
-=======
     "@agentscope-ai/chat": "^1.1.59",
->>>>>>> origin/main
     "@agentscope-ai/design": "^1.0.14",
     "@agentscope-ai/icons": "^1.0.63",
     "@ant-design/icons": "^5.0.1",
