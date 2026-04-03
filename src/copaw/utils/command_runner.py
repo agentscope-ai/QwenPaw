@@ -333,7 +333,7 @@ def start_multiprocessing_process(
     command: Sequence[str],
     creation_mode: str = "multiprocessing",
 ) -> ManagedProcess:
-    """Start a long-lived process using the multiprocessing module.1"""
+    """Start a long-lived process using the multiprocessing module."""
     command_list = list(command)
     try:
         process.start()

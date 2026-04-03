@@ -859,7 +859,7 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     async def fake_server_ready(*_args, **_kwargs) -> bool:
         return True
 
-    monkeypatch.setattr(downloader_module.os, "name", "nt", raising=False)
+    downloader.os_name = "windows"
     monkeypatch.setattr(
         downloader,
         "check_llamacpp_installation",

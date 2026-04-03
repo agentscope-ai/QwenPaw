@@ -244,7 +244,7 @@ class LlamaCppBackend:
         self._server_transitioning = True
         port = self._find_free_port()
         process_kwargs: dict[str, Any] = {}
-        if os.name != "nt":
+        if self.os_name != "windows":
             process_kwargs["start_new_session"] = True
         process = await self._create_server_process(
             resolved_model_path=resolved_model_path,
@@ -358,7 +358,11 @@ class LlamaCppBackend:
 
         process = self._server_process
         if process and process.returncode is None:
-            await shutdown_process(process, graceful_timeout=5.0)
+            await shutdown_process(
+                process,
+                graceful_timeout=5.0,
+                kill_timeout=3.0,
+            )
 
         self._reset_server_state()
 
