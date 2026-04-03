@@ -38,6 +38,11 @@ class ModelInfo(BaseModel):
             " or 'probed' (actual probe)"
         ),
     )
+    generate_kwargs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Per-model generation parameters that override "
+        "provider-level generate_kwargs.",
+    )
 
 
 class ProviderInfo(BaseModel):
@@ -195,6 +200,33 @@ class Provider(ProviderInfo, ABC):
                 f" for provider '{self.name}'.",
             )
         return chat_model_cls
+
+    def get_effective_generate_kwargs(self, model_id: str) -> Dict[str, Any]:
+        """Return merged generate_kwargs: provider-level as base, model-level
+        overrides on top."""
+        merged = dict(self.generate_kwargs)
+        for model in self.models + self.extra_models:
+            if model.id == model_id and model.generate_kwargs:
+                merged.update(model.generate_kwargs)
+                break
+        return merged
+
+    def update_model_config(
+        self,
+        model_id: str,
+        config: Dict,
+    ) -> bool:
+        """Update per-model configuration (e.g. generate_kwargs)."""
+        for model in self.models + self.extra_models:
+            if model.id == model_id:
+                if (
+                    "generate_kwargs" in config
+                    and config["generate_kwargs"] is not None
+                    and isinstance(config["generate_kwargs"], dict)
+                ):
+                    model.generate_kwargs = config["generate_kwargs"]
+                return True
+        return False
 
     def has_model(self, model_id: str) -> bool:
         """Check if the provider has a model with the given ID."""

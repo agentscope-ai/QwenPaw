@@ -813,6 +813,26 @@ class ProviderManager:
         )
         return await provider.get_info()
 
+    async def update_model_config(
+        self,
+        provider_id: str,
+        model_id: str,
+        config: Dict,
+    ) -> ProviderInfo:
+        """Update per-model configuration and persist to disk."""
+        provider = self.get_provider(provider_id)
+        if not provider:
+            raise ValueError(f"Provider '{provider_id}' not found.")
+        if not provider.update_model_config(model_id, config):
+            raise ValueError(
+                f"Model '{model_id}' not found in provider '{provider_id}'.",
+            )
+        self._save_provider(
+            provider,
+            is_builtin=provider_id in self.builtin_providers,
+        )
+        return await provider.get_info()
+
     async def delete_model_from_provider(
         self,
         provider_id: str,
@@ -1046,6 +1066,18 @@ class ProviderManager:
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
                 builtin.generate_kwargs.update(provider.generate_kwargs)
+                # Restore per-model generate_kwargs for built-in models
+                stored_model_kwargs = {
+                    m.id: m.generate_kwargs
+                    for m in provider.models
+                    if m.generate_kwargs
+                }
+                if stored_model_kwargs:
+                    for model in builtin.models:
+                        if model.id in stored_model_kwargs:
+                            model.generate_kwargs = stored_model_kwargs[
+                                model.id
+                            ]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

@@ -7,6 +7,7 @@ import type {
   ModelSlotRequest,
   CreateCustomProviderRequest,
   AddModelRequest,
+  ModelConfigRequest,
   TestConnectionResponse,
   TestProviderRequest,
   TestModelRequest,
@@ -76,6 +77,21 @@ export const providerApi = {
         modelId,
       )}`,
       { method: "DELETE" },
+    ),
+
+  configureModel: (
+    providerId: string,
+    modelId: string,
+    body: ModelConfigRequest,
+  ) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/config`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
     ),
 
   /* ---- Test Connection ---- */
