@@ -29,6 +29,7 @@ import {
   useConflictRenameModal,
   ImportHubModal,
   PoolTransferModal,
+  SkillFilterDropdown,
   getSkillVisual,
   getSkillDisplaySource,
 } from "./components";
@@ -679,63 +680,25 @@ function SkillsPage() {
               className={styles.searchSelect}
               placeholder={t("skills.searchPlaceholder")}
               value={searchTags}
-              onChange={setSearchTags}
+              onChange={(values) =>
+                setSearchTags(
+                  values.filter(
+                    (v) => v.startsWith("📂:") || v.startsWith("🏷️:"),
+                  ),
+                )
+              }
               searchValue={searchQuery}
               onSearch={setSearchQuery}
               allowClear
               maxTagCount="responsive"
               suffixIcon={<SearchOutlined />}
               dropdownRender={() => (
-                <div>
-                  {allCategories.length > 0 && (
-                    <div className={styles.filterGroup}>
-                      <div className={styles.filterGroupTitle}>
-                        📂 {t("skillPool.categories")}
-                      </div>
-                      <div className={styles.filterOptions}>
-                        {allCategories.map((cat) => (
-                          <div
-                            key={cat}
-                            className={styles.filterOption}
-                            onClick={() => {
-                              const tag = `📂:${cat}`;
-                              setSearchTags((prev) =>
-                                prev.includes(tag) ? prev : [...prev, tag],
-                              );
-                            }}
-                          >
-                            {cat}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {allTags.length > 0 && (
-                    <div className={styles.filterGroup}>
-                      <div className={styles.filterGroupTitle}>
-                        🏷️ {t("skillPool.tags")}
-                      </div>
-                      <div className={styles.filterOptions}>
-                        {allTags.map((tag) => (
-                          <div
-                            key={tag}
-                            className={styles.filterOption}
-                            onClick={() => {
-                              const tagValue = `🏷️:${tag}`;
-                              setSearchTags((prev) =>
-                                prev.includes(tagValue)
-                                  ? prev
-                                  : [...prev, tagValue],
-                              );
-                            }}
-                          >
-                            {tag}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <SkillFilterDropdown
+                  allCategories={allCategories}
+                  allTags={allTags}
+                  setSearchTags={setSearchTags}
+                  styles={styles}
+                />
               )}
             />
           </div>

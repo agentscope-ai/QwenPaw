@@ -13,6 +13,7 @@ export {
 export { useConflictRenameModal } from "./useConflictRenameModal";
 export { ImportHubModal } from "./ImportHubModal";
 export { PoolTransferModal } from "./PoolTransferModal";
+export { SkillFilterDropdown } from "./SkillFilterDropdown";
 
 export const SUPPORTED_SKILL_URL_PREFIXES = [
   "https://skills.sh/",
