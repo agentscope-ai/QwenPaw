@@ -532,9 +532,7 @@ def _coerce_subprocess_path(
 ) -> str | None:
     if path is None:
         return None
-    if isinstance(path, Path):
-        return path.as_posix()
-    return path
+    return os.fspath(path)
 
 
 def _supports_process_groups(process: ManagedProcess) -> bool:

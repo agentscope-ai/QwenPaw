@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from pathlib import Path
 
@@ -45,7 +46,7 @@ def test_run_command_returns_combined_output(
     assert result.combined_output == "stdout line\nstderr line"
     assert recorded == {
         "command": ["demo", "--flag"],
-        "cwd": "/tmp/demo",
+        "cwd": os.fspath(Path("/tmp/demo")),
     }
 
 
@@ -162,11 +163,19 @@ async def test_start_command_async_uses_asyncio_subprocess(
     assert result.owns_process_group is False
     assert recorded == {
         "command": ["demo", "--serve"],
-        "cwd": "/tmp/demo",
+        "cwd": os.fspath(Path("/tmp/demo")),
         "env": {"A": "1"},
         "stdout": asyncio.subprocess.PIPE,
         "stderr": asyncio.subprocess.STDOUT,
     }
+
+
+def test_coerce_subprocess_path_supports_generic_pathlike() -> None:
+    class _CustomPathLike:
+        def __fspath__(self) -> str:
+            return "custom/path"
+
+    assert command_runner._coerce_subprocess_path(_CustomPathLike()) == "custom/path"
 
 
 @pytest.mark.asyncio
