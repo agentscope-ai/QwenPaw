@@ -54,10 +54,14 @@ echo "Host gateway IP: $GATEWAY_IP"
 # Create a modified nginx config with the host gateway IP
 sed "s/host-gateway:8088/${GATEWAY_IP}:8088/" "$PROJECT_DIR/nginx/nginx.dev-local.conf" > /tmp/copaw-nginx-dev.conf
 
-# Copy into running nginx container and reload
-docker cp /tmp/copaw-nginx-dev.conf copaw-nginx:/etc/nginx/nginx.conf
-docker exec copaw-nginx nginx -s reload
-echo -e "${GREEN}Nginx updated to route /api/ to host:${GATEWAY_IP}:8088${NC}"
+# Copy into running nginx container and reload (skip if container is not running)
+if docker ps --format '{{.Names}}' | grep -q '^copaw-nginx$'; then
+    docker cp /tmp/copaw-nginx-dev.conf copaw-nginx:/etc/nginx/nginx.conf
+    docker exec copaw-nginx nginx -s reload
+    echo -e "${GREEN}Nginx updated to route /api/ to host:${GATEWAY_IP}:8088${NC}"
+else
+    echo -e "${YELLOW}Nginx container 'copaw-nginx' is not running, skipping nginx update.${NC}"
+fi
 
 # ── 5. Set up working directory ──────────────────────────────────────────────
 # Use the same data as the Docker container (from Docker volumes)
@@ -82,7 +86,17 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     echo "Loaded .env"
 fi
 
+# Enable authentication for local development
+export COPAW_AUTH_ENABLED=true
+
 # ── 7. Start copaw locally ──────────────────────────────────────────────────
+# Kill any process already using port 8088
+if lsof -ti:8088 &>/dev/null; then
+    echo -e "${YELLOW}Port 8088 in use, killing existing process...${NC}"
+    kill $(lsof -ti:8088)
+    sleep 1
+fi
+
 echo ""
 echo -e "${GREEN}Starting copaw backend locally with hot reload...${NC}"
 echo -e "  Host: 0.0.0.0:8088"
