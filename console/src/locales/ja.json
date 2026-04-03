@@ -476,6 +476,7 @@
     "voiceSetupGuide": "Twilioアカウントを作成して電話番号を取得し、以下に認証情報を入力してください。アカウント SIDと認証トークンはTwilioコンソールのダッシュボードで確認できます。電話番号 SIDはPhone Numbers → Active Numbersに記載されています。",
     "voiceSetupLink": "Twilioコンソールを開く",
     "loginWeCom": "WeCom QRコードを取得",
+    "wecomSetupGuide": "QRコードでボットを作成する際、ボットの権限を承認する画面では「承認をスキップ」を選択してください。「承認を確認」を選択すると、ボット作成者以外のユーザーがボットと対話できなくなる場合があります。",
     "wecomScanAuth": "QRコードで認証",
     "wecomAuthHint": "上のQRコードをWeComでスキャンして認証してください。認証後、Bot IDとSecretが自動入力されます。",
     "wecomAuthSuccess": "WeComボットの認証に成功しました。Bot IDとSecretが自動入力されました。",

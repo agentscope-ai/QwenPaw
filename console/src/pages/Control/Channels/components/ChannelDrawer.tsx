@@ -648,6 +648,14 @@ export function ChannelDrawer({
       case "wecom":
         return (
           <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="warning"
+                showIcon
+                message={t("channels.wecomSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
             <Form.Item label={t("channels.wecomScanAuth")}>
               <Button
                 type="primary"

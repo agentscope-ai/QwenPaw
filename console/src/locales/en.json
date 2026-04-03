@@ -535,6 +535,7 @@
     "welcomeTextTooltip": "Message automatically sent when a user enters a single chat session with the bot for the first time that day",
     "welcomeTextPlaceholder": "e.g. Hello! I'm CoPaw. How can I help you?",
     "loginWeCom": "Get WeCom QR Code",
+    "wecomSetupGuide": "When creating a bot via QR code, please select \"Skip Authorization\" when asked to authorize bot capabilities. If you select \"Confirm Authorization\", users other than the bot creator may not be able to interact with the bot.",
     "wecomScanAuth": "Scan to Authorize",
     "wecomAuthHint": "Scan the QR code above with WeCom to authorize. Bot ID and Secret will be filled in automatically.",
     "wecomAuthSuccess": "WeCom bot authorized. Bot ID and Secret have been filled in.",

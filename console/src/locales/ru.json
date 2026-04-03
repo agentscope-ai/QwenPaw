@@ -481,6 +481,7 @@
     "voiceSetupGuide": "Создайте аккаунт Twilio, купите номер телефона и затем введите данные ниже. Account SID и Auth Token находятся на панели Twilio Console. Phone Number SID указан в разделе Phone Numbers → Active Numbers.",
     "voiceSetupLink": "Открыть Twilio Console",
     "loginWeCom": "Получить QR-код WeCom",
+    "wecomSetupGuide": "При создании бота через QR-код, на этапе авторизации возможностей бота выберите «Пропустить авторизацию». Если выбрать «Подтвердить авторизацию», другие пользователи, кроме создателя бота, могут не иметь возможности взаимодействовать с ботом.",
     "wecomScanAuth": "Сканировать для авторизации",
     "wecomAuthHint": "Отсканируйте QR-код выше с помощью WeCom для авторизации. Bot ID и Secret будут заполнены автоматически.",
     "wecomAuthSuccess": "Бот WeCom авторизован. Bot ID и Secret заполнены автоматически.",
