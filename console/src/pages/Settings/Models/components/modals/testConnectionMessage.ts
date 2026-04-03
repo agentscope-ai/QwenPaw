@@ -7,22 +7,30 @@ const FAILURE_PREFIX_PATTERNS = [
 ];
 
 const GENERIC_FAILURE_MESSAGES = new Set([
-  "Connection failed",
-  "Model connection failed",
+  "connection failed",
+  "model connection failed",
 ]);
+
+function normalizeFailureMessage(message: string): string {
+  return message.toLowerCase().trim().replace(/\.+$/, "");
+}
+
+function isGenericFailureMessage(message: string): boolean {
+  return GENERIC_FAILURE_MESSAGES.has(normalizeFailureMessage(message));
+}
 
 export function getTestConnectionFailureDetail(
   message?: string | null,
 ): string | null {
   const trimmed = message?.trim();
-  if (!trimmed || GENERIC_FAILURE_MESSAGES.has(trimmed)) {
+  if (!trimmed || isGenericFailureMessage(trimmed)) {
     return null;
   }
 
   for (const pattern of FAILURE_PREFIX_PATTERNS) {
     if (pattern.test(trimmed)) {
       const detail = trimmed.replace(pattern, "").trim();
-      return detail || null;
+      return detail && !isGenericFailureMessage(detail) ? detail : null;
     }
   }
 
