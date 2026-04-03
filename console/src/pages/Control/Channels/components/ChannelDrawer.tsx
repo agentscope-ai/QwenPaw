@@ -12,11 +12,11 @@ import { Alert, ConfigProvider, Spin } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { getChannelLabel, type ChannelKey } from "./constants";
+import { useChannelQrcode } from "./useChannelQrcode";
 import styles from "../index.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
-import { api } from "../../../../api";
 
 const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "telegram",
@@ -106,115 +106,54 @@ export function ChannelDrawer({
   const label = activeKey ? getChannelLabel(activeKey, t) : activeLabel;
   const { message } = useAppMessage();
 
-  // WeChat QR code state
-  const [weixinQrcodeImg, setWeixinQrcodeImg] = useState<string>("");
-  const [weixinQrcodeLoading, setWeixinQrcodeLoading] = useState(false);
-  const weixinPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const weixinConfirmedRef = useRef(false);
+  // WeChat QR code hook
+  const weixinQrcode = useChannelQrcode({
+    channel: "weixin",
+    successStatus: "confirmed",
+    successCredentialKey: "bot_token",
+    pollInterval: 2000,
+    onSuccess: useCallback(
+      (credentials: Record<string, string>) => {
+        form.setFieldsValue({ bot_token: credentials.bot_token });
+        message.success(t("channels.weixinLoginSuccess"));
+      },
+      [form, message, t],
+    ),
+    onError: useCallback(
+      (type: "fetch" | "expired") => {
+        if (type === "expired") {
+          message.warning(t("channels.weixinQrcodeExpired"));
+        } else {
+          message.error(t("channels.weixinQrcodeFailed"));
+        }
+      },
+      [message, t],
+    ),
+  });
 
-  const stopWeixinPoll = useCallback(() => {
-    if (weixinPollRef.current) {
-      clearInterval(weixinPollRef.current);
-      weixinPollRef.current = null;
-    }
-  }, []);
-
-  const handleFetchWeixinQrcode = useCallback(async () => {
-    stopWeixinPoll();
-    setWeixinQrcodeLoading(true);
-    setWeixinQrcodeImg("");
-    weixinConfirmedRef.current = false;
-    try {
-      const data = await api.getWeixinQrcode();
-      if (data.qrcode_img) {
-        setWeixinQrcodeImg(data.qrcode_img);
-        // Start polling for scan confirmation
-        weixinPollRef.current = setInterval(async () => {
-          try {
-            const s = await api.getWeixinQrcodeStatus(data.qrcode);
-            if (s.status === "confirmed" && s.bot_token) {
-              if (weixinConfirmedRef.current) return;
-              weixinConfirmedRef.current = true;
-              stopWeixinPoll();
-              form.setFieldsValue({ bot_token: s.bot_token });
-              setWeixinQrcodeImg("");
-              message.success(t("channels.weixinLoginSuccess"));
-            } else if (s.status === "expired") {
-              stopWeixinPoll();
-              setWeixinQrcodeImg("");
-              message.warning(t("channels.weixinQrcodeExpired"));
-            }
-          } catch {
-            // ignore poll errors
-          }
-        }, 2000);
-      } else {
-        message.error(t("channels.weixinQrcodeFailed"));
-      }
-    } catch {
-      message.error(t("channels.weixinQrcodeFailed"));
-    } finally {
-      setWeixinQrcodeLoading(false);
-    }
-  }, [t, form, stopWeixinPoll]);
-
-  // WeCom QR code state
-  const [wecomQrcodeImg, setWecomQrcodeImg] = useState<string>("");
-  const [wecomQrcodeLoading, setWecomQrcodeLoading] = useState(false);
-  const wecomPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const wecomConfirmedRef = useRef(false);
-
-  const stopWecomPoll = useCallback(() => {
-    if (wecomPollRef.current) {
-      clearInterval(wecomPollRef.current);
-      wecomPollRef.current = null;
-    }
-  }, []);
-
-  const handleFetchWecomQrcode = useCallback(async () => {
-    stopWecomPoll();
-    setWecomQrcodeLoading(true);
-    setWecomQrcodeImg("");
-    wecomConfirmedRef.current = false;
-    try {
-      const data = await api.getWecomQrcode();
-      if (data.qrcode_img) {
-        setWecomQrcodeImg(data.qrcode_img);
-        // Start polling for authorization confirmation
-        wecomPollRef.current = setInterval(async () => {
-          try {
-            const s = await api.getWecomQrcodeStatus(data.scode);
-            if (s.status === "success" && s.bot_id) {
-              if (wecomConfirmedRef.current) return;
-              wecomConfirmedRef.current = true;
-              stopWecomPoll();
-              form.setFieldsValue({ bot_id: s.bot_id, secret: s.secret });
-              setWecomQrcodeImg("");
-              message.success(t("channels.wecomAuthSuccess"));
-            }
-          } catch {
-            // ignore poll errors
-          }
-        }, 3000);
-      } else {
+  // WeCom QR code hook
+  const wecomQrcode = useChannelQrcode({
+    channel: "wecom",
+    successStatus: "success",
+    successCredentialKey: "bot_id",
+    pollInterval: 3000,
+    onSuccess: useCallback(
+      (credentials: Record<string, string>) => {
+        form.setFieldsValue({
+          bot_id: credentials.bot_id,
+          secret: credentials.secret,
+        });
+        message.success(t("channels.wecomAuthSuccess"));
+      },
+      [form, message, t],
+    ),
+    onError: useCallback(
+      (_type: "fetch" | "expired") => {
         message.error(t("channels.wecomQrcodeFailed"));
-      }
-    } catch {
-      message.error(t("channels.wecomQrcodeFailed"));
-    } finally {
-      setWecomQrcodeLoading(false);
-    }
-  }, [t, form, stopWecomPoll, message]);
-
-  // Cleanup WeCom and WeChat polling on unmount or drawer close
-  useEffect(() => {
-    if (!open) {
-      stopWecomPoll();
-      setWecomQrcodeImg("");
-      stopWeixinPoll();
-      setWeixinQrcodeImg("");
-    }
-  }, [open, stopWecomPoll, stopWeixinPoll]);
+      },
+      [message, t],
+    ),
+  });
 
   // ── Access control fields (shared across multiple channels) ──────────────
 
@@ -713,20 +652,20 @@ export function ChannelDrawer({
               <Button
                 type="primary"
                 block
-                loading={wecomQrcodeLoading}
-                onClick={handleFetchWecomQrcode}
+                loading={wecomQrcode.loading}
+                onClick={wecomQrcode.fetchQrcode}
               >
                 {t("channels.loginWeCom")}
               </Button>
-              {wecomQrcodeLoading && (
+              {wecomQrcode.loading && (
                 <div style={{ textAlign: "center", marginTop: 12 }}>
                   <Spin />
                 </div>
               )}
-              {wecomQrcodeImg && !wecomQrcodeLoading && (
+              {wecomQrcode.qrcodeImg && !wecomQrcode.loading && (
                 <div style={{ textAlign: "center", marginTop: 12 }}>
                   <img
-                    src={`data:image/png;base64,${wecomQrcodeImg}`}
+                    src={`data:image/png;base64,${wecomQrcode.qrcodeImg}`}
                     alt="WeCom QR Code"
                     style={{ width: 200, height: 200 }}
                   />
@@ -824,24 +763,20 @@ export function ChannelDrawer({
               <Button
                 type="primary"
                 block
-                loading={weixinQrcodeLoading}
-                onClick={handleFetchWeixinQrcode}
+                loading={weixinQrcode.loading}
+                onClick={weixinQrcode.fetchQrcode}
               >
                 {t("channels.weixinGetQrcode")}
               </Button>
-              {weixinQrcodeLoading && (
+              {weixinQrcode.loading && (
                 <div style={{ textAlign: "center", marginTop: 12 }}>
                   <Spin />
                 </div>
               )}
-              {weixinQrcodeImg && !weixinQrcodeLoading && (
+              {weixinQrcode.qrcodeImg && !weixinQrcode.loading && (
                 <div style={{ textAlign: "center", marginTop: 12 }}>
                   <img
-                    src={
-                      weixinQrcodeImg.startsWith("http")
-                        ? weixinQrcodeImg
-                        : `data:image/png;base64,${weixinQrcodeImg}`
-                    }
+                    src={`data:image/png;base64,${weixinQrcode.qrcodeImg}`}
                     alt="WeChat QR Code"
                     style={{ width: 200, height: 200 }}
                   />

@@ -3,8 +3,6 @@
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-import segno
-
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel
 
@@ -39,6 +37,7 @@ from ...config.config import (
 )
 
 from .schemas_config import HeartbeatBody
+from ..channels.qrcode_provider import QRCODE_PROVIDERS, generate_qrcode_image
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -138,237 +137,50 @@ async def put_channels(
     return channels_config
 
 
-async def _get_weixin_base_url(request: Request) -> str:
-    """Return configured WeChat base_url for the current agent."""
-    from ..channels.weixin.client import _DEFAULT_BASE_URL
-
-    try:
-        from ..agent_context import get_agent_for_request
-
-        agent = await get_agent_for_request(request)
-        channels = agent.config.channels
-        if channels is not None:
-            weixin_cfg = getattr(channels, "weixin", None)
-            if weixin_cfg is not None:
-                return getattr(weixin_cfg, "base_url", "") or _DEFAULT_BASE_URL
-    except Exception:
-        pass
-    return _DEFAULT_BASE_URL
+# ── Unified QR code endpoints for all channels ─────────────────────────────
 
 
 @router.get(
-    "/channels/weixin/qrcode",
-    summary="Get WeChat iLink login QR code",
-    description="Fetch QR code image (base64 PNG) for WeChat iLink Bot login.",
-)
-async def get_weixin_qrcode(request: Request) -> dict:
-    """Return a QR code image (base64 PNG) for WeChat iLink Bot login."""
-    import base64
-    import io
-    import httpx
-    from ..channels.weixin.client import ILinkClient
-
-    base_url = await _get_weixin_base_url(request)
-    client = ILinkClient(base_url=base_url)
-    await client.start()
-    try:
-        qr_data = await client.get_bot_qrcode()
-    except (httpx.HTTPError, Exception) as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"WeChat QR code fetch failed: {exc}",
-        ) from exc
-    finally:
-        await client.stop()
-
-    qrcode = qr_data.get("qrcode", "")
-    qrcode_img_url = qr_data.get("qrcode_img_content", "")
-
-    if not qrcode and not qrcode_img_url:
-        raise HTTPException(
-            status_code=502,
-            detail="WeChat returned empty QR code data",
-        )
-
-    # Generate QR code image from the scan URL using segno (pure Python)
-    # The scan target is the URL that WeChat app should open when scanning
-    if qrcode_img_url.startswith("http"):
-        scan_url = qrcode_img_url
-    else:
-        scan_url = (
-            f"https://liteapp.weixin.qq.com/q/7GiQu1"
-            f"?qrcode={qrcode}&bot_type=3"
-        )
-    try:
-        qr = segno.make(scan_url, error="M")
-        buf = io.BytesIO()
-        qr.save(buf, kind="png", scale=6, border=2)
-        qrcode_img_b64 = base64.b64encode(buf.getvalue()).decode()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"QR code image generation failed: {exc}",
-        ) from exc
-
-    return {"qrcode_img": qrcode_img_b64, "qrcode": qrcode}
-
-
-@router.get(
-    "/channels/weixin/qrcode/status",
-    summary="Poll WeChat iLink QR code scan status",
-)
-async def get_weixin_qrcode_status(
-    request: Request,
-    qrcode: str,
-) -> dict:
-    """Poll QR code scan status. Returns {status, bot_token, base_url}."""
-    import httpx
-    from ..channels.weixin.client import ILinkClient
-
-    base_url = await _get_weixin_base_url(request)
-    client = ILinkClient(base_url=base_url)
-    await client.start()
-    try:
-        data = await client.get_qrcode_status(qrcode)
-    except (httpx.HTTPError, Exception) as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"WeChat status check failed: {exc}",
-        ) from exc
-    finally:
-        await client.stop()
-
-    return {
-        "status": data.get("status", "waiting"),
-        "bot_token": data.get("bot_token", ""),
-        "base_url": data.get("baseurl", ""),
-    }
-
-
-# ── WeCom (Enterprise WeChat) QR code endpoints ────────────────────────────
-
-_WECOM_AUTH_ORIGIN = "https://work.weixin.qq.com"
-_WECOM_SOURCE = "copaw"
-
-
-@router.get(
-    "/channels/wecom/qrcode",
-    summary="Get WeCom bot authorization QR code",
+    "/channels/{channel}/qrcode",
+    summary="Get channel authorization QR code",
     description=(
-        "Fetch the WeCom authorization page, extract scode and auth_url, "
-        "then generate a QR code image (base64 PNG)."
+        "Fetch a QR code image (base64 PNG) for the given channel. "
+        "Supported channels: " + ", ".join(QRCODE_PROVIDERS.keys())
     ),
 )
-async def get_wecom_qrcode() -> dict:
-    """Return a QR code image (base64 PNG) for WeCom bot authorization."""
-    import base64
-    import io
-    import json
-    import re
-    import time
-    import httpx
-
-    state = f"state_{int(time.time() * 1000)}"
-    gen_url = (
-        f"{_WECOM_AUTH_ORIGIN}/ai/qc/gen"
-        f"?source={_WECOM_SOURCE}&state={state}"
-        f"&timestamp={int(time.time() * 1000)}"
-    )
-
-    try:
-        async with httpx.AsyncClient(
-            timeout=15,
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(gen_url)
-            resp.raise_for_status()
-            html = resp.text
-    except Exception as exc:
+async def get_channel_qrcode(request: Request, channel: str) -> dict:
+    """Return {qrcode_img, poll_token} for the requested channel."""
+    provider = QRCODE_PROVIDERS.get(channel)
+    if provider is None:
         raise HTTPException(
-            status_code=502,
-            detail=f"WeCom auth page fetch failed: {exc}",
-        ) from exc
-
-    # Extract scode and auth_url from window.settings in the HTML
-    settings_match = re.search(
-        r"window\.settings\s*=\s*(\{.*\})",
-        html,
-        re.DOTALL,
-    )
-    if not settings_match:
-        raise HTTPException(
-            status_code=502,
-            detail="Failed to parse WeCom auth page settings",
+            status_code=404,
+            detail=f"QR code not supported for channel: {channel}",
         )
 
-    try:
-        settings = json.loads(settings_match.group(1))
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to parse WeCom settings JSON: {exc}",
-        ) from exc
-
-    scode = settings.get("scode", "")
-    auth_url = settings.get("auth_url", "")
-
-    if not scode or not auth_url:
-        raise HTTPException(
-            status_code=502,
-            detail="WeCom returned empty scode or auth_url",
-        )
-
-    # Generate QR code image from auth_url using segno
-    try:
-        qr = segno.make(auth_url, error="M")
-        buf = io.BytesIO()
-        qr.save(buf, kind="png", scale=6, border=2)
-        qrcode_img_b64 = base64.b64encode(buf.getvalue()).decode()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"QR code image generation failed: {exc}",
-        ) from exc
-
-    return {"qrcode_img": qrcode_img_b64, "scode": scode}
+    result = await provider.fetch_qrcode(request)
+    qrcode_img = generate_qrcode_image(result.scan_url)
+    return {"qrcode_img": qrcode_img, "poll_token": result.poll_token}
 
 
 @router.get(
-    "/channels/wecom/qrcode/status",
-    summary="Poll WeCom QR code authorization status",
+    "/channels/{channel}/qrcode/status",
+    summary="Poll channel QR code authorization status",
 )
-async def get_wecom_qrcode_status(scode: str) -> dict:
-    """Poll WeCom authorization status. Returns {status, bot_id, secret}."""
-    from urllib.parse import quote
-    import httpx
-
-    query_url = (
-        f"{_WECOM_AUTH_ORIGIN}/ai/qc/query_result" f"?scode={quote(scode)}"
-    )
-
-    try:
-        async with httpx.AsyncClient(
-            timeout=10,
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(query_url)
-            resp.raise_for_status()
-            result = resp.json()
-    except Exception as exc:
+async def get_channel_qrcode_status(
+    request: Request,
+    channel: str,
+    token: str,
+) -> dict:
+    """Return {status, credentials} for the requested channel."""
+    provider = QRCODE_PROVIDERS.get(channel)
+    if provider is None:
         raise HTTPException(
-            status_code=502,
-            detail=f"WeCom status check failed: {exc}",
-        ) from exc
+            status_code=404,
+            detail=f"QR code not supported for channel: {channel}",
+        )
 
-    data = result.get("data", {})
-    status = data.get("status", "waiting")
-    bot_info = data.get("bot_info", {})
-
-    return {
-        "status": status,
-        "bot_id": bot_info.get("botid", ""),
-        "secret": bot_info.get("secret", ""),
-    }
+    result = await provider.poll_status(token, request)
+    return {"status": result.status, "credentials": result.credentials}
 
 
 @router.get(
