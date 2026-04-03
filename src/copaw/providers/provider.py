@@ -201,15 +201,39 @@ class Provider(ProviderInfo, ABC):
             )
         return chat_model_cls
 
+    @staticmethod
+    def _deep_merge(
+        base: Dict[str, Any],
+        override: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Recursively merge *override* into *base* (returns a new dict)."""
+        result = dict(base)
+        for key, val in override.items():
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(val, dict)
+            ):
+                result[key] = Provider._deep_merge(result[key], val)
+            else:
+                result[key] = val
+        return result
+
     def get_effective_generate_kwargs(self, model_id: str) -> Dict[str, Any]:
         """Return merged generate_kwargs: provider-level as base, model-level
-        overrides on top."""
-        merged = dict(self.generate_kwargs)
+        overrides on top (deep merge for nested dicts).
+
+        Always returns a new dict so callers never mutate provider state.
+        """
         for model in self.models + self.extra_models:
-            if model.id == model_id and model.generate_kwargs:
-                merged.update(model.generate_kwargs)
+            if model.id == model_id:
+                if model.generate_kwargs:
+                    return self._deep_merge(
+                        self.generate_kwargs,
+                        model.generate_kwargs,
+                    )
                 break
-        return merged
+        return dict(self.generate_kwargs)
 
     def update_model_config(
         self,
