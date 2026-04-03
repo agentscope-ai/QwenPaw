@@ -23,7 +23,7 @@ import base64
 import io
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import segno
 from fastapi import HTTPException, Request
@@ -74,6 +74,7 @@ def generate_qrcode_image(scan_url: str) -> str:
 # ---------------------------------------------------------------------------
 # WeChat (iLink) provider
 # ---------------------------------------------------------------------------
+
 
 class WeixinQRCodeProvider(QRCodeProvider):
     """QR code provider for WeChat iLink Bot login."""
@@ -173,10 +174,11 @@ class WecomQRCodeProvider(QRCodeProvider):
     async def fetch_qrcode(self, request: Request) -> QRCodeResult:
         import json
         import re
+        import secrets
         import time
         import httpx
 
-        state = f"state_{int(time.time() * 1000)}"
+        state = secrets.token_urlsafe(16)
         gen_url = (
             f"{_WECOM_AUTH_ORIGIN}/ai/qc/gen"
             f"?source={_WECOM_SOURCE}&state={state}"
@@ -185,7 +187,8 @@ class WecomQRCodeProvider(QRCodeProvider):
 
         try:
             async with httpx.AsyncClient(
-                timeout=15, follow_redirects=True,
+                timeout=15,
+                follow_redirects=True,
             ) as client:
                 resp = await client.get(gen_url)
                 resp.raise_for_status()
@@ -197,7 +200,9 @@ class WecomQRCodeProvider(QRCodeProvider):
             ) from exc
 
         settings_match = re.search(
-            r"window\.settings\s*=\s*(\{.*\})", html, re.DOTALL,
+            r"window\.settings\s*=\s*(\{.*\})",
+            html,
+            re.DOTALL,
         )
         if not settings_match:
             raise HTTPException(
@@ -229,14 +234,11 @@ class WecomQRCodeProvider(QRCodeProvider):
         import httpx
 
         query_url = (
-            f"{_WECOM_AUTH_ORIGIN}/ai/qc/query_result"
-            f"?scode={quote(token)}"
+            f"{_WECOM_AUTH_ORIGIN}/ai/qc/query_result" f"?scode={quote(token)}"
         )
 
         try:
-            async with httpx.AsyncClient(
-                timeout=10, follow_redirects=True,
-            ) as client:
+            async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(query_url)
                 resp.raise_for_status()
                 result = resp.json()

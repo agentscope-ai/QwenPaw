@@ -47,12 +47,12 @@ export function useChannelQrcode(
 
   const [qrcodeImg, setQrcodeImg] = useState("");
   const [loading, setLoading] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const confirmedRef = useRef(false);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
-      clearInterval(pollRef.current);
+      clearTimeout(pollRef.current);
       pollRef.current = null;
     }
   }, []);
@@ -74,31 +74,37 @@ export function useChannelQrcode(
       }
       setQrcodeImg(data.qrcode_img);
 
-      pollRef.current = setInterval(async () => {
-        try {
-          const result = await api.getChannelQrcodeStatus(
-            channel,
-            data.poll_token,
-          );
-          if (
-            result.status === successStatus &&
-            result.credentials[successCredentialKey]
-          ) {
-            if (confirmedRef.current) return;
-            confirmedRef.current = true;
-            stopPoll();
-            setQrcodeImg("");
-            onSuccess(result.credentials);
-          } else if (result.status === "expired") {
-            stopPoll();
-            setQrcodeImg("");
-            onExpired?.();
-            onError("expired");
+      // Use recursive setTimeout to avoid overlapping requests
+      const schedulePoll = () => {
+        pollRef.current = setTimeout(async () => {
+          try {
+            const result = await api.getChannelQrcodeStatus(
+              channel,
+              data.poll_token,
+            );
+            if (
+              result.status === successStatus &&
+              result.credentials[successCredentialKey]
+            ) {
+              if (confirmedRef.current) return;
+              confirmedRef.current = true;
+              setQrcodeImg("");
+              onSuccess(result.credentials);
+              return;
+            } else if (result.status === "expired") {
+              setQrcodeImg("");
+              onExpired?.();
+              onError("expired");
+              return;
+            }
+          } catch {
+            // ignore individual poll errors
           }
-        } catch {
-          // ignore individual poll errors
-        }
-      }, pollInterval);
+          // Schedule next poll only after current one completes
+          schedulePoll();
+        }, pollInterval);
+      };
+      schedulePoll();
     } catch {
       onError("fetch");
     } finally {
