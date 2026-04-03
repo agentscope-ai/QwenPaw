@@ -112,8 +112,8 @@ def start_server(port=DEFAULT_PORT):
     global _DEFAULT_SERVER
     if (
         _DEFAULT_SERVER.port != port
-        and _DEFAULT_SERVER._server
-    ):  # pylint: disable=protected-access
+        and _DEFAULT_SERVER._server  # pylint: disable=protected-access
+    ):
         _DEFAULT_SERVER.stop()
     if _DEFAULT_SERVER.port != port:
         _DEFAULT_SERVER = ImageServer(
