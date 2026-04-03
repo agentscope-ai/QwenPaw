@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from copaw.app.runner import manager as chat_manager_module
 from copaw.app.runner.api import get_chat_manager, router
 from copaw.app.runner.manager import ChatManager
-from copaw.app.runner.models import ChatSpec
+from copaw.app.runner.models import ChatSpec, ChatUpdate
 from copaw.app.runner.repo.json_repo import JsonChatRepository
 
 
@@ -111,10 +111,11 @@ async def test_touch_chat_updates_timestamp_without_overwriting_name(
     """Touching a chat for activity bookkeeping should preserve title."""
     chat = await _seed_chat(chat_manager)
 
-    renamed = await chat_manager.get_chat(chat.id)
+    renamed = await chat_manager.patch_chat(
+        chat.id,
+        ChatUpdate(name="Renamed Chat"),
+    )
     assert renamed is not None
-    renamed.name = "Renamed Chat"
-    await chat_manager.update_chat(renamed)
 
     renamed_after_update = await chat_manager.get_chat(chat.id)
     assert renamed_after_update is not None

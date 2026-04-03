@@ -119,7 +119,7 @@ export const sessionApi = {
       body: JSON.stringify(session),
     }),
 
-  updateSession: (sessionId: string, session: Partial<Session>) =>
+  updateSession: (sessionId: string, session: ChatUpdateRequest) =>
     request<Session>(`/chats/${encodeURIComponent(sessionId)}`, {
       method: "PUT",
       body: JSON.stringify(session),

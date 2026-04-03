@@ -147,20 +147,6 @@ class ChatManager:
             await self._repo.upsert_chat(spec)
             return spec
 
-    async def update_chat(self, spec: ChatSpec) -> ChatSpec:
-        """Update an existing chat spec.
-
-        Args:
-            spec: Updated chat specification
-
-        Returns:
-            Updated chat spec
-        """
-        async with self._lock:
-            spec.updated_at = datetime.now(timezone.utc)
-            await self._repo.upsert_chat(spec)
-            return spec
-
     async def patch_chat(
         self,
         chat_id: str,
