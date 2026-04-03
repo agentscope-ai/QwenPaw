@@ -774,6 +774,7 @@
     "testConnection": "接続テスト",
     "testConnectionSuccess": "接続テストに成功しました",
     "testConnectionFailed": "接続テストに失敗しました",
+    "testConnectionFailedWithMessage": "接続テストに失敗しました: {{message}}",
     "testConnectionError": "接続テスト中にエラーが発生しました",
     "discoverModels": "モデルを検出",
     "discoverModelsFailed": "モデルの検出に失敗しました",

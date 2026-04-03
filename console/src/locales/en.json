@@ -836,6 +836,7 @@
     "testConnection": "Test Connection",
     "testConnectionSuccess": "Connection test successful",
     "testConnectionFailed": "Connection test failed",
+    "testConnectionFailedWithMessage": "Connection test failed: {{message}}",
     "testConnectionError": "An error occurred while testing connection",
     "discoverModels": "Discover Models",
     "discoverModelsFailed": "Failed to discover models",

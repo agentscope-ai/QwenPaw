@@ -808,6 +808,7 @@
     "testConnection": "测试连接",
     "testConnectionSuccess": "连接测试成功",
     "testConnectionFailed": "连接测试失败",
+    "testConnectionFailedWithMessage": "连接测试失败：{{message}}",
     "testConnectionError": "测试连接时发生错误",
     "discoverModels": "自动获取模型",
     "discoverModelsFailed": "自动获取模型失败",
