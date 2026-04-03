@@ -257,7 +257,10 @@ class OneBotChannel(BaseChannel):
                     if "echo" in data:
                         self._handle_api_response(data)
                     else:
-                        await self._handle_event(data)
+                        # Dispatch as background task so the WS read
+                        # loop stays unblocked — handlers can freely
+                        # await _call_api (e.g. resolve file URLs).
+                        asyncio.create_task(self._handle_event(data))
                 elif msg.type in (
                     aiohttp.WSMsgType.ERROR,
                     aiohttp.WSMsgType.CLOSE,
@@ -300,7 +303,7 @@ class OneBotChannel(BaseChannel):
 
     async def _handle_message_event(self, data: Dict[str, Any]) -> None:
         """Handle a message event from OneBot v11."""
-        message_type = data.get("message_type")  # "private" or "group"
+        message_type = str(data.get("message_type") or "private")
         user_id = str(data.get("user_id", ""))
         group_id = str(data.get("group_id", ""))
         message_id = str(data.get("message_id", ""))
@@ -315,6 +318,15 @@ class OneBotChannel(BaseChannel):
         content_parts, bot_mentioned = self._parse_message_segments(segments)
         if not content_parts:
             return
+
+        # Resolve file URLs: NapCat file segments only contain the
+        # filename, not a download URL.  We must call the OneBot API
+        # to obtain the real URL.
+        content_parts = await self._resolve_file_urls(
+            content_parts,
+            message_type,
+            data,
+        )
 
         sender = data.get("sender", {})
         sender_name = sender.get("card") or sender.get("nickname") or user_id
@@ -335,11 +347,7 @@ class OneBotChannel(BaseChannel):
         if not allowed:
             if deny_msg:
                 to = f"group:{group_id}" if is_group else user_id
-                # Fire-and-forget to avoid deadlock: the WS read loop
-                # is blocked on this handler, so awaiting send() (which
-                # calls _call_api and waits for a WS response) would
-                # never complete.
-                asyncio.create_task(self.send(to, deny_msg, meta))
+                await self.send(to, deny_msg, meta)
             return
 
         # Mention check (group messages may require @bot)
@@ -423,12 +431,12 @@ class OneBotChannel(BaseChannel):
 
             elif seg_type == "file":
                 url = seg_data.get("url") or seg_data.get("file", "")
-                name = seg_data.get("name", "file")
-                if url:
+                name = seg_data.get("name") or seg_data.get("file", "file")
+                if url or seg_data.get("file_id"):
                     parts.append(
                         FileContent(
                             type=ContentType.FILE,
-                            file_url=url,
+                            file_url=url or name,
                             filename=name,
                         ),
                     )
@@ -441,6 +449,78 @@ class OneBotChannel(BaseChannel):
             # reply, face, forward, etc. — ignored for now
 
         return parts, bot_mentioned
+
+    async def _resolve_file_urls(
+        self,
+        content_parts: list,
+        message_type: str,
+        event_data: Dict[str, Any],
+    ) -> list:
+        """Resolve real download URLs for file content parts.
+
+        NapCat's file segments only contain the filename in the ``file``
+        field, not a download URL.  We call ``get_group_file_url`` or
+        ``get_private_file_url`` to obtain the real URL.
+        """
+        resolved = []
+        for part in content_parts:
+            if getattr(part, "type", None) != ContentType.FILE:
+                resolved.append(part)
+                continue
+
+            file_url = getattr(part, "file_url", "") or ""
+            # Already a valid URL — keep as-is
+            if file_url.startswith(("http://", "https://", "file://")):
+                resolved.append(part)
+                continue
+
+            # Try to get the file_id from the original event
+            file_id = ""
+            for seg in event_data.get("message", []):
+                if seg.get("type") == "file":
+                    file_id = seg.get("data", {}).get("file_id", "")
+                    break
+
+            if not file_id:
+                # No file_id available — keep original (will likely fail
+                # downstream but at least the filename is preserved)
+                resolved.append(part)
+                continue
+
+            # Call OneBot API to resolve the real download URL
+            if message_type == "group":
+                group_id = event_data.get("group_id", "")
+                result = await self._call_api(
+                    "get_group_file_url",
+                    {"group_id": int(group_id), "file_id": file_id},
+                )
+            else:
+                result = await self._call_api(
+                    "get_private_file_url",
+                    {"file_id": file_id},
+                )
+
+            real_url = (result.get("data") or {}).get("url", "")
+            if real_url:
+                resolved.append(
+                    FileContent(
+                        type=ContentType.FILE,
+                        file_url=real_url,
+                        filename=getattr(part, "filename", "file"),
+                    ),
+                )
+                logger.info(
+                    "onebot: resolved file URL for %s",
+                    getattr(part, "filename", "file"),
+                )
+            else:
+                logger.warning(
+                    "onebot: failed to resolve file URL for file_id=%s",
+                    file_id,
+                )
+                resolved.append(part)
+
+        return resolved
 
     # ------------------------------------------------------------------
     # Debounce override: process media-only messages immediately
