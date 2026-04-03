@@ -43,6 +43,8 @@ from ..base import (
     ProcessHandler,
 )
 from ..utils import split_text
+from .file_utils import is_local_path
+from .media_send import send_media_message, upload_file_url, upload_local_file
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +81,7 @@ _BARE_DOMAIN_PATTERN = re.compile(
     r"(?:\.[a-z]{2,3})?\b(?:/[^\s]*)?",
     re.IGNORECASE,
 )
-_IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
+_IMAGE_TAG_PATTERN = re.compile(r"\[Image: ([^\]]+)\]", re.IGNORECASE)
 
 # Rich media paths
 _DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "qq"
@@ -418,21 +420,34 @@ async def _upload_media_async(
 
     Returns file_info if success, None otherwise.
     """
-    path = _media_path(message_type, openid, "files")
-    if not path:
+    if message_type not in ("c2c", "group"):
         logger.warning("Unsupported type for media upload: %s", message_type)
         return None
+    is_local = is_local_path(url)
     try:
-        response = await _api_request_async(
+        if is_local:
+            return await upload_local_file(
+                session,
+                access_token,
+                message_type,
+                openid,
+                url,
+                media_type,
+            )
+        return await upload_file_url(
             session,
             access_token,
-            "POST",
-            path,
-            {"file_type": media_type, "url": url, "srv_send_msg": False},
+            message_type,
+            openid,
+            url,
+            media_type,
         )
-        return response.get("file_info")
     except Exception:
-        logger.exception("Failed to upload media from url: %s", url)
+        logger.exception(
+            "Failed to upload media from %s: %s",
+            "local file" if is_local else "url",
+            url,
+        )
         return None
 
 
@@ -445,23 +460,16 @@ async def _send_media_message_async(
     message_type: str = "c2c",
 ) -> None:
     """Send rich media message."""
-    path = _media_path(message_type, openid, "messages")
-    if not path:
+    if message_type not in ("c2c", "group"):
         logger.warning("Unsupported type for media send: %s", message_type)
         return
-    body: Dict[str, Any] = {
-        "msg_type": 7,
-        "media": {"file_info": file_info},
-        "msg_seq": _get_next_msg_seq(msg_id or f"{message_type}_media"),
-    }
-    if msg_id:
-        body["msg_id"] = msg_id
-    await _api_request_async(
+    await send_media_message(
         session,
         access_token,
-        "POST",
-        path,
-        body,
+        message_type,
+        openid,
+        file_info,
+        msg_id,
     )
 
 
@@ -876,19 +884,19 @@ class QQChannel(BaseChannel):
             return
         if not target_openid:
             return
-        for image_url in image_urls:
+        for image_ref in image_urls:
             try:
                 file_info = await _upload_media_async(
                     self._http,
                     token,
                     target_openid,
                     media_type=1,
-                    url=image_url,
+                    url=image_ref,
                     message_type=message_type,
                 )
                 if not file_info:
                     logger.warning(
-                        f"Failed to upload image, skipping: {image_url}",
+                        f"Failed to upload image, skipping: {image_ref}",
                     )
                     continue
                 await _send_media_message_async(
@@ -899,9 +907,9 @@ class QQChannel(BaseChannel):
                     msg_id if not text_already_sent else None,
                     message_type=message_type,
                 )
-                logger.info(f"Successfully sent image: {image_url}")
+                logger.info(f"Successfully sent image: {image_ref}")
             except Exception:
-                logger.exception(f"Failed to send image: {image_url}")
+                logger.exception(f"Failed to send image: {image_ref}")
 
     async def send(
         self,
@@ -946,7 +954,11 @@ class QQChannel(BaseChannel):
             logger.exception("get access_token failed")
             return
 
-        image_urls = _IMAGE_TAG_PATTERN.findall(text)
+        image_urls = [
+            image_ref.strip()
+            for image_ref in _IMAGE_TAG_PATTERN.findall(text)
+            if image_ref.strip()
+        ]
         clean_text = _IMAGE_TAG_PATTERN.sub("", text).strip()
 
         text_sent = False

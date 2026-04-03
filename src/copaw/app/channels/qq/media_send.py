@@ -46,7 +46,7 @@ def _resolve_target(target: Any) -> MediaTargetContext:
         )
     if isinstance(target, dict):
         return MediaTargetContext(
-            _normalize_target_type(target.get("target_type")),
+            _normalize_target_type(str(target.get("target_type") or "")),
             str(target.get("target_id") or ""),
             bool(target.get("is_at", False)),
         )

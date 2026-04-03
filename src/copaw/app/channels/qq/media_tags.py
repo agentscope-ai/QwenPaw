@@ -206,7 +206,10 @@ def _build_media_item(match: re.Match[str]) -> SendQueueItem | None:
     if not content:
         return None
 
-    return SendQueueItem(type=media_type, content=fix_path_encoding(content))
+    return SendQueueItem(
+        type=media_type,  # type: ignore[arg-type]  # noqa: PGH003
+        content=fix_path_encoding(content),
+    )
 
 
 def _parse_attributes(attrs: str) -> dict[str, str]:

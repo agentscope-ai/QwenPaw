@@ -141,8 +141,8 @@ async def chunked_upload_c2c(
         prepare_result = await _upload_prepare(
             session, access_token, "users", user_id, file_path, file_type
         )
-        upload_id = prepare_result.get("upload_id")
-        block_size = prepare_result.get("block_size", 1024 * 1024)
+        upload_id = str(prepare_result.get("upload_id", ""))
+        block_size = int(prepare_result.get("block_size", 1024 * 1024))
 
         file_size = os.path.getsize(file_path)
         total_parts = (file_size + block_size - 1) // block_size
@@ -175,8 +175,8 @@ async def chunked_upload_group(
         prepare_result = await _upload_prepare(
             session, access_token, "groups", group_id, file_path, file_type
         )
-        upload_id = prepare_result.get("upload_id")
-        block_size = prepare_result.get("block_size", 1024 * 1024)
+        upload_id = str(prepare_result.get("upload_id", ""))
+        block_size = int(prepare_result.get("block_size", 1024 * 1024))
 
         file_size = os.path.getsize(file_path)
         total_parts = (file_size + block_size - 1) // block_size
