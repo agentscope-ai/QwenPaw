@@ -702,8 +702,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self.builtin_providers[provider.id] = provider
 
     async def list_provider_info(self) -> List[ProviderInfo]:
-        tasks = [provider.get_info() for provider in self.builtin_providers.values()]
-        tasks += [provider.get_info() for provider in self.custom_providers.values()]
+        tasks = [
+            provider.get_info() for provider in self.builtin_providers.values()
+        ]
+        tasks += [
+            provider.get_info() for provider in self.custom_providers.values()
+        ]
         provider_infos = await asyncio.gather(*tasks)
         return list(provider_infos)
 
@@ -1066,7 +1070,10 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """
         if self.active_model is None:
             return False
-        if provider_id is not None and self.active_model.provider_id != provider_id:
+        if (
+            provider_id is not None
+            and self.active_model.provider_id != provider_id
+        ):
             return False
 
         self.active_model = None
@@ -1130,7 +1137,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "models" in data:
                     # migrate models to extra_models field
                     custom_provider.extra_models = [
-                        ModelInfo.model_validate(model) for model in data["models"]
+                        ModelInfo.model_validate(model)
+                        for model in data["models"]
                     ]
                 if "chat_model" in data:
                     custom_provider.chat_model = data["chat_model"]
@@ -1175,7 +1183,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if stored_model_kwargs:
                     for model in builtin.models:
                         if model.id in stored_model_kwargs:
-                            model.generate_kwargs = stored_model_kwargs[model.id]
+                            model.generate_kwargs = stored_model_kwargs[
+                                model.id
+                            ]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)
@@ -1204,7 +1214,10 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     continue
 
                 # Static annotations present → compute derived flag only
-                if model.supports_image is not None or model.supports_video is not None:
+                if (
+                    model.supports_image is not None
+                    or model.supports_video is not None
+                ):
                     model.supports_multimodal = bool(
                         model.supports_image or model.supports_video,
                     )
@@ -1230,13 +1243,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because llama.cpp is not " "installed.",
+                "Skipping local model restore because llama.cpp is not "
+                "installed.",
             )
             return
 
         if not local_manager.is_model_downloaded(model_id):
             logger.warning(
-                "Skipping local model restore because model is not " "downloaded: %s",
+                "Skipping local model restore because model is not "
+                "downloaded: %s",
                 model_id,
             )
             return
