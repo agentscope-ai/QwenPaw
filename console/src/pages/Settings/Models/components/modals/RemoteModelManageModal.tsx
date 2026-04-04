@@ -705,18 +705,12 @@ export function RemoteModelManageModal({
                             </span>
                             <div className={styles.modelListItemTags}>
                               {m.supports_image === true && (
-                                <Tag
-                                  color="blue"
-                                  style={{ fontSize: 11 }}
-                                >
+                                <Tag color="blue" style={{ fontSize: 11 }}>
                                   {t("models.tagImage")}
                                 </Tag>
                               )}
                               {m.supports_video === true && (
-                                <Tag
-                                  color="purple"
-                                  style={{ fontSize: 11 }}
-                                >
+                                <Tag color="purple" style={{ fontSize: 11 }}>
                                   {t("models.tagVideo")}
                                 </Tag>
                               )}
@@ -726,10 +720,7 @@ export function RemoteModelManageModal({
                                 </Tag>
                               )}
                               {m.supports_multimodal === null && (
-                                <Tag
-                                  color="default"
-                                  style={{ fontSize: 11 }}
-                                >
+                                <Tag color="default" style={{ fontSize: 11 }}>
                                   {t("models.tagNotProbed")}
                                 </Tag>
                               )}
@@ -824,7 +815,12 @@ export function RemoteModelManageModal({
                                 >
                                   {t("models.userAdded")}
                                 </Tag>
-                                <Tooltip title={t("models.probeMultimodal", "测试多模态")}>
+                                <Tooltip
+                                  title={t(
+                                    "models.probeMultimodal",
+                                    "测试多模态",
+                                  )}
+                                >
                                   <Button
                                     type="text"
                                     size="small"
