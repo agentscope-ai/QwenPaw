@@ -65,7 +65,8 @@ def build_env_context(
         parts.append(f"- Channel: {channel}")
 
     parts.append(
-        f"- OS: {platform.system()} {platform.release()} " f"({platform.machine()})",
+        f"- OS: {platform.system()} {platform.release()} "
+        f"({platform.machine()})",
     )
 
     if working_dir is not None:
@@ -90,7 +91,9 @@ def build_env_context(
             "you are blocked.\n",
         )
 
-    return "====================\n" + "\n".join(parts) + "\n===================="
+    return (
+        "====================\n" + "\n".join(parts) + "\n===================="
+    )
 
 
 def _is_local_file_url(url: str) -> bool:
@@ -160,17 +163,25 @@ def _build_media_message_from_block(
                 if itype == "image":
                     kwargs = {}
                     source = item.get("source")
-                    if isinstance(source, dict) and source.get("type") == "url":
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
                         kwargs["image_url"] = _resolve_content_url(
                             source.get("url", ""),
                         )
-                    elif isinstance(source, dict) and source.get("type") == "base64":
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
                         media_type = source.get(
                             "media_type",
                             "image/jpeg",
                         )
                         base64_data = source.get("data", "")
-                        kwargs["image_url"] = f"data:{media_type};base64,{base64_data}"
+                        kwargs[
+                            "image_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
                     media_message.add_content(
                         new_content=ImageContent(
                             delta=False,
@@ -182,7 +193,10 @@ def _build_media_message_from_block(
                 elif itype == "audio":
                     kwargs = {}
                     source = item.get("source")
-                    if isinstance(source, dict) and source.get("type") == "url":
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
                         url = _resolve_content_url(
                             source.get("url", ""),
                         )
@@ -199,10 +213,15 @@ def _build_media_message_from_block(
                             ValueError,
                         ):
                             kwargs["format"] = None
-                    elif isinstance(source, dict) and source.get("type") == "base64":
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
                         media_type = source.get("media_type")
                         base64_data = source.get("data", "")
-                        kwargs["data"] = f"data:{media_type};base64,{base64_data}"
+                        kwargs[
+                            "data"
+                        ] = f"data:{media_type};base64,{base64_data}"
                         kwargs["format"] = media_type
                     media_message.add_content(
                         new_content=AudioContent(
@@ -215,17 +234,25 @@ def _build_media_message_from_block(
                 elif itype == "video":
                     kwargs = {}
                     source = item.get("source")
-                    if isinstance(source, dict) and source.get("type") == "url":
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
                         kwargs["video_url"] = _resolve_content_url(
                             source.get("url", ""),
                         )
-                    elif isinstance(source, dict) and source.get("type") == "base64":
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
                         media_type = source.get(
                             "media_type",
                             "video/mp4",
                         )
                         base64_data = source.get("data", "")
-                        kwargs["video_url"] = f"data:{media_type};base64,{base64_data}"
+                        kwargs[
+                            "video_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
                     media_message.add_content(
                         new_content=VideoContent(
                             delta=False,
@@ -237,17 +264,25 @@ def _build_media_message_from_block(
                 elif itype == "file":
                     kwargs = {"filename": item.get("filename", "")}
                     source = item.get("source")
-                    if isinstance(source, dict) and source.get("type") == "url":
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
                         kwargs["file_url"] = _resolve_content_url(
                             source.get("url", ""),
                         )
-                    elif isinstance(source, dict) and source.get("type") == "base64":
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
                         media_type = source.get(
                             "media_type",
                             "application/octet-stream",
                         )
                         base64_data = source.get("data", "")
-                        kwargs["file_url"] = f"data:{media_type};base64,{base64_data}"
+                        kwargs[
+                            "file_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
                     elif isinstance(source, str):
                         kwargs["file_url"] = _resolve_content_url(
                             source,
