@@ -643,8 +643,6 @@ async def remove_from_whitelist(
 
 # ── WhatsApp auth (QR / pair code) ────────────────────────────
 
-# Module-level state is single-instance by design: CoPaw runs one agent process per deployment.
-# This is acceptable for the single-user self-hosted model.
 _whatsapp_pair_state: dict = {"client": None, "code": None, "status": "idle", "qr_data": None}
 
 @router.post(
@@ -652,14 +650,8 @@ _whatsapp_pair_state: dict = {"client": None, "code": None, "status": "idle", "q
     summary="Start WhatsApp pairing",
     description="Start WhatsApp pairing. Returns a pair code to enter on your phone.",
 )
-async def start_whatsapp_pair(request: Request, phone: str) -> dict:
+async def start_whatsapp_pair(request: Request, phone: str = "+85251159218") -> dict:
     """Start WhatsApp pair code auth. Returns the code to enter on phone."""
-    import re as _re
-    if not phone or not phone.strip():
-        raise HTTPException(status_code=400, detail="phone is required")
-    phone = phone.strip()
-    if not _re.fullmatch(r"\+[1-9]\d{6,14}", phone):
-        raise HTTPException(status_code=400, detail="phone must be in E.164 format (e.g. +852XXXXXXXX)")
     import asyncio
     try:
         from neonize.aioze.client import NewAClient
@@ -667,25 +659,17 @@ async def start_whatsapp_pair(request: Request, phone: str) -> dict:
     except ImportError:
         raise HTTPException(status_code=500, detail="neonize not installed")
 
-    # Get auth dir from agent config
-    from ..agent_context import get_agent_for_request
-    agent = await get_agent_for_request(request)
-    wa_cfg = getattr(agent.config.channels, "whatsapp", None) if agent.config.channels else None
-    auth_dir = "~/.copaw/credentials/whatsapp"
+    # Get auth dir from config
+    from ...config.utils import load_config as _lc
+    _cfg = _lc()
+    wa_cfg = getattr(_cfg.channels, "whatsapp", None)
+    auth_dir = "~/.copaw/credentials/whatsapp/default"
     if wa_cfg:
         auth_dir = getattr(wa_cfg, "auth_dir", auth_dir) or auth_dir
 
     from pathlib import Path
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
     Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
-
-    # Disconnect existing client before creating a new one to avoid connection leaks
-    old_client = _whatsapp_pair_state.get("client")
-    if old_client is not None:
-        try:
-            await old_client.disconnect()
-        except Exception:
-            pass
 
     _whatsapp_pair_state["status"] = "pairing"
     _whatsapp_pair_state["code"] = None
@@ -776,10 +760,10 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     except ImportError:
         raise HTTPException(status_code=500, detail="neonize or segno not installed")
 
-    from ..agent_context import get_agent_for_request
-    agent = await get_agent_for_request(request)
-    wa_cfg = getattr(agent.config.channels, "whatsapp", None) if agent.config.channels else None
-    auth_dir = "~/.copaw/credentials/whatsapp"
+    from ...config.utils import load_config as _lc
+    _cfg = _lc()
+    wa_cfg = getattr(_cfg.channels, "whatsapp", None)
+    auth_dir = "~/.copaw/credentials/whatsapp/default"
     if wa_cfg:
         auth_dir = getattr(wa_cfg, "auth_dir", auth_dir) or auth_dir
 
@@ -829,14 +813,14 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     summary="Unbind WhatsApp session",
     description="Delete the WhatsApp session database so the next connection requires re-pairing.",
 )
-async def unbind_whatsapp(request: Request) -> dict:
+async def unbind_whatsapp() -> dict:
     """Delete neonize.db to force re-authentication on next start."""
     from pathlib import Path as _P
 
-    from ..agent_context import get_agent_for_request
-    agent = await get_agent_for_request(request)
-    wa_cfg = getattr(agent.config.channels, "whatsapp", None) if agent.config.channels else None
-    auth_dir = "~/.copaw/credentials/whatsapp"
+    from ...config.utils import load_config as _lc
+    _cfg = _lc()
+    wa_cfg = getattr(_cfg.channels, "whatsapp", None)
+    auth_dir = "~/.copaw/credentials/whatsapp/default"
     if wa_cfg:
         auth_dir = getattr(wa_cfg, "auth_dir", auth_dir) or auth_dir
 
@@ -852,18 +836,12 @@ async def unbind_whatsapp(request: Request) -> dict:
     "/channels/whatsapp/status",
     summary="Get WhatsApp connection status",
 )
-async def get_whatsapp_status(request: Request) -> dict:
+async def get_whatsapp_status() -> dict:
     """Check if WhatsApp is linked."""
     try:
+        from neonize.aioze.client import NewAClient
         from pathlib import Path
-
-        from ..agent_context import get_agent_for_request
-        agent = await get_agent_for_request(request)
-        wa_cfg = getattr(agent.config.channels, "whatsapp", None) if agent.config.channels else None
-        auth_dir = "~/.copaw/credentials/whatsapp"
-        if wa_cfg:
-            auth_dir = getattr(wa_cfg, "auth_dir", auth_dir) or auth_dir
-        db_path = Path(auth_dir).expanduser() / "neonize.db"
+        db_path = Path("~/.copaw/credentials/whatsapp/default/neonize.db").expanduser()
         if not db_path.exists():
             return {"linked": False, "phone": None}
         # Check if database has a session
@@ -881,3 +859,17 @@ async def get_whatsapp_status(request: Request) -> dict:
     except Exception as e:
         return {"linked": False, "error": str(e)}
 
+
+@router.post(
+    "/channels/whatsapp/unbind",
+    summary="Unlink WhatsApp device",
+)
+async def unbind_whatsapp() -> dict:
+    """Remove WhatsApp linked device."""
+    from pathlib import Path
+    import os
+    db_path = Path("~/.copaw/credentials/whatsapp/default/neonize.db").expanduser()
+    if db_path.exists():
+        os.remove(str(db_path))
+        return {"status": "unlinked"}
+    return {"status": "not_linked"}

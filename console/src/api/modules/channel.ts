@@ -64,5 +64,6 @@ export const channelApi = {
     ),
   getWhatsappStatus: () =>
     request<{ linked: boolean; phone?: string }>("/config/channels/whatsapp/status"),
-
+  unbindWhatsapp2: () =>
+    request<{ status: string }>("/config/channels/whatsapp/unbind", { method: "POST" }),
 };

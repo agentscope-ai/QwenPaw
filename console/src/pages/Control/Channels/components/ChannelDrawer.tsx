@@ -17,7 +17,7 @@ import { getChannelLabel, type ChannelKey } from "./constants";
 import { useChannelQrcode } from "./useChannelQrcode";
 import styles from "../index.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
-import { api } from "../../../../api";
+import api from "../../../../api";
 
 const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "telegram",
@@ -29,6 +29,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "matrix",
   "weixin",
   "whatsapp",
+  "signal",
 ];
 
 // Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
@@ -158,7 +159,8 @@ export function ChannelDrawer({
       [message, t],
     ),
   });
-// WhatsApp pair code state
+
+  // WhatsApp pair code state
   const [waPairCode, setWaPairCode] = useState<string>("");
   const [waQrImage, setWaQrImage] = useState<string>("");
   const [waPairLoading, setWaPairLoading] = useState(false);
@@ -168,17 +170,6 @@ export function ChannelDrawer({
   const [waLinked, setWaLinked] = useState(false);
   useEffect(() => {
     api.getWhatsappStatus().then((s) => setWaLinked(s.linked)).catch(() => {});
-    // Cleanup: stop all pairing polls on unmount
-    return () => {
-      if (waPollRef.current) {
-        clearInterval(waPollRef.current);
-        waPollRef.current = null;
-      }
-      if (weixinPollRef.current) {
-        clearInterval(weixinPollRef.current);
-        weixinPollRef.current = null;
-      }
-    };
   }, []);
 
 
@@ -190,13 +181,15 @@ export function ChannelDrawer({
   }, []);
 
   const handleWhatsappPair = useCallback(async () => {
+    const phone = prompt("Enter phone number (E.164 format, e.g. +85251159218):");
+    if (!phone) return;
     stopWaPoll();
     setWaPairLoading(true);
     setWaPairCode("");
     setWaQrImage("");
     setWaPairStatus("pairing");
     try {
-      const data = await api.startWhatsappPair();
+      const data = await api.startWhatsappPair(phone);
       if (data.pair_code) {
         setWaPairCode(data.pair_code);
         setWaPairStatus("waiting_pair");
@@ -238,6 +231,7 @@ export function ChannelDrawer({
       message.error("Failed to unbind WhatsApp");
     }
   }, [message]);
+
 
 
 
@@ -1056,6 +1050,42 @@ export function ChannelDrawer({
           </>
         );
 
+
+      case "signal":
+        return (
+          <>
+            <Form.Item name="account" label="Account" tooltip="Bot phone number (E.164)" rules={[{ required: true }]}>
+              <Input placeholder="+85298349370" />
+            </Form.Item>
+            <Form.Item name="http_url" label="Bridge URL" tooltip="signal-cli bridge URL">
+              <Input placeholder="http://127.0.0.1:8082" />
+            </Form.Item>
+            <Form.Item name="http_port" label="Bridge Port" initialValue={8082}>
+              <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="auto_start" label="Auto Start Daemon" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="send_read_receipts" label="Read Receipts" valuePropName="checked" initialValue={true}>
+              <Switch defaultChecked />
+            </Form.Item>
+            <Form.Item name="text_chunk_limit" label="Chunk Limit" initialValue={4000}>
+              <InputNumber min={256} max={8192} step={256} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="media_max_mb" label="Media Max (MB)" initialValue={8}>
+              <InputNumber min={1} max={100} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="groups" label="Group Allowlist" tooltip="Signal group IDs (base64)" initialValue={[]}>
+              <Select mode="tags" placeholder="sBlO8LhzR42X...=" tokenSeparators={[","," ","\n"]} />
+            </Form.Item>
+            <Form.Item name="group_allow_from" label="Group Allow From" tooltip='Who can trigger bot in groups. ["*"] = everyone.' initialValue={[]}>
+              <Select mode="tags" placeholder="* (everyone)" tokenSeparators={[","," "]} />
+            </Form.Item>
+            <Form.Item name="filter_thinking" label="Filter Thinking" valuePropName="checked" tooltip="Hide reasoning/thinking blocks from replies">
+              <Switch />
+            </Form.Item>
+          </>
+        );
 
       default:
         return null;

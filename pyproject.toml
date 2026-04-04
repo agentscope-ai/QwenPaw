@@ -97,6 +97,12 @@ full = [
     "copaw[local,ollama,llamacpp,whisper]",
     "mlx-lm>=0.10.0; sys_platform == 'darwin'",
 ]
+whatsapp = [
+    "neonize>=1.0.0",
+]
+signal = [
+    # signal-cli is a standalone binary, no pip dependency needed
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -25,6 +25,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     ImageContent,
     AudioContent,
     FileContent,
+    VideoContent,
     ContentType,
     RunStatus,
 )
@@ -140,8 +141,6 @@ class WhatsAppChannel(BaseChannel):
         self._my_jid = None
         self._bot_phone = ""
         self._bot_lid = ""
-        self._group_history: Dict[str, list] = {}  # group_jid -> [{sender, body, ts}]
-        self._group_history_limit = 50
 
         if self.enabled and not NEONIZE_AVAILABLE:
             logger.error("whatsapp: neonize not installed, channel disabled")
@@ -162,7 +161,12 @@ class WhatsAppChannel(BaseChannel):
         workspace_dir: Path | None = None,
         **kwargs,
     ) -> "WhatsAppChannel":
-        c = config if isinstance(config, dict) else (config.model_dump() if hasattr(config, "model_dump") else vars(config))
+        if isinstance(config, dict):
+            c = config
+        elif hasattr(config, "model_dump"):
+            c = config.model_dump()
+        else:
+            c = vars(config) if hasattr(config, "__dict__") else dict(config)
         return cls(
             process=process,
             enabled=bool(c.get("enabled", False)),
@@ -315,7 +319,7 @@ class WhatsAppChannel(BaseChannel):
             try:
                 self._media_dir.mkdir(parents=True, exist_ok=True)
                 path = self._media_dir / f"wa_img_{msg_id}.jpg"
-                data = await client.download_any(msg, str(path)); path.write_bytes(data) if data and not path.exists() else None
+                await client.download_media_with_path(msg, str(path))
                 content_parts.append(ImageContent(type=ContentType.IMAGE, image_url=str(path)))
             except Exception as e:
                 logger.warning("whatsapp: image download failed: %s", e)
@@ -326,53 +330,10 @@ class WhatsAppChannel(BaseChannel):
                 self._media_dir.mkdir(parents=True, exist_ok=True)
                 ext = "ogg" if msg.audioMessage.ptt else "m4a"
                 path = self._media_dir / f"wa_audio_{msg_id}.{ext}"
-                data = await client.download_any(msg, str(path)); path.write_bytes(data) if data and not path.exists() else None
+                await client.download_media_with_path(msg, str(path))
                 content_parts.append(AudioContent(type=ContentType.AUDIO, data=str(path)))
             except Exception as e:
                 logger.warning("whatsapp: audio download failed: %s", e)
-
-        # Video
-        if msg.HasField("videoMessage"):
-            caption = msg.videoMessage.caption or ""
-            if caption and not body:
-                body = caption
-                content_parts.append(TextContent(type=ContentType.TEXT, text=caption))
-            try:
-                self._media_dir.mkdir(parents=True, exist_ok=True)
-                path = self._media_dir / f"wa_video_{msg_id}.mp4"
-                data = await client.download_any(msg, str(path)); path.write_bytes(data) if data and not path.exists() else None
-                content_parts.append(FileContent(type=ContentType.FILE, file_url=str(path)))
-                logger.info("whatsapp: video downloaded: %s", path.name)
-            except Exception as e:
-                logger.warning("whatsapp: video download failed: %s", e)
-
-        # Video
-        if msg.HasField("videoMessage"):
-            caption = msg.videoMessage.caption or ""
-            if caption and not body:
-                body = caption
-                content_parts.append(TextContent(type=ContentType.TEXT, text=caption))
-            try:
-                self._media_dir.mkdir(parents=True, exist_ok=True)
-                path = self._media_dir / f"wa_video_{msg_id}.mp4"
-                data = await client.download_any(msg, str(path))
-                if data:
-                    path.write_bytes(data)
-                content_parts.append(FileContent(type=ContentType.FILE, file_url=str(path)))
-            except Exception as e:
-                logger.warning("whatsapp: video download failed: %s", e)
-
-        # Sticker
-        if msg.HasField("stickerMessage"):
-            try:
-                self._media_dir.mkdir(parents=True, exist_ok=True)
-                path = self._media_dir / f"wa_sticker_{msg_id}.webp"
-                data = await client.download_any(msg, str(path))
-                if data:
-                    path.write_bytes(data)
-                content_parts.append(ImageContent(type=ContentType.IMAGE, image_url=str(path)))
-            except Exception as e:
-                logger.warning("whatsapp: sticker download failed: %s", e)
 
         # Document
         if msg.HasField("documentMessage"):
@@ -380,8 +341,8 @@ class WhatsAppChannel(BaseChannel):
                 self._media_dir.mkdir(parents=True, exist_ok=True)
                 fname = msg.documentMessage.fileName or f"wa_doc_{msg_id}"
                 path = self._media_dir / fname
-                data = await client.download_any(msg, str(path)); path.write_bytes(data) if data and not path.exists() else None
-                content_parts.append(FileContent(type=ContentType.FILE, file_url=str(path)))
+                await client.download_media_with_path(msg, str(path))
+                content_parts.append(VideoContent(type=ContentType.VIDEO, video_url=str(path)))
             except Exception as e:
                 logger.warning("whatsapp: document download failed: %s", e)
 
@@ -440,30 +401,6 @@ class WhatsAppChannel(BaseChannel):
 
             # Access control (sync checks: group allowlist, mention)
             if not self._check_access(is_group, chat_str, sender_str, sender_jid, client, msg, body):
-                # For group messages without mention, still record in history buffer
-                # Including media (download if present)
-                if is_group and (body or content_parts):
-                    resolved = self._lid_cache.get(sender_str, {})
-                    sender_label = f"+{resolved.get('phone', '')}" if resolved.get('phone') else sender_str
-                    # Collect media paths from content_parts
-                    media_paths = []
-                    for part in content_parts:
-                        if hasattr(part, "image_url") and part.image_url:
-                            media_paths.append(part.image_url)
-                        elif hasattr(part, "data") and part.data:
-                            media_paths.append(part.data)
-                        elif hasattr(part, "file_url") and part.file_url:
-                            media_paths.append(part.file_url)
-                    history = self._group_history.setdefault(chat_str, [])
-                    history.append({
-                        "sender": sender_label,
-                        "body": body or "[media]",
-                        "ts": timestamp,
-                        "media": media_paths,
-                    })
-                    # Trim to limit
-                    if len(history) > self._group_history_limit:
-                        self._group_history[chat_str] = history[-self._group_history_limit:]
                 return
 
             # Async DM allowlist check (needs LID resolution)
@@ -494,43 +431,27 @@ class WhatsAppChannel(BaseChannel):
                         f" (group {chat_str[:20]})" if is_group else "",
                         body[:80] if body else "[media]")
 
-            # For group messages, prepend recent history as context
-            if is_group and chat_str in self._group_history:
-                history = self._group_history.get(chat_str, [])
-                if history:
-                    ctx_lines = []
-                    media_to_add = []
-                    for h in history[-10:]:
-                        ctx_lines.append(f"[{h['sender']}]: {h['body']}")
-                        # Collect media from history entries
-                        for mp in h.get("media", []):
-                            if os.path.isfile(mp):
-                                media_to_add.append(mp)
-                    if ctx_lines:
-                        ctx_text = "[Recent group context (not directed at you)]:\n" + "\n".join(ctx_lines)
-                        content_parts.insert(0, TextContent(type=ContentType.TEXT, text=ctx_text))
-                    # Add media from history as ImageContent
-                    for mp in media_to_add[-3:]:  # Max 3 recent images
-                        content_parts.append(ImageContent(type=ContentType.IMAGE, image_url=mp))
-                    self._group_history[chat_str] = []
-
             # Build request - use resolved phone number for sender identity
             resolved = self._lid_cache.get(sender_str, {})
             resolved_phone = resolved.get("phone", "")
             resolved_name = resolved.get("name", "")
             friendly_sender = f"+{resolved_phone}" if resolved_phone else sender_str
 
-            # For group messages, prepend sender identity to help agent know who said what
+            # For group messages, prepend sender identity to the actual message
+            # (skip history context blocks that start with "---")
             if is_group and content_parts:
                 sender_label = friendly_sender
                 if resolved_name:
                     sender_label = f"{resolved_name} ({friendly_sender})"
-                # Prepend sender info to first text content
                 for i, part in enumerate(content_parts):
                     if hasattr(part, "type") and part.type == ContentType.TEXT:
+                        txt = part.text or ""
+                        # Don't prepend [From] to history context blocks
+                        if txt.startswith("---"):
+                            continue
                         content_parts[i] = TextContent(
                             type=ContentType.TEXT,
-                            text=f"[From {sender_label}]: {part.text}"
+                            text=f"[From {sender_label}]: {txt}"
                         )
                         break
 
@@ -583,6 +504,10 @@ class WhatsAppChannel(BaseChannel):
                     if c_phone:
                         typing_jid = _str_to_jid(c_phone)
                 _jb = typing_jid.SerializeToString()
+                # WORKAROUND: access private __client to call SendChatPresence directly.
+                # neonize wraps this method but its Go binding has an off-by-one enum
+                # index bug for the presence type, so we bypass the wrapper.
+                # TODO: Remove once neonize exposes a public API for chat presence.
                 await client._NewAClient__client.SendChatPresence(
                     client.uuid, _jb, len(_jb), 0, 0
                 )
@@ -773,65 +698,32 @@ class WhatsAppChannel(BaseChannel):
         part: OutgoingContentPart,
         meta: Optional[dict] = None,
     ) -> None:
-        """Send media (image/video/audio/file) to WhatsApp."""
         if not self.enabled or not self._client or not self._connected:
             return
         meta = meta or {}
         chat_jid_str = meta.get("chat_jid") or to_handle
         jid = _str_to_jid(chat_jid_str)
 
-        part_type = getattr(part, "type", None)
-        
-        # Resolve file path from content part
-        raw_path = None
-        if part_type == ContentType.IMAGE:
-            raw_path = getattr(part, "image_url", None)
-        elif part_type == ContentType.VIDEO:
-            raw_path = getattr(part, "video_url", None)
-        elif part_type == ContentType.FILE:
-            raw_path = getattr(part, "file_url", None) or getattr(part, "file_id", None)
-        elif part_type == ContentType.AUDIO:
-            raw_path = getattr(part, "data", None)
+        t = getattr(part, "type", None)
+        file_path = None
+        if t == ContentType.IMAGE:
+            file_path = getattr(part, "image_url", None)
+        elif t == ContentType.FILE:
+            file_path = getattr(part, "file_url", None)
+        elif t == ContentType.AUDIO:
+            file_path = getattr(part, "data", None)
 
-        if not raw_path:
-            return
-
-        # Handle file:// URLs
-        if isinstance(raw_path, str) and raw_path.startswith("file://"):
-            raw_path = raw_path.replace("file://", "")
-
-        # Resolve and validate path
-        file_path = Path(raw_path).expanduser().resolve() if isinstance(raw_path, str) else None
-        if not file_path or not file_path.exists():
-            logger.warning("whatsapp: media file not found: %s", raw_path)
-            await self.send(to_handle, f"[Media file not found: {Path(raw_path).name if raw_path else 'unknown'}]", meta)
-            return
-
-        # Check file size (WhatsApp limit ~64MB for most media, 16MB for images)
-        file_size = file_path.stat().st_size
-        max_size = 16 * 1024 * 1024 if part_type == ContentType.IMAGE else 64 * 1024 * 1024
-        if file_size > max_size:
-            size_mb = file_size / (1024 * 1024)
-            limit_mb = max_size / (1024 * 1024)
-            logger.warning("whatsapp: file too large: %s (%.1fMB > %dMB)", file_path.name, size_mb, limit_mb)
-            await self.send(to_handle, f"[File too large: {file_path.name} ({size_mb:.1f}MB, limit {limit_mb:.0f}MB)]", meta)
-            return
-
-        try:
-            str_path = str(file_path)
-            if part_type == ContentType.IMAGE:
-                await self._client.send_image(jid, str_path)
-            elif part_type == ContentType.VIDEO:
-                await self._client.send_video(jid, str_path)
-            elif part_type == ContentType.AUDIO:
-                ptt = str_path.endswith(".ogg") or str_path.endswith(".opus")
-                await self._client.send_audio(jid, str_path, ptt=ptt)
-            else:
-                await self._client.send_document(jid, str_path)
-            logger.info("whatsapp: sent %s (%s)", part_type, file_path.name)
-        except Exception as e:
-            logger.warning("whatsapp: media send failed (%s): %s", file_path.name, e)
-            await self.send(to_handle, f"[Failed to send {file_path.name}: {e}]", meta)
+        if file_path and os.path.isfile(file_path):
+            try:
+                if t == ContentType.IMAGE:
+                    await self._client.send_image(jid, file_path)
+                elif t == ContentType.AUDIO:
+                    await self._client.send_audio(jid, file_path, ptt=True)
+                else:
+                    await self._client.send_document(jid, file_path)
+                logger.info("whatsapp: sent media %s", file_path)
+            except Exception as e:
+                logger.warning("whatsapp: media send failed: %s", e)
 
     # ── Text chunking ─────────────────────────────────────────────────
 
