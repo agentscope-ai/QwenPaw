@@ -115,6 +115,9 @@ export interface WhatsAppConfig extends BaseChannelConfig {
   auth_dir?: string;
   send_read_receipts?: boolean;
   self_chat_mode?: boolean;
+  text_chunk_limit?: number;
+  groups?: string[];
+  group_allow_from?: string[];
 }
 
 export interface ChannelConfig {

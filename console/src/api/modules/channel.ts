@@ -41,9 +41,9 @@ export const channelApi = {
       )}/qrcode/status?token=${encodeURIComponent(token)}`,
     ),
 
-  startWhatsappPair: (phone?: string) =>
+  startWhatsappPair: (phone: string) =>
     request<{ status: string; pair_code?: string; qr_image?: string; phone?: string }>(
-      `/config/channels/whatsapp/pair${phone ? `?phone=${encodeURIComponent(phone)}` : ""}`,
+      `/config/channels/whatsapp/pair?phone=${encodeURIComponent(phone)}`,
       { method: "POST" },
     ),
   checkWhatsappPairStatus: () =>

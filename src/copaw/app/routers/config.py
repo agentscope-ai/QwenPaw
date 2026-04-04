@@ -649,6 +649,9 @@ async def remove_from_whitelist(
 # different agents is safe because each gets its own state dict.
 _whatsapp_pair_states: dict[str, dict] = {}
 
+_E164_RE = __import__("re").compile(r"^\+[1-9]\d{4,14}$")
+
+
 def _get_wa_pair_state(agent_id: str) -> dict:
     """Get or create per-agent WhatsApp pairing state."""
     if agent_id not in _whatsapp_pair_states:
@@ -667,6 +670,24 @@ def _get_wa_auth_dir(agent) -> str:
     return auth_dir
 
 
+async def _cleanup_wa_pair_state(state: dict) -> None:
+    """Disconnect client and cancel task for a pairing state dict."""
+    task = state.get("task")
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except Exception:
+            pass
+    client = state.get("client")
+    if client:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+    state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
+
+
 @router.post(
     "/channels/whatsapp/pair",
     summary="Start WhatsApp pairing",
@@ -674,7 +695,7 @@ def _get_wa_auth_dir(agent) -> str:
 )
 async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     """Start WhatsApp pair code auth. Requires E.164 phone number."""
-    if not phone or not phone.startswith("+"):
+    if not _E164_RE.match(phone or ""):
         raise HTTPException(status_code=400, detail="Phone number required in E.164 format (e.g. +85212345678)")
     import asyncio
     try:
@@ -692,17 +713,10 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
     Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
 
-    # Disconnect any existing pairing client for this agent
-    old_client = state.get("client")
-    if old_client:
-        try:
-            await old_client.disconnect()
-        except Exception:
-            pass
+    # Clean up any existing pairing session for this agent
+    await _cleanup_wa_pair_state(state)
 
     state["status"] = "pairing"
-    state["code"] = None
-    state["qr_data"] = None
 
     client = NewAClient(name=db_path)
     state["client"] = client
@@ -714,15 +728,12 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     @client.qr
     async def on_qr(c, qr_bytes):
         import base64
-        try:
-            import segno
-            import io
-            qr = segno.make_qr(qr_bytes)
-            buf = io.BytesIO()
-            qr.save(buf, kind="png", scale=5, border=2)
-            state["qr_data"] = base64.b64encode(buf.getvalue()).decode()
-        except Exception:
-            state["qr_data"] = base64.b64encode(qr_bytes).decode()
+        import segno as _segno
+        import io
+        qr = _segno.make_qr(qr_bytes)
+        buf = io.BytesIO()
+        qr.save(buf, kind="png", scale=5, border=2)
+        state["qr_data"] = base64.b64encode(buf.getvalue()).decode()
 
     state["task"] = await client.connect()
     await asyncio.sleep(3)
@@ -765,13 +776,7 @@ async def stop_whatsapp_pair(request: Request) -> dict:
     from ..agent_context import get_agent_for_request
     agent = await get_agent_for_request(request)
     state = _get_wa_pair_state(agent.agent_id)
-    client = state.get("client")
-    if client:
-        try:
-            await client.disconnect()
-        except Exception:
-            pass
-    state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
+    await _cleanup_wa_pair_state(state)
     return {"status": "stopped"}
 
 
@@ -800,6 +805,9 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
     Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
 
+    # Clean up any existing pairing session for this agent
+    await _cleanup_wa_pair_state(state)
+
     qr_ready = asyncio.Event()
     qr_result = {"image": None}
 
@@ -813,15 +821,11 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
 
     @client.qr
     async def on_qr(c, qr_bytes):
-        try:
-            qr = segno.make_qr(qr_bytes)
-            buf = io.BytesIO()
-            qr.save(buf, kind="png", scale=6, border=2)
-            qr_result["image"] = base64.b64encode(buf.getvalue()).decode()
-            qr_ready.set()
-        except Exception:
-            qr_result["image"] = None
-            qr_ready.set()
+        qr = segno.make_qr(qr_bytes)
+        buf = io.BytesIO()
+        qr.save(buf, kind="png", scale=6, border=2)
+        qr_result["image"] = base64.b64encode(buf.getvalue()).decode()
+        qr_ready.set()
 
     state["task"] = await client.connect()
 
@@ -851,10 +855,12 @@ async def unbind_whatsapp(request: Request) -> dict:
     auth_dir = _get_wa_auth_dir(agent)
     state = _get_wa_pair_state(agent.agent_id)
 
+    # Disconnect active client before deleting DB
+    await _cleanup_wa_pair_state(state)
+
     db_path = _P(auth_dir).expanduser() / "neonize.db"
     if db_path.exists():
         db_path.unlink()
-        state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
         return {"status": "unbound", "detail": "Session deleted. Restart CoPaw to re-pair."}
     return {"status": "idle", "detail": "No session found."}
 
@@ -876,9 +882,11 @@ async def get_whatsapp_status(request: Request) -> dict:
         import sqlite3
         conn = sqlite3.connect(str(db_path))
         try:
-            rows = conn.execute("SELECT * FROM whatsmeow_device LIMIT 1").fetchall()
-            if rows:
-                return {"linked": True, "phone": "linked"}
+            row = conn.execute("SELECT jid FROM whatsmeow_device LIMIT 1").fetchone()
+            if row and row[0]:
+                jid_str = row[0]  # e.g. "85251159218:1@s.whatsapp.net"
+                phone = jid_str.split(":")[0] if ":" in jid_str else jid_str.split("@")[0]
+                return {"linked": True, "phone": f"+{phone}" if phone else "linked"}
             return {"linked": False, "phone": None}
         except Exception:
             return {"linked": False, "phone": None}

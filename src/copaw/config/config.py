@@ -203,16 +203,14 @@ class WeixinConfig(BaseChannelConfig):
 
 
 class WhatsAppConfig(BaseChannelConfig):
-    """WhatsApp channel config (neonize backend).
-
-    auth_dir:           Directory for neonize session database.
-    send_read_receipts: Send read receipts to senders.
-    self_chat_mode:     Treat messages from own number as commands.
-    """
+    """WhatsApp channel config (neonize backend)."""
 
     auth_dir: str = ""
     send_read_receipts: bool = True
     self_chat_mode: bool = False
+    text_chunk_limit: int = 4096
+    groups: List[str] = Field(default_factory=list)
+    group_allow_from: List[str] = Field(default_factory=list)
 
 
 class ChannelConfig(BaseModel):

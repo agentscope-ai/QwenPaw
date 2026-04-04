@@ -187,12 +187,18 @@ export function ChannelDrawer({
 
   const handleWhatsappPair = useCallback(async () => {
     stopWaPoll();
+    const phone = window.prompt("Enter WhatsApp phone number (E.164 format, e.g. +85212345678):")?.trim();
+    if (!phone || !/^\+[1-9]\d{4,14}$/.test(phone)) {
+      message.error(t("channels.whatsappInvalidPhone", "Invalid phone number. Use E.164 format (e.g. +85212345678)"));
+      return;
+    }
+    stopWaPoll();
     setWaPairLoading(true);
     setWaPairCode("");
     setWaQrImage("");
     setWaPairStatus("pairing");
     try {
-      const data = await api.startWhatsappPair();
+      const data = await api.startWhatsappPair(phone);
       if (data.pair_code) {
         setWaPairCode(data.pair_code);
         setWaPairStatus("waiting_pair");
@@ -224,16 +230,18 @@ export function ChannelDrawer({
   }, [stopWaPoll, message]);
 
   const handleWhatsappUnbind = useCallback(async () => {
+    stopWaPoll();
     try {
       await api.unbindWhatsapp();
       setWaPairCode("");
       setWaQrImage("");
       setWaPairStatus("idle");
-      message.success("WhatsApp unlinked");
+      setWaLinked(false);
+      message.success(t("channels.whatsappUnlinked", "WhatsApp unlinked"));
     } catch (err) {
-      message.error("Failed to unbind WhatsApp");
+      message.error(t("channels.whatsappUnbindFailed", "Failed to unbind WhatsApp"));
     }
-  }, [message]);
+  }, [stopWaPoll, message, t]);
 
 
   // ── Access control fields (shared across multiple channels) ──────────────
@@ -941,6 +949,7 @@ export function ChannelDrawer({
                     style={{ marginTop: 8 }}
                     block
                     onClick={async () => {
+                      stopWaPoll();
                       setWaPairLoading(true);
                       setWaQrImage("");
                       try {

@@ -369,6 +369,20 @@ class WhatsAppChannel(BaseChannel):
                 if chat_str not in self._groups:
                     logger.debug("whatsapp: blocked by group allowlist")
                     return False
+            # Enforce group_allow_from: restrict which senders can trigger the bot in groups
+            if self._group_allow_from:
+                sender_phone = sender_str.split("@")[0] if "@" in sender_str else sender_str
+                cached = self._lid_cache.get(sender_str, {})
+                resolved_phone = cached.get("phone", "")
+                if not (
+                    "*" in self._group_allow_from
+                    or sender_str in self._group_allow_from
+                    or sender_phone in self._group_allow_from
+                    or resolved_phone in self._group_allow_from
+                    or f"+{resolved_phone}" in self._group_allow_from
+                ):
+                    logger.debug("whatsapp: blocked sender %s by group_allow_from", sender_str)
+                    return False
         return True
 
     async def _on_message(self, client, message) -> None:
@@ -617,10 +631,10 @@ class WhatsAppChannel(BaseChannel):
                 else:
                     qp_user = ""
                 if qp_user and (qp_user == my_lid or qp_user == my_phone):
-                    logger.warning("whatsapp: reply-to-bot DETECTED")
+                    logger.debug("whatsapp: reply-to-bot detected")
                     return True
-        
-        logger.warning("whatsapp: mention check FAILED - my_lid=%s my_phone=%s body=%s",
+
+        logger.debug("whatsapp: mention check failed - my_lid=%s my_phone=%s body=%s",
                      my_lid, my_phone, body[:60])
         return False
 
