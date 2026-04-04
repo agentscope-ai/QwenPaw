@@ -1023,7 +1023,7 @@ class BaseChannel(ABC):
             if not text_segment:
                 continue
             split_parts = [
-                TextContent(type=ContentType.TEXT, text=text_segment)
+                TextContent(type=ContentType.TEXT, text=text_segment),
             ]
             await self.send_content_parts(to_handle, split_parts, meta)
 
