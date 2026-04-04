@@ -217,8 +217,10 @@ class WhatsAppChannel(BaseChannel):
                 import sqlite3
                 db_path = str(self._auth_dir / "neonize.db")
                 conn = sqlite3.connect(db_path)
-                row = conn.execute("SELECT jid, lid FROM whatsmeow_device LIMIT 1").fetchone()
-                conn.close()
+                try:
+                    row = conn.execute("SELECT jid, lid FROM whatsmeow_device LIMIT 1").fetchone()
+                finally:
+                    conn.close()
                 if row:
                     jid_str = row[0] or ""  # e.g. "817089933036:1@s.whatsapp.net"
                     lid_str = row[1] or ""  # e.g. "229661330157571:1@lid"
@@ -699,17 +701,22 @@ class WhatsAppChannel(BaseChannel):
         chat_jid_str = meta.get("chat_jid") or to_handle
         jid = _str_to_jid(chat_jid_str)
 
-        # Extract [Image: /path] patterns
+        # Extract [Image: /path] patterns — restricted to media dir to prevent
+        # LLM-driven file exfiltration (e.g. /etc/passwd)
         img_re = re.compile(r'\[Image: (file:///[^\]]+|/[^\]]+)\]')
         img_matches = img_re.findall(text)
+        safe_dir = str(self._media_dir.resolve())
         for m in img_matches:
             p = m.replace("file://", "") if m.startswith("file://") else m
-            if os.path.isfile(p):
+            resolved = str(Path(p).resolve())
+            if resolved.startswith(safe_dir) and os.path.isfile(resolved):
                 try:
-                    await self._client.send_image(jid, p)
-                    logger.info("whatsapp: sent image %s", p)
+                    await self._client.send_image(jid, resolved)
+                    logger.info("whatsapp: sent image %s", resolved)
                 except Exception as e:
                     logger.warning("whatsapp: image send failed: %s", e)
+            elif os.path.isfile(p):
+                logger.warning("whatsapp: blocked send of %s — outside media dir %s", p, safe_dir)
             text = text.replace(f"[Image: {m}]", "").strip()
 
         if not text:

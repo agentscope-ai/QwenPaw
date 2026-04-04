@@ -644,10 +644,18 @@ async def remove_from_whitelist(
 
 
 # ── WhatsApp auth (QR / pair code) ────────────────────────────
-# NOTE: _whatsapp_pair_state is module-level mutable state.
-# CoPaw runs as a single-process server, so this is safe.
-# If multi-process deployment is needed, this should be moved to a shared store.
-_whatsapp_pair_state: dict = {"client": None, "code": None, "status": "idle", "qr_data": None}
+# Per-agent pairing state keyed by agent_id.
+# CoPaw runs as a single-process server; concurrent pairing for
+# different agents is safe because each gets its own state dict.
+_whatsapp_pair_states: dict[str, dict] = {}
+
+def _get_wa_pair_state(agent_id: str) -> dict:
+    """Get or create per-agent WhatsApp pairing state."""
+    if agent_id not in _whatsapp_pair_states:
+        _whatsapp_pair_states[agent_id] = {
+            "client": None, "code": None, "status": "idle", "qr_data": None, "task": None,
+        }
+    return _whatsapp_pair_states[agent_id]
 
 
 def _get_wa_auth_dir(agent) -> str:
@@ -678,29 +686,30 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     from ..agent_context import get_agent_for_request
     agent = await get_agent_for_request(request)
     auth_dir = _get_wa_auth_dir(agent)
+    state = _get_wa_pair_state(agent.agent_id)
 
     from pathlib import Path
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
     Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
 
-    # Disconnect any existing pairing client
-    old_client = _whatsapp_pair_state.get("client")
+    # Disconnect any existing pairing client for this agent
+    old_client = state.get("client")
     if old_client:
         try:
             await old_client.disconnect()
         except Exception:
             pass
 
-    _whatsapp_pair_state["status"] = "pairing"
-    _whatsapp_pair_state["code"] = None
-    _whatsapp_pair_state["qr_data"] = None
+    state["status"] = "pairing"
+    state["code"] = None
+    state["qr_data"] = None
 
     client = NewAClient(name=db_path)
-    _whatsapp_pair_state["client"] = client
+    state["client"] = client
 
     @client.event(ConnectedEv)
     async def on_connected(c, evt):
-        _whatsapp_pair_state["status"] = "connected"
+        state["status"] = "connected"
 
     @client.qr
     async def on_qr(c, qr_bytes):
@@ -711,22 +720,22 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
             qr = segno.make_qr(qr_bytes)
             buf = io.BytesIO()
             qr.save(buf, kind="png", scale=5, border=2)
-            _whatsapp_pair_state["qr_data"] = base64.b64encode(buf.getvalue()).decode()
+            state["qr_data"] = base64.b64encode(buf.getvalue()).decode()
         except Exception:
-            _whatsapp_pair_state["qr_data"] = base64.b64encode(qr_bytes).decode()
+            state["qr_data"] = base64.b64encode(qr_bytes).decode()
 
-    _whatsapp_pair_state["task"] = await client.connect()
+    state["task"] = await client.connect()
     await asyncio.sleep(3)
 
     try:
         code = await client.PairPhone(phone, True)
-        _whatsapp_pair_state["code"] = code
-        _whatsapp_pair_state["status"] = "waiting_pair"
+        state["code"] = code
+        state["status"] = "waiting_pair"
         return {"status": "waiting_pair", "pair_code": code, "phone": phone}
     except Exception as e:
         await asyncio.sleep(2)
-        if _whatsapp_pair_state["qr_data"]:
-            return {"status": "waiting_qr", "qr_image": _whatsapp_pair_state["qr_data"]}
+        if state["qr_data"]:
+            return {"status": "waiting_qr", "qr_image": state["qr_data"]}
         return {"status": "error", "detail": str(e)}
 
 
@@ -734,14 +743,16 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     "/channels/whatsapp/pair/status",
     summary="Check WhatsApp pairing status",
 )
-async def check_whatsapp_pair_status() -> dict:
+async def check_whatsapp_pair_status(request: Request) -> dict:
     """Check current WhatsApp pairing status."""
-    status = _whatsapp_pair_state["status"]
-    result = {"status": status}
-    if _whatsapp_pair_state["code"]:
-        result["pair_code"] = _whatsapp_pair_state["code"]
-    if _whatsapp_pair_state["qr_data"]:
-        result["qr_image"] = _whatsapp_pair_state["qr_data"]
+    from ..agent_context import get_agent_for_request
+    agent = await get_agent_for_request(request)
+    state = _get_wa_pair_state(agent.agent_id)
+    result = {"status": state["status"]}
+    if state["code"]:
+        result["pair_code"] = state["code"]
+    if state["qr_data"]:
+        result["qr_image"] = state["qr_data"]
     return result
 
 
@@ -749,15 +760,18 @@ async def check_whatsapp_pair_status() -> dict:
     "/channels/whatsapp/pair/stop",
     summary="Stop WhatsApp pairing",
 )
-async def stop_whatsapp_pair() -> dict:
+async def stop_whatsapp_pair(request: Request) -> dict:
     """Stop the WhatsApp pairing process."""
-    client = _whatsapp_pair_state.get("client")
+    from ..agent_context import get_agent_for_request
+    agent = await get_agent_for_request(request)
+    state = _get_wa_pair_state(agent.agent_id)
+    client = state.get("client")
     if client:
         try:
             await client.disconnect()
         except Exception:
             pass
-    _whatsapp_pair_state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
+    state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
     return {"status": "stopped"}
 
 
@@ -780,6 +794,7 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     from ..agent_context import get_agent_for_request
     agent = await get_agent_for_request(request)
     auth_dir = _get_wa_auth_dir(agent)
+    state = _get_wa_pair_state(agent.agent_id)
 
     from pathlib import Path
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
@@ -789,12 +804,12 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     qr_result = {"image": None}
 
     client = NewAClient(name=db_path)
-    _whatsapp_pair_state["client"] = client
-    _whatsapp_pair_state["status"] = "waiting_qr"
+    state["client"] = client
+    state["status"] = "waiting_qr"
 
     @client.event(ConnectedEv)
     async def on_connected(c, evt):
-        _whatsapp_pair_state["status"] = "connected"
+        state["status"] = "connected"
 
     @client.qr
     async def on_qr(c, qr_bytes):
@@ -808,7 +823,7 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
             qr_result["image"] = None
             qr_ready.set()
 
-    _whatsapp_pair_state["task"] = await client.connect()
+    state["task"] = await client.connect()
 
     try:
         await asyncio.wait_for(qr_ready.wait(), timeout=15)
@@ -816,7 +831,7 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
         pass
 
     if qr_result["image"]:
-        _whatsapp_pair_state["qr_data"] = qr_result["image"]
+        state["qr_data"] = qr_result["image"]
         return {"status": "waiting_qr", "qr_image": qr_result["image"]}
     else:
         return {"status": "error", "detail": "QR code not generated"}
@@ -834,11 +849,12 @@ async def unbind_whatsapp(request: Request) -> dict:
     from ..agent_context import get_agent_for_request
     agent = await get_agent_for_request(request)
     auth_dir = _get_wa_auth_dir(agent)
+    state = _get_wa_pair_state(agent.agent_id)
 
     db_path = _P(auth_dir).expanduser() / "neonize.db"
     if db_path.exists():
         db_path.unlink()
-        _whatsapp_pair_state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
+        state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
         return {"status": "unbound", "detail": "Session deleted. Restart CoPaw to re-pair."}
     return {"status": "idle", "detail": "No session found."}
 
