@@ -1049,7 +1049,14 @@ class BaseChannel(ABC):
                 f"body_len={len(body)} preview="
                 f"{body[:120] + '...' if len(body) > 120 else body}",
             )
-            await self.send(to_handle, body.strip(), meta)
+            # Support [SPLIT] delimiter to send multiple messages
+            if "[SPLIT]" in body:
+                for part in body.split("[SPLIT]"):
+                    part = part.strip()
+                    if part:
+                        await self.send(to_handle, part, meta)
+            else:
+                await self.send(to_handle, body.strip(), meta)
         for m in media_parts:
             await self.send_media(to_handle, m, meta)
 

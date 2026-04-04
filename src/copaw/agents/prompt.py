@@ -223,6 +223,7 @@ def build_system_prompt_from_working_dir(
         working_dir = Path(WORKING_DIR)
 
     # Load enabled files from parameter or config
+    agent_config = None
     if enabled_files is None:
         # Use agent-specific config if agent_id provided
         if agent_id:
@@ -262,26 +263,8 @@ def build_system_prompt_from_working_dir(
     return prompt
 
 
-def build_split_delimiter_hint(
-    language: str = "zh",
-) -> str:
-    """Build a hint about the [SPLIT] message delimiter.
-
-    Args:
-        language: Language code (zh/en/ru)
-
-    Returns:
-        Formatted hint about using [SPLIT] to send multiple messages
-    """
-    if language == "zh":
-        return (
-            "## 消息分隔符\n"
-            "\n"
-            "如果需要发送多条独立的消息，可以在一条回复中使用 `[SPLIT]` 分隔符。\n"
-            "例如：回复 `消息1[SPLIT]消息2[SPLIT]消息3` 会发出三条独立的消息。\n"
-            "\n"
-        )
-    # en / ru / other — default to English
+def build_split_delimiter_hint() -> str:
+    """Build a hint about the [SPLIT] message delimiter."""
     return (
         "## Message Delimiter\n"
         "\n"

@@ -703,19 +703,8 @@ class ChannelManager:
 
         # Send as content parts (single text part; use TextContent so channel
         # getattr(p, "type") / getattr(p, "text") work)
-        # Support [SPLIT] delimiter to send multiple messages
-        if "[SPLIT]" in text:
-            for part in text.split("[SPLIT]"):
-                part = part.strip()
-                if part:
-                    await ch.send_content_parts(
-                        to_handle,
-                        [TextContent(type=ContentType.TEXT, text=part)],
-                        merged_meta,
-                    )
-        else:
-            await ch.send_content_parts(
-                to_handle,
-                [TextContent(type=ContentType.TEXT, text=text)],
-                merged_meta,
-            )
+        await ch.send_content_parts(
+            to_handle,
+            [TextContent(type=ContentType.TEXT, text=text)],
+            merged_meta,
+        )
