@@ -1000,6 +1000,16 @@ class BaseChannel(ABC):
         )
 
         # Support [SPLIT] delimiter: check if any text part contains it
+        has_split = any(
+            "[SPLIT]" in (getattr(p, "text", None) or "")
+            for p in parts
+            if getattr(p, "type", None) == ContentType.TEXT
+        )
+
+        if not has_split:
+            await self.send_content_parts(to_handle, parts, meta)
+            return
+
         text_parts = []
         for p in parts:
             t = getattr(p, "type", None)
@@ -1012,7 +1022,9 @@ class BaseChannel(ABC):
             text_segment = text_segment.strip()
             if not text_segment:
                 continue
-            split_parts = [TextContent(type=ContentType.TEXT, text=text_segment)]
+            split_parts = [
+                TextContent(type=ContentType.TEXT, text=text_segment)
+            ]
             await self.send_content_parts(to_handle, split_parts, meta)
 
     async def send_content_parts(
