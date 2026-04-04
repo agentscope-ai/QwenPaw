@@ -643,6 +643,8 @@ async def remove_from_whitelist(
 
 # ── WhatsApp auth (QR / pair code) ────────────────────────────
 
+# Module-level state is single-instance by design: CoPaw runs one agent process per deployment.
+# This is acceptable for the single-user self-hosted model.
 _whatsapp_pair_state: dict = {"client": None, "code": None, "status": "idle", "qr_data": None}
 
 @router.post(
@@ -650,8 +652,10 @@ _whatsapp_pair_state: dict = {"client": None, "code": None, "status": "idle", "q
     summary="Start WhatsApp pairing",
     description="Start WhatsApp pairing. Returns a pair code to enter on your phone.",
 )
-async def start_whatsapp_pair(request: Request, phone: str = "+85251159218") -> dict:
+async def start_whatsapp_pair(request: Request, phone: str) -> dict:
     """Start WhatsApp pair code auth. Returns the code to enter on phone."""
+    if not phone or not phone.strip():
+        raise HTTPException(status_code=400, detail="phone is required")
     import asyncio
     try:
         from neonize.aioze.client import NewAClient
@@ -859,17 +863,3 @@ async def get_whatsapp_status() -> dict:
     except Exception as e:
         return {"linked": False, "error": str(e)}
 
-
-@router.post(
-    "/channels/whatsapp/unbind",
-    summary="Unlink WhatsApp device",
-)
-async def unbind_whatsapp() -> dict:
-    """Remove WhatsApp linked device."""
-    from pathlib import Path
-    import os
-    db_path = Path("~/.copaw/credentials/whatsapp/default/neonize.db").expanduser()
-    if db_path.exists():
-        os.remove(str(db_path))
-        return {"status": "unlinked"}
-    return {"status": "not_linked"}
