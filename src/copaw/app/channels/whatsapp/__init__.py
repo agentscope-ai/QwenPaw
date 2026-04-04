@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-"""WhatsApp channel for CoPaw (Baileys implementation)."""
-
+"""WhatsApp channel for CoPaw."""
 from .channel import WhatsAppChannel
 
 __all__ = ["WhatsAppChannel"]

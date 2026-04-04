@@ -169,11 +169,15 @@ export function ChannelDrawer({
   const [waLinked, setWaLinked] = useState(false);
   useEffect(() => {
     api.getWhatsappStatus().then((s) => setWaLinked(s.linked)).catch(() => {});
-    // Cleanup: stop WhatsApp pairing poll on unmount
+    // Cleanup: stop all pairing polls on unmount
     return () => {
       if (waPollRef.current) {
         clearInterval(waPollRef.current);
         waPollRef.current = null;
+      }
+      if (weixinPollRef.current) {
+        clearInterval(weixinPollRef.current);
+        weixinPollRef.current = null;
       }
     };
   }, []);

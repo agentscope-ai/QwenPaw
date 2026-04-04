@@ -29,7 +29,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     RunStatus,
 )
 
-from ....config.config import WhatsAppConfig
+from ....config.config import BaseChannelConfig as WhatsAppConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -494,9 +494,10 @@ class WhatsAppChannel(BaseChannel):
                     if c_phone:
                         typing_jid = _str_to_jid(c_phone)
                 _jb = typing_jid.SerializeToString()
-                # Workaround: access private __client to call SendChatPresence directly.
+                # WORKAROUND: access private __client to call SendChatPresence directly.
                 # neonize wraps this method but its Go binding has an off-by-one enum
                 # index bug for the presence type, so we bypass the wrapper.
+                # TODO: Remove once neonize exposes a public API for chat presence.
                 await client._NewAClient__client.SendChatPresence(
                     client.uuid, _jb, len(_jb), 0, 0
                 )
