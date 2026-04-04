@@ -1095,9 +1095,13 @@ class FeishuChannel(BaseChannel):
     ) -> Dict[str, Any]:
         content_rows: List[List[Dict[str, Any]]] = []
         if text:
-            content_rows.append(
-                [{"tag": "md", "text": normalize_feishu_md(text)}],
-            )
+            paragraphs = re.split(r"\n\s*\n", text)
+            for para in paragraphs:
+                para = para.strip()
+                if para:
+                    content_rows.append(
+                        [{"tag": "md", "text": normalize_feishu_md(para)}],
+                    )
         for image_key in image_keys:
             content_rows.append([{"tag": "img", "image_key": image_key}])
         if not content_rows:
