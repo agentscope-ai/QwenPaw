@@ -12,6 +12,8 @@ export const CHANNELS = {
   voice: "voice",
   wecom: "wecom",
   xiaoyi: "xiaoyi",
+  weixin: "weixin",
+  whatsapp: "whatsapp",
 };
 
 export const CHANNEL_COLORS: Record<string, string> = {
@@ -28,4 +30,6 @@ export const CHANNEL_COLORS: Record<string, string> = {
   voice: "geekblue",
   wecom: "olive",
   xiaoyi: "cyan",
+  weixin: "green",
+  whatsapp: "green",
 };

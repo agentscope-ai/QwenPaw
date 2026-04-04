@@ -12,11 +12,12 @@ import { Alert, ConfigProvider, Spin } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import { useChannelQrcode } from "./useChannelQrcode";
 import styles from "../index.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import { api } from "../../../../api";
 
 const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "telegram",
@@ -27,6 +28,8 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "mattermost",
   "matrix",
   "weixin",
+  "whatsapp",
+  "signal",
 ];
 
 // Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
@@ -45,6 +48,8 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   wecom: "https://copaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
   weixin:
     "https://copaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
+  whatsapp:
+    "https://copaw.agentscope.io/docs/channels/?lang=en#WhatsApp",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
 };
@@ -154,6 +159,85 @@ export function ChannelDrawer({
       [message, t],
     ),
   });
+// WhatsApp pair code state
+  const [waPairCode, setWaPairCode] = useState<string>("");
+  const [waQrImage, setWaQrImage] = useState<string>("");
+  const [waPairLoading, setWaPairLoading] = useState(false);
+  const [waPairStatus, setWaPairStatus] = useState<string>("idle");
+  const waPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // WhatsApp linked state
+  const [waLinked, setWaLinked] = useState(false);
+  useEffect(() => {
+    api.getWhatsappStatus().then((s) => setWaLinked(s.linked)).catch(() => {});
+    // Cleanup: stop WhatsApp pairing poll on unmount
+    return () => {
+      if (waPollRef.current) {
+        clearInterval(waPollRef.current);
+        waPollRef.current = null;
+      }
+    };
+  }, []);
+
+
+  const stopWaPoll = useCallback(() => {
+    if (waPollRef.current) {
+      clearInterval(waPollRef.current);
+      waPollRef.current = null;
+    }
+  }, []);
+
+  const handleWhatsappPair = useCallback(async () => {
+    stopWaPoll();
+    setWaPairLoading(true);
+    setWaPairCode("");
+    setWaQrImage("");
+    setWaPairStatus("pairing");
+    try {
+      const data = await api.startWhatsappPair();
+      if (data.pair_code) {
+        setWaPairCode(data.pair_code);
+        setWaPairStatus("waiting_pair");
+      }
+      if (data.qr_image) {
+        setWaQrImage(data.qr_image);
+        setWaPairStatus("waiting_qr");
+      }
+      // Poll for connection
+      waPollRef.current = setInterval(async () => {
+        try {
+          const s = await api.checkWhatsappPairStatus();
+          if (s.status === "connected") {
+            stopWaPoll();
+            setWaPairCode("");
+            setWaQrImage("");
+            setWaPairStatus("connected");
+            setWaPairLoading(false);
+            message.success("WhatsApp linked successfully!");
+          }
+        } catch { /* ignore */ }
+      }, 3000);
+    } catch (err) {
+      message.error("Failed to start WhatsApp pairing");
+      setWaPairStatus("idle");
+    } finally {
+      setWaPairLoading(false);
+    }
+  }, [stopWaPoll, message]);
+
+  const handleWhatsappUnbind = useCallback(async () => {
+    try {
+      await api.unbindWhatsapp();
+      setWaPairCode("");
+      setWaQrImage("");
+      setWaPairStatus("idle");
+      message.success("WhatsApp unlinked");
+    } catch (err) {
+      message.error("Failed to unbind WhatsApp");
+    }
+  }, [message]);
+
+
+
 
   // ── Access control fields (shared across multiple channels) ──────────────
 
@@ -820,6 +904,188 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media" />
+            </Form.Item>
+          </>
+        );
+
+      case "whatsapp":
+        return (
+          <>
+            <Form.Item label="WhatsApp Connection">
+              {waPairStatus === "connected" ? (
+                <>
+                  <Alert
+                    type="success"
+                    showIcon
+                    message="WhatsApp Connected"
+                    description="Session is active. Messages are being received."
+                    style={{ marginBottom: 12 }}
+                  />
+                  <Button
+                    danger
+                    block
+                    loading={waPairLoading}
+                    onClick={handleWhatsappUnbind}
+                  >
+                    Unbind WhatsApp
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="primary"
+                    block
+                    loading={waPairLoading}
+                    onClick={handleWhatsappPair}
+                  >
+                    Get Pair Code
+                  </Button>
+                  <Button
+                    style={{ marginTop: 8 }}
+                    block
+                    onClick={async () => {
+                      setWaPairLoading(true);
+                      setWaQrImage("");
+                      try {
+                        const data = await api.getWhatsappQrcode();
+                        if (data.qr_image) {
+                          setWaQrImage(data.qr_image);
+                          setWaPairStatus("waiting_qr");
+                        }
+                      } catch { /* ignore */ }
+                      setWaPairLoading(false);
+                    }}
+                  >
+                    Show QR Code
+                  </Button>
+                  {waPairCode && (
+                    <div style={{ textAlign: "center", marginTop: 12, padding: "16px", background: "rgba(0,0,0,0.05)", borderRadius: 8 }}>
+                      <div style={{ fontSize: 24, fontWeight: "bold", letterSpacing: 4 }}>{waPairCode}</div>
+                      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.6 }}>
+                        WhatsApp &rarr; Settings &rarr; Linked Devices &rarr; Link with phone number
+                      </div>
+                    </div>
+                  )}
+                  {waQrImage && (
+                    <div style={{ textAlign: "center", marginTop: 12 }}>
+                      <img
+                        src={`data:image/png;base64,${waQrImage}`}
+                        alt="WhatsApp QR Code"
+                        style={{ width: 200, height: 200 }}
+                      />
+                      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.6 }}>
+                        Scan with WhatsApp camera
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              {waLinked && (
+                <Button
+                  danger
+                  block
+                  style={{ marginTop: 8 }}
+                  onClick={async () => {
+                    await api.unbindWhatsapp();
+                    setWaLinked(false);
+                    setWaPairCode("");
+                    setWaQrImage("");
+                    setWaPairStatus("idle");
+                    message.success("WhatsApp unlinked");
+                  }}
+                >
+                  Unlink Device
+                </Button>
+              )}
+            </Form.Item>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message="WhatsApp Channel uses QR code login. Session will be saved in auth_dir."
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <Form.Item
+              name="auth_dir"
+              label="Auth Directory"
+              tooltip="Directory to store WhatsApp session credentials"
+              initialValue="~/.copaw/credentials/whatsapp/default"
+            >
+              <Input placeholder="~/.copaw/credentials/whatsapp/default" />
+            </Form.Item>
+            <Form.Item
+              name="send_read_receipts"
+              label="Send Read Receipts"
+              valuePropName="checked"
+              initialValue={true}
+            >
+              <Switch defaultChecked />
+            </Form.Item>
+            <Form.Item
+              name="text_chunk_limit"
+              label="Text Chunk Limit"
+              tooltip="Maximum characters per message chunk"
+              initialValue={4096}
+            >
+              <InputNumber min={256} max={8192} step={256} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              name="media_max_mb"
+              label="Media Max Size (MB)"
+              tooltip="Maximum media file size in MB"
+              initialValue={50}
+            >
+              <InputNumber min={1} max={100} step={1} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="self_chat_mode" label="Self Chat Mode" valuePropName="checked" tooltip="Process own messages">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="groups" label="Group Allowlist" tooltip="WhatsApp group JIDs" initialValue={[]}>
+              <Select mode="tags" placeholder="120363421135228220@g.us" tokenSeparators={[","," ","\n"]} />
+            </Form.Item>
+            <Form.Item name="group_allow_from" label="Group Allow From" tooltip='Who can trigger bot in groups. ["*"] = everyone.' initialValue={[]}>
+              <Select mode="tags" placeholder="* (everyone)" tokenSeparators={[","," "]} />
+            </Form.Item>
+            <Form.Item name="filter_thinking" label="Filter Thinking" valuePropName="checked" tooltip="Hide reasoning/thinking blocks from replies">
+              <Switch />
+            </Form.Item>
+          </>
+        );
+
+
+      case "signal":
+        return (
+          <>
+            <Form.Item name="account" label="Account" tooltip="Bot phone number (E.164)" rules={[{ required: true }]}>
+              <Input placeholder="+85298349370" />
+            </Form.Item>
+            <Form.Item name="http_url" label="Bridge URL" tooltip="signal-cli bridge URL">
+              <Input placeholder="http://127.0.0.1:8082" />
+            </Form.Item>
+            <Form.Item name="http_port" label="Bridge Port" initialValue={8082}>
+              <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="auto_start" label="Auto Start Daemon" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="send_read_receipts" label="Read Receipts" valuePropName="checked" initialValue={true}>
+              <Switch defaultChecked />
+            </Form.Item>
+            <Form.Item name="text_chunk_limit" label="Chunk Limit" initialValue={4000}>
+              <InputNumber min={256} max={8192} step={256} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="media_max_mb" label="Media Max (MB)" initialValue={8}>
+              <InputNumber min={1} max={100} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="groups" label="Group Allowlist" tooltip="Signal group IDs (base64)" initialValue={[]}>
+              <Select mode="tags" placeholder="sBlO8LhzR42X...=" tokenSeparators={[","," ","\n"]} />
+            </Form.Item>
+            <Form.Item name="group_allow_from" label="Group Allow From" tooltip='Who can trigger bot in groups. ["*"] = everyone.' initialValue={[]}>
+              <Select mode="tags" placeholder="* (everyone)" tokenSeparators={[","," "]} />
+            </Form.Item>
+            <Form.Item name="filter_thinking" label="Filter Thinking" valuePropName="checked" tooltip="Hide reasoning/thinking blocks from replies">
+              <Switch />
             </Form.Item>
           </>
         );
