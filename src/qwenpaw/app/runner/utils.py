@@ -65,8 +65,7 @@ def build_env_context(
         parts.append(f"- Channel: {channel}")
 
     parts.append(
-        f"- OS: {platform.system()} {platform.release()} "
-        f"({platform.machine()})",
+        f"- OS: {platform.system()} {platform.release()} " f"({platform.machine()})",
     )
 
     if working_dir is not None:
