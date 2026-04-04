@@ -111,6 +111,12 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
+export interface WhatsAppConfig extends BaseChannelConfig {
+  auth_dir?: string;
+  send_read_receipts?: boolean;
+  self_chat_mode?: boolean;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -125,6 +131,7 @@ export interface ChannelConfig {
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
   xiaoyi: XiaoYiConfig;
+  whatsapp: WhatsAppConfig;
 }
 
 export type SingleChannelConfig =
@@ -140,4 +147,5 @@ export type SingleChannelConfig =
   | MattermostConfig
   | WecomConfig
   | VoiceChannelConfig
-  | XiaoYiConfig;
+  | XiaoYiConfig
+  | WhatsAppConfig;

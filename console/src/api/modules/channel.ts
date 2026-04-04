@@ -40,4 +40,28 @@ export const channelApi = {
         channel,
       )}/qrcode/status?token=${encodeURIComponent(token)}`,
     ),
+
+  startWhatsappPair: (phone?: string) =>
+    request<{ status: string; pair_code?: string; qr_image?: string; phone?: string }>(
+      `/config/channels/whatsapp/pair${phone ? `?phone=${encodeURIComponent(phone)}` : ""}`,
+      { method: "POST" },
+    ),
+  checkWhatsappPairStatus: () =>
+    request<{ status: string; pair_code?: string; qr_image?: string }>(
+      "/config/channels/whatsapp/pair/status",
+    ),
+  stopWhatsappPair: () =>
+    request<{ status: string }>("/config/channels/whatsapp/pair/stop", { method: "POST" }),
+  getWhatsappQrcode: () =>
+    request<{ status: string; qr_image?: string }>(
+      "/config/channels/whatsapp/qrcode",
+      { method: "POST" },
+    ),
+  unbindWhatsapp: () =>
+    request<{ status: string; detail?: string }>(
+      "/config/channels/whatsapp/unbind",
+      { method: "POST" },
+    ),
+  getWhatsappStatus: () =>
+    request<{ linked: boolean; phone?: string }>("/config/channels/whatsapp/status"),
 };

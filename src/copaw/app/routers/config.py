@@ -34,6 +34,7 @@ from ...config.config import (
     TelegramConfig,
     VoiceChannelConfig,
     WecomConfig,
+    WhatsAppConfig,
 )
 
 from .schemas_config import HeartbeatBody
@@ -58,6 +59,7 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     "mqtt": MQTTConfig,
     "matrix": MatrixConfig,
     "wecom": WecomConfig,
+    "whatsapp": WhatsAppConfig,
 }
 
 
@@ -639,3 +641,232 @@ async def remove_from_whitelist(
         )
     save_config(config)
     return {"removed": True, "skill_name": skill_name}
+
+
+# ── WhatsApp auth (QR / pair code) ────────────────────────────
+# NOTE: _whatsapp_pair_state is module-level mutable state.
+# CoPaw runs as a single-process server, so this is safe.
+# If multi-process deployment is needed, this should be moved to a shared store.
+_whatsapp_pair_state: dict = {"client": None, "code": None, "status": "idle", "qr_data": None}
+
+
+def _get_wa_auth_dir(agent) -> str:
+    """Resolve WhatsApp auth directory from agent config."""
+    wa_cfg = getattr(agent.config.channels, "whatsapp", None)
+    auth_dir = "~/.copaw/credentials/whatsapp/default"
+    if wa_cfg:
+        auth_dir = getattr(wa_cfg, "auth_dir", auth_dir) or auth_dir
+    return auth_dir
+
+
+@router.post(
+    "/channels/whatsapp/pair",
+    summary="Start WhatsApp pairing",
+    description="Start WhatsApp pairing. Returns a pair code to enter on your phone.",
+)
+async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
+    """Start WhatsApp pair code auth. Requires E.164 phone number."""
+    if not phone or not phone.startswith("+"):
+        raise HTTPException(status_code=400, detail="Phone number required in E.164 format (e.g. +85212345678)")
+    import asyncio
+    try:
+        from neonize.aioze.client import NewAClient
+        from neonize.events import ConnectedEv, QREv
+    except ImportError:
+        raise HTTPException(status_code=500, detail="neonize not installed")
+
+    from ..agent_context import get_agent_for_request
+    agent = await get_agent_for_request(request)
+    auth_dir = _get_wa_auth_dir(agent)
+
+    from pathlib import Path
+    db_path = str(Path(auth_dir).expanduser() / "neonize.db")
+    Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
+
+    # Disconnect any existing pairing client
+    old_client = _whatsapp_pair_state.get("client")
+    if old_client:
+        try:
+            await old_client.disconnect()
+        except Exception:
+            pass
+
+    _whatsapp_pair_state["status"] = "pairing"
+    _whatsapp_pair_state["code"] = None
+    _whatsapp_pair_state["qr_data"] = None
+
+    client = NewAClient(name=db_path)
+    _whatsapp_pair_state["client"] = client
+
+    @client.event(ConnectedEv)
+    async def on_connected(c, evt):
+        _whatsapp_pair_state["status"] = "connected"
+
+    @client.qr
+    async def on_qr(c, qr_bytes):
+        import base64
+        try:
+            import segno
+            import io
+            qr = segno.make_qr(qr_bytes)
+            buf = io.BytesIO()
+            qr.save(buf, kind="png", scale=5, border=2)
+            _whatsapp_pair_state["qr_data"] = base64.b64encode(buf.getvalue()).decode()
+        except Exception:
+            _whatsapp_pair_state["qr_data"] = base64.b64encode(qr_bytes).decode()
+
+    _whatsapp_pair_state["task"] = await client.connect()
+    await asyncio.sleep(3)
+
+    try:
+        code = await client.PairPhone(phone, True)
+        _whatsapp_pair_state["code"] = code
+        _whatsapp_pair_state["status"] = "waiting_pair"
+        return {"status": "waiting_pair", "pair_code": code, "phone": phone}
+    except Exception as e:
+        await asyncio.sleep(2)
+        if _whatsapp_pair_state["qr_data"]:
+            return {"status": "waiting_qr", "qr_image": _whatsapp_pair_state["qr_data"]}
+        return {"status": "error", "detail": str(e)}
+
+
+@router.get(
+    "/channels/whatsapp/pair/status",
+    summary="Check WhatsApp pairing status",
+)
+async def check_whatsapp_pair_status() -> dict:
+    """Check current WhatsApp pairing status."""
+    status = _whatsapp_pair_state["status"]
+    result = {"status": status}
+    if _whatsapp_pair_state["code"]:
+        result["pair_code"] = _whatsapp_pair_state["code"]
+    if _whatsapp_pair_state["qr_data"]:
+        result["qr_image"] = _whatsapp_pair_state["qr_data"]
+    return result
+
+
+@router.post(
+    "/channels/whatsapp/pair/stop",
+    summary="Stop WhatsApp pairing",
+)
+async def stop_whatsapp_pair() -> dict:
+    """Stop the WhatsApp pairing process."""
+    client = _whatsapp_pair_state.get("client")
+    if client:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+    _whatsapp_pair_state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
+    return {"status": "stopped"}
+
+
+@router.post(
+    "/channels/whatsapp/qrcode",
+    summary="Get WhatsApp QR code for linking",
+)
+async def get_whatsapp_qrcode(request: Request) -> dict:
+    """Start WhatsApp QR auth. Returns QR code image for scanning."""
+    import asyncio
+    import base64
+    import io
+    try:
+        from neonize.aioze.client import NewAClient
+        from neonize.events import ConnectedEv
+        import segno
+    except ImportError:
+        raise HTTPException(status_code=500, detail="neonize or segno not installed")
+
+    from ..agent_context import get_agent_for_request
+    agent = await get_agent_for_request(request)
+    auth_dir = _get_wa_auth_dir(agent)
+
+    from pathlib import Path
+    db_path = str(Path(auth_dir).expanduser() / "neonize.db")
+    Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
+
+    qr_ready = asyncio.Event()
+    qr_result = {"image": None}
+
+    client = NewAClient(name=db_path)
+    _whatsapp_pair_state["client"] = client
+    _whatsapp_pair_state["status"] = "waiting_qr"
+
+    @client.event(ConnectedEv)
+    async def on_connected(c, evt):
+        _whatsapp_pair_state["status"] = "connected"
+
+    @client.qr
+    async def on_qr(c, qr_bytes):
+        try:
+            qr = segno.make_qr(qr_bytes)
+            buf = io.BytesIO()
+            qr.save(buf, kind="png", scale=6, border=2)
+            qr_result["image"] = base64.b64encode(buf.getvalue()).decode()
+            qr_ready.set()
+        except Exception:
+            qr_result["image"] = None
+            qr_ready.set()
+
+    _whatsapp_pair_state["task"] = await client.connect()
+
+    try:
+        await asyncio.wait_for(qr_ready.wait(), timeout=15)
+    except asyncio.TimeoutError:
+        pass
+
+    if qr_result["image"]:
+        _whatsapp_pair_state["qr_data"] = qr_result["image"]
+        return {"status": "waiting_qr", "qr_image": qr_result["image"]}
+    else:
+        return {"status": "error", "detail": "QR code not generated"}
+
+
+@router.post(
+    "/channels/whatsapp/unbind",
+    summary="Unbind WhatsApp session",
+    description="Delete the WhatsApp session database so the next connection requires re-pairing.",
+)
+async def unbind_whatsapp(request: Request) -> dict:
+    """Delete neonize.db to force re-authentication on next start."""
+    from pathlib import Path as _P
+
+    from ..agent_context import get_agent_for_request
+    agent = await get_agent_for_request(request)
+    auth_dir = _get_wa_auth_dir(agent)
+
+    db_path = _P(auth_dir).expanduser() / "neonize.db"
+    if db_path.exists():
+        db_path.unlink()
+        _whatsapp_pair_state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
+        return {"status": "unbound", "detail": "Session deleted. Restart CoPaw to re-pair."}
+    return {"status": "idle", "detail": "No session found."}
+
+
+@router.get(
+    "/channels/whatsapp/status",
+    summary="Get WhatsApp connection status",
+)
+async def get_whatsapp_status(request: Request) -> dict:
+    """Check if WhatsApp is linked."""
+    try:
+        from pathlib import Path
+        from ..agent_context import get_agent_for_request
+        agent = await get_agent_for_request(request)
+        auth_dir = _get_wa_auth_dir(agent)
+        db_path = Path(auth_dir).expanduser() / "neonize.db"
+        if not db_path.exists():
+            return {"linked": False, "phone": None}
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        try:
+            rows = conn.execute("SELECT * FROM whatsmeow_device LIMIT 1").fetchall()
+            if rows:
+                return {"linked": True, "phone": "linked"}
+            return {"linked": False, "phone": None}
+        except Exception:
+            return {"linked": False, "phone": None}
+        finally:
+            conn.close()
+    except Exception as e:
+        return {"linked": False, "error": str(e)}
