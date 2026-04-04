@@ -223,7 +223,6 @@ def build_system_prompt_from_working_dir(
         working_dir = Path(WORKING_DIR)
 
     # Load enabled files from parameter or config
-    agent_config = None
     if enabled_files is None:
         # Use agent-specific config if agent_id provided
         if agent_id:

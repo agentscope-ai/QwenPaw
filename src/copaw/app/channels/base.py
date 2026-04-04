@@ -1029,8 +1029,6 @@ class BaseChannel(ABC):
                 media_parts.append(p)
         body = "\n".join(text_parts) if text_parts else ""
         prefix = (meta or {}).get("bot_prefix", "") or ""
-        if prefix and body:
-            body = prefix + "  " + body
         for m in media_parts:
             t = getattr(m, "type", None)
             if t == ContentType.IMAGE and getattr(m, "image_url", None):
@@ -1054,8 +1052,12 @@ class BaseChannel(ABC):
                 for part in body.split("[SPLIT]"):
                     part = part.strip()
                     if part:
+                        if prefix:
+                            part = prefix + "  " + part
                         await self.send(to_handle, part, meta)
             else:
+                if prefix and body:
+                    body = prefix + "  " + body
                 await self.send(to_handle, body.strip(), meta)
         for m in media_parts:
             await self.send_media(to_handle, m, meta)
