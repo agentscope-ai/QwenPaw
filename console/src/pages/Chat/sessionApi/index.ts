@@ -8,6 +8,7 @@ import api, {
   type ChatHistory,
   type ChatStatus,
   type Message,
+  type MessageMetadata,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
 
@@ -52,7 +53,7 @@ interface ContentItem {
 /** A backend message after role-normalisation (output of toOutputMessage). */
 interface OutputMessage extends Omit<Message, "role"> {
   role: string;
-  metadata: unknown;
+  metadata?: MessageMetadata | null;
   sequence_number?: number;
 }
 
@@ -181,7 +182,6 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
         code: CARD_SENDER_INFO,
         data: {
           name: senderName,
-          role: ROLE_USER,
           timestamp,
         },
       },
@@ -208,13 +208,13 @@ function extractSenderInfo(outputMessages: OutputMessage[]): {
 } {
   // Use the first message's metadata for the sender name and timestamp
   for (const msg of outputMessages) {
-    const metadata = (msg.metadata as
+    const metadata = msg.metadata as
       | {
           original_name?: string;
           original_timestamp?: string | null;
         }
       | null
-      | undefined);
+      | undefined;
     const name =
       metadata?.original_name ||
       (msg.name as string | undefined) ||
@@ -255,7 +255,6 @@ const buildResponseCard = (
         code: CARD_SENDER_INFO,
         data: {
           name: senderInfo.name,
-          role: ROLE_ASSISTANT,
           timestamp: senderInfo.timestamp,
         },
       },

@@ -65,13 +65,15 @@ def build_env_context(
         parts.append(f"- Channel: {channel}")
 
     parts.append(
-        f"- OS: {platform.system()} {platform.release()} ({platform.machine()})",
+        f"- OS: {platform.system()} {platform.release()} "
+        f"({platform.machine()})",
     )
 
     if working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
     parts.append(
-        f"- Current date: {now.strftime('%Y-%m-%d')} {user_tz} ({now.strftime('%A')})",
+        f"- Current date: {now.strftime('%Y-%m-%d')} {user_tz} "
+        f"({now.strftime('%A')})",
     )
 
     if add_hint:

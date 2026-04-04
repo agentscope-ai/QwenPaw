@@ -48,6 +48,7 @@ export function RemoteModelManageModal({
   const [discovering, setDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [form] = Form.useForm();
+  const [form] = Form.useForm();
 
   // OpenRouter filter state
   const isOpenRouter = provider.id === "openrouter";

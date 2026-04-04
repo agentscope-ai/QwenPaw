@@ -4,7 +4,6 @@ import styles from "./index.module.less";
 interface SenderInfoCardProps {
   data: {
     name: string;
-    role: "user" | "assistant" | string;
     timestamp: string | null;
   };
 }
