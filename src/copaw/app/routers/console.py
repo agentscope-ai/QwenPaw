@@ -116,10 +116,7 @@ async def post_console_chat(
     if is_reconnect:
         queue = await tracker.attach(chat.id)
         if queue is None:
-            raise HTTPException(
-                status_code=404,
-                detail="No running chat for this session",
-            )
+            return
     else:
         queue, _ = await tracker.attach_or_start(
             chat.id,

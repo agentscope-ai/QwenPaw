@@ -86,6 +86,7 @@ class BaseMemoryManager(ABC):
         self,
         messages: list[Msg],
         previous_summary: str = "",
+        extra_instruction: str = "",
         **kwargs,
     ) -> str:
         """Compact a list of messages into a condensed summary.
@@ -93,6 +94,7 @@ class BaseMemoryManager(ABC):
         Args:
             messages: List of messages to compact.
             previous_summary: Optional previous summary to incorporate.
+            extra_instruction: Optional manual instruction for compaction.
             **kwargs: Additional keyword arguments.
 
         Returns:

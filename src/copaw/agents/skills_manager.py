@@ -165,23 +165,24 @@ def get_pool_skill_manifest_path() -> Path:
     return get_skill_pool_dir() / "skill.json"
 
 
-def _timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+def _get_skill_mtime(skill_dir: Path) -> str:
+    """Return the latest mtime across the skill directory as ISO string.
 
-
-def _get_skill_mtime(skill_dir: Path) -> float:
-    """Return max of SKILL.md mtime and skill_dir mtime.
-
-    Uses two cheap ``stat()`` calls — no file content I/O.
-    Returns ``0.0`` on any filesystem error.
+    Scans SKILL.md and the directory itself.  Returns an empty string
+    on any filesystem error.
     """
     try:
         dir_mtime = skill_dir.stat().st_mtime
         skill_md = skill_dir / "SKILL.md"
         md_mtime = skill_md.stat().st_mtime if skill_md.exists() else 0.0
-        return max(dir_mtime, md_mtime)
+        mtime = max(dir_mtime, md_mtime)
+        return (
+            datetime.fromtimestamp(mtime, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
     except OSError:
-        return 0.0
+        return ""
 
 
 def _directory_tree(directory: Path) -> dict[str, Any]:
@@ -425,7 +426,8 @@ def _classify_pool_skill_source(
     if not _is_builtin_skill(skill_name, builtin_names):
         return "customized", False
 
-    if skill_name not in _get_builtin_signatures():
+    builtin_sigs = _get_builtin_signatures()
+    if skill_name not in builtin_sigs:
         return "customized", False
 
     if existing:
@@ -434,20 +436,14 @@ def _classify_pool_skill_source(
         return "customized", False
 
     pool_signature = _build_signature(skill_dir)
-    builtin_signature = _get_builtin_signatures().get(skill_name, "")
+    builtin_signature = builtin_sigs.get(skill_name, "")
     if pool_signature == builtin_signature:
         return "builtin", False
     return "customized", False
 
 
 def _is_hidden(name: str) -> bool:
-    return name in {
-        "__pycache__",
-        "__MACOSX",
-        ".DS_Store",
-        "Thumbs.db",
-        "desktop.ini",
-    }
+    return name in _IGNORED_SKILL_ARTIFACTS
 
 
 def _extract_and_validate_zip(data: bytes, tmp_dir: Path) -> None:
@@ -663,7 +659,7 @@ def apply_skill_config_env_overrides(
     as environment variables.  The full config is always available as
     ``COPAW_SKILL_CONFIG_<SKILL_NAME>`` (JSON string).
     """
-    manifest = reconcile_workspace_manifest(workspace_dir)
+    manifest = read_skill_manifest(workspace_dir)
     entries = manifest.get("skills", {})
     active_keys: list[str] = []
 
@@ -718,7 +714,6 @@ def _build_skill_metadata(
     """
     post = _read_frontmatter_safe(skill_dir, skill_name)
     requirements = _extract_requirements(post)
-    now = _timestamp()
     return {
         "name": skill_name,
         "description": str(post.get("description", "") or ""),
@@ -728,7 +723,7 @@ def _build_skill_metadata(
         "source": source,
         "protected": protected,
         "requirements": requirements.model_dump(),
-        "updated_at": now,
+        "updated_at": _get_skill_mtime(skill_dir),
     }
 
 
@@ -787,7 +782,7 @@ def list_builtin_import_candidates() -> list[dict[str, Any]]:
     if not builtin_sigs:
         return []
 
-    manifest = read_skill_pool_manifest(reconcile=False)
+    manifest = read_skill_pool_manifest()
     pool_skills = manifest.get("skills", {})
     candidates: list[dict[str, Any]] = []
 
@@ -1068,7 +1063,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                 "source": source,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
-                "updated_at": _timestamp(),
+                "updated_at": metadata["updated_at"],
             }
             if "config" in existing:
                 next_entry["config"] = existing.get("config")
@@ -1126,33 +1121,14 @@ def list_workspaces() -> list[dict[str, str]]:
 
 def read_skill_manifest(
     workspace_dir: Path,
-    *,
-    reconcile: bool = True,
 ) -> dict[str, Any]:
-    """Return the workspace skill manifest.
-
-    When *reconcile* is ``True`` (default) the manifest is refreshed
-    from disk first.  Pass ``reconcile=False`` in read-only list paths
-    to skip the reconciliation and just return the cached JSON.
-    """
-    if reconcile:
-        return reconcile_workspace_manifest(workspace_dir)
+    """Return the cached workspace skill manifest."""
     path = get_workspace_skill_manifest_path(workspace_dir)
     return _read_json_unlocked(path, _default_workspace_manifest())
 
 
-def read_skill_pool_manifest(
-    *,
-    reconcile: bool = True,
-) -> dict[str, Any]:
-    """Return the pool skill manifest.
-
-    When *reconcile* is ``True`` (default) the manifest is refreshed
-    from disk first.  Pass ``reconcile=False`` in read-only list paths
-    to skip the expensive reconciliation.
-    """
-    if reconcile:
-        return reconcile_pool_manifest()
+def read_skill_pool_manifest() -> dict[str, Any]:
+    """Return the cached pool skill manifest."""
     path = get_pool_skill_manifest_path()
     return _read_json_unlocked(path, _default_pool_manifest())
 
@@ -1160,11 +1136,9 @@ def read_skill_pool_manifest(
 def resolve_effective_skills(
     workspace_dir: Path,
     channel_name: str,
-    *,
-    _registry: dict | None = None,
 ) -> list[str]:
     """Resolve enabled workspace skills for one channel."""
-    manifest = reconcile_workspace_manifest(workspace_dir)
+    manifest = read_skill_manifest(workspace_dir)
     resolved = []
     for skill_name, entry in sorted(manifest.get("skills", {}).items()):
         if not entry.get("enabled", False):
@@ -1229,7 +1203,7 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
     if skill_name not in builtin_sigs:
         raise ValueError(f"'{skill_name}' is not a builtin skill")
 
-    manifest = read_skill_pool_manifest(reconcile=False)
+    manifest = read_skill_pool_manifest()
     existing = manifest.get("skills", {}).get(skill_name)
     if existing is None or not _is_pool_builtin_entry(existing):
         raise ValueError(
@@ -1353,8 +1327,6 @@ def _write_skill_to_dir(
     extra_files: dict[str, Any] | None = None,
 ) -> None:
     """Write a skill's files into a directory (shared by create flows)."""
-    if skill_dir.exists():
-        shutil.rmtree(skill_dir)
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
     _create_files_from_tree(skill_dir, extra_files or {})
@@ -1447,18 +1419,11 @@ class SkillService:
         self.workspace_dir = Path(workspace_dir).expanduser()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
-    def _manifest(self) -> dict[str, Any]:
-        return reconcile_workspace_manifest(self.workspace_dir)
-
     def _read_manifest(self) -> dict[str, Any]:
-        """Read workspace manifest without triggering reconcile."""
-        return read_skill_manifest(
-            self.workspace_dir,
-            reconcile=False,
-        )
+        return read_skill_manifest(self.workspace_dir)
 
     def list_all_skills(self) -> list[SkillInfo]:
-        manifest = self._manifest()
+        manifest = self._read_manifest()
         skill_root = get_workspace_skills_dir(self.workspace_dir)
         skills: list[SkillInfo] = []
         for skill_name, entry in sorted(manifest.get("skills", {}).items()):
@@ -1470,7 +1435,7 @@ class SkillService:
         return skills
 
     def list_available_skills(self) -> list[SkillInfo]:
-        manifest = self._manifest()
+        manifest = self._read_manifest()
         skill_root = get_workspace_skills_dir(self.workspace_dir)
         skills: list[SkillInfo] = []
         for skill_name in resolve_effective_skills(
@@ -1544,7 +1509,7 @@ class SkillService:
                 ),
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
-                "updated_at": _timestamp(),
+                "updated_at": metadata["updated_at"],
             }
 
         _mutate_json(
@@ -1561,9 +1526,6 @@ class SkillService:
         content: str,
         target_name: str | None = None,
         config: dict[str, Any] | None = None,
-        references: dict[str, Any] | None = None,
-        scripts: dict[str, Any] | None = None,
-        extra_files: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Edit-in-place or rename-save a workspace skill."""
         final_name = _normalize_skill_dir_name(target_name or skill_name)
@@ -1573,7 +1535,6 @@ class SkillService:
             return {"success": False, "reason": "not_found"}
 
         if final_name == skill_name:
-            old_sig = (old_entry.get("metadata") or {}).get("signature", "")
             new_config = (
                 config if config is not None else old_entry.get("config") or {}
             )
@@ -1581,37 +1542,47 @@ class SkillService:
             skill_root.mkdir(parents=True, exist_ok=True)
             skill_dir = skill_root / skill_name
 
-            with _staged_skill_dir(skill_name) as staged_dir:
-                _write_skill_to_dir(
-                    staged_dir,
-                    content,
-                    references,
-                    scripts,
-                    extra_files,
+            old_md = (
+                (skill_dir / "SKILL.md").read_text(
+                    encoding="utf-8",
                 )
-                _scan_skill_dir_or_raise(staged_dir, skill_name)
-                new_sig = _build_signature(staged_dir)
-                content_changed = new_sig != old_sig
-                if not content_changed and new_config == (
-                    old_entry.get("config") or {}
-                ):
-                    return {
-                        "success": True,
-                        "mode": "noop",
-                        "name": skill_name,
-                    }
-                if content_changed:
-                    _copy_skill_dir(staged_dir, skill_dir)
+                if (skill_dir / "SKILL.md").exists()
+                else ""
+            )
+            content_changed = content != old_md
+            if not content_changed and new_config == (
+                old_entry.get("config") or {}
+            ):
+                return {
+                    "success": True,
+                    "mode": "noop",
+                    "name": skill_name,
+                }
+
+            if content_changed:
+                with _staged_skill_dir(skill_name) as staged_dir:
+                    if skill_dir.exists():
+                        _copy_skill_dir(skill_dir, staged_dir)
+                    (staged_dir / "SKILL.md").write_text(
+                        content,
+                        encoding="utf-8",
+                    )
+                    _scan_skill_dir_or_raise(staged_dir, skill_name)
+                (skill_dir / "SKILL.md").write_text(
+                    content,
+                    encoding="utf-8",
+                )
             source = (
-                old_entry.get("source", "customized")
-                if not content_changed
-                else "customized"
+                "customized"
+                if content_changed
+                else old_entry.get("source", "customized")
             )
             metadata = _build_skill_metadata(
                 skill_name,
                 skill_dir,
                 source=source,
                 protected=False,
+                compute_signature=False,
             )
 
             def _edit(payload: dict[str, Any]) -> None:
@@ -1624,7 +1595,7 @@ class SkillService:
                     "config": new_config,
                     "metadata": metadata,
                     "requirements": metadata["requirements"],
-                    "updated_at": _timestamp(),
+                    "updated_at": metadata["updated_at"],
                 }
 
             _mutate_json(
@@ -1659,12 +1630,10 @@ class SkillService:
             }
 
         with _staged_skill_dir(final_name) as staged_dir:
-            _write_skill_to_dir(
-                staged_dir,
+            _copy_skill_dir(old_dir, staged_dir)
+            (staged_dir / "SKILL.md").write_text(
                 content,
-                references,
-                scripts,
-                extra_files,
+                encoding="utf-8",
             )
             _scan_skill_dir_or_raise(staged_dir, final_name)
             _copy_skill_dir(staged_dir, target_dir)
@@ -1673,15 +1642,11 @@ class SkillService:
             config if config is not None else old_entry.get("config") or {}
         )
         old_channels = old_entry.get("channels") or ["all"]
-        source = (
-            old_entry.get("source", "customized")
-            if final_name == skill_name
-            else "customized"
-        )
         metadata = _build_skill_metadata(
             final_name,
             target_dir,
-            source=source,
+            source="customized",
+            compute_signature=False,
             protected=False,
         )
 
@@ -1694,7 +1659,7 @@ class SkillService:
                 "config": old_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
-                "updated_at": _timestamp(),
+                "updated_at": metadata["updated_at"],
             }
             payload["skills"].pop(skill_name, None)
 
@@ -1841,7 +1806,6 @@ class SkillService:
                 return False
             entry["enabled"] = True
             entry.setdefault("channels", ["all"])
-            entry["updated_at"] = _timestamp()
             return True
 
         updated = _mutate_json(
@@ -1873,7 +1837,6 @@ class SkillService:
             if entry is None:
                 return False
             entry["enabled"] = False
-            entry["updated_at"] = _timestamp()
             return True
 
         updated = _mutate_json(
@@ -1904,7 +1867,6 @@ class SkillService:
             if entry is None:
                 return False
             entry["channels"] = normalized
-            entry["updated_at"] = _timestamp()
             return True
 
         updated = _mutate_json(
@@ -1939,9 +1901,7 @@ class SkillService:
         self,
         skill_name: str,
         file_path: str,
-        source: str,
     ) -> str | None:
-        del source
         normalized = file_path.replace("\\", "/")
         if ".." in normalized or normalized.startswith("/"):
             return None
@@ -1955,13 +1915,9 @@ class SkillService:
         if skill_name not in manifest.get("skills", {}):
             return None
 
-        workspace_base_dir = (
-            get_workspace_skills_dir(self.workspace_dir) / skill_name
-        )
-        if not workspace_base_dir.exists():
+        base_dir = get_workspace_skills_dir(self.workspace_dir) / skill_name
+        if not base_dir.exists():
             return None
-
-        base_dir = workspace_base_dir
 
         full_path = base_dir / normalized
         if not full_path.exists() or not full_path.is_file():
@@ -1995,7 +1951,7 @@ class SkillPoolService:
         ensure_skill_pool_initialized()
 
     def list_all_skills(self) -> list[SkillInfo]:
-        manifest = read_skill_pool_manifest(reconcile=False)
+        manifest = read_skill_pool_manifest()
         pool_dir = get_skill_pool_dir()
         skills: list[SkillInfo] = []
         for skill_name, entry in sorted(manifest.get("skills", {}).items()):
@@ -2020,7 +1976,7 @@ class SkillPoolService:
         skill_name = _normalize_skill_dir_name(name)
         pool_dir = get_skill_pool_dir()
         skill_dir = pool_dir / skill_name
-        manifest = read_skill_pool_manifest(reconcile=False)
+        manifest = read_skill_pool_manifest()
         existing = manifest.get("skills", {}).get(skill_name)
         if existing is not None or skill_dir.exists():
             return None
@@ -2080,7 +2036,7 @@ class SkillPoolService:
                 (d, _normalize_skill_dir_name(renames.get(n, n)))
                 for d, n in found
             ]
-            manifest = read_skill_pool_manifest(reconcile=False)
+            manifest = read_skill_pool_manifest()
             existing_pool_names = (
                 set(
                     manifest.get("skills", {}).keys(),
@@ -2165,7 +2121,7 @@ class SkillPoolService:
 
     def delete_skill(self, name: str) -> bool:
         skill_name = str(name or "")
-        manifest = read_skill_pool_manifest(reconcile=False)
+        manifest = read_skill_pool_manifest()
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return False
@@ -2190,7 +2146,7 @@ class SkillPoolService:
         *,
         target_name: str | None = None,
     ) -> dict[str, Any]:
-        manifest = read_skill_pool_manifest(reconcile=False)
+        manifest = read_skill_pool_manifest()
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return {"success": False, "reason": "not_found"}
@@ -2228,14 +2184,11 @@ class SkillPoolService:
         *,
         skill_name: str,
         content: str,
-        references: dict[str, Any] | None = None,
-        scripts: dict[str, Any] | None = None,
-        extra_files: dict[str, Any] | None = None,
         target_name: str | None = None,
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         _validate_skill_content(content)
-        manifest = read_skill_pool_manifest(reconcile=False)
+        manifest = read_skill_pool_manifest()
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return {"success": False, "reason": "not_found"}
@@ -2254,35 +2207,22 @@ class SkillPoolService:
         keep_original = _is_pool_builtin_entry(entry) and is_rename
         skill_dir = get_skill_pool_dir() / final_name
         old_skill_dir = get_skill_pool_dir() / skill_name
-        old_sig = str(entry.get("signature", ""))
         new_config = (
             config if config is not None else entry.get("config") or {}
         )
 
-        with _staged_skill_dir(final_name) as staged_dir:
-            _write_skill_to_dir(
-                staged_dir,
-                content,
-                references,
-                scripts,
-                extra_files,
+        source_dir = old_skill_dir if is_rename else skill_dir
+        old_md = (
+            (source_dir / "SKILL.md").read_text(
+                encoding="utf-8",
             )
-            _scan_skill_dir_or_raise(staged_dir, final_name)
-            new_sig = _build_signature(staged_dir)
-            content_changed = new_sig != old_sig
+            if (source_dir / "SKILL.md").exists()
+            else ""
+        )
+        content_changed = content != old_md
 
-            if (
-                not is_rename
-                and not content_changed
-                and new_config == (entry.get("config") or {})
-            ):
-                return {
-                    "success": True,
-                    "mode": "noop",
-                    "name": skill_name,
-                }
-
-            if not is_rename and _is_pool_builtin_entry(entry):
+        if not is_rename:
+            if _is_pool_builtin_entry(entry) and content_changed:
                 return {
                     "success": False,
                     "reason": "conflict",
@@ -2292,18 +2232,52 @@ class SkillPoolService:
                         set(manifest.get("skills", {}).keys()),
                     ),
                 }
+            if not content_changed and new_config == (
+                entry.get("config") or {}
+            ):
+                return {
+                    "success": True,
+                    "mode": "noop",
+                    "name": skill_name,
+                }
 
-            if is_rename or content_changed:
+        if is_rename:
+            with _staged_skill_dir(final_name) as staged_dir:
+                if source_dir.exists():
+                    _copy_skill_dir(source_dir, staged_dir)
+                (staged_dir / "SKILL.md").write_text(
+                    content,
+                    encoding="utf-8",
+                )
+                _scan_skill_dir_or_raise(staged_dir, final_name)
                 _copy_skill_dir(staged_dir, skill_dir)
+            if not keep_original and old_skill_dir.exists():
+                shutil.rmtree(old_skill_dir)
+        elif content_changed:
+            with _staged_skill_dir(final_name) as staged_dir:
+                if skill_dir.exists():
+                    _copy_skill_dir(skill_dir, staged_dir)
+                (staged_dir / "SKILL.md").write_text(
+                    content,
+                    encoding="utf-8",
+                )
+                _scan_skill_dir_or_raise(staged_dir, final_name)
+            (skill_dir / "SKILL.md").write_text(
+                content,
+                encoding="utf-8",
+            )
 
-        if is_rename and not keep_original and old_skill_dir.exists():
-            shutil.rmtree(old_skill_dir)
-
+        source = (
+            "customized"
+            if content_changed or is_rename
+            else entry.get("source", "customized")
+        )
         next_entry = _build_skill_metadata(
             final_name,
             skill_dir,
-            source="customized",
+            source=source,
             protected=False,
+            compute_signature=False,
         )
         next_entry["config"] = new_config
 
@@ -2338,7 +2312,7 @@ class SkillPoolService:
 
         final_name = _normalize_skill_dir_name(target_name or skill_name)
         target_dir = get_skill_pool_dir() / final_name
-        manifest = read_skill_pool_manifest(reconcile=False)
+        manifest = read_skill_pool_manifest()
         existing = manifest.get("skills", {}).get(final_name)
         if existing:
             if _is_pool_builtin_entry(existing):
@@ -2390,6 +2364,50 @@ class SkillPoolService:
 
         return {"success": True, "name": final_name}
 
+    @staticmethod
+    def _check_download_conflict(
+        entry: dict[str, Any],
+        existing: dict[str, Any] | None,
+        final_name: str,
+        workspace_identity: dict[str, str],
+    ) -> dict[str, Any] | None:
+        """Return a conflict dict if download should be blocked."""
+        if not existing:
+            return None
+        ws_id = workspace_identity["workspace_id"]
+        ws_name = workspace_identity["workspace_name"]
+        if (
+            entry.get("source") == "builtin"
+            and existing.get("source") == "builtin"
+        ):
+            pool_ver = entry.get("version_text", "")
+            ws_ver = (existing.get("metadata") or {}).get(
+                "version_text",
+                "",
+            )
+            if pool_ver and ws_ver and pool_ver == ws_ver:
+                return {
+                    "success": True,
+                    "mode": "unchanged",
+                    "name": final_name,
+                    "workspace_id": ws_id,
+                    "workspace_name": ws_name,
+                }
+            return {
+                "success": False,
+                "reason": "builtin_upgrade",
+                "workspace_id": ws_id,
+                "workspace_name": ws_name,
+                "skill_name": final_name,
+            }
+        return {
+            "success": False,
+            "reason": "conflict",
+            "workspace_id": ws_id,
+            "workspace_name": ws_name,
+            "suggested_name": suggest_conflict_name(final_name),
+        }
+
     def download_to_workspace(
         self,
         skill_name: str,
@@ -2398,7 +2416,7 @@ class SkillPoolService:
         target_name: str | None = None,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        manifest = read_skill_pool_manifest(reconcile=False)
+        manifest = read_skill_pool_manifest()
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return {"success": False, "reason": "not_found"}
@@ -2406,47 +2424,18 @@ class SkillPoolService:
         source_dir = get_skill_pool_dir() / skill_name
         final_name = _normalize_skill_dir_name(target_name or skill_name)
         target_dir = get_workspace_skills_dir(workspace_dir) / final_name
-        workspace_manifest = read_skill_manifest(
-            workspace_dir,
-            reconcile=False,
-        )
+        workspace_manifest = read_skill_manifest(workspace_dir)
         existing = workspace_manifest.get("skills", {}).get(final_name)
         workspace_identity = get_workspace_identity(workspace_dir)
-        if existing and not overwrite:
-            # Both builtin: compare version to decide action.
-            if (
-                entry.get("source") == "builtin"
-                and existing.get("source") == "builtin"
-            ):
-                pool_ver = entry.get("version_text", "")
-                ws_ver = (existing.get("metadata") or {}).get(
-                    "version_text",
-                    "",
-                )
-                if pool_ver and ws_ver and pool_ver == ws_ver:
-                    return {
-                        "success": True,
-                        "mode": "unchanged",
-                        "name": final_name,
-                        "workspace_id": workspace_identity["workspace_id"],
-                        "workspace_name": workspace_identity["workspace_name"],
-                    }
-                return {
-                    "success": False,
-                    "reason": "builtin_upgrade",
-                    "workspace_id": workspace_identity["workspace_id"],
-                    "workspace_name": workspace_identity["workspace_name"],
-                    "skill_name": final_name,
-                }
-            return {
-                "success": False,
-                "reason": "conflict",
-                "workspace_id": workspace_identity["workspace_id"],
-                "workspace_name": workspace_identity["workspace_name"],
-                "suggested_name": suggest_conflict_name(
-                    final_name,
-                ),
-            }
+        if not overwrite:
+            conflict = self._check_download_conflict(
+                entry,
+                existing,
+                final_name,
+                workspace_identity,
+            )
+            if conflict is not None:
+                return conflict
 
         target_dir.parent.mkdir(parents=True, exist_ok=True)
         with _staged_skill_dir(final_name) as staged_dir:
@@ -2473,7 +2462,7 @@ class SkillPoolService:
                 "config": pool_config,
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
-                "updated_at": _timestamp(),
+                "updated_at": metadata["updated_at"],
             }
 
         _mutate_json(
@@ -2496,52 +2485,24 @@ class SkillPoolService:
         target_name: str | None = None,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        manifest = read_skill_pool_manifest(reconcile=False)
+        manifest = read_skill_pool_manifest()
         entry = manifest.get("skills", {}).get(skill_name)
         if entry is None:
             return {"success": False, "reason": "not_found"}
 
         final_name = _normalize_skill_dir_name(target_name or skill_name)
-        workspace_manifest = read_skill_manifest(
-            workspace_dir,
-            reconcile=False,
-        )
+        workspace_manifest = read_skill_manifest(workspace_dir)
         existing = workspace_manifest.get("skills", {}).get(final_name)
         workspace_identity = get_workspace_identity(workspace_dir)
-        if existing and not overwrite:
-            if (
-                entry.get("source") == "builtin"
-                and existing.get("source") == "builtin"
-            ):
-                pool_ver = entry.get("version_text", "")
-                ws_ver = (existing.get("metadata") or {}).get(
-                    "version_text",
-                    "",
-                )
-                if pool_ver and ws_ver and pool_ver == ws_ver:
-                    return {
-                        "success": True,
-                        "mode": "unchanged",
-                        "name": final_name,
-                        "workspace_id": workspace_identity["workspace_id"],
-                        "workspace_name": workspace_identity["workspace_name"],
-                    }
-                return {
-                    "success": False,
-                    "reason": "builtin_upgrade",
-                    "workspace_id": workspace_identity["workspace_id"],
-                    "workspace_name": workspace_identity["workspace_name"],
-                    "skill_name": final_name,
-                }
-            return {
-                "success": False,
-                "reason": "conflict",
-                "workspace_id": workspace_identity["workspace_id"],
-                "workspace_name": workspace_identity["workspace_name"],
-                "suggested_name": suggest_conflict_name(
-                    final_name,
-                ),
-            }
+        if not overwrite:
+            conflict = self._check_download_conflict(
+                entry,
+                existing,
+                final_name,
+                workspace_identity,
+            )
+            if conflict is not None:
+                return conflict
         return {
             "success": True,
             "workspace_id": workspace_identity["workspace_id"],

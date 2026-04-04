@@ -48,7 +48,8 @@ def _is_conversation_command(query: str | None) -> bool:
     """True if query is a conversation command (/compact, /new, etc.)."""
     if not query or not query.startswith("/"):
         return False
-    cmd = query.strip().lstrip("/").split()[0] if query.strip() else ""
+    stripped = query.strip().lstrip("/")
+    cmd = stripped.split(" ", 1)[0] if stripped else ""
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 

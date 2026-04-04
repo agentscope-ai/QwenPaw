@@ -230,18 +230,7 @@ def update_chat(
     """
     base_url = resolve_base_url(ctx, base_url)
     headers = {"X-Agent-Id": agent_id}
-    # Fetch existing spec, then patch name
-    with client(base_url) as c:
-        r = c.get("/chats", headers=headers)
-        r.raise_for_status()
-        specs = r.json()
-
-    payload = next((s for s in specs if s.get("id") == chat_id), None)
-    if payload is None:
-        raise click.ClickException(f"chat not found: {chat_id}")
-
-    payload["name"] = name
-
+    payload = {"name": name}
     with client(base_url) as c:
         r = c.put(f"/chats/{chat_id}", json=payload, headers=headers)
         if r.status_code == 404:

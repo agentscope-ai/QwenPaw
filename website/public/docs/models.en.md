@@ -152,7 +152,10 @@ Currently supported cloud providers include:
 - Azure OpenAI
 - Anthropic
 - Google Gemini
+- DeepSeek
+- Kimi
 - MiniMax
+- Zhipu
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 

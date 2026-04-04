@@ -475,6 +475,75 @@
 
 ---
 
+## OneBot v11（NapCat / QQ 完整协议）
+
+**OneBot** 渠道通过**反向 WebSocket** 将 CoPaw 连接到 [NapCat](https://github.com/NapNeko/NapCatQQ)、[go-cqhttp](https://github.com/Mrs4s/go-cqhttp)、[Lagrange](https://github.com/LagrangeDev/Lagrange.Core) 或其他任何兼容 [OneBot v11](https://github.com/botuniverse/onebot-11) 的实现。
+
+与内置 QQ 渠道（使用官方 QQ Bot API，功能受限）不同，OneBot v11 提供**完整 QQ 协议**支持：个人号、群聊无需 @、富媒体消息等。
+
+### 工作原理
+
+CoPaw 启动一个 WebSocket 服务器，OneBot 实现（如 NapCat）作为客户端连接过来：
+
+```
+NapCat  ──反向 WS──▶  CoPaw (:6199/ws)
+```
+
+### 配置 NapCat
+
+1. 通过 Docker 运行 NapCat：
+
+   ```bash
+   docker run -d \
+     --name napcat \
+     -e ACCOUNT=<你的QQ号> \
+     -p 6099:6099 \
+     mlikiowa/napcat-docker:latest
+   ```
+
+2. 打开 NapCat WebUI `http://localhost:6099`，用 QQ 扫码登录。
+
+3. 进入 **网络配置** → **新建** → **WebSocket 客户端**（反向 WS）：
+   - URL：`ws://<copaw地址>:6199/ws`
+   - Access Token：与 CoPaw 配置中的 `access_token` 保持一致（可选）
+
+### 填写 agent.json
+
+```json
+"onebot": {
+  "enabled": true,
+  "ws_host": "0.0.0.0",
+  "ws_port": 6199,
+  "access_token": "",
+  "share_session_in_group": false
+}
+```
+
+**OneBot 专属字段说明：**
+
+| 字段                     | 类型   | 默认值    | 说明                                                          |
+| ------------------------ | ------ | --------- | ------------------------------------------------------------- |
+| `ws_host`                | string | `0.0.0.0` | WebSocket 服务器监听地址                                      |
+| `ws_port`                | int    | `6199`    | WebSocket 服务器监听端口                                      |
+| `access_token`           | string | `""`      | 可选的认证 Token（需与 NapCat 配置一致）                      |
+| `share_session_in_group` | bool   | `false`   | 为 `true` 时群成员共享一个会话；为 `false` 时每个成员独立会话 |
+
+> **Docker Compose 提示：** CoPaw 和 NapCat 一起用 Docker Compose 部署时，NapCat 的反向 WS 地址填 `ws://copaw:6199/ws`（使用服务名）。
+
+**多模态支持：**
+
+| 类型 | 接收 | 发送 |
+| ---- | ---- | ---- |
+| 文本 | ✓    | ✓    |
+| 图片 | ✓    | ✓    |
+| 语音 | 🚧   | ✓    |
+| 视频 | 🚧   | ✓    |
+| 文件 | ✓    | ✓    |
+
+> **提示：** 语音和视频在渠道层已正确接收，但需要配置 CoPaw 的转写服务（`transcription_provider_type`）才能让 LLM 理解内容。未配置时语音消息显示为占位符。
+
+---
+
 ## 企业微信
 
 ### 创建新企业
@@ -1072,7 +1141,7 @@ cloudflared tunnel --url http://localhost:8088
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
 - **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收和发送文本、图片、语音、视频和文件。
-- **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送当前仅支持文本（iLink API 限制）。
+- **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送支持文本、图片、文件和视频；音频文件（如 MP3）因 iLink API 限制暂不支持。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
 - **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。
 - **Voice**：纯语音通话频道，接收用户语音并转为文本，Agent 回复转为语音播放；不支持其他格式。
