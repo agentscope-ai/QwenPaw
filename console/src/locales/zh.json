@@ -839,8 +839,16 @@
     "probeSupported": "支持: {{types}}",
     "probeNotSupported": "该模型不支持多模态输入",
     "probeFailed": "探测失败",
-    "tagNotProbed": "未检测"
+    "tagNotProbed": "未检测",
+    "modalityVision": "视觉 (图片)",
+    "modalityAudio": "音频",
+    "modalityVideo": "视频",
+    "modalityFile": "文件",
+    "modalityText": "仅文本",
+    "perMillionIn": "/1M 输入",
+    "perMillionOut": "/1M 输出"
   },
+
   "agentConfig": {
     "title": "运行配置",
     "description": "配置智能体运行参数",

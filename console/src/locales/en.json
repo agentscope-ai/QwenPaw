@@ -867,8 +867,16 @@
     "probeSupported": "Supported: {{types}}",
     "probeNotSupported": "This model does not support multimodal input",
     "probeFailed": "Probe failed",
-    "tagNotProbed": "Not Probed"
+    "tagNotProbed": "Not Probed",
+    "modalityVision": "Vision (image)",
+    "modalityAudio": "Audio",
+    "modalityVideo": "Video",
+    "modalityFile": "File",
+    "modalityText": "Text only",
+    "perMillionIn": "/1M in",
+    "perMillionOut": "/1M out"
   },
+
   "agentConfig": {
     "title": "Configuration",
     "description": "Configure agent runtime parameters",

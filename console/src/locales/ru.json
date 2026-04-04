@@ -810,8 +810,16 @@
     "probeVideo": "Видео",
     "probeSupported": "Поддерживается: {{types}}",
     "probeNotSupported": "Эта модель не поддерживает мультимодальный ввод",
-    "probeFailed": "Ошибка проверки"
+    "probeFailed": "Ошибка проверки",
+    "modalityVision": "Зрение (изображение)",
+    "modalityAudio": "Аудио",
+    "modalityVideo": "Видео",
+    "modalityFile": "Файл",
+    "modalityText": "Только текст",
+    "perMillionIn": "/1M вх.",
+    "perMillionOut": "/1M исх."
   },
+
   "agentConfig": {
     "title": "Конфигурация",
     "description": "Настройка параметров выполнения агента",
