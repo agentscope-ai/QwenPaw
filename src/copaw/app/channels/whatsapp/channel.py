@@ -331,6 +331,49 @@ class WhatsAppChannel(BaseChannel):
             except Exception as e:
                 logger.warning("whatsapp: audio download failed: %s", e)
 
+        # Video
+        if msg.HasField("videoMessage"):
+            caption = msg.videoMessage.caption or ""
+            if caption and not body:
+                body = caption
+                content_parts.append(TextContent(type=ContentType.TEXT, text=caption))
+            try:
+                self._media_dir.mkdir(parents=True, exist_ok=True)
+                path = self._media_dir / f"wa_video_{msg_id}.mp4"
+                data = await client.download_any(msg, str(path)); path.write_bytes(data) if data and not path.exists() else None
+                content_parts.append(FileContent(type=ContentType.FILE, file_url=str(path)))
+                logger.info("whatsapp: video downloaded: %s", path.name)
+            except Exception as e:
+                logger.warning("whatsapp: video download failed: %s", e)
+
+        # Video
+        if msg.HasField("videoMessage"):
+            caption = msg.videoMessage.caption or ""
+            if caption and not body:
+                body = caption
+                content_parts.append(TextContent(type=ContentType.TEXT, text=caption))
+            try:
+                self._media_dir.mkdir(parents=True, exist_ok=True)
+                path = self._media_dir / f"wa_video_{msg_id}.mp4"
+                data = await client.download_any(msg, str(path))
+                if data:
+                    path.write_bytes(data)
+                content_parts.append(FileContent(type=ContentType.FILE, file_url=str(path)))
+            except Exception as e:
+                logger.warning("whatsapp: video download failed: %s", e)
+
+        # Sticker
+        if msg.HasField("stickerMessage"):
+            try:
+                self._media_dir.mkdir(parents=True, exist_ok=True)
+                path = self._media_dir / f"wa_sticker_{msg_id}.webp"
+                data = await client.download_any(msg, str(path))
+                if data:
+                    path.write_bytes(data)
+                content_parts.append(ImageContent(type=ContentType.IMAGE, image_url=str(path)))
+            except Exception as e:
+                logger.warning("whatsapp: sticker download failed: %s", e)
+
         # Document
         if msg.HasField("documentMessage"):
             try:
