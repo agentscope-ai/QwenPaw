@@ -1010,22 +1010,32 @@ class BaseChannel(ABC):
             await self.send_content_parts(to_handle, parts, meta)
             return
 
+        # Separate text and non-text parts
         text_parts = []
+        other_parts = []
         for p in parts:
-            t = getattr(p, "type", None)
-            if t == ContentType.TEXT and getattr(p, "text", None):
-                text_parts.append(p.text or "")
+            if getattr(p, "type", None) == ContentType.TEXT:
+                if getattr(p, "text", None):
+                    text_parts.append(p.text)
+            else:
+                other_parts.append(p)
+
         combined_text = "\n".join(text_parts)
+        segments = [
+            s.strip() for s in combined_text.split("[SPLIT]") if s.strip()
+        ]
+
+        if not segments:
+            if other_parts:
+                await self.send_content_parts(to_handle, other_parts, meta)
+            return
 
         # Support [SPLIT] delimiter to send multiple messages
-        for text_segment in combined_text.split("[SPLIT]"):
-            text_segment = text_segment.strip()
-            if not text_segment:
-                continue
-            split_parts = [
-                TextContent(type=ContentType.TEXT, text=text_segment),
-            ]
-            await self.send_content_parts(to_handle, split_parts, meta)
+        for i, segment in enumerate(segments):
+            current_parts = [TextContent(type=ContentType.TEXT, text=segment)]
+            if i == len(segments) - 1:
+                current_parts.extend(other_parts)
+            await self.send_content_parts(to_handle, current_parts, meta)
 
     async def send_content_parts(
         self,
