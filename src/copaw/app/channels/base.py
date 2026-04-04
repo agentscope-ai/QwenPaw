@@ -998,7 +998,22 @@ class BaseChannel(ABC):
             f"parts_count={len(parts)} "
             f"part_types={[getattr(p, 'type', None) for p in parts]}",
         )
-        await self.send_content_parts(to_handle, parts, meta)
+
+        # Support [SPLIT] delimiter: check if any text part contains it
+        text_parts = []
+        for p in parts:
+            t = getattr(p, "type", None)
+            if t == ContentType.TEXT and getattr(p, "text", None):
+                text_parts.append(p.text or "")
+        combined_text = "\n".join(text_parts)
+
+        # Support [SPLIT] delimiter to send multiple messages
+        for text_segment in combined_text.split("[SPLIT]"):
+            text_segment = text_segment.strip()
+            if not text_segment:
+                continue
+            split_parts = [TextContent(type=ContentType.TEXT, text=text_segment)]
+            await self.send_content_parts(to_handle, split_parts, meta)
 
     async def send_content_parts(
         self,
@@ -1047,18 +1062,9 @@ class BaseChannel(ABC):
                 f"body_len={len(body)} preview="
                 f"{body[:120] + '...' if len(body) > 120 else body}",
             )
-            # Support [SPLIT] delimiter to send multiple messages
-            if "[SPLIT]" in body:
-                for part in body.split("[SPLIT]"):
-                    part = part.strip()
-                    if part:
-                        if prefix:
-                            part = prefix + "  " + part
-                        await self.send(to_handle, part, meta)
-            else:
-                if prefix and body:
-                    body = prefix + "  " + body
-                await self.send(to_handle, body.strip(), meta)
+            if prefix and body:
+                body = prefix + "  " + body
+            await self.send(to_handle, body.strip(), meta)
         for m in media_parts:
             await self.send_media(to_handle, m, meta)
 
