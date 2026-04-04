@@ -256,7 +256,41 @@ def build_system_prompt_from_working_dir(
         )
         prompt = identity_header + prompt
 
+    # Add hint about [SPLIT] delimiter for sending multiple messages
+    prompt = prompt + "\n\n" + build_split_delimiter_hint()
+
     return prompt
+
+
+def build_split_delimiter_hint(
+    language: str = "zh",
+) -> str:
+    """Build a hint about the [SPLIT] message delimiter.
+
+    Args:
+        language: Language code (zh/en/ru)
+
+    Returns:
+        Formatted hint about using [SPLIT] to send multiple messages
+    """
+    if language == "zh":
+        return (
+            "## 消息分隔符\n"
+            "\n"
+            "如果需要发送多条独立的消息，可以在一条回复中使用 `[SPLIT]` 分隔符。\n"
+            "例如：回复 `消息1[SPLIT]消息2[SPLIT]消息3` 会发出三条独立的消息。\n"
+            "\n"
+        )
+    # en / ru / other — default to English
+    return (
+        "## Message Delimiter\n"
+        "\n"
+        "If you need to send multiple independent messages, you can use `[SPLIT]` "
+        "in a single response.\n"
+        "For example: replying `message1[SPLIT]message2[SPLIT]message3` "
+        "will send three separate messages.\n"
+        "\n"
+    )
 
 
 def build_bootstrap_guidance(
@@ -391,6 +425,7 @@ __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
     "build_multimodal_hint",
+    "build_split_delimiter_hint",
     "format_multimodal_hint",
     "get_active_model_supports_multimodal",
     "PromptBuilder",
