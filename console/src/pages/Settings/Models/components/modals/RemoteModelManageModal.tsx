@@ -351,7 +351,6 @@ export function RemoteModelManageModal({
   const canDiscover =
     (isLocalProvider || isOpenRouter) && provider.support_model_discovery;
 
-
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
   const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
@@ -451,20 +450,18 @@ export function RemoteModelManageModal({
         message.success(
           t("models.probeSupported", {
             types: parts.join(", "),
-            defaultValue: t("models.probeSupported", { types: parts.join(", ") }),
-
+            defaultValue: t("models.probeSupported", {
+              types: parts.join(", "),
+            }),
           }),
         );
       } else {
         message.info(t("models.probeNotSupported"));
-
       }
       await onSaved();
     } catch (error) {
       const errMsg =
-        error instanceof Error
-          ? error.message
-          : t("models.probeFailed");
+        error instanceof Error ? error.message : t("models.probeFailed");
 
       message.error(errMsg);
     } finally {
@@ -710,7 +707,6 @@ export function RemoteModelManageModal({
                                   style={{ fontSize: 11, marginLeft: 6 }}
                                 >
                                   {t("models.tagImage")}
-
                                 </Tag>
                               )}
                               {m.supports_video === true && (
@@ -719,13 +715,11 @@ export function RemoteModelManageModal({
                                   style={{ fontSize: 11, marginLeft: 4 }}
                                 >
                                   {t("models.tagVideo")}
-
                                 </Tag>
                               )}
                               {m.supports_multimodal === false && (
                                 <Tag style={{ fontSize: 11, marginLeft: 6 }}>
                                   {t("models.tagTextOnly")}
-
                                 </Tag>
                               )}
                               {m.supports_multimodal === null && (
@@ -734,7 +728,6 @@ export function RemoteModelManageModal({
                                   style={{ fontSize: 11, marginLeft: 6 }}
                                 >
                                   {t("models.tagNotProbed")}
-
                                 </Tag>
                               )}
                             </span>
@@ -801,7 +794,6 @@ export function RemoteModelManageModal({
                                         1_000_000
                                       ).toFixed(2)}
                                       {t("models.perMillionIn")}
-
                                       {(m as any).pricing.completion && (
                                         <span>
                                           {" "}
@@ -812,7 +804,6 @@ export function RemoteModelManageModal({
                                             ) * 1_000_000
                                           ).toFixed(2)}
                                           {t("models.perMillionOut")}
-
                                         </span>
                                       )}
                                     </span>
@@ -1030,7 +1021,6 @@ export function RemoteModelManageModal({
                       label: (
                         <>
                           <SparkImageuploadLine /> {t("models.modalityVision")}
-
                         </>
                       ),
                       value: "image",
@@ -1039,7 +1029,6 @@ export function RemoteModelManageModal({
                       label: (
                         <>
                           <SparkAudiouploadLine /> {t("models.modalityAudio")}
-
                         </>
                       ),
                       value: "audio",
@@ -1048,7 +1037,6 @@ export function RemoteModelManageModal({
                       label: (
                         <>
                           <SparkVideouploadLine /> {t("models.modalityVideo")}
-
                         </>
                       ),
                       value: "video",
@@ -1057,7 +1045,6 @@ export function RemoteModelManageModal({
                       label: (
                         <>
                           <SparkFilePdfLine /> {t("models.modalityFile")}
-
                         </>
                       ),
                       value: "file",
@@ -1066,7 +1053,6 @@ export function RemoteModelManageModal({
                       label: (
                         <>
                           <SparkTextLine /> {t("models.modalityText")}
-
                         </>
                       ),
                       value: "text",
@@ -1166,7 +1152,6 @@ export function RemoteModelManageModal({
                                     1_000_000
                                   ).toFixed(2)}
                                   {t("models.perMillionOut")}
-
                                 </span>
                               )}
                             </span>
