@@ -111,6 +111,34 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
+export interface WhatsAppConfig extends BaseChannelConfig {
+  auth_dir?: string;
+  send_read_receipts?: boolean;
+  self_chat_mode?: boolean;
+  text_chunk_limit?: number;
+  groups?: string[];
+  group_allow_from?: string[];
+}
+
+export interface SignalConfig extends BaseChannelConfig {
+  account?: string;
+  http_url?: string;
+  http_host?: string;
+  http_port?: number;
+  auto_start?: boolean;
+  send_read_receipts?: boolean;
+  text_chunk_limit?: number;
+  groups?: string[];
+  group_allow_from?: string[];
+}
+
+export interface WeixinConfig extends BaseChannelConfig {
+  bot_token?: string;
+  bot_token_file?: string;
+  base_url?: string;
+  media_dir?: string;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -125,6 +153,9 @@ export interface ChannelConfig {
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
   xiaoyi: XiaoYiConfig;
+  whatsapp: WhatsAppConfig;
+  signal: SignalConfig;
+  weixin: WeixinConfig;
 }
 
 export type SingleChannelConfig =
@@ -140,4 +171,7 @@ export type SingleChannelConfig =
   | MattermostConfig
   | WecomConfig
   | VoiceChannelConfig
-  | XiaoYiConfig;
+  | XiaoYiConfig
+  | WhatsAppConfig
+  | SignalConfig
+  | WeixinConfig;

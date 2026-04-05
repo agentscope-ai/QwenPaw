@@ -734,6 +734,156 @@ WEIXIN_GROUP_POLICY=open
 
 ---
 
+## WhatsApp
+
+WhatsApp 频道使用 [neonize](https://github.com/krypton-byte/neonize)（whatsmeow Go 库的 Python 绑定），直接连接 WhatsApp Web 服务器——无需额外服务器、无需 Meta Business API、无需独立 daemon。
+
+### 绑定手机
+
+1. 在 Console 进入 **控制 → 频道**，点击 **WhatsApp** 卡片，打开 **启用**。
+2. 点击 **获取配对码** 或 **显示二维码**：
+   - **配对码**（推荐）：输入 E.164 格式的手机号码（例如 `+85212345678`），Console 会显示一组 8 位字符的配对码。
+   - **二维码**：使用 WhatsApp → 设置 → 已连接的设备 → 连接新设备 扫描。
+3. 在手机上：**设置 → 已连接的设备 → 通过电话号码连接**，输入 8 位配对码（若使用配对码方式）。
+4. 绑定成功后，卡片显示 **已连接** 及机器人电话号码。
+
+会话数据保存在 `~/.copaw/credentials/whatsapp/default/neonize.db`。重启 CoPaw 后机器人会自动重连，无需重新配对。
+
+### 配置
+
+**方式 1：** 在 Console 中配置（控制 → 频道 → WhatsApp）。
+
+**方式 2：** 编辑智能体 workspace 的 `agent.json`：
+
+```json
+"whatsapp": {
+    "enabled": true,
+    "bot_prefix": "@bot",
+    "dm_policy": "allowlist",
+    "group_policy": "allowlist",
+    "allow_from": ["+85212345678"],
+    "groups": ["120363421135228220@g.us"],
+    "group_allow_from": ["*"],
+    "require_mention": true,
+    "send_read_receipts": true,
+    "self_chat_mode": false
+}
+```
+
+**WhatsApp 特有字段：**
+
+| 字段                  | 类型    | 默认值            | 说明                                                    |
+| -------------------- | ------- | ---------------- | ------------------------------------------------------ |
+| `auth_dir`           | string  | `""`             | neonize 会话数据目录。默认 `~/.copaw/credentials/whatsapp/default` |
+| `send_read_receipts` | bool    | `true`           | 发送已读回执（蓝色双勾）                                    |
+| `self_chat_mode`     | bool    | `false`          | 处理自己号码发出的消息（用于自我命令）                         |
+| `text_chunk_limit`   | int     | `4096`           | 单条消息最大字符数（超出时自动分段）                          |
+| `groups`             | list    | `[]`             | 群组 JID 白名单（例如 `"120363421135228220@g.us"`）         |
+| `group_allow_from`   | list    | `[]`             | 谁可以在群内触发机器人。`["*"]` = 所有人                     |
+
+### 功能
+
+- **文本**（私聊 + 群聊）支持 WhatsApp 原生 markdown
+- **图片**、**语音**、**视频**、**文档**、**贴纸**（收 + 发）
+- **@提及**：同时识别 @电话号码和 WhatsApp 原生 LID 提及
+- **引用回复**：被引用的消息内容（文本 + 媒体）会作为上下文注入
+- **群聊历史**：未被 @的消息会缓冲，机器人被 @时注入作为上下文
+- **输入中**指示器：在生成回复期间持续刷新
+- **斜杠命令**：`/new`、`/stop`、`/clear` 等在消息以 `@+bot_phone` 开头时仍可识别
+
+### 注意事项
+
+- WhatsApp Web 会话绑定到手机。如果在手机上取消关联，需要重新配对。
+- 群组 ID 以 `@g.us` 结尾（例如 `120363421135228220@g.us`），机器人加入群组后可在 Console 抽屉中看到。
+- `group_policy: allowlist` + 空 `groups` 列表将拦截所有群消息。
+
+---
+
+## Signal
+
+Signal 频道使用 [bbernhard/signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api) Docker 镜像（2.5k★），它把官方 `signal-cli` 封装成 REST + WebSocket API。需要在 CoPaw 旁边运行这个容器。
+
+### 运行 REST API 服务
+
+```bash
+# 使用 podman
+podman run -d --name signal-api --restart unless-stopped \
+  -p 8082:8080 \
+  -v ~/.local/share/signal-cli:/home/.local/share/signal-cli:Z \
+  -e MODE=json-rpc \
+  bbernhard/signal-cli-rest-api:latest
+
+# 或使用 docker
+docker run -d --name signal-api --restart unless-stopped \
+  -p 8082:8080 \
+  -v ~/.local/share/signal-cli:/home/.local/share/signal-cli \
+  -e MODE=json-rpc \
+  bbernhard/signal-cli-rest-api:latest
+```
+
+### 注册账号
+
+可以使用 **已有的 signal-cli 账号**（按上方挂载数据目录即可），或注册新号码：
+
+```bash
+# 注册新号码
+curl -X POST http://localhost:8082/v1/register/+85212345678
+
+# 用收到的验证码完成验证
+curl -X POST http://localhost:8082/v1/register/+85212345678/verify/123456
+```
+
+或作为次要设备链接到现有 Signal 账号：在浏览器打开 `http://localhost:8082/v1/qrcodelink/copaw-bot`，然后用 Signal → 设置 → 已连接的设备 → 连接新设备 扫码。
+
+### 配置
+
+```json
+"signal": {
+    "enabled": true,
+    "account": "+85212345678",
+    "http_url": "http://127.0.0.1:8082",
+    "dm_policy": "allowlist",
+    "group_policy": "allowlist",
+    "allow_from": ["+85298765432", "uuid:5720b72c-1051-47bd-962b-8c0c9db5aff1"],
+    "groups": ["sBlO8LhzR42XNBbUqUrNVNokyOe2NdDZCTs0fSuZnJc="],
+    "group_allow_from": ["*"],
+    "require_mention": true,
+    "send_read_receipts": true
+}
+```
+
+**Signal 特有字段：**
+
+| 字段                  | 类型    | 默认值                | 说明                                                  |
+| -------------------- | ------- | -------------------- | ---------------------------------------------------- |
+| `account`            | string  | `""`（必填）          | 在 signal-cli 注册的电话号码，E.164 格式                |
+| `http_url`           | string  | `""`                 | bbernhard REST API 的完整 URL（例如 `http://127.0.0.1:8082`） |
+| `http_host`          | string  | `"127.0.0.1"`        | 主机（在 `http_url` 为空时使用）                        |
+| `http_port`          | int     | `8080`               | 端口（在 `http_url` 为空时使用）                        |
+| `send_read_receipts` | bool    | `true`               | 发送已读回执                                           |
+| `text_chunk_limit`   | int     | `4000`               | 单条消息最大字符数                                      |
+| `groups`             | list    | `[]`                 | 群组 internal-id 白名单（来自 signal-cli 的 base64 字符串） |
+| `group_allow_from`   | list    | `[]`                 | 谁可以在群内触发机器人。`["*"]` = 所有人；支持 `+电话` 或 `uuid:...` |
+
+### 功能
+
+- **文本**（私聊 + 群聊）通过 `text_mode: "styled"` 原生解析 markdown（`**粗体**`、`*斜体*`、`` `代码` ``、`~~删除线~~`）
+- **图片**、**音频**、**视频**、**文件**（收 + 发，base64 附件）
+- **表情回应**：收 + 发 emoji reactions
+- **引用回复**：提取被引用消息的文本 + 附件作为上下文
+- **群聊历史**：未被 @的消息会缓冲（含媒体），机器人被 @时注入上下文
+- **输入中**指示器：在生成回复期间持续刷新
+- **WebSocket 接收**：实时消息流，无轮询
+
+### 注意事项
+
+- Signal 没有公开 API，`signal-cli` 是唯一可靠的桥接，`bbernhard/signal-cli-rest-api` 是最流行的封装。
+- `groups` 中的 ID 是 `GET /v1/groups/{number}` 返回的 **internal-id**（类似 `sBlO8LhzR42X...=` 的 base64 字符串），**不是** `group.xxx` 格式。
+- `group_allow_from` 接受电话号码（`+85212345678`）、UUID（`uuid:xxx-xxx-...`）或 `"*"`（所有人）。
+- 如果容器启动失败，检查 `podman logs signal-api`——常见问题是端口冲突或缺少 signal-cli 数据目录。
+
+---
+
 ## Mattermost
 
 Mattermost 频道通过 WebSocket 实时监听事件，并使用 REST API 发送回复。支持私聊和群聊场景，在群聊中基于 **Thread（盖楼）** 划分会话上下文。
