@@ -156,9 +156,9 @@ def init_cmd(
 
     # --- Security warning: must accept to continue ---
     _echo_security_warning_box()
-    if use_defaults and accept_security:
+    if use_defaults or accept_security:
         click.echo(
-            "Security acceptance assumed (--accept-security with --defaults).",
+            "Security acceptance assumed (--defaults skips interactive prompts).",
         )
     else:
         accepted = prompt_confirm(
