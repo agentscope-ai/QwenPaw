@@ -416,7 +416,7 @@ class AgentRunner(Runner):
                 )
 
             if self._chat_manager is not None and chat is not None:
-                await self._chat_manager.update_chat(chat)
+                await self._chat_manager.touch_chat(chat.id)
 
     async def _cleanup_denied_session_memory(
         self,

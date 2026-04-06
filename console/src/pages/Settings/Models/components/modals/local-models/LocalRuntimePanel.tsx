@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Button, Tooltip } from "@agentscope-ai/design";
+import { Button, Modal, Tooltip } from "@agentscope-ai/design";
 import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import { Progress } from "antd";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,7 @@ import {
 
 interface LocalRuntimePanelProps {
   serverStatus: LocalServerStatus | null;
+  hasUpdate: boolean;
   progress: LocalDownloadProgress | null;
   onStart: () => void;
   onCancel: () => void;
@@ -25,6 +26,7 @@ interface LocalRuntimePanelProps {
 
 export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   serverStatus,
+  hasUpdate,
   progress,
   onStart,
   onCancel,
@@ -36,7 +38,12 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   const isCanceling = progress?.status === "canceling";
   const isRunning = Boolean(serverStatus?.model_name);
   const showFooterHint = installed || isDownloading;
-  const installBadge = installed
+  const installBadge = hasUpdate
+    ? {
+        className: styles.localStatusBadgeInstalled,
+        label: t("models.localRuntimeUpdateAvailable"),
+      }
+    : installed
     ? {
         className: styles.localStatusBadgeInstalled,
         label: t("models.localRuntimeInstalled"),
@@ -67,6 +74,21 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
         };
   const progressPercent = getProgressPercent(progress);
   const progressText = isDownloading ? formatProgressText(progress) : null;
+  const canTriggerUpdate = hasUpdate && !isDownloading;
+
+  const handleConfirmUpdate = () => {
+    Modal.confirm({
+      title: t("models.localRuntimeUpdateConfirmTitle"),
+      content: isRunning
+        ? t("models.localRuntimeUpdateConfirmContentWithServer", {
+            model: serverStatus?.model_name ?? t("models.localLlamacppName"),
+          })
+        : t("models.localRuntimeUpdateConfirmContent"),
+      okText: t("common.confirm"),
+      cancelText: t("common.cancel"),
+      onOk: onStart,
+    });
+  };
 
   return (
     <div className={styles.localRuntimePanel}>
@@ -90,7 +112,17 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           <span className={styles.localEngineMetricLabel}>
             {t("models.localEngineInstallStateLabel")}
           </span>
-          {!installable && serverStatus?.message ? (
+          {canTriggerUpdate ? (
+            <Tooltip title={t("models.localRuntimeUpdateAction")}>
+              <button
+                type="button"
+                className={`${styles.localStatusBadge} ${styles.localStatusBadgeAction} ${styles.localStatusBadgeButton}`}
+                onClick={handleConfirmUpdate}
+              >
+                {installBadge.label}
+              </button>
+            </Tooltip>
+          ) : !installable && serverStatus?.message ? (
             <Tooltip title={serverStatus.message}>
               <span
                 className={`${styles.localStatusBadge} ${installBadge.className}`}

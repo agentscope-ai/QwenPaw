@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import type { KeyboardEvent, ReactNode, UIEvent } from "react";
 import { Button, Form, Input, Modal, Tag } from "@agentscope-ai/design";
 import {
   DeleteOutlined,
@@ -6,13 +7,285 @@ import {
   ApiOutlined,
   SyncOutlined,
   EyeOutlined,
+  SettingOutlined,
+  DownOutlined,
 } from "@ant-design/icons";
-import type { ProviderInfo } from "../../../../../api/types";
+import type { ProviderInfo, ModelInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../../../../../contexts/ThemeContext";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
+
+function highlightJson(text: string): ReactNode[] {
+  const tokens: ReactNode[] = [];
+  const pattern =
+    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    const [token, stringToken, keySuffix] = match;
+
+    if (match.index > lastIndex) {
+      tokens.push(text.slice(lastIndex, match.index));
+    }
+
+    if (stringToken) {
+      tokens.push(
+        <span
+          key={`${match.index}-${token}`}
+          className={
+            keySuffix ? styles.jsonEditorTokenKey : styles.jsonEditorTokenString
+          }
+        >
+          {token}
+        </span>,
+      );
+    } else if (token === "true" || token === "false") {
+      tokens.push(
+        <span
+          key={`${match.index}-${token}`}
+          className={styles.jsonEditorTokenBoolean}
+        >
+          {token}
+        </span>,
+      );
+    } else if (token === "null") {
+      tokens.push(
+        <span
+          key={`${match.index}-${token}`}
+          className={styles.jsonEditorTokenNull}
+        >
+          {token}
+        </span>,
+      );
+    } else if (/^-?\d/.test(token)) {
+      tokens.push(
+        <span
+          key={`${match.index}-${token}`}
+          className={styles.jsonEditorTokenNumber}
+        >
+          {token}
+        </span>,
+      );
+    } else {
+      tokens.push(
+        <span
+          key={`${match.index}-${token}`}
+          className={styles.jsonEditorTokenPunctuation}
+        >
+          {token}
+        </span>,
+      );
+    }
+
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < text.length) {
+    tokens.push(text.slice(lastIndex));
+  }
+
+  return tokens;
+}
+
+function MiniJsonEditor({
+  value = "",
+  onChange,
+  placeholder,
+}: {
+  value?: string;
+  onChange?: (value: string) => void;
+  placeholder?: string;
+}) {
+  const indentUnit = "  ";
+  const highlightRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleScroll = (event: UIEvent<HTMLTextAreaElement>) => {
+    if (!highlightRef.current) return;
+    highlightRef.current.scrollTop = event.currentTarget.scrollTop;
+    highlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+
+    const textarea = event.currentTarget;
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+
+    if (event.shiftKey) {
+      const lineStart = value.lastIndexOf("\n", selectionStart - 1) + 1;
+      const linePrefix = value.slice(lineStart, selectionStart);
+      if (!linePrefix.endsWith(indentUnit)) return;
+      const nextValue =
+        value.slice(0, selectionStart - indentUnit.length) +
+        value.slice(selectionStart);
+      onChange?.(nextValue);
+      requestAnimationFrame(() => {
+        textareaRef.current?.setSelectionRange(
+          selectionStart - indentUnit.length,
+          selectionStart - indentUnit.length,
+        );
+      });
+      return;
+    }
+
+    const nextValue =
+      value.slice(0, selectionStart) + indentUnit + value.slice(selectionEnd);
+    onChange?.(nextValue);
+    requestAnimationFrame(() => {
+      const nextCursor = selectionStart + indentUnit.length;
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
+
+  return (
+    <div className={styles.jsonEditorContainer} style={{ marginTop: 8 }}>
+      <div
+        ref={highlightRef}
+        aria-hidden="true"
+        className={styles.jsonEditorHighlight}
+        style={{ minHeight: 100 }}
+      >
+        {value ? highlightJson(value) : placeholder}
+        {!value && <span>{"\n"}</span>}
+      </div>
+      <textarea
+        ref={textareaRef}
+        rows={5}
+        value={value}
+        onChange={(event) => onChange?.(event.target.value)}
+        onKeyDown={handleKeyDown}
+        onScroll={handleScroll}
+        placeholder={placeholder}
+        spellCheck={false}
+        className={styles.jsonEditorTextarea}
+        style={{ minHeight: 100 }}
+      />
+    </div>
+  );
+}
+
+function ModelConfigEditor({
+  providerId,
+  model,
+  onSaved,
+  onClose,
+  isDark,
+}: {
+  providerId: string;
+  model: ModelInfo;
+  onSaved: () => void | Promise<void>;
+  onClose: () => void;
+  isDark: boolean;
+}) {
+  const { t } = useTranslation();
+  const { message } = useAppMessage();
+  const [saving, setSaving] = useState(false);
+
+  const initialText = useMemo(
+    () =>
+      model.generate_kwargs && Object.keys(model.generate_kwargs).length > 0
+        ? JSON.stringify(model.generate_kwargs, null, 2)
+        : "",
+    [model.generate_kwargs],
+  );
+
+  const [text, setText] = useState(initialText);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    setText(initialText);
+    setDirty(false);
+  }, [initialText]);
+
+  const handleChange = useCallback(
+    (val: string) => {
+      setText(val);
+      setDirty(val !== initialText);
+    },
+    [initialText],
+  );
+
+  const handleSave = async () => {
+    const trimmed = text.trim();
+    let parsed: Record<string, unknown> = {};
+    if (trimmed) {
+      try {
+        const obj = JSON.parse(trimmed);
+        if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+          message.error(t("models.generateConfigMustBeObject"));
+          return;
+        }
+        parsed = obj;
+      } catch {
+        message.error(t("models.generateConfigInvalidJson"));
+        return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      await api.configureModel(providerId, model.id, {
+        generate_kwargs: parsed,
+      });
+      message.success(t("models.modelConfigSaved", { name: model.name }));
+      setDirty(false);
+      await onSaved();
+      onClose();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.modelConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: "8px 0 4px" }}>
+      <div
+        style={{
+          fontSize: 12,
+          color: isDark ? "rgba(255,255,255,0.45)" : "#888",
+          marginBottom: 4,
+        }}
+      >
+        {t("models.modelGenerateConfigHint")}
+      </div>
+      <MiniJsonEditor
+        value={text}
+        onChange={handleChange}
+        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  },\n  "max_tokens": 2048\n}`}
+      />
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          marginTop: 8,
+          gap: 8,
+        }}
+      >
+        <Button
+          type="primary"
+          size="small"
+          loading={saving}
+          disabled={!dirty}
+          onClick={handleSave}
+        >
+          {t("models.save")}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 interface RemoteModelManageModalProps {
   provider: ProviderInfo;
@@ -35,8 +308,12 @@ export function RemoteModelManageModal({
   const [discovering, setDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
+  const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
+    null,
+  );
   const [form] = Form.useForm();
-  const canDiscover = provider.support_model_discovery;
+  const isLocalProvider = provider.is_local ?? false;
+  const canDiscover = isLocalProvider && provider.support_model_discovery;
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -181,6 +458,7 @@ export function RemoteModelManageModal({
 
   const handleClose = () => {
     setAdding(false);
+    setConfigOpenModelId(null);
     form.resetFields();
     onClose();
   };
@@ -253,119 +531,191 @@ export function RemoteModelManageModal({
         ) : (
           all_models.map((m) => {
             const isDeletable = extraModelIds.has(m.id);
+            const isConfigOpen = configOpenModelId === m.id;
             return (
-              <div key={m.id} className={styles.modelListItem}>
-                <div className={styles.modelListItemInfo}>
-                  <span className={styles.modelListItemName}>
-                    {m.name}
-                    {m.supports_image === true && (
-                      <Tag color="blue" style={{ fontSize: 11, marginLeft: 6 }}>
-                        {t("models.tagImage", "图片")}
-                      </Tag>
+              <div key={m.id}>
+                <div className={styles.modelListItem}>
+                  <div className={styles.modelListItemInfo}>
+                    <span className={styles.modelListItemName}>
+                      {m.name}
+                      {m.supports_image === true && (
+                        <Tag
+                          color="blue"
+                          style={{ fontSize: 11, marginLeft: 6 }}
+                        >
+                          {t("models.tagImage", "图片")}
+                        </Tag>
+                      )}
+                      {m.supports_video === true && (
+                        <Tag
+                          color="purple"
+                          style={{ fontSize: 11, marginLeft: 4 }}
+                        >
+                          {t("models.tagVideo", "视频")}
+                        </Tag>
+                      )}
+                      {m.supports_multimodal === false && (
+                        <Tag style={{ fontSize: 11, marginLeft: 6 }}>
+                          {t("models.tagTextOnly", "纯文本")}
+                        </Tag>
+                      )}
+                      {m.supports_multimodal === null && (
+                        <Tag
+                          color="default"
+                          style={{ fontSize: 11, marginLeft: 6 }}
+                        >
+                          {t("models.tagNotProbed", "未检测")}
+                        </Tag>
+                      )}
+                    </span>
+                    <span className={styles.modelListItemId}>{m.id}</span>
+                  </div>
+                  <div className={styles.modelListItemActions}>
+                    {isDeletable ? (
+                      <>
+                        <Tag
+                          color="blue"
+                          style={{ fontSize: 11, marginRight: 4 }}
+                        >
+                          {t("models.userAdded")}
+                        </Tag>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EyeOutlined />}
+                          onClick={() => handleProbeMultimodal(m.id)}
+                          loading={probingModelId === m.id}
+                          style={{
+                            marginRight: 4,
+                            color: isDark
+                              ? "rgba(255,255,255,0.65)"
+                              : undefined,
+                          }}
+                        >
+                          {t("models.probeMultimodal", "测试多模态")}
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ApiOutlined />}
+                          onClick={() => handleTestModel(m.id)}
+                          loading={testingModelId === m.id}
+                          style={{
+                            marginRight: 4,
+                            color: isDark
+                              ? "rgba(255,255,255,0.65)"
+                              : undefined,
+                          }}
+                        >
+                          {t("models.testConnection")}
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={
+                            isConfigOpen ? (
+                              <DownOutlined />
+                            ) : (
+                              <SettingOutlined />
+                            )
+                          }
+                          onClick={() =>
+                            setConfigOpenModelId(isConfigOpen ? null : m.id)
+                          }
+                          style={{
+                            marginRight: 4,
+                            color: isDark
+                              ? "rgba(255,255,255,0.65)"
+                              : undefined,
+                          }}
+                        />
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => handleRemoveModel(m.id, m.name)}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Tag
+                          color="green"
+                          style={{ fontSize: 11, marginRight: 4 }}
+                        >
+                          {t("models.builtin")}
+                        </Tag>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EyeOutlined />}
+                          onClick={() => handleProbeMultimodal(m.id)}
+                          loading={probingModelId === m.id}
+                          style={{
+                            marginRight: 4,
+                            color: isDark
+                              ? "rgba(255,255,255,0.65)"
+                              : undefined,
+                          }}
+                        >
+                          {t("models.probeMultimodal", "测试多模态")}
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ApiOutlined />}
+                          onClick={() => handleTestModel(m.id)}
+                          loading={testingModelId === m.id}
+                          style={{
+                            marginRight: 4,
+                            color: isDark
+                              ? "rgba(255,255,255,0.65)"
+                              : undefined,
+                          }}
+                        >
+                          {t("models.testConnection")}
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={
+                            isConfigOpen ? (
+                              <DownOutlined />
+                            ) : (
+                              <SettingOutlined />
+                            )
+                          }
+                          onClick={() =>
+                            setConfigOpenModelId(isConfigOpen ? null : m.id)
+                          }
+                          style={{
+                            color: isDark
+                              ? "rgba(255,255,255,0.65)"
+                              : undefined,
+                          }}
+                        />
+                      </>
                     )}
-                    {m.supports_video === true && (
-                      <Tag
-                        color="purple"
-                        style={{ fontSize: 11, marginLeft: 4 }}
-                      >
-                        {t("models.tagVideo", "视频")}
-                      </Tag>
-                    )}
-                    {m.supports_multimodal === false && (
-                      <Tag style={{ fontSize: 11, marginLeft: 6 }}>
-                        {t("models.tagTextOnly", "纯文本")}
-                      </Tag>
-                    )}
-                    {m.supports_multimodal === null && (
-                      <Tag
-                        color="default"
-                        style={{ fontSize: 11, marginLeft: 6 }}
-                      >
-                        {t("models.tagNotProbed", "未检测")}
-                      </Tag>
-                    )}
-                  </span>
-                  <span className={styles.modelListItemId}>{m.id}</span>
+                  </div>
                 </div>
-                <div className={styles.modelListItemActions}>
-                  {isDeletable ? (
-                    <>
-                      <Tag
-                        color="blue"
-                        style={{ fontSize: 11, marginRight: 4 }}
-                      >
-                        {t("models.userAdded")}
-                      </Tag>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<EyeOutlined />}
-                        onClick={() => handleProbeMultimodal(m.id)}
-                        loading={probingModelId === m.id}
-                        style={{
-                          marginRight: 4,
-                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
-                        }}
-                      >
-                        {t("models.probeMultimodal", "测试多模态")}
-                      </Button>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<ApiOutlined />}
-                        onClick={() => handleTestModel(m.id)}
-                        loading={testingModelId === m.id}
-                        style={{
-                          marginRight: 4,
-                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
-                        }}
-                      >
-                        {t("models.testConnection")}
-                      </Button>
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleRemoveModel(m.id, m.name)}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <Tag
-                        color="green"
-                        style={{ fontSize: 11, marginRight: 4 }}
-                      >
-                        {t("models.builtin")}
-                      </Tag>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<EyeOutlined />}
-                        onClick={() => handleProbeMultimodal(m.id)}
-                        loading={probingModelId === m.id}
-                        style={{
-                          marginRight: 4,
-                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
-                        }}
-                      >
-                        {t("models.probeMultimodal", "测试多模态")}
-                      </Button>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<ApiOutlined />}
-                        onClick={() => handleTestModel(m.id)}
-                        loading={testingModelId === m.id}
-                        style={{
-                          color: isDark ? "rgba(255,255,255,0.65)" : undefined,
-                        }}
-                      >
-                        {t("models.testConnection")}
-                      </Button>
-                    </>
-                  )}
-                </div>
+                {isConfigOpen && (
+                  <div
+                    style={{
+                      padding: "0 16px 12px",
+                      borderBottom: isDark
+                        ? "1px solid rgba(255,255,255,0.06)"
+                        : "1px solid #f5f5f5",
+                    }}
+                  >
+                    <ModelConfigEditor
+                      providerId={provider.id}
+                      model={m}
+                      onSaved={onSaved}
+                      onClose={() => setConfigOpenModelId(null)}
+                      isDark={isDark}
+                    />
+                  </div>
+                )}
               </div>
             );
           })

@@ -159,7 +159,7 @@ class OpenAIProvider(Provider):
             api_key=self.api_key,
             stream_tool_parsing=False,
             client_kwargs=client_kwargs,
-            generate_kwargs=self.generate_kwargs,
+            generate_kwargs=self.get_effective_generate_kwargs(model_id),
         )
 
     async def probe_model_multimodal(

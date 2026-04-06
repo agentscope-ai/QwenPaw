@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
@@ -7,78 +8,62 @@ from pathlib import Path
 import pytest
 
 from copaw.local_models.download_manager import (
-    DownloadProgressTracker,
+    DownloadTaskResult,
     DownloadTaskStatus,
 )
 from copaw.local_models.model_manager import ModelManager, DownloadSource
 
 
-class _FakeProcess:
+class _FakeController:
     def __init__(self) -> None:
-        self._alive = True
-        self.terminated = False
-        self.killed = False
-        self.closed = False
+        self.started_spec = None
+        self.cancel_called = False
+        self.active = False
+        self.snapshot_value = {
+            "status": "idle",
+            "model_name": None,
+            "downloaded_bytes": 0,
+            "total_bytes": None,
+            "speed_bytes_per_sec": 0.0,
+            "source": None,
+            "error": None,
+            "local_path": None,
+        }
 
-    def is_alive(self) -> bool:
-        return self._alive
+    def start(self, spec) -> None:
+        self.started_spec = spec
+        self.active = True
 
-    def terminate(self) -> None:
-        self.terminated = True
-        self._alive = False
+    def cancel(self) -> None:
+        self.cancel_called = True
+        self.active = False
 
-    def kill(self) -> None:
-        self.killed = True
-        self._alive = False
+    def snapshot(self) -> dict:
+        return self.snapshot_value
 
-    def join(self, timeout=None) -> None:
-        del timeout
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class _FakeQueue:
-    def __init__(self) -> None:
-        self.closed = False
-        self.joined = False
-
-    def close(self) -> None:
-        self.closed = True
-
-    def join_thread(self) -> None:
-        self.joined = True
+    def is_active(self) -> bool:
+        return self.active
 
 
-class _FakeThread:
-    def __init__(self) -> None:
-        self.join_calls: list[object] = []
-
-    def join(self, timeout=None) -> None:
-        self.join_calls.append(timeout)
-
-
-def test_download_model_uses_reachable_source(
-    monkeypatch,
+def test_start_download_uses_reachable_source(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     downloader = ModelManager()
-    captured = {}
+    controller = _FakeController()
+    downloader.__dict__["_download_controller"] = controller
+    downloader.__dict__["_download_tmp_dir"] = tmp_path / "tmp"
     target_dir = tmp_path / "resolved-model-dir"
-    download_tmp_dir = tmp_path / "tmp"
-
-    downloader.__dict__["_download_tmp_dir"] = download_tmp_dir
 
     monkeypatch.setattr(
         downloader,
         "get_model_dir",
         lambda repo_id: target_dir,
     )
-
     monkeypatch.setattr(
         downloader,
         "_resolve_download_source",
-        lambda: captured.setdefault("source", DownloadSource.MODELSCOPE),
+        lambda: DownloadSource.MODELSCOPE,
     )
     monkeypatch.setattr(
         downloader,
@@ -91,46 +76,64 @@ def test_download_model_uses_reachable_source(
         lambda **kwargs: (True, ""),
     )
 
-    class _FakeQueue:
-        pass
+    downloader.start_download("Qwen/Qwen2-0.5B-Instruct-GGUF")
 
-    class _FakeContext:
-        def Queue(self):
-            return _FakeQueue()
+    assert controller.started_spec is not None
+    assert controller.started_spec.command == [
+        "copaw-model-download",
+        "Qwen/Qwen2-0.5B-Instruct-GGUF",
+        "modelscope",
+    ]
+    assert (
+        controller.started_spec.model_name == "Qwen/Qwen2-0.5B-Instruct-GGUF"
+    )
+    assert controller.started_spec.source == "modelscope"
+    assert controller.started_spec.total_bytes == 100
+    assert controller.started_spec.task.payload == {
+        "repo_id": "Qwen/Qwen2-0.5B-Instruct-GGUF",
+        "source": "modelscope",
+        "staging_dir": str(
+            (tmp_path / "tmp").joinpath(
+                Path(
+                    controller.started_spec.task.payload["staging_dir"],
+                ).name,
+            ),
+        ),
+    }
+    progress = controller.started_spec.task.probe_progress()
+    assert progress is not None
+    assert (
+        Path(controller.started_spec.task.payload["staging_dir"]).parent
+        == tmp_path / "tmp"
+    )
+    assert progress.total_bytes == 100
+    assert progress.model_name == "Qwen/Qwen2-0.5B-Instruct-GGUF"
+    assert progress.source == "modelscope"
 
-        def Process(self, **kwargs):
-            captured["process_kwargs"] = kwargs
 
-            class _Process:
-                def start(self):
-                    captured["started"] = True
-
-                def is_alive(self):
-                    return True
-
-            return _Process()
-
-    downloader.__dict__["_context"] = _FakeContext()
-
-    class _FakeThread:
-        def __init__(self, **kwargs):
-            captured["thread_kwargs"] = kwargs
-
-        def start(self):
-            captured["thread_started"] = True
+def test_download_model_is_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = ModelManager()
+    calls: list[tuple[str, DownloadSource | None]] = []
 
     monkeypatch.setattr(
-        "copaw.local_models.model_manager.threading.Thread",
-        _FakeThread,
+        downloader,
+        "start_download",
+        lambda model_id, source=None: calls.append((model_id, source)),
     )
 
-    downloader.download_model("Qwen/Qwen2-0.5B-Instruct-GGUF")
+    downloader.download_model(
+        "Qwen/Qwen2-0.5B-Instruct-GGUF",
+        source=DownloadSource.HUGGINGFACE,
+    )
 
-    assert captured["source"] == DownloadSource.MODELSCOPE
-    assert captured["started"] is True
-    assert downloader.get_download_progress()["source"] == "modelscope"
-    assert downloader.__dict__["_final_dir"] == target_dir.resolve()
-    assert downloader.__dict__["_staging_dir"].parent == download_tmp_dir
+    assert calls == [
+        (
+            "Qwen/Qwen2-0.5B-Instruct-GGUF",
+            DownloadSource.HUGGINGFACE,
+        ),
+    ]
 
 
 def test_get_download_progress_returns_idle_by_default() -> None:
@@ -149,10 +152,12 @@ def test_get_download_progress_returns_idle_by_default() -> None:
 
 
 def test_download_model_rejects_repo_without_gguf(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     downloader = ModelManager()
+    controller = _FakeController()
+    downloader.__dict__["_download_controller"] = controller
 
     monkeypatch.setattr(
         downloader,
@@ -185,65 +190,30 @@ def test_download_model_rejects_repo_without_gguf(
         ValueError,
         match="does not contain any .gguf files",
     ):
-        downloader.download_model("demo/no-gguf")
+        downloader.start_download("demo/no-gguf")
 
-    assert downloader.get_download_progress()["status"] == "idle"
-    assert downloader.__dict__["_process"] is None
+    assert controller.started_spec is None
 
 
-def test_cancel_download_stops_active_process(tmp_path: Path) -> None:
+def test_cancel_download_delegates_to_controller() -> None:
     downloader = ModelManager()
-    staging_dir = tmp_path / "staging"
-    staging_dir.mkdir()
-    (staging_dir / "partial.gguf").write_bytes(b"123")
-    fake_process = _FakeProcess()
-    fake_queue = _FakeQueue()
-    fake_thread = _FakeThread()
-    progress = DownloadProgressTracker()
-    progress.reset(
-        status=DownloadTaskStatus.DOWNLOADING,
-        total_bytes=10,
-        source="huggingface",
-    )
-    progress.update_downloaded(3)
-
-    downloader.__dict__["_process"] = fake_process
-    downloader.__dict__["_queue"] = fake_queue
-    downloader.__dict__["_monitor_thread"] = fake_thread
-    downloader.__dict__["_staging_dir"] = staging_dir
-    downloader.__dict__["_final_dir"] = tmp_path / "final"
-    downloader.__dict__["_progress"] = progress
-    downloader.__dict__["_resolved_source"] = DownloadSource.HUGGINGFACE
+    controller = _FakeController()
+    downloader.__dict__["_download_controller"] = controller
 
     downloader.cancel_download()
 
-    progress_snapshot = downloader.get_download_progress()
-    assert fake_process.terminated is True
-    assert fake_process.closed is True
-    assert fake_queue.closed is True
-    assert fake_queue.joined is True
-    assert fake_thread.join_calls == [2]
-    assert not staging_dir.exists()
-    assert progress_snapshot["status"] == "cancelled"
-    assert progress_snapshot["speed_bytes_per_sec"] == 0.0
-    assert downloader.__dict__["_process"] is None
-    assert downloader.__dict__["_queue"] is None
-    assert downloader.__dict__["_monitor_thread"] is None
-    assert downloader.__dict__["_staging_dir"] is None
-    assert downloader.__dict__["_final_dir"] is None
-    assert downloader.__dict__["_resolved_source"] is None
+    assert controller.cancel_called is True
 
 
-def test_download_model_uses_explicit_source_without_probe(
-    monkeypatch,
+def test_start_download_uses_explicit_source_without_probe(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     downloader = ModelManager()
-    captured = {}
+    controller = _FakeController()
+    downloader.__dict__["_download_controller"] = controller
+    downloader.__dict__["_download_tmp_dir"] = tmp_path / "tmp"
     target_dir = tmp_path / "resolved-model-dir"
-    download_tmp_dir = tmp_path / "tmp"
-
-    downloader.__dict__["_download_tmp_dir"] = download_tmp_dir
 
     monkeypatch.setattr(
         downloader,
@@ -251,7 +221,7 @@ def test_download_model_uses_explicit_source_without_probe(
         lambda repo_id: target_dir,
     )
 
-    def _unexpected_probe():
+    def _unexpected_probe() -> DownloadSource:
         raise AssertionError("source probing should be skipped")
 
     monkeypatch.setattr(
@@ -270,47 +240,43 @@ def test_download_model_uses_explicit_source_without_probe(
         lambda **kwargs: (True, ""),
     )
 
-    class _FakeQueue:
-        pass
-
-    class _FakeContext:
-        def Queue(self):
-            return _FakeQueue()
-
-        def Process(self, **kwargs):
-            captured["process_kwargs"] = kwargs
-
-            class _Process:
-                def start(self):
-                    captured["started"] = True
-
-                def is_alive(self):
-                    return True
-
-            return _Process()
-
-    downloader.__dict__["_context"] = _FakeContext()
-
-    class _FakeThread:
-        def __init__(self, **kwargs):
-            captured["thread_kwargs"] = kwargs
-
-        def start(self):
-            captured["thread_started"] = True
-
-    monkeypatch.setattr(
-        "copaw.local_models.model_manager.threading.Thread",
-        _FakeThread,
-    )
-
-    downloader.download_model(
+    downloader.start_download(
         "Qwen/Qwen2-0.5B-Instruct-GGUF",
         source=DownloadSource.HUGGINGFACE,
     )
 
-    assert captured["started"] is True
-    assert downloader.get_download_progress()["source"] == "huggingface"
-    assert downloader.__dict__["_staging_dir"].parent == download_tmp_dir
+    assert controller.started_spec is not None
+    assert controller.started_spec.command == [
+        "copaw-model-download",
+        "Qwen/Qwen2-0.5B-Instruct-GGUF",
+        "huggingface",
+    ]
+    assert controller.started_spec.source == "huggingface"
+
+
+def test_finalize_download_result_promotes_staging_dir(
+    tmp_path: Path,
+) -> None:
+    downloader = ModelManager()
+    staging_dir = tmp_path / "staging"
+    final_dir = tmp_path / "final"
+    staging_dir.mkdir()
+    (staging_dir / "model.gguf").write_bytes(b"123")
+
+    result, downloaded_bytes = downloader._finalize_download_result(
+        DownloadTaskResult(
+            status=DownloadTaskStatus.COMPLETED,
+            local_path=str(staging_dir),
+        ),
+        staging_dir=staging_dir,
+        final_dir=final_dir,
+    )
+
+    assert result.status == DownloadTaskStatus.COMPLETED
+    assert result.local_path == str(final_dir)
+    assert downloaded_bytes == 3
+    assert not staging_dir.exists()
+    assert (final_dir / "model.gguf").exists()
 
 
 def test_get_model_dir_preserves_repo_id_path() -> None:
@@ -363,3 +329,40 @@ def test_list_downloaded_models_ignores_temporary_download_dirs(
     models = downloader.list_downloaded_models()
 
     assert [model.id for model in models] == ["Qwen/Qwen3-0.6B-GGUF"]
+
+
+def test_download_worker_sanitizes_standard_streams(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    queue_messages: list[dict[str, object | dict[str, object]]] = []
+    calls: list[str] = []
+
+    class _Queue:
+        def put(self, item):
+            queue_messages.append(item)
+
+    monkeypatch.setattr(
+        "copaw.local_models.model_manager.ensure_standard_streams",
+        lambda: calls.append("sanitized"),
+    )
+    monkeypatch.setattr(
+        ModelManager,
+        "_download_to_directory",
+        staticmethod(lambda **kwargs: str(tmp_path / "downloaded")),
+    )
+
+    getattr(ModelManager, "_download_worker")(
+        {
+            "repo_id": "AgentScope/demo",
+            "source": "modelscope",
+            "staging_dir": str(tmp_path / "staging"),
+        },
+        _Queue(),
+    )
+
+    assert calls == ["sanitized"]
+    assert queue_messages[0]["type"] == "result"
+    payload = queue_messages[0]["payload"]
+    assert isinstance(payload, dict)
+    assert payload["status"] == "completed"

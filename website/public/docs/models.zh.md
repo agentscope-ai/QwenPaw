@@ -148,15 +148,14 @@ CoPaw 当前支持的云提供商包括：
 - ModelScope
 - DashScope
 - Aliyun Coding Plan
-- Zhipu（BigModel）
-- Zhipu Coding Plan（BigModel）
-- Zhipu（Z.AI）
-- Zhipu Coding Plan（Z.AI）
 - OpenAI
 - Azure OpenAI
 - Anthropic
 - Google Gemini
+- DeepSeek
+- Kimi
 - MiniMax
+- Zhipu
 
 > 由于部分供应商针对中国大陆以及其他地区提供了不同的 API 域名，请根据您所在的地区选择正确的供应商
 

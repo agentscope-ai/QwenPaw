@@ -99,6 +99,16 @@ class AddModelRequest(BaseModel):
     name: str = Field(...)
 
 
+class ModelConfigRequest(BaseModel):
+    generate_kwargs: Optional[dict] = Field(
+        default_factory=dict,
+        description=(
+            "Per-model generation parameters in JSON format. "
+            "These override provider-level generate_kwargs."
+        ),
+    )
+
+
 def _validate_model_slot(
     manager: ProviderManager,
     provider_id: str,
@@ -451,6 +461,30 @@ async def remove_model_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return provider
+
+
+@router.put(
+    "/{provider_id}/models/{model_id:path}/config",
+    response_model=ProviderInfo,
+    summary="Configure per-model generation parameters",
+)
+async def configure_model(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    model_id: str = Path(...),
+    body: ModelConfigRequest = Body(...),
+) -> ProviderInfo:
+    """Update per-model generate_kwargs that override provider-level
+    settings."""
+    try:
+        provider_info = await manager.update_model_config(
+            provider_id=provider_id,
+            model_id=model_id,
+            config={"generate_kwargs": body.generate_kwargs},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return provider_info
 
 
 @router.get(

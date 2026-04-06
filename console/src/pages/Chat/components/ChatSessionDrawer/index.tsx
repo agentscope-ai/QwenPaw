@@ -159,7 +159,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setEditValue(value);
   }, []);
 
-  /** Submit rename: call updateChat with all original fields overriding only name, then refresh */
+  /** Submit rename: send a minimal patch so stale session fields cannot overwrite the title. */
   const handleEditSubmit = useCallback(async () => {
     if (!editingSessionId) return;
 
@@ -170,16 +170,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     const newName = editValue.trim();
 
     if (backendId && newName && session) {
-      // Reconstruct full ChatSpec from ExtendedSession, replacing only the name
       await chatApi.updateChat(backendId, {
-        id: backendId,
         name: newName,
-        session_id: session.sessionId as string,
-        user_id: session.userId as string,
-        channel: session.channel as string,
-        created_at: session.createdAt ?? null,
-        meta: session.meta,
-        status: session.status,
       });
     }
 

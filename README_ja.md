@@ -58,6 +58,14 @@
 
 ## ニュース
 
+[2026-04-04] v1.0.1をリリースしました！詳細は [v1.0.1 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
+
+- **[v1.0.1] 追加:** Zhipu AI モデルサポート; マルチモーダルモデルの動画分析; モデルごとの生成パラメータ設定; CoPaw Local 自動更新; OneBot v11 チャネル（NapCat/QQ）; エージェントドラッグ&ドロップ並び替え; スキル一括操作; WeChat ファイルアップロードと入力中表示改善; 手動コンパクトの追加指示。
+- **[v1.0.1] 変更:** Web サイト UI 刷新; スキルカードとリスト表示の強化; MCP コンソール UI 改善。
+- **[v1.0.1] 修正:** DingTalk sessionWebhook と許可リスト処理; WeCom WebSocket 信頼性; QQ 再接続状態; コンソール UI 修正; Windows ツール互換性; ブラウザアイドルウォッチドッグ; シンキングモデルでのツールガード; llama.cpp Windows NVIDIA GPU サポート。
+- **[v1.0.1] ドキュメント:** CoPaw-Flash 展開 FAQ; スキルドキュメント更新。
+- **[v1.0.1] 貢献者:** 新規貢献者の皆さんに感謝します: [@Jacky51351684](https://github.com/Jacky51351684)、[@xianzhisheng](https://github.com/xianzhisheng)、[@kobewl](https://github.com/kobewl)、[@rikey123](https://github.com/rikey123)、[@solarhell](https://github.com/solarhell)。
+
 [2026-03-30] v1.0.0をリリースしました！詳細は [v1.0.0 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
 - **[v1.0.0] 追加:**

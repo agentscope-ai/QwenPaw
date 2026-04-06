@@ -467,23 +467,28 @@ CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/prov
 
 **内置提供商列表：**
 
-| 提供商                 | ID                      | 说明                   |
-| ---------------------- | ----------------------- | ---------------------- |
-| ModelScope（魔搭）     | `modelscope`            | 魔搭社区模型服务       |
-| DashScope（灵积）      | `dashscope`             | 阿里云灵积模型服务     |
-| 阿里云百炼 Coding Plan | `aliyun-codingplan`     | 阿里云百炼 Coding Plan |
-| Zhipu（BigModel）      | `zhipu-cn`              | 智谱国内版标准 API     |
-| Zhipu Coding Plan      | `zhipu-cn-codingplan`   | 智谱国内版 Coding Plan |
-| Zhipu（Z.AI）          | `zhipu-intl`            | 智谱国际版标准 API     |
-| Zhipu Coding Plan      | `zhipu-intl-codingplan` | 智谱国际版 Coding Plan |
-| OpenAI                 | `openai`                | OpenAI API             |
-| Azure OpenAI           | `azure-openai`          | Azure OpenAI Service   |
-| Anthropic              | `anthropic`             | Anthropic Claude API   |
-| Google Gemini          | `gemini`                | Google Gemini API      |
-| CoPaw Local            | `copaw-local`           | 本地 llama.cpp 后端    |
-| Ollama                 | `ollama`                | 本地 Ollama 服务       |
-| LM Studio              | `lmstudio`              | 本地 LM Studio 服务    |
-| 自定义                 | `custom`                | 自定义 OpenAI 兼容服务 |
+| 提供商                        | ID                      | 说明                   |
+| ----------------------------- | ----------------------- | ---------------------- |
+| CoPaw Local                   | `copaw-local`           | 本地 llama.cpp 后端    |
+| Ollama                        | `ollama`                | 本地 Ollama 服务       |
+| LM Studio                     | `lmstudio`              | 本地 LM Studio 服务    |
+| ModelScope（魔搭）            | `modelscope`            | 魔搭社区模型服务       |
+| DashScope（灵积）             | `dashscope`             | 阿里云灵积模型服务     |
+| 阿里云百炼 Coding Plan        | `aliyun-codingplan`     | 阿里云百炼 Coding Plan |
+| OpenAI                        | `openai`                | OpenAI API             |
+| Azure OpenAI                  | `azure-openai`          | Azure OpenAI Service   |
+| Anthropic                     | `anthropic`             | Anthropic Claude API   |
+| Google Gemini                 | `gemini`                | Google Gemini API      |
+| DeepSeek                      | `deepseek`              | DeepSeek API           |
+| Kimi（China）                 | `kimi-cn`               | Moonshot Kimi 国内版   |
+| Kimi（International）         | `kimi-intl`             | Moonshot Kimi 国际版   |
+| MiniMax（China）              | `minimax-cn`            | MiniMax 国内版         |
+| MiniMax（International）      | `minimax`               | MiniMax 国际版         |
+| Zhipu（BigModel）             | `zhipu-cn`              | 智谱国内版标准 API     |
+| Zhipu Coding Plan（BigModel） | `zhipu-cn-codingplan`   | 智谱国内版 Coding Plan |
+| Zhipu（Z.AI）                 | `zhipu-intl`            | 智谱国际版标准 API     |
+| Zhipu Coding Plan（Z.AI）     | `zhipu-intl-codingplan` | 智谱国际版 Coding Plan |
+| 自定义                        | `custom`                | 自定义 OpenAI 兼容服务 |
 
 > **完整配置说明：** 每个提供商的详细配置方式、`providers.json` 字段结构、模型发现等请参见 [模型](./models)。
 
