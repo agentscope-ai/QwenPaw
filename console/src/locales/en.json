@@ -563,7 +563,9 @@
     "weixinScanHint": "Scan the QR code with WeChat, then click Save",
     "weixinQrcodeFailed": "Failed to fetch QR code, please try again",
     "weixinLoginSuccess": "WeChat login successful, token has been filled in",
-    "weixinQrcodeExpired": "QR code expired, please get a new one"
+    "weixinQrcodeExpired": "QR code expired, please get a new one",
+    "replyToTrigger": "Reply to Trigger Message",
+    "replyToTriggerTooltip": "Quote-reply the original inbound message when sending agent responses"
   },
   "sessions": {
     "title": "Sessions",

@@ -1094,3 +1094,103 @@ class TestAckReactions:
     def test_error_reaction_can_be_disabled(self):
         ch = _make_channel(ack_reaction_error="")
         assert ch._ack_reaction_error == ""
+
+
+# ---------------------------------------------------------------------------
+# Reply-to trigger message tests
+# ---------------------------------------------------------------------------
+
+class TestReplyToTrigger:
+    """Tests for the reply-to-trigger-message feature."""
+
+    def test_reply_to_trigger_default_enabled(self):
+        ch = _make_channel()
+        assert ch._reply_to_trigger is True
+
+    def test_reply_to_trigger_can_disable(self):
+        ch = _make_channel(reply_to_trigger=False)
+        assert ch._reply_to_trigger is False
+
+    def test_pending_quote_msgs_initialised(self):
+        ch = _make_channel()
+        assert isinstance(ch._pending_quote_msgs, dict)
+        assert len(ch._pending_quote_msgs) == 0
+
+    @pytest.mark.asyncio
+    async def test_send_with_quote_calls_build_reply(self):
+        """When reply_to_trigger is True and a quote msg exists, first chunk
+        should use build_reply_message (awaited) + send_message."""
+        ch = _make_channel(reply_to_trigger=True)
+        fake_quote = MagicMock()
+        ch._pending_quote_msgs["test_chat"] = fake_quote
+
+        # build_reply_message is async
+        reply_proto = MagicMock()
+        ch._client.build_reply_message = AsyncMock(return_value=reply_proto)
+        ch._client.send_message = AsyncMock()
+
+        await ch.send("test_chat", "hello world", meta={"chat_jid": "test_chat"})
+
+        ch._client.build_reply_message.assert_awaited_once_with(
+            message="hello world",
+            quoted=fake_quote,
+        )
+        ch._client.send_message.assert_awaited()
+        # Quote msg consumed (popped)
+        assert "test_chat" not in ch._pending_quote_msgs
+
+    @pytest.mark.asyncio
+    async def test_send_without_quote_sends_normally(self):
+        """When no quote msg is pending, send_message is called directly."""
+        ch = _make_channel(reply_to_trigger=True)
+        ch._client.send_message = AsyncMock()
+
+        await ch.send("test_chat", "hello", meta={})
+
+        ch._client.build_reply_message.assert_not_called()
+        ch._client.send_message.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_send_disabled_skips_quote(self):
+        """When reply_to_trigger is False, never quote even if msg pending."""
+        ch = _make_channel(reply_to_trigger=False)
+        fake_quote = MagicMock()
+        ch._pending_quote_msgs["test_chat"] = fake_quote
+        ch._client.send_message = AsyncMock()
+
+        await ch.send("test_chat", "hello", meta={"chat_jid": "test_chat"})
+
+        ch._client.build_reply_message.assert_not_called()
+        ch._client.send_message.assert_awaited()
+        # Quote msg NOT consumed since feature disabled
+        assert "test_chat" in ch._pending_quote_msgs
+
+    @pytest.mark.asyncio
+    async def test_send_multipart_only_first_chunk_quotes(self):
+        """For multi-chunk messages, only the first chunk should quote."""
+        ch = _make_channel(reply_to_trigger=True)
+        fake_quote = MagicMock()
+        long_text = "x" * (WHATSAPP_MAX_TEXT_LENGTH + 100)
+        ch._pending_quote_msgs["test_chat"] = fake_quote
+
+        reply_proto = MagicMock()
+        ch._client.build_reply_message = AsyncMock(return_value=reply_proto)
+        ch._client.send_message = AsyncMock()
+
+        await ch.send("test_chat", long_text, meta={"chat_jid": "test_chat"})
+
+        # build_reply called exactly once (first chunk)
+        assert ch._client.build_reply_message.await_count == 1
+        # send_message called for all chunks (>= 2)
+        assert ch._client.send_message.await_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_build_reply_failure_falls_back(self):
+        """If build_reply_message raises, should still attempt normal send."""
+        ch = _make_channel(reply_to_trigger=True)
+        ch._pending_quote_msgs["test_chat"] = MagicMock()
+        ch._client.build_reply_message = AsyncMock(side_effect=Exception("proto error"))
+        ch._client.send_message = AsyncMock()
+
+        # Should not raise — error is caught
+        await ch.send("test_chat", "hello", meta={"chat_jid": "test_chat"})

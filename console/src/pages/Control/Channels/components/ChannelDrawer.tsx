@@ -1055,6 +1055,9 @@ export function ChannelDrawer({
             <Form.Item name="group_allow_from" label={t("channels.whatsappGroupAllowFrom")} tooltip={t("channels.whatsappGroupAllowFromTooltip")}>
               <Select mode="tags" placeholder="* (everyone)" tokenSeparators={[","," "]} />
             </Form.Item>
+            <Form.Item name="reply_to_trigger" label={t("channels.replyToTrigger")} valuePropName="checked" tooltip={t("channels.replyToTriggerTooltip")} initialValue={true}>
+              <Switch defaultChecked />
+            </Form.Item>
             <Form.Item name="filter_thinking" label={t("channels.filterThinking")} valuePropName="checked" tooltip={t("channels.filterThinkingTooltip")}>
               <Switch />
             </Form.Item>
@@ -1091,6 +1094,9 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="group_allow_from" label="Group Allow From" tooltip='Who can trigger bot in groups. ["*"] = everyone.'>
               <Select mode="tags" placeholder="* (everyone)" tokenSeparators={[","," "]} />
+            </Form.Item>
+            <Form.Item name="reply_to_trigger" label={t("channels.replyToTrigger")} valuePropName="checked" tooltip={t("channels.replyToTriggerTooltip")} initialValue={true}>
+              <Switch defaultChecked />
             </Form.Item>
             <Form.Item name="filter_thinking" label="Filter Thinking" valuePropName="checked" tooltip="Hide reasoning/thinking blocks from replies">
               <Switch />

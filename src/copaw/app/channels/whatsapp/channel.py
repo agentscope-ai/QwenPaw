@@ -131,6 +131,8 @@ class WhatsAppChannel(BaseChannel):
         self._ack_reaction_error = ack_reaction_error or ""
         self._groups: List[str] = kwargs.get("groups") or []
         self._group_allow_from: List[str] = kwargs.get("group_allow_from") or []
+        self._reply_to_trigger: bool = kwargs.get("reply_to_trigger", True)
+        self._pending_quote_msgs: Dict[str, Any] = {}  # chat_jid -> raw neonize message
         self._media_dir = _MEDIA_DIR
         self._client: Optional[Any] = None
         self._lid_cache: Dict[str, Dict[str, str]] = {}  # lid -> {"phone": "+852...", "name": "Joe"}
@@ -188,6 +190,7 @@ class WhatsAppChannel(BaseChannel):
             ack_reaction_error=c.get("ack_reaction_error", "⚠️"),
             groups=c.get("groups") or [],
             group_allow_from=c.get("group_allow_from") or [],
+            reply_to_trigger=c.get("reply_to_trigger", True),
         )
 
     # ── Lifecycle ─────────────────────────────────────────────────────
@@ -738,6 +741,8 @@ class WhatsAppChannel(BaseChannel):
             request._wa_ack_chat_jid = chat_jid
             request._wa_ack_sender_jid = sender_jid
             request._wa_ack_msg_id = msg_id
+            # Store raw neonize message for reply-to quoting
+            request._wa_raw_message = message
 
             # Mark as read
             if self._send_read_receipts:
@@ -779,6 +784,7 @@ class WhatsAppChannel(BaseChannel):
                 request._wa_ack_chat_jid = chat_jid
                 request._wa_ack_sender_jid = sender_jid
                 request._wa_ack_msg_id = msg_id
+                request._wa_raw_message = message
 
             # Fire "thinking" reaction (fire-and-forget) so the user
             # knows the bot has picked up their message before the
@@ -981,10 +987,21 @@ class WhatsAppChannel(BaseChannel):
             return
 
         chunks = self._chunk_text(text)
-        for chunk in chunks:
+        # Reply-to: quote the original inbound message on the first chunk
+        chat_jid_key = meta.get("chat_jid") or to_handle
+        quote_msg = self._pending_quote_msgs.pop(chat_jid_key, None) if self._reply_to_trigger else None
+        for i, chunk in enumerate(chunks):
             try:
                 logger.info("whatsapp: SENDING to %s: %s", _jid_to_str(jid), chunk[:100])
-                await self._client.send_message(jid, chunk)
+                if i == 0 and quote_msg is not None and self._client:
+                    # Build reply message quoting the inbound trigger
+                    reply_built = await self._client.build_reply_message(
+                        message=chunk,
+                        quoted=quote_msg,
+                    )
+                    await self._client.send_message(jid, reply_built)
+                else:
+                    await self._client.send_message(jid, chunk)
             except Exception as e:
                 logger.error("whatsapp: send failed: %s", e)
 
@@ -1167,6 +1184,12 @@ class WhatsAppChannel(BaseChannel):
             # JSON serialization issues with JID/client objects.
             typing_jid = getattr(request, "_wa_typing_jid", None)
             typing_client = getattr(request, "_wa_typing_client", None)
+            # Store raw message for reply-to quoting in send()
+            raw_msg = getattr(request, "_wa_raw_message", None)
+            if raw_msg and self._reply_to_trigger:
+                chat_key = (getattr(request, "channel_meta", None) or {}).get("chat_jid", "")
+                if chat_key:
+                    self._pending_quote_msgs[chat_key] = raw_msg
             if typing_jid and typing_client:
                 typing_task = asyncio.create_task(
                     self._typing_loop(typing_client, typing_jid)
