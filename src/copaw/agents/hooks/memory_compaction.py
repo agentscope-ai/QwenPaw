@@ -58,6 +58,59 @@ class MemoryCompactionHook:
         )
         await agent.print(msg)
 
+
+    @staticmethod
+    def _compact_media_blocks(
+        messages: list[Msg],
+        recent_n: int = 2,
+    ) -> int:
+        """Replace video/image blocks in old messages with text placeholders.
+
+        Media blocks are not handled by tool_result_compact and can cause
+        API buffer overflow errors when re-sent in conversation history.
+
+        Args:
+            messages: List of messages to scan (mutated in-place).
+            recent_n: Number of most recent messages to preserve (keep media).
+
+        Returns:
+            Number of media blocks replaced.
+        """
+        if not messages:
+            return 0
+
+        replaced = 0
+        compact_range = max(0, len(messages) - recent_n)
+
+        for msg in messages[:compact_range]:
+            content = msg.content if hasattr(msg, "content") else None
+            if not isinstance(content, list):
+                continue
+
+            new_content = []
+            for block in content:
+                block_type = block.get("type") if isinstance(block, dict) else None
+                if block_type in ("video", "image"):
+                    media_type = "Video" if block_type == "video" else "Image"
+                    source = block.get("source", {})
+                    url = source.get("url", "unknown") if isinstance(source, dict) else "unknown"
+                    fpath = str(url) if url != "unknown" else "unknown"
+                    placeholder = TextBlock(
+                        type="text",
+                        text=f"[{media_type} was viewed: {fpath} — removed from context to save tokens]",
+                    )
+                    new_content.append(placeholder)
+                    replaced += 1
+                else:
+                    new_content.append(block)
+
+            if new_content != content:
+                msg.content = new_content
+
+        if replaced:
+            logger.info(f"Media compaction: replaced {replaced} media blocks with text placeholders")
+        return replaced
+
     # pylint: disable=too-many-branches
     async def __call__(
         self,
@@ -113,6 +166,12 @@ class MemoryCompactionHook:
                 return None
 
             messages = await memory.get_memory(prepend_summary=False)
+
+            # Compact media blocks (video/image) in old messages
+            self._compact_media_blocks(
+                messages,
+                recent_n=MEMORY_COMPACT_KEEP_RECENT,
+            )
 
             # Compact tool results with configured thresholds
             trc = running_config.tool_result_compact
