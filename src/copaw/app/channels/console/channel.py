@@ -9,6 +9,7 @@ endpoint or via POST /console/chat. This channel handles the **output** side:
 whenever a completed message event or a proactive send arrives, it is
 pretty-printed to the terminal.
 """
+
 from __future__ import annotations
 
 import copy
@@ -352,54 +353,66 @@ class ConsoleChannel(BaseChannel):
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
             event_count = 0
+            process_iter = None
 
-            async for event in self._process(request):
-                event_count += 1
-                obj = getattr(event, "object", None)
-                status = getattr(event, "status", None)
-                ev_type = getattr(event, "type", None)
+            try:
+                process_iter = self._process(request)
+                async for event in process_iter:
+                    event_count += 1
+                    obj = getattr(event, "object", None)
+                    status = getattr(event, "status", None)
+                    ev_type = getattr(event, "type", None)
 
-                logger.debug(
-                    "console event #%s: object=%s status=%s type=%s",
+                    logger.debug(
+                        "console event #%s: object=%s status=%s type=%s",
+                        event_count,
+                        obj,
+                        status,
+                        ev_type,
+                    )
+
+                    if (
+                        event.object == "response"
+                        and event.status == RunStatus.Completed
+                    ):
+                        event_output = event.output
+                        event.output = []
+                        if event_output is not None:
+                            for message in event_output:
+                                event.output.append(message)
+                                media_message = await self._extract_media_message(
+                                    message,
+                                )
+                                if media_message:
+                                    event.output.append(media_message)
+
+                    if hasattr(event, "model_dump_json"):
+                        data = event.model_dump_json()
+                    elif hasattr(event, "json"):
+                        data = event.json()
+                    else:
+                        data = json.dumps({"text": str(event)})
+                    yield f"data: {data}\n\n"
+
+                    if obj == "message" and status == RunStatus.Completed:
+                        media_message = await self._extract_media_message(event)
+                        if media_message:
+                            yield f"data: {media_message.model_dump_json()}\n\n"
+
+                        parts = self._message_to_content_parts(event)
+                        self._print_parts(parts, ev_type)
+
+                    elif obj == "response":
+                        last_response = event
+
+            except asyncio.CancelledError:
+                logger.info(
+                    "console stream cancelled after %s events",
                     event_count,
-                    obj,
-                    status,
-                    ev_type,
                 )
-
-                if (
-                    event.object == "response"
-                    and event.status == RunStatus.Completed
-                ):
-                    event_output = event.output
-                    event.output = []
-                    if event_output is not None:
-                        for message in event_output:
-                            event.output.append(message)
-                            media_message = await self._extract_media_message(
-                                message,
-                            )
-                            if media_message:
-                                event.output.append(media_message)
-
-                if hasattr(event, "model_dump_json"):
-                    data = event.model_dump_json()
-                elif hasattr(event, "json"):
-                    data = event.json()
-                else:
-                    data = json.dumps({"text": str(event)})
-                yield f"data: {data}\n\n"
-
-                if obj == "message" and status == RunStatus.Completed:
-                    media_message = await self._extract_media_message(event)
-                    if media_message:
-                        yield f"data: {media_message.model_dump_json()}\n\n"
-
-                    parts = self._message_to_content_parts(event)
-                    self._print_parts(parts, ev_type)
-
-                elif obj == "response":
-                    last_response = event
+                if process_iter is not None:
+                    await process_iter.aclose()
+                raise
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
@@ -419,6 +432,10 @@ class ConsoleChannel(BaseChannel):
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
 
+        except asyncio.CancelledError:
+            # Let CancelledError propagate — _producer will catch it and
+            # push sentinel so the SSE stream closes cleanly.
+            raise
         except Exception as e:
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
@@ -484,19 +501,14 @@ class ConsoleChannel(BaseChannel):
             elif t == ContentType.AUDIO and getattr(p, "data", None):
                 self._safe_print(f"{_YELLOW}🔊 [Audio]{_RESET}")
             elif t == ContentType.FILE:
-                url = (
-                    getattr(p, "file_url", None)
-                    or getattr(p, "file_id", None)
-                    or ""
-                )
+                url = getattr(p, "file_url", None) or getattr(p, "file_id", None) or ""
                 self._safe_print(f"{_YELLOW}📎 [File: {url}]{_RESET}")
         self._safe_print("")
 
     def _print_error(self, err: str) -> None:
         ts = _ts()
         self._safe_print(
-            f"\n{_RED}{_BOLD}❌ [{ts}] Error{_RESET}\n"
-            f"{_RED}{err}{_RESET}\n",
+            f"\n{_RED}{_BOLD}❌ [{ts}] Error{_RESET}\n{_RED}{err}{_RESET}\n",
         )
 
     def _parts_to_text(
@@ -534,8 +546,7 @@ class ConsoleChannel(BaseChannel):
         ts = _ts()
         prefix = (meta or {}).get("bot_prefix", self.bot_prefix) or ""
         self._safe_print(
-            f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n"
-            f"{prefix}{text}\n",
+            f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n{prefix}{text}\n",
         )
         sid = (meta or {}).get("session_id")
         if sid and text.strip():

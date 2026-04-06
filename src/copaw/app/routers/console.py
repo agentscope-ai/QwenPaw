@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import json
@@ -122,6 +123,7 @@ async def post_console_chat(
             chat.id,
             native_payload,
             console_channel.stream_one,
+            is_new_message=True,
         )
 
     async def event_generator() -> AsyncGenerator[str, None]:
@@ -183,8 +185,7 @@ async def post_console_upload(
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=400,
-            detail="File too large (max "
-            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+            detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
         )
     safe_name = _safe_filename(file.filename or "file")
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"

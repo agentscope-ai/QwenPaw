@@ -4,6 +4,7 @@
 run_key is ChatSpec.id (chat_id). Per run: task, queues, event buffer.
 Reconnects get buffer replay + new events. Cleanup when task completes.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -144,19 +145,50 @@ class TaskTracker:
         run_key: str,
         payload: Any,
         stream_fn: Callable[..., Coroutine],
+        *,
+        is_new_message: bool = False,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
         Returns ``(queue, is_new_run)``.
+
+        Args:
+            run_key: Unique key identifying the run (typically chat_id).
+            payload: Data passed to *stream_fn* when starting a new run.
+            stream_fn: Async generator factory that produces SSE events.
+            is_new_message: When ``True`` and an old run is still active,
+                cancel the old run and start a new one instead of attaching.
+                This prevents a race where a new user message arrives before
+                the cancel API reaches the backend.  When ``False`` (default),
+                the original attach-to-existing-run behaviour is preserved
+                (used for reconnection scenarios).
         """
         async with self._lock:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
-                q: asyncio.Queue = asyncio.Queue()
-                for sse in state.buffer:
-                    q.put_nowait(sse)
-                state.queues.append(q)
-                return q, False
+                if is_new_message:
+                    # Cancel the old run so a fresh one can start.
+                    state.task.cancel()
+                    # Push sentinel into old queues so subscribers exit.
+                    for q in state.queues:
+                        q.put_nowait(_SENTINEL)
+                    # Remove old state immediately — do NOT wait for the old
+                    # _producer's finally block (which runs after cancel
+                    # propagates).  The old _producer's finally uses an
+                    # identity check (`is run`) so it won't harm the new run.
+                    # pylint: disable=protected-access
+                    self._runs.pop(run_key, None)
+                    logger.debug(
+                        "cancelled old run for run_key=%s to start new message",
+                        run_key,
+                    )
+                    # Fall through to create a new run below.
+                else:
+                    q: asyncio.Queue = asyncio.Queue()
+                    for sse in state.buffer:
+                        q.put_nowait(sse)
+                    state.queues.append(q)
+                    return q, False
 
             my_queue: asyncio.Queue = asyncio.Queue()
             run = _RunState(
@@ -183,8 +215,7 @@ class TaskTracker:
                 except Exception:
                     logger.exception("run error run_key=%s", run_key)
                     err_sse = (
-                        "data: "
-                        f"{json.dumps({'error': 'internal server error'})}\n\n"
+                        f"data: {json.dumps({'error': 'internal server error'})}\n\n"
                     )
                     tracker = tracker_ref()
                     if tracker is not None:
@@ -198,11 +229,12 @@ class TaskTracker:
                         async with tracker.lock:
                             for q in run.queues:
                                 q.put_nowait(_SENTINEL)
+                            # Only pop if this run is still the current one.
+                            # Prevents an old producer from removing a newer
+                            # run that replaced it.
                             # pylint: disable=protected-access
-                            tracker._runs.pop(
-                                run_key,
-                                None,
-                            )
+                            if tracker._runs.get(run_key) is run:
+                                tracker._runs.pop(run_key, None)
 
             run.task = asyncio.create_task(_producer())
             return my_queue, True
