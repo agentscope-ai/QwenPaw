@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """MultiAgentManager: Manages multiple agent workspaces with lazy loading.
 
 Provides centralized management for multiple Workspace objects,
@@ -246,6 +246,13 @@ class MultiAgentManager:
 
         agent_ref = config.agents.profiles[agent_id]
 
+        try:
+            await old_instance.prepare_for_reload()
+        except Exception as e:
+            logger.warning(
+                f"Failed to pause reload watchers for {agent_id}: {e}",
+            )
+
         # Step 3: Create and start new workspace instance (outside lock)
         # This is the slow part, but doesn't block other agents
         logger.info(f"Creating new workspace instance: {agent_id}")
@@ -459,3 +466,4 @@ class MultiAgentManager:
         """String representation of manager."""
         loaded = list(self.agents.keys())
         return f"MultiAgentManager(loaded_agents={loaded})"
+

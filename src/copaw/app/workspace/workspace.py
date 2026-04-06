@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Workspace: Encapsulates a complete independent agent runtime.
 
 Each Workspace represents a standalone agent workspace with its own:
@@ -10,6 +10,7 @@ Each Workspace represents a standalone agent workspace with its own:
 
 All existing single-agent components are reused without modification.
 """
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -138,6 +139,37 @@ class Workspace:
         # Pass to runner for /daemon restart command
         if self.runner is not None:
             self.runner._manager = manager  # pylint: disable=protected-access
+
+    async def prepare_for_reload(self) -> None:
+        """Stop config watchers before handing traffic to a new workspace.
+
+        During zero-downtime reload the old workspace may keep serving active
+        requests for a short period. Its config watchers should stop polling at
+        that point so the same config save does not trigger redundant reloads on
+        the retiring instance.
+        """
+        for name in ("agent_config_watcher", "mcp_config_watcher"):
+            watcher = self._service_manager.services.get(name)
+            if watcher is None:
+                continue
+
+            stop_fn = getattr(watcher, "stop", None)
+            if stop_fn is None:
+                self._service_manager.services.pop(name, None)
+                continue
+
+            try:
+                if asyncio.iscoroutinefunction(stop_fn):
+                    await stop_fn()
+                else:
+                    stop_fn()
+            except Exception as e:
+                logger.warning(
+                    f"Failed to stop reload watcher '{name}' for "
+                    f"{self.agent_id}: {e}",
+                )
+            finally:
+                self._service_manager.services.pop(name, None)
 
     def _register_services(  # pylint: disable=too-many-statements
         self,
@@ -386,3 +418,6 @@ class Workspace:
             f"workspace={self.workspace_dir}, "
             f"status={status})"
         )
+
+
+

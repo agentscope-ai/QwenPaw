@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """MCP client manager for hot-reloadable client lifecycle management.
 
 This module provides centralized management of MCP clients with support
@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, Dict, List, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 
@@ -18,6 +19,16 @@ if TYPE_CHECKING:
     from ...config.config import MCPClientConfig, MCPConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _LifecycleRequest:
+    """Single lifecycle action executed by the manager-owned task."""
+
+    op_name: str
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
+    future: asyncio.Future
 
 
 class MCPClientManager:
@@ -35,6 +46,9 @@ class MCPClientManager:
         """Initialize an empty MCP client manager."""
         self._clients: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        self._owner_queue: Optional[asyncio.Queue] = None
+        self._owner_task: Optional[asyncio.Task] = None
+        self._owner_task_lock = asyncio.Lock()
 
     async def init_from_config(self, config: "MCPConfig") -> None:
         """Initialize clients from configuration.
@@ -42,22 +56,7 @@ class MCPClientManager:
         Args:
             config: MCP configuration containing client definitions
         """
-        logger.debug("Initializing MCP clients from config")
-        for key, client_config in config.clients.items():
-            if not client_config.enabled:
-                logger.debug(f"MCP client '{key}' is disabled, skipping")
-                continue
-
-            try:
-                await self._add_client(key, client_config)
-                logger.debug(f"MCP client '{key}' initialized successfully")
-            except BaseException as e:
-                if isinstance(e, (KeyboardInterrupt, SystemExit)):
-                    raise
-                logger.warning(
-                    f"Failed to initialize MCP client '{key}': {e}",
-                    exc_info=True,
-                )
+        await self._run_on_owner("init_from_config", config)
 
     async def get_clients(self) -> List[Any]:
         """Get list of all active MCP clients.
@@ -83,7 +82,7 @@ class MCPClientManager:
     ) -> None:
         """Replace or add a client with new configuration.
 
-        Flow: connect new (outside lock) → swap + close old (inside lock).
+        Flow: connect new (outside lock) 鈫?swap + close old (inside lock).
         This ensures minimal lock holding time.
 
         Args:
@@ -91,32 +90,12 @@ class MCPClientManager:
             client_config: New client configuration
             timeout: Connection timeout in seconds (default 60s)
         """
-        # 1. Create and connect new client outside lock (may be slow)
-        logger.debug(f"Connecting new MCP client: {key}")
-        new_client = self._build_client(client_config)
-
-        try:
-            # Add timeout to prevent indefinite blocking
-            await asyncio.wait_for(new_client.connect(), timeout=timeout)
-        except BaseException:
-            await self._force_cleanup_client(new_client)
-            raise
-
-        # 2. Swap and close old client inside lock
-        async with self._lock:
-            old_client = self._clients.get(key)
-            self._clients[key] = new_client
-
-            if old_client is not None:
-                logger.debug(f"Closing old MCP client: {key}")
-                try:
-                    await old_client.close()
-                except Exception as e:
-                    logger.warning(
-                        f"Error closing old MCP client '{key}': {e}",
-                    )
-            else:
-                logger.debug(f"Added new MCP client: {key}")
+        await self._run_on_owner(
+            "replace_client",
+            key,
+            client_config,
+            timeout,
+        )
 
     async def remove_client(self, key: str) -> None:
         """Remove and close a client.
@@ -124,6 +103,145 @@ class MCPClientManager:
         Args:
             key: Client identifier to remove
         """
+        await self._run_on_owner("remove_client", key)
+
+    async def close_all(self) -> None:
+        """Close all MCP clients.
+
+        Called during application shutdown.
+        """
+        try:
+            await self._run_on_owner("close_all")
+        finally:
+            await self._shutdown_owner_task()
+
+    async def _ensure_owner_task(self) -> asyncio.Task:
+        """Start the owner task lazily.
+
+        All connect/replace/remove/close operations run on this single task so
+        AsyncExitStack and anyio cancel scopes are always exited by the same
+        task that entered them.
+        """
+        async with self._owner_task_lock:
+            if self._owner_task is not None and not self._owner_task.done():
+                return self._owner_task
+
+            self._owner_queue = asyncio.Queue()
+            self._owner_task = asyncio.create_task(
+                self._owner_loop(self._owner_queue),
+                name="copaw_mcp_client_manager",
+            )
+            return self._owner_task
+
+    async def _shutdown_owner_task(self) -> None:
+        """Stop the owner task once the manager has been drained."""
+        async with self._owner_task_lock:
+            owner_task = self._owner_task
+            owner_queue = self._owner_queue
+
+            self._owner_task = None
+            self._owner_queue = None
+
+        if owner_task is None:
+            return
+
+        if owner_queue is not None:
+            await owner_queue.put(None)
+
+        await owner_task
+
+    async def _run_on_owner(self, op_name: str, *args: Any, **kwargs: Any) -> Any:
+        """Submit a lifecycle action to the owner task and await completion."""
+        await self._ensure_owner_task()
+
+        owner_queue = self._owner_queue
+        if owner_queue is None:
+            raise RuntimeError("MCP client manager owner task is not available")
+
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        await owner_queue.put(
+            _LifecycleRequest(
+                op_name=op_name,
+                args=args,
+                kwargs=kwargs,
+                future=future,
+            ),
+        )
+        return await future
+
+    async def _owner_loop(self, owner_queue: asyncio.Queue) -> None:
+        """Run lifecycle actions serially on a dedicated task."""
+        while True:
+            request = await owner_queue.get()
+            if request is None:
+                return
+
+            try:
+                handler = getattr(self, f"_owner_{request.op_name}")
+                result = handler(*request.args, **request.kwargs)
+                if asyncio.iscoroutine(result):
+                    result = await result
+            except BaseException as exc:
+                if not request.future.cancelled():
+                    request.future.set_exception(exc)
+            else:
+                if not request.future.cancelled():
+                    request.future.set_result(result)
+
+    async def _owner_init_from_config(self, config: "MCPConfig") -> None:
+        """Initialize clients from configuration on the owner task."""
+        logger.debug("Initializing MCP clients from config")
+        for key, client_config in config.clients.items():
+            if not client_config.enabled:
+                logger.debug(f"MCP client '{key}' is disabled, skipping")
+                continue
+
+            try:
+                await self._owner_add_client(key, client_config)
+                logger.debug(f"MCP client '{key}' initialized successfully")
+            except BaseException as e:
+                if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                    raise
+                logger.warning(
+                    f"Failed to initialize MCP client '{key}': {e}",
+                    exc_info=True,
+                )
+
+    async def _owner_replace_client(
+        self,
+        key: str,
+        client_config: "MCPClientConfig",
+        timeout: float = 60.0,
+    ) -> None:
+        """Replace or add a client on the owner task."""
+        logger.debug(f"Connecting new MCP client: {key}")
+        new_client = self._build_client(client_config)
+
+        try:
+            async with asyncio.timeout(timeout):
+                await new_client.connect()
+        except BaseException:
+            await self._force_cleanup_client(new_client)
+            raise
+
+        async with self._lock:
+            old_client = self._clients.get(key)
+            self._clients[key] = new_client
+
+        if old_client is not None:
+            logger.debug(f"Closing old MCP client: {key}")
+            try:
+                await old_client.close()
+            except Exception as e:
+                logger.warning(
+                    f"Error closing old MCP client '{key}': {e}",
+                )
+        else:
+            logger.debug(f"Added new MCP client: {key}")
+
+    async def _owner_remove_client(self, key: str) -> None:
+        """Remove and close a client on the owner task."""
         async with self._lock:
             old_client = self._clients.pop(key, None)
 
@@ -134,11 +252,8 @@ class MCPClientManager:
             except Exception as e:
                 logger.warning(f"Error closing MCP client '{key}': {e}")
 
-    async def close_all(self) -> None:
-        """Close all MCP clients.
-
-        Called during application shutdown.
-        """
+    async def _owner_close_all(self) -> None:
+        """Close all clients on the owner task."""
         async with self._lock:
             clients_snapshot = list(self._clients.items())
             self._clients.clear()
@@ -151,7 +266,7 @@ class MCPClientManager:
                 except Exception as e:
                     logger.warning(f"Error closing MCP client '{key}': {e}")
 
-    async def _add_client(
+    async def _owner_add_client(
         self,
         key: str,
         client_config: "MCPClientConfig",
@@ -167,7 +282,8 @@ class MCPClientManager:
         client = self._build_client(client_config)
 
         try:
-            await asyncio.wait_for(client.connect(), timeout=timeout)
+            async with asyncio.timeout(timeout):
+                await client.connect()
         except BaseException:
             await self._force_cleanup_client(client)
             raise
@@ -182,13 +298,13 @@ class MCPClientManager:
         ``StatefulClientBase.close()`` refuses to run when
         ``is_connected`` is still ``False`` (which is the case when
         ``connect()`` times out or raises).  We bypass that guard by
-        closing the ``AsyncExitStack`` directly — this triggers the
+        closing the ``AsyncExitStack`` directly 鈥?this triggers the
         ``stdio_client`` finally-block that sends SIGTERM/SIGKILL to
         the child process.
 
         The ``ClientSession`` is registered on the same stack via
         ``enter_async_context``, so ``stack.aclose()`` exits it in
-        LIFO order — no separate session teardown is needed.
+        LIFO order 鈥?no separate session teardown is needed.
         """
         if client is None:
             return
@@ -252,3 +368,6 @@ class MCPClientManager:
         )
         setattr(client, "_copaw_rebuild_info", rebuild_info)
         return client
+
+
+
