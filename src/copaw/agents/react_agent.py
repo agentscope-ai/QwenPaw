@@ -65,6 +65,8 @@ logger = logging.getLogger(__name__)
 # Valid namesake strategies for tool registration
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
 
+_MCP_REGISTRY_CACHE: dict[int, bool] = {}
+
 
 class CoPawAgent(ToolGuardMixin, ReActAgent):
     """CoPaw Agent with integrated tools, skills, and memory management.
@@ -471,18 +473,27 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     ) -> None:
         """Register MCP clients on this agent's toolkit after construction.
 
+        Uses a cache to avoid repeated list_tools() calls for the same client.
+        Only registers if the client hasn't been registered yet.
+
         Args:
             namesake_strategy: Strategy to handle namesake tool functions.
                 Options: "override", "skip", "raise", "rename"
                 (default: "skip")
         """
         for i, client in enumerate(self._mcp_clients):
+            client_id = id(client)
+            if _MCP_REGISTRY_CACHE.get(client_id, False):
+                logger.debug(f"MCP client '{getattr(client, 'name', repr(client))}' already registered, skipping")
+                continue
+
             client_name = getattr(client, "name", repr(client))
             try:
                 await self.toolkit.register_mcp_client(
                     client,
                     namesake_strategy=namesake_strategy,
                 )
+                _MCP_REGISTRY_CACHE[client_id] = True
             except (ClosedResourceError, asyncio.CancelledError) as error:
                 if self._should_propagate_cancelled_error(error):
                     raise
