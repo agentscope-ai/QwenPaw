@@ -17,6 +17,7 @@ from ..config.utils import get_config_path
 from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
 from ..__version__ import __version__
 from ..utils.logging import setup_logger, add_copaw_file_handler
+from .._build_console import build_console_frontend
 from .auth import AuthMiddleware
 from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
@@ -159,6 +160,9 @@ async def lifespan(
 ):  # pylint: disable=too-many-statements,too-many-branches
     startup_start_time = time.time()
     add_copaw_file_handler(WORKING_DIR / "copaw.log")
+
+    # Auto-build console frontend if source files are newer than dist
+    build_console_frontend(quiet=True)
 
     # Auto-register admin from env vars (for automated deployments)
     from .auth import auto_register_from_env
