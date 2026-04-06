@@ -5,6 +5,7 @@ Blocks tool calls that target files explicitly listed in a sensitive-file set.
 """
 from __future__ import annotations
 
+import re
 import shlex
 import uuid
 from pathlib import Path
@@ -91,9 +92,33 @@ _MIME_PREFIXES = (
     "model/",
 )
 
+_WINDOWS_DRIVE_RE = re.compile(r"^[a-zA-Z]:[\/]")
+_SHELL_FILE_COMMANDS = frozenset(
+    {
+        "cat",
+        "type",
+        "get-content",
+        "gc",
+        "more",
+        "less",
+        "head",
+        "tail",
+    },
+)
+
+
+def _strip_shell_quotes(token: str) -> str:
+    """Strip one layer of matching shell quotes from a token."""
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {'"', "'"}:
+        return token[1:-1]
+    return token
+
 
 def _looks_like_path_token(token: str) -> bool:
     """Heuristic check whether a shell token is likely a file path."""
+    if not token:
+        return False
+    token = _strip_shell_quotes(token)
     if not token or token.startswith("-"):
         return False
     lowered = token.lower()
@@ -101,41 +126,61 @@ def _looks_like_path_token(token: str) -> bool:
         return False
     if lowered.startswith(_MIME_PREFIXES):
         return False
-    if token.startswith(("~", "/", "./", "../")):
+    if token.startswith(("~", "/", "./", "../", ".\\", "..\\", "\\")):
         return True
-    if "/" in token:
+    if _WINDOWS_DRIVE_RE.match(token):
+        return True
+    if "/" in token or "\\" in token:
         return True
     return False
 
 
+def _tokenize_shell_command(command: str) -> list[str]:
+    """Return a merged token stream that preserves Windows path syntax."""
+    token_streams: list[list[str]] = []
+    for posix in (True, False):
+        try:
+            token_streams.append(shlex.split(command, posix=posix))
+        except ValueError:
+            continue
+    if not token_streams:
+        token_streams.append(command.split())
+
+    merged: list[str] = []
+    seen: set[str] = set()
+    for tokens in token_streams:
+        for token in tokens:
+            cleaned = _strip_shell_quotes(token)
+            if cleaned in seen:
+                continue
+            seen.add(cleaned)
+            merged.append(cleaned)
+    return merged
+
+
 def _extract_paths_from_shell_command(command: str) -> list[str]:
     """Extract candidate file paths from a shell command string."""
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        # Best-effort fallback when quotes are malformed.
-        tokens = command.split()
+    tokens = _tokenize_shell_command(command)
 
     candidates: list[str] = []
     i = 0
     while i < len(tokens):
         token = tokens[i]
+        lowered = token.lower()
 
-        # Handle separated redirection operators: `cat a > out.txt`
         if token in _SHELL_REDIRECT_OPERATORS:
             if i + 1 < len(tokens):
-                next_token = tokens[i + 1]
-                if _looks_like_path_token(next_token):
+                next_token = _strip_shell_quotes(tokens[i + 1])
+                if next_token and not next_token.startswith("-"):
                     candidates.append(next_token)
             i += 1
             continue
 
-        # Handle attached redirection: `>out.txt`, `2>err.log`, `<in.txt`
         attached = False
         for op in _REDIRECT_OPS_BY_LEN:
             if token.startswith(op) and len(token) > len(op):
-                possible_path = token[len(op) :]
-                if _looks_like_path_token(possible_path):
+                possible_path = _strip_shell_quotes(token[len(op):])
+                if possible_path and not possible_path.startswith("-"):
                     candidates.append(possible_path)
                 attached = True
                 break
@@ -143,18 +188,28 @@ def _extract_paths_from_shell_command(command: str) -> list[str]:
             i += 1
             continue
 
+        if lowered in _SHELL_FILE_COMMANDS and i + 1 < len(tokens):
+            next_token = _strip_shell_quotes(tokens[i + 1])
+            if (
+                next_token
+                and next_token not in _SHELL_REDIRECT_OPERATORS
+                and not next_token.startswith("-")
+            ):
+                candidates.append(next_token)
+                i += 1
+                continue
+
         if _looks_like_path_token(token):
-            candidates.append(token)
+            candidates.append(_strip_shell_quotes(token))
         i += 1
 
-    # Stable de-duplication.
     deduped: list[str] = []
     seen: set[str] = set()
-    for c in candidates:
-        if c in seen:
+    for candidate in candidates:
+        if candidate in seen:
             continue
-        seen.add(c)
-        deduped.append(c)
+        seen.add(candidate)
+        deduped.append(candidate)
     return deduped
 
 
@@ -339,3 +394,4 @@ class FilePathToolGuardian(BaseToolGuardian):
             self._check_value(tool_name, param_name, param_value, findings)
 
         return findings
+
