@@ -74,6 +74,22 @@ def _get_github_copilot_provider(
     return provider
 
 
+def _save_provider_state(
+    manager: ProviderManager,
+    provider_id: str,
+) -> None:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+    manager._save_provider(  # pylint: disable=protected-access
+        provider,
+        is_builtin=provider_id in manager.builtin_providers,
+    )
+
+
 class ProviderConfigRequest(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
@@ -279,6 +295,7 @@ async def poll_provider_device_auth(
     result = await provider.poll_device_authorization(session_id)
     provider_info = None
     if result.status == "authorized":
+        _save_provider_state(manager, provider_id)
         provider_info = await manager.get_provider_info(provider_id)
     return DeviceAuthPollResponse(
         status=result.status,
@@ -300,6 +317,7 @@ async def logout_provider_auth(
 ) -> ProviderInfo:
     provider = _get_github_copilot_provider(manager, provider_id)
     provider.logout()
+    _save_provider_state(manager, provider_id)
     provider_info = await manager.get_provider_info(provider_id)
     if provider_info is None:
         raise HTTPException(

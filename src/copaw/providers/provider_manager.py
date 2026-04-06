@@ -1054,6 +1054,18 @@ class ProviderManager:
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
                 builtin.generate_kwargs.update(provider.generate_kwargs)
+                if isinstance(
+                    builtin,
+                    GitHubCopilotProvider,
+                ) and isinstance(provider, GitHubCopilotProvider):
+                    builtin.github_auth_storage = provider.github_auth_storage
+                    builtin.github_oauth_token = provider.github_oauth_token
+                    builtin.github_token_type = provider.github_token_type
+                    builtin.github_scope = provider.github_scope
+                    builtin.github_user_login = provider.github_user_login
+                    builtin.github_user_id = provider.github_user_id
+                    builtin.is_authenticated = provider.is_authenticated
+                    builtin.auth_account_label = provider.auth_account_label
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

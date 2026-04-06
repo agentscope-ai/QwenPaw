@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
+
+import pytest
 
 from copaw.providers.github_copilot_provider import (
     GitHubCopilotProvider,
@@ -10,6 +13,49 @@ from copaw.providers.github_copilot_provider import (
 from copaw.providers.openai_responses_chat_model_compat import (
     OpenAIResponsesChatModelCompat,
 )
+
+
+class FakeSecretStore:
+    def __init__(self, *, available: bool = False) -> None:
+        self.available = available
+        self.secret: str | None = None
+        self.delete_calls = 0
+
+    def load_payload(self) -> dict | None:
+        if self.secret is None:
+            return None
+        return json.loads(self.secret)
+
+    def save_payload(self, payload: dict) -> bool:
+        if not self.available:
+            return False
+        self.secret = json.dumps(payload, ensure_ascii=False)
+        return True
+
+    def delete_payload(self) -> None:
+        self.delete_calls += 1
+        self.secret = None
+
+
+@pytest.fixture(autouse=True)
+def fake_secret_store(monkeypatch):
+    store = FakeSecretStore(available=False)
+    monkeypatch.setattr(
+        GitHubCopilotProvider,
+        "_load_keyring_auth_payload",
+        lambda self: store.load_payload(),
+    )
+    monkeypatch.setattr(
+        GitHubCopilotProvider,
+        "_save_keyring_auth_payload",
+        lambda self, payload: store.save_payload(payload),
+    )
+    monkeypatch.setattr(
+        GitHubCopilotProvider,
+        "_delete_keyring_auth_payload",
+        lambda self: store.delete_payload(),
+    )
+    return store
 
 
 def _make_provider() -> GitHubCopilotProvider:
@@ -237,23 +283,89 @@ def test_logout_clears_auth_state() -> None:
     assert provider._device_sessions == {}
 
 
-def test_to_persisted_dict_excludes_runtime_auth_state() -> None:
+def test_to_persisted_dict_persists_refresh_credentials_only() -> None:
+    fake_store = FakeSecretStore(available=True)
     provider = _make_provider()
+    provider._load_keyring_auth_payload = fake_store.load_payload
+    provider._save_keyring_auth_payload = fake_store.save_payload
+    provider._delete_keyring_auth_payload = fake_store.delete_payload
     provider.is_authenticated = True
     provider.auth_account_label = "octocat"
     provider.auth_expires_at = 4_102_444_800
     provider.github_oauth_token = "gho_test"
+    provider.github_scope = "read:user"
+    provider.github_user_login = "octocat"
+    provider.github_user_id = 1
     provider.copilot_access_token = "copilot-token"
     provider.copilot_token_expires_at = 4_102_444_800
     provider.api_key = "copilot-token"
 
     persisted = provider.to_persisted_dict()
 
+    assert persisted["github_auth_storage"] == "keychain"
+    assert "github_oauth_token" not in persisted
+    assert json.loads(fake_store.secret or "{}") == {
+        "github_oauth_token": "gho_test",
+        "github_token_type": "bearer",
+        "github_scope": "read:user",
+        "github_user_login": "octocat",
+        "github_user_id": 1,
+    }
     assert "api_key" not in persisted
     assert "is_authenticated" not in persisted
-    assert "auth_account_label" not in persisted
-    assert "github_oauth_token" not in persisted
     assert "copilot_access_token" not in persisted
+
+
+def test_to_persisted_dict_falls_back_to_json_without_keychain(
+    fake_secret_store,
+) -> None:
+    provider = _make_provider()
+    provider.is_authenticated = True
+    provider.github_oauth_token = "gho_test"
+    provider.github_scope = "read:user"
+    provider.github_user_login = "octocat"
+    provider.github_user_id = 1
+
+    persisted = provider.to_persisted_dict()
+
+    assert fake_secret_store.secret is None
+    assert persisted["github_auth_storage"] == "json"
+    assert persisted["github_oauth_token"] == "gho_test"
+    assert persisted["github_scope"] == "read:user"
+    assert persisted["github_user_login"] == "octocat"
+    assert persisted["github_user_id"] == 1
+
+
+def test_model_post_init_restores_auth_from_keychain(fake_secret_store) -> None:
+    fake_secret_store.available = True
+    fake_secret_store.secret = json.dumps(
+        {
+            "github_oauth_token": "gho_test",
+            "github_token_type": "bearer",
+            "github_scope": "read:user",
+            "github_user_login": "octocat",
+            "github_user_id": 1,
+        },
+    )
+
+    provider = GitHubCopilotProvider(
+        id="github-copilot",
+        name="GitHub Copilot",
+        base_url="https://api.individual.githubcopilot.com",
+        require_api_key=False,
+        support_model_discovery=True,
+        freeze_url=True,
+        github_auth_storage="keychain",
+        copilot_access_token="stale-token",
+        api_key="stale-token",
+    )
+
+    assert provider.github_oauth_token == "gho_test"
+    assert provider.github_user_login == "octocat"
+    assert provider.is_authenticated is True
+    assert provider.auth_account_label == "octocat"
+    assert provider.copilot_access_token == ""
+    assert provider.api_key == ""
 
 
 async def test_fetch_models_requires_and_uses_auth(monkeypatch) -> None:

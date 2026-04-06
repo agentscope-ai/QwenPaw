@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
-import secrets
+import json
+import logging
 import re
+import secrets
 import time
 from typing import Any
 
@@ -12,10 +14,20 @@ import httpx
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, Field, PrivateAttr
 
+try:
+    import keyring
+    from keyring.errors import KeyringError, PasswordDeleteError
+except ImportError:  # pragma: no cover - exercised via JSON fallback
+    keyring = None  # type: ignore[assignment]
+    KeyringError = Exception  # type: ignore[misc,assignment]
+    PasswordDeleteError = Exception  # type: ignore[misc,assignment]
+
 from .openai_provider import OpenAIProvider
 from .openai_responses_chat_model_compat import OpenAIResponsesChatModelCompat
 from .provider import ModelInfo, ProviderInfo
 
+
+logger = logging.getLogger(__name__)
 
 GITHUB_COPILOT_OAUTH_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
@@ -26,6 +38,16 @@ GITHUB_COPILOT_API_URL = "https://api.individual.githubcopilot.com"
 DEFAULT_COPILOT_TOKEN_TTL = 25 * 60
 COPILOT_TOKEN_REFRESH_SKEW = 60
 RESPONSES_API_MIN_MAX_OUTPUT_TOKENS = 16
+GITHUB_AUTH_STORAGE_KEYCHAIN = "keychain"
+GITHUB_AUTH_STORAGE_JSON = "json"
+GITHUB_AUTH_STORAGE_NONE = "none"
+GITHUB_AUTH_PERSIST_FIELDS = (
+    "github_oauth_token",
+    "github_token_type",
+    "github_scope",
+    "github_user_login",
+    "github_user_id",
+)
 
 
 class DeviceAuthorizationSession(BaseModel):
@@ -59,6 +81,7 @@ class GitHubCopilotProvider(OpenAIProvider):
     github_scope: str = ""
     github_user_login: str = ""
     github_user_id: int | None = None
+    github_auth_storage: str | None = None
     copilot_access_token: str = ""
     copilot_token_expires_at: int | None = None
 
@@ -73,14 +96,138 @@ class GitHubCopilotProvider(OpenAIProvider):
         "auth_method",
         "auth_account_label",
         "auth_expires_at",
-        "github_oauth_token",
-        "github_token_type",
-        "github_scope",
-        "github_user_login",
-        "github_user_id",
         "copilot_access_token",
         "copilot_token_expires_at",
     }
+
+    def model_post_init(self, __context: Any) -> None:
+        self._clear_runtime_copilot_state()
+        storage = (self.github_auth_storage or "").strip().lower()
+        if storage == GITHUB_AUTH_STORAGE_NONE:
+            self._clear_github_oauth_state()
+            return
+        if storage == GITHUB_AUTH_STORAGE_KEYCHAIN:
+            payload = self._load_keyring_auth_payload()
+            if payload:
+                self._apply_github_auth_payload(payload)
+            else:
+                self._clear_github_oauth_state()
+                self.github_auth_storage = GITHUB_AUTH_STORAGE_NONE
+            return
+        if storage != GITHUB_AUTH_STORAGE_JSON:
+            payload = self._load_keyring_auth_payload()
+            if payload:
+                self._apply_github_auth_payload(payload)
+                self.github_auth_storage = GITHUB_AUTH_STORAGE_KEYCHAIN
+        self.auth_account_label = self.github_user_login or None
+        self.is_authenticated = bool(self.github_oauth_token)
+
+    def _keyring_service_name(self) -> str:
+        return f"io.agentscope.copaw.provider.{self.id}"
+
+    def _clear_runtime_copilot_state(self) -> None:
+        self.copilot_access_token = ""
+        self.copilot_token_expires_at = None
+        self.auth_expires_at = None
+        self.api_key = ""
+
+    def _clear_github_oauth_state(self) -> None:
+        self.is_authenticated = False
+        self.auth_account_label = None
+        self.github_oauth_token = ""
+        self.github_token_type = "bearer"
+        self.github_scope = ""
+        self.github_user_login = ""
+        self.github_user_id = None
+
+    def _github_auth_payload(self) -> dict[str, Any] | None:
+        token = (self.github_oauth_token or "").strip()
+        if not token:
+            return None
+        payload: dict[str, Any] = {
+            "github_oauth_token": token,
+            "github_token_type": (self.github_token_type or "bearer").strip()
+            or "bearer",
+        }
+        if self.github_scope:
+            payload["github_scope"] = self.github_scope
+        if self.github_user_login:
+            payload["github_user_login"] = self.github_user_login
+        if self.github_user_id is not None:
+            payload["github_user_id"] = self.github_user_id
+        return payload
+
+    def _apply_github_auth_payload(self, payload: dict[str, Any]) -> None:
+        self.github_oauth_token = str(payload.get("github_oauth_token", "") or "")
+        self.github_token_type = str(
+            payload.get("github_token_type", "bearer") or "bearer"
+        )
+        self.github_scope = str(payload.get("github_scope", "") or "")
+        self.github_user_login = str(
+            payload.get("github_user_login", "") or ""
+        )
+        user_id = payload.get("github_user_id")
+        self.github_user_id = int(user_id) if user_id is not None else None
+        self.auth_account_label = self.github_user_login or None
+        self.is_authenticated = bool(self.github_oauth_token)
+
+    def _load_keyring_auth_payload(self) -> dict[str, Any] | None:
+        if keyring is None:
+            return None
+        try:
+            secret = keyring.get_password(
+                self._keyring_service_name(),
+                "oauth",
+            )
+        except KeyringError as exc:
+            logger.warning(
+                "Failed to load GitHub OAuth secret for provider '%s': %s",
+                self.id,
+                exc,
+            )
+            return None
+        if not secret:
+            return None
+        try:
+            payload = json.loads(secret)
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _save_keyring_auth_payload(self, payload: dict[str, Any]) -> bool:
+        if keyring is None:
+            return False
+        try:
+            keyring.set_password(
+                self._keyring_service_name(),
+                "oauth",
+                json.dumps(payload, ensure_ascii=False),
+            )
+            return True
+        except KeyringError as exc:
+            logger.warning(
+                "Failed to save GitHub OAuth secret for provider '%s': %s",
+                self.id,
+                exc,
+            )
+            return False
+
+    def _delete_keyring_auth_payload(self) -> None:
+        if keyring is None:
+            return
+        try:
+            keyring.delete_password(
+                self._keyring_service_name(),
+                "oauth",
+            )
+        except PasswordDeleteError:
+            return
+        except KeyringError as exc:
+            logger.warning(
+                "Failed to delete GitHub OAuth secret for provider '%s': %s",
+                self.id,
+                exc,
+            )
 
     def _cleanup_expired_device_sessions(self, now: int | None = None) -> None:
         current_time = int(time.time()) if now is None else now
@@ -499,23 +646,43 @@ class GitHubCopilotProvider(OpenAIProvider):
         )
 
     def logout(self) -> None:
-        self.is_authenticated = False
-        self.auth_account_label = None
         self.auth_expires_at = None
-        self.github_oauth_token = ""
-        self.github_token_type = "bearer"
-        self.github_scope = ""
-        self.github_user_login = ""
-        self.github_user_id = None
-        self.copilot_access_token = ""
-        self.copilot_token_expires_at = None
-        self.api_key = ""
+        self._clear_github_oauth_state()
+        self._clear_runtime_copilot_state()
+        self.github_auth_storage = GITHUB_AUTH_STORAGE_NONE
         self.base_url = GITHUB_COPILOT_API_URL
         self._device_sessions.clear()
 
     def to_persisted_dict(self) -> dict[str, Any]:
-        """Persist only user configuration and discovered models."""
-        return self.model_dump(exclude=self._PERSIST_EXCLUDES)
+        """Persist provider config while keeping OAuth secrets off disk when possible."""
+        persisted = self.model_dump(exclude=self._PERSIST_EXCLUDES)
+        payload = self._github_auth_payload()
+
+        if payload is None:
+            self._delete_keyring_auth_payload()
+            self.github_auth_storage = GITHUB_AUTH_STORAGE_NONE
+            for field in GITHUB_AUTH_PERSIST_FIELDS:
+                persisted.pop(field, None)
+            persisted["github_auth_storage"] = self.github_auth_storage
+            return persisted
+
+        persisted.update(payload)
+        if self._save_keyring_auth_payload(payload):
+            self.github_auth_storage = GITHUB_AUTH_STORAGE_KEYCHAIN
+            for field in GITHUB_AUTH_PERSIST_FIELDS:
+                persisted.pop(field, None)
+        else:
+            self.github_auth_storage = GITHUB_AUTH_STORAGE_JSON
+            for field in (
+                "github_scope",
+                "github_user_login",
+                "github_user_id",
+            ):
+                if persisted.get(field) in {"", None}:
+                    persisted.pop(field, None)
+
+        persisted["github_auth_storage"] = self.github_auth_storage
+        return persisted
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         self.is_authenticated = bool(self.github_oauth_token)

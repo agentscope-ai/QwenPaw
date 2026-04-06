@@ -8,11 +8,40 @@ from types import SimpleNamespace
 import pytest
 
 import copaw.providers.provider_manager as provider_manager_module
+from copaw.app.routers.providers import (
+    logout_provider_auth,
+    poll_provider_device_auth,
+)
 from copaw.providers.anthropic_provider import AnthropicProvider
-from copaw.providers.github_copilot_provider import GitHubCopilotProvider
+from copaw.providers.github_copilot_provider import (
+    DeviceAuthorizationPollResult,
+    GitHubCopilotProvider,
+)
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.provider import DefaultProvider, ModelInfo
 from copaw.providers.provider_manager import ProviderManager
+
+
+class FakeSecretStore:
+    def __init__(self, *, available: bool = False) -> None:
+        self.available = available
+        self.secret: str | None = None
+        self.delete_calls = 0
+
+    def load_payload(self) -> dict | None:
+        if self.secret is None:
+            return None
+        return json.loads(self.secret)
+
+    def save_payload(self, payload: dict) -> bool:
+        if not self.available:
+            return False
+        self.secret = json.dumps(payload, ensure_ascii=False)
+        return True
+
+    def delete_payload(self) -> None:
+        self.delete_calls += 1
+        self.secret = None
 
 
 LEGACY_PROVIDER = {
@@ -81,6 +110,43 @@ def isolated_secret_dir(monkeypatch, tmp_path):
     secret_dir = tmp_path / ".copaw.secret"
     monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
     return secret_dir
+
+
+@pytest.fixture(autouse=True)
+def fake_secret_store(monkeypatch):
+    store = FakeSecretStore(available=False)
+    monkeypatch.setattr(
+        GitHubCopilotProvider,
+        "_load_keyring_auth_payload",
+        lambda self: store.load_payload(),
+    )
+    monkeypatch.setattr(
+        GitHubCopilotProvider,
+        "_save_keyring_auth_payload",
+        lambda self, payload: store.save_payload(payload),
+    )
+    monkeypatch.setattr(
+        GitHubCopilotProvider,
+        "_delete_keyring_auth_payload",
+        lambda self: store.delete_payload(),
+    )
+    return store
+
+
+@pytest.fixture(autouse=True)
+def fresh_github_copilot_provider(monkeypatch):
+    monkeypatch.setattr(
+        provider_manager_module,
+        "PROVIDER_GITHUB_COPILOT",
+        GitHubCopilotProvider(
+            id="github-copilot",
+            name="GitHub Copilot",
+            base_url="https://api.individual.githubcopilot.com",
+            require_api_key=False,
+            support_model_discovery=True,
+            freeze_url=True,
+        ),
+    )
 
 
 async def test_add_custom_provider_and_reload_from_storage(
@@ -403,9 +469,11 @@ def test_provider_from_data_dispatch_to_github_copilot(
     assert isinstance(provider, GitHubCopilotProvider)
 
 
-def test_save_provider_for_github_copilot_excludes_runtime_auth_state(
+def test_save_provider_for_github_copilot_persists_refresh_credentials_only(
     isolated_secret_dir,
+    fake_secret_store,
 ) -> None:
+    fake_secret_store.available = True
     manager = ProviderManager()
     provider = manager.get_provider("github-copilot")
 
@@ -414,6 +482,9 @@ def test_save_provider_for_github_copilot_excludes_runtime_auth_state(
     provider.is_authenticated = True
     provider.auth_account_label = "octocat"
     provider.github_oauth_token = "gho_test"
+    provider.github_scope = "read:user"
+    provider.github_user_login = "octocat"
+    provider.github_user_id = 1
     provider.copilot_access_token = "copilot-token"
     provider.api_key = "copilot-token"
 
@@ -422,10 +493,205 @@ def test_save_provider_for_github_copilot_excludes_runtime_auth_state(
     persisted_path = manager.builtin_path / "github-copilot.json"
     persisted = json.loads(persisted_path.read_text(encoding="utf-8"))
 
+    assert persisted["github_auth_storage"] == "keychain"
+    assert "github_oauth_token" not in persisted
+    assert json.loads(fake_secret_store.secret or "{}") == {
+        "github_oauth_token": "gho_test",
+        "github_token_type": "bearer",
+        "github_scope": "read:user",
+        "github_user_login": "octocat",
+        "github_user_id": 1,
+    }
     assert "api_key" not in persisted
     assert "is_authenticated" not in persisted
-    assert "github_oauth_token" not in persisted
     assert "copilot_access_token" not in persisted
+
+    reloaded = manager.load_provider("github-copilot", is_builtin=True)
+
+    assert isinstance(reloaded, GitHubCopilotProvider)
+    assert reloaded.github_oauth_token == "gho_test"
+    assert reloaded.github_user_login == "octocat"
+    assert reloaded.copilot_access_token == ""
+
+
+async def test_poll_provider_device_auth_persists_authorized_credentials(
+    isolated_secret_dir,
+    monkeypatch,
+    fake_secret_store,
+) -> None:
+    fake_secret_store.available = True
+    manager = ProviderManager()
+    provider = manager.get_provider("github-copilot")
+
+    assert isinstance(provider, GitHubCopilotProvider)
+
+    async def fake_poll(self, session_id: str, timeout: float = 10):
+        _ = self, session_id, timeout
+        provider.github_oauth_token = "gho_test"
+        provider.github_scope = "read:user"
+        provider.github_user_login = "octocat"
+        provider.github_user_id = 1
+        provider.copilot_access_token = "copilot-token"
+        provider.copilot_token_expires_at = 4_102_444_800
+        provider.api_key = "copilot-token"
+        return DeviceAuthorizationPollResult(
+            status="authorized",
+            message="GitHub authorization completed",
+        )
+
+    monkeypatch.setattr(
+        GitHubCopilotProvider,
+        "poll_device_authorization",
+        fake_poll,
+    )
+
+    response = await poll_provider_device_auth(
+        manager=manager,
+        provider_id="github-copilot",
+        session_id="session-1",
+    )
+
+    persisted_path = manager.builtin_path / "github-copilot.json"
+    persisted = json.loads(persisted_path.read_text(encoding="utf-8"))
+
+    assert response.status == "authorized"
+    assert response.provider is not None
+    assert response.provider.is_authenticated is True
+    assert persisted["github_auth_storage"] == "keychain"
+    assert "github_oauth_token" not in persisted
+    assert json.loads(fake_secret_store.secret or "{}") == {
+        "github_oauth_token": "gho_test",
+        "github_token_type": "bearer",
+        "github_scope": "read:user",
+        "github_user_login": "octocat",
+        "github_user_id": 1,
+    }
+    assert "copilot_access_token" not in persisted
+
+
+async def test_logout_provider_auth_clears_persisted_credentials(
+    isolated_secret_dir,
+    fake_secret_store,
+) -> None:
+    fake_secret_store.available = True
+    manager = ProviderManager()
+    provider = manager.get_provider("github-copilot")
+
+    assert isinstance(provider, GitHubCopilotProvider)
+
+    provider.github_oauth_token = "gho_test"
+    provider.github_scope = "read:user"
+    provider.github_user_login = "octocat"
+    provider.github_user_id = 1
+    provider.copilot_access_token = "copilot-token"
+    provider.api_key = "copilot-token"
+    manager._save_provider(provider, is_builtin=True)
+
+    response = await logout_provider_auth(
+        manager=manager,
+        provider_id="github-copilot",
+    )
+
+    persisted_path = manager.builtin_path / "github-copilot.json"
+    persisted = json.loads(persisted_path.read_text(encoding="utf-8"))
+
+    assert response.is_authenticated is False
+    assert persisted["github_auth_storage"] == "none"
+    assert "github_oauth_token" not in persisted
+    assert "github_user_login" not in persisted
+    assert "copilot_access_token" not in persisted
+    assert fake_secret_store.secret is None
+    assert fake_secret_store.delete_calls >= 1
+
+
+def test_load_provider_legacy_json_auth_migrates_to_keychain_on_save(
+    isolated_secret_dir,
+    fake_secret_store,
+) -> None:
+    fake_secret_store.available = True
+    manager = ProviderManager()
+    persisted_path = manager.builtin_path / "github-copilot.json"
+    persisted_path.write_text(
+        json.dumps(
+            {
+                "id": "github-copilot",
+                "name": "GitHub Copilot",
+                "base_url": "https://api.individual.githubcopilot.com",
+                "require_api_key": False,
+                "support_model_discovery": True,
+                "freeze_url": True,
+                "github_oauth_token": "gho_test",
+                "github_token_type": "bearer",
+                "github_scope": "read:user",
+                "github_user_login": "octocat",
+                "github_user_id": 1,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    reloaded = manager.load_provider("github-copilot", is_builtin=True)
+
+    assert isinstance(reloaded, GitHubCopilotProvider)
+    assert reloaded.github_oauth_token == "gho_test"
+    assert reloaded.github_user_login == "octocat"
+
+    manager._save_provider(reloaded, is_builtin=True)
+
+    persisted = json.loads(persisted_path.read_text(encoding="utf-8"))
+    assert persisted["github_auth_storage"] == "keychain"
+    assert "github_oauth_token" not in persisted
+    assert json.loads(fake_secret_store.secret or "{}") == {
+        "github_oauth_token": "gho_test",
+        "github_token_type": "bearer",
+        "github_scope": "read:user",
+        "github_user_login": "octocat",
+        "github_user_id": 1,
+    }
+
+
+def test_init_from_storage_restores_github_copilot_auth_state(
+    isolated_secret_dir,
+    fake_secret_store,
+    monkeypatch,
+) -> None:
+    fake_secret_store.available = True
+    manager = ProviderManager()
+    provider = manager.get_provider("github-copilot")
+
+    assert isinstance(provider, GitHubCopilotProvider)
+
+    provider.github_oauth_token = "gho_test"
+    provider.github_scope = "read:user"
+    provider.github_user_login = "octocat"
+    provider.github_user_id = 1
+    manager._save_provider(provider, is_builtin=True)
+
+    monkeypatch.setattr(
+        provider_manager_module,
+        "PROVIDER_GITHUB_COPILOT",
+        GitHubCopilotProvider(
+            id="github-copilot",
+            name="GitHub Copilot",
+            base_url="https://api.individual.githubcopilot.com",
+            require_api_key=False,
+            support_model_discovery=True,
+            freeze_url=True,
+        ),
+    )
+
+    restarted_manager = ProviderManager()
+    restarted_provider = restarted_manager.get_provider("github-copilot")
+
+    assert isinstance(restarted_provider, GitHubCopilotProvider)
+    assert restarted_provider.github_auth_storage == "keychain"
+    assert restarted_provider.github_oauth_token == "gho_test"
+    assert restarted_provider.github_user_login == "octocat"
+    assert restarted_provider.is_authenticated is True
+    assert restarted_provider.auth_account_label == "octocat"
+    assert restarted_provider.copilot_access_token == ""
 
 
 def test_init_from_storage_migrates_with_different_provider(

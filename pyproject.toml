@@ -34,6 +34,7 @@ dependencies = [
     "tzdata>=2024.1",
     "pyyaml>=6.0",
     "json-repair>=0.30.0",
+    "keyring>=25.6.0",
 ]
 
 [tool.setuptools.dynamic]
