@@ -12,6 +12,7 @@ Rich media read (images, videos, files)
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -79,7 +80,9 @@ _BARE_DOMAIN_PATTERN = re.compile(
     r"(?:\.[a-z]{2,3})?\b(?:/[^\s]*)?",
     re.IGNORECASE,
 )
-_IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
+_IMAGE_TAG_PATTERN = re.compile(
+    r"\[Image: ((?:https?|file)://[^\]]+)\]", re.IGNORECASE
+)
 
 # Rich media paths
 _DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "qq"
@@ -417,11 +420,38 @@ async def _upload_media_async(
     """Upload media to QQ rich media server.
 
     Returns file_info if success, None otherwise.
+    Supports both remote HTTP URLs and local file:// paths.
     """
     path = _media_path(message_type, openid, "files")
     if not path:
         logger.warning("Unsupported type for media upload: %s", message_type)
         return None
+
+    if url.startswith("file://"):
+        local_path = url[len("file://"):]
+        try:
+            with open(local_path, "rb") as f:
+                file_data = base64.b64encode(f.read()).decode("ascii")
+        except OSError as e:
+            logger.warning("Failed to read local image file %s: %s", local_path, e)
+            return None
+        try:
+            response = await _api_request_async(
+                session,
+                access_token,
+                "POST",
+                path,
+                {"file_type": media_type, "file_data": file_data, "srv_send_msg": False},
+            )
+            return response.get("file_info")
+        except Exception:
+            logger.warning(
+                "Failed to upload local image via file_data (path=%s). "
+                "QQ Bot API may not support direct file upload.",
+                local_path,
+            )
+            return None
+
     try:
         response = await _api_request_async(
             session,
