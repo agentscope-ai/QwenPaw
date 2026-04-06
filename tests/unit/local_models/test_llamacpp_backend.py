@@ -183,6 +183,21 @@ def _make_zip_payload() -> bytes:
     return buffer.getvalue()
 
 
+def _make_zip_payload_with_macos_metadata_dir() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "llama-b1234-bin-win-cuda-12.4-x64/llama-server.exe",
+            "zip-binary",
+        )
+        archive.writestr(
+            "llama-b1234-bin-win-cuda-12.4-x64/ggml.dll",
+            "support-dll",
+        )
+        archive.writestr("__MACOSX/._llama-b1234-bin-win-cuda-12.4-x64", "")
+    return buffer.getvalue()
+
+
 def _make_tar_gz_payload() -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
@@ -818,6 +833,52 @@ def test_download_worker_flattens_single_top_level_archive_dir(
 
     assert (staging_dir / "bin" / "server").read_text() == "tar-binary"
     assert not (staging_dir / "llama-b1234").exists()
+    assert isinstance(messages[-1]["payload"], dict)
+    assert messages[-1]["payload"]["status"] == "completed"
+
+
+def test_download_worker_ignores_macos_metadata_dirs_when_flattening(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    monkeypatch.setattr(downloader, "os_name", "windows")
+    monkeypatch.setattr(downloader, "arch", "x64")
+    monkeypatch.setattr(downloader, "cuda_version", "12.4")
+    monkeypatch.setattr(downloader, "backend", "cuda")
+
+    staging_dir = tmp_path / "flattened-windows-install"
+    download_url = (
+        "https://example.com/releases/b1234/"
+        "llama-b1234-bin-win-cuda-12.4-x64.zip"
+    )
+    _patch_httpx_client(
+        monkeypatch,
+        _make_zip_payload_with_macos_metadata_dir(),
+    )
+
+    messages: list[dict[str, object]] = []
+
+    class _Queue:
+        def put(self, item):
+            messages.append(item)
+
+    downloader._download_worker(
+        {
+            "url": download_url,
+            "staging_dir": str(staging_dir),
+            "file_name": "llama-b1234-bin-win-cuda-12.4-x64.zip",
+            "chunk_size": 64,
+            "timeout": 30,
+            "headers": downloader._download_headers,
+        },
+        _Queue(),
+    )
+
+    assert (staging_dir / "llama-server.exe").read_text() == "zip-binary"
+    assert (staging_dir / "ggml.dll").read_text() == "support-dll"
+    assert not (staging_dir / "__MACOSX").exists()
+    assert not (staging_dir / "llama-b1234-bin-win-cuda-12.4-x64").exists()
     assert isinstance(messages[-1]["payload"], dict)
     assert messages[-1]["payload"]["status"] == "completed"
 

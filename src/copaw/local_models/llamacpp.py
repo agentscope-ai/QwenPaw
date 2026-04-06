@@ -654,13 +654,29 @@ class LlamaCppBackend:
         staging_dir: Path,
         dest_dir: Path,
     ) -> None:
-        extracted_entries = list(staging_dir.iterdir())
+        extracted_entries = [
+            entry
+            for entry in staging_dir.iterdir()
+            if not LlamaCppBackend._is_ignorable_archive_entry(entry)
+        ]
         source_root = staging_dir
         if len(extracted_entries) == 1 and extracted_entries[0].is_dir():
             source_root = extracted_entries[0]
 
         for item in source_root.iterdir():
+            if LlamaCppBackend._is_ignorable_archive_entry(item):
+                continue
             LlamaCppBackend._merge_path(item, dest_dir / item.name)
+
+    @staticmethod
+    def _is_ignorable_archive_entry(path: Path) -> bool:
+        """Return whether an extracted archive entry is metadata-only."""
+        name = path.name
+        if name == "__MACOSX":
+            return True
+        if name.startswith("._"):
+            return True
+        return False
 
     @staticmethod
     def _merge_path(source: Path, destination: Path) -> None:
