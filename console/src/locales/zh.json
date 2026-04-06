@@ -1138,7 +1138,9 @@
       "resultsCount": "找到 {{count}} 个结果",
       "userMessage": "用户",
       "assistantMessage": "助手"
-    }
+    },
+    "mentionAgent": "引用智能体",
+    "noEnabledAgents": "暂无可用的已启用智能体"
   },
   "security": {
     "parent": "设置",

@@ -1164,7 +1164,9 @@
       "resultsCount": "Found {{count}} result(s)",
       "userMessage": "User",
       "assistantMessage": "Assistant"
-    }
+    },
+    "mentionAgent": "Refer to Agent",
+    "noEnabledAgents": "No enabled agents available"
   },
   "security": {
     "parent": "Settings",

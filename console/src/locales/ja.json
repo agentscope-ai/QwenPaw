@@ -1099,7 +1099,9 @@
       "resultsCount": "{{count}} 件の結果が見つかりました",
       "userMessage": "ユーザー",
       "assistantMessage": "アシスタント"
-    }
+    },
+    "mentionAgent": "エージェントを参照",
+    "noEnabledAgents": "有効なエージェントがありません"
   },
   "security": {
     "parent": "設定",

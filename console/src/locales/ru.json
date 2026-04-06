@@ -1104,7 +1104,9 @@
       "resultsCount": "Найдено {{count}} результат(ов)",
       "userMessage": "Пользователь",
       "assistantMessage": "Ассистент"
-    }
+    },
+    "mentionAgent": "Ссылаться на агента",
+    "noEnabledAgents": "Нет доступных включённых агентов"
   },
   "security": {
     "parent": "Настройки",

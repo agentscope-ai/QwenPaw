@@ -235,6 +235,13 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  border-radius: 8px;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+
+  .ant-select-item:hover &,
+  .copaw-select-item:hover & {
+    background: rgba(43, 18, 0, 0.06);
+  }
 }
 
 .agentOptionHeader {
@@ -256,7 +263,8 @@
   color: #f07e26;
   transition: all 0.2s ease;
 
-  .agentOption:hover & {
+  .ant-select-item:hover &,
+  .copaw-select-item:hover & {
     background: linear-gradient(135deg, #ffe9d4 0%, #fff0e5 100%);
     border-color: rgba(240, 126, 38, 0.3);
     color: #f07e26;
@@ -445,7 +453,8 @@
     border-color: rgba(245, 160, 90, 0.2);
     color: #f5a05a;
 
-    .agentOption:hover & {
+    .ant-select-item:hover &,
+    .copaw-select-item:hover & {
       background: linear-gradient(
         135deg,
         rgba(240, 126, 38, 0.3) 0%,
