@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """MCP client manager for hot-reloadable client lifecycle management.
 
 This module provides centralized management of MCP clients with support
@@ -82,7 +82,7 @@ class MCPClientManager:
     ) -> None:
         """Replace or add a client with new configuration.
 
-        Flow: connect new (outside lock) 鈫?swap + close old (inside lock).
+        Flow: connect new (outside lock) → swap + close old (inside lock).
         This ensures minimal lock holding time.
 
         Args:
@@ -185,6 +185,8 @@ class MCPClientManager:
             except BaseException as exc:
                 if not request.future.cancelled():
                     request.future.set_exception(exc)
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                    raise
             else:
                 if not request.future.cancelled():
                     request.future.set_result(result)
@@ -298,13 +300,13 @@ class MCPClientManager:
         ``StatefulClientBase.close()`` refuses to run when
         ``is_connected`` is still ``False`` (which is the case when
         ``connect()`` times out or raises).  We bypass that guard by
-        closing the ``AsyncExitStack`` directly 鈥?this triggers the
+        closing the ``AsyncExitStack`` directly — this triggers the
         ``stdio_client`` finally-block that sends SIGTERM/SIGKILL to
         the child process.
 
         The ``ClientSession`` is registered on the same stack via
         ``enter_async_context``, so ``stack.aclose()`` exits it in
-        LIFO order 鈥?no separate session teardown is needed.
+        LIFO order — no separate session teardown is needed.
         """
         if client is None:
             return

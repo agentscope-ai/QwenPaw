@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """MultiAgentManager: Manages multiple agent workspaces with lazy loading.
 
 Provides centralized management for multiple Workspace objects,

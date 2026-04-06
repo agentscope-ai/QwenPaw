@@ -1,33 +1,28 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Regression tests for MCP hot-reload cleanup."""
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import sys
-from pathlib import Path
+import types
 from types import SimpleNamespace
 
 import pytest
 
-_MANAGER_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "src"
-    / "copaw"
-    / "app"
-    / "mcp"
-    / "manager.py"
+google_module = sys.modules.setdefault("google", types.ModuleType("google"))
+google_module.__path__ = []
+genai_module = sys.modules.setdefault(
+    "google.genai",
+    types.ModuleType("google.genai"),
 )
-_MANAGER_SPEC = importlib.util.spec_from_file_location(
-    "copaw_mcp_manager_under_test",
-    _MANAGER_PATH,
-)
-assert _MANAGER_SPEC is not None
-assert _MANAGER_SPEC.loader is not None
-_MANAGER_MODULE = importlib.util.module_from_spec(_MANAGER_SPEC)
-sys.modules[_MANAGER_SPEC.name] = _MANAGER_MODULE
-_MANAGER_SPEC.loader.exec_module(_MANAGER_MODULE)
-MCPClientManager = _MANAGER_MODULE.MCPClientManager
+genai_module.Client = object
+genai_module.errors = types.SimpleNamespace(APIError=Exception)
+genai_module.types = types.SimpleNamespace(HttpOptions=object)
+google_module.genai = genai_module
+sys.modules.setdefault("google.genai.errors", genai_module.errors)
+sys.modules.setdefault("google.genai.types", genai_module.types)
+
+from copaw.app.mcp.manager import MCPClientManager
 
 
 class _TaskBoundClient:
