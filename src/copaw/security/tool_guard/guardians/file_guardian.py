@@ -92,7 +92,7 @@ _MIME_PREFIXES = (
     "model/",
 )
 
-_WINDOWS_DRIVE_RE = re.compile(r"^[a-zA-Z]:[\/]")
+_WINDOWS_DRIVE_RE = re.compile(r"^[a-zA-Z]:")
 _SHELL_FILE_COMMANDS = frozenset(
     {
         "cat",
@@ -103,6 +103,14 @@ _SHELL_FILE_COMMANDS = frozenset(
         "less",
         "head",
         "tail",
+        "grep",
+        "ls",
+        "dir",
+        "cp",
+        "mv",
+        "rm",
+        "mkdir",
+        "rmdir",
     },
 )
 
@@ -188,16 +196,27 @@ def _extract_paths_from_shell_command(command: str) -> list[str]:
             i += 1
             continue
 
-        if lowered in _SHELL_FILE_COMMANDS and i + 1 < len(tokens):
-            next_token = _strip_shell_quotes(tokens[i + 1])
-            if (
-                next_token
-                and next_token not in _SHELL_REDIRECT_OPERATORS
-                and not next_token.startswith("-")
-            ):
-                candidates.append(next_token)
+        if lowered in _SHELL_FILE_COMMANDS:
+            i += 1
+            while i < len(tokens):
+                next_token = tokens[i]
+                if next_token in _SHELL_REDIRECT_OPERATORS:
+                    break
+
+                clean_token = _strip_shell_quotes(next_token)
+                if clean_token and not clean_token.startswith("-"):
+                    if _looks_like_path_token(clean_token) or lowered in {
+                        "ls",
+                        "dir",
+                        "cp",
+                        "mv",
+                        "rm",
+                        "mkdir",
+                        "rmdir",
+                    }:
+                        candidates.append(clean_token)
                 i += 1
-                continue
+            continue
 
         if _looks_like_path_token(token):
             candidates.append(_strip_shell_quotes(token))
@@ -342,6 +361,18 @@ class FilePathToolGuardian(BaseToolGuardian):
                 ),
             )
 
+    @staticmethod
+    def _iter_candidate_values(param_value: Any) -> Iterable[str]:
+        """Yield string values from string or simple string collections."""
+        if isinstance(param_value, str):
+            yield param_value
+            return
+
+        if isinstance(param_value, (list, tuple)):
+            for value in param_value:
+                if isinstance(value, str):
+                    yield value
+
     def guard(
         self,
         tool_name: str,
@@ -387,11 +418,10 @@ class FilePathToolGuardian(BaseToolGuardian):
 
         # All other tools: scan every string parameter that looks like a path.
         for param_name, param_value in params.items():
-            if not isinstance(param_value, str) or not param_value.strip():
-                continue
-            if not _looks_like_path_token(param_value):
-                continue
-            self._check_value(tool_name, param_name, param_value, findings)
+            for candidate in self._iter_candidate_values(param_value):
+                if not candidate.strip() or not _looks_like_path_token(candidate):
+                    continue
+                self._check_value(tool_name, param_name, candidate, findings)
 
         return findings
 

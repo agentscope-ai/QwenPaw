@@ -93,6 +93,23 @@ def test_extract_paths_supports_windows_style_shell_access() -> None:
     )
     assert "C:\\Users\\alice\\.ssh\\note.txt" in redirect_paths
 
+    drive_relative_paths = _extract_paths_from_shell_command("type C:secret.txt")
+    assert "C:secret.txt" in drive_relative_paths
+
+
+def test_extract_paths_scans_flags_and_multiple_shell_file_targets() -> None:
+    flagged_paths = _extract_paths_from_shell_command(
+        "cat -n ./secret.txt ../more.txt",
+    )
+    assert "./secret.txt" in flagged_paths
+    assert "../more.txt" in flagged_paths
+
+    copy_paths = _extract_paths_from_shell_command(
+        "cp ./source.txt ../protected/target.txt",
+    )
+    assert "./source.txt" in copy_paths
+    assert "../protected/target.txt" in copy_paths
+
 
 def test_file_guard_blocks_sensitive_shell_reads(
     workspace_root: Path,
@@ -173,3 +190,24 @@ def test_engine_default_guardians_cover_shell_file_access(
     assert result is not None
     assert result.findings_count == 1
     assert result.findings[0].guardian == "file_path_tool_guardian"
+
+
+def test_file_guard_scans_string_lists_for_unknown_tools(
+    workspace_root: Path,
+) -> None:
+    sensitive_dir = workspace_root / "protected"
+    sensitive_dir.mkdir()
+    guardian = FilePathToolGuardian(sensitive_files=[str(sensitive_dir) + "/"])
+
+    findings = guardian.guard(
+        "custom_batch_tool",
+        {
+            "targets": [
+                str(workspace_root / "notes.txt"),
+                str(sensitive_dir / "secret.txt"),
+            ],
+        },
+    )
+
+    assert len(findings) == 1
+    assert findings[0].matched_value == str(sensitive_dir / "secret.txt")
