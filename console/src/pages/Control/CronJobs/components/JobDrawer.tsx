@@ -36,6 +36,7 @@ export function JobDrawer({
   onSubmit,
 }: JobDrawerProps) {
   const { t } = useTranslation();
+  const timezoneOptions = useTimezoneOptions();
 
   return (
     <Drawer
@@ -231,7 +232,7 @@ export function JobDrawer({
                 .toLowerCase()
                 .includes(input.toLowerCase())
             }
-            options={useTimezoneOptions()}
+            options={timezoneOptions}
           />
         </Form.Item>
 

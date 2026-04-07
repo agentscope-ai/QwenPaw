@@ -4,5 +4,9 @@ import { getTimezoneOptions, type TimezoneOption } from "../constants/timezone";
 
 export function useTimezoneOptions(): TimezoneOption[] {
   const { i18n } = useTranslation();
-  return useMemo(() => getTimezoneOptions(i18n.language), [i18n.language]);
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return useMemo(() => {
+    const locale = (language ?? "en").split("-")[0];
+    return getTimezoneOptions(locale);
+  }, [language]);
 }
