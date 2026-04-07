@@ -10,6 +10,7 @@ import click
 import httpx
 
 from ..app.auth import (
+    LOCAL_CLI_TOKEN_HEADER,
     _load_auth_data,
     create_token,
     has_registered_users,
@@ -28,21 +29,29 @@ def _build_auth_headers(base_url: str) -> dict[str, str]:
 
     parsed = urlparse(base_url)
     host = (parsed.hostname or "").strip().lower()
-    if host not in _LOCAL_API_HOSTS:
-        return {}
-
-    if not is_auth_enabled() or not has_registered_users():
+    if (
+        host not in _LOCAL_API_HOSTS
+        or not is_auth_enabled()
+        or not has_registered_users()
+    ):
         return {}
 
     data = _load_auth_data()
-    if data.get("_auth_load_error") or not data.get("jwt_secret"):
+    if data.get("_auth_load_error"):
         return {}
 
+    local_cli_token = str(data.get("local_cli_token", "")).strip()
+    if local_cli_token:
+        # Local CLI calls should authenticate explicitly, not rely on origin.
+        return {LOCAL_CLI_TOKEN_HEADER: local_cli_token}
+
+    # Backward compatibility: older auth.json files may not have a dedicated
+    # local CLI token until the next successful login or credential rotation.
     username = str((data.get("user") or {}).get("username") or "").strip()
-    if not username:
-        return {}
+    if data.get("jwt_secret") and username:
+        return {"Authorization": f"Bearer {create_token(username)}"}
 
-    return {"Authorization": f"Bearer {create_token(username)}"}
+    return {}
 
 
 def client(base_url: str) -> httpx.Client:

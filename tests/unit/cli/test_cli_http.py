@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from copaw.app.auth import LOCAL_CLI_TOKEN_HEADER
 from copaw.cli.http import _build_auth_headers, client
 
 
@@ -15,23 +16,27 @@ def test_build_auth_headers_uses_explicit_token(monkeypatch) -> None:
     assert headers == {"Authorization": "Bearer explicit-token"}
 
 
-def test_build_auth_headers_uses_local_auth_state(monkeypatch) -> None:
-    """Local CLI calls should mint a bearer token from local auth state."""
+def test_build_auth_headers_uses_local_cli_token(monkeypatch) -> None:
+    """Local CLI calls should prefer the dedicated local CLI token."""
     monkeypatch.delenv("COPAW_API_TOKEN", raising=False)
     monkeypatch.setattr("copaw.cli.http.is_auth_enabled", lambda: True)
     monkeypatch.setattr("copaw.cli.http.has_registered_users", lambda: True)
     monkeypatch.setattr(
         "copaw.cli.http._load_auth_data",
-        lambda: {"jwt_secret": "secret", "user": {"username": "alice"}},
+        lambda: {"local_cli_token": "cli-token"},
     )
     monkeypatch.setattr(
         "copaw.cli.http.create_token",
-        lambda username: f"token-for-{username}",
+        lambda username: (_ for _ in ()).throw(
+            AssertionError(
+                f"create_token should not be called for {username}",
+            ),
+        ),
     )
 
     headers = _build_auth_headers("http://127.0.0.1:8088")
 
-    assert headers == {"Authorization": "Bearer token-for-alice"}
+    assert headers == {LOCAL_CLI_TOKEN_HEADER: "cli-token"}
 
 
 def test_build_auth_headers_skips_remote_hosts(monkeypatch) -> None:
@@ -58,8 +63,31 @@ def test_build_auth_headers_skips_unspecified_local_bind_host(
     assert not headers
 
 
-def test_build_auth_headers_skips_missing_jwt_secret(monkeypatch) -> None:
-    """CLI auth must not mutate local auth state without a JWT secret."""
+def test_build_auth_headers_falls_back_to_jwt_for_legacy_auth_data(
+    monkeypatch,
+) -> None:
+    """Older auth files should still support local CLI calls after upgrade."""
+    monkeypatch.delenv("COPAW_API_TOKEN", raising=False)
+    monkeypatch.setattr("copaw.cli.http.is_auth_enabled", lambda: True)
+    monkeypatch.setattr("copaw.cli.http.has_registered_users", lambda: True)
+    monkeypatch.setattr(
+        "copaw.cli.http._load_auth_data",
+        lambda: {"jwt_secret": "secret", "user": {"username": "alice"}},
+    )
+    monkeypatch.setattr(
+        "copaw.cli.http.create_token",
+        lambda username: f"token-for-{username}",
+    )
+
+    headers = _build_auth_headers("http://127.0.0.1:8088")
+
+    assert headers == {"Authorization": "Bearer token-for-alice"}
+
+
+def test_build_auth_headers_skips_missing_local_cli_credentials(
+    monkeypatch,
+) -> None:
+    """CLI auth must fail closed when no local credential is available."""
     monkeypatch.delenv("COPAW_API_TOKEN", raising=False)
     monkeypatch.setattr("copaw.cli.http.is_auth_enabled", lambda: True)
     monkeypatch.setattr("copaw.cli.http.has_registered_users", lambda: True)
@@ -81,19 +109,15 @@ def test_build_auth_headers_skips_missing_jwt_secret(monkeypatch) -> None:
     assert not headers
 
 
-def test_client_attaches_local_auth_header(monkeypatch) -> None:
-    """The CLI client should send the generated local bearer token."""
+def test_client_attaches_local_cli_header(monkeypatch) -> None:
+    """The CLI client should send the local CLI token for loopback hosts."""
     monkeypatch.delenv("COPAW_API_TOKEN", raising=False)
     monkeypatch.setattr("copaw.cli.http.is_auth_enabled", lambda: True)
     monkeypatch.setattr("copaw.cli.http.has_registered_users", lambda: True)
     monkeypatch.setattr(
         "copaw.cli.http._load_auth_data",
-        lambda: {"jwt_secret": "secret", "user": {"username": "alice"}},
-    )
-    monkeypatch.setattr(
-        "copaw.cli.http.create_token",
-        lambda username: f"token-for-{username}",
+        lambda: {"local_cli_token": "cli-token"},
     )
 
     with client("http://127.0.0.1:8088") as http_client:
-        assert http_client.headers["Authorization"] == "Bearer token-for-alice"
+        assert http_client.headers[LOCAL_CLI_TOKEN_HEADER] == "cli-token"

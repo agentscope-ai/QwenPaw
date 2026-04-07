@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -38,6 +39,7 @@ AUTH_FILE = SECRET_DIR / "auth.json"
 
 # Token validity: 7 days
 TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
+LOCAL_CLI_TOKEN_HEADER = "X-CoPaw-Local-CLI-Token"
 
 # Paths that do NOT require authentication
 _PUBLIC_PATHS: frozenset[str] = frozenset(
@@ -111,6 +113,15 @@ def _get_jwt_secret() -> str:
         data["jwt_secret"] = secret
         _save_auth_data(data)
     return secret
+
+
+def _ensure_local_cli_token(data: dict, *, rotate: bool = False) -> str:
+    """Return the local CLI token, creating or rotating it when needed."""
+    token = str(data.get("local_cli_token", "")).strip()
+    if rotate or not token:
+        token = secrets.token_hex(32)
+        data["local_cli_token"] = token
+    return token
 
 
 def create_token(username: str) -> str:
@@ -231,9 +242,10 @@ def register_user(username: str, password: str) -> Optional[str]:
         "password_salt": salt,
     }
 
-    # Ensure jwt_secret exists
+    # Ensure auth secrets exist for browser sessions and local CLI clients.
     if not data.get("jwt_secret"):
         data["jwt_secret"] = secrets.token_hex(32)
+    _ensure_local_cli_token(data)
 
     _save_auth_data(data)
     logger.info("User '%s' registered", username)
@@ -304,6 +316,7 @@ def update_credentials(
         data["jwt_secret"] = secrets.token_hex(32)
 
     data["user"] = user
+    _ensure_local_cli_token(data, rotate=bool(new_password))
     _save_auth_data(data)
     logger.info("Credentials updated for user '%s'", user["username"])
     return create_token(user["username"])
@@ -329,6 +342,9 @@ def authenticate(username: str, password: str) -> Optional[str]:
         and stored_salt
         and verify_password(password, stored_hash, stored_salt)
     ):
+        if not data.get("local_cli_token"):
+            _ensure_local_cli_token(data)
+            _save_auth_data(data)
         return create_token(username)
     return None
 
@@ -351,25 +367,61 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         token = self._extract_token(request)
-        if not token:
-            return Response(
-                content=json.dumps({"detail": "Not authenticated"}),
-                status_code=401,
-                media_type="application/json",
-            )
-
-        user = verify_token(token)
-        if user is None:
-            return Response(
-                content=json.dumps(
-                    {"detail": "Invalid or expired token"},
-                ),
-                status_code=401,
-                media_type="application/json",
-            )
+        if token:
+            user = verify_token(token)
+            if user is None:
+                return Response(
+                    content=json.dumps(
+                        {"detail": "Invalid or expired token"},
+                    ),
+                    status_code=401,
+                    media_type="application/json",
+                )
+        else:
+            user = self._authenticate_local_cli(request)
+            if user is None:
+                return Response(
+                    content=json.dumps({"detail": "Not authenticated"}),
+                    status_code=401,
+                    media_type="application/json",
+                )
 
         request.state.user = user
         return await call_next(request)
+
+    @staticmethod
+    def _is_loopback_request(request: Request) -> bool:
+        """Return ``True`` when the immediate client is a loopback host."""
+        client = getattr(request, "client", None)
+        host = str(getattr(client, "host", "") or "").strip().lower()
+        if not host:
+            return False
+        if host == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(host.split("%", 1)[0]).is_loopback
+        except ValueError:
+            return False
+
+    @classmethod
+    def _authenticate_local_cli(cls, request: Request) -> Optional[str]:
+        """Authenticate loopback CLI calls using the local CLI token."""
+        local_cli_token = request.headers.get(LOCAL_CLI_TOKEN_HEADER, "")
+        if not local_cli_token or not cls._is_loopback_request(request):
+            return None
+
+        data = _load_auth_data()
+        if data.get("_auth_load_error"):
+            return None
+
+        expected = str(data.get("local_cli_token", "")).strip()
+        if not expected or not hmac.compare_digest(local_cli_token, expected):
+            return None
+
+        username = str((data.get("user") or {}).get("username") or "").strip()
+        if not username:
+            return None
+        return username
 
     @staticmethod
     def _should_skip_auth(request: Request) -> bool:

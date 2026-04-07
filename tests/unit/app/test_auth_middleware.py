@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 
-from copaw.app.auth import AuthMiddleware
+from copaw.app.auth import AuthMiddleware, LOCAL_CLI_TOKEN_HEADER
 
 
 @pytest.fixture(name="test_app")
@@ -31,6 +31,13 @@ def fixture_loopback_client(test_app: FastAPI) -> AsyncClient:
     """Create an ASGI client whose requests originate from loopback."""
     transport = ASGITransport(app=test_app, client=("127.0.0.1", 54321))
     return AsyncClient(transport=transport, base_url="http://127.0.0.1:8088")
+
+
+@pytest.fixture(name="remote_client")
+def fixture_remote_client(test_app: FastAPI) -> AsyncClient:
+    """Create an ASGI client whose requests originate from a remote host."""
+    transport = ASGITransport(app=test_app, client=("10.20.30.40", 54321))
+    return AsyncClient(transport=transport, base_url="http://10.20.30.40:8088")
 
 
 def test_localhost_requests_no_longer_skip_auth() -> None:
@@ -90,3 +97,59 @@ async def test_private_api_accepts_valid_bearer_on_loopback(
 
     assert response.status_code == 200
     assert response.json() == {"user": "alice"}
+
+
+async def test_private_api_accepts_local_cli_token_on_loopback(
+    loopback_client: AsyncClient,
+) -> None:
+    """Loopback CLI requests may use the dedicated local CLI token."""
+    with (
+        patch("copaw.app.auth.is_auth_enabled", return_value=True),
+        patch(
+            "copaw.app.auth.has_registered_users",
+            return_value=True,
+        ),
+        patch(
+            "copaw.app.auth._load_auth_data",
+            return_value={
+                "local_cli_token": "cli-token",
+                "user": {"username": "alice"},
+            },
+        ),
+    ):
+        async with loopback_client:
+            response = await loopback_client.get(
+                "/api/private",
+                headers={LOCAL_CLI_TOKEN_HEADER: "cli-token"},
+            )
+
+    assert response.status_code == 200
+    assert response.json() == {"user": "alice"}
+
+
+async def test_private_api_rejects_local_cli_token_off_loopback(
+    remote_client: AsyncClient,
+) -> None:
+    """The local CLI token must not authenticate non-loopback callers."""
+    with (
+        patch("copaw.app.auth.is_auth_enabled", return_value=True),
+        patch(
+            "copaw.app.auth.has_registered_users",
+            return_value=True,
+        ),
+        patch(
+            "copaw.app.auth._load_auth_data",
+            return_value={
+                "local_cli_token": "cli-token",
+                "user": {"username": "alice"},
+            },
+        ),
+    ):
+        async with remote_client:
+            response = await remote_client.get(
+                "/api/private",
+                headers={LOCAL_CLI_TOKEN_HEADER: "cli-token"},
+            )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
