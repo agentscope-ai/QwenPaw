@@ -1,6 +1,10 @@
 import React, { useState } from "react";
 import { IconButton } from "@agentscope-ai/design";
-import { SparkHistoryLine, SparkNewChatFill, SparkSearchLine } from "@agentscope-ai/icons";
+import {
+  SparkHistoryLine,
+  SparkNewChatFill,
+  SparkSearchLine,
+} from "@agentscope-ai/icons";
 import { useChatAnywhereSessions } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
 import { Flex, Tooltip } from "antd";
@@ -36,7 +40,10 @@ const ChatActionGroup: React.FC = () => {
           onClick={() => setHistoryOpen(true)}
         />
       </Tooltip>
-      <ChatSessionDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <ChatSessionDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
       <ChatSearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
     </Flex>
   );

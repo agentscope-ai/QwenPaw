@@ -3,9 +3,7 @@ import { Drawer, Input, List, Typography, Empty, Spin } from "antd";
 import type { InputRef } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine, SparkSearchLine } from "@agentscope-ai/icons";
-import {
-  useChatAnywhereSessionsState,
-} from "@agentscope-ai/chat";
+import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { chatApi } from "../../../../api/modules/chat";
@@ -52,7 +50,9 @@ const formatTimestamp = (raw: string | null | undefined): string => {
   const date = new Date(raw);
   if (isNaN(date.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
@@ -110,7 +110,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                 console.warn(`Failed to load chat ${chat.id}:`, err);
                 return null;
               }
-            })
+            }),
         );
 
         // Search in each chat
@@ -128,7 +128,10 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
               const matchIndex = lowerText.indexOf(query);
               const contextLength = 80;
               const start = Math.max(0, matchIndex - contextLength);
-              const end = Math.min(text.length, matchIndex + searchQuery.length + contextLength);
+              const end = Math.min(
+                text.length,
+                matchIndex + searchQuery.length + contextLength,
+              );
               const matchedText = text.slice(start, end);
 
               results.push({
@@ -150,7 +153,9 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
           if (!a.timestamp && !b.timestamp) return 0;
           if (!a.timestamp) return 1;
           if (!b.timestamp) return -1;
-          return new Date(b.timestamp!).getTime() - new Date(a.timestamp!).getTime();
+          return (
+            new Date(b.timestamp!).getTime() - new Date(a.timestamp!).getTime()
+          );
         });
 
         setSearchResults(results);
@@ -170,25 +175,28 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   }, [searchQuery, t]);
 
   // Navigate to chat when clicking result
-  const handleResultClick = useCallback((result: SearchResult) => {
-    // Find the session in the local list
-    const session = sessions.find((s) => {
-      const realId = sessionApi.getRealIdForSession(s.id || "");
-      return realId === result.chatId || s.id === result.chatId;
-    });
+  const handleResultClick = useCallback(
+    (result: SearchResult) => {
+      // Find the session in the local list
+      const session = sessions.find((s) => {
+        const realId = sessionApi.getRealIdForSession(s.id || "");
+        return realId === result.chatId || s.id === result.chatId;
+      });
 
-    if (session?.id) {
-      // Switch to that session
-      setCurrentSessionId(session.id);
-      // Navigate to the chat URL
-      navigate(`/chat/${session.id}`);
-    } else {
-      // Session not in local list, navigate by chat ID directly
-      navigate(`/chat/${result.chatId}`);
-    }
+      if (session?.id) {
+        // Switch to that session
+        setCurrentSessionId(session.id);
+        // Navigate to the chat URL
+        navigate(`/chat/${session.id}`);
+      } else {
+        // Session not in local list, navigate by chat ID directly
+        navigate(`/chat/${result.chatId}`);
+      }
 
-    onClose();
-  }, [sessions, setCurrentSessionId, navigate, onClose]);
+      onClose();
+    },
+    [sessions, setCurrentSessionId, navigate, onClose],
+  );
 
   return (
     <Drawer
@@ -252,7 +260,9 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         <div className={styles.topGradient} />
         <div className={styles.list}>
           {loading ? (
-            <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+            <div
+              style={{ display: "flex", justifyContent: "center", padding: 40 }}
+            >
               <Spin />
             </div>
           ) : searchQuery.trim() && searchResults.length === 0 ? (
@@ -269,14 +279,13 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                   onClick={() => handleResultClick(item)}
                 >
                   <div className={styles.resultHeader}>
-                    <span className={styles.resultChatName}>{item.chatName}</span>
+                    <span className={styles.resultChatName}>
+                      {item.chatName}
+                    </span>
                     <span className={styles.resultRole}>{item.roleLabel}</span>
                   </div>
                   <div className={styles.resultContent}>
-                    <Typography.Text
-                      ellipsis
-                      style={{ fontSize: 13 }}
-                    >
+                    <Typography.Text ellipsis style={{ fontSize: 13 }}>
                       {item.matchedText}
                     </Typography.Text>
                   </div>
