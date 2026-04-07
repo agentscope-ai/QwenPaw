@@ -133,7 +133,7 @@ def test_get_chat_model_instance_uses_single_v1_suffix(
     assert captured["model_name"] == "llama3.1"
     assert captured["api_key"] == "EMPTY"
     assert captured["stream"] is True
-    assert captured["stream_tool_parsing"] is False
+    assert captured["stream_tool_parsing"] is True
     assert captured["client_kwargs"] == {
         "base_url": "http://localhost:11434/v1",
     }

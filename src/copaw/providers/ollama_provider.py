@@ -79,7 +79,7 @@ class OllamaProvider(OpenAIProvider):
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
-            stream_tool_parsing=False,
+            stream_tool_parsing=True,
             client_kwargs={"base_url": self._openai_compatible_base_url()},
             generate_kwargs=self.get_effective_generate_kwargs(model_id),
         )
