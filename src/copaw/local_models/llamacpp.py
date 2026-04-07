@@ -5,7 +5,6 @@ import atexit
 import asyncio
 import logging
 import multiprocessing as mp
-import os
 import shutil
 import socket
 import tempfile
@@ -660,25 +659,12 @@ class LlamaCppBackend:
             source_root = extracted_entries[0]
 
         for item in source_root.iterdir():
-            LlamaCppBackend._merge_path(item, dest_dir / item.name)
-
-    @staticmethod
-    def _merge_path(source: Path, destination: Path) -> None:
-        if source.is_symlink():
-            destination.unlink(missing_ok=True)
-            os.symlink(os.readlink(source), destination)
-            return
-
-        if source.is_dir():
-            shutil.copytree(
-                source,
-                destination,
-                dirs_exist_ok=True,
-                symlinks=True,
-            )
-            return
-
-        shutil.copy2(source, destination)
+            if not item.is_file():
+                raise RuntimeError(
+                    "Unexpected directory structure in llama.cpp archive: "
+                    f"{item}"
+                )
+            shutil.copy2(item, dest_dir / item.name)
 
     @staticmethod
     def _cleanup_download_files(
