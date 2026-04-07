@@ -131,8 +131,8 @@ def _get_workspace_state(
     return _workspace_states[workspace_id]
 
 
-# Stop the browser after this many seconds of inactivity (default 30 minutes).
-_BROWSER_IDLE_TIMEOUT = 1800.0
+# Stop the browser after this many seconds of inactivity (default 10 minutes).
+_BROWSER_IDLE_TIMEOUT = 600.0
 
 
 def _touch_activity(state: dict) -> None:
