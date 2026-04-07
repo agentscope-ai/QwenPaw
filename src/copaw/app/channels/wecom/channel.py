@@ -458,78 +458,94 @@ class WecomChannel(BaseChannel):
             quote = body.get("quote")
             if quote:
                 quote_type = quote.get("msgtype") or ""
-                if quote_type == "text":
-                    quoted_text = (
-                        (quote.get("text") or {}).get("content", "").strip()
-                    )
-                    if quoted_text:
-                        text_parts.insert(
-                            0,
-                            f"[quoted message: {quoted_text}]",
+                # Flatten quote into a list of items for unified processing.
+                # Single-type quotes become a one-element list; mixed quotes
+                # already contain a list of items.
+                if quote_type == "mixed":
+                    quoted_items = quote.get("mixed", {}).get("msg_item", [])
+                elif quote_type:
+                    quoted_items = [quote]
+                else:
+                    quoted_items = []
+
+                _quote_media_map = {
+                    "image": (
+                        "image.jpg",
+                        ImageContent,
+                        {
+                            "type": ContentType.IMAGE,
+                        },
+                        "image_url",
+                    ),
+                    "file": (
+                        None,
+                        FileContent,
+                        {
+                            "type": ContentType.FILE,
+                        },
+                        "file_url",
+                    ),
+                    "video": (
+                        "video.mp4",
+                        VideoContent,
+                        {
+                            "type": ContentType.VIDEO,
+                        },
+                        "video_url",
+                    ),
+                }
+
+                for q_item in quoted_items:
+                    q_type = q_item.get("msgtype") or ""
+                    if q_type == "text":
+                        quoted_text = (
+                            (q_item.get("text") or {})
+                            .get("content", "")
+                            .strip()
                         )
-                elif quote_type in ("image", "file"):
-                    quote_data = quote.get(quote_type) or {}
-                    quote_url = quote_data.get("url") or ""
-                    quote_aes_key = quote_data.get("aeskey") or ""
-                    if quote_url:
-                        # Determine filename hint based on quote type
+                        if quoted_text:
+                            text_parts.insert(
+                                0,
+                                f"[quoted message: {quoted_text}]",
+                            )
+                    elif q_type in _quote_media_map:
+                        (
+                            hint_default,
+                            content_cls,
+                            content_kwargs,
+                            url_field,
+                        ) = _quote_media_map[q_type]
+                        q_data = q_item.get(q_type) or {}
+                        q_url = q_data.get("url") or ""
+                        q_aes_key = q_data.get("aeskey") or ""
                         hint = (
-                            "image.jpg"
-                            if quote_type == "image"
-                            else (quote_data.get("filename") or "file.bin")
+                            hint_default
+                            or q_data.get("filename")
+                            or "file.bin"
                         )
-                        quote_path = await self._download_media(
-                            quote_url,
-                            aes_key=quote_aes_key,
-                            filename_hint=hint,
-                        )
-                        if quote_path:
-                            if quote_type == "image":
+                        if q_url:
+                            q_path = await self._download_media(
+                                q_url,
+                                aes_key=q_aes_key,
+                                filename_hint=hint,
+                            )
+                            if q_path:
                                 content_parts.append(
-                                    ImageContent(
-                                        type=ContentType.IMAGE,
-                                        image_url=quote_path,
+                                    content_cls(
+                                        **content_kwargs,
+                                        **{url_field: q_path},
                                     ),
                                 )
                             else:
-                                content_parts.append(
-                                    FileContent(
-                                        type=ContentType.FILE,
-                                        file_url=quote_path,
-                                    ),
+                                text_parts.insert(
+                                    0,
+                                    f"[quoted {q_type}: download failed]",
                                 )
-                        else:
-                            text_parts.insert(
-                                0,
-                                f"[quoted {quote_type}: download failed]",
-                            )
-                elif quote_type == "video":
-                    quote_video = quote.get("video") or {}
-                    quote_url = quote_video.get("url") or ""
-                    quote_aes_key = quote_video.get("aeskey") or ""
-                    if quote_url:
-                        quote_path = await self._download_media(
-                            quote_url,
-                            aes_key=quote_aes_key,
-                            filename_hint="video.mp4",
+                    else:
+                        text_parts.insert(
+                            0,
+                            f"[quoted {q_type} message]",
                         )
-                        if quote_path:
-                            content_parts.append(
-                                VideoContent(
-                                    type=ContentType.VIDEO,
-                                    video_url=quote_path,
-                                ),
-                            )
-                        else:
-                            text_parts.insert(
-                                0,
-                                "[quoted video: download failed]",
-                            )
-                else:
-                    text_parts.insert(
-                        0,
-                        f"[quoted {quote_type} message]",
-                    )
 
             text = "\n".join(text_parts).strip()
             if text:
