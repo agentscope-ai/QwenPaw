@@ -5,6 +5,7 @@ export interface ToolInfo {
   enabled: boolean;
   description: string;
   async_execution: boolean;
+  icon: string;
 }
 
 export const toolsApi = {

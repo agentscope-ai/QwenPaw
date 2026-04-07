@@ -75,7 +75,9 @@ export default function ToolsPage() {
                 onMouseLeave={() => setHoverKey(null)}
               >
                 <div className={styles.cardHeader}>
-                  <h3 className={styles.toolName}>{tool.name}</h3>
+                  <h3 className={styles.toolName}>
+                    {tool.icon} {tool.name}
+                  </h3>
                   <div className={styles.statusContainer}>
                     <span className={styles.statusDot} />
                     <span className={styles.statusText}>

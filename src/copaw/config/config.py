@@ -878,6 +878,7 @@ class BuiltinToolConfig(BaseModel):
         False,
         description="Whether to execute the tool asynchronously in background",
     )
+    icon: str = Field(default="🔧", description="Emoji icon for the tool")
 
 
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
@@ -887,73 +888,87 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="execute_shell_command",
             enabled=True,
             description="Execute shell commands",
+            icon="💾",
         ),
         "read_file": BuiltinToolConfig(
             name="read_file",
             enabled=True,
             description="Read file contents",
+            icon="📄",
         ),
         "write_file": BuiltinToolConfig(
             name="write_file",
             enabled=True,
             description="Write content to file",
+            icon="✍️",
         ),
         "edit_file": BuiltinToolConfig(
             name="edit_file",
             enabled=True,
             description="Edit file using find-and-replace",
+            icon="🖊️",
         ),
         "grep_search": BuiltinToolConfig(
             name="grep_search",
             enabled=True,
             description="Search file contents by pattern",
+            icon="🔍",
         ),
         "glob_search": BuiltinToolConfig(
             name="glob_search",
             enabled=True,
             description="Find files matching a glob pattern",
+            icon="📁",
         ),
         "browser_use": BuiltinToolConfig(
             name="browser_use",
             enabled=True,
             description="Browser automation and web interaction",
+            icon="🌐",
         ),
         "desktop_screenshot": BuiltinToolConfig(
             name="desktop_screenshot",
             enabled=True,
             description="Capture desktop screenshots",
+            icon="📸",
         ),
         "view_image": BuiltinToolConfig(
             name="view_image",
             enabled=True,
             description="Load an image into LLM context for visual analysis",
             display_to_user=False,
+            icon="🖼️",
         ),
         "view_video": BuiltinToolConfig(
             name="view_video",
             enabled=True,
             description="Load a video into LLM context for visual analysis",
             display_to_user=False,
+            icon="🎥",
         ),
         "send_file_to_user": BuiltinToolConfig(
             name="send_file_to_user",
             enabled=True,
             description="Send files to user",
+            icon="📤",
         ),
         "get_current_time": BuiltinToolConfig(
             name="get_current_time",
             enabled=True,
             description="Get current date and time",
+            icon="🕐",
         ),
         "set_user_timezone": BuiltinToolConfig(
             name="set_user_timezone",
             enabled=True,
             description="Set user timezone",
+            icon="🌍",
         ),
         "get_token_usage": BuiltinToolConfig(
             name="get_token_usage",
             enabled=True,
             description="Get llm token usage",
+            icon="📊",
         ),
     }
 
@@ -971,6 +986,8 @@ class ToolsConfig(BaseModel):
         for name, tc in _default_builtin_tools().items():
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc
+            elif self.builtin_tools[name].icon == "🔧":
+                self.builtin_tools[name].icon = tc.icon
         return self
 
 
