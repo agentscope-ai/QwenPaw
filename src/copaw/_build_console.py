@@ -2,14 +2,16 @@
 """Auto-build the console frontend when assets are missing or stale.
 
 Used by:
-  - ``setup.py`` — during ``pip install .`` (build_py) and legacy editable installs
-  - ``_app.py``  — at application startup as a safety-net for PEP 660 editable installs
+
+  - ``setup.py`` — during ``pip install .`` (build_py)
+    and legacy editable installs
+  - ``_app.py`` — at application startup as a safety-net
+    for PEP 660 editable installs
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -26,7 +28,8 @@ _CONSOLE_DIST: Path | None = None
 _CONSOLE_DEST: Path | None = None
 _CONSOLE_SRC: Path | None = None
 
-# Detect console source directory — works both from source tree and editable install
+# Detect console source directory — works from source tree
+# and editable install
 _candidates = [
     _REPO_ROOT / "console",  # running from source tree
     _THIS_DIR.parent / "console",  # unlikely fallback
@@ -59,7 +62,8 @@ def _needs_rebuild() -> bool:
     if _CONSOLE_DIST is None:
         return False
 
-    if not _CONSOLE_DIST.exists() or not (_CONSOLE_DIST / "index.html").exists():
+    index_html = _CONSOLE_DIST / "index.html"
+    if not _CONSOLE_DIST.exists() or not index_html.exists():
         return True
 
     try:
@@ -107,15 +111,17 @@ def build_console_frontend(*, quiet: bool = False) -> None:
 
     # Ensure dest is populated even when dist is already fresh
     if not _needs_rebuild():
-        if _CONSOLE_DEST and not (_CONSOLE_DEST / "index.html").exists():
-            _copy_dist()
+        if _CONSOLE_DEST is not None:
+            if not (_CONSOLE_DEST / "index.html").exists():
+                _copy_dist()
         return
 
     if not _has_npm():
         logger.warning(
             "Console frontend is stale but npm not found — "
             "the web UI may be outdated.  "
-            "Install Node.js and run: cd console && npm ci && npm run build",
+            "Install Node.js and run: "
+            "cd console && npm ci && npm run build",
         )
         return
 
