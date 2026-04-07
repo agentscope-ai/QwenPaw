@@ -727,7 +727,7 @@
     "local": "本地",
     "localType": "类型",
     "localEmbedded": "嵌入式（进程内）",
-    "localDownloadFirst": "请先下载模型",
+    "localDownloadFirst": "未启动模型服务",
     "localDownloadModel": "下载模型",
     "localModelsTitle": "{{provider}} — 本地模型",
     "localNoModels": "暂无已下载的模型",

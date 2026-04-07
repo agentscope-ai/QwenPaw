@@ -693,7 +693,7 @@
     "local": "ローカル",
     "localType": "タイプ",
     "localEmbedded": "組み込み（インプロセス）",
-    "localDownloadFirst": "先にモデルをダウンロードしてください",
+    "localDownloadFirst": "モデルサービスは未起動です",
     "localDownloadModel": "モデルをダウンロード",
     "localModelsTitle": "{{provider}} — ローカルモデル",
     "localNoModels": "まだダウンロード済みモデルがありません",

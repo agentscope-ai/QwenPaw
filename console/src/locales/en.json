@@ -755,7 +755,7 @@
     "local": "Local",
     "localType": "Type",
     "localEmbedded": "Embedded (in-process)",
-    "localDownloadFirst": "Download a model first",
+    "localDownloadFirst": "Model service not started",
     "localDownloadModel": "Download Model",
     "localModelsTitle": "{{provider}} — Local Models",
     "localNoModels": "No downloaded models yet",

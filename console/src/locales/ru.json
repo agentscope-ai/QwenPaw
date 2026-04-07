@@ -698,7 +698,7 @@
     "local": "Локальные",
     "localType": "Тип",
     "localEmbedded": "Встроенная (в процессе)",
-    "localDownloadFirst": "Сначала скачайте модель",
+    "localDownloadFirst": "Сервис модели не запущен",
     "localDownloadModel": "Скачать модель",
     "localModelsTitle": "{{provider}} — Локальные модели",
     "localNoModels": "Пока нет скачанных моделей",
