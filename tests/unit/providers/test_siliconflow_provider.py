@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
-"""Tests for the Siliconflow built-in providers."""
+"""Tests for the SiliconFlow built-in providers."""
 from __future__ import annotations
 
 from types import SimpleNamespace
