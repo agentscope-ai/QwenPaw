@@ -194,7 +194,10 @@ def load_envs(
 def _rewrite_encrypted(path: Path, envs: dict[str, str]) -> None:
     """Re-write *envs* with all values encrypted (migration helper)."""
     try:
-        encrypted = {k: encrypt(v) if v else v for k, v in envs.items()}
+        encrypted = {
+            k: encrypt(v) if v and not is_encrypted(v) else v
+            for k, v in envs.items()
+        }
         _prepare_secret_parent(path)
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(encrypted, fh, indent=2, ensure_ascii=False)
@@ -217,7 +220,10 @@ def save_envs(
             f"envs.json path exists but is not a regular file: {path}",
         )
     _prepare_secret_parent(path)
-    encrypted = {k: encrypt(v) if v else v for k, v in envs.items()}
+    encrypted = {
+        k: encrypt(v) if v and not is_encrypted(v) else v
+        for k, v in envs.items()
+    }
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(encrypted, fh, indent=2, ensure_ascii=False)
     _chmod_best_effort(path, 0o600)

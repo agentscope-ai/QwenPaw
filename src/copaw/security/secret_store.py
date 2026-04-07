@@ -6,7 +6,7 @@ tokens, etc.) stored on disk.  Secrets are encrypted with Fernet (AES-128-CBC
 + HMAC-SHA256) using a master key that is:
 
 1. Stored in the OS keychain via the ``keyring`` library (preferred), or
-2. Persisted to ``SECRET_DIR/.master_key`` with mode ``0o400`` (fallback).
+2. Persisted to ``SECRET_DIR/.master_key`` with mode ``0o600`` (fallback).
 
 Encrypted values carry an ``ENC:`` prefix so readers can distinguish them
 from legacy plaintext and transparently migrate on first access.
@@ -135,7 +135,7 @@ def _write_key_file(key_hex: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(key_hex, encoding="utf-8")
     try:
-        os.chmod(path, 0o400)
+        os.chmod(path, 0o600)
     except OSError:
         pass
 
