@@ -1147,6 +1147,16 @@ def resolve_effective_skills(
     channel_name: str,
 ) -> list[str]:
     """Resolve enabled workspace skills for one channel."""
+    env_skills_dir = os.environ.get("COPAW_SKILLS_DIR")
+    if env_skills_dir:
+        skills_path = Path(env_skills_dir)
+        if skills_path.is_dir():
+            return [
+                str(p.resolve())
+                for p in sorted(skills_path.iterdir())
+                if p.is_dir() and (p / "SKILL.md").exists()
+            ]
+
     manifest = read_skill_manifest(workspace_dir)
     resolved = []
     for skill_name, entry in sorted(manifest.get("skills", {}).items()):
