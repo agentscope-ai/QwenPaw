@@ -70,7 +70,9 @@ async function generateBackgroundAndPrinciples(
   // TODO: Replace with actual LLM API call
   await new Promise((resolve) => setTimeout(resolve, 1000));
   return {
-    background: `本次会议${_topicName}背景说明：${_topicDesc}\n参会人员包括${_participantNames.join("、")}，各位将围绕主题展开深入讨论。`,
+    background: `本次会议${_topicName}背景说明：${_topicDesc}\n参会人员包括${_participantNames.join(
+      "、",
+    )}，各位将围绕主题展开深入讨论。`,
     principles: `决策原则：\n1. 充分讨论后达成共识\n2. 尊重各方意见\n3. 决策结果需得到多数认可`,
   };
 }
@@ -93,7 +95,8 @@ export function CreateMeetingModal({
   const [rounds, setRounds] = useState<string[]>(["raw", "raw"]);
 
   // Watch meeting_type at component top level (this is a hook call, must be here)
-  const watchedMeetingType = Form.useWatch("meeting_type", form2) ?? "TEMPORARY";
+  const watchedMeetingType =
+    Form.useWatch("meeting_type", form2) ?? "TEMPORARY";
 
   // Load agents on modal open
   useEffect(() => {
@@ -116,7 +119,8 @@ export function CreateMeetingModal({
   // Auto-set host and decider when participants change
   const selectedParticipantIds = Form.useWatch("participant_ids", form1);
   const selectedAgents = useMemo(() => {
-    if (!selectedParticipantIds || selectedParticipantIds.length === 0) return [];
+    if (!selectedParticipantIds || selectedParticipantIds.length === 0)
+      return [];
     return agents.filter((a) => selectedParticipantIds.includes(a.id));
   }, [agents, selectedParticipantIds]);
 
@@ -222,22 +226,26 @@ export function CreateMeetingModal({
       }
 
       // Get selected agents directly from agents list using form values
-      const selectedAgentsList = agents.filter((a) => participantIds.includes(a.id));
+      const selectedAgentsList = agents.filter((a) =>
+        participantIds.includes(a.id),
+      );
 
       // Build participants array
-      const participants: MeetingParticipant[] = selectedAgentsList.map((agent) => {
-        const authKey = agent.auth_key;
-        const url = agent.is_internal
-          ? `/agents/${agent.internal_agent_id}`
-          : agent.url;
+      const participants: MeetingParticipant[] = selectedAgentsList.map(
+        (agent) => {
+          const authKey = agent.auth_key;
+          const url = agent.is_internal
+            ? `/agents/${agent.internal_agent_id}`
+            : agent.url;
 
-        return {
-          id: agent.id,
-          name: agent.name || agent.id,
-          intent: agent.description || undefined,
-          endpoint: { url, auth_key: authKey },
-        };
-      });
+          return {
+            id: agent.id,
+            name: agent.name || agent.id,
+            intent: agent.description || undefined,
+            endpoint: { url, auth_key: authKey },
+          };
+        },
+      );
 
       const payload: CreateMeetingRequest = {
         meeting_name: step1Values.topic_title || "未命名会议",
@@ -288,7 +296,9 @@ export function CreateMeetingModal({
       <Form.Item
         name="topic_title"
         label={t("meetings.form.topicTitle")}
-        rules={[{ required: true, message: t("meetings.form.topicTitleRequired") }]}
+        rules={[
+          { required: true, message: t("meetings.form.topicTitleRequired") },
+        ]}
       >
         <Input placeholder={t("meetings.form.topicTitlePlaceholder")} />
       </Form.Item>
@@ -379,15 +389,14 @@ export function CreateMeetingModal({
   const renderStep1 = () => {
     const step1Values = form1.getFieldsValue();
     const participantIds = step1Values.participant_ids || [];
-    const selectedAgentsList = agents.filter((a) => participantIds.includes(a.id));
+    const selectedAgentsList = agents.filter((a) =>
+      participantIds.includes(a.id),
+    );
 
     return (
       <>
         {/* Topic Card */}
-        <Card
-          size="small"
-          style={{ marginBottom: 16, background: "#fafafa" }}
-        >
+        <Card size="small" style={{ marginBottom: 16, background: "#fafafa" }}>
           <Text strong style={{ fontSize: 16 }}>
             {step1Values.topic_title || "-"}
           </Text>
@@ -403,7 +412,8 @@ export function CreateMeetingModal({
           <Text type="secondary">
             <Users size={14} style={{ marginRight: 4 }} />
             {t("meetings.form.participants")}:{" "}
-            {selectedAgentsList.map((a) => a.name || a.id).join(", ") || t("meetings.form.noParticipants")}
+            {selectedAgentsList.map((a) => a.name || a.id).join(", ") ||
+              t("meetings.form.noParticipants")}
           </Text>
         </div>
 
@@ -502,16 +512,26 @@ export function CreateMeetingModal({
               >
                 <Space>
                   <Text>第 {idx + 1} 轮：</Text>
-                  <Radio.Button value="raw">{t("meetings.round.raw")}</Radio.Button>
-                  <Radio.Button value="reverse">{t("meetings.round.reverse")}</Radio.Button>
-                  <Radio.Button value="random">{t("meetings.round.random")}</Radio.Button>
-                  <Radio.Button value="alphabet">{t("meetings.round.alphabet")}</Radio.Button>
+                  <Radio.Button value="raw">
+                    {t("meetings.round.raw")}
+                  </Radio.Button>
+                  <Radio.Button value="reverse">
+                    {t("meetings.round.reverse")}
+                  </Radio.Button>
+                  <Radio.Button value="random">
+                    {t("meetings.round.random")}
+                  </Radio.Button>
+                  <Radio.Button value="alphabet">
+                    {t("meetings.round.alphabet")}
+                  </Radio.Button>
                   {rounds.length > 1 && (
                     <Button
                       type="text"
                       danger
                       size="small"
-                      onClick={() => setRounds(rounds.filter((_, i) => i !== idx))}
+                      onClick={() =>
+                        setRounds(rounds.filter((_, i) => i !== idx))
+                      }
                     >
                       删除
                     </Button>
@@ -561,9 +581,7 @@ export function CreateMeetingModal({
       footer={
         currentStep === 0 ? (
           <Space>
-            <Button onClick={handleCancel}>
-              {t("common.cancel")}
-            </Button>
+            <Button onClick={handleCancel}>{t("common.cancel")}</Button>
             <Button
               type="primary"
               onClick={handleStep1Confirm}
@@ -577,9 +595,7 @@ export function CreateMeetingModal({
             <Button onClick={() => setCurrentStep(0)}>
               {t("common.back")}
             </Button>
-            <Button onClick={handleCancel}>
-              {t("common.cancel")}
-            </Button>
+            <Button onClick={handleCancel}>{t("common.cancel")}</Button>
             <Button
               type="primary"
               onClick={handleStep2Confirm}

@@ -12,8 +12,7 @@ export const meetingsApi = {
   listMeetings: (skip = 0, limit = 100) =>
     request<MeetingListResponse>(`/meetings?skip=${skip}&limit=${limit}`),
 
-  getMeeting: (meetingId: string) =>
-    request<Meeting>(`/meetings/${meetingId}`),
+  getMeeting: (meetingId: string) => request<Meeting>(`/meetings/${meetingId}`),
 
   createMeeting: (data: CreateMeetingRequest) =>
     request<Meeting>("/meetings", {
@@ -29,18 +28,21 @@ export const meetingsApi = {
   startMeeting: (meetingId: string) =>
     request<{ status: string; meeting_id: string; result?: unknown }>(
       `/meetings/${meetingId}/start`,
-      { method: "POST" }
+      { method: "POST" },
     ),
 
   stopMeeting: (meetingId: string) =>
-    request<{ status: string; meeting_id: string }>(`/meetings/${meetingId}/stop`, {
-      method: "POST",
-    }),
+    request<{ status: string; meeting_id: string }>(
+      `/meetings/${meetingId}/stop`,
+      {
+        method: "POST",
+      },
+    ),
 
   restartMeeting: (meetingId: string) =>
     request<{ status: string; meeting_id: string; result?: unknown }>(
       `/meetings/${meetingId}/restart`,
-      { method: "POST" }
+      { method: "POST" },
     ),
 
   getMeetingStatus: (meetingId: string) =>
@@ -58,10 +60,13 @@ export const meetingsApi = {
   getMeetingReasons: (meetingId: string) =>
     request<MeetingReasonsResponse>(`/meetings/${meetingId}/reasons`),
 
-  updateMeeting: (meetingId: string, data: Partial<{
-    meeting_name: string;
-    topic: { title: string; description?: string; context?: string };
-  }>) =>
+  updateMeeting: (
+    meetingId: string,
+    data: Partial<{
+      meeting_name: string;
+      topic: { title: string; description?: string; context?: string };
+    }>,
+  ) =>
     request(`/meetings/${meetingId}`, {
       method: "PATCH",
       body: JSON.stringify(data),

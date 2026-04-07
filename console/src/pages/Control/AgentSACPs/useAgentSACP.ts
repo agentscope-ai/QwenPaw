@@ -18,7 +18,9 @@ export function useAgentSACP() {
   const [globalAuthKey, setGlobalAuthKey] = useState<string>("");
   const [loading, setLoading] = useState(false);
   // Channel enabled status per agent (fetched from channel API, NOT part of AgentSACPConfig)
-  const [channelEnabledMap, setChannelEnabledMap] = useState<Record<string, boolean>>({});
+  const [channelEnabledMap, setChannelEnabledMap] = useState<
+    Record<string, boolean>
+  >({});
 
   const fetchAgents = async () => {
     setLoading(true);
@@ -32,7 +34,10 @@ export function useAgentSACP() {
           (data as AgentSACPConfig[]).map(async (agent) => {
             if (agent.is_internal && agent.internal_agent_id) {
               try {
-                const cfg = await channelApi.getChannelConfig("sacp", agent.internal_agent_id);
+                const cfg = await channelApi.getChannelConfig(
+                  "sacp",
+                  agent.internal_agent_id,
+                );
                 map[agent.id] = cfg.enabled ?? false;
               } catch {
                 map[agent.id] = false;
@@ -128,20 +133,27 @@ export function useAgentSACP() {
       const created = await agentSACPApi.createAgent(values);
       setAgents((prev) =>
         prev.map((agent) =>
-          agent.id === optimisticAgent.id ? (created as AgentSACPConfig) : agent,
+          agent.id === optimisticAgent.id
+            ? (created as AgentSACPConfig)
+            : agent,
         ),
       );
       message.success("Created successfully");
       return true;
     } catch (error) {
       console.error("Failed to create Agent SACP agent", error);
-      setAgents((prev) => prev.filter((agent) => agent.id !== optimisticAgent.id));
+      setAgents((prev) =>
+        prev.filter((agent) => agent.id !== optimisticAgent.id),
+      );
       message.error("Failed to save");
       return false;
     }
   };
 
-  const updateAgent = async (agentId: string, values: UpdateAgentSACPRequest) => {
+  const updateAgent = async (
+    agentId: string,
+    values: UpdateAgentSACPRequest,
+  ) => {
     const original = agents.find((agent) => agent.id === agentId);
     const optimisticUpdate: AgentSACPConfig = {
       ...(original as AgentSACPConfig),
@@ -150,9 +162,14 @@ export function useAgentSACP() {
       url: values.url ?? original?.url ?? "",
       auth_key: values.auth_key ?? original?.auth_key ?? "",
       is_internal: values.is_internal ?? original?.is_internal ?? true,
-      internal_agent_id: values.internal_agent_id !== undefined ? values.internal_agent_id : original?.internal_agent_id ?? null,
-      health_check_enabled: values.health_check_enabled ?? original?.health_check_enabled ?? true,
-      health_check_interval: values.health_check_interval ?? original?.health_check_interval ?? 300,
+      internal_agent_id:
+        values.internal_agent_id !== undefined
+          ? values.internal_agent_id
+          : original?.internal_agent_id ?? null,
+      health_check_enabled:
+        values.health_check_enabled ?? original?.health_check_enabled ?? true,
+      health_check_interval:
+        values.health_check_interval ?? original?.health_check_interval ?? 300,
       updated_at: new Date().toISOString(),
     };
     setAgents((prev) =>
@@ -259,9 +276,18 @@ export function useAgentSACP() {
     setChannelEnabledMap((prev) => ({ ...prev, [agentId]: enabled }));
 
     try {
-      const currentConfig = await channelApi.getChannelConfig("sacp", agent.internal_agent_id);
-      await channelApi.updateChannelConfig("sacp", { ...currentConfig, enabled }, agent.internal_agent_id);
-      message.success(enabled ? "SACP channel enabled" : "SACP channel disabled");
+      const currentConfig = await channelApi.getChannelConfig(
+        "sacp",
+        agent.internal_agent_id,
+      );
+      await channelApi.updateChannelConfig(
+        "sacp",
+        { ...currentConfig, enabled },
+        agent.internal_agent_id,
+      );
+      message.success(
+        enabled ? "SACP channel enabled" : "SACP channel disabled",
+      );
       return true;
     } catch (error) {
       console.error("Failed to toggle SACP channel", error);

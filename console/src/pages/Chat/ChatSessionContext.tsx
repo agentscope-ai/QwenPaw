@@ -35,7 +35,10 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function useChatSessionContext(): SessionContextValue {
   const ctx = useContext(SessionContext);
-  if (!ctx) throw new Error("useChatSessionContext must be used within SessionProvider");
+  if (!ctx)
+    throw new Error(
+      "useChatSessionContext must be used within SessionProvider",
+    );
   return ctx;
 }
 
@@ -91,11 +94,12 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({
   return (
     <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
   );
-}
+};
 
 /** Hook for components that need to sync URL chatId with session context */
 export function useSessionUrlSync() {
-  const { sessions, currentSessionId, setCurrentSessionId } = useChatSessionContext();
+  const { sessions, currentSessionId, setCurrentSessionId } =
+    useChatSessionContext();
   const chatIdRef = useRef<string | null>(null);
 
   useEffect(() => {

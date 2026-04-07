@@ -30,9 +30,12 @@ function AgentSACPPage() {
     updateGlobalAuthKey,
   } = useAgentSACP();
   const [modalVisible, setModalVisible] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState<AgentSACPConfig | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<AgentSACPConfig | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
-  const [globalAuthKeyModalVisible, setGlobalAuthKeyModalVisible] = useState(false);
+  const [globalAuthKeyModalVisible, setGlobalAuthKeyModalVisible] =
+    useState(false);
   const [globalAuthKeySaving, setGlobalAuthKeySaving] = useState(false);
 
   const handleCreate = () => {
@@ -106,8 +109,12 @@ function AgentSACPPage() {
           auth_key: values.auth_key as string,
           is_internal: values.is_internal as boolean | undefined,
           internal_agent_id: values.internal_agent_id as string | null,
-          health_check_enabled: values.health_check_enabled as boolean | undefined,
-          health_check_interval: values.health_check_interval as number | undefined,
+          health_check_enabled: values.health_check_enabled as
+            | boolean
+            | undefined,
+          health_check_interval: values.health_check_interval as
+            | number
+            | undefined,
         };
         success = await createAgent(createData);
       }
@@ -134,8 +141,7 @@ function AgentSACPPage() {
   const pagination: TablePaginationConfig = {
     pageSize: 10,
     showSizeChanger: false,
-    showTotal: (total: number) =>
-      t("agentSACP.totalItems", { count: total }),
+    showTotal: (total: number) => t("agentSACP.totalItems", { count: total }),
   };
 
   return (
@@ -143,9 +149,7 @@ function AgentSACPPage() {
       <div className={styles.header}>
         <div className={styles.headerInfo}>
           <h1 className={styles.title}>{t("agentSACP.title")}</h1>
-          <p className={styles.description}>
-            {t("agentSACP.description")}
-          </p>
+          <p className={styles.description}>{t("agentSACP.description")}</p>
         </div>
         <div className={styles.headerActions}>
           <Space size={8}>

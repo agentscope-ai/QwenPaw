@@ -108,7 +108,10 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
     mermaid
       .render(id, trimmedChart)
       .then(({ svg: rendered }) => {
-        const reserved = Math.max(estimatedHeight, rendered.length > 0 ? estimatedHeight : 0);
+        const reserved = Math.max(
+          estimatedHeight,
+          rendered.length > 0 ? estimatedHeight : 0,
+        );
         mermaidRenderCache.set(trimmedChart, {
           svg: rendered,
           reservedHeight: reserved,

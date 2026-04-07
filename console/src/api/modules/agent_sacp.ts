@@ -73,7 +73,10 @@ export const agentSACPApi = {
    * Trigger health check for a specific Agent SACP agent
    */
   healthCheckAgent: (agentId: string) =>
-    request<AgentSACPHealthCheckResult>(`/sacp-agents/health_check/${agentId}`, {
-      method: "POST",
-    }),
+    request<AgentSACPHealthCheckResult>(
+      `/sacp-agents/health_check/${agentId}`,
+      {
+        method: "POST",
+      },
+    ),
 };

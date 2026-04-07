@@ -71,7 +71,8 @@ export function MeetingDrawer({
   const [phaseFilter, setPhaseFilter] = useState<string>("");
   const [searchText, setSearchText] = useState<string>("");
   const [reasonsModalOpen, setReasonsModalOpen] = useState(false);
-  const [selectedReasonEntry, setSelectedReasonEntry] = useState<ReasonEntry | null>(null);
+  const [selectedReasonEntry, setSelectedReasonEntry] =
+    useState<ReasonEntry | null>(null);
 
   const loadDocs = () => {
     if (!open || !meeting) return;
@@ -91,7 +92,8 @@ export function MeetingDrawer({
       if (bg.status === "fulfilled") setBackground(bg.value.content ?? "");
       if (rec.status === "fulfilled") setRecords(rec.value.content ?? "");
       if (sum.status === "fulfilled") setSummary(sum.value.content ?? "");
-      if (reasonsRes.status === "fulfilled") setReasons(reasonsRes.value.entries ?? []);
+      if (reasonsRes.status === "fulfilled")
+        setReasons(reasonsRes.value.entries ?? []);
       setLoadingDocs(false);
     });
   };
@@ -134,7 +136,8 @@ export function MeetingDrawer({
         meetingsApi.getMeetingSummary(meeting.meeting_id),
       ]);
 
-      const goals = goalsRes.status === "fulfilled" ? goalsRes.value.content : "";
+      const goals =
+        goalsRes.status === "fulfilled" ? goalsRes.value.content : "";
       const recordsContent =
         recordsRes.status === "fulfilled" ? recordsRes.value.content : "";
       const summaryContent =
@@ -191,8 +194,12 @@ export function MeetingDrawer({
   };
 
   // 获取唯一发言人和阶段列表
-  const speakers = Array.from(new Set(reasons.map((r) => r.发言人).filter(Boolean)));
-  const phases = Array.from(new Set(reasons.map((r) => r.阶段).filter(Boolean)));
+  const speakers = Array.from(
+    new Set(reasons.map((r) => r.发言人).filter(Boolean)),
+  );
+  const phases = Array.from(
+    new Set(reasons.map((r) => r.阶段).filter(Boolean)),
+  );
 
   // 过滤后的数据
   const filteredReasons = reasons.filter((r) => {
@@ -256,7 +263,11 @@ export function MeetingDrawer({
             >
               {t("common.export") || "导出"}
             </Button>
-            <Button icon={<ReloadOutlined />} onClick={loadDocs} loading={loadingDocs} />
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={loadDocs}
+              loading={loadingDocs}
+            />
           </Space>
         }
         destroyOnClose
@@ -354,7 +365,13 @@ export function MeetingDrawer({
                               </Select.Option>
                             ))}
                           </Select>
-                          <span style={{ color: "#999", fontSize: 12, alignSelf: "center" }}>
+                          <span
+                            style={{
+                              color: "#999",
+                              fontSize: 12,
+                              alignSelf: "center",
+                            }}
+                          >
                             共 {filteredReasons.length} 条记录
                           </span>
                         </div>
@@ -400,10 +417,14 @@ export function MeetingDrawer({
                                       WebkitBoxOrient: "vertical",
                                     }}
                                   >
-                                    <MarkdownRenderer content={entry.发言内容} />
+                                    <MarkdownRenderer
+                                      content={entry.发言内容}
+                                    />
                                   </div>
                                   <div style={{ fontSize: 12, color: "#999" }}>
-                                    <span style={{ marginRight: 12 }}>{entry.发言人}</span>
+                                    <span style={{ marginRight: 12 }}>
+                                      {entry.发言人}
+                                    </span>
                                     <span>{entry.阶段}</span>
                                   </div>
                                 </div>
@@ -426,7 +447,9 @@ export function MeetingDrawer({
                                   >
                                     {entry.reasons?.length || 0}
                                   </span>
-                                  <span style={{ fontSize: 11, color: "#999" }}>步骤</span>
+                                  <span style={{ fontSize: 11, color: "#999" }}>
+                                    步骤
+                                  </span>
                                 </div>
                               </div>
                             ))
@@ -495,8 +518,16 @@ export function MeetingDrawer({
               <div style={{ fontSize: 14, fontWeight: 500 }}>
                 <MarkdownRenderer content={selectedReasonEntry.发言内容} />
               </div>
-              <div style={{ fontSize: 12, fontWeight: 400, color: "#999", marginTop: 4 }}>
-                {selectedReasonEntry.发言人} · {selectedReasonEntry.阶段} · {selectedReasonEntry.时间}
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 400,
+                  color: "#999",
+                  marginTop: 4,
+                }}
+              >
+                {selectedReasonEntry.发言人} · {selectedReasonEntry.阶段} ·{" "}
+                {selectedReasonEntry.时间}
               </div>
             </div>
           ) : (
@@ -519,7 +550,8 @@ export function MeetingDrawer({
             padding: "8px 0",
           }}
         >
-          {selectedReasonEntry?.reasons && selectedReasonEntry.reasons.length > 0 ? (
+          {selectedReasonEntry?.reasons &&
+          selectedReasonEntry.reasons.length > 0 ? (
             <div>
               <div style={{ marginBottom: 16, color: "#666", fontSize: 13 }}>
                 共 {selectedReasonEntry.reasons.length} 步思考过程
@@ -535,7 +567,8 @@ export function MeetingDrawer({
                     key={idx}
                     style={{
                       position: "relative",
-                      paddingBottom: idx < selectedReasonEntry.reasons.length - 1 ? 20 : 0,
+                      paddingBottom:
+                        idx < selectedReasonEntry.reasons.length - 1 ? 20 : 0,
                     }}
                   >
                     {/* 步骤圆点 */}

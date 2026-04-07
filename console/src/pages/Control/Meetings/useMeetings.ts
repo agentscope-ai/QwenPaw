@@ -79,5 +79,13 @@ export function useMeetings(): UseMeetingsReturn {
     loadMeetings();
   }, []);
 
-  return { meetings, loading, loadMeetings, deleteMeeting, startMeeting, stopMeeting, restartMeeting };
+  return {
+    meetings,
+    loading,
+    loadMeetings,
+    deleteMeeting,
+    startMeeting,
+    stopMeeting,
+    restartMeeting,
+  };
 }

@@ -5,7 +5,12 @@ import { useTranslation } from "react-i18next";
 import { meetingsApi } from "@/api/modules/meetings";
 import type { Meeting, CreateMeetingRequest } from "@/api/types/meetings";
 import { useMeetings } from "./useMeetings";
-import { MeetingTable, MeetingDrawer, CreateMeetingModal, EditMeetingModal } from "./components";
+import {
+  MeetingTable,
+  MeetingDrawer,
+  CreateMeetingModal,
+  EditMeetingModal,
+} from "./components";
 import styles from "./index.module.less";
 
 function PageHeader({
@@ -32,7 +37,15 @@ function PageHeader({
 
 export default function MeetingsPage() {
   const { t } = useTranslation();
-  const { meetings, loading, deleteMeeting, loadMeetings, startMeeting, stopMeeting, restartMeeting } = useMeetings();
+  const {
+    meetings,
+    loading,
+    deleteMeeting,
+    loadMeetings,
+    startMeeting,
+    stopMeeting,
+    restartMeeting,
+  } = useMeetings();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);

@@ -53,7 +53,9 @@ export function EditMeetingModal({
       onUpdated?.();
       onCancel();
     } catch (err: any) {
-      message.error(err.message || t("meetings.updateFailed") || "会议更新失败");
+      message.error(
+        err.message || t("meetings.updateFailed") || "会议更新失败",
+      );
       throw err;
     } finally {
       setSaving(false);

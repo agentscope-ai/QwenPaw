@@ -1,5 +1,12 @@
 import { Table, Tag, Button, Popconfirm } from "antd";
-import { StopOutlined, ReloadOutlined, PlayCircleOutlined, EyeOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import {
+  StopOutlined,
+  ReloadOutlined,
+  PlayCircleOutlined,
+  EyeOutlined,
+  EditOutlined,
+  DeleteOutlined,
+} from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import type { Meeting, MeetingStatus, MeetingType } from "@/api/types/meetings";
@@ -35,7 +42,9 @@ function formatDate(iso?: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
 }
 
 export function MeetingTable({
@@ -62,9 +71,7 @@ export function MeetingTable({
       title: t("meetings.columns.type"),
       dataIndex: "meeting_type",
       key: "meeting_type",
-      render: (type: MeetingType) => (
-        <Tag color={TYPE_COLOR[type]}>{type}</Tag>
-      ),
+      render: (type: MeetingType) => <Tag color={TYPE_COLOR[type]}>{type}</Tag>,
     },
     {
       title: t("meetings.columns.status"),
@@ -210,7 +217,10 @@ export function MeetingTable({
       dataSource={meetings}
       rowKey="meeting_id"
       loading={loading}
-      pagination={{ pageSize: 20, showTotal: (total) => t("common.total", { count: total }) }}
+      pagination={{
+        pageSize: 20,
+        showTotal: (total) => t("common.total", { count: total }),
+      }}
       onRow={(record) => ({
         onClick: () => onRowClick(record),
         style: { cursor: "pointer" },
