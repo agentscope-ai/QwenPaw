@@ -4,14 +4,8 @@ description: "Read and summarize text-based file types only. Prefer read_file fo
 categories:
   - document
   - file
-tags:
-  - text
-  - markdown
-  - json
-  - csv
-  - read
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "1.1"
   copaw:
     emoji: "📄"
     requires: {}

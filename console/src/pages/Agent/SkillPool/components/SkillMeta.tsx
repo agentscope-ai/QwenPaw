@@ -1,18 +1,20 @@
-import styles from "../index.module.less";
+import defaultStyles from "../index.module.less";
 
-interface SkillMetaProps {
+interface SkillCategoryTagsProps {
   categories?: string[];
   tags?: string[];
+  styles?: Record<string, string>;
 }
 
 export function SkillCategoryBadges({
   categories,
-}: Pick<SkillMetaProps, "categories">) {
+  styles = defaultStyles,
+}: Pick<SkillCategoryTagsProps, "categories" | "styles">) {
   if (!categories?.length) return null;
   return (
     <>
       {categories.map((cat) => (
-        <span key={cat} className={styles.categoryBadge}>
+        <span key={cat} className={styles.categoryChip}>
           {cat}
         </span>
       ))}
@@ -20,7 +22,10 @@ export function SkillCategoryBadges({
   );
 }
 
-export function SkillTagChips({ tags }: Pick<SkillMetaProps, "tags">) {
+export function SkillTagChips({
+  tags,
+  styles = defaultStyles,
+}: Pick<SkillCategoryTagsProps, "tags" | "styles">) {
   if (!tags?.length) return null;
   return (
     <div className={styles.tagChips}>
@@ -29,6 +34,42 @@ export function SkillTagChips({ tags }: Pick<SkillMetaProps, "tags">) {
           {tag}
         </span>
       ))}
+    </div>
+  );
+}
+
+export function SkillCategoriesAndTags({
+  categories,
+  tags,
+  styles = defaultStyles,
+}: SkillCategoryTagsProps) {
+  if (!categories?.length && !tags?.length) return null;
+  return (
+    <div className={styles.categoriesTagsContainer}>
+      {!!categories?.length && (
+        <div className={styles.metaRow}>
+          <span className={styles.metaIcon}>📂</span>
+          <div className={styles.metaContent}>
+            {categories.map((cat) => (
+              <span key={cat} className={styles.categoryChip}>
+                {cat}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {!!tags?.length && (
+        <div className={styles.metaRow}>
+          <span className={styles.metaIcon}>🏷️</span>
+          <div className={styles.metaContent}>
+            {tags.map((tag) => (
+              <span key={tag} className={styles.tagChip}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

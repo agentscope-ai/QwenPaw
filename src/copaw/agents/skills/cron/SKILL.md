@@ -4,13 +4,8 @@ description: Use this skill only for scheduled or recurring tasks. Manage cron j
 categories:
   - automation
   - scheduling
-tags:
-  - cron
-  - timer
-  - task
-  - periodic
 metadata:
-  builtin_skill_version: "1.1"
+  builtin_skill_version: "1.2"
   copaw:
     emoji: "⏰"
 ---

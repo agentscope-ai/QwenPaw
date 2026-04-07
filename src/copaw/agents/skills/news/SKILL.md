@@ -4,13 +4,8 @@ description: "Look up the latest news for the user from specified news sites. Pr
 categories:
   - information
   - web
-tags:
-  - news
-  - media
-  - browser
-  - current-events
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "1.1"
   copaw:
     emoji: "📰"
     requires: {}

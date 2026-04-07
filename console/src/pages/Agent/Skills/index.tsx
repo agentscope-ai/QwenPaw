@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Checkbox,
@@ -34,6 +34,7 @@ import {
   getSkillDisplaySource,
 } from "./components";
 import { useSkills } from "./useSkills";
+import { useSkillFilter } from "./useSkillFilter";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -79,63 +80,27 @@ function SkillsPage() {
     useConflictRenameModal();
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [batchModeEnabled, setBatchModeEnabled] = useState(false);
-  const batchMode = batchModeEnabled;
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchTags, setSearchTags] = useState<string[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const {
+    searchQuery,
+    setSearchQuery,
+    searchTags,
+    setSearchTags,
+    allCategories,
+    allTags,
+    filteredSkills,
+  } = useSkillFilter(skills);
 
-  // Extract all unique categories and tags from skills
-  const allCategories = useMemo(
+  const sortedSkills = useMemo(
     () =>
-      Array.from(
-        new Set(skills.flatMap((skill) => skill.categories || [])),
-      ).sort(),
-    [skills],
+      filteredSkills.slice().sort((a, b) => {
+        if (a.enabled && !b.enabled) return -1;
+        if (!a.enabled && b.enabled) return 1;
+        return a.name.localeCompare(b.name);
+      }),
+    [filteredSkills],
   );
-  const allTags = useMemo(
-    () =>
-      Array.from(new Set(skills.flatMap((skill) => skill.tags || []))).sort(),
-    [skills],
-  );
-
-  // Parse search tags to separate categories and tags
-  const selectedCategories = useMemo(
-    () =>
-      searchTags
-        .filter((tag) => tag.startsWith("📂:"))
-        .map((tag) => tag.replace(/^📂:/, "")),
-    [searchTags],
-  );
-  const selectedTags = useMemo(
-    () =>
-      searchTags
-        .filter((tag) => tag.startsWith("🏷️:"))
-        .map((tag) => tag.replace(/^🏷️:/, "")),
-    [searchTags],
-  );
-
-  const filteredSkills = useMemo(() => {
-    const query = searchQuery.toLowerCase();
-    return skills.filter((skill) => {
-      // Text search filter
-      const matchesText =
-        !query ||
-        skill.name.toLowerCase().includes(query) ||
-        (skill.description && skill.description.toLowerCase().includes(query));
-
-      // Category filter
-      const matchesCategory =
-        selectedCategories.length === 0 ||
-        selectedCategories.some((cat) => skill.categories?.includes(cat));
-
-      // Tag filter
-      const matchesTag =
-        selectedTags.length === 0 ||
-        selectedTags.some((tag) => skill.tags?.includes(tag));
-
-      return matchesText && matchesCategory && matchesTag;
-    });
-  }, [skills, searchQuery, selectedCategories, selectedTags]);
 
   const toggleSelect = (name: string) => {
     setSelectedSkills((prev) => {
@@ -148,10 +113,10 @@ function SkillsPage() {
 
   const clearSelection = () => {
     setSelectedSkills(new Set());
-    // setBatchModeEnabled(false);
   };
 
-  const selectAll = () => setSelectedSkills(new Set(skills.map((s) => s.name)));
+  const selectAll = () =>
+    setSelectedSkills(new Set(filteredSkills.map((s) => s.name)));
 
   const MAX_UPLOAD_SIZE_MB = 100;
 
@@ -232,6 +197,7 @@ function SkillsPage() {
     form.setFieldsValue({
       enabled: false,
       channels: ["all"],
+      tags: [],
     });
     setDrawerOpen(true);
   };
@@ -309,19 +275,35 @@ function SkillsPage() {
           source_name: sourceName !== targetName ? sourceName : undefined,
           config: values.config,
         });
-        await api.updateSkillChannels(result.name, values.channels || ["all"]);
-        if (result.mode === "noop") {
+        // Parallel updates, only if values changed
+        const sideUpdates: Promise<unknown>[] = [];
+        const newChannels = values.channels || ["all"];
+        if (
+          JSON.stringify(newChannels) !==
+          JSON.stringify(editingSkill.channels || ["all"])
+        ) {
+          sideUpdates.push(api.updateSkillChannels(result.name, newChannels));
+        }
+        const newTags = values.tags || [];
+        if (
+          JSON.stringify(newTags) !== JSON.stringify(editingSkill.tags || [])
+        ) {
+          sideUpdates.push(api.updateSkillTags(result.name, newTags));
+        }
+        await Promise.all(sideUpdates);
+        if (result.mode === "noop" && sideUpdates.length === 0) {
           setDrawerOpen(false);
-          await refreshSkills();
           return;
         }
-        message.success(
-          result.mode === "rename"
-            ? `${t("common.save")}: ${result.name}`
-            : t("common.save"),
-        );
+        if (result.mode !== "noop") {
+          message.success(
+            result.mode === "rename"
+              ? `${t("common.save")}: ${result.name}`
+              : t("common.save"),
+          );
+        }
         setDrawerOpen(false);
-        invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after mutation
+        invalidateSkillCache({ agentId: selectedAgent });
         await refreshSkills();
       } catch (error) {
         const detail = parseErrorDetail(error);
@@ -354,7 +336,13 @@ function SkillsPage() {
         true,
       );
       if (result.success) {
-        await api.updateSkillChannels(submitName, values.channels || ["all"]);
+        const actualName = result.name || submitName;
+        await Promise.all([
+          api.updateSkillChannels(actualName, values.channels || ["all"]),
+          ...(values.tags?.length
+            ? [api.updateSkillTags(actualName, values.tags)]
+            : []),
+        ]);
         setDrawerOpen(false);
         invalidateSkillCache({ agentId: selectedAgent }); // Clear cache after updating channels
         await refreshSkills();
@@ -543,7 +531,7 @@ function SkillsPage() {
               onChange={handleFileChange}
               style={{ display: "none" }}
             />
-            {batchMode ? (
+            {batchModeEnabled ? (
               <div className={styles.batchActions}>
                 <>
                   <span className={styles.batchCount}>
@@ -676,26 +664,24 @@ function SkillsPage() {
         <div className={styles.toolbar}>
           <div className={styles.searchContainer}>
             <Select
-              mode="tags"
+              mode="multiple"
               className={styles.searchSelect}
               placeholder={t("skills.searchPlaceholder")}
               value={searchTags}
-              onChange={(values) =>
-                setSearchTags(
-                  values.filter(
-                    (v) => v.startsWith("📂:") || v.startsWith("🏷️:"),
-                  ),
-                )
-              }
+              onChange={setSearchTags}
               searchValue={searchQuery}
               onSearch={setSearchQuery}
+              open={filterOpen}
+              onDropdownVisibleChange={setFilterOpen}
               allowClear
               maxTagCount="responsive"
               suffixIcon={<SearchOutlined />}
+              notFoundContent={<></>}
               dropdownRender={() => (
                 <SkillFilterDropdown
                   allCategories={allCategories}
                   allTags={allTags}
+                  searchTags={searchTags}
                   setSearchTags={setSearchTags}
                   styles={styles}
                 />
@@ -753,113 +739,98 @@ function SkillsPage() {
         </div>
       ) : viewMode === "card" ? (
         <div className={styles.skillsGrid}>
-          {filteredSkills
-            .slice()
-            .sort((a, b) => {
-              if (a.enabled && !b.enabled) return -1;
-              if (!a.enabled && b.enabled) return 1;
-              return a.name.localeCompare(b.name);
-            })
-            .map((skill) => (
-              <SkillCard
-                key={skill.name}
-                skill={skill}
-                isHover={hoverKey === skill.name}
-                selected={
-                  batchMode ? selectedSkills.has(skill.name) : undefined
-                }
-                onSelect={() => toggleSelect(skill.name)}
-                onClick={() => handleEdit(skill)}
-                onMouseEnter={() => setHoverKey(skill.name)}
-                onMouseLeave={() => setHoverKey(null)}
-                onToggleEnabled={(e) => handleToggleEnabled(skill, e)}
-                onDelete={(e) => handleDelete(skill, e)}
-              />
-            ))}
+          {sortedSkills.map((skill) => (
+            <SkillCard
+              key={skill.name}
+              skill={skill}
+              isHover={hoverKey === skill.name}
+              selected={
+                batchModeEnabled ? selectedSkills.has(skill.name) : undefined
+              }
+              onSelect={() => toggleSelect(skill.name)}
+              onClick={() => handleEdit(skill)}
+              onMouseEnter={() => setHoverKey(skill.name)}
+              onMouseLeave={() => setHoverKey(null)}
+              onToggleEnabled={(e) => handleToggleEnabled(skill, e)}
+              onDelete={(e) => handleDelete(skill, e)}
+            />
+          ))}
         </div>
       ) : (
         <div className={styles.skillsList}>
-          {filteredSkills
-            .slice()
-            .sort((a, b) => {
-              if (a.enabled && !b.enabled) return -1;
-              if (!a.enabled && b.enabled) return 1;
-              return a.name.localeCompare(b.name);
-            })
-            .map((skill) => {
-              const isBuiltin =
-                getSkillDisplaySource(skill.source) === "builtin";
-              const channels = skill.channels?.join(", ") || "all";
-              const isSelected = selectedSkills.has(skill.name);
-              return (
-                <div
-                  key={skill.name}
-                  className={`${styles.skillListItem} ${
-                    isSelected ? styles.selectedListItem : ""
-                  }`}
-                  onClick={() => {
-                    if (batchMode) {
+          {sortedSkills.map((skill) => {
+            const isBuiltin = getSkillDisplaySource(skill.source) === "builtin";
+            const channels = skill.channels?.join(", ") || "all";
+            const isSelected = selectedSkills.has(skill.name);
+            return (
+              <div
+                key={skill.name}
+                className={`${styles.skillListItem} ${
+                  isSelected ? styles.selectedListItem : ""
+                }`}
+                onClick={() => {
+                  if (batchModeEnabled) {
+                    toggleSelect(skill.name);
+                  } else {
+                    handleEdit(skill);
+                  }
+                }}
+              >
+                {batchModeEnabled && (
+                  <Checkbox
+                    checked={isSelected}
+                    onClick={(e) => {
+                      e.stopPropagation();
                       toggleSelect(skill.name);
-                    } else {
-                      handleEdit(skill);
-                    }
-                  }}
-                >
-                  {batchMode && (
-                    <Checkbox
-                      checked={isSelected}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleSelect(skill.name);
-                      }}
-                    />
-                  )}
-                  <div className={styles.listItemLeft}>
-                    <span className={styles.fileIcon}>
-                      {getSkillVisual(skill.name, skill.emoji)}
-                    </span>
-                    <div className={styles.listItemInfo}>
-                      <div className={styles.listItemHeader}>
-                        <span className={styles.skillTitle}>{skill.name}</span>
-                        <span className={styles.typeBadge}>
-                          {isBuiltin ? t("skills.builtin") : t("skills.custom")}
+                    }}
+                  />
+                )}
+                <div className={styles.listItemLeft}>
+                  <span className={styles.fileIcon}>
+                    {getSkillVisual(skill.name, skill.emoji)}
+                  </span>
+                  <div className={styles.listItemInfo}>
+                    <div className={styles.listItemHeader}>
+                      <span className={styles.skillTitle}>{skill.name}</span>
+                      <span className={styles.typeBadge}>
+                        {isBuiltin ? t("skills.builtin") : t("skills.custom")}
+                      </span>
+                      <span className={styles.channelBadge}>{channels}</span>
+                      {skill.last_updated && (
+                        <span className={styles.listItemTime}>
+                          {t("skills.lastUpdated")}{" "}
+                          {dayjs(skill.last_updated).fromNow()}
                         </span>
-                        <span className={styles.channelBadge}>{channels}</span>
-                        {skill.last_updated && (
-                          <span className={styles.listItemTime}>
-                            {t("skills.lastUpdated")}{" "}
-                            {dayjs(skill.last_updated).fromNow()}
-                          </span>
-                        )}
-                      </div>
-                      <p className={styles.listItemDesc}>
-                        {skill.description || "-"}
-                      </p>
+                      )}
                     </div>
-                  </div>
-                  <div className={styles.listItemRight}>
-                    <Switch
-                      checked={skill.enabled}
-                      disabled={batchMode}
-                      onChange={async () => {
-                        await toggleEnabled(skill);
-                        await refreshSkills();
-                      }}
-                    />
-                    <Button
-                      danger
-                      disabled={batchMode}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(skill);
-                      }}
-                    >
-                      {t("common.delete")}
-                    </Button>
+                    <p className={styles.listItemDesc}>
+                      {skill.description || "-"}
+                    </p>
                   </div>
                 </div>
-              );
-            })}
+                <div className={styles.listItemRight}>
+                  <Switch
+                    checked={skill.enabled}
+                    disabled={batchModeEnabled}
+                    onChange={async () => {
+                      await toggleEnabled(skill);
+                      await refreshSkills();
+                    }}
+                  />
+                  <Button
+                    danger
+                    disabled={batchModeEnabled}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(skill);
+                    }}
+                  >
+                    {t("common.delete")}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

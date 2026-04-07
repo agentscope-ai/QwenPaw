@@ -4,13 +4,8 @@ description: "当用户希望打开真实可见的浏览器窗口（而非后台
 categories:
   - automation
   - browser
-tags:
-  - headed
-  - gui
-  - demo
-  - debugging
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "1.1"
   copaw:
     emoji: "🖥️"
     requires: {}

@@ -5,14 +5,9 @@ homepage: https://github.com/pimalaya/himalaya
 categories:
   - communication
   - email
-tags:
-  - imap
-  - smtp
-  - mail
-  - cli
 metadata:
-  builtin_skill_version: "1.1"
-  openclaw:
+  builtin_skill_version: "1.2"
+  copaw:
     emoji: "📧"
     requires:
       bins:

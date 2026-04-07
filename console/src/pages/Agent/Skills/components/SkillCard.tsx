@@ -1,5 +1,6 @@
 import React from "react";
 import { Card, Button, Checkbox, Tooltip } from "@agentscope-ai/design";
+import { SkillCategoriesAndTags } from "../../SkillPool/components/SkillMeta";
 import {
   CalendarFilled,
   ApiOutlined,
@@ -217,33 +218,11 @@ export const SkillCard = React.memo(function SkillCard({
 
       {/* Description Section */}
       <div className={styles.descriptionContainer}>
-        {/* Categories and Tags above Description */}
-        <div className={styles.categoriesTagsContainer}>
-          {skill.categories && skill.categories.length > 0 && (
-            <div className={styles.metaRow}>
-              <span className={styles.metaIcon}>📂</span>
-              <div className={styles.metaContent}>
-                {skill.categories.map((cat) => (
-                  <span key={cat} className={styles.categoryChip}>
-                    {cat}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {skill.tags && skill.tags.length > 0 && (
-            <div className={styles.metaRow}>
-              <span className={styles.metaIcon}>🏷️</span>
-              <div className={styles.metaContent}>
-                {skill.tags.map((tag) => (
-                  <span key={tag} className={styles.tagChip}>
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <SkillCategoriesAndTags
+          categories={skill.categories}
+          tags={skill.tags}
+          styles={styles}
+        />
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 

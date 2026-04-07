@@ -71,36 +71,24 @@ export async function request<T = unknown>(
   });
 
   if (!response.ok) {
-    // Handle 401: clear token and redirect to login
-    if (!response.ok) {
-      // Handle 401: clear token and redirect to login
-      if (response.status === 401) {
-        clearAuthToken();
-        if (window.location.pathname !== "/login") {
-          window.location.href = "/login";
-        }
-        throw new Error("Not authenticated");
+    if (response.status === 401) {
+      clearAuthToken();
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
       }
-
-      const text = await response.text().catch(() => "");
-      const contentType = response.headers.get("content-type") || "";
-      const errorMessage = getErrorMessageFromBody(text, contentType);
-
-      // Preserve raw body for parseErrorDetail() to extract structured fields
-      const finalMessage = errorMessage
-        ? `${errorMessage} - ${text}`
-        : `Request failed: ${response.status} ${response.statusText}`;
-
-      throw new Error(finalMessage);
+      throw new Error("Not authenticated");
     }
 
     const text = await response.text().catch(() => "");
     const contentType = response.headers.get("content-type") || "";
     const errorMessage = getErrorMessageFromBody(text, contentType);
-    throw new Error(
-      errorMessage ||
-        `Request failed: ${response.status} ${response.statusText}`,
-    );
+
+    // Preserve raw body for parseErrorDetail() to extract structured fields
+    const finalMessage = errorMessage
+      ? `${errorMessage} - ${text}`
+      : `Request failed: ${response.status} ${response.statusText}`;
+
+    throw new Error(finalMessage);
   }
 
   if (response.status === 204) {
@@ -109,14 +97,7 @@ export async function request<T = unknown>(
 
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    // This should not happen for API endpoints - treat as error
-    const text = await response.text();
-    throw new Error(
-      `Expected JSON response from ${url} but got content-type: ${contentType}. Body: ${text.substring(
-        0,
-        200,
-      )}`,
-    );
+    return (await response.text()) as unknown as T;
   }
 
   return (await response.json()) as T;

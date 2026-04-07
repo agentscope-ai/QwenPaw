@@ -4,13 +4,8 @@ description: Use this skill to proactively send a one-way message to a user/sess
 categories:
   - communication
   - messaging
-tags:
-  - notification
-  - alert
-  - push
-  - channel
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "1.1"
   copaw:
     emoji: "📤"
 ---

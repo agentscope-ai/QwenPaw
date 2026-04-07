@@ -5,12 +5,8 @@ license: Proprietary. LICENSE.txt has complete terms
 categories:
   - document
   - office
-tags:
-  - word
-  - docx
-  - microsoft-office
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "1.1"
 ---
 
 > **Important:** All `scripts/` paths are relative to this skill directory.

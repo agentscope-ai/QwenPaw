@@ -8,94 +8,30 @@ import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { api } from "../../../../api";
 
-/**
- * Parse frontmatter from content string.
- * Returns an object with parsed key-value pairs, or null if no valid frontmatter found.
- */
+/** Parse YAML frontmatter from a `---`-delimited content string. */
 export function parseFrontmatter(
   content: string,
 ): Record<string, string> | null {
-  const trimmed = content.trim();
-  if (!trimmed.startsWith("---")) return null;
-
-  const endIndex = trimmed.indexOf("---", 3);
-  if (endIndex === -1) return null;
-
-  const frontmatterBlock = trimmed.slice(3, endIndex).trim();
-  if (!frontmatterBlock) return null;
-
-  const result: Record<string, string> = {};
-  for (const line of frontmatterBlock.split("\n")) {
-    const colonIndex = line.indexOf(":");
-    if (colonIndex > 0) {
-      const key = line.slice(0, colonIndex).trim();
-      const value = line.slice(colonIndex + 1).trim();
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
-/**
- * Update frontmatter in markdown content with new key-value pairs.
- * If frontmatter doesn't exist, creates it.
- * Arrays are serialized as YAML arrays.
- */
-export function updateFrontmatter(
-  content: string,
-  updates: Record<string, string | string[] | undefined>,
-): string {
-  const trimmed = content.trim();
-  let frontmatter: Record<string, string | string[]> = {};
-  let bodyContent = trimmed;
-
-  // Parse existing frontmatter
-  if (trimmed.startsWith("---")) {
+  try {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith("---")) return null;
     const endIndex = trimmed.indexOf("---", 3);
-    if (endIndex !== -1) {
-      const frontmatterBlock = trimmed.slice(3, endIndex).trim();
-      bodyContent = trimmed.slice(endIndex + 3).trim();
-
-      // Parse existing frontmatter
-      for (const line of frontmatterBlock.split("\n")) {
-        const colonIndex = line.indexOf(":");
-        if (colonIndex > 0) {
-          const key = line.slice(0, colonIndex).trim();
-          const value = line.slice(colonIndex + 1).trim();
-          frontmatter[key] = value;
-        }
+    if (endIndex === -1) return null;
+    const frontmatterBlock = trimmed.slice(3, endIndex).trim();
+    if (!frontmatterBlock) return null;
+    const result: Record<string, string> = {};
+    for (const line of frontmatterBlock.split("\n")) {
+      const colonIndex = line.indexOf(":");
+      if (colonIndex > 0) {
+        const key = line.slice(0, colonIndex).trim();
+        const value = line.slice(colonIndex + 1).trim();
+        result[key] = value;
       }
     }
+    return result;
+  } catch {
+    return null;
   }
-
-  // Apply updates
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === undefined || (Array.isArray(value) && value.length === 0)) {
-      delete frontmatter[key];
-    } else {
-      frontmatter[key] = value;
-    }
-  }
-
-  // Serialize frontmatter
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (Array.isArray(value)) {
-      if (value.length === 0) continue;
-      lines.push(`${key}:`);
-      for (const item of value) {
-        lines.push(`  - ${item}`);
-      }
-    } else {
-      lines.push(`${key}: ${value}`);
-    }
-  }
-
-  if (lines.length === 0) {
-    return bodyContent;
-  }
-
-  return `---\n${lines.join("\n")}\n---\n\n${bodyContent}`;
 }
 
 const CHANNEL_OPTIONS = [
@@ -112,12 +48,16 @@ const CHANNEL_OPTIONS = [
   { label: "mqtt", value: "mqtt" },
 ];
 
+export const MAX_TAGS = 8;
+export const MAX_TAG_LENGTH = 16;
+
 export interface SkillDrawerFormValues {
   name: string;
   description?: string;
   content: string;
   enabled?: boolean;
   channels?: string[];
+  tags?: string[];
   source?: string;
   config?: Record<string, unknown>;
 }
@@ -185,6 +125,7 @@ export function SkillDrawer({
         name: editingSkill.name,
         content: editingSkill.content,
         channels,
+        tags: editingSkill.tags || [],
         source: editingSkill.source,
       });
       setConfigError("");
@@ -381,6 +322,32 @@ export function SkillDrawer({
 
         <Form.Item name="channels" label={t("skills.channels")}>
           <Select mode="multiple" options={CHANNEL_OPTIONS} />
+        </Form.Item>
+
+        <Form.Item
+          name="tags"
+          label={t("skillPool.tags")}
+          rules={[
+            {
+              validator: (_, value: string[] | undefined) => {
+                const bad = (value || []).find(
+                  (v) => v.length > MAX_TAG_LENGTH,
+                );
+                if (bad)
+                  return Promise.reject(
+                    t("skillPool.tagTooLong", { max: MAX_TAG_LENGTH }),
+                  );
+                return Promise.resolve();
+              },
+            },
+          ]}
+        >
+          <Select
+            mode="tags"
+            open={false}
+            placeholder={t("skillPool.tagsPlaceholder")}
+            maxCount={MAX_TAGS}
+          />
         </Form.Item>
 
         <Form.Item

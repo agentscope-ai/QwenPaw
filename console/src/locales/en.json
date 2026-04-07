@@ -123,7 +123,6 @@
     "updateSuccess": "Agent updated successfully",
     "updateFailed": "Failed to update agent",
     "delete": "Delete",
-
     "deleteConfirm": "Confirm Delete Agent",
     "deleteConfirmDesc": "Agent will be unavailable after deletion, but workspace files will be kept",
     "deleteSuccess": "Agent deleted successfully",
@@ -307,6 +306,7 @@
     "tags": "Tags",
     "categoriesPlaceholder": "Select or type to add categories",
     "tagsPlaceholder": "Select or type to add tags",
+    "tagTooLong": "Tag must be at most {{max}} characters",
     "filterByCategory": "Filter by category",
     "filterByTag": "Filter by tag",
     "version": "Version",

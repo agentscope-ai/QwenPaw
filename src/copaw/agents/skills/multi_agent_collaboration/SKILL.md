@@ -4,12 +4,8 @@ description: Use this skill when another agent's expertise/context is needed, or
 categories:
   - automation
   - agents
-tags:
-  - multi-agent
-  - collaboration
-  - delegation
 metadata:
-  builtin_skill_version: "1.1"
+  builtin_skill_version: "1.2"
   copaw:
     emoji: "🤝"
 ---

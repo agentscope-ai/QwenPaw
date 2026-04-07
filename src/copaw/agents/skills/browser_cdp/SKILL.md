@@ -4,13 +4,8 @@ description: "当用户明确希望连接到已运行的 Chrome 浏览器（conn
 categories:
   - automation
   - browser
-tags:
-  - cdp
-  - chrome
-  - headless
-  - debugging
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "1.1"
   copaw:
     emoji: "🔌"
     requires: {}

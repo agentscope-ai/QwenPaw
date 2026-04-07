@@ -271,6 +271,7 @@
     "tags": "标签",
     "categoriesPlaceholder": "选择或输入分类",
     "tagsPlaceholder": "选择或输入标签",
+    "tagTooLong": "标签长度不能超过 {{max}} 个字符",
     "filterByCategory": "按分类筛选",
     "filterByTag": "按标签筛选",
     "version": "版本",
