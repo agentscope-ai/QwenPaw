@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useNavigate } from "react-router-dom";
 import { useAppMessage } from "../../hooks/useAppMessage";
+import sessionApi from "../../pages/Chat/sessionApi";
 import styles from "./index.module.less";
 
 interface AgentSelectorProps {
@@ -57,6 +58,8 @@ export default function AgentSelector({
     }
 
     setSelectedAgent(value);
+    sessionApi.preferredChatId = null;
+    navigate("/chat", { replace: true });
     message.success(t("agent.switchSuccess"));
   };
 
