@@ -8,6 +8,7 @@ import type {
   CreateCustomProviderRequest,
   AddModelRequest,
   ModelConfigRequest,
+  LocalModelConfigRequest,
   TestConnectionResponse,
   TestProviderRequest,
   TestModelRequest,
@@ -93,6 +94,15 @@ export const providerApi = {
         body: JSON.stringify(body),
       },
     ),
+
+  configureLocalModelSettings: (
+    providerId: string,
+    body: LocalModelConfigRequest,
+  ) =>
+    request<ProviderInfo>(`/models/${encodeURIComponent(providerId)}/local-config`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   /* ---- Test Connection ---- */
 

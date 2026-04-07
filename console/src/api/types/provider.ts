@@ -29,6 +29,7 @@ export interface ProviderInfo {
   api_key: string;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  local_config?: LocalModelConfig;
 }
 
 export interface ProviderConfigRequest {
@@ -78,6 +79,15 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
+  generate_kwargs?: Record<string, unknown>;
+}
+
+export interface LocalModelConfig {
+  max_context_length: number;
+}
+
+export interface LocalModelConfigRequest {
+  max_context_length?: number;
   generate_kwargs?: Record<string, unknown>;
 }
 

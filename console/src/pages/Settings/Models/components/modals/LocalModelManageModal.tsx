@@ -1,9 +1,22 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Input, Modal, Select, Tooltip } from "@agentscope-ai/design";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  Button,
+  Input,
+  InputNumber,
+  Modal,
+  Select,
+  Tooltip,
+} from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
-import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
+import {
+  CloseOutlined,
+  DownloadOutlined,
+  DownOutlined,
+  SaveOutlined,
+} from "@ant-design/icons";
 import { Progress } from "antd";
 import type {
+  LocalModelConfig,
   ProviderInfo,
   LocalDownloadProgress,
   LocalDownloadSource,
@@ -14,6 +27,7 @@ import type {
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
+import { JsonConfigEditor } from "./JsonConfigEditor.tsx";
 import { LocalModelRow } from "./local-models/LocalModelRow";
 import { LocalRuntimePanel } from "./local-models/LocalRuntimePanel";
 import {
@@ -23,8 +37,21 @@ import {
 } from "./local-models/shared";
 
 const POLL_INTERVAL_MS = 3000;
+const DEFAULT_LOCAL_MAX_CONTEXT_LENGTH = 65536;
+const MIN_LOCAL_MAX_CONTEXT_LENGTH = 32768;
 
 type LocalDownloadStatus = LocalDownloadProgress["status"];
+
+function getInitialLocalModelConfig(config?: LocalModelConfig | null) {
+  return {
+    maxContextLength:
+      typeof config?.max_context_length === "number" &&
+      Number.isInteger(config.max_context_length) &&
+      config.max_context_length >= MIN_LOCAL_MAX_CONTEXT_LENGTH
+        ? config.max_context_length
+        : DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+  };
+}
 
 function isSameServerStatus(
   left: LocalServerStatus | null,
@@ -107,12 +134,33 @@ export function LocalModelManageModal({
     null,
   );
   const [stoppingServer, setStoppingServer] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedSaving, setAdvancedSaving] = useState(false);
+  const [maxContextLength, setMaxContextLength] = useState<number>(
+    DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+  );
+  const [savedMaxContextLength, setSavedMaxContextLength] = useState<number>(
+    DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+  );
+  const [generateKwargsText, setGenerateKwargsText] = useState("");
+  const [savedGenerateKwargsText, setSavedGenerateKwargsText] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
   const previousLlamacppStatusRef = useRef<string | null>(null);
   const previousModelStatusRef = useRef<string | null>(null);
 
   const { message } = useAppMessage();
+
+  const initialLocalConfig = useMemo(
+    () => ({
+      ...getInitialLocalModelConfig(provider.local_config),
+      generateKwargsText:
+        Object.keys(provider.generate_kwargs ?? {}).length > 0
+          ? JSON.stringify(provider.generate_kwargs, null, 2)
+          : "",
+    }),
+    [provider.generate_kwargs, provider.local_config],
+  );
 
   const getLocalModelDisplayName = (modelId: string | null) => {
     if (!modelId) {
@@ -294,6 +342,12 @@ export function LocalModelManageModal({
   useEffect(() => {
     if (!open) return;
 
+    setAdvancedOpen(false);
+    setMaxContextLength(initialLocalConfig.maxContextLength);
+    setSavedMaxContextLength(initialLocalConfig.maxContextLength);
+    setGenerateKwargsText(initialLocalConfig.generateKwargsText);
+    setSavedGenerateKwargsText(initialLocalConfig.generateKwargsText);
+
     void Promise.all([fetchLocalModels(), refreshStatus(true)]).then(
       ([, statuses]) => {
         void refreshUpdateStatus(statuses?.server ?? null);
@@ -315,7 +369,66 @@ export function LocalModelManageModal({
     refreshUpdateStatus,
     startPolling,
     stopPolling,
+    initialLocalConfig.generateKwargsText,
+    initialLocalConfig.maxContextLength,
   ]);
+
+  const handleSaveAdvancedConfig = useCallback(async () => {
+    if (!Number.isInteger(maxContextLength)) {
+      message.error(t("models.localMaxContextLengthRequired"));
+      return;
+    }
+
+    if (maxContextLength < MIN_LOCAL_MAX_CONTEXT_LENGTH) {
+      message.error(
+        t("models.localMaxContextLengthMin", {
+          min: MIN_LOCAL_MAX_CONTEXT_LENGTH,
+        }),
+      );
+      return;
+    }
+
+    const trimmed = generateKwargsText.trim();
+    let parsed: Record<string, unknown> = {};
+
+    if (trimmed) {
+      try {
+        const value = JSON.parse(trimmed);
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          message.error(t("models.generateConfigMustBeObject"));
+          return;
+        }
+        parsed = value;
+      } catch {
+        message.error(t("models.generateConfigInvalidJson"));
+        return;
+      }
+    }
+
+    const normalizedText = trimmed ? JSON.stringify(parsed, null, 2) : "";
+
+    setAdvancedSaving(true);
+    try {
+      await api.configureLocalModelSettings(provider.id, {
+        max_context_length: maxContextLength,
+        generate_kwargs: parsed,
+      });
+      setMaxContextLength(maxContextLength);
+      setSavedMaxContextLength(maxContextLength);
+      setGenerateKwargsText(normalizedText);
+      setSavedGenerateKwargsText(normalizedText);
+      message.success(t("models.localAdvancedConfigSaved"));
+      await onSaved();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setAdvancedSaving(false);
+    }
+  }, [generateKwargsText, maxContextLength, message, onSaved, provider.id, t]);
 
   const handleStartLlamacppDownload = useCallback(async () => {
     const previousLlamacppDownload = llamacppDownload;
@@ -559,6 +672,9 @@ export function LocalModelManageModal({
     getLocalModelDisplayName(modelDownload?.model_name ?? null) ||
     t("models.localDownloadPending");
   const currentModelDownloadPercent = getProgressPercent(modelDownload);
+  const isAdvancedDirty =
+    maxContextLength !== savedMaxContextLength ||
+    generateKwargsText !== savedGenerateKwargsText;
 
   return (
     <Modal
@@ -567,8 +683,21 @@ export function LocalModelManageModal({
       onCancel={handleClose}
       footer={
         <div className={styles.modalFooter}>
+          <div className={styles.modalFooterLeft}>
+          </div>
           <div className={styles.modalFooterRight}>
             <Button onClick={handleClose}>{t("models.cancel")}</Button>
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              loading={advancedSaving}
+              disabled={!isAdvancedDirty}
+              onClick={() => {
+                void handleSaveAdvancedConfig();
+              }}
+            >
+              {t("models.save")}
+            </Button>
           </div>
         </div>
       }
@@ -757,6 +886,72 @@ export function LocalModelManageModal({
           </div>
         </section>
       ) : null}
+
+      <section className={styles.localAdvancedConfigSection}>
+        <div className={styles.localAdvancedConfigHeader}>
+          <button
+            type="button"
+            className={styles.advancedConfigToggle}
+            onClick={() => setAdvancedOpen((prev) => !prev)}
+          >
+            <span className={styles.advancedConfigToggleLabel}>
+              {t("models.localAdvancedConfigTitle")}
+            </span>
+            <DownOutlined
+              className={
+                advancedOpen
+                  ? styles.localAdvancedConfigChevronOpen
+                  : styles.localAdvancedConfigChevronClosed
+              }
+            />
+          </button>
+        </div>
+
+        {advancedOpen ? (
+          <div className={styles.localAdvancedConfigFields}>
+            <div className={styles.localAdvancedConfigField}>
+              <div className={styles.localAdvancedConfigLabel}>
+                {t("models.localMaxContextLengthLabel")}
+              </div>
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localMaxContextLengthHint", {
+                  defaultValue: t("agentConfig.maxContextLengthTooltip"),
+                })}
+              </div>
+              <InputNumber
+                min={MIN_LOCAL_MAX_CONTEXT_LENGTH}
+                step={1024}
+                precision={0}
+                value={maxContextLength}
+                onChange={(value) =>
+                  setMaxContextLength(
+                    typeof value === "number"
+                      ? Math.trunc(value)
+                      : DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+                  )
+                }
+                className={styles.localAdvancedConfigInput}
+                placeholder={t("models.localMaxContextLengthPlaceholder")}
+              />
+            </div>
+
+            <div className={styles.localAdvancedConfigField}>
+              <div className={styles.localAdvancedConfigLabel}>
+                {t("models.modelGenerateConfig")}
+              </div>
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localGenerateConfigHint")}
+              </div>
+              <JsonConfigEditor
+                value={generateKwargsText}
+                onChange={setGenerateKwargsText}
+                placeholder={`Example:\n{\n  "temperature": 0.7,\n  "top_p": 0.95\n}`}
+                variant="expanded"
+              />
+            </div>
+          </div>
+        ) : null}
+      </section>
     </Modal>
   );
 }
