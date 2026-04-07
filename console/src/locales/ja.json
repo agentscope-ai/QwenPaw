@@ -716,7 +716,7 @@
     "localDownloadInProgress": "すでにダウンロードが進行中です",
     "localDownloaded": "ダウンロード済み",
     "localNotDownloaded": "未ダウンロード",
-    "localNoRecommendedModels": "推奨ローカルモデルはありません",
+    "localNoRecommendedModels": "現在のマシン性能ではローカルモデルの実行に向いていません",
     "localCancelDownloadTitle": "ダウンロードをキャンセル",
     "localCancelDownloadAction": "ダウンロードをキャンセル",
     "localCancelDownloadConfirm": "\"{{repo}}\" のダウンロードをキャンセルしますか？",

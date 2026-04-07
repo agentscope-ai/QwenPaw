@@ -778,7 +778,7 @@
     "localDownloadInProgress": "A download is already in progress",
     "localDownloaded": "Downloaded",
     "localNotDownloaded": "Not downloaded",
-    "localNoRecommendedModels": "No recommended local models available",
+    "localNoRecommendedModels": "This device is not powerful enough to run local models",
     "localCancelDownloadTitle": "Cancel download",
     "localCancelDownloadAction": "Cancel download",
     "localCancelDownloadConfirm": "Cancel download of \"{{repo}}\"?",

@@ -721,7 +721,7 @@
     "localDownloadInProgress": "Загрузка уже выполняется",
     "localDownloaded": "Загружено",
     "localNotDownloaded": "Не загружено",
-    "localNoRecommendedModels": "Нет рекомендованных локальных моделей",
+    "localNoRecommendedModels": "Текущая конфигурация устройства слишком слабая для запуска локальных моделей",
     "localCancelDownloadTitle": "Отменить загрузку",
     "localCancelDownloadAction": "Отменить загрузку",
     "localCancelDownloadConfirm": "Отменить загрузку «{{repo}}»?",

@@ -750,7 +750,7 @@
     "localDownloadInProgress": "已有下载任务正在进行",
     "localDownloaded": "已下载",
     "localNotDownloaded": "未下载",
-    "localNoRecommendedModels": "当前没有可用的推荐本地模型",
+    "localNoRecommendedModels": "当前机器配置较低，不适合运行本地模型",
     "localCancelDownloadTitle": "取消下载",
     "localCancelDownloadAction": "取消下载",
     "localCancelDownloadConfirm": "确定取消下载 \"{{repo}}\"？",
