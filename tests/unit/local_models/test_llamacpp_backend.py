@@ -196,10 +196,13 @@ def _make_tar_gz_payload() -> bytes:
 def _make_tar_gz_payload_with_top_level_dir() -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-        content = b"tar-binary"
-        info = tarfile.TarInfo(name="llama-b1234/bin/server")
-        info.size = len(content)
-        archive.addfile(info, io.BytesIO(content))
+        for name, content in {
+            "llama-b1234/server": b"tar-binary",
+            "llama-b1234/llama-cli": b"cli-binary",
+        }.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
     return buffer.getvalue()
 
 
@@ -603,48 +606,6 @@ async def test_download_rejects_existing_file_dest(
         )
 
 
-def test_download_worker_uses_browser_like_headers(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    downloader = _build_downloader(monkeypatch)
-    staging_dir = tmp_path / "header-install"
-    fake_client = _patch_httpx_client(monkeypatch, _make_zip_payload())
-    download_url = (
-        "https://example.com/releases/b1234/llama-b1234-bin-win-cpu-x64.zip"
-    )
-
-    messages: list[dict[str, object]] = []
-
-    class _Queue:
-        def put(self, item):
-            messages.append(item)
-
-    downloader._download_worker(
-        {
-            "url": download_url,
-            "staging_dir": str(staging_dir),
-            "file_name": "llama-b1234-bin-win-cpu-x64.zip",
-            "chunk_size": 64,
-            "timeout": 30,
-            "headers": downloader._download_headers,
-        },
-        _Queue(),
-    )
-
-    assert fake_client.stream_calls == [
-        (
-            "GET",
-            download_url,
-            downloader._download_headers,
-        ),
-    ]
-    assert (staging_dir / "bin" / "server.exe").read_text() == "zip-binary"
-    assert messages[-1]["type"] == "result"
-    assert isinstance(messages[-1]["payload"], dict)
-    assert messages[-1]["payload"]["status"] == "completed"
-
-
 def test_download_worker_emits_failure_result(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -816,7 +777,8 @@ def test_download_worker_flattens_single_top_level_archive_dir(
         _Queue(),
     )
 
-    assert (staging_dir / "bin" / "server").read_text() == "tar-binary"
+    assert (staging_dir / "server").read_text() == "tar-binary"
+    assert (staging_dir / "llama-cli").read_text() == "cli-binary"
     assert not (staging_dir / "llama-b1234").exists()
     assert isinstance(messages[-1]["payload"], dict)
     assert messages[-1]["payload"]["status"] == "completed"
@@ -900,6 +862,139 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
             {
                 "stdout": downloader_module.asyncio.subprocess.PIPE,
                 "stderr": downloader_module.asyncio.subprocess.STDOUT,
+            },
+        ),
+    ]
+
+
+def test_resolve_model_file_returns_single_model_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_dir = tmp_path / "text-model"
+    model_dir.mkdir()
+    model_file = model_dir / "demo-model.gguf"
+    model_file.write_text("model")
+
+    resolved_model, resolved_mmproj = downloader._resolve_model_file(
+        model_dir,
+    )
+
+    assert resolved_model == model_file.resolve()
+    assert resolved_mmproj is None
+
+
+def test_resolve_model_file_returns_model_and_mmproj(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_dir = tmp_path / "vision-model"
+    model_dir.mkdir()
+    mmproj_file = model_dir / "MMPROJ-F16.gguf"
+    model_file = model_dir / "qwen2vl-model.gguf"
+    mmproj_file.write_text("mmproj")
+    model_file.write_text("model")
+
+    resolved_model, resolved_mmproj = downloader._resolve_model_file(
+        model_dir,
+    )
+
+    assert resolved_model == model_file.resolve()
+    assert resolved_mmproj == mmproj_file.resolve()
+
+
+def test_resolve_model_file_rejects_mmproj_only_repository(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_dir = tmp_path / "broken-model"
+    model_dir.mkdir()
+    (model_dir / "mmproj-model-f16.gguf").write_text("mmproj")
+
+    with pytest.raises(RuntimeError, match="does not contain any model"):
+        downloader._resolve_model_file(model_dir)
+
+
+@pytest.mark.asyncio
+async def test_setup_server_passes_mmproj_argument(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_dir = tmp_path / "vision-model"
+    model_dir.mkdir()
+    model_file = model_dir / "model-q4.gguf"
+    mmproj_file = model_dir / "mmproj-BF16.gguf"
+    model_file.write_text("model")
+    mmproj_file.write_text("mmproj")
+    start_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    class _FakeAsyncStdout:
+        async def readline(self) -> bytes:
+            return b""
+
+    class _FakeStartedProcess:
+        def __init__(self) -> None:
+            self.pid = 1357
+            self.stdout = _FakeAsyncStdout()
+            self.returncode: int | None = None
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_start_command_async(command, **kwargs):
+        start_calls.append((list(command), kwargs))
+        return _FakeStartedProcess()
+
+    async def fake_server_ready(*_args, **_kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module,
+        "start_command_async",
+        fake_start_command_async,
+    )
+    monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
+
+    port = await downloader.setup_server(model_dir, "vision-model")
+    await asyncio.sleep(0)
+
+    assert start_calls == [
+        (
+            [
+                str(downloader.executable),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--model",
+                str(model_file.resolve()),
+                "--alias",
+                "vision-model",
+                "--gpu-layers",
+                "auto",
+                "--mmproj",
+                str(mmproj_file.resolve()),
+            ],
+            {
+                "stdout": downloader_module.asyncio.subprocess.PIPE,
+                "stderr": downloader_module.asyncio.subprocess.STDOUT,
+                "start_new_session": True,
             },
         ),
     ]

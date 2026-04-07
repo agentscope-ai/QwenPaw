@@ -236,7 +236,9 @@ class LlamaCppBackend:
                     self._server_process.returncode,
                 )
 
-        resolved_model_path = self._resolve_model_file(model_path)
+        resolved_model_path, resolved_mmproj_path = self._resolve_model_file(
+            model_path,
+        )
         if self._server_process and self._server_process.returncode is None:
             await self.shutdown_server()
 
@@ -247,6 +249,7 @@ class LlamaCppBackend:
             process_kwargs["start_new_session"] = True
         process = await self._create_server_process(
             resolved_model_path=resolved_model_path,
+            resolved_mmproj_path=resolved_mmproj_path,
             model_name=model_name,
             port=port,
             process_kwargs=process_kwargs,
@@ -320,6 +323,7 @@ class LlamaCppBackend:
     async def _create_server_process(
         self,
         resolved_model_path: Path,
+        resolved_mmproj_path: Path | None,
         model_name: str,
         port: int,
         process_kwargs: dict[str, Any],
@@ -337,11 +341,23 @@ class LlamaCppBackend:
             "--gpu-layers",
             "auto",
         ]
+        if resolved_mmproj_path is not None:
+            command.extend(
+                [
+                    "--mmproj",
+                    str(resolved_mmproj_path),
+                ]
+            )
 
         logger.info(
-            "Setting up llama.cpp server for model %s at path %s",
+            "Setting up llama.cpp server for model %s at path %s%s",
             model_name,
             resolved_model_path,
+            (
+                f" with mmproj {resolved_mmproj_path}"
+                if resolved_mmproj_path is not None
+                else ""
+            ),
         )
         return await start_command_async(
             command,
@@ -391,13 +407,16 @@ class LlamaCppBackend:
 
         return path
 
-    def _resolve_model_file(self, model_path: Path) -> Path:
+    def _resolve_model_file(
+        self,
+        model_path: Path,
+    ) -> tuple[Path, Path | None]:
         if model_path.is_file():
             if model_path.suffix.lower() != ".gguf":
                 raise RuntimeError(
                     f"Model file must be a .gguf file: {model_path}",
                 )
-            return model_path.resolve()
+            return model_path.resolve(), None
 
         gguf_files = sorted(
             candidate
@@ -413,7 +432,28 @@ class LlamaCppBackend:
                 "Model repository at "
                 f"{model_path} does not contain any .gguf files.",
             )
-        return gguf_files[0].resolve()
+
+        mmproj_files = [
+            candidate
+            for candidate in gguf_files
+            if candidate.name.lower().startswith("mmproj")
+        ]
+        model_files = [
+            candidate
+            for candidate in gguf_files
+            if not candidate.name.lower().startswith("mmproj")
+        ]
+
+        if not model_files:
+            raise RuntimeError(
+                "Model repository at "
+                f"{model_path} does not contain any model .gguf files.",
+            )
+
+        return (
+            model_files[0].resolve(),
+            mmproj_files[0].resolve() if mmproj_files else None,
+        )
 
     def _finalize_download_result(
         self,
@@ -662,7 +702,7 @@ class LlamaCppBackend:
             if not item.is_file():
                 raise RuntimeError(
                     "Unexpected directory structure in llama.cpp archive: "
-                    f"{item}"
+                    f"{item}",
                 )
             shutil.copy2(item, dest_dir / item.name)
 
