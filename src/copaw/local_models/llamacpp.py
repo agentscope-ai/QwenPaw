@@ -346,7 +346,7 @@ class LlamaCppBackend:
                 [
                     "--mmproj",
                     str(resolved_mmproj_path),
-                ]
+                ],
             )
 
         logger.info(
@@ -693,6 +693,9 @@ class LlamaCppBackend:
         staging_dir: Path,
         dest_dir: Path,
     ) -> None:
+        # There are only two expected archive structures:
+        # 1) All files directly in the root of the archive
+        # 2) All files in a single top-level directory (e.g. "llama-xx/")
         extracted_entries = list(staging_dir.iterdir())
         source_root = staging_dir
         if len(extracted_entries) == 1 and extracted_entries[0].is_dir():
