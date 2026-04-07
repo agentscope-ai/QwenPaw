@@ -20,6 +20,8 @@ from typing import Any, Dict
 
 from .base import BaseControlCommandHandler, ControlContext
 from .stop_handler import StopCommandHandler
+from .undo_handler import UndoCommandHandler
+from .redo_handler import RedoCommandHandler
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,8 @@ _COMMAND_REGISTRY: Dict[str, BaseControlCommandHandler] = {}
 def _register_defaults() -> None:
     """Register default control command handlers."""
     register_command(StopCommandHandler())
+    register_command(UndoCommandHandler())
+    register_command(RedoCommandHandler())
 
 
 def register_command(handler: BaseControlCommandHandler) -> None:
@@ -178,6 +182,8 @@ __all__ = [
     "BaseControlCommandHandler",
     "ControlContext",
     "StopCommandHandler",
+    "UndoCommandHandler",
+    "RedoCommandHandler",
     "is_control_command",
     "handle_control_command",
     "register_command",
