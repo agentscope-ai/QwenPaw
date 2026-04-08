@@ -150,10 +150,6 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         """Cancel the current llama.cpp download task."""
         self._llamacpp_backend.cancel_download()
 
-    def update_llamacpp_settings(self, settings: dict[str, Any]) -> None:
-        """Set llama.cpp related settings."""
-        self._llamacpp_backend.set_settings(settings)
-
     def get_recommended_models(
         self,
     ) -> list[RecommendedLocalModelInfo]:
