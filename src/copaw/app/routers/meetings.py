@@ -175,57 +175,50 @@ async def create_meeting(
         },
     )
 
-    manager = MeetingManager(config)
-    manager.create()
-    if manager.config.meeting_id is None:
+    mgr = MeetingManager(config)
+    mgr.create()
+    if mgr.c.meeting_id is None:
         raise ValueError("meeting_id cannot be None after create()")
-    _active_meetings[manager.config.meeting_id] = manager
+    _active_meetings[mgr.c.meeting_id] = mgr
 
     doc_paths = {
-        "goals": manager.goals_doc.path if manager.goals_doc else "",
-        "records": manager.records_doc.path if manager.records_doc else "",
-        "summary": manager.summary_doc.path if manager.summary_doc else "",
+        "goals": mgr.goals_doc.path if mgr.goals_doc else "",
+        "records": mgr.records_doc.path if mgr.records_doc else "",
+        "summary": mgr.summary_doc.path if mgr.summary_doc else "",
     }
 
-    repo.save(manager.config, manager.status, doc_paths)
+    repo.save(mgr.c, mgr.status, doc_paths)
 
     # 临时会议创建后立即开始（后台异步执行，不阻塞请求）
     if config.meeting_type == MeetingType.TEMPORARY:
         # 设置为 RUNNING 状态，因为会议即将在后台开始
-        manager.status = MeetingStatus.RUNNING
-        repo.save(manager.config, manager.status, doc_paths)
+        mgr.status = MeetingStatus.RUNNING
+        repo.save(mgr.c, mgr.status, doc_paths)
 
         async def _run_temporary_meeting():
             """后台运行临时会议，完成后更新状态和文档路径."""
             try:
-                await manager.run_async()
+                await mgr.run_async()
             except Exception as e:
                 logger.error(f"Temporary meeting start failed: {e}")
             finally:
                 await asyncio.sleep(0.3)  # 等待状态稳定
                 doc_paths = {
-                    "goals": manager.goals_doc.path
-                    if manager.goals_doc
-                    else "",
-                    "records": manager.records_doc.path
-                    if manager.records_doc
-                    else "",
-                    "summary": manager.summary_doc.path
-                    if manager.summary_doc
-                    else "",
+                    "goals": mgr.goals_doc.path if mgr.goals_doc else "",
+                    "records": mgr.records_doc.path if mgr.records_doc else "",
+                    "summary": mgr.summary_doc.path if mgr.summary_doc else "",
                 }
-                repo.save(manager.config, manager.status, doc_paths)
-                # 会议结束后从内存缓存移除
-                _active_meetings.pop(manager.config.meeting_id, None)
+                repo.save(mgr.c, mgr.status, doc_paths)
+                _active_meetings.pop(mgr.c.meeting_id)
 
         asyncio.create_task(_run_temporary_meeting())
 
     return {
-        "meeting_id": manager.config.meeting_id,
-        "meeting_name": manager.config.meeting_name,
-        "status": manager.status.value,
-        "topic_title": manager.config.topic.title,
-        "participants_count": len(manager.config.participants),
+        "meeting_id": mgr.c.meeting_id,
+        "meeting_name": mgr.c.meeting_name,
+        "status": mgr.status.value,
+        "topic_title": mgr.c.topic.title,
+        "participants_count": len(mgr.c.participants),
         "created_at": datetime.now().isoformat(),
     }
 
@@ -264,14 +257,14 @@ async def get_meeting(
         documents["summary_path"] = manager.summary_doc.path
 
     return {
-        "meeting_id": manager.config.meeting_id,
-        "meeting_name": manager.config.meeting_name,
-        "meeting_type": manager.config.meeting_type.value,
+        "meeting_id": manager.c.meeting_id,
+        "meeting_name": manager.c.meeting_name,
+        "meeting_type": manager.c.meeting_type.value,
         "status": manager.status.value,
         "topic": {
-            "title": manager.config.topic.title,
-            "description": manager.config.topic.description,
-            "context": manager.config.topic.context,
+            "title": manager.c.topic.title,
+            "description": manager.c.topic.description,
+            "context": manager.c.topic.context,
         },
         "participants": [
             {
@@ -280,7 +273,7 @@ async def get_meeting(
                 "roles": [r.value for r in p.roles],
                 "intent": p.intent,
             }
-            for p in manager.config.participants
+            for p in manager.c.participants
         ],
         "documents": documents,
         "current_round": manager.current_round,
@@ -476,7 +469,7 @@ async def start_meeting(
         "records": manager.records_doc.path if manager.records_doc else "",
         "summary": manager.summary_doc.path if manager.summary_doc else "",
     }
-    repo.save(manager.config, manager.status, doc_paths)
+    repo.save(manager.c, manager.status, doc_paths)
 
     # Start the meeting
     try:
@@ -518,7 +511,7 @@ async def get_meeting_status(
         raise HTTPException(status_code=404, detail="Meeting not found")
 
     return {
-        "meeting_id": manager.config.meeting_id,
+        "meeting_id": manager.c.meeting_id,
         "status": manager.status.value,
         "current_round": manager.current_round,
         "current_phase": manager.current_phase.value
@@ -554,7 +547,7 @@ async def restart_meeting(
         "records": manager.records_doc.path if manager.records_doc else "",
         "summary": manager.summary_doc.path if manager.summary_doc else "",
     }
-    repo.save(manager.config, manager.status, doc_paths)
+    repo.save(manager.c, manager.status, doc_paths)
 
     # Start the meeting
     try:

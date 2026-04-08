@@ -54,8 +54,8 @@ DEFAULT_PROMPTS = PromptsConfig(
 def build_host_prompt(
     participant: MeetingParticipant,
     topic: MeetingTopic,
-    goals_path: Optional[str] = None,
-    records_path: Optional[str] = None,
+    goals_path: str = "",
+    records_path: str = "",
     prompts: Optional[PromptsConfig] = None,
 ) -> str:
     """构建主持人提示词."""
@@ -77,8 +77,8 @@ def build_reporter_prompt(
     topic: MeetingTopic,
     round_num: int = 1,
     speaking_order: Optional[list[str]] = None,
-    goals_path: Optional[str] = None,
-    records_path: Optional[str] = None,
+    goals_path: str = "",
+    records_path: str = "",
     prompts: Optional[PromptsConfig] = None,
 ) -> str:
     prompts = prompts or DEFAULT_PROMPTS
@@ -104,9 +104,9 @@ def build_reporter_prompt(
 def build_decider_prompt(
     participant: MeetingParticipant,
     topic: MeetingTopic,
-    goals_path: Optional[str] = None,
-    records_path: Optional[str] = None,
-    summary_path: Optional[str] = None,
+    goals_path: str = "",
+    records_path: str = "",
+    summary_path: str = "",
     prompts: Optional[PromptsConfig] = None,
 ) -> str:
     """构建决策人提示词."""

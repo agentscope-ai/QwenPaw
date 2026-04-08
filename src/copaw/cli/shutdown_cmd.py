@@ -139,14 +139,13 @@ def _find_windows_wrapper_ancestor_pids(pids: set[int]) -> set[int]:
             parent_pid = info[0]
             if parent_pid in (None, 0) or parent_pid in visited:
                 break
-            visited.add(parent_pid)
-
-            parent_info = snapshot.get(parent_pid)
+            visited.add(parent_pid)  # type: ignore[arg-type]
+            parent_info = snapshot.get(parent_pid)  # type: ignore[arg-type]
             if parent_info is None:
                 break
 
             if _is_copaw_wrapper_process(parent_info[1], parent_info[2]):
-                matches.add(parent_pid)
+                matches.add(parent_pid)  # type: ignore[arg-type]
 
             current_pid = parent_pid
     return matches

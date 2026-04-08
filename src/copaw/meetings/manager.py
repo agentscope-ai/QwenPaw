@@ -51,7 +51,7 @@ class MeetingManager:
         Args:
             config: 会议配置
         """
-        self.config = config
+        self.c = config
         self.workspace_dir = str(WORKING_DIR)
         self.storage = MeetingStorage()
         self.rpc = SACPClient()
@@ -68,8 +68,8 @@ class MeetingManager:
         self.summary_doc: Optional[MeetingDocument] = None
 
         # 生成会议 ID 和文件夹名
-        if not self.config.meeting_id:
-            self.config.meeting_id = self._generate_meeting_id()
+        if not self.c.meeting_id:
+            self.c.meeting_id = self._generate_meeting_id()
         self._folder_name = self._generate_folder_name()
 
     def _generate_meeting_id(self) -> str:
@@ -109,12 +109,12 @@ class MeetingManager:
         格式: r_{meeting_id}_{sanitized_title} (例会)
               t_{meeting_id}_{sanitized_title} (临时会议)
         """
-        prefix = self.config.folder_prefix
+        prefix = self.c.folder_prefix
         title = self._sanitize_name(
-            self.config.topic.title or self.config.meeting_name,
+            self.c.topic.title or self.c.meeting_name,
             max_chars=20,
         )
-        return f"{prefix}{self.config.meeting_id}_{title}"
+        return f"{prefix}{self.c.meeting_id}_{title}"
 
     def run(self) -> dict:
         """运行会议（同步入口）.
@@ -130,13 +130,13 @@ class MeetingManager:
         Returns:
             会议结果
         """
-        logger.info(f"[meetings] manager<{self.config.meeting_id}> starting")
+        logger.info(f"[meeting:{self.c.meeting_id}]starting")
         self.status = MeetingStatus.RUNNING
 
         try:
             await self._opening()
             main_points = {}
-            for _ in range(self.config.flow.num_rounds()):
+            for _ in range(self.c.flow.num_rounds()):
                 await self._round_speaking(main_points)
                 self.current_round += 1
 
@@ -146,12 +146,12 @@ class MeetingManager:
 
             self.status = MeetingStatus.COMPLETED
             logger.info(
-                f"[meetings] manager<{self.config.meeting_id}> completed successfully",
+                f"[meeting:{self.c.meeting_id}]completed",
             )
 
         except Exception as e:
             logger.error(
-                f"[meetings] manager<{self.config.meeting_id}> meeting failed, err: {e}",
+                f"[meeting:{self.c.meeting_id}]failed, err: {e}",
             )
             self.status = MeetingStatus.FAILED
             raise
@@ -171,28 +171,28 @@ class MeetingManager:
 
     def create(self) -> None:
         """创建会议 - 初始化文档并写入 goals."""
-        if self.config.meeting_id is None:
+        if self.c.meeting_id is None:
             raise ValueError("meeting_id cannot be None")
-        logger.info(f"[meetings] manager<{self.config.meeting_id}> creating")
+        logger.info(f"[meeting:{self.c.meeting_id}]creating")
 
         # 生成文档路径（使用新结构）
         now = datetime.now()
         folder_name = self._folder_name
 
         goals_path = self.storage.generate_doc_path(
-            self.config.meeting_id,
+            self.c.meeting_id,
             "goals",
             now,
             folder_name,
         )
         records_path = self.storage.generate_doc_path(
-            self.config.meeting_id,
+            self.c.meeting_id,
             "records",
             now,
             folder_name,
         )
         summary_path = self.storage.generate_doc_path(
-            self.config.meeting_id,
+            self.c.meeting_id,
             "summary",
             now,
             folder_name,
@@ -200,17 +200,17 @@ class MeetingManager:
 
         # 创建文档对象
         self.goals_doc = MeetingDocument(
-            meeting_id=self.config.meeting_id,
+            meeting_id=self.c.meeting_id,
             doc_type="goals",
             path=goals_path,
         )
         self.records_doc = MeetingDocument(
-            meeting_id=self.config.meeting_id,
+            meeting_id=self.c.meeting_id,
             doc_type="records",
             path=records_path,
         )
         self.summary_doc = MeetingDocument(
-            meeting_id=self.config.meeting_id,
+            meeting_id=self.c.meeting_id,
             doc_type="summary",
             path=summary_path,
         )
@@ -229,7 +229,7 @@ class MeetingManager:
         self._update_index()
 
         self.status = MeetingStatus.INITIALIZED
-        logger.info(f"[meetings] manager<{self.config.meeting_id}> created")
+        logger.info(f"[meeting:{self.c.meeting_id}]created")
 
     def _build_goals_from_topic(self) -> str:
         """从 topic 构建 goals 内容."""
@@ -239,20 +239,20 @@ class MeetingManager:
 
 | 字段 | 内容 |
 |------|------|
-| 会议ID | {self.config.meeting_id} |
-| 会议名称 | {self.config.meeting_name} |
-| 会议类型 | {self.config.meeting_type.value} |
+| 会议ID | {self.c.meeting_id} |
+| 会议名称 | {self.c.meeting_name} |
+| 会议类型 | {self.c.meeting_type.value} |
 | 创建时间 | {_ts()} |
 
 ---
 
-## 议题：{self.config.topic.title}
+## 议题：{self.c.topic.title}
 
 ## 目的：
-{self.config.topic.description or ""}
+{self.c.topic.description or ""}
 
 ## 内容、背景、目标：
-{self.config.topic.context or ""}
+{self.c.topic.context or ""}
 
 ---
 
@@ -262,24 +262,20 @@ class MeetingManager:
 
     def _save_config(self) -> None:
         """保存会议配置到 meta/ 目录."""
-        if self.config.meeting_id is None:
+        if self.c.meeting_id is None:
             raise ValueError("meeting_id cannot be None")
         config_data = {
-            "version": self.config.get_version(),
-            "meeting_id": self.config.meeting_id,
-            "meeting_name": self.config.meeting_name,
-            "meeting_type": self.config.meeting_type.value,
+            "version": self.c.get_version(),
+            "meeting_id": self.c.meeting_id,
+            "meeting_name": self.c.meeting_name,
+            "meeting_type": self.c.meeting_type.value,
             "folder_name": self._folder_name,
-            "topic": self.config.topic.model_dump()
-            if self.config.topic
-            else None,
-            "participants": [p.model_dump() for p in self.config.participants],
-            "flow": self.config.flow.model_dump()
-            if self.config.flow
-            else None,
+            "topic": self.c.topic.model_dump() if self.c.topic else None,
+            "participants": [p.model_dump() for p in self.c.participants],
+            "flow": self.c.flow.model_dump() if self.c.flow else None,
         }
 
-        meta_path = self.storage.get_meta_path(self.config.meeting_id)
+        meta_path = self.storage.get_meta_path(self.c.meeting_id)
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(
             json.dumps(config_data, ensure_ascii=False, indent=2),
@@ -287,7 +283,7 @@ class MeetingManager:
         )
         logger.info(
             "[meetings] manager<%s> saved config: %s",
-            self.config.meeting_id,
+            self.c.meeting_id,
             meta_path,
         )
 
@@ -296,9 +292,9 @@ class MeetingManager:
 
         用于重新开始一个已完成的会议。
         """
-        if self.config.meeting_id is None:
+        if self.c.meeting_id is None:
             raise ValueError("meeting_id cannot be None")
-        logger.info(f"[meetings] manager<{self.config.meeting_id}> resetting")
+        logger.info(f"[meeting:{self.c.meeting_id}]resetting")
 
         # 重置运行状态
         self.current_phase = None
@@ -308,19 +304,19 @@ class MeetingManager:
         # 重新生成文档路径（使用新时间戳）
         now = datetime.now()
         goals_path = self.storage.generate_doc_path(
-            self.config.meeting_id,
+            self.c.meeting_id,
             "goals",
             now,
             self._folder_name,
         )
         records_path = self.storage.generate_doc_path(
-            self.config.meeting_id,
+            self.c.meeting_id,
             "records",
             now,
             self._folder_name,
         )
         summary_path = self.storage.generate_doc_path(
-            self.config.meeting_id,
+            self.c.meeting_id,
             "summary",
             now,
             self._folder_name,
@@ -336,17 +332,17 @@ class MeetingManager:
 
         # 创建新文档对象
         self.goals_doc = MeetingDocument(
-            meeting_id=self.config.meeting_id,
+            meeting_id=self.c.meeting_id,
             doc_type="goals",
             path=goals_path,
         )
         self.records_doc = MeetingDocument(
-            meeting_id=self.config.meeting_id,
+            meeting_id=self.c.meeting_id,
             doc_type="records",
             path=records_path,
         )
         self.summary_doc = MeetingDocument(
-            meeting_id=self.config.meeting_id,
+            meeting_id=self.c.meeting_id,
             doc_type="summary",
             path=summary_path,
         )
@@ -361,7 +357,7 @@ class MeetingManager:
         # 更新状态
         self.status = MeetingStatus.INITIALIZED
         logger.info(
-            f"[meetings] manager<{self.config.meeting_id}> reset complete",
+            f"[meeting:{self.c.meeting_id}]reset complete",
         )
 
     def _init_records_doc(self) -> None:
@@ -370,12 +366,12 @@ class MeetingManager:
             return
 
         logger.info(
-            f"[meetings] manager<{self.config.meeting_id}> initializing records doc: {self.records_doc.path}",
+            f"[meeting:{self.c.meeting_id}] init {self.records_doc.path}",
         )
 
         participants_str = ", ".join(
             f"{p.name}({'/'.join(r.value for r in p.roles)})"
-            for p in self.config.participants
+            for p in self.c.participants
         )
         content = f"""# 发言记录
 
@@ -383,9 +379,9 @@ class MeetingManager:
 
 | 字段 | 内容 |
 |------|------|
-| 会议ID | {self.config.meeting_id} |
-| 会议名称 | {self.config.meeting_name} |
-| 会议类型 | {self.config.meeting_type.value} |
+| 会议ID | {self.c.meeting_id} |
+| 会议名称 | {self.c.meeting_name} |
+| 会议类型 | {self.c.meeting_type.value} |
 | 开始时间 | {_ts()} |
 | 参会人员 | {participants_str} |
 
@@ -396,18 +392,18 @@ class MeetingManager:
 
     def _update_index(self) -> None:
         """更新全局索引."""
-        if self.config.meeting_id is None:
+        if self.c.meeting_id is None:
             raise ValueError("meeting_id cannot be None")
-        logger.debug(f"Updating index for meeting: {self.config.meeting_id}")
+        logger.debug(f"Updating index for meeting: {self.c.meeting_id}")
         meeting_info = {
-            "meeting_id": self.config.meeting_id,
-            "meeting_name": self.config.meeting_name,
-            "meeting_type": self.config.meeting_type.value,
-            "topic_title": self.config.topic.title,
+            "meeting_id": self.c.meeting_id,
+            "meeting_name": self.c.meeting_name,
+            "meeting_type": self.c.meeting_type.value,
+            "topic_title": self.c.topic.title,
             "folder_name": self._folder_name,
         }
         self.storage.update_index(
-            self.config.meeting_id,
+            self.c.meeting_id,
             meeting_info,
             self._folder_name,
         )
@@ -417,30 +413,29 @@ class MeetingManager:
         self.current_phase = PhaseType.BACKGROUND
         self.current_round = 0
         logger.info(
-            f"[meetings] manager<{self.config.meeting_id}> generating goals",
+            f"[meeting:{self.c.meeting_id}] generating goals",
         )
 
         # 获取主持人
         host = self._get_participant_by_role(RoleType.HOST)
         if not host:
             logger.warning(
-                f"[meetings] manager<{self.config.meeting_id}> no host found, using default goals",
+                f"[meeting:{self.c.meeting_id}] using default goals",
             )
             content = self._build_default_goals()
         else:
             # 构建提示词
             logger.info(
-                f"[meetings] manager<{self.config.meeting_id}> [Goals] calling host: {host.name}",
+                f"[meeting:{self.c.meeting_id}] calling host: {host.name}",
             )
             prompt = build_host_prompt(
                 participant=host,
-                topic=self.config.topic,
+                topic=self.c.topic,
             )
             content, _reasons = await self._call_agent(host, prompt)
-            logger.debug(f"[Goals] Host response length: {len(content)}")
 
         logger.info(
-            f"[meetings] manager<{self.config.meeting_id}> [Goals] written to: {self.goals_doc.path}",
+            f"[meeting:{self.c.meeting_id}] written to: {self.goals_doc.path}",
         )
         self.storage.write_doc(self.goals_doc.path, content)
 
@@ -452,18 +447,18 @@ class MeetingManager:
 
 | 字段 | 内容 |
 |------|------|
-| 会议ID | {self.config.meeting_id} |
-| 会议名称 | {self.config.meeting_name} |
-| 会议类型 | {self.config.meeting_type.value} |
+| 会议ID | {self.c.meeting_id} |
+| 会议名称 | {self.c.meeting_name} |
+| 会议类型 | {self.c.meeting_type.value} |
 | 准备时间 | {_ts()} |
 
 ---
 
-## 议题：{self.config.topic.title}
+## 议题：{self.c.topic.title}
 
-{self.config.topic.description or ""}
+{self.c.topic.description or ""}
 
-{self.config.topic.context or ""}
+{self.c.topic.context or ""}
 
 ---
 
@@ -474,7 +469,7 @@ class MeetingManager:
         """开场阶段."""
         self.current_phase = PhaseType.OPENING
         self.current_round = 1
-        meet_info = f"meet<{self.config.meeting_id}, open>"
+        meet_info = f"meet<{self.c.meeting_id}, open>"
         logger.info(f"[meetings] {meet_info} start")
 
         host = self._get_participant_by_role(RoleType.HOST)
@@ -485,7 +480,7 @@ class MeetingManager:
         # 构建主持人开场提示词
         prompt = build_host_prompt(
             host,
-            self.config.topic,
+            self.c.topic,
             str(self.storage.get_path(self.goals_doc)),
             str(self.storage.get_path(self.records_doc)),
         )
@@ -503,7 +498,7 @@ class MeetingManager:
     async def _round_speaking(self, main_points: dict[str, list[str]]) -> None:
         """轮次发言."""
         self.current_phase = PhaseType.ROUND
-        meet_info = f"meet<{self.config.meeting_id}, #{self.current_round}>"
+        meet_info = f"meet<{self.c.meeting_id}, #{self.current_round}>"
         logger.info(f"[meetings] {meet_info} start")
 
         speakers = self._get_all_speaking_participants()
@@ -516,7 +511,7 @@ class MeetingManager:
         def gen_order():
             # current_round 是 1-based，但 get_round_order 是 0-based
             round_idx = self.current_round - 1
-            round_order = self.config.flow.get_round_order(round_idx)
+            round_order = self.c.flow.get_round_order(round_idx)
             speak_order = list(speaker_ids)  # 创建副本，避免修改原列表
             if round_order == "reverse":
                 speak_order.reverse()
@@ -535,7 +530,7 @@ class MeetingManager:
             speaker = speakers[self.current_participant_idx]
             prompt = build_reporter_prompt(
                 speaker,
-                self.config.topic,
+                self.c.topic,
                 self.current_round,
                 ordered,
                 str(self.storage.get_path(self.goals_doc)),
@@ -564,7 +559,7 @@ class MeetingManager:
         """决策阶段."""
         self.current_phase = PhaseType.DECISION
         self.current_round += 1
-        meet_info = f"meet<{self.config.meeting_id}, decision>"
+        meet_info = f"meet<{self.c.meeting_id}, decision>"
         logger.info(f"[meetings] {meet_info} start")
 
         decider = self._get_participant_by_role(RoleType.DECIDER)
@@ -575,7 +570,7 @@ class MeetingManager:
         # 构建提示词
         prompt = build_decider_prompt(
             decider,
-            self.config.topic,
+            self.c.topic,
             str(self.storage.get_path(self.goals_doc)),
             str(self.storage.get_path(self.records_doc)),
             str(self.storage.get_path(self.summary_doc)),
@@ -601,7 +596,7 @@ class MeetingManager:
         """生成会议纪要."""
         self.current_phase = PhaseType.SUMMARY
         self.current_round += 1
-        meet_info = f"meet<{self.config.meeting_id}, summary>"
+        meet_info = f"meet<{self.c.meeting_id}, summary>"
         logger.info(f"[meetings] {meet_info} start")
         # Write decision content to summary doc
         if not self.summary_doc:
@@ -636,7 +631,7 @@ class MeetingManager:
         )
         participants_str = ", ".join(
             f"{p.name}({'/'.join(r.value for r in p.roles)})"
-            for p in self.config.participants
+            for p in self.c.participants
         )
         return f"""# 会议纪要
 
@@ -644,9 +639,9 @@ class MeetingManager:
 
 | 字段 | 内容 |
 |------|------|
-| 会议ID | {self.config.meeting_id} |
-| 会议名称 | {self.config.meeting_name} |
-| 会议类型 | {self.config.meeting_type.value} |
+| 会议ID | {self.c.meeting_id} |
+| 会议名称 | {self.c.meeting_name} |
+| 会议类型 | {self.c.meeting_type.value} |
 | 结束时间 | {_ts()} |
 | 参会人员 | {participants_str} |
 
@@ -670,9 +665,7 @@ class MeetingManager:
         """获取 reasons JSON 文件路径（与 records.md 同级目录）."""
         if not self.records_doc:
             return (
-                WORKING_DIR
-                / "meetings"
-                / f"{self.config.meeting_id}_reasons.json"
+                WORKING_DIR / "meetings" / f"{self.c.meeting_id}_reasons.json"
             )
         # 从 records_doc.path 推导同级路径：
         # meetings/{folder}/{yyMMdd_HHMM}_records.md ->
@@ -762,16 +755,14 @@ class MeetingManager:
         Returns:
             Tuple of (Agent 响应文本, 思维链 mermaid)
         """
-        call_info = (
-            f"meet<{self.config.meeting_id}> agent[{agent.name},{agent.id}]"
-        )
+        call_info = f"meet<{self.c.meeting_id}> agent[{agent.name},{agent.id}]"
         logger.info(f"[meetings] {call_info} start")
         content, reasons = "未发言", []
         try:
             reply_agent_id = agent.id
             host = self._get_participant_by_role(RoleType.HOST)
             ask_agent_id = host.id if host else "__system__"
-            session_id = f"{self.config.meeting_id}"
+            session_id = f"{self.c.meeting_id}"
             result = await self.rpc.chat(
                 agent.endpoint.url,
                 agent.endpoint.auth_key,
@@ -801,7 +792,7 @@ class MeetingManager:
         role: RoleType,
     ) -> Optional[MeetingParticipant]:
         """根据角色获取参与者."""
-        for p in self.config.participants:
+        for p in self.c.participants:
             if p.has_role(role):
                 return p
         return None
@@ -811,19 +802,19 @@ class MeetingManager:
         role: RoleType,
     ) -> list[MeetingParticipant]:
         """根据角色获取所有参与者."""
-        return [p for p in self.config.participants if p.has_role(role)]
+        return [p for p in self.c.participants if p.has_role(role)]
 
     def _get_all_speaking_participants(self) -> list[MeetingParticipant]:
         """获取所有可以发言的参与者（包括 HOST+REPORTER）."""
-        return [p for p in self.config.participants if p.can_speak()]
+        return [p for p in self.c.participants if p.can_speak()]
 
     def _build_result(self) -> dict:
         """构建结果."""
         return {
             "status": self.status.value,
-            "meeting_id": self.config.meeting_id,
-            "meeting_name": self.config.meeting_name,
-            "meeting_type": self.config.meeting_type.value,
+            "meeting_id": self.c.meeting_id,
+            "meeting_name": self.c.meeting_name,
+            "meeting_type": self.c.meeting_type.value,
             "documents": {
                 "goals_path": self.goals_doc.path if self.goals_doc else None,
                 "records_path": self.records_doc.path
@@ -838,7 +829,7 @@ class MeetingManager:
     def get_status(self) -> dict:
         """获取会议状态."""
         return {
-            "meeting_id": self.config.meeting_id,
+            "meeting_id": self.c.meeting_id,
             "status": self.status.value,
             "current_phase": self.current_phase.value
             if self.current_phase
@@ -850,4 +841,4 @@ class MeetingManager:
     def stop(self) -> None:
         """停止会议."""
         self.status = MeetingStatus.STOPPED
-        logger.info(f"[meetings] manager<{self.config.meeting_id}> stopped")
+        logger.info(f"[meeting:{self.c.meeting_id}]stopped")

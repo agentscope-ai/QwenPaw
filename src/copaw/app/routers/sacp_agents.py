@@ -518,6 +518,7 @@ async def _probe_agent(agent: SACPAgentConfig) -> SACPAgentHealthCheckResult:
         )
     return await _agent_check_outer(agent)
 
+
 async def _agent_check_inner(
     agent: SACPAgentConfig,
 ) -> SACPAgentHealthCheckResult:
@@ -612,4 +613,3 @@ async def _agent_check_outer(
             checked_at=_now(),
             error=str(exc),
         )
-

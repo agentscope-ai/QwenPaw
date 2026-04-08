@@ -83,7 +83,7 @@ class MeetingStorage:
         )
         return f"meetings/{date_dir}/{filename}"
 
-    def get_path(self, doc: "MeetingDocument") -> Path:
+    def get_path(self, doc: "MeetingDocument|None") -> Path:
         """获取会议文档的完整路径.
 
         Args:
@@ -108,7 +108,7 @@ class MeetingStorage:
         """
         if Path(relative_path).is_absolute() or ".." in relative_path:
             logger.warning(
-                f"[meetings] storage: path outside workspace rejected: {relative_path}",
+                f"[meeting-storage] path rejected => {relative_path}",
             )
             raise ValueError(
                 f"Invalid path traversal attempt: {relative_path}",
@@ -116,7 +116,7 @@ class MeetingStorage:
         full_path = (self.workspace_dir / relative_path).resolve()
         if not full_path.is_relative_to(self.workspace_dir.resolve()):
             logger.warning(
-                f"[meetings] storage: path outside workspace rejected: {relative_path}",
+                f"[meeting-storage] path rejected => {relative_path}",
             )
             raise ValueError(f"Path outside workspace: {relative_path}")
         return full_path
@@ -136,11 +136,11 @@ class MeetingStorage:
         try:
             full_path.write_text(content, encoding="utf-8")
             logger.info(
-                f"[meetings] storage: written document: {relative_path}",
+                f"[meeting-storage] written to {relative_path}",
             )
         except Exception as e:
             logger.error(
-                f"[meetings] storage: write doc failed: {relative_path}, err: {e}",
+                f"[meeting-storage] written failed {relative_path}, err: {e}",
             )
         return full_path
 
@@ -157,7 +157,7 @@ class MeetingStorage:
         if full_path.exists():
             return full_path.read_text(encoding="utf-8")
         logger.debug(
-            f"[meetings] storage: read doc not found: {relative_path}",
+            f"[meeting-storage] read doc not found: {relative_path}",
         )
         return ""
 
@@ -201,10 +201,10 @@ class MeetingStorage:
 
         try:
             index_path.write_text(content, encoding="utf-8")
-            logger.info(f"[meetings] storage: updated index: {meeting_id}")
+            logger.info(f"[meeting-storage] updated index: {meeting_id}")
         except Exception as e:
             logger.error(
-                f"[meetings] storage: write index failed: {index_path}, err: {e}",
+                f"[meeting-storage] write failed {index_path}, err: {e}",
             )
 
     def _format_index_entry(
@@ -256,11 +256,11 @@ class MeetingStorage:
                         filepath.unlink()
                         count += 1
                         logger.info(
-                            f"[meetings] storage: cleaned up: {filepath}",
+                            f"[meeting-storage] cleaned up: {filepath}",
                         )
                 except Exception as e:
                     logger.error(
-                        f"[meetings] storage: failed to clean {filepath}, err: {e}",
+                        f"[meeting-storage] clean failed {filepath}, err: {e}",
                     )
 
         return count

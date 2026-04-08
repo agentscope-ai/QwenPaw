@@ -101,7 +101,8 @@ class SACPEvent:
                 self.reasons.append(self.content)  # enqueue old if not empty
                 self.content = text  # update as new
         logger.info(
-            f"[sacp-event] <{self.id}> done: '{self.content[:CONTENT_LOG_LEN]}'",
+            f"[sacp-event] <{self.id}> done:"
+            f"'{self.content[:CONTENT_LOG_LEN]}'",
         )
         if not self._done.done():
             self._done.set_result("done")
@@ -116,7 +117,8 @@ class SACPEvent:
             await asyncio.wait([self._done], timeout=timeout)
         except Exception as e:
             logger.info(
-                f"[sacp-event] <{self.id}> failed:{e}, traceback:{traceback.format_exc()}",
+                f"[sacp-event] <{self.id}> failed:{e},"
+                f" traceback:{traceback.format_exc()}",
             )
         async with self._lck:
             return (
@@ -316,7 +318,8 @@ class SACPChannel(BaseChannel):
         text = self._extract_text_from_event(event)
         sess_event = await self._sess_events.get_event(session_id)
         logger.info(
-            f"[sacp] <{session_id},{status}> response: '{text[:CONTENT_LOG_LEN]}'",
+            f"[sacp] <{session_id},{status}> response:"
+            f"'{text[:CONTENT_LOG_LEN]}'",
         )
         _ = await sess_event.mark_done(text)
 
@@ -334,6 +337,7 @@ class SACPChannel(BaseChannel):
         ok, content, reasons = await sess_event.wait_done(timeout)
         seconds = (datetime.now() - start).total_seconds()
         logger.info(
-            f"[sacp] <{session_id},{ok},{len(reasons)}) in {seconds}s got content:{content[:CONTENT_LOG_LEN]}",
+            f"[sacp] <{session_id},{ok},{len(reasons)}) in {seconds}s"
+            f"got content:{content[:CONTENT_LOG_LEN]}",
         )
         return content, reasons
