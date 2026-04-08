@@ -65,6 +65,25 @@ _MEDIA_MSGTYPE: Dict[str, str] = {
     "file": "file",
 }
 
+# Mapping for quoted media types: msgtype → (filename_hint, ContentClass,
+# content_kwargs, url_field_name).  Used by _on_message to build content
+# parts from quoted image / file / video items.
+_QUOTE_MEDIA_MAP = {
+    "image": (
+        "image.jpg",
+        ImageContent,
+        {"type": ContentType.IMAGE},
+        "image_url",
+    ),
+    "file": (None, FileContent, {"type": ContentType.FILE}, "file_url"),
+    "video": (
+        "video.mp4",
+        VideoContent,
+        {"type": ContentType.VIDEO},
+        "video_url",
+    ),
+}
+
 
 class WecomChannel(BaseChannel):
     """WeCom AI Bot channel: WebSocket receive and send.
@@ -453,6 +472,72 @@ class WecomChannel(BaseChannel):
                                 text_parts.append("[image: download failed]")
             else:
                 text_parts.append(f"[{msgtype}]")
+
+            # Handle quoted (replied-to) message if present
+            quote = body.get("quote")
+            if quote:
+                quote_type = quote.get("msgtype") or ""
+                # Flatten quote into a list of items for unified processing.
+                # Single-type quotes become a one-element list; mixed quotes
+                # already contain a list of items.
+                if quote_type == "mixed":
+                    quoted_items = quote.get("mixed", {}).get("msg_item", [])
+                elif quote_type:
+                    quoted_items = [quote]
+                else:
+                    quoted_items = []
+
+                for q_item in quoted_items:
+                    q_type = q_item.get("msgtype") or ""
+                    if q_type == "text":
+                        quoted_text = (
+                            (q_item.get("text") or {})
+                            .get("content", "")
+                            .strip()
+                        )
+                        if quoted_text:
+                            text_parts.insert(
+                                0,
+                                f"[quoted message: {quoted_text}]",
+                            )
+                    elif q_type in _QUOTE_MEDIA_MAP:
+                        (
+                            hint_default,
+                            content_cls,
+                            content_kwargs,
+                            url_field,
+                        ) = _QUOTE_MEDIA_MAP[q_type]
+                        q_data = q_item.get(q_type) or {}
+                        q_url = q_data.get("url") or ""
+                        q_aes_key = q_data.get("aeskey") or ""
+                        hint = (
+                            hint_default
+                            or q_data.get("filename")
+                            or "file.bin"
+                        )
+                        if q_url:
+                            q_path = await self._download_media(
+                                q_url,
+                                aes_key=q_aes_key,
+                                filename_hint=hint,
+                            )
+                            if q_path:
+                                content_parts.append(
+                                    content_cls(
+                                        **content_kwargs,
+                                        **{url_field: q_path},
+                                    ),
+                                )
+                            else:
+                                text_parts.insert(
+                                    0,
+                                    f"[quoted {q_type}: download failed]",
+                                )
+                    else:
+                        text_parts.insert(
+                            0,
+                            f"[quoted {q_type} message]",
+                        )
 
             text = "\n".join(text_parts).strip()
             if text:
@@ -937,8 +1022,40 @@ class WecomChannel(BaseChannel):
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _ensure_stdio() -> None:
+        """Redirect broken stdout/stderr to devnull (Windows daemon)."""
+        for name in ("stdout", "stderr"):
+            stream = getattr(sys, name, None)
+            needs_fix = stream is None
+            if not needs_fix:
+                try:
+                    stream.write("")
+                    stream.flush()
+                except (
+                    OSError,
+                    ValueError,
+                    AttributeError,
+                    TypeError,
+                ):
+                    needs_fix = True
+            if needs_fix:
+                setattr(
+                    sys,
+                    name,
+                    open(  # noqa: SIM115  pylint: disable=consider-using-with
+                        os.devnull,
+                        "w",
+                        encoding="utf-8",
+                    ),
+                )
+
     def _run_ws_forever(self) -> None:
         """Background thread: run SDK event loop forever."""
+        # Windows daemon fix: aibot SDK logger calls print() which
+        # crashes when stdout is detached.  Ensure streams are valid.
+        self._ensure_stdio()
+
         # macOS/Python 3.12+ fix: use SelectorEventLoop explicitly
         if sys.platform == "darwin":
             ws_loop = asyncio.SelectorEventLoop()

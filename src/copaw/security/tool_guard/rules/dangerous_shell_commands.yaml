@@ -17,6 +17,10 @@
   severity: HIGH
   patterns:
     - "\\brm\\b"
+    - "\\bdel\\b"
+    - "\\bRemove-Item\\b"
+  exclude_patterns:
+    - "^\\s*#"
   description: "Shell command contains 'rm' which may cause data loss"
   remediation: "Confirm with the user before removing files or directories"
 

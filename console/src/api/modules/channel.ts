@@ -26,15 +26,18 @@ export const channelApi = {
       },
     ),
 
-  getWeixinQrcode: () =>
-    request<{ qrcode_img: string; qrcode: string }>(
-      "/config/channels/weixin/qrcode",
+  getChannelQrcode: (channel: string) =>
+    request<{ qrcode_img: string; poll_token: string }>(
+      `/config/channels/${encodeURIComponent(channel)}/qrcode`,
     ),
 
-  getWeixinQrcodeStatus: (qrcode: string) =>
-    request<{ status: string; bot_token: string; base_url: string }>(
-      `/config/channels/weixin/qrcode/status?qrcode=${encodeURIComponent(
-        qrcode,
-      )}`,
+  getChannelQrcodeStatus: (channel: string, token: string) =>
+    request<{
+      status: string;
+      credentials: Record<string, string>;
+    }>(
+      `/config/channels/${encodeURIComponent(
+        channel,
+      )}/qrcode/status?token=${encodeURIComponent(token)}`,
     ),
 };

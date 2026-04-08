@@ -58,6 +58,14 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
+[2026-04-04] We released v1.0.1! See the [v1.0.1 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
+
+- **[v1.0.1] Added:** Zhipu AI model support; video analysis for multimodal models; per-model generate parameters configuration; CoPaw local provider auto-update mechanism; OneBot v11 channel for NapCat/QQ; Agent drag-and-drop ordering; Batch skill operations; WeChat file upload and typing improvements; Extra instructions for manual compact.
+- **[v1.0.1] Changed:** Website UI modernization; enhanced skill card and list view; MCP console UI refresh.
+- **[v1.0.1] Fixed:** DingTalk sessionWebhook and allowlist handling; WeCom WebSocket reliability; QQ reconnect state; console UI fixes; Windows tool compatibility; browser idle watchdog; tool guard with thinking models; llama.cpp Windows NVIDIA GPU support.
+- **[v1.0.1] Documentation:** CoPaw-Flash deployment FAQ; skill documentation updates.
+- **[v1.0.1] Contributors:** Thanks to new contributors: [@Jacky51351684](https://github.com/Jacky51351684), [@xianzhisheng](https://github.com/xianzhisheng), [@kobewl](https://github.com/kobewl), [@rikey123](https://github.com/rikey123), [@solarhell](https://github.com/solarhell).
+
 [2026-03-30] We released v1.0.0! See the [v1.0.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
 - **[v1.0.0] Added:**
@@ -392,6 +400,7 @@ CoPaw includes multi-layer security mechanisms to protect your data and system:
 - **File access guard** — Restricts agent access to sensitive paths (e.g., `~/.ssh`, key files, system directories, etc.)
 - **Skill security scanning** — Automatically scans before installing skills, detecting risks like prompt injection, command injection, hardcoded keys, data exfiltration, etc.
 - **Local deployment** — All data and memory stored locally, no third-party upload (when using cloud LLM APIs, conversation content is sent to the corresponding API provider)
+- **Web Authentication** — Optional login protection for the Console. Disabled by default; set `COPAW_AUTH_ENABLED=true` to enable. See [Web Authentication](https://copaw.agentscope.io/docs/security#Web-Authentication) for details.
 
 See [Security documentation](https://copaw.agentscope.io/docs/security) for details.
 

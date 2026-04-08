@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from agentscope_runtime.engine.schemas.agent_schemas import Message
 
 from ..channels.schema import DEFAULT_CHANNEL
@@ -45,6 +45,19 @@ class ChatSpec(BaseModel):
         default="idle",
         description="Conversation status: idle or running",
     )
+
+
+class ChatUpdate(BaseModel):
+    """Mutable chat fields accepted from external clients.
+
+    Chat identity and system-managed fields stay read-only. The update API is
+    currently used for renaming chats, so only externally mutable fields belong
+    here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, description="Chat name")
 
 
 class ChatHistory(BaseModel):

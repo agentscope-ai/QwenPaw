@@ -121,7 +121,6 @@ function SessionsPage() {
       setSaving(true);
       try {
         const updated = {
-          ...editingSession,
           name: values.name,
         };
         const success = await updateSession(editingSession.id, updated);

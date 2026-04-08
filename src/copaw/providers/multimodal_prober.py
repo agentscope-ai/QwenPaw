@@ -10,12 +10,12 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# 16x16 red PNG (82 bytes), used as minimal probe image.
-# Some providers (e.g. DashScope) reject images smaller than 10x10,
-# so we use 16x16 to avoid false negatives.
+# 32x32 red PNG (96 bytes), used as minimal probe image.
+# Some providers (e.g. Ollama) reject images smaller than 32x32,
+# so we use 32x32 to avoid false negatives.
 _PROBE_IMAGE_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4"
-    "nGP4z8DwnxLMMGrAqAGjBgwXAwAwxP4QHCfkAAAAAABJRU5ErkJggg=="
+    "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAJ0lEQVR42u3NsQkAAAjA"
+    "sP7/tF7hIASyp6lTCQQCgUAgEAgEgi/BAjLD/C5w/SM9AAAAAElFTkSuQmCC"
 )
 
 # HTTP URL for providers that accept external video

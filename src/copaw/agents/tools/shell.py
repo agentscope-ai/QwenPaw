@@ -240,6 +240,12 @@ async def execute_shell_command(
 
     cmd = _collapse_embedded_newlines((command or "").strip())
 
+    if isinstance(timeout, str):
+        try:
+            timeout = int(timeout)
+        except (ValueError, TypeError):
+            pass
+
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:
         working_dir = cwd

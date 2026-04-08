@@ -135,6 +135,10 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
   }
 
+  &.hover {
+    border: 1px solid rgba(0, 0, 0, 0.04);
+  }
+
   :global(.ant-card-body) {
     display: flex;
     flex-direction: column;
@@ -239,7 +243,6 @@
   font-weight: 500;
   background-color: rgba(29, 212, 215, 0.15);
   color: rgba(29, 212, 215, 1);
-  border: 1px solid rgba(29, 212, 215, 0.25);
 }
 
 .statusContainer {
@@ -828,6 +831,25 @@
   white-space: nowrap;
 }
 
+.localStatusBadgeButton {
+  cursor: pointer;
+  appearance: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  outline: none;
+}
+
+.localStatusBadgeButton:hover {
+  filter: brightness(0.98);
+}
+
+.localStatusBadgeAction {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #60a5fa;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.12);
+}
+
 .localStatusBadgeInstalled,
 .localStatusBadgeRunning {
   color: rgba(20, 184, 166, 1);
@@ -1030,23 +1052,6 @@
   gap: 10px;
 }
 
-.localStatusActionPill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  box-sizing: border-box;
-}
-
 .localStatusHint {
   color: #7a7f8f;
   font-size: 12px;
@@ -1226,6 +1231,13 @@
     border-color: rgba(59, 130, 246, 0.28);
   }
 
+  .localStatusBadgeAction {
+    color: #bfdbfe;
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(96, 165, 250, 0.4);
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.12);
+  }
+
   .localStatusActionPill {
     color: #93c5fd;
     background: rgba(59, 130, 246, 0.12);
@@ -1280,7 +1292,6 @@
   .localTag {
     background-color: rgba(29, 212, 215, 0.15);
     color: rgba(29, 212, 215, 1);
-    border-color: rgba(29, 212, 215, 0.3);
   }
 
   .infoRow {

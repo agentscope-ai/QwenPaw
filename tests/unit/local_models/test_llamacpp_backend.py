@@ -15,6 +15,15 @@ import httpx
 import pytest
 
 import copaw.local_models.llamacpp as downloader_module
+from copaw.local_models.download_manager import (
+    DownloadTaskResult,
+    DownloadTaskStatus,
+)
+from copaw.utils.command_runner import (
+    CommandExecutionError,
+    CommandResult,
+    ShutdownResult,
+)
 from copaw.local_models.llamacpp import LlamaCppBackend
 
 
@@ -170,7 +179,7 @@ class _FakeHttpxClient:
 def _make_zip_payload() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("bin/server.exe", "zip-binary")
+        archive.writestr("llama-b1234/bin/server.exe", "zip-binary")
     return buffer.getvalue()
 
 
@@ -187,10 +196,13 @@ def _make_tar_gz_payload() -> bytes:
 def _make_tar_gz_payload_with_top_level_dir() -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-        content = b"tar-binary"
-        info = tarfile.TarInfo(name="llama-b1234/bin/server")
-        info.size = len(content)
-        archive.addfile(info, io.BytesIO(content))
+        for name, content in {
+            "llama-b1234/server": b"tar-binary",
+            "llama-b1234/llama-cli": b"cli-binary",
+        }.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
     return buffer.getvalue()
 
 
@@ -217,10 +229,7 @@ def _build_downloader(
         "get_macos_version",
         lambda: (13, 0),
     )
-    return LlamaCppBackend(
-        base_url="https://example.com/releases",
-        release_tag="b1234",
-    )
+    return LlamaCppBackend()
 
 
 def test_init_rejects_macos_lower_than_13(
@@ -247,10 +256,7 @@ def test_init_rejects_macos_lower_than_13(
         lambda: (12, 7, 6),
     )
 
-    llamacpp = LlamaCppBackend(
-        base_url="https://example.com/releases",
-        release_tag="b1234",
-    )
+    llamacpp = LlamaCppBackend()
     ok, message = llamacpp.check_llamacpp_installability()
     assert not ok
     assert (
@@ -282,12 +288,175 @@ def test_init_allows_macos_13_and_above(
         lambda: (13, 3),
     )
 
-    downloader = LlamaCppBackend(
-        base_url="https://example.com/releases",
-        release_tag="b1234",
-    )
+    downloader = LlamaCppBackend()
 
     assert downloader.os_name == "macos"
+
+
+@pytest.mark.asyncio
+async def test_list_devices_returns_trimmed_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    calls: list[list[str]] = []
+
+    base_stderr = """
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.030 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple7  (1007)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 11453.25 MB
+Available devices:
+"""
+
+    async def fake_run_command_async(
+        command: list[str],
+        **_kwargs: Any,
+    ) -> CommandResult:
+        del _kwargs
+        calls.append(command)
+        return CommandResult(
+            command=command,
+            returncode=0,
+            stdout="",
+            stderr=base_stderr,
+        )
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module,
+        "run_command_async",
+        fake_run_command_async,
+    )
+
+    assert await downloader.list_devices() == []
+    assert calls == [[str(downloader.executable), "--list-devices"]]
+
+    base_stderr = (
+        base_stderr
+        + """
+  MTL0: Apple M1 Pro (10922 MiB, 10922 MiB free)
+  BLAS: Accelerate (0 MiB, 0 MiB free)"""
+    )
+
+    assert await downloader.list_devices() == [
+        "MTL0: Apple M1 Pro (10922 MiB, 10922 MiB free)",
+        "BLAS: Accelerate (0 MiB, 0 MiB free)",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_version_reads_stderr_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+
+    async def fake_run_command_async(
+        command: list[str],
+        **_kwargs: Any,
+    ) -> CommandResult:
+        del _kwargs
+        return CommandResult(
+            command=command,
+            returncode=0,
+            stdout="",
+            stderr="""
+ggml_metal_device_init: tensor API disabled for pre-M5 and pre-A19 devices
+ggml_metal_library_init: using embedded metal library
+ggml_metal_library_init: loaded in 0.009 sec
+ggml_metal_rsets_init: creating a residency set collection (keep_alive = 180 s)
+ggml_metal_device_init: GPU name:   MTL0
+ggml_metal_device_init: GPU family: MTLGPUFamilyApple7  (1007)
+ggml_metal_device_init: GPU family: MTLGPUFamilyCommon3 (3003)
+ggml_metal_device_init: GPU family: MTLGPUFamilyMetal3  (5001)
+ggml_metal_device_init: simdgroup reduction   = true
+ggml_metal_device_init: simdgroup matrix mul. = true
+ggml_metal_device_init: has unified memory    = true
+ggml_metal_device_init: has bfloat            = true
+ggml_metal_device_init: has tensor            = false
+ggml_metal_device_init: use residency sets    = true
+ggml_metal_device_init: use shared buffers    = true
+ggml_metal_device_init: recommendedMaxWorkingSetSize  = 11453.25 MB
+version: 8514 (406f4e3f6)
+built with AppleClang 15.0.0.15000309 for Darwin arm64""",
+        )
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module,
+        "run_command_async",
+        fake_run_command_async,
+    )
+
+    assert await downloader.get_version() == "8514"
+
+
+@pytest.mark.asyncio
+async def test_get_version_raises_when_command_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+
+    async def fake_run_command_async(
+        command: list[str],
+        **_kwargs: Any,
+    ) -> CommandResult:
+        del _kwargs
+        raise CommandExecutionError(
+            command,
+            "boom",
+            returncode=1,
+            stderr="boom",
+        )
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module,
+        "run_command_async",
+        fake_run_command_async,
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await downloader.get_version()
+
+
+@pytest.mark.asyncio
+async def test_list_devices_raises_when_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (False, "llama.cpp is not installed"),
+    )
+
+    with pytest.raises(RuntimeError, match="llama.cpp is not installed"):
+        await downloader.list_devices()
 
 
 @pytest.mark.parametrize(
@@ -325,56 +494,49 @@ def test_init_maps_supported_windows_cuda_versions(
         lambda: None,
     )
 
-    downloader = LlamaCppBackend(
-        base_url="https://example.com/releases",
-        release_tag="b1234",
-    )
+    downloader = LlamaCppBackend()
 
     assert downloader.cuda_version == expected
 
 
-def _patch_urlopen(
+def _patch_httpx_client(
     monkeypatch: pytest.MonkeyPatch,
     payload: bytes,
     *,
     chunk_delay: float = 0.0,
-) -> None:
+    status_code: int = 200,
+    exc: Exception | None = None,
+) -> _FakeHttpxClient:
+    fake_client = _FakeHttpxClient(
+        payload,
+        chunk_delay=chunk_delay,
+        status_code=status_code,
+        exc=exc,
+    )
     monkeypatch.setattr(
         downloader_module.httpx,
         "Client",
-        lambda **kwargs: _FakeHttpxClient(
-            payload,
-            chunk_delay=chunk_delay,
-        ),
+        lambda **kwargs: fake_client,
     )
+    return fake_client
 
 
-def _patch_download_url(
-    monkeypatch: pytest.MonkeyPatch,
-    url: str,
-) -> None:
-    monkeypatch.setattr(
-        LlamaCppBackend,
-        "download_url",
-        property(lambda self: url),
-    )
+class _FakeDownloadController:
+    def __init__(self) -> None:
+        self.started_spec = None
+        self.cancel_called = False
+        self.active = False
 
+    def start(self, spec) -> None:
+        self.started_spec = spec
+        self.active = True
 
-async def _wait_for_status(
-    downloader: LlamaCppBackend,
-    *statuses: str,
-    timeout: float = 3.0,
-) -> dict[str, object]:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        progress = downloader.get_download_progress()
-        if progress["status"] in statuses:
-            return progress
-        await asyncio.sleep(0.05)
-    raise AssertionError(
-        "Timed out waiting for statuses "
-        f"{statuses}, got {downloader.get_download_progress()}",
-    )
+    def cancel(self) -> None:
+        self.cancel_called = True
+        self.active = False
+
+    def is_active(self) -> bool:
+        return self.active
 
 
 def test_get_download_progress_returns_idle_by_default(
@@ -394,61 +556,37 @@ def test_get_download_progress_returns_idle_by_default(
     }
 
 
-@pytest.mark.asyncio
-async def test_download_supports_progress_polling(
+def test_start_download_delegates_to_process_controller(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
-    dest = tmp_path / "tar-install"
-    downloader.target_dir = dest
-    url = (
+    downloader.target_dir = tmp_path / "install"
+    controller = _FakeDownloadController()
+    downloader.__dict__["_download_controller"] = controller
+
+    downloader.start_download(
+        base_url="https://example.com/releases",
+        tag="b1234",
+        chunk_size=64,
+        timeout=15,
+    )
+
+    assert controller.started_spec is not None
+    assert controller.started_spec.command == [
+        "copaw-llamacpp-download",
+        "https://example.com/releases/b1234/"
+        "llama-b1234-bin-ubuntu-x64.tar.gz",
+    ]
+    assert controller.started_spec.source == (
         "https://example.com/releases/b1234/"
         "llama-b1234-bin-ubuntu-x64.tar.gz"
     )
-
-    _patch_urlopen(monkeypatch, _make_tar_gz_payload())
-    _patch_download_url(monkeypatch, url)
-
-    downloader.download()
-    progress = await _wait_for_status(downloader, "completed")
-
-    assert dest.is_dir()
-    assert (dest / "bin" / "server").read_text() == "tar-binary"
-    assert progress["status"] == "completed"
-    assert progress["source"] == url
-    assert progress["local_path"] == str(dest)
-    assert progress["downloaded_bytes"] == progress["total_bytes"]
-    assert not list(dest.glob("*.tar.gz"))
-    assert not list(dest.glob("*.part"))
-
-
-@pytest.mark.asyncio
-async def test_download_extracts_zip_into_dest(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    downloader = _build_downloader(monkeypatch)
-    dest = tmp_path / "zip-install"
-    downloader.target_dir = dest
-
-    _patch_urlopen(monkeypatch, _make_zip_payload())
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
-        ),
+    assert controller.started_spec.task.payload["chunk_size"] == 64
+    assert controller.started_spec.task.payload["timeout"] == 15
+    assert controller.started_spec.task.payload["file_name"] == (
+        "llama-b1234-bin-ubuntu-x64.tar.gz"
     )
-
-    downloader.download()
-    progress = await _wait_for_status(downloader, "completed")
-
-    assert dest.is_dir()
-    assert (dest / "bin" / "server.exe").read_text() == "zip-binary"
-    assert progress["status"] == "completed"
-    assert not list(dest.glob("*.zip"))
-    assert not list(dest.glob("*.part"))
 
 
 @pytest.mark.asyncio
@@ -462,219 +600,188 @@ async def test_download_rejects_existing_file_dest(
     downloader.target_dir = dest_file
 
     with pytest.raises(ValueError, match="dest must be a directory path"):
-        downloader.download()
+        downloader.download(
+            base_url="https://example.com/releases",
+            tag="b1234",
+        )
 
 
-def test_download_sync_closes_temp_fd_before_request_failure(
+def test_download_worker_emits_failure_result(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
-    dest = tmp_path / "request-failure-install"
-    closed_fds: list[int] = []
-    created_temp_path: Path | None = None
-
-    original_mkstemp = downloader_module.tempfile.mkstemp
-    original_close = downloader_module.os.close
-
-    def tracked_mkstemp(*args: Any, **kwargs: Any) -> tuple[int, str]:
-        nonlocal created_temp_path
-        fd, temp_name = original_mkstemp(*args, **kwargs)
-        created_temp_path = Path(temp_name)
-        return fd, temp_name
-
-    def tracked_close(fd: int) -> None:
-        closed_fds.append(fd)
-        original_close(fd)
-
-    monkeypatch.setattr(
-        downloader_module.tempfile,
-        "mkstemp",
-        tracked_mkstemp,
-    )
-    monkeypatch.setattr(downloader_module.os, "close", tracked_close)
     request = httpx.Request("GET", "https://example.com/fail")
-    monkeypatch.setattr(
-        downloader_module.httpx,
-        "Client",
-        lambda **kwargs: _FakeHttpxClient(
-            b"",
-            exc=httpx.ReadError("boom", request=request),
-        ),
+    download_url = (
+        "https://example.com/releases/b1234/llama-b1234-bin-win-cpu-x64.zip"
     )
-    _patch_download_url(
+    _patch_httpx_client(
         monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
-        ),
+        b"",
+        exc=httpx.ReadError("boom", request=request),
     )
 
-    with pytest.raises(httpx.ReadError, match="boom"):
-        downloader._download_sync(dest)
+    messages: list[dict[str, object]] = []
 
-    assert created_temp_path is not None
-    assert closed_fds
-    assert not created_temp_path.exists()
+    class _Queue:
+        def put(self, item):
+            messages.append(item)
+
+    downloader._download_worker(
+        {
+            "url": download_url,
+            "staging_dir": str(tmp_path / "failure"),
+            "file_name": "llama-b1234-bin-win-cpu-x64.zip",
+            "chunk_size": 64,
+            "timeout": 30,
+            "headers": downloader._download_headers,
+        },
+        _Queue(),
+    )
+
+    assert messages[-1]["type"] == "result"
+    assert isinstance(messages[-1]["payload"], dict)
+    assert messages[-1]["payload"]["status"] == "failed"
+    assert messages[-1]["payload"]["error"] == (
+        "Unable to connect to the llama.cpp download server. "
+        f"Request URL: {download_url}."
+    )
 
 
-def test_download_sync_uses_browser_like_headers(
+@pytest.mark.parametrize(
+    ("status_code", "expected_error"),
+    [
+        (
+            403,
+            "llama.cpp download address is unavailable or access is denied "
+            "(HTTP 403). Please verify the requested version, or check "
+            "whether your hardware or operating system version is "
+            "supported.",
+        ),
+        (
+            404,
+            "llama.cpp download package was not found (HTTP 404). The "
+            "requested version may not exist, is no longer available, or "
+            "your hardware or operating system version is not supported.",
+        ),
+    ],
+)
+def test_download_worker_maps_http_status_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    status_code: int,
+    expected_error: str,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
-    dest = tmp_path / "header-install"
-    fake_client = _FakeHttpxClient(_make_zip_payload())
-
-    monkeypatch.setattr(
-        downloader_module.httpx,
-        "Client",
-        lambda **kwargs: fake_client,
+    download_url = (
+        "https://example.com/releases/b1234/llama-b1234-bin-win-cpu-x64.zip"
     )
-    _patch_download_url(
+    _patch_httpx_client(
         monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
-        ),
+        b"",
+        status_code=status_code,
     )
 
-    downloader._download_sync(dest)
+    messages: list[dict[str, object]] = []
 
-    assert fake_client.stream_calls == [
-        (
-            "GET",
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip",
-            downloader._download_headers,
-        ),
-    ]
+    class _Queue:
+        def put(self, item):
+            messages.append(item)
+
+    downloader._download_worker(
+        {
+            "url": download_url,
+            "staging_dir": str(tmp_path / f"failure-{status_code}"),
+            "file_name": "llama-b1234-bin-win-cpu-x64.zip",
+            "chunk_size": 64,
+            "timeout": 30,
+            "headers": downloader._download_headers,
+        },
+        _Queue(),
+    )
+
+    assert messages[-1]["type"] == "result"
+    assert isinstance(messages[-1]["payload"], dict)
+    assert messages[-1]["payload"]["status"] == "failed"
+    assert messages[-1]["payload"]["error"] == expected_error
 
 
-@pytest.mark.asyncio
-async def test_cancel_download_updates_status_and_cleans_temp_file(
+def test_cancel_download_delegates_to_controller(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
-    dest = tmp_path / "cancel-install"
-    downloader.target_dir = dest
-
-    _patch_urlopen(
-        monkeypatch,
-        _make_zip_payload() * 32,
-        chunk_delay=0.02,
-    )
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
-        ),
-    )
-
-    downloader.download(chunk_size=64)
-
-    await _wait_for_status(downloader, "downloading")
-    deadline = asyncio.get_running_loop().time() + 3.0
-    while asyncio.get_running_loop().time() < deadline:
-        if downloader.get_download_progress()["downloaded_bytes"] > 0:
-            break
-        await asyncio.sleep(0.02)
+    controller = _FakeDownloadController()
+    downloader.__dict__["_download_controller"] = controller
 
     downloader.cancel_download()
-    progress = await _wait_for_status(downloader, "cancelled")
 
-    assert progress["status"] == "cancelled"
-    assert progress["speed_bytes_per_sec"] == 0.0
-    assert progress["local_path"] is None
-    assert not list(dest.glob("*.part"))
+    assert controller.cancel_called is True
 
 
-@pytest.mark.asyncio
-async def test_download_starts_background_task(
+def test_finalize_download_result_moves_staging_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
-    dest = tmp_path / "task-install"
-    downloader.target_dir = dest
+    staging_dir = tmp_path / "staging"
+    final_dir = tmp_path / "final"
+    staging_dir.mkdir()
+    (staging_dir / "bin").mkdir()
+    (staging_dir / "bin" / "server").write_text("tar-binary")
 
-    _patch_urlopen(monkeypatch, _make_zip_payload())
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
+    result, downloaded_bytes = downloader._finalize_download_result(
+        DownloadTaskResult(
+            status=DownloadTaskStatus.COMPLETED,
+            local_path=str(staging_dir),
         ),
+        staging_dir=staging_dir,
+        final_dir=final_dir,
     )
 
-    downloader.download()
-    progress = await _wait_for_status(downloader, "completed")
+    assert result.local_path == str(final_dir)
+    assert downloaded_bytes is None
+    assert not staging_dir.exists()
+    assert (final_dir / "bin" / "server").read_text() == "tar-binary"
 
-    assert progress["status"] == "completed"
-    assert (dest / "bin" / "server.exe").read_text() == "zip-binary"
 
-
-@pytest.mark.asyncio
-async def test_download_ignores_stale_part_file_from_previous_attempt(
+def test_download_worker_flattens_single_top_level_archive_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
-    dest = tmp_path / "stale-part-install"
-    downloader.target_dir = dest
-    dest.mkdir(parents=True)
-
-    stale_part = dest / "llama-b1234-bin-win-cpu-x64.zip.part"
-    stale_part.write_text("stale")
-
-    _patch_urlopen(monkeypatch, _make_zip_payload())
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-win-cpu-x64.zip"
-        ),
+    staging_dir = tmp_path / "flattened-install"
+    download_url = (
+        "https://example.com/releases/b1234/"
+        "llama-b1234-bin-ubuntu-x64.tar.gz"
     )
-
-    downloader.download()
-    progress = await _wait_for_status(downloader, "completed")
-
-    assert progress["status"] == "completed"
-    assert (dest / "bin" / "server.exe").read_text() == "zip-binary"
-    assert stale_part.exists()
-    assert stale_part.read_text() == "stale"
-    assert not list(dest.glob("*.zip"))
-
-
-@pytest.mark.asyncio
-async def test_download_flattens_single_top_level_archive_dir(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    downloader = _build_downloader(monkeypatch)
-    dest = tmp_path / "flattened-install"
-    downloader.target_dir = dest
-
-    _patch_urlopen(
+    _patch_httpx_client(
         monkeypatch,
         _make_tar_gz_payload_with_top_level_dir(),
     )
-    _patch_download_url(
-        monkeypatch,
-        (
-            "https://example.com/releases/b1234/"
-            "llama-b1234-bin-ubuntu-x64.tar.gz"
-        ),
+
+    messages: list[dict[str, object]] = []
+
+    class _Queue:
+        def put(self, item):
+            messages.append(item)
+
+    downloader._download_worker(
+        {
+            "url": download_url,
+            "staging_dir": str(staging_dir),
+            "file_name": "llama-b1234-bin-ubuntu-x64.tar.gz",
+            "chunk_size": 64,
+            "timeout": 30,
+            "headers": downloader._download_headers,
+        },
+        _Queue(),
     )
 
-    downloader.download()
-    progress = await _wait_for_status(downloader, "completed")
-
-    assert progress["local_path"] == str(dest)
-    assert (dest / "bin" / "server").read_text() == "tar-binary"
-    assert not (dest / "llama-b1234").exists()
+    assert (staging_dir / "server").read_text() == "tar-binary"
+    assert (staging_dir / "llama-cli").read_text() == "cli-binary"
+    assert not (staging_dir / "llama-b1234").exists()
+    assert isinstance(messages[-1]["payload"], dict)
+    assert messages[-1]["payload"]["status"] == "completed"
 
 
 @pytest.mark.asyncio
@@ -685,34 +792,45 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     downloader = _build_downloader(monkeypatch)
     model_path = tmp_path / "demo.gguf"
     model_path.write_text("gguf")
-    fake_popen = _FakePopen()
-    popen_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    start_calls: list[tuple[list[str], dict[str, object]]] = []
 
-    async def fail_create_subprocess_exec(*args, **kwargs):
-        raise NotImplementedError
+    class _FakeAsyncStdout:
+        async def readline(self) -> bytes:
+            return b""
 
-    def fake_popen_factory(*args, **kwargs):
-        popen_calls.append((args, kwargs))
-        return fake_popen
+    class _FakeStartedProcess:
+        def __init__(self) -> None:
+            self.pid = 2468
+            self.stdout = _FakeAsyncStdout()
+            self.returncode: int | None = None
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_start_command_async(command, **kwargs):
+        start_calls.append((list(command), kwargs))
+        return _FakeStartedProcess()
 
     async def fake_server_ready(*_args, **_kwargs) -> bool:
         return True
 
-    monkeypatch.setattr(downloader_module.os, "name", "nt", raising=False)
+    downloader.os_name = "windows"
     monkeypatch.setattr(
         downloader,
         "check_llamacpp_installation",
         lambda: (True, ""),
     )
     monkeypatch.setattr(
-        downloader_module.asyncio,
-        "create_subprocess_exec",
-        fail_create_subprocess_exec,
-    )
-    monkeypatch.setattr(
-        downloader_module.subprocess,
-        "Popen",
-        fake_popen_factory,
+        downloader_module,
+        "start_command_async",
+        fake_start_command_async,
     )
     monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
 
@@ -724,62 +842,207 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
         "running": True,
         "port": port,
         "model_name": "demo-model",
-        "pid": fake_popen.pid,
+        "pid": 2468,
     }
-    assert popen_calls == [
+    assert start_calls == [
         (
-            (
-                [
-                    str(downloader.executable),
-                    "--host",
-                    "127.0.0.1",
-                    "--port",
-                    str(port),
-                    "--model",
-                    str(model_path.resolve()),
-                    "--alias",
-                    "demo-model",
-                ],
-            ),
+            [
+                str(downloader.executable),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--model",
+                str(model_path.resolve()),
+                "--alias",
+                "demo-model",
+                "--gpu-layers",
+                "auto",
+            ],
             {
-                "stdout": downloader_module.subprocess.PIPE,
-                "stderr": downloader_module.subprocess.STDOUT,
+                "stdout": downloader_module.asyncio.subprocess.PIPE,
+                "stderr": downloader_module.asyncio.subprocess.STDOUT,
             },
         ),
     ]
 
 
-def test_force_shutdown_server_kills_process_group_on_posix(
+def test_resolve_model_file_returns_single_model_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_dir = tmp_path / "text-model"
+    model_dir.mkdir()
+    model_file = model_dir / "demo-model.gguf"
+    model_file.write_text("model")
+
+    resolved_model, resolved_mmproj = downloader._resolve_model_file(
+        model_dir,
+    )
+
+    assert resolved_model == model_file.resolve()
+    assert resolved_mmproj is None
+
+
+def test_resolve_model_file_returns_model_and_mmproj(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_dir = tmp_path / "vision-model"
+    model_dir.mkdir()
+    mmproj_file = model_dir / "MMPROJ-F16.gguf"
+    model_file = model_dir / "qwen2vl-model.gguf"
+    mmproj_file.write_text("mmproj")
+    model_file.write_text("model")
+
+    resolved_model, resolved_mmproj = downloader._resolve_model_file(
+        model_dir,
+    )
+
+    assert resolved_model == model_file.resolve()
+    assert resolved_mmproj == mmproj_file.resolve()
+
+
+def test_resolve_model_file_rejects_mmproj_only_repository(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_dir = tmp_path / "broken-model"
+    model_dir.mkdir()
+    (model_dir / "mmproj-model-f16.gguf").write_text("mmproj")
+
+    with pytest.raises(RuntimeError, match="does not contain any model"):
+        downloader._resolve_model_file(model_dir)
+
+
+@pytest.mark.asyncio
+async def test_setup_server_passes_mmproj_argument(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_dir = tmp_path / "vision-model"
+    model_dir.mkdir()
+    model_file = model_dir / "model-q4.gguf"
+    mmproj_file = model_dir / "mmproj-BF16.gguf"
+    model_file.write_text("model")
+    mmproj_file.write_text("mmproj")
+    start_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    class _FakeAsyncStdout:
+        async def readline(self) -> bytes:
+            return b""
+
+    class _FakeStartedProcess:
+        def __init__(self) -> None:
+            self.pid = 1357
+            self.stdout = _FakeAsyncStdout()
+            self.returncode: int | None = None
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_start_command_async(command, **kwargs):
+        start_calls.append((list(command), kwargs))
+        return _FakeStartedProcess()
+
+    async def fake_server_ready(*_args, **_kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module,
+        "start_command_async",
+        fake_start_command_async,
+    )
+    monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
+
+    port = await downloader.setup_server(model_dir, "vision-model")
+    await asyncio.sleep(0)
+
+    assert start_calls == [
+        (
+            [
+                str(downloader.executable),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--model",
+                str(model_file.resolve()),
+                "--alias",
+                "vision-model",
+                "--gpu-layers",
+                "auto",
+                "--mmproj",
+                str(mmproj_file.resolve()),
+            ],
+            {
+                "stdout": downloader_module.asyncio.subprocess.PIPE,
+                "stderr": downloader_module.asyncio.subprocess.STDOUT,
+                "start_new_session": True,
+            },
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_server_uses_shared_shutdown_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
     process = _FakeServerProcess()
-    killed: list[tuple[int, int]] = []
-    fake_os = SimpleNamespace(
-        name="posix",
-        getpgid=lambda pid: pid,
-        killpg=lambda pgid, sig: killed.append((pgid, int(sig))),
-    )
+    calls: list[tuple[object, float]] = []
 
-    downloader._server_process = process
+    async def fake_shutdown_process(
+        proc,
+        *,
+        graceful_timeout,
+        kill_timeout=None,
+    ):
+        del kill_timeout
+        calls.append((proc, graceful_timeout))
+        return ShutdownResult(
+            command=["demo"],
+            pid=process.pid,
+            exited=True,
+            terminated_gracefully=True,
+            killed=False,
+            timed_out=False,
+            returncode=0,
+        )
+
+    downloader._server_process = cast(Any, process)
     downloader._server_port = 8080
     downloader._server_model_name = "demo"
-    downloader._server_owns_process_group = True
     downloader._server_log_task = cast(
         asyncio.Task[None],
         SimpleNamespace(done=lambda: True),
     )
 
-    monkeypatch.setattr(downloader_module, "os", fake_os)
     monkeypatch.setattr(
-        downloader,
-        "_wait_for_process_exit",
-        lambda pid, timeout: True,
+        downloader_module,
+        "shutdown_process",
+        fake_shutdown_process,
     )
 
-    downloader.force_shutdown_server()
+    await downloader.shutdown_server()
 
-    assert killed == [(process.pid, int(downloader_module.signal.SIGTERM))]
+    assert calls == [(process, 5.0)]
     assert downloader.get_server_status() == {
         "running": False,
         "port": None,
@@ -788,97 +1051,37 @@ def test_force_shutdown_server_kills_process_group_on_posix(
     }
 
 
-def test_force_shutdown_server_escalates_to_kill_when_needed(
+def test_force_shutdown_server_uses_shared_shutdown_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
     process = _FakeServerProcess()
-    signals: list[int] = []
+    calls: list[tuple[object, float, float | None]] = []
 
-    downloader._server_process = process
-    downloader._server_owns_process_group = False
+    def fake_shutdown_process_sync(proc, *, graceful_timeout, kill_timeout):
+        calls.append((proc, graceful_timeout, kill_timeout))
+        return ShutdownResult(
+            command=["demo"],
+            pid=process.pid,
+            exited=True,
+            terminated_gracefully=False,
+            killed=True,
+            timed_out=False,
+            returncode=-9,
+        )
+
+    downloader._server_process = cast(Any, process)
     downloader._server_log_task = cast(
         asyncio.Task[None],
         SimpleNamespace(done=lambda: True),
     )
 
     monkeypatch.setattr(
-        downloader,
-        "_wait_for_process_exit",
-        lambda pid, timeout: timeout < 2.0,
+        downloader_module,
+        "shutdown_process_sync",
+        fake_shutdown_process_sync,
     )
-    monkeypatch.setattr(process, "terminate", lambda: signals.append(15))
-    monkeypatch.setattr(process, "kill", lambda: signals.append(9))
 
     downloader.force_shutdown_server()
 
-    assert signals == [15, 9]
-
-
-def test_force_shutdown_server_uses_process_kill_on_windows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    downloader = _build_downloader(monkeypatch)
-    process = _FakeServerProcess()
-    signals: list[int] = []
-
-    downloader._server_process = process
-    downloader._server_owns_process_group = False
-    downloader._server_log_task = cast(
-        asyncio.Task[None],
-        SimpleNamespace(done=lambda: True),
-    )
-
-    monkeypatch.setattr(downloader_module.os, "name", "nt", raising=False)
-    monkeypatch.setattr(
-        downloader,
-        "_wait_for_process_exit",
-        lambda pid, timeout: timeout < 2.0,
-    )
-    monkeypatch.setattr(process, "terminate", lambda: signals.append(15))
-    monkeypatch.setattr(process, "kill", lambda: signals.append(9))
-
-    downloader.force_shutdown_server()
-
-    assert signals == [15, 9]
-
-
-def test_is_pid_running_uses_tasklist_on_windows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(downloader_module.os, "name", "nt", raising=False)
-
-    def fail_if_called(pid: int, sig: int) -> None:
-        raise AssertionError("os.kill should not be used on Windows")
-
-    monkeypatch.setattr(downloader_module.os, "kill", fail_if_called)
-    monkeypatch.setattr(
-        downloader_module.subprocess,
-        "check_output",
-        lambda *args, **kwargs: (
-            "Image Name                     PID Session Name        "
-            "Session#    Mem Usage\n"
-            "========================= ======== ================ "
-            "========== ============\n"
-            "llama-server.exe              4321 Console        "
-            "         1     12,000 K\n"
-        ),
-    )
-
-    assert LlamaCppBackend._is_pid_running(4321) is True
-
-
-def test_is_pid_running_uses_os_kill_on_posix(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(downloader_module.os, "name", "posix", raising=False)
-    calls: list[tuple[int, int]] = []
-
-    def fake_kill(pid: int, sig: int) -> None:
-        calls.append((pid, sig))
-        raise PermissionError()
-
-    monkeypatch.setattr(downloader_module.os, "kill", fake_kill)
-
-    assert LlamaCppBackend._is_pid_running(1234) is True
-    assert calls == [(1234, 0)]
+    assert calls == [(process, 5.0, 1.0)]

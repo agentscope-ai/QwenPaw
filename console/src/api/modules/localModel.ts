@@ -5,12 +5,16 @@ import type {
   LocalDownloadSource,
   LocalModelInfo,
   LocalServerStatus,
+  LocalServerUpdateStatus,
   StartLocalServerRequest,
 } from "../types";
 
 export const localModelApi = {
   getLocalServerStatus: () =>
     request<LocalServerStatus>("/local-models/server"),
+
+  getLocalServerUpdateStatus: () =>
+    request<LocalServerUpdateStatus>("/local-models/server/update"),
 
   startLlamacppDownload: () =>
     request<LocalActionResponse>("/local-models/server/download", {

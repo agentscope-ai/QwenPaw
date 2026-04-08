@@ -1,7 +1,22 @@
+@keyframes chatStatusBreathe {
+  0%,
+  100% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.55);
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 10px 3px rgba(20, 184, 166, 0.35);
+    transform: scale(1.12);
+  }
+}
+
 .chatSessionItem {
   position: relative;
   display: flex;
-  height: 77px;
+  min-height: 77px;
   flex-shrink: 0;
   border-radius: 6px;
   gap: 8px;
@@ -86,7 +101,17 @@
   padding-top: 14px;
 }
 
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
 .name {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
   font-weight: 500;
   line-height: 24px;
@@ -94,6 +119,29 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.statusWrap {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotIdle {
+  background: #94a3b8;
+  box-shadow: none;
+}
+
+.statusDotActive {
+  background: rgba(20, 184, 166, 1);
+  animation: chatStatusBreathe 1.6s ease-in-out infinite;
 }
 
 .metaRow {
@@ -185,6 +233,10 @@
 
   .name {
     color: rgba(255, 255, 255, 0.95);
+  }
+
+  .statusDotIdle {
+    background: rgba(255, 255, 255, 0.35);
   }
 
   .time {

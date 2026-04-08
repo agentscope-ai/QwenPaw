@@ -369,6 +369,10 @@ class DiscordChannel(BaseChannel):
         if len(text) <= max_len:
             return [text]
 
+        # Reserve space for a closing fence suffix ("\n```") that _flush()
+        # may append when a code block spans chunk boundaries.
+        fence_close_len = len("\n```")
+
         chunks: list[str] = []
         current: list[str] = []
         current_len = 0
@@ -394,7 +398,13 @@ class DiscordChannel(BaseChannel):
                     fence_open = stripped
 
             # Flush if adding this line would exceed the limit.
-            if current and current_len + len(line_with_nl) > max_len:
+            # When inside a code fence, reserve space for the closing
+            # suffix that _flush() appends.
+            reserved = fence_close_len if fence_open else 0
+            if (
+                current
+                and current_len + len(line_with_nl) + reserved > max_len
+            ):
                 saved_fence = fence_open
                 _flush()
                 current_len = 0

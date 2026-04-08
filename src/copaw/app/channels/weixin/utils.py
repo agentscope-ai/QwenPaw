@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import base64
-import random
+import secrets
 from typing import Dict
 
 
@@ -14,7 +14,7 @@ def make_headers(bot_token: str = "") -> Dict[str, str]:
     X-WECHAT-UIN: base64(str(random_uint32)) — anti-replay, per request.
     Authorization: Bearer <bot_token> — only set when token is available.
     """
-    uin_val = random.randint(0, 0xFFFFFFFF)
+    uin_val = secrets.randbelow(0xFFFFFFFF)
     uin_b64 = base64.b64encode(str(uin_val).encode()).decode()
     headers: Dict[str, str] = {
         "Content-Type": "application/json",
@@ -113,6 +113,10 @@ def aes_ecb_encrypt(data: bytes, key_b64: str) -> bytes:
 
 
 def generate_aes_key_b64() -> str:
-    """Generate a random 16-byte AES key, base64-encoded."""
-    key = bytes([random.randint(0, 255) for _ in range(16)])
+    """Generate a cryptographically secure random 16-byte AES key.
+
+    Returns:
+        Base64-encoded 16-byte AES key.
+    """
+    key = secrets.token_bytes(16)
     return base64.b64encode(key).decode()

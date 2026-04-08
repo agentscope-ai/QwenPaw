@@ -12,7 +12,6 @@ import tempfile
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -58,6 +57,9 @@ from ..utils import schedule_agent_reload
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["skills"])
+
+MAX_TAGS = 8
+MAX_TAG_LENGTH = 16
 
 
 def _scan_error_payload(exc: SkillScanError) -> dict[str, Any]:
@@ -106,6 +108,7 @@ def _scan_error_response(exc: SkillScanError) -> JSONResponse:
 class SkillSpec(SkillInfo):
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
+    tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
 
@@ -115,6 +118,7 @@ class PoolSkillSpec(SkillInfo):
     commit_text: str = ""
     sync_status: str = ""
     latest_version_text: str = ""
+    tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
 
@@ -181,12 +185,18 @@ class SkillConfigRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
-class SavePoolSkillRequest(CreateSkillRequest):
+class SavePoolSkillRequest(BaseModel):
+    name: str
+    content: str
     source_name: str | None = None
+    config: dict[str, Any] | None = None
 
 
-class SaveSkillRequest(CreateSkillRequest):
+class SaveSkillRequest(BaseModel):
+    name: str
+    content: str
     source_name: str | None = None
+    config: dict[str, Any] | None = None
 
 
 class HubInstallRequest(BaseModel):
@@ -460,19 +470,8 @@ async def _run_hub_install_task(
         await _hub_task_pop_runtime(task_id)
 
 
-def _mtime_to_iso(mtime: float) -> str:
-    """Convert a POSIX mtime float to an ISO-8601 UTC string."""
-    if not mtime:
-        return ""
-    return (
-        datetime.fromtimestamp(mtime, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-
-
 def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
-    manifest = read_skill_manifest(workspace_dir, reconcile=False)
+    manifest = read_skill_manifest(workspace_dir)
     entries = manifest.get("skills", {})
     skill_root = get_workspace_skills_dir(workspace_dir)
     specs: list[SkillSpec] = []
@@ -482,21 +481,22 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
         skill = _read_skill_from_dir(skill_dir, source)
         if skill is None:
             continue
-        mtime = _get_skill_mtime(skill_dir)
+        dump = skill.model_dump()
+        dump["tags"] = entry.get("tags") or []
         specs.append(
             SkillSpec(
-                **skill.model_dump(),
+                **dump,
                 enabled=entry.get("enabled", False),
                 channels=entry.get("channels") or ["all"],
                 config=entry.get("config") or {},
-                last_updated=_mtime_to_iso(mtime),
+                last_updated=_get_skill_mtime(skill_dir),
             ),
         )
     return specs
 
 
 def _build_pool_skill_specs() -> list[PoolSkillSpec]:
-    manifest = read_skill_pool_manifest(reconcile=False)
+    manifest = read_skill_pool_manifest()
     entries = manifest.get("skills", {})
     pool_dir = get_skill_pool_dir()
     sync_info = get_pool_builtin_sync_status()
@@ -508,10 +508,11 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
         if skill is None:
             continue
         info = sync_info.get(skill_name, {})
-        mtime = _get_skill_mtime(skill_dir)
+        dump = skill.model_dump(exclude={"version_text"})
+        dump["tags"] = entry.get("tags") or []
         specs.append(
             PoolSkillSpec(
-                **skill.model_dump(exclude={"version_text"}),
+                **dump,
                 protected=bool(entry.get("protected", False)),
                 version_text=str(entry.get("version_text", "") or ""),
                 commit_text=str(entry.get("commit_text", "") or ""),
@@ -520,7 +521,7 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     info.get("latest_version_text", "") or "",
                 ),
                 config=entry.get("config") or {},
-                last_updated=_mtime_to_iso(mtime),
+                last_updated=_get_skill_mtime(skill_dir),
             ),
         )
     return specs
@@ -780,8 +781,6 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
             skill_name=body.source_name or body.name,
             target_name=body.name,
             content=body.content,
-            references=body.references,
-            scripts=body.scripts,
             config=body.config,
         )
     except SkillScanError as exc:
@@ -1102,6 +1101,82 @@ async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
     return {"cleared": True}
 
 
+def _validate_tags(tags: list[str]) -> list[str]:
+    if len(tags) > MAX_TAGS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"At most {MAX_TAGS} tags allowed",
+        )
+    cleaned: list[str] = []
+    for t in tags:
+        t = str(t).strip()[:MAX_TAG_LENGTH]
+        if t:
+            cleaned.append(t)
+    return cleaned
+
+
+@router.put("/pool/{skill_name}/tags")
+async def update_pool_skill_tags(
+    skill_name: str,
+    tags: list[str],
+) -> dict[str, Any]:
+    tags = _validate_tags(tags)
+    updated = SkillPoolService().set_pool_skill_tags(skill_name, tags)
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail="Pool skill not found",
+        )
+    return {"updated": True, "tags": tags}
+
+
+@router.post("/batch-delete")
+async def batch_delete_skills(
+    request: Request,
+    skills: list[str],
+) -> dict[str, Any]:
+    """Auto-disable then delete each skill. Per-skill results."""
+    workspace_dir = await _request_workspace_dir(request)
+    service = SkillService(workspace_dir)
+    results: dict[str, Any] = {}
+    for skill_name in skills:
+        try:
+            service.disable_skill(skill_name)
+            deleted = service.delete_skill(skill_name)
+            results[skill_name] = {
+                "success": deleted,
+                "reason": None if deleted else "delete_failed",
+            }
+        except Exception as exc:
+            results[skill_name] = {
+                "success": False,
+                "reason": str(exc),
+            }
+    return {"results": results}
+
+
+@router.post("/pool/batch-delete")
+async def batch_delete_pool_skills(
+    skills: list[str],
+) -> dict[str, Any]:
+    """Delete multiple pool skills. Per-skill results."""
+    service = SkillPoolService()
+    results: dict[str, Any] = {}
+    for skill_name in skills:
+        try:
+            deleted = service.delete_skill(skill_name)
+            results[skill_name] = {
+                "success": deleted,
+                "reason": None if deleted else "delete_failed",
+            }
+        except Exception as exc:
+            results[skill_name] = {
+                "success": False,
+                "reason": str(exc),
+            }
+    return {"results": results}
+
+
 @router.post("/batch-disable")
 async def batch_disable_skills(
     request: Request,
@@ -1185,7 +1260,9 @@ async def delete_skill(
     skill_name: str,
 ) -> dict[str, Any]:
     workspace_dir = await _request_workspace_dir(request)
-    deleted = SkillService(workspace_dir).delete_skill(skill_name)
+    service = SkillService(workspace_dir)
+    service.disable_skill(skill_name)
+    deleted = service.delete_skill(skill_name)
     if not deleted:
         raise HTTPException(
             status_code=409,
@@ -1194,18 +1271,16 @@ async def delete_skill(
     return {"deleted": True}
 
 
-@router.get("/{skill_name}/files/{source}/{file_path:path}")
+@router.get("/{skill_name}/files/{file_path:path}")
 async def load_skill_file(
     request: Request,
     skill_name: str,
-    source: str,
     file_path: str,
 ) -> dict[str, Any]:
     workspace_dir = await _request_workspace_dir(request)
     content = SkillService(workspace_dir).load_skill_file(
         skill_name=skill_name,
         file_path=file_path,
-        source=source,
     )
     if content is None:
         raise HTTPException(status_code=404, detail="File not found")
@@ -1227,8 +1302,6 @@ async def save_workspace_skill(
             content=body.content,
             target_name=body.name if body.source_name else None,
             config=body.config,
-            references=body.references,
-            scripts=body.scripts,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
@@ -1261,6 +1334,26 @@ async def update_skill_channels_endpoint(
         raise HTTPException(status_code=404, detail="Skill not found")
     schedule_agent_reload(request, workspace.agent_id)
     return {"updated": True, "channels": channels}
+
+
+@router.put("/{skill_name}/tags")
+async def update_skill_tags(
+    request: Request,
+    skill_name: str,
+    tags: list[str],
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    tags = _validate_tags(tags)
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    updated = SkillService(workspace_dir).set_skill_tags(
+        skill_name,
+        tags,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"updated": True, "tags": tags}
 
 
 @router.get("/{skill_name}/config")

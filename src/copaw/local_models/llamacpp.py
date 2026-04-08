@@ -4,14 +4,11 @@ from __future__ import annotations
 import atexit
 import asyncio
 import logging
-import os
-import signal
+import multiprocessing as mp
 import shutil
 import socket
-import subprocess
 import tempfile
-import threading
-import time
+import uuid
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Optional
@@ -21,58 +18,25 @@ import httpx
 from copaw.constant import DEFAULT_LOCAL_PROVIDER_DIR
 
 from .download_manager import (
-    apply_download_result,
-    begin_download_task,
+    DownloadProgressUpdate,
     DownloadProgressTracker,
+    ProcessDownloadTask,
     DownloadTaskResult,
     DownloadTaskStatus,
+    ProcessDownloadController,
+    ProcessDownloadTaskSpec,
+)
+from ..utils.command_runner import (
+    ManagedProcess,
+    run_command_async,
+    shutdown_process,
+    shutdown_process_sync,
+    start_command_async,
 )
 from ..utils import system_info
+from ..utils.stdio import ensure_standard_streams
 
 logger = logging.getLogger(__name__)
-
-
-class DownloadCancelled(Exception):
-    pass
-
-
-class _ThreadedProcessStdout:
-    """Async adapter for a blocking subprocess stdout stream."""
-
-    def __init__(self, stream: Any) -> None:
-        self._stream = stream
-
-    async def readline(self) -> bytes:
-        return await asyncio.to_thread(self._stream.readline)
-
-
-class _ThreadedServerProcess:
-    """Minimal async-compatible wrapper around subprocess.Popen."""
-
-    def __init__(self, process: subprocess.Popen[bytes]) -> None:
-        self._process = process
-        self.stdout = (
-            _ThreadedProcessStdout(process.stdout)
-            if process.stdout is not None
-            else None
-        )
-
-    @property
-    def pid(self) -> int:
-        return self._process.pid
-
-    @property
-    def returncode(self) -> int | None:
-        return self._process.poll()
-
-    async def wait(self) -> int:
-        return await asyncio.to_thread(self._process.wait)
-
-    def terminate(self) -> None:
-        self._process.terminate()
-
-    def kill(self) -> None:
-        self._process.kill()
 
 
 class LlamaCppBackend:
@@ -83,37 +47,28 @@ class LlamaCppBackend:
 
     _MIN_MACOS_VERSION = (13, 3)
 
-    def __init__(self, base_url: str, release_tag: str):
-        self.base_url = base_url.rstrip("/")
-        self.release_tag = release_tag
-
+    def __init__(self):
         self.os_name = self._resolve_os_name()
         self.arch = self._resolve_arch()
         self.cuda_version = self._resolve_cuda_version()
         self.backend = self._resolve_backend()
         self.target_dir = DEFAULT_LOCAL_PROVIDER_DIR / "bin"
-        self._server_process: Any | None = None
+        self._context = mp.get_context("spawn")
+        self._server_process: ManagedProcess | None = None
         self._server_log_task: asyncio.Task[None] | None = None
         self._server_port: int | None = None
         self._server_model_name: str | None = None
         self._server_transitioning = False
-        self._server_owns_process_group = False
-        self._download_lock = threading.Lock()
-        self._download_thread: threading.Thread | None = None
-        self._download_cancel_event: threading.Event | None = None
         self._progress = DownloadProgressTracker()
+        self._download_controller = ProcessDownloadController(
+            context=self._context,
+            progress=self._progress,
+        )
         atexit.register(self._shutdown_server_at_exit)
 
     # -----------------------------
     # Public APIs
     # -----------------------------
-    @property
-    def download_url(self) -> str:
-        """Get the download URL for the current environment configuration."""
-        filename = self._build_filename()
-        base_url = self.base_url
-        return f"{base_url}/{self.release_tag}/{filename}"
-
     @property
     def executable(self) -> Path:
         """The expected path of the llama.cpp server executable after download
@@ -137,7 +92,7 @@ class LlamaCppBackend:
                 return False, message
 
         try:
-            self._build_filename()
+            self._build_filename("b0")
         except RuntimeError as exc:
             return False, str(exc)
 
@@ -164,21 +119,38 @@ class LlamaCppBackend:
 
     def cancel_download(self) -> None:
         """Request cancellation of the current llama.cpp download."""
-        thread: threading.Thread | None = None
-        with self._download_lock:
-            if not self._is_download_active():
-                return
-            if self._download_cancel_event is None:
-                return
-            self._download_cancel_event.set()
-            self._progress.mark_canceling()
-            thread = self._download_thread
+        self._download_controller.cancel()
 
-        if thread is not None:
-            thread.join(timeout=5)
+    async def has_update(self, latest_version: str) -> bool:
+        """Check if there is a newer version of llama.cpp available."""
+        if not self.check_llamacpp_installation()[0]:
+            return False
+        try:
+            return int(latest_version[1:]) > int(
+                (await self.get_version()),
+            )
+        except Exception:
+            logger.warning("Failed to check for llama.cpp updates")
+            return True
 
     def download(
         self,
+        base_url: str,
+        tag: str,
+        chunk_size: int = 1024 * 1024,
+        timeout: int = 30,
+    ) -> None:
+        self.start_download(
+            base_url=base_url,
+            tag=tag,
+            chunk_size=chunk_size,
+            timeout=timeout,
+        )
+
+    def start_download(
+        self,
+        base_url: str,
+        tag: str,
         chunk_size: int = 1024 * 1024,
         timeout: int = 30,
     ) -> None:
@@ -198,11 +170,39 @@ class LlamaCppBackend:
         installable, message = self.check_llamacpp_installability()
         if not installable:
             raise RuntimeError(message)
-        self._start_download(
-            self.target_dir,
-            chunk_size=chunk_size,
-            timeout=timeout,
+        dest_dir = self._resolve_dest_dir(self.target_dir)
+        if self._is_download_active():
+            raise RuntimeError(
+                "A llama.cpp download is already in progress.",
+            )
+
+        staging_dir = dest_dir.parent / f".llamacpp-{uuid.uuid4().hex}"
+        filename = self._build_filename(tag)
+        download_url = f"{base_url}/{tag}/{filename}"
+        spec = ProcessDownloadTaskSpec(
+            process_name=f"copaw-llamacpp-download-{staging_dir.name}",
+            command=["copaw-llamacpp-download", download_url],
+            task=ProcessDownloadTask(
+                target=type(self)._download_worker,
+                payload={
+                    "url": download_url,
+                    "staging_dir": str(staging_dir),
+                    "file_name": filename,
+                    "chunk_size": chunk_size,
+                    "timeout": timeout,
+                    "headers": self._download_headers,
+                },
+                finalize_result=lambda result: self._finalize_download_result(
+                    result,
+                    staging_dir=staging_dir,
+                    final_dir=dest_dir,
+                ),
+                cleanup=lambda: self._cleanup_download_path(staging_dir),
+            ),
+            source=download_url,
+            poll_interval=0.2,
         )
+        self._download_controller.start(spec)
 
     async def setup_server(self, model_path: Path, model_name: str) -> int:
         """Setup llama.cpp server, and return the port it's running on.
@@ -223,8 +223,7 @@ class LlamaCppBackend:
         ):
             if self._server_process.returncode is None:
                 logger.info(
-                    "Requested model %s is already served by llama.cpp on "
-                    "port %s",
+                    "Requested model %s is already served on port %s",
                     model_name,
                     self._server_port,
                 )
@@ -237,17 +236,20 @@ class LlamaCppBackend:
                     self._server_process.returncode,
                 )
 
-        resolved_model_path = self._resolve_model_file(model_path)
+        resolved_model_path, resolved_mmproj_path = self._resolve_model_file(
+            model_path,
+        )
         if self._server_process and self._server_process.returncode is None:
             await self.shutdown_server()
 
         self._server_transitioning = True
         port = self._find_free_port()
         process_kwargs: dict[str, Any] = {}
-        if os.name != "nt":
+        if self.os_name != "windows":
             process_kwargs["start_new_session"] = True
         process = await self._create_server_process(
             resolved_model_path=resolved_model_path,
+            resolved_mmproj_path=resolved_mmproj_path,
             model_name=model_name,
             port=port,
             process_kwargs=process_kwargs,
@@ -256,7 +258,6 @@ class LlamaCppBackend:
         self._server_process = process
         self._server_port = port
         self._server_model_name = model_name
-        self._server_owns_process_group = bool(process_kwargs)
         self._server_log_task = asyncio.create_task(
             self._drain_server_logs(),
             name="llamacpp_server_logs",
@@ -279,20 +280,54 @@ class LlamaCppBackend:
         )
         return port
 
+    async def list_devices(self) -> list[str]:
+        """List available devices for llama.cpp using
+        `llama-server --list-devices`."""
+        installed, message = self.check_llamacpp_installation()
+        if not installed:
+            raise RuntimeError(message or "llama.cpp server is not installed")
+
+        result = await run_command_async(
+            [str(self.executable), "--list-devices"],
+            timeout=10,
+        )
+        return [
+            line.strip()
+            for line in result.combined_output.splitlines()
+            if line.strip() and not line.startswith("ggml")
+        ][1:]
+
+    async def get_version(self) -> str:
+        """get llama.cpp server version using `llama-server --version`."""
+        installed, message = self.check_llamacpp_installation()
+        if not installed:
+            raise RuntimeError(message or "llama.cpp server is not installed")
+
+        result = await run_command_async(
+            [str(self.executable), "--version"],
+            timeout=10,
+        )
+        lines = result.stderr_lines
+        for line in lines:
+            if line.startswith("version:"):
+                return line[9:13]
+        raise RuntimeError(
+            "Unexpected version output from llama.cpp server: "
+            f"{result.combined_output}",
+        )
+
     def _is_download_active(self) -> bool:
         """Return whether the background download thread is active."""
-        return (
-            self._download_thread is not None
-            and self._download_thread.is_alive()
-        )
+        return self._download_controller.is_active()
 
     async def _create_server_process(
         self,
         resolved_model_path: Path,
+        resolved_mmproj_path: Path | None,
         model_name: str,
         port: int,
         process_kwargs: dict[str, Any],
-    ) -> Any:
+    ) -> ManagedProcess:
         command = [
             str(self.executable),
             "--host",
@@ -303,46 +338,33 @@ class LlamaCppBackend:
             str(resolved_model_path),
             "--alias",
             model_name,
+            "--gpu-layers",
+            "auto",
         ]
-
-        # Add GPU layers if NVIDIA GPU is available
-        if self.backend == "cuda" and self.os_name == "windows":
-            command.extend(["--gpu-layers", "auto"])
-
-        try:
-            logger.info(
-                "Setting up llama.cpp server for model %s at path %s",
-                model_name,
-                resolved_model_path,
-            )
-            return await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                **process_kwargs,
-            )
-        except NotImplementedError:
-            if os.name != "nt":
-                raise
-            logger.warning(
-                "Async subprocess creation is unavailable on this Windows "
-                "event loop; falling back to threaded subprocess launch.",
-            )
-            return await asyncio.to_thread(
-                self._create_threaded_server_process,
-                command,
+        if resolved_mmproj_path is not None:
+            command.extend(
+                [
+                    "--mmproj",
+                    str(resolved_mmproj_path),
+                ],
             )
 
-    def _create_threaded_server_process(
-        self,
-        command: list[str],
-    ) -> _ThreadedServerProcess:
-        process = subprocess.Popen(  # pylint: disable=consider-using-with
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+        logger.info(
+            "Setting up llama.cpp server for model %s at path %s%s",
+            model_name,
+            resolved_model_path,
+            (
+                f" with mmproj {resolved_mmproj_path}"
+                if resolved_mmproj_path is not None
+                else ""
+            ),
         )
-        return _ThreadedServerProcess(process)
+        return await start_command_async(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            **process_kwargs,
+        )
 
     async def shutdown_server(self) -> None:
         """Shutdown the llama.cpp server if it's running."""
@@ -351,12 +373,11 @@ class LlamaCppBackend:
 
         process = self._server_process
         if process and process.returncode is None:
-            self._terminate_server_process()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                self._kill_server_process()
-                await process.wait()
+            await shutdown_process(
+                process,
+                graceful_timeout=5.0,
+                kill_timeout=3.0,
+            )
 
         self._reset_server_state()
 
@@ -367,10 +388,11 @@ class LlamaCppBackend:
 
         process = self._server_process
         if process and process.returncode is None:
-            self._terminate_server_process()
-            if not self._wait_for_process_exit(process.pid, timeout=5.0):
-                self._kill_server_process()
-                self._wait_for_process_exit(process.pid, timeout=1.0)
+            shutdown_process_sync(
+                process,
+                graceful_timeout=5.0,
+                kill_timeout=1.0,
+            )
 
         self._reset_server_state()
 
@@ -385,13 +407,16 @@ class LlamaCppBackend:
 
         return path
 
-    def _resolve_model_file(self, model_path: Path) -> Path:
+    def _resolve_model_file(
+        self,
+        model_path: Path,
+    ) -> tuple[Path, Path | None]:
         if model_path.is_file():
             if model_path.suffix.lower() != ".gguf":
                 raise RuntimeError(
                     f"Model file must be a .gguf file: {model_path}",
                 )
-            return model_path.resolve()
+            return model_path.resolve(), None
 
         gguf_files = sorted(
             candidate
@@ -407,95 +432,63 @@ class LlamaCppBackend:
                 "Model repository at "
                 f"{model_path} does not contain any .gguf files.",
             )
-        return gguf_files[0].resolve()
 
-    def _start_download(
-        self,
-        dest: str | Path,
-        chunk_size: int = 1024 * 1024,
-        timeout: int = 30,
-    ) -> None:
-        """Start downloading llama.cpp in a background thread."""
-        dest_dir = self._resolve_dest_dir(dest)
-        with self._download_lock:
-            if self._is_download_active():
-                raise RuntimeError(
-                    "A llama.cpp download is already in progress.",
-                )
+        mmproj_files = [
+            candidate
+            for candidate in gguf_files
+            if candidate.name.lower().startswith("mmproj")
+        ]
+        model_files = [
+            candidate
+            for candidate in gguf_files
+            if not candidate.name.lower().startswith("mmproj")
+        ]
 
-            self._download_cancel_event = threading.Event()
-            begin_download_task(
-                self._progress,
-                source=self.download_url,
+        if not model_files:
+            raise RuntimeError(
+                "Model repository at "
+                f"{model_path} does not contain any model .gguf files.",
             )
-            self._download_thread = threading.Thread(
-                target=self._run_download_worker,
-                args=(
-                    dest_dir,
-                    chunk_size,
-                    timeout,
-                ),
-                name="copaw-llamacpp-download",
-                daemon=True,
-            )
-            self._download_thread.start()
 
-    def _run_download_worker(
-        self,
-        dest: str | Path,
-        chunk_size: int,
-        timeout: int,
-    ) -> None:
-        result: DownloadTaskResult
-        try:
-            local_path = self._download_sync(
-                dest,
-                chunk_size=chunk_size,
-                timeout=timeout,
-            )
-            result = DownloadTaskResult(
-                status=DownloadTaskStatus.COMPLETED,
-                local_path=str(local_path),
-            )
-        except DownloadCancelled as exc:
-            result = DownloadTaskResult(
-                status=DownloadTaskStatus.CANCELLED,
-                error=str(exc),
-            )
-        except (
-            OSError,
-            RuntimeError,
-            ValueError,
-            shutil.Error,
-            httpx.HTTPError,
-        ) as exc:
-            result = DownloadTaskResult(
-                status=DownloadTaskStatus.FAILED,
-                error=str(exc),
-            )
-        with self._download_lock:
-            self._download_thread = None
-            self._download_cancel_event = None
-        apply_download_result(self._progress, result)
-
-    def _download_sync(
-        self,
-        dest: str | Path,
-        chunk_size: int = 1024 * 1024,
-        timeout: int = 30,
-    ) -> Path:
-        """Perform the blocking download and extraction workflow."""
-        dest_dir = self._resolve_dest_dir(dest)
-        url = self.download_url
-        file_name = url.rsplit("/", 1)[-1]
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        temp_file_fd, temp_file_name = tempfile.mkstemp(
-            prefix="copaw-download-",
-            suffix=f"-{file_name}",
-            dir=str(dest_dir),
+        return (
+            model_files[0].resolve(),
+            mmproj_files[0].resolve() if mmproj_files else None,
         )
-        os.close(temp_file_fd)
-        temp_path = Path(temp_file_name)
+
+    def _finalize_download_result(
+        self,
+        result: DownloadTaskResult,
+        *,
+        staging_dir: Path,
+        final_dir: Path,
+    ) -> tuple[DownloadTaskResult, int | None]:
+        if result.status != DownloadTaskStatus.COMPLETED:
+            return result, None
+
+        if final_dir.exists():
+            shutil.rmtree(final_dir)
+        final_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(staging_dir), str(final_dir))
+        return (
+            DownloadTaskResult(
+                status=DownloadTaskStatus.COMPLETED,
+                local_path=str(final_dir),
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _download_worker(payload: dict[str, Any], queue: Any) -> None:
+        ensure_standard_streams()
+        url = payload["url"]
+        staging_dir = Path(payload["staging_dir"]).expanduser().resolve()
+        file_name = payload["file_name"]
+        chunk_size = int(payload["chunk_size"])
+        timeout = int(payload["timeout"])
+        headers = dict(payload["headers"])
+
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = staging_dir / file_name
 
         try:
             with httpx.Client(
@@ -505,63 +498,95 @@ class LlamaCppBackend:
                 with client.stream(
                     "GET",
                     url,
-                    headers=self._download_headers,
+                    headers=headers,
                 ) as response:
                     response.raise_for_status()
                     total_bytes = response.headers.get("Content-Length")
                     total_bytes_int = (
                         int(total_bytes)
-                        if (total_bytes and total_bytes.isdigit())
+                        if total_bytes and total_bytes.isdigit()
                         else None
                     )
-
                     downloaded = 0
 
-                    with open(temp_path, "wb") as f:
+                    with open(temp_path, "wb") as file_obj:
                         for chunk in response.iter_bytes(
                             chunk_size=chunk_size,
                         ):
-                            if self._is_download_cancelled():
-                                raise DownloadCancelled(
-                                    "Download cancelled by user.",
-                                )
-
                             if not chunk:
                                 continue
-
-                            f.write(chunk)
+                            file_obj.write(chunk)
                             downloaded += len(chunk)
-
-                            self._progress.update_downloaded(
-                                downloaded,
-                                total_bytes=total_bytes_int,
-                                source=url,
+                            queue.put(
+                                DownloadProgressUpdate(
+                                    downloaded_bytes=downloaded,
+                                    total_bytes=total_bytes_int,
+                                    source=url,
+                                ).to_message(),
                             )
 
-                if self._is_download_cancelled():
-                    raise DownloadCancelled("Download cancelled by user.")
+            LlamaCppBackend._extract_archive(
+                temp_path,
+                staging_dir,
+            )
+            temp_path.unlink(missing_ok=True)
+            queue.put(
+                DownloadTaskResult(
+                    status=DownloadTaskStatus.COMPLETED,
+                    local_path=str(staging_dir),
+                ).to_message(),
+            )
+        except Exception as exc:
+            LlamaCppBackend._cleanup_download_files(temp_path)
+            error_message = LlamaCppBackend._format_download_error(exc, url)
+            queue.put(
+                DownloadTaskResult(
+                    status=DownloadTaskStatus.FAILED,
+                    error=error_message,
+                ).to_message(),
+            )
+            logger.warning(
+                "llama.cpp download failed for %s: %s",
+                url,
+                error_message,
+            )
+            return
 
-                self._extract_archive(
-                    temp_path,
-                    dest_dir,
-                    archive_name=file_name,
+    @staticmethod
+    def _format_download_error(exc: Exception, url: str) -> str:
+        if isinstance(exc, httpx.HTTPStatusError):
+            status_code = exc.response.status_code
+            if status_code == 404:
+                return (
+                    "llama.cpp download package was not found (HTTP 404). "
+                    "The requested version may not exist, is no longer "
+                    "available, or your hardware or operating system "
+                    "version is not supported."
                 )
-                temp_path.unlink(missing_ok=True)
-
-                self._progress.update_downloaded(
-                    downloaded,
-                    total_bytes=total_bytes_int,
-                    source=url,
+            if status_code in {401, 403}:
+                return (
+                    "llama.cpp download address is unavailable or access is "
+                    f"denied (HTTP {status_code}). Please verify the "
+                    "requested version, or check whether your hardware or "
+                    "operating system version is supported."
                 )
+            if status_code >= 500:
+                return (
+                    "llama.cpp download server is temporarily unavailable "
+                    f"(HTTP {status_code}). Please try again later."
+                )
+            return (
+                "llama.cpp download failed with an unexpected server "
+                f"response (HTTP {status_code})."
+            )
 
-                return dest_dir
+        if isinstance(exc, httpx.RequestError):
+            return (
+                "Unable to connect to the llama.cpp download server. "
+                f"Request URL: {url}."
+            )
 
-        except DownloadCancelled:
-            self._cleanup_download_files(temp_path)
-            raise
-        except Exception:
-            self._cleanup_download_files(temp_path)
-            raise
+        return f"llama.cpp download failed: {exc}"
 
     @staticmethod
     def _find_free_port(host: str = "127.0.0.1") -> int:
@@ -592,8 +617,8 @@ class LlamaCppBackend:
                         return True
 
                     logger.info(
-                        "llama.cpp health check returned %s "
-                        "while waiting for %s",
+                        "llama.cpp health check returned %s while "
+                        "waiting for %s",
                         response.status_code,
                         health_url,
                     )
@@ -632,82 +657,21 @@ class LlamaCppBackend:
         if task and not task.done():
             task.cancel()
 
-    def _terminate_server_process(self) -> None:
-        process = self._server_process
-        if process is None or process.returncode is not None:
-            return
-
-        if self._server_owns_process_group and os.name != "nt":
-            with suppress(ProcessLookupError):
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            return
-
-        with suppress(ProcessLookupError):
-            process.terminate()
-
-    def _kill_server_process(self) -> None:
-        process = self._server_process
-        if process is None or process.returncode is not None:
-            return
-
-        if self._server_owns_process_group and os.name != "nt":
-            with suppress(ProcessLookupError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            return
-
-        with suppress(ProcessLookupError):
-            process.kill()
-
-    def _wait_for_process_exit(self, pid: int, timeout: float) -> bool:
-        deadline = time.monotonic() + timeout
-        while True:
-            if not self._is_pid_running(pid):
-                return True
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            sleep_for = min(0.1, remaining)
-            threading.Event().wait(sleep_for)
-        return not self._is_pid_running(pid)
-
-    @staticmethod
-    def _is_pid_running(pid: int) -> bool:
-        if os.name == "nt":
-            try:
-                output = subprocess.check_output(
-                    ["tasklist", "/fi", f"PID eq {pid}"],
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                )
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                return False
-            return str(pid) in output
-
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
-
     def _reset_server_state(self) -> None:
         self._server_process = None
         self._server_log_task = None
         self._server_port = None
         self._server_model_name = None
         self._server_transitioning = False
-        self._server_owns_process_group = False
 
     def _shutdown_server_at_exit(self) -> None:
         with suppress(Exception):
             self.force_shutdown_server()
 
+    @staticmethod
     def _extract_archive(
-        self,
         archive_path: Path,
         dest_dir: Path,
-        archive_name: str | None = None,
     ) -> None:
         staging_dir = Path(
             tempfile.mkdtemp(
@@ -717,82 +681,50 @@ class LlamaCppBackend:
         )
         try:
             shutil.unpack_archive(str(archive_path), str(staging_dir))
-            self._merge_extracted_content(
+            LlamaCppBackend._merge_extracted_content(
                 staging_dir,
                 dest_dir,
-                archive_name or archive_path.name,
             )
         finally:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
+    @staticmethod
     def _merge_extracted_content(
-        self,
         staging_dir: Path,
         dest_dir: Path,
-        archive_name: str,
     ) -> None:
+        # There are only two expected archive structures:
+        # 1) All files directly in the root of the archive
+        # 2) All files in a single top-level directory (e.g. "llama-xx/")
         extracted_entries = list(staging_dir.iterdir())
         source_root = staging_dir
-        if (
-            len(extracted_entries) == 1
-            and extracted_entries[0].is_dir()
-            and self._should_flatten_archive_root(
-                extracted_entries[0],
-                archive_name,
-            )
-        ):
+        if len(extracted_entries) == 1 and extracted_entries[0].is_dir():
             source_root = extracted_entries[0]
 
         for item in source_root.iterdir():
-            self._merge_path(item, dest_dir / item.name)
+            if not item.is_file():
+                raise RuntimeError(
+                    "Unexpected directory structure in llama.cpp archive: "
+                    f"{item}",
+                )
+            shutil.copy2(item, dest_dir / item.name)
 
     @staticmethod
-    def _should_flatten_archive_root(
-        root_dir: Path,
-        archive_name: str,
-    ) -> bool:
-        dir_name = root_dir.name
-        archive_names = {
-            archive_name,
-            Path(archive_name).stem,
-        }
-        for suffix in (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".zip"):
-            if archive_name.endswith(suffix):
-                archive_names.add(archive_name[: -len(suffix)])
-
-        return any(
-            candidate == dir_name or candidate.startswith(dir_name)
-            for candidate in archive_names
-        )
-
-    def _merge_path(self, source: Path, destination: Path) -> None:
-        if source.is_symlink():
-            destination.unlink(missing_ok=True)
-            os.symlink(os.readlink(source), destination)
-            return
-
-        if source.is_dir():
-            shutil.copytree(
-                source,
-                destination,
-                dirs_exist_ok=True,
-                symlinks=True,
-            )
-            return
-
-        shutil.copy2(source, destination)
-
     def _cleanup_download_files(
-        self,
         *paths: Path,
     ) -> None:
         for path in paths:
             with suppress(FileNotFoundError):
                 path.unlink(missing_ok=True)
 
-    def _is_download_cancelled(self) -> bool:
-        cancel_event = self._download_cancel_event
-        return bool(cancel_event is not None and cancel_event.is_set())
+    @staticmethod
+    def _cleanup_download_path(path: Path) -> None:
+        if not path.exists():
+            return
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+            return
+        path.unlink(missing_ok=True)
 
     @property
     def _download_headers(self) -> dict[str, str]:
@@ -865,9 +797,7 @@ class LlamaCppBackend:
             return "13.1"
         return None
 
-    def _build_filename(self) -> str:
-        tag = self.release_tag
-
+    def _build_filename(self, tag: str) -> str:
         if self.os_name == "macos":
             return f"llama-{tag}-bin-macos-{self.arch}.tar.gz"
 

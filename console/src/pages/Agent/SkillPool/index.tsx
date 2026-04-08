@@ -1,20 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
+  Checkbox,
   Input,
   Modal,
   Tooltip,
   Drawer,
   Form,
+  Select,
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
+  AppstoreOutlined,
+  CalendarFilled,
+  CloseOutlined,
+  DeleteOutlined,
   ImportOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   SendOutlined,
   SyncOutlined,
+  UnorderedListOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -35,12 +43,21 @@ import {
   getPoolBuiltinStatusTone,
   getSkillVisual,
   parseFrontmatter,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
   useConflictRenameModal,
   ImportHubModal,
+  SkillFilterDropdown,
 } from "../Skills/components";
+import { useSkillFilter } from "../Skills/useSkillFilter";
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { ImportBuiltinModal } from "./components/ImportBuiltinModal";
+import {
+  SkillCategoryBadges,
+  SkillTagChips,
+  SkillCategoriesAndTags,
+} from "./components/SkillMeta";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -68,6 +85,51 @@ function SkillPoolPage() {
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
   const { message } = useAppMessage();
+  const [selectedPoolSkills, setSelectedPoolSkills] = useState<Set<string>>(
+    new Set(),
+  );
+  const [batchModeEnabled, setBatchModeEnabled] = useState(false);
+  const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const {
+    searchQuery,
+    setSearchQuery,
+    searchTags,
+    setSearchTags,
+    allCategories,
+    allTags,
+    filteredSkills,
+  } = useSkillFilter(skills);
+
+  const sortedSkills = useMemo(
+    () => filteredSkills.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [filteredSkills],
+  );
+
+  const togglePoolSelect = (name: string) => {
+    setSelectedPoolSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const clearPoolSelection = () => {
+    setSelectedPoolSkills(new Set());
+    setBatchModeEnabled(false);
+  };
+
+  const toggleBatchMode = () => {
+    if (batchModeEnabled) {
+      clearPoolSelection();
+    } else {
+      setBatchModeEnabled(true);
+    }
+  };
+
+  const selectAllPool = () =>
+    setSelectedPoolSkills(new Set(filteredSkills.map((s) => s.name)));
 
   // Form state for create/edit drawer
   const [form] = Form.useForm();
@@ -137,6 +199,7 @@ function SkillPoolPage() {
     form.setFieldsValue({
       name: "",
       content: "",
+      tags: [],
     });
   };
 
@@ -180,6 +243,7 @@ function SkillPoolPage() {
     form.setFieldsValue({
       name: skill.name,
       content: skill.content,
+      tags: skill.tags || [],
     });
   };
 
@@ -481,7 +545,13 @@ function SkillPoolPage() {
                 mode: "edit" as const,
                 name: created.name,
               }));
-      if (result.mode === "noop") {
+      const newTags = values.tags || [];
+      const oldTags = (mode === "edit" ? activeSkill?.tags : []) || [];
+      const tagsChanged = JSON.stringify(newTags) !== JSON.stringify(oldTags);
+      if (tagsChanged) {
+        await api.updatePoolSkillTags(result.name || skillName, newTags);
+      }
+      if (result.mode === "noop" && !tagsChanged) {
         closeDrawer();
         return;
       }
@@ -670,6 +740,54 @@ function SkillPoolPage() {
     }
   };
 
+  const handleBatchDeletePool = async () => {
+    const names = Array.from(selectedPoolSkills);
+    if (names.length === 0) return;
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title: t("skillPool.batchDeleteTitle", { count: names.length }),
+        content: (
+          <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
+            {names.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        ),
+        okText: t("common.delete"),
+        okType: "danger",
+        cancelText: t("common.cancel"),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+    if (!confirmed) return;
+    try {
+      const { results } = await api.batchDeletePoolSkills(names);
+      const failed = Object.entries(results).filter(([, r]) => !r.success);
+      if (failed.length > 0) {
+        message.warning(
+          t("skillPool.batchDeletePartial", {
+            deleted: names.length - failed.length,
+            failed: failed.length,
+          }),
+        );
+      } else {
+        message.success(
+          t("skillPool.batchDeleteSuccess", { count: names.length }),
+        );
+      }
+      clearPoolSelection();
+      invalidateSkillCache({ pool: true });
+      await loadData(true);
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("skillPool.batchDeleteFailed"),
+      );
+    }
+  };
+
   return (
     <div className={styles.skillsPage}>
       <PageHeader
@@ -683,108 +801,299 @@ function SkillPoolPage() {
               onChange={handleZipImport}
               style={{ display: "none" }}
             />
-            <div className={styles.headerActionsLeft}>
-              <Tooltip title={t("skillPool.refreshHint")}>
+            {batchModeEnabled ? (
+              <div className={styles.batchActions}>
+                <span className={styles.batchCount}>
+                  {t("skills.selectedCount", {
+                    count: selectedPoolSkills.size,
+                  })}
+                </span>
+                <Button type="default" onClick={selectAllPool}>
+                  {t("skills.selectAll")}
+                </Button>
                 <Button
                   type="default"
-                  icon={<ReloadOutlined spin={loading} />}
-                  onClick={handleRefresh}
-                  disabled={loading}
-                />
-              </Tooltip>
-              <Tooltip title={t("skillPool.broadcastHint")}>
-                <Button
-                  type="default"
-                  className={styles.primaryTransferButton}
-                  icon={<SendOutlined />}
-                  onClick={() => openBroadcast()}
+                  onClick={clearPoolSelection}
+                  icon={<CloseOutlined />}
                 >
-                  {t("skillPool.broadcast")}
+                  {t("skills.clearSelection")}
                 </Button>
-              </Tooltip>
-              <Tooltip title={t("skillPool.importBuiltinHint")}>
                 <Button
-                  type="default"
-                  icon={<SyncOutlined />}
-                  onClick={() => void openImportBuiltin()}
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={handleBatchDeletePool}
                 >
-                  {t("skillPool.importBuiltin")}
+                  {t("common.delete")} ({selectedPoolSkills.size})
                 </Button>
-              </Tooltip>
-            </div>
-            <div className={styles.headerActionsRight}>
-              <Tooltip title={t("skillPool.uploadZipHint")}>
-                <Button
-                  type="default"
-                  icon={<UploadOutlined />}
-                  onClick={() => zipInputRef.current?.click()}
-                >
-                  {t("skills.uploadZip")}
+                <Button type="primary" onClick={toggleBatchMode}>
+                  {t("skills.exitBatch")}
                 </Button>
-              </Tooltip>
-              <Tooltip title={t("skillPool.importHubHint")}>
-                <Button
-                  type="default"
-                  icon={<ImportOutlined />}
-                  onClick={() => setImportModalOpen(true)}
-                >
-                  {t("skills.importHub")}
-                </Button>
-              </Tooltip>
-              <Tooltip title={t("skills.createSkillHint")}>
-                <Button
-                  type="primary"
-                  className={styles.primaryActionButton}
-                  icon={<PlusOutlined />}
-                  onClick={openCreate}
-                >
-                  {t("skills.createSkill")}
-                </Button>
-              </Tooltip>
-            </div>
+              </div>
+            ) : (
+              <>
+                <div className={styles.headerActionsLeft}>
+                  <Tooltip title={t("skillPool.refreshHint")}>
+                    <Button
+                      type="default"
+                      icon={<ReloadOutlined spin={loading} />}
+                      onClick={handleRefresh}
+                      disabled={loading}
+                    />
+                  </Tooltip>
+                  <Tooltip title={t("skillPool.broadcastHint")}>
+                    <Button
+                      type="default"
+                      className={styles.primaryTransferButton}
+                      icon={<SendOutlined />}
+                      onClick={() => openBroadcast()}
+                    >
+                      {t("skillPool.broadcast")}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={t("skillPool.importBuiltinHint")}>
+                    <Button
+                      type="default"
+                      icon={<SyncOutlined />}
+                      onClick={() => void openImportBuiltin()}
+                    >
+                      {t("skillPool.importBuiltin")}
+                    </Button>
+                  </Tooltip>
+                </div>
+                <div className={styles.headerActionsRight}>
+                  <Tooltip title={t("skillPool.uploadZipHint")}>
+                    <Button
+                      type="default"
+                      icon={<UploadOutlined />}
+                      onClick={() => zipInputRef.current?.click()}
+                    >
+                      {t("skills.uploadZip")}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title={t("skillPool.importHubHint")}>
+                    <Button
+                      type="default"
+                      icon={<ImportOutlined />}
+                      onClick={() => setImportModalOpen(true)}
+                    >
+                      {t("skills.importHub")}
+                    </Button>
+                  </Tooltip>
+                  <Button type="primary" onClick={toggleBatchMode}>
+                    {t("skills.batchOperation")}
+                  </Button>
+                  <Tooltip title={t("skills.createSkillHint")}>
+                    <Button
+                      type="primary"
+                      className={styles.primaryActionButton}
+                      icon={<PlusOutlined />}
+                      onClick={openCreate}
+                    >
+                      {t("skills.createSkill")}
+                    </Button>
+                  </Tooltip>
+                </div>
+              </>
+            )}
           </div>
         }
       />
 
       {/* ---- Scrollable Content ---- */}
       <div className={styles.content}>
+        {/* Toolbar */}
+        {!loading && skills.length > 0 && (
+          <div className={styles.toolbar}>
+            <div className={styles.searchContainer}>
+              <Select
+                mode="multiple"
+                className={styles.searchSelect}
+                placeholder={t("skills.searchPlaceholder")}
+                value={searchTags}
+                onChange={setSearchTags}
+                searchValue={searchQuery}
+                onSearch={setSearchQuery}
+                open={filterOpen}
+                onDropdownVisibleChange={setFilterOpen}
+                allowClear
+                maxTagCount="responsive"
+                suffixIcon={<SearchOutlined />}
+                notFoundContent={<></>}
+                dropdownRender={() => (
+                  <SkillFilterDropdown
+                    allCategories={allCategories}
+                    allTags={allTags}
+                    searchTags={searchTags}
+                    setSearchTags={setSearchTags}
+                    styles={styles}
+                  />
+                )}
+              />
+            </div>
+            <div className={styles.toolbarRight}>
+              <div className={styles.viewToggle}>
+                <button
+                  className={`${styles.viewToggleBtn} ${
+                    viewMode === "list" ? styles.viewToggleBtnActive : ""
+                  }`}
+                  onClick={() => setViewMode("list")}
+                  title={t("skills.listView")}
+                >
+                  <UnorderedListOutlined />
+                </button>
+                <button
+                  className={`${styles.viewToggleBtn} ${
+                    viewMode === "card" ? styles.viewToggleBtnActive : ""
+                  }`}
+                  onClick={() => setViewMode("card")}
+                  title={t("skills.gridView")}
+                >
+                  <AppstoreOutlined />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className={styles.loading}>
             <span className={styles.loadingText}>{t("common.loading")}</span>
           </div>
-        ) : (
+        ) : viewMode === "card" ? (
           <div className={styles.skillsGrid}>
-            {skills.map((skill) => (
-              <Card
-                key={skill.name}
-                className={styles.skillCard}
-                onClick={() => openEdit(skill)}
-                style={{ cursor: "pointer" }}
-              >
-                <div className={styles.cardBody}>
-                  <div className={styles.cardHeader}>
-                    <div className={styles.leftSection}>
-                      <span className={styles.fileIcon}>
-                        {getSkillVisual(skill.name, skill.content)}
-                      </span>
-                      <div className={styles.titleRow}>
-                        <h3 className={styles.skillTitle}>{skill.name}</h3>
-                        <span
-                          className={
-                            getSkillDisplaySource(skill.source) === "builtin"
-                              ? styles.builtinTag
-                              : styles.customizedTag
-                          }
-                        >
-                          {getSkillDisplaySource(skill.source) === "builtin"
-                            ? t("skillPool.builtin")
-                            : t("skillPool.custom")}
-                        </span>
+            {sortedSkills.map((skill) => {
+              const isSelected = selectedPoolSkills.has(skill.name);
+              return (
+                <Card
+                  key={skill.name}
+                  className={`${styles.skillCard} ${
+                    isSelected ? styles.selectedCard : ""
+                  }`}
+                  onClick={() => {
+                    if (batchModeEnabled) {
+                      togglePoolSelect(skill.name);
+                    } else {
+                      openEdit(skill);
+                    }
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  <div className={styles.cardBody}>
+                    <div className={styles.cardHeader}>
+                      <div className={styles.leftSection}>
+                        <div className={styles.fileIconWrapper}>
+                          <span className={styles.fileIcon}>
+                            {getSkillVisual(skill.name, skill.emoji)}
+                          </span>
+                          {batchModeEnabled && (
+                            <Checkbox
+                              checked={isSelected}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                togglePoolSelect(skill.name);
+                              }}
+                            />
+                          )}
+                        </div>
+
+                        <div className={styles.titleInfoContainer}>
+                          <div className={styles.titleRow}>
+                            <Tooltip title={skill.name}>
+                              <h3 className={styles.skillTitle}>
+                                {skill.name}
+                              </h3>
+                            </Tooltip>
+                            <span
+                              className={`${styles.statusValue} ${
+                                styles[
+                                  getPoolBuiltinStatusTone(skill.sync_status)
+                                ]
+                              }`}
+                            >
+                              {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+                            </span>
+                          </div>
+                          {skill.last_updated && (
+                            <div className={styles.updatedTime}>
+                              <CalendarFilled className={styles.calendarIcon} />
+                              <span>{dayjs(skill.last_updated).fromNow()}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className={styles.statusRow}>
-                        <span className={styles.statusLabel}>
-                          {t("skillPool.status")}:
-                        </span>
+                    </div>
+                    <div className={styles.descriptionContainer}>
+                      <SkillCategoriesAndTags
+                        categories={skill.categories}
+                        tags={skill.tags}
+                      />
+                      <p className={styles.descriptionText}>
+                        {skill.description || "-"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={styles.cardFooter}>
+                    <Button
+                      className={styles.actionButton}
+                      disabled={batchModeEnabled}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openBroadcast(skill);
+                      }}
+                    >
+                      {t("skillPool.broadcast")}
+                    </Button>
+                    <Button
+                      danger
+                      className={styles.deleteButton}
+                      disabled={batchModeEnabled}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDelete(skill);
+                      }}
+                    >
+                      {t("skillPool.delete")}
+                    </Button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        ) : (
+          <div className={styles.skillsList}>
+            {sortedSkills.map((skill) => {
+              const isSelected = selectedPoolSkills.has(skill.name);
+              return (
+                <div
+                  key={skill.name}
+                  className={`${styles.skillListItem} ${
+                    isSelected ? styles.selectedListItem : ""
+                  }`}
+                  onClick={() => {
+                    if (batchModeEnabled) {
+                      togglePoolSelect(skill.name);
+                    } else {
+                      openEdit(skill);
+                    }
+                  }}
+                >
+                  {batchModeEnabled && (
+                    <Checkbox
+                      checked={isSelected}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        togglePoolSelect(skill.name);
+                      }}
+                    />
+                  )}
+                  <div className={styles.listItemLeft}>
+                    <span className={styles.fileIcon}>
+                      {getSkillVisual(skill.name, skill.emoji)}
+                    </span>
+                    <div className={styles.listItemInfo}>
+                      <div className={styles.listItemHeader}>
+                        <span className={styles.skillTitle}>{skill.name}</span>
+                        <SkillCategoryBadges categories={skill.categories} />
                         <span
                           className={`${styles.statusValue} ${
                             styles[getPoolBuiltinStatusTone(skill.sync_status)]
@@ -793,49 +1102,44 @@ function SkillPoolPage() {
                           {getPoolBuiltinStatusLabel(skill.sync_status, t)}
                         </span>
                         {skill.last_updated && (
-                          <>
-                            <span className={styles.statusLabel}>
-                              {t("skills.lastUpdated")}:
-                            </span>
-                            <span className={styles.statusValue}>
-                              {dayjs(skill.last_updated).fromNow()}
-                            </span>
-                          </>
+                          <span className={styles.listItemTime}>
+                            {t("skills.lastUpdated")}{" "}
+                            {dayjs(skill.last_updated).fromNow()}
+                          </span>
                         )}
                       </div>
+                      <p className={styles.listItemDesc}>
+                        {skill.description || "-"}
+                      </p>
+                      <SkillTagChips tags={skill.tags} />
                     </div>
                   </div>
-                  <div className={styles.descriptionContainer}>
-                    <p className={styles.descriptionLabel}>
-                      {t("skillPool.descriptionLabel")}
-                    </p>
-                    <p className={styles.descriptionText}>
-                      {skill.description || "-"}
-                    </p>
+                  <div className={styles.listItemRight}>
+                    <Button
+                      className={styles.actionButton}
+                      disabled={batchModeEnabled}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openBroadcast(skill);
+                      }}
+                    >
+                      {t("skillPool.broadcast")}
+                    </Button>
+                    <Button
+                      danger
+                      className={styles.deleteButton}
+                      disabled={batchModeEnabled}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDelete(skill);
+                      }}
+                    >
+                      {t("skillPool.delete")}
+                    </Button>
                   </div>
                 </div>
-                <div className={styles.cardFooter}>
-                  <Button
-                    className={styles.actionButton}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openBroadcast(skill);
-                    }}
-                  >
-                    {t("skillPool.broadcast")}
-                  </Button>
-                  <Button
-                    className={styles.deleteButton}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleDelete(skill);
-                    }}
-                  >
-                    {t("skillPool.delete")}
-                  </Button>
-                </div>
-              </Card>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -899,7 +1203,7 @@ function SkillPoolPage() {
             </div>
           </div>
         )}
-        <Form form={form} layout="vertical" onFinish={handleSavePoolSkill}>
+        <Form form={form} layout="vertical">
           <Form.Item
             name="name"
             label={t("skillPool.skillName")}
@@ -910,7 +1214,6 @@ function SkillPoolPage() {
 
           <Form.Item
             name="content"
-            label="Content"
             rules={[{ required: true, validator: validateFrontmatter }]}
           >
             <MarkdownCopy
@@ -923,6 +1226,32 @@ function SkillPoolPage() {
                 placeholder: t("skillPool.contentPlaceholder"),
                 rows: 12,
               }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="tags"
+            label={t("skillPool.tags")}
+            rules={[
+              {
+                validator: (_, value: string[] | undefined) => {
+                  const bad = (value || []).find(
+                    (v) => v.length > MAX_TAG_LENGTH,
+                  );
+                  if (bad)
+                    return Promise.reject(
+                      t("skillPool.tagTooLong", { max: MAX_TAG_LENGTH }),
+                    );
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <Select
+              mode="tags"
+              open={false}
+              placeholder={t("skillPool.tagsPlaceholder")}
+              maxCount={MAX_TAGS}
             />
           </Form.Item>
 

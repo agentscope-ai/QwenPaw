@@ -133,6 +133,37 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
     ),
 ]
 
+ZHIPU_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="glm-5",
+        name="glm-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="glm-5.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5-turbo",
+        name="glm-5-turbo",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5v-turbo",
+        name="glm-5v-turbo",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
 OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="gpt-5.2",
@@ -448,6 +479,44 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_ZHIPU_CN = OpenAIProvider(
+    id="zhipu-cn",
+    name="Zhipu (BigModel)",
+    base_url="https://open.bigmodel.cn/api/paas/v4",
+    api_key_prefix="",
+    models=ZHIPU_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
+    id="zhipu-cn-codingplan",
+    name="Zhipu Coding Plan (BigModel)",
+    base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+    api_key_prefix="",
+    models=ZHIPU_MODELS,
+    freeze_url=True,
+    support_connection_check=False,
+)
+
+PROVIDER_ZHIPU_INTL = OpenAIProvider(
+    id="zhipu-intl",
+    name="Zhipu (Z.AI)",
+    base_url="https://api.z.ai/api/paas/v4",
+    api_key_prefix="",
+    models=ZHIPU_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
+    id="zhipu-intl-codingplan",
+    name="Zhipu Coding Plan (Z.AI)",
+    base_url="https://api.z.ai/api/coding/paas/v4",
+    api_key_prefix="",
+    models=ZHIPU_MODELS,
+    freeze_url=True,
+    support_connection_check=False,
+)
+
 PROVIDER_COPAW = OpenAIProvider(
     id="copaw-local",
     name="CoPaw Local",
@@ -478,6 +547,8 @@ PROVIDER_MINIMAX = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
 )
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
@@ -559,12 +630,34 @@ PROVIDER_LMSTUDIO = OpenAIProvider(
     generate_kwargs={"max_tokens": None},
 )
 
+PROVIDER_SILICONFLOW_CN = OpenAIProvider(
+    id="siliconflow-cn",
+    name="SiliconFlow (China)",
+    base_url="https://api.siliconflow.cn/v1",
+    api_key_prefix="sk-",
+    models=[],
+    freeze_url=True,
+    support_model_discovery=True,
+    require_api_key=True,
+)
+
+PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
+    id="siliconflow-intl",
+    name="SiliconFlow (International)",
+    base_url="https://api.siliconflow.com/v1",
+    api_key_prefix="sk-",
+    models=[],
+    freeze_url=True,
+    support_model_discovery=True,
+    require_api_key=True,
+)
+
 
 class ActiveModelsInfo(BaseModel):
     active_llm: ModelSlotConfig | None
 
 
-class ProviderManager:
+class ProviderManager:  # pylint: disable=too-many-public-methods
     """A manager class to handle all providers,
     including built-in and custom ones."""
 
@@ -599,20 +692,26 @@ class ProviderManager:
 
     def _init_builtins(self):
         self._add_builtin(PROVIDER_COPAW)
+        self._add_builtin(PROVIDER_OLLAMA)
+        self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
-        self._add_builtin(PROVIDER_KIMI_CN)
-        self._add_builtin(PROVIDER_KIMI_INTL)
-        self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
+        self._add_builtin(PROVIDER_DEEPSEEK)
+        self._add_builtin(PROVIDER_KIMI_CN)
+        self._add_builtin(PROVIDER_KIMI_INTL)
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
-        self._add_builtin(PROVIDER_OLLAMA)
-        self._add_builtin(PROVIDER_LMSTUDIO)
+        self._add_builtin(PROVIDER_ZHIPU_CN)
+        self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
+        self._add_builtin(PROVIDER_ZHIPU_INTL)
+        self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
+        self._add_builtin(PROVIDER_SILICONFLOW_CN)
+        self._add_builtin(PROVIDER_SILICONFLOW_INTL)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
@@ -813,6 +912,26 @@ class ProviderManager:
         )
         return await provider.get_info()
 
+    async def update_model_config(
+        self,
+        provider_id: str,
+        model_id: str,
+        config: Dict,
+    ) -> ProviderInfo:
+        """Update per-model configuration and persist to disk."""
+        provider = self.get_provider(provider_id)
+        if not provider:
+            raise ValueError(f"Provider '{provider_id}' not found.")
+        if not provider.update_model_config(model_id, config):
+            raise ValueError(
+                f"Model '{model_id}' not found in provider '{provider_id}'.",
+            )
+        self._save_provider(
+            provider,
+            is_builtin=provider_id in self.builtin_providers,
+        )
+        return await provider.get_info()
+
     async def delete_model_from_provider(
         self,
         provider_id: str,
@@ -956,6 +1075,28 @@ class ProviderManager:
         except OSError:
             pass
 
+    def clear_active_model(self, provider_id: str | None = None) -> bool:
+        """Clear the active provider/model configuration.
+
+        If provider_id is provided, only clear when it matches the current
+        active provider.
+        """
+        if self.active_model is None:
+            return False
+        if (
+            provider_id is not None
+            and self.active_model.provider_id != provider_id
+        ):
+            return False
+
+        self.active_model = None
+        active_path = self.root_path / "active_model.json"
+        try:
+            active_path.unlink()
+        except (FileNotFoundError, OSError):
+            pass
+        return True
+
     def load_active_model(self) -> ModelSlotConfig | None:
         """Load the active provider/model configuration from disk."""
         active_path = self.root_path / "active_model.json"
@@ -1046,6 +1187,18 @@ class ProviderManager:
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
                 builtin.generate_kwargs.update(provider.generate_kwargs)
+                # Restore per-model generate_kwargs for built-in models
+                stored_model_kwargs = {
+                    m.id: m.generate_kwargs
+                    for m in provider.models
+                    if m.generate_kwargs
+                }
+                if stored_model_kwargs:
+                    for model in builtin.models:
+                        if model.id in stored_model_kwargs:
+                            model.generate_kwargs = stored_model_kwargs[
+                                model.id
+                            ]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

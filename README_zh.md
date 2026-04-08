@@ -58,6 +58,14 @@
 
 ## 新闻
 
+[2026-04-04] 我们发布了 v1.0.1！完整更新说明见 [v1.0.1 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
+
+- **[v1.0.1] 新增：** 智谱 AI 模型支持；多模态模型视频分析；模型参数配置；CoPaw本地模型提供商自动更新；OneBot v11 频道（NapCat/QQ）；智能体拖拽排序；技能批量操作；微信文件上传与输入中提示优化；记忆压缩额外指令。
+- **[v1.0.1] 优化：** 官网界面焕新；技能卡片与列表视图；MCP 控制台优化。
+- **[v1.0.1] 修复：** 钉钉 sessionWebhook 和白名单处理；企业微信 WebSocket 可靠性；QQ 重连状态；控制台 UI 修复；Windows 工具兼容性；浏览器空闲看门狗；思考模型工具防护；llama.cpp Windows NVIDIA GPU 支持。
+- **[v1.0.1] 文档：** CoPaw-Flash 部署 FAQ；技能文档更新。
+- **[v1.0.1] 贡献者：** 感谢新贡献者：[@Jacky51351684](https://github.com/Jacky51351684)、[@xianzhisheng](https://github.com/xianzhisheng)、[@kobewl](https://github.com/kobewl)、[@rikey123](https://github.com/rikey123)、[@solarhell](https://github.com/solarhell)。
+
 [2026-03-30] 我们发布了 v1.0.0！完整更新说明见 [v1.0.0 发布说明](https://agentscope-ai.github.io/CoPaw/release-notes)。
 
 - **[v1.0.0] 新增：**
@@ -331,7 +339,7 @@ docker run -p 127.0.0.1:8088:8088 \
 - **移除隔离属性（不推荐大多数用户）**
   在终端运行：
   `xattr -cr /Applications/CoPaw.app`
-  （或使用解压后的 `.app` 路径）。这会清除"从互联网下载"的隔离标志，使警告通常不会出现，但不如使用 **右键 → 打开** 安全和可控。
+  （或使用解压后的 `.app` 路径）。这会清除“从互联网下载”的隔离标志，使警告通常不会出现，但不如使用 **右键 → 打开** 安全和可控。
 
 详细使用说明、故障排除和常见问题，请参见 [桌面应用指南](https://copaw.agentscope.io/docs/desktop)。
 
@@ -456,6 +464,7 @@ CoPaw 内置多层安全防护机制，保障你的数据与系统安全：
 - **文件访问守卫** — 限制智能体访问敏感路径（如 `~/.ssh`、密钥文件、系统目录等）
 - **技能安全扫描** — 安装技能前自动扫描，检测提示词注入、命令注入、硬编码密钥、数据外泄等风险
 - **本地部署** — 所有数据与记忆存储在本地，无第三方上传（使用云端 LLM API 时，对话内容会发送到对应的 API 提供商）
+- **Web 登录认证** — 可选的控制台登录防护，默认关闭；设置 `COPAW_AUTH_ENABLED=true` 即可开启。详见 [Web 登录认证](https://copaw.agentscope.io/docs/security#Web-登录认证)。
 
 详见 [安全文档](https://copaw.agentscope.io/docs/security)。
 

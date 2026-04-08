@@ -7,26 +7,27 @@ import importlib
 import logging
 import multiprocessing as mp
 import shutil
-import threading
-import time
 import uuid
-from contextlib import suppress
 from pathlib import Path
 from queue import Empty
 from typing import Any, Optional
 from enum import Enum
 
+import traceback
 import httpx
 from pydantic import Field
 
 from .download_manager import (
-    apply_download_result,
-    begin_download_task,
     DownloadProgressTracker,
+    DownloadProgressUpdate,
+    ProcessDownloadTask,
     DownloadTaskResult,
     DownloadTaskStatus,
+    ProcessDownloadController,
+    ProcessDownloadTaskSpec,
 )
 from ..utils import system_info
+from ..utils.stdio import ensure_standard_streams
 from ..providers.provider import ModelInfo
 from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
 
@@ -64,15 +65,13 @@ class ModelManager:
         self,
     ) -> None:
         self._context = mp.get_context("spawn")
-        self._lock = threading.Lock()
-        self._process: Optional[Any] = None
-        self._queue: Optional[Any] = None
-        self._monitor_thread: Optional[threading.Thread] = None
-        self._staging_dir: Optional[Path] = None
-        self._final_dir: Optional[Path] = None
-        self._resolved_source: Optional[DownloadSource] = None
         self._model_dir = DEFAULT_LOCAL_PROVIDER_DIR / "models"
+        self._download_tmp_dir = DEFAULT_LOCAL_PROVIDER_DIR / "tmp"
         self._progress = DownloadProgressTracker()
+        self._download_controller = ProcessDownloadController(
+            context=self._context,
+            progress=self._progress,
+        )
 
     def get_recommended_models(self) -> list[LocalModelInfo]:
         """Recommend model names from the current machine capacity."""
@@ -173,202 +172,111 @@ class ModelManager:
 
         raise ValueError(f"Downloaded local model not found: {model_id}")
 
-    def download_model(
+    def start_download(
         self,
         model_id: str,
         source: DownloadSource | None = None,
     ) -> None:
         """Start downloading the selected model into the target directory."""
         logger.info("Starting download for [%s] %s", source, model_id)
-        with self._lock:
-            if self._is_download_active():
-                raise RuntimeError("A model download is already in progress.")
+        if self._is_download_active():
+            raise RuntimeError("A model download is already in progress.")
 
-            repo_id = model_id
-            final_dir = (
-                Path(self.get_model_dir(repo_id)).expanduser().resolve()
-            )
+        repo_id = model_id
+        final_dir = Path(self.get_model_dir(repo_id)).expanduser().resolve()
+        final_dir.parent.mkdir(parents=True, exist_ok=True)
+        self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
+        resolved_source = source or self._resolve_download_source()
+        total_bytes = self._estimate_download_size(
+            repo_id=repo_id,
+            source=resolved_source,
+        )
+        has_gguf, error_msg = self._check_gguf_exists(
+            repo_id=repo_id,
+            source=resolved_source,
+        )
+        if not has_gguf:
+            raise ValueError(error_msg)
 
-            final_dir.parent.mkdir(parents=True, exist_ok=True)
-            resolved_source = source or self._resolve_download_source()
-            total_bytes = self._estimate_download_size(
-                repo_id=repo_id,
-                source=resolved_source,
-            )
-            has_gguf, error_msg = self._check_gguf_exists(
-                repo_id=repo_id,
-                source=resolved_source,
-            )
-            if not has_gguf:
-                raise ValueError(error_msg)
-
-            self._resolved_source = resolved_source
-            task_id = uuid.uuid4().hex
-            self._final_dir = final_dir
-            self._staging_dir = (
-                final_dir.parent / f".{final_dir.name}.{task_id}.downloading"
-            )
-            self._queue = self._context.Queue()
-            payload = {
-                "repo_id": repo_id,
-                "source": self._resolved_source.value,
-                "staging_dir": str(self._staging_dir),
-            }
-            self._process = self._context.Process(
+        task_id = uuid.uuid4().hex
+        staging_dir = self._download_tmp_dir / task_id
+        payload = {
+            "repo_id": repo_id,
+            "source": resolved_source.value,
+            "staging_dir": str(staging_dir),
+        }
+        spec = ProcessDownloadTaskSpec(
+            process_name=f"copaw-model-download-{task_id}",
+            command=[
+                "copaw-model-download",
+                repo_id,
+                resolved_source.value,
+            ],
+            task=ProcessDownloadTask(
                 target=type(self)._download_worker,
-                args=(payload, self._queue),
-                name=f"copaw-model-download-{task_id}",
-                daemon=True,
-            )
+                payload=payload,
+                progress_probe=lambda: DownloadProgressUpdate(
+                    downloaded_bytes=self._calculate_downloaded_size(
+                        staging_dir,
+                    ),
+                    total_bytes=total_bytes,
+                    model_name=repo_id,
+                    source=resolved_source.value,
+                ),
+                finalize_result=lambda result: self._finalize_download_result(
+                    result,
+                    staging_dir=staging_dir,
+                    final_dir=final_dir,
+                ),
+                cleanup=lambda: self._cleanup_path(staging_dir),
+            ),
+            model_name=repo_id,
+            source=resolved_source.value,
+            total_bytes=total_bytes,
+        )
+        self._download_controller.start(spec)
 
-            begin_download_task(
-                self._progress,
-                total_bytes=total_bytes,
-                model_name=repo_id,
-                source=self._resolved_source.value,
-            )
-            self._process.start()
-            self._monitor_thread = threading.Thread(
-                target=self._monitor_download,
-                name=f"copaw-model-download-monitor-{task_id}",
-                daemon=True,
-            )
-            self._monitor_thread.start()
+    def download_model(
+        self,
+        model_id: str,
+        source: DownloadSource | None = None,
+    ) -> None:
+        self.start_download(model_id, source=source)
 
     def get_download_progress(self) -> dict[str, Any]:
         """Return the current download progress."""
-        return self._progress.snapshot()
+        return self._download_controller.snapshot()
 
     def cancel_download(self) -> None:
         """Cancel the current download task."""
-        with self._lock:
-            process = self._process
-            queue = self._queue
-            monitor_thread = self._monitor_thread
-            staging_dir = self._staging_dir
-            active = self._is_download_active()
-            if not active:
-                return
-            self._progress.mark_canceling()
-
-        if process is not None and process.is_alive():
-            process.terminate()
-            process.join(timeout=2)
-            if process.is_alive():
-                process.kill()
-                process.join(timeout=2)
-
-        if (
-            monitor_thread is not None
-            and monitor_thread is not threading.current_thread()
-        ):
-            monitor_thread.join(timeout=2)
-
-        if staging_dir is not None:
-            self._cleanup_path(staging_dir)
-
-        self._release_download_resources(process=process, queue=queue)
-
-        with self._lock:
-            self._clear_download_state()
-
-        self._progress.mark_cancelled()
+        self._download_controller.cancel()
 
     def _is_download_active(self) -> bool:
         """Return whether a download process is still active."""
-        return self._process is not None and self._process.is_alive()
+        return self._download_controller.is_active()
 
-    def _monitor_download(self) -> None:
-        """Watch the child process and update progress from disk usage."""
-        while True:
-            with self._lock:
-                process = self._process
-                queue = self._queue
-                staging_dir = self._staging_dir
-                final_dir = self._final_dir
-                status = self._progress.get_status()
-
-            if status in {
-                DownloadTaskStatus.CANCELING,
-                DownloadTaskStatus.CANCELLED,
-            }:
-                return
-
-            if staging_dir is not None:
-                downloaded_bytes = self._calculate_downloaded_size(staging_dir)
-                self._progress.update_downloaded(downloaded_bytes)
-
-            message = self._drain_queue_message(queue)
-            if message is not None:
-                self._handle_worker_message(message, staging_dir, final_dir)
-                return
-
-            if process is None:
-                return
-
-            if not process.is_alive():
-                process.join(timeout=0.1)
-                message = self._drain_queue_message(queue)
-                if message is None:
-                    self._release_download_resources(
-                        process=process,
-                        queue=queue,
-                    )
-                    with self._lock:
-                        self._clear_download_state()
-                    self._progress.mark_failed(
-                        "Download process exited unexpectedly.",
-                    )
-                    if staging_dir is not None:
-                        self._cleanup_path(staging_dir)
-                    return
-                self._handle_worker_message(message, staging_dir, final_dir)
-                return
-
-            time.sleep(1)
-
-    def _handle_worker_message(
+    def _finalize_download_result(
         self,
-        message: dict[str, Any],
-        staging_dir: Optional[Path],
-        final_dir: Optional[Path],
-    ) -> None:
-        """Apply the final worker message to the instance state."""
-        result = DownloadTaskResult.from_dict(message)
-        if result.status == DownloadTaskStatus.COMPLETED:
-            if staging_dir is None or final_dir is None:
-                raise RuntimeError("Download directories are not initialized.")
-            local_path = self._promote_staging_directory(
-                staging_dir=staging_dir,
-                final_dir=final_dir,
-                local_path=Path(result.local_path or staging_dir),
-            )
-            downloaded_bytes = self._calculate_downloaded_size(final_dir)
-            self._release_download_resources(
-                process=self._process,
-                queue=self._queue,
-            )
-            with self._lock:
-                self._clear_download_state()
-            apply_download_result(
-                self._progress,
-                DownloadTaskResult(
-                    status=DownloadTaskStatus.COMPLETED,
-                    local_path=str(local_path),
-                ),
-                downloaded_bytes=downloaded_bytes,
-            )
-            return
-
-        if staging_dir is not None:
-            self._cleanup_path(staging_dir)
-        self._release_download_resources(
-            process=self._process,
-            queue=self._queue,
+        result: DownloadTaskResult,
+        *,
+        staging_dir: Path,
+        final_dir: Path,
+    ) -> tuple[DownloadTaskResult, int | None]:
+        if result.status != DownloadTaskStatus.COMPLETED:
+            return result, None
+        local_path = self._promote_staging_directory(
+            staging_dir=staging_dir,
+            final_dir=final_dir,
+            local_path=Path(result.local_path or staging_dir),
         )
-        with self._lock:
-            self._clear_download_state()
-        apply_download_result(self._progress, result)
+        downloaded_bytes = self._calculate_downloaded_size(final_dir)
+        return (
+            DownloadTaskResult(
+                status=result.status,
+                local_path=str(local_path),
+            ),
+            downloaded_bytes,
+        )
 
     def _resolve_download_source(self) -> DownloadSource:
         """Choose Hugging Face when reachable, otherwise use ModelScope."""
@@ -407,6 +315,7 @@ class ModelManager:
     @staticmethod
     def _download_worker(payload: dict[str, Any], queue: Any) -> None:
         """Run the blocking SDK download in a child process."""
+        ensure_standard_streams()
         repo_id = payload["repo_id"]
         source = DownloadSource(payload["source"])
         staging_dir = Path(payload["staging_dir"]).expanduser().resolve()
@@ -419,20 +328,25 @@ class ModelManager:
                 source=source,
                 local_dir=staging_dir,
             )
-            queue.put(
-                DownloadTaskResult(
-                    status=DownloadTaskStatus.COMPLETED,
-                    local_path=str(Path(local_path).resolve()),
-                ).to_dict(),
-            )
         except Exception as exc:
             queue.put(
                 DownloadTaskResult(
                     status=DownloadTaskStatus.FAILED,
                     error="Download failed: " + str(exc),
-                ).to_dict(),
+                ).to_message(),
+            )
+            logger.error(
+                "Error when downloading model [%s]:\n%s",
+                repo_id,
+                traceback.format_exc(),
             )
             raise
+        queue.put(
+            DownloadTaskResult(
+                status=DownloadTaskStatus.COMPLETED,
+                local_path=str(Path(local_path).resolve()),
+            ).to_message(),
+        )
 
     @staticmethod
     def _download_to_directory(
@@ -673,29 +587,6 @@ class ModelManager:
             shutil.rmtree(path, ignore_errors=True)
             return
         path.unlink(missing_ok=True)
-
-    def _clear_download_state(self) -> None:
-        self._process = None
-        self._queue = None
-        self._monitor_thread = None
-        self._staging_dir = None
-        self._final_dir = None
-        self._resolved_source = None
-
-    @staticmethod
-    def _release_download_resources(
-        process: Any | None,
-        queue: Any | None,
-    ) -> None:
-        if queue is not None:
-            with suppress(AttributeError, OSError, ValueError):
-                queue.close()
-            with suppress(AttributeError, OSError, ValueError, AssertionError):
-                queue.join_thread()
-
-        if process is not None:
-            with suppress(AttributeError, OSError, ValueError):
-                process.close()
 
     def _iter_downloaded_model_dirs(self) -> list[Path]:
         candidates: list[Path] = []

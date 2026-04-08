@@ -216,6 +216,7 @@ class ToolGuardMixin:
             or fallback.get("tool_name", "unknown"),
             "tool_input": tool_input or fallback.get("tool_input", {}),
             "guardians": fallback.get("guardians", []),
+            "guard_result": fallback.get("guard_result"),
         }
 
     async def _cleanup_tool_guard_denied_messages(
@@ -570,6 +571,7 @@ class ToolGuardMixin:
             "tool_name": tool_name,
             "tool_input": tool_call.get("input", {}),
             "guardians": guardians,
+            "guard_result": guard_result,
         }
 
         findings_text = format_findings_summary(guard_result)
@@ -800,12 +802,38 @@ class ToolGuardMixin:
         tool_name = pending.get("tool_name", "unknown")
         tool_input = pending.get("tool_input", {})
         guardians: list[str] = pending.get("guardians", [])
+        guard_result = pending.get("guard_result")
+
         params_text = _json.dumps(
             tool_input,
             ensure_ascii=False,
             indent=2,
         )
         trigger_label, settings_hint = self._guardian_trigger_hint(guardians)
+
+        # Extract remediation hint from guard result if available
+        remediation_hint = ""
+        if guard_result and guard_result.findings:
+            try:
+                finding = guard_result.findings[0]
+                # Use structured metadata for custom hints
+                if finding.metadata and "custom_hint" in finding.metadata:
+                    custom_hint = finding.metadata["custom_hint"]
+                    if (
+                        isinstance(custom_hint, dict)
+                        and "messages" in custom_hint
+                    ):
+                        messages = custom_hint["messages"]
+                        if isinstance(messages, list) and all(
+                            isinstance(m, str) for m in messages
+                        ):
+                            remediation_hint = "\n\n" + "\n".join(messages)
+            except (KeyError, TypeError, AttributeError) as e:
+                logger.debug(
+                    "Failed to extract remediation hint from metadata: %s",
+                    e,
+                )
+
         return await self._emit_assistant_msg(
             "⏳ Waiting for approval / 等待审批\n\n"
             f"- Tool / 工具: `{tool_name}`\n"
@@ -816,5 +844,5 @@ class ToolGuardMixin:
             "Type `/approve` to approve, "
             "or send any message to deny.\n"
             "输入 `/approve` 批准执行，"
-            "或发送任意消息拒绝。",
+            f"或发送任意消息拒绝。{remediation_hint}",
         )

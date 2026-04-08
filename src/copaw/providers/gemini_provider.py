@@ -136,7 +136,7 @@ class GeminiProvider(Provider):
             model_name=model_id,
             stream=True,
             api_key=self.api_key,
-            generate_kwargs=self.generate_kwargs,
+            generate_kwargs=self.get_effective_generate_kwargs(model_id),
         )
 
     async def probe_model_multimodal(

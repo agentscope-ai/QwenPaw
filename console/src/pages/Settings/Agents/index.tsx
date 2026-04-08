@@ -6,18 +6,21 @@ import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
 import { skillApi } from "../../../api/modules/skill";
 import type { AgentSummary } from "../../../api/types/agents";
-import { useAgents } from "./useAgents";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useAgents } from "./useAgents";
 import { AgentTable, AgentModal } from "./components";
 import { PageHeader } from "@/components/PageHeader";
+import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
 
 export default function AgentsPage() {
   const { t } = useTranslation();
-  const { agents, loading, deleteAgent, toggleAgent, loadAgents } = useAgents();
+  const { agents, loading, deleteAgent, toggleAgent, loadAgents, setAgents } =
+    useAgents();
   const { selectedAgent, setSelectedAgent } = useAgentStore();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
+  const [reordering, setReordering] = useState(false);
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const installedSkillsRef = useRef<string[]>([]);
@@ -50,13 +53,11 @@ export default function AgentsPage() {
     try {
       await deleteAgent(agentId);
 
-      // If deleting the currently selected agent, fall back to default
       if (selectedAgent === agentId) {
         setSelectedAgent("default");
         message.info(t("agent.switchedToDefault"));
       }
     } catch {
-      // Error already handled in hook
       message.error(t("agent.deleteFailed"));
     }
   };
@@ -66,7 +67,6 @@ export default function AgentsPage() {
     try {
       await toggleAgent(agentId, newEnabled);
 
-      // If disabling the current agent, switch to default
       if (!newEnabled && selectedAgent === agentId) {
         setSelectedAgent("default");
         message.info(t("agent.switchedToDefault"));
@@ -118,6 +118,28 @@ export default function AgentsPage() {
     }
   };
 
+  const handleReorder = async (activeId: string, overId: string) => {
+    const nextAgents = reorderAgents(agents, activeId, overId);
+    if (nextAgents === agents) {
+      return;
+    }
+
+    const previousAgents = agents;
+    setAgents(nextAgents);
+    setReordering(true);
+
+    try {
+      await agentsApi.reorderAgents(nextAgents.map((agent) => agent.id));
+      message.success(t("agent.reorderSuccess"));
+    } catch (error) {
+      console.error("Failed to reorder agents:", error);
+      setAgents(previousAgents);
+      message.error(t("agent.reorderFailed"));
+    } finally {
+      setReordering(false);
+    }
+  };
+
   return (
     <div className={styles.agentsPage}>
       <PageHeader
@@ -139,10 +161,12 @@ export default function AgentsPage() {
       <Card className={styles.tableCard}>
         <AgentTable
           agents={agents}
-          loading={loading}
+          loading={loading || reordering}
+          reordering={reordering}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onToggle={handleToggle}
+          onReorder={handleReorder}
         />
       </Card>
 

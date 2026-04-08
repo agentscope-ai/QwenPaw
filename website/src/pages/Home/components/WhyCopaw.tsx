@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
@@ -31,6 +31,8 @@ export function CopawWhy() {
   const { t } = useTranslation();
   const [progress, setProgress] = useState(0);
   const [animationsStarted, setAnimationsStarted] = useState(false);
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const [isInView, setIsInView] = useState(false);
 
   const heroLine = t("whyCopaw.heroLine");
   const secondPrefix = t("whyCopaw.secondPrefix");
@@ -45,11 +47,39 @@ export function CopawWhy() {
     setAnimationsStarted(true);
   };
 
+  const prefersReducedMotion = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  }, []);
+
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setIsInView(true);
+      return;
+    }
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setIsInView(Boolean(entry?.isIntersecting));
+      },
+      { threshold: 0.15 },
+    );
+
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!animationsStarted) return;
+    if (!isInView) return;
+    if (prefersReducedMotion) return;
     let rafId = 0;
     const durationMs = PAW_ANIMATION_DURATION * 1000;
-    const start = performance.now();
+    // Preserve phase when leaving/entering viewport.
+    const start = performance.now() - progress * durationMs;
 
     const tick = (now: number) => {
       const nextProgress = ((now - start) % durationMs) / durationMs;
@@ -59,7 +89,7 @@ export function CopawWhy() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [animationsStarted]);
+  }, [animationsStarted, isInView, prefersReducedMotion, progress]);
 
   const isTopPhase = progress < 0.5;
   const topPhaseProgress = Math.min(1, progress / 0.5);
@@ -118,7 +148,8 @@ export function CopawWhy() {
 
   return (
     <motion.section
-      className="relative h-130 overflow-hidden bg-[#E77C29] px-4 py-4 text-[#ffe8d7] sm:h-[680px] md:h-[700px] md:py-0"
+      ref={sectionRef}
+      className="relative min-h-114 overflow-hidden bg-[#E77C29] px-4 py-4 text-[#ffe8d7] sm:h-[680px] md:h-[700px] md:py-0"
       variants={container}
       initial="hidden"
       whileInView="show"
@@ -132,7 +163,7 @@ export function CopawWhy() {
     >
       <div className="mx-auto flex h-full max-w-7xl flex-col items-center justify-start md:items-stretch md:justify-center">
         <motion.div
-          className="flex w-full flex-col items-center gap-4 border-b border-[rgba(255,235,220,0.35)] pb-5 md:pb-6 md:flex-row md:items-center md:justify-between"
+          className="flex w-full flex-col items-center gap-4 border-b border-[rgba(255,235,220,0.35)] pb-5 md:pb-6 mt-2 md:mt-0 md:flex-row md:items-center md:justify-between"
           variants={item}
         >
           <div className="relative pt-7 md:pt-10">
@@ -142,7 +173,7 @@ export function CopawWhy() {
               aria-hidden
               className="pointer-events-none absolute -top-2 left-0 z-20 h-11 w-11 object-contain md:-top-6 md:h-20 md:w-20"
             />
-            <h2 className="font-newsreader font-semibold relative z-10 text-[38px] leading-[0.98] text-[#ffffff] sm:text-[42px] md:text-[52px]">
+            <h2 className="font-newsreader font-semibold relative z-10 text-3xl leading-[0.98] text-[#ffffff] sm:text-[42px] md:text-[52px]">
               <span>{t("whyCopaw.headingPrefix")} </span>
               <span className="inline-block italic whitespace-nowrap">
                 {t("whyCopaw.headingEmphasis")}

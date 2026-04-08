@@ -24,6 +24,12 @@ Manually trigger conversation compaction, condensing all current messages into a
 /compact
 ```
 
+Optionally, add an extra instruction to guide what the summary should keep or remove:
+
+```
+/compact keep requirements, decisions, and pending tasks; remove debug logs and tool-call details
+```
+
 **Example response:**
 
 ```
@@ -36,6 +42,7 @@ User requested help building a user authentication system, login endpoint implem
 ```
 
 > 💡 Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
+> 💡 The extra instruction only applies to this manual `/compact` run. Auto-compaction behavior is unchanged.
 
 ---
 

@@ -763,6 +763,10 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   background: #fff !important;
 }
 
+.copaw-chat-anywhere-message-list-welcome {
+  background: #fff !important;
+}
+
 /* Chat bubble list max-width override */
 .copaw-chat-anywhere-message-list .copaw-bubble-list {
   max-width: 960px !important;
@@ -939,4 +943,44 @@ html.dark-mode .copaw-btn-default {
   color: rgba(255, 235, 218, 0.88) !important;
   background-color: #000000 !important;
   border: 1px solid #3a312a !important;
+}
+
+/* Dark mode - danger button */
+html.dark-mode .ant-btn-dangerous,
+html.dark-mode .copaw-btn-dangerous,
+html.dark-mode .ant-btn-danger,
+html.dark-mode .copaw-btn-danger {
+  background: rgba(129, 46, 46, 0.25) !important;
+  color: #ff4d4f !important;
+}
+
+/* Dark mode - danger button disabled state */
+html.dark-mode .ant-btn-dangerous:disabled,
+html.dark-mode .ant-btn-dangerous[disabled],
+html.dark-mode .ant-btn-dangerous.ant-btn-disabled,
+html.dark-mode .copaw-btn-dangerous:disabled,
+html.dark-mode .copaw-btn-dangerous[disabled],
+html.dark-mode .copaw-btn-dangerous.copaw-btn-disabled,
+html.dark-mode .ant-btn-danger:disabled,
+html.dark-mode .ant-btn-danger[disabled],
+html.dark-mode .ant-btn-danger.ant-btn-disabled,
+html.dark-mode .copaw-btn-danger:disabled,
+html.dark-mode .copaw-btn-danger[disabled],
+html.dark-mode .copaw-btn-danger.copaw-btn-disabled {
+  background: rgba(129, 46, 46, 0.32) !important;
+  color: rgba(165, 50, 48, 0.8) !important;
+}
+
+html.dark-mode .copaw-empty-image,
+html.dark-mode .ant-empty-image {
+  opacity: 0.2;
+}
+
+html.dark-mode .copaw-empty-description,
+html.dark-mode .ant-empty-description {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+html.dark-mode .copaw-input-prefix {
+  color: rgba(255, 255, 255, 0.85) !important;
 }

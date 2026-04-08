@@ -217,3 +217,30 @@ def test_chats_list_with_agent_id():
         assert call_args is not None
         if call_args[1].get("headers"):
             assert call_args[1]["headers"]["X-Agent-Id"] == "xyz789"
+
+
+def test_chats_update_uses_minimal_payload():
+    """Chat rename should send only the intended patch fields."""
+    runner = CliRunner()
+
+    with patch("copaw.cli.chats_cmd.client") as mock_client:
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"id": "chat-1", "name": "Renamed"}
+        mock_client.return_value.__enter__.return_value.put.return_value = (
+            mock_response
+        )
+
+        runner.invoke(
+            chats_group,
+            ["update", "chat-1", "--name", "Renamed"],
+        )
+
+        call_args = (
+            mock_client.return_value.__enter__.return_value.put.call_args
+        )
+        assert call_args is not None
+        assert call_args.args[0] == "/chats/chat-1"
+        assert call_args.kwargs["json"] == {
+            "name": "Renamed",
+        }

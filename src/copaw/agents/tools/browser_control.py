@@ -131,8 +131,8 @@ def _get_workspace_state(
     return _workspace_states[workspace_id]
 
 
-# Stop the browser after this many seconds of inactivity (default 30 minutes).
-_BROWSER_IDLE_TIMEOUT = 1800.0
+# Stop the browser after this many seconds of inactivity (default 10 minutes).
+_BROWSER_IDLE_TIMEOUT = 600.0
 
 
 def _touch_activity(state: dict) -> None:
@@ -234,10 +234,17 @@ def _tool_response(text: str) -> ToolResponse:
 
 
 def _chromium_launch_args() -> list[str]:
-    """Extra args for Chromium when running in container."""
+    """Extra args for Chromium when running in container or Windows."""
+    args = []
+    if is_running_in_container() or sys.platform == "win32":
+        args.extend(["--no-sandbox"])
+
     if is_running_in_container():
-        return ["--no-sandbox", "--disable-dev-shm-usage"]
-    return []
+        args.extend(["--disable-dev-shm-usage"])
+    # Windows always needs --disable-gpu to run properly
+    if sys.platform == "win32":
+        args.extend(["--disable-gpu"])
+    return args
 
 
 def _chromium_executable_path() -> str | None:
@@ -405,10 +412,10 @@ def _get_locator_by_ref(
         return None
     role = info.get("role", "generic")
     name = info.get("name")
-    nth = info.get("nth", 0)
+    nth = info.get("nth")
     root = _get_root(page, frame_selector)
     locator = root.get_by_role(role, name=name or None)
-    if nth is not None and nth > 0:
+    if nth is not None:
         locator = locator.nth(nth)
     return locator
 
@@ -616,9 +623,15 @@ def _start_idle_watchdog(state: dict) -> None:
 
 
 def _cancel_idle_watchdog(state: dict) -> None:
-    """Cancel the idle watchdog, if running."""
+    """Cancel the idle watchdog, if running.
+
+    Note: If called from within the watchdog task itself (e.g., during _action_stop
+    triggered by idle timeout), we don't cancel the current task - just clear the
+    reference and let the watchdog exit naturally after _action_stop returns.
+    """
     task = state.get("_idle_task")
-    if task and not task.done():
+    current = asyncio.current_task()
+    if task and not task.done() and task is not current:
         task.cancel()
     state["_idle_task"] = None
 
@@ -3021,6 +3034,14 @@ async def browser_use(  # pylint: disable=R0911,R0912
             file_upload, fill_form, install, press_key, run_code, drag, hover,
             select_option, tabs, wait_for, pdf, close, cookies_get, cookies_set,
             cookies_clear, connect_cdp, list_cdp_targets, clear_browser_cache.
+            Commonly confused actions:
+            - start: start browser only; does not open a target URL by itself.
+            - open: create/open a page and go to URL; auto-starts browser if needed.
+            - navigate: navigate an existing page_id to URL; page must already exist.
+            - close: close one page/tab only; browser stays running if other tabs remain.
+            - stop: stop/disconnect the whole browser session and clear browser state.
+            - tabs with tab_action=close: close a tab by index; similar to close but
+              selected by tab list position instead of page_id.
         url (str):
             URL to open. Required for action=open or navigate. For
             cookies_get, optional URL or JSON array of URLs to filter

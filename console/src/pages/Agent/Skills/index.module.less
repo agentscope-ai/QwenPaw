@@ -127,6 +127,35 @@
   padding: 16px;
 }
 
+/* ─── Status with Select (batch selection) ───────────────────────────────── */
+.statusWithSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.selectedCard {
+  box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.2) !important;
+}
+
+.selectedListItem {
+  background: rgba(255, 127, 22, 0.02);
+}
+
+/* ─── Batch Mode Header ──────────────────────────────────────────────────── */
+.batchActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batchCount {
+  font-size: 13px;
+  color: #666;
+  margin-right: 4px;
+}
+
 /* ─── Skill Card ──────────────────────────────────────────────────────────── */
 .skillCard {
   min-height: 178px;
@@ -140,7 +169,7 @@
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
-  padding-bottom: 56px; /* 增加底部padding，为按钮留出空间 */
+  padding-bottom: 56px;
 
   :global {
     .ant-card-body {
@@ -182,34 +211,95 @@
 
 .leftSection {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
   flex: 1;
+  width: 100%;
 
-  .metaContainer {
-    margin-top: 0;
+  .titleInfoContainer {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .updatedTime {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: rgba(20, 20, 19, 0.45);
+      margin-top: -2px;
+
+      .calendarIcon {
+        font-size: 10px;
+      }
+    }
+
+    .channelsRow {
+      display: none;
+    }
+  }
+}
+
+.channelsRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-top: 8px;
+
+  .channelIcon {
+    font-size: 12px;
+    color: rgba(26, 23, 22, 0.45);
+    flex-shrink: 0;
+  }
+
+  .channelLabel {
+    color: rgba(26, 23, 22, 0.65);
+    flex-shrink: 0;
+  }
+
+  .channelValue {
+    color: rgba(20, 20, 19, 0.88);
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background-color: rgba(239, 240, 243, 0.5);
   }
 }
 
 .fileIcon {
-  font-size: 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #fcfaf8;
+  font-size: 28px;
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
 .skillEmoji {
-  font-size: 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #fcfaf8;
+  font-size: 24px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 
 .titleRow {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  width: 100%;
 }
 
 .skillTitle {
@@ -225,52 +315,22 @@
   white-space: nowrap;
 }
 
-.typeBadge {
-  font-size: 10px;
+.statusValue {
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: 4px;
+  font-size: 11px;
   font-weight: 500;
   flex-shrink: 0;
-  background-color: rgba(239, 240, 243, 0.8);
-  color: #8e8c99;
-}
-
-.statusContainer {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  flex-shrink: 0;
-}
-
-.statusDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
+  white-space: nowrap;
 
   &.enabled {
-    background-color: rgba(20, 184, 166, 1);
+    background-color: rgba(82, 196, 26, 0.12);
+    color: #389e0d;
   }
 
   &.disabled {
-    background-color: #d9d9d9;
-  }
-}
-
-.statusText {
-  font-family: Lato;
-  font-size: 12px;
-  font-weight: normal;
-  line-height: 19px;
-  letter-spacing: normal;
-
-  &.enabled {
-    color: rgba(20, 184, 166, 1);
-  }
-
-  &.disabled {
-    color: rgba(20, 20, 19, 0.45);
+    background-color: rgba(239, 240, 243, 0.8);
+    color: rgba(20, 20, 19, 0.65);
   }
 }
 
@@ -298,7 +358,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 
@@ -322,13 +382,21 @@
   flex-shrink: 0;
 }
 
-.metaValue {
+.channelValue {
   font-size: 12px;
   color: rgba(20, 20, 19, 0.88);
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 4px;
   background-color: rgba(239, 240, 243, 0.5);
+}
+
+.metaValue {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.88);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 .builtinTag {
@@ -347,6 +415,84 @@
   font-weight: 500;
   background-color: rgba(255, 247, 230, 0.8);
   color: #d48806;
+}
+
+/* ─── Category & Tags ─────────────────────────────────────────────────────── */
+.categoriesTagsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.metaRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.metaIcon {
+  font-size: 12px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 1px;
+}
+
+.metaContent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+}
+
+.categoryChip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: rgba(22, 119, 255, 0.08);
+  color: #1677ff;
+  border: 1px solid rgba(22, 119, 255, 0.18);
+  white-space: nowrap;
+}
+
+.categoryBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 3px;
+  font-weight: 500;
+  background-color: rgba(22, 119, 255, 0.08);
+  color: #1677ff;
+  border: 1px solid rgba(22, 119, 255, 0.18);
+  white-space: nowrap;
+}
+
+.tagChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-weight: 400;
+  background-color: transparent;
+  color: rgba(26, 23, 22, 0.45);
+  border: 1px solid rgba(26, 23, 22, 0.15);
+  white-space: nowrap;
 }
 
 .cardFooter {
@@ -380,23 +526,7 @@
   flex: 1;
   height: 32px;
   font-size: 14px;
-  background-color: #fff0f0;
-  color: #ff4d4f;
-  border: 1px solid #ffccc7;
   cursor: pointer;
-
-  &:hover {
-    background-color: #ff4d4f;
-    border-color: #ff4d4f;
-    color: #ffffff;
-  }
-
-  &:disabled {
-    background-color: #f5f5f5;
-    color: rgba(0, 0, 0, 0.25);
-    border-color: #d9d9d9;
-    cursor: not-allowed;
-  }
 }
 
 .emptyState {
@@ -646,8 +776,227 @@
   padding-right: 18px;
 }
 
+/* ─── Toolbar (search + view toggle) ─────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+  gap: 12px;
+}
+
+.searchContainer {
+  flex: 1;
+  max-width: 600px;
+}
+
+.searchSelect {
+  width: 100%;
+
+  :global {
+    .ant-select-selector {
+      min-height: 36px;
+      padding: 2px 4px;
+    }
+
+    .ant-select-selection-search {
+      margin-inline-start: 4px;
+    }
+
+    .ant-select-selection-item {
+      background: rgba(22, 119, 255, 0.08);
+      border: 1px solid rgba(22, 119, 255, 0.18);
+      color: #1677ff;
+      border-radius: 4px;
+      padding: 0 8px;
+      margin: 2px 4px 2px 0;
+      font-size: 12px;
+    }
+  }
+}
+
+.filterGroup {
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.filterGroupTitle {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.filterOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 12px;
+}
+
+.filterOption {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(22, 119, 255, 0.08);
+    color: #1677ff;
+  }
+}
+
+.filterOptionActive {
+  background: rgba(22, 119, 255, 0.12);
+  color: #1677ff;
+  font-weight: 500;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.viewToggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.viewToggleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: rgba(20, 20, 19, 0.45);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+  transition: all 0.2s;
+
+  &:hover {
+    color: rgba(20, 20, 19, 0.88);
+    background: rgba(0, 0, 0, 0.04);
+  }
+
+  &.viewToggleBtnActive {
+    color: rgba(20, 20, 19, 0.88);
+    background: rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* ─── List Mode ─────────────────────────────────────────────────────────── */
+.skillsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 16px;
+}
+
+.skillListItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border-bottom: none;
+  background: var(--color-bg-base, #ffffff);
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:first-child {
+    border-radius: 8px 8px 0 0;
+  }
+
+  &:last-child {
+    border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+    border-radius: 0 0 8px 8px;
+  }
+
+  &:only-child {
+    border-radius: 8px;
+    border-bottom: 1px solid var(--color-border-secondary, #eae8e7);
+  }
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.02);
+  }
+}
+
+.listItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.listItemInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.listItemHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.channelBadge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  background-color: rgba(239, 240, 243, 0.8);
+  color: #8e8c99;
+}
+
+.listItemTime {
+  font-size: 12px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.listItemDesc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listItemRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-left: 24px;
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .fileIcon {
+    background: rgba(26, 23, 22, 0.88);
+  }
+
+  .skillEmoji {
+    background: rgba(26, 23, 22, 0.88);
+  }
+
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.2);
   }
@@ -737,6 +1086,23 @@
     color: rgba(255, 255, 255, 1);
   }
 
+  .updatedTime {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .channelIcon {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .channelLabel {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .channelValue {
+    color: rgba(255, 255, 255, 0.88);
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
   .typeBadge {
     background-color: rgba(255, 255, 255, 0.15);
     color: rgba(255, 255, 255, 0.8);
@@ -764,9 +1130,13 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
-  .metaValue {
+  .channelValue {
     color: rgba(255, 255, 255, 0.88);
     background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .metaValue {
+    color: rgba(255, 255, 255, 0.88);
   }
 
   .builtinTag {
@@ -777,6 +1147,68 @@
   .customTag {
     background-color: rgba(255, 247, 230, 0.2);
     color: #ffcc66;
+  }
+
+  /* Category & Tags - dark mode */
+  .categoryChip {
+    background: rgba(22, 119, 255, 0.15);
+    color: #4da3ff;
+    border-color: rgba(22, 119, 255, 0.3);
+  }
+
+  .categoryBadge {
+    background-color: rgba(22, 119, 255, 0.15);
+    color: #4da3ff;
+    border-color: rgba(22, 119, 255, 0.3);
+  }
+
+  .tagChip {
+    background-color: transparent;
+    color: rgba(255, 255, 255, 0.45);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  /* Search select - dark mode */
+  .searchSelect {
+    :global {
+      .ant-select-selector {
+        background: #2a2a2a;
+        border-color: rgba(255, 255, 255, 0.15);
+      }
+
+      .ant-select-selection-item {
+        background: rgba(22, 119, 255, 0.15);
+        border-color: rgba(22, 119, 255, 0.3);
+        color: #4da3ff;
+      }
+
+      .ant-select-selection-placeholder {
+        color: rgba(255, 255, 255, 0.25);
+      }
+    }
+  }
+
+  .filterGroup {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .filterGroupTitle {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .filterOption {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.65);
+
+    &:hover {
+      background: rgba(22, 119, 255, 0.15);
+      color: #4da3ff;
+    }
+  }
+
+  .filterOptionActive {
+    background: rgba(22, 119, 255, 0.2);
+    color: #4da3ff;
   }
 
   /* Action button */
@@ -791,22 +1223,13 @@
     }
   }
 
-  /* Delete button */
-  .deleteButton {
-    background-color: #ff4d4f !important;
-    color: #fff !important;
-    border-color: #ff4d4f !important;
+  .selectedCard {
+    border-color: #ff7f16 !important;
+    box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.3) !important;
+  }
 
-    &:hover {
-      background-color: #ff7875 !important;
-      border-color: #ff7875 !important;
-    }
-
-    &:disabled {
-      background-color: #5a3a3a !important;
-      color: rgba(255, 255, 255, 0.4) !important;
-      border-color: #5a3a3a !important;
-    }
+  .batchCount {
+    color: rgba(255, 255, 255, 0.65);
   }
 
   /* Card picker */
@@ -839,6 +1262,74 @@
     :global {
       .ant-modal-body {
         background: #2d2d2d;
+      }
+    }
+  }
+
+  /* View toggle buttons - dark mode */
+  .viewToggleBtn {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    &.viewToggleBtnActive {
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  /* List mode - dark mode */
+  .skillListItem {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.15);
+
+    &:hover {
+      background: #2a2a2a;
+    }
+  }
+
+  .listItemTime {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .listItemDesc {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .channelBadge {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .statusValue {
+    &.enabled {
+      background-color: rgba(82, 196, 26, 0.15);
+      color: #67cf22;
+    }
+
+    &.disabled {
+      background-color: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
+
+  .descriptionText {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .leftSection {
+    .titleInfoContainer {
+      .updatedTime {
+        color: rgba(255, 255, 255, 0.45);
+
+        .calendarIcon {
+          color: rgba(255, 255, 255, 0.45);
+        }
       }
     }
   }

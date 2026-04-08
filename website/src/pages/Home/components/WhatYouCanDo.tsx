@@ -73,7 +73,7 @@ export function CopawWhatYouCanDo() {
     return (
       <motion.div
         key={`preview-${key}`}
-        className="relative flex flex-col overflow-hidden h-[280px] sm:h-[380px]"
+        className="relative flex flex-col overflow-hidden h-[200px] sm:h-[380px]"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
