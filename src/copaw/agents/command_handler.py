@@ -3,6 +3,7 @@
 
 This module handles system commands like /compact, /new, /clear, etc.
 """
+
 import json
 import logging
 from pathlib import Path
@@ -12,6 +13,7 @@ from agentscope.message import Msg, TextBlock
 
 from ..config.config import load_agent_config
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
+from .utils import get_copaw_token_counter
 
 if TYPE_CHECKING:
     from .memory import BaseMemoryManager
@@ -112,6 +114,44 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self._enable_memory_manager and self.memory_manager is not None
 
+    async def _build_compaction_stats(
+        self,
+        messages: list[Msg],
+        compact_content: str,
+    ) -> str:
+        """Build token-based compaction statistics for the response.
+
+        Args:
+            messages: Messages included in the compaction operation.
+            compact_content: Generated compact summary text.
+
+        Returns:
+            Formatted stats block, or an empty string if calculation fails.
+        """
+        if not messages or not compact_content or not self._has_memory_manager():
+            return ""
+
+        try:
+            agent_config = self._get_agent_config()
+            token_counter = get_copaw_token_counter(agent_config)
+            original_tokens = await token_counter.count(
+                messages=[msg.to_dict() for msg in messages],
+            )
+            compacted_tokens = await token_counter.count(
+                messages=[],
+                text=compact_content,
+            )
+        except Exception as e:
+            logger.warning("Failed to calculate compaction stats: %s", e)
+            return ""
+
+        saved_tokens = max(original_tokens - compacted_tokens, 0)
+        return (
+            f"- Original tokens: {original_tokens}\n"
+            f"- Compressed summary tokens: {compacted_tokens}\n"
+            f"- Tokens saved: {saved_tokens}\n"
+        )
+
     async def _process_compact(
         self,
         messages: list[Msg],
@@ -150,10 +190,15 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         await self.memory.update_compressed_summary(compact_content)
         updated_count = len(messages)
+        compact_stats = await self._build_compaction_stats(
+            messages=messages,
+            compact_content=compact_content,
+        )
         self.memory.clear_content()
         return await self._make_system_msg(
             f"**Compact Complete!**\n\n"
             f"- Messages compacted: {updated_count}\n"
+            f"{compact_stats}"
             f"**Compressed Summary:**\n{compact_content}\n"
             f"- Summary task started in background\n",
         )
@@ -233,9 +278,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             half = running_config.history_max_length // 2
             history_str = f"{history_str[:half]}\n...\n{history_str[-half:]}"
 
-        history_str += (
-            "\n\n---\n\n- Use /message <index> to view full message content"
-        )
+        history_str += "\n\n---\n\n- Use /message <index> to view full message content"
 
         # Add compact summary hint if available
         if self.memory.get_compressed_summary():
@@ -259,8 +302,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         task_count = len(self.memory_manager.summary_tasks)
         if task_count == 0:
             return await self._make_system_msg(
-                "**No Summary Tasks**\n\n"
-                "- No pending summary tasks to wait for",
+                "**No Summary Tasks**\n\n" "- No pending summary tasks to wait for",
             )
 
         result = await self.memory_manager.await_summary_tasks()
@@ -432,8 +474,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                         # Check first message for summary marker
                         if (
                             i == 0
-                            and msg.metadata.get("has_compressed_summary")
-                            == "true"
+                            and msg.metadata.get("has_compressed_summary") == "true"
                         ):
                             has_summary_marker = True
                         if len(loaded_messages) >= MAX_LOAD_HISTORY_COUNT:
