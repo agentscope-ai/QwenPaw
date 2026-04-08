@@ -2,33 +2,49 @@
 """Semantic skill routing module.
 
 Provides optional embedding-based skill retrieval and filtering.
-All functionality is disabled by default and requires optional
-dependencies (sentence-transformers, faiss-cpu).
+Supports two backends:
+1. API mode — uses CoPaw's EmbeddingConfig (zero extra deps)
+2. Local mode — requires sentence-transformers + faiss-cpu
 
-When dependencies are not installed, CoPaw falls back to its
-original skill selection logic with zero impact.
+When neither backend is available and the feature is enabled,
+CoPaw falls back to its original skill selection logic.
 """
 
 import logging
 
 logger = logging.getLogger(__name__)
 
-_AVAILABLE = False
+# Check if local deps are available
+_LOCAL_AVAILABLE = False
 try:
     import sentence_transformers  # noqa: F401
-    import faiss  # noqa: F401
 
-    _AVAILABLE = True
+    _LOCAL_AVAILABLE = True
 except ImportError:
     pass
 
 
 def is_routing_available() -> bool:
-    """Check if semantic routing dependencies are installed."""
-    return _AVAILABLE
+    """Check if any embedding backend is available.
+
+    Returns True if either:
+    - CoPaw's EmbeddingConfig has API configured, OR
+    - sentence-transformers is installed (local mode)
+    """
+    if _LOCAL_AVAILABLE:
+        return True
+    # Check API availability
+    try:
+        from .index import _get_embedding_config
+
+        if _get_embedding_config() is not None:
+            return True
+    except Exception:
+        pass
+    return False
 
 
-# Lazy public API — only import when actually used
+# Lazy public API
 __all__ = [
     "is_routing_available",
     "SemanticRoutingConfig",

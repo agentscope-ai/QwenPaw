@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
-"""FAISS-based semantic index for skill and tool retrieval.
+"""Semantic index for skill and tool retrieval.
 
-All imports of ``sentence_transformers`` and ``faiss`` are deferred to
-method bodies so that this module can be imported safely even when the
-optional dependencies are not installed.
+Supports two embedding backends:
+1. **API mode** — uses CoPaw's existing EmbeddingConfig (OpenAI-compatible
+   embedding API, e.g. DashScope, OpenAI).  No extra dependencies needed.
+2. **Local mode** — uses sentence-transformers + FAISS.  Requires
+   ``pip install copaw[semantic]``.
+
+API mode is preferred when EmbeddingConfig is configured.  Local mode is
+the fallback.  All heavy imports are deferred so the module is safe to
+import regardless of installed packages.
 """
 
 from __future__ import annotations
@@ -11,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -28,16 +35,105 @@ def _content_hash(items: list[IndexItem]) -> str:
     return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _normalize(vectors: np.ndarray) -> np.ndarray:
+    """L2-normalize each row so dot product == cosine similarity."""
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1, norms)
+    return vectors / norms
+
+
+# ------------------------------------------------------------------
+# Embedding backend helpers
+# ------------------------------------------------------------------
+
+
+def _get_embedding_config() -> dict[str, Any] | None:
+    """Try to load CoPaw's EmbeddingConfig for the active agent.
+
+    Returns a dict with base_url, api_key, model_name etc., or None.
+    """
+    try:
+        from copaw.config.utils import load_config
+        from copaw.config.config import load_agent_config
+
+        config = load_config()
+        agent_id = config.agents.active_agent or "default"
+        agent_cfg = load_agent_config(agent_id)
+        emb = agent_cfg.running.embedding_config
+        if emb.base_url.strip() and emb.model_name.strip():
+            return {
+                "base_url": emb.base_url.strip(),
+                "api_key": emb.api_key,
+                "model_name": emb.model_name.strip(),
+            }
+    except Exception:
+        pass
+    return None
+
+
+def _embed_via_api(
+    texts: list[str],
+    base_url: str,
+    api_key: str,
+    model_name: str,
+) -> np.ndarray:
+    """Call an OpenAI-compatible embedding API and return vectors.
+
+    Uses ``httpx`` which is already a CoPaw core dependency.
+    """
+    import httpx
+
+    url = f"{base_url.rstrip('/')}/embeddings"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    payload = {"input": texts, "model": model_name}
+
+    resp = httpx.post(url, json=payload, headers=headers, timeout=60.0)
+    resp.raise_for_status()
+    data = resp.json()
+
+    # OpenAI format: data.data[i].embedding
+    embeddings = [item["embedding"] for item in data["data"]]
+    return np.asarray(embeddings, dtype=np.float32)
+
+
+def _apply_hf_mirror_if_needed() -> None:
+    """Ensure HF_ENDPOINT is set when CoPaw's mirror config is on."""
+    if os.environ.get("HF_ENDPOINT"):
+        return
+    try:
+        from copaw.config.utils import load_config
+        from copaw.config.config import load_agent_config
+
+        config = load_config()
+        agent_id = config.agents.active_agent or "default"
+        agent_cfg = load_agent_config(agent_id)
+        cc = agent_cfg.running.context_compact
+        if cc.token_count_use_mirror:
+            mirror = "https://hf-mirror.com"
+            os.environ["HF_ENDPOINT"] = mirror
+            logger.info("Using HuggingFace mirror: %s", mirror)
+    except Exception:
+        pass
+
+
+# ------------------------------------------------------------------
+# SemanticIndex
+# ------------------------------------------------------------------
+
+
 class SemanticIndex:
-    """Manages an embedding index backed by FAISS.
+    """Manages an embedding index for semantic skill retrieval.
+
+    Automatically selects the best available backend:
+    1. API mode (EmbeddingConfig configured) — zero extra deps
+    2. Local mode (sentence-transformers + faiss-cpu installed)
 
     Parameters
     ----------
     encoder_name:
-        HuggingFace model identifier for sentence-transformers.
+        HuggingFace model ID for local mode (ignored in API mode).
     persist_dir:
-        Optional directory for index persistence.  When *None* the index
-        lives only in memory.
+        Directory for index persistence.  None = memory only.
     """
 
     def __init__(
@@ -47,138 +143,126 @@ class SemanticIndex:
     ) -> None:
         self._encoder_name = encoder_name
         self._persist_dir = Path(persist_dir) if persist_dir else None
-        self._model: Any = None  # SentenceTransformer (lazy)
-        self._faiss_index: Any = None  # faiss.IndexFlatIP (lazy)
+
+        # State
+        self._vectors: np.ndarray | None = None  # (N, dim) float32
         self._items: list[IndexItem] = []
         self._hash: str = ""
+        self._backend: str = ""  # "api" | "local" | ""
+
+        # Lazy-loaded objects
+        self._local_model: Any = None  # SentenceTransformer
+        self._api_config: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
-    # Lazy model loading
+    # Backend detection
     # ------------------------------------------------------------------
 
-    def _ensure_model(self) -> Any:
-        """Load the sentence-transformers model on first use.
+    def _detect_backend(self) -> str:
+        """Detect the best available embedding backend."""
+        if self._backend:
+            return self._backend
 
-        Respects CoPaw's ``token_count_use_mirror`` setting — when the
-        HF mirror is already configured (``HF_ENDPOINT`` env var), the
-        model download will automatically use it.  If not set, we check
-        CoPaw's running config and apply the mirror if enabled.
-        """
-        if self._model is not None:
-            return self._model
+        # Priority 1: API embedding
+        api_cfg = _get_embedding_config()
+        if api_cfg:
+            self._api_config = api_cfg
+            self._backend = "api"
+            logger.info(
+                "Semantic routing: using API embedding (%s)",
+                api_cfg["model_name"],
+            )
+            return "api"
+
+        # Priority 2: Local sentence-transformers
         try:
-            self._apply_hf_mirror_if_needed()
+            import sentence_transformers  # noqa: F401
 
+            self._backend = "local"
+            logger.info(
+                "Semantic routing: using local model (%s)",
+                self._encoder_name,
+            )
+            return "local"
+        except ImportError:
+            pass
+
+        raise RuntimeError(
+            "No embedding backend available. "
+            "Configure Embedding API in Agent Config, "
+            "or install: pip install copaw[semantic]"
+        )
+
+    # ------------------------------------------------------------------
+    # Encode
+    # ------------------------------------------------------------------
+
+    def _encode(self, texts: list[str]) -> np.ndarray:
+        """Encode texts to vectors using the detected backend."""
+        backend = self._detect_backend()
+
+        if backend == "api":
+            assert self._api_config is not None
+            vecs = _embed_via_api(
+                texts,
+                self._api_config["base_url"],
+                self._api_config["api_key"],
+                self._api_config["model_name"],
+            )
+            return _normalize(vecs)
+
+        # Local mode
+        if self._local_model is None:
+            _apply_hf_mirror_if_needed()
             from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(self._encoder_name)
-            logger.info(
-                "Loaded embedding model: %s",
-                self._encoder_name,
-            )
-            return self._model
-        except Exception as exc:
-            logger.warning(
-                "Failed to load embedding model '%s': %s. "
-                "Semantic routing will be disabled.",
-                self._encoder_name,
-                exc,
-            )
-            raise
+            self._local_model = SentenceTransformer(self._encoder_name)
 
-    @staticmethod
-    def _apply_hf_mirror_if_needed() -> None:
-        """Ensure HF_ENDPOINT is set when CoPaw's mirror config is on.
-
-        CoPaw's CopawTokenCounter already sets ``HF_ENDPOINT`` at startup
-        when ``token_count_use_mirror`` is True.  This method is a safety
-        net for cases where the token counter hasn't been initialised yet.
-        """
-        import os
-
-        if os.environ.get("HF_ENDPOINT"):
-            return  # Already configured (by CoPaw or user)
-
-        try:
-            from copaw.config.utils import load_config
-
-            config = load_config()
-            agent_id = config.agents.active_agent or "default"
-            from copaw.config.config import load_agent_config
-
-            agent_cfg = load_agent_config(agent_id)
-            cc = agent_cfg.running.context_compact
-            if cc.token_count_use_mirror:
-                mirror = "https://hf-mirror.com"
-                os.environ["HF_ENDPOINT"] = mirror
-                logger.info("Using HuggingFace mirror: %s", mirror)
-        except Exception:
-            pass  # Config not available yet — no-op
+        vecs = self._local_model.encode(
+            texts,
+            show_progress_bar=False,
+            normalize_embeddings=True,
+        )
+        return np.asarray(vecs, dtype=np.float32)
 
     # ------------------------------------------------------------------
     # Build
     # ------------------------------------------------------------------
 
     def build(self, items: list[IndexItem]) -> None:
-        """Build a FAISS index from a list of IndexItems.
-
-        Encodes each item's ``name + ": " + description`` using the
-        sentence-transformers model and stores the resulting vectors in
-        a FAISS ``IndexFlatIP`` (inner-product / cosine after L2-norm).
-        """
-        import faiss
-
-        model = self._ensure_model()
-
+        """Build the index from a list of IndexItems."""
         texts = [
             f"{it.name}: {it.description}" if it.description else it.name
             for it in items
         ]
-        embeddings = model.encode(
-            texts,
-            show_progress_bar=False,
-            normalize_embeddings=True,
-        )
-        embeddings = np.asarray(embeddings, dtype=np.float32)
-
-        dim = embeddings.shape[1]
-        index = faiss.IndexFlatIP(dim)
-        index.add(embeddings)
-
-        self._faiss_index = index
+        self._vectors = self._encode(texts)
         self._items = list(items)
         self._hash = _content_hash(items)
-        logger.info("Built semantic index: %d items, dim=%d", len(items), dim)
+        logger.info(
+            "Built semantic index: %d items, dim=%d, backend=%s",
+            len(items),
+            self._vectors.shape[1],
+            self._backend,
+        )
 
     # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
 
     def search(self, query: str, top_k: int = 10) -> list[SearchHit]:
-        """Retrieve the *top_k* most similar items for *query*.
-
-        Returns a list of :class:`SearchHit` sorted by descending score.
-        Scores are clamped to ``[0.0, 1.0]``.
-        """
-        if self._faiss_index is None or not self._items:
+        """Retrieve the top_k most similar items for query."""
+        if self._vectors is None or not self._items:
             return []
 
-        model = self._ensure_model()
-        q_vec = model.encode(
-            [query],
-            show_progress_bar=False,
-            normalize_embeddings=True,
-        )
-        q_vec = np.asarray(q_vec, dtype=np.float32)
+        q_vec = self._encode([query])  # (1, dim)
+        scores = np.dot(self._vectors, q_vec.T).flatten()  # (N,)
 
         k = min(top_k, len(self._items))
-        scores, indices = self._faiss_index.search(q_vec, k)
+        top_indices = np.argsort(scores)[-k:][::-1]
 
         hits: list[SearchHit] = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx < 0:
-                continue
-            clamped = float(max(0.0, min(1.0, score)))
+        for idx in top_indices:
+            clamped = float(max(0.0, min(1.0, scores[idx])))
             hits.append(SearchHit(item=self._items[idx], score=clamped))
         return hits
 
@@ -187,23 +271,16 @@ class SemanticIndex:
     # ------------------------------------------------------------------
 
     def save(self) -> None:
-        """Persist the index and metadata to *persist_dir*."""
-        if self._persist_dir is None:
+        """Persist vectors and metadata to persist_dir."""
+        if self._persist_dir is None or self._vectors is None:
             return
-        if self._faiss_index is None:
-            return
-
-        import faiss
-
         try:
             self._persist_dir.mkdir(parents=True, exist_ok=True)
-            faiss.write_index(
-                self._faiss_index,
-                str(self._persist_dir / "index.faiss"),
-            )
+            np.save(str(self._persist_dir / "vectors.npy"), self._vectors)
             meta = {
-                "version": 1,
+                "version": 2,
                 "content_hash": self._hash,
+                "backend": self._backend,
                 "encoder": self._encoder_name,
                 "items": [
                     {
@@ -224,40 +301,49 @@ class SemanticIndex:
             logger.info("Saved semantic index to %s", self._persist_dir)
         except OSError as exc:
             logger.warning(
-                "Cannot persist semantic index to %s: %s. "
-                "Index will remain in memory only.",
+                "Cannot persist semantic index to %s: %s",
                 self._persist_dir,
                 exc,
             )
 
     def load(self) -> bool:
-        """Load a persisted index from *persist_dir*.
-
-        Returns ``True`` on success, ``False`` otherwise.
-        """
+        """Load persisted index. Returns True on success."""
         if self._persist_dir is None:
             return False
 
-        index_path = self._persist_dir / "index.faiss"
+        vec_path = self._persist_dir / "vectors.npy"
         meta_path = self._persist_dir / "metadata.json"
 
-        if not index_path.exists() or not meta_path.exists():
+        # Also check legacy FAISS format
+        faiss_path = self._persist_dir / "index.faiss"
+
+        if not meta_path.exists():
+            return False
+        if not vec_path.exists() and not faiss_path.exists():
             return False
 
         try:
-            import faiss
-
             raw = json.loads(meta_path.read_text(encoding="utf-8"))
-            if raw.get("version") != 1:
-                logger.warning("Incompatible index version, will rebuild.")
-                self._cleanup_persist()
-                return False
-            if raw.get("encoder") != self._encoder_name:
-                logger.info("Encoder changed, will rebuild.")
+            version = raw.get("version", 1)
+
+            if version == 2 and vec_path.exists():
+                # New numpy format
+                self._vectors = np.load(str(vec_path))
+            elif version == 1 and faiss_path.exists():
+                # Legacy FAISS format — migrate to numpy
+                import faiss
+
+                idx = faiss.read_index(str(faiss_path))
+                n = idx.ntotal
+                dim = idx.d
+                self._vectors = np.zeros((n, dim), dtype=np.float32)
+                for i in range(n):
+                    self._vectors[i] = idx.reconstruct(i)
+                logger.info("Migrated legacy FAISS index to numpy format")
+            else:
                 self._cleanup_persist()
                 return False
 
-            self._faiss_index = faiss.read_index(str(index_path))
             self._items = [
                 IndexItem(
                     id=it["id"],
@@ -277,8 +363,7 @@ class SemanticIndex:
             return True
         except Exception as exc:
             logger.warning(
-                "Failed to load semantic index from %s: %s. Will rebuild.",
-                self._persist_dir,
+                "Failed to load semantic index: %s. Will rebuild.",
                 exc,
             )
             self._cleanup_persist()
@@ -289,28 +374,46 @@ class SemanticIndex:
     # ------------------------------------------------------------------
 
     def needs_rebuild(self, items: list[IndexItem]) -> bool:
-        """Check whether the current index matches *items*.
-
-        Returns ``True`` if the index should be rebuilt.
-        """
-        if self._faiss_index is None:
+        """Check whether the current index matches items."""
+        if self._vectors is None:
             return True
         return _content_hash(items) != self._hash
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Status
     # ------------------------------------------------------------------
 
     @property
     def item_count(self) -> int:
-        """Number of items currently in the index."""
         return len(self._items)
+
+    @property
+    def backend(self) -> str:
+        return self._backend
+
+    def get_status(self) -> dict[str, Any]:
+        """Return status info for the frontend."""
+        try:
+            backend = self._detect_backend()
+        except RuntimeError:
+            backend = "none"
+
+        return {
+            "backend": backend,
+            "model": (
+                self._api_config["model_name"]
+                if backend == "api" and self._api_config
+                else self._encoder_name if backend == "local" else ""
+            ),
+            "item_count": self.item_count,
+            "available": backend in ("api", "local"),
+        }
 
     def _cleanup_persist(self) -> None:
         """Remove stale persisted files."""
         if self._persist_dir is None:
             return
-        for name in ("index.faiss", "metadata.json"):
+        for name in ("index.faiss", "metadata.json", "vectors.npy"):
             p = self._persist_dir / name
             if p.exists():
                 try:

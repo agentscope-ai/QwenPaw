@@ -30,7 +30,7 @@ from ...config.config import (
     MQTTConfig,
     QQConfig,
     SIPChannelConfig,
-    SkillScannerConfig,
+    SemanticRoutingConfig,    SkillScannerConfig,
     SkillScannerWhitelistEntry,
     TelegramConfig,
     VoiceChannelConfig,
@@ -957,3 +957,29 @@ async def put_allow_no_auth_hosts(
     config.security.allow_no_auth_hosts = normalized_hosts
     save_config(config)
     return AllowNoAuthHostsResponse(hosts=normalized_hosts)
+
+
+@router.get(
+    "/semantic-routing",
+    summary="Get semantic routing config",
+    description="Retrieve semantic skill routing configuration",
+)
+async def get_semantic_routing_config() -> SemanticRoutingConfig:
+    """Get semantic routing config from config.json."""
+    config = load_config()
+    return config.semantic_routing
+
+
+@router.put(
+    "/semantic-routing",
+    summary="Update semantic routing config",
+    description="Update semantic skill routing configuration",
+)
+async def put_semantic_routing_config(
+    body: SemanticRoutingConfig = Body(...),
+) -> SemanticRoutingConfig:
+    """Update semantic routing config and persist to config.json."""
+    config = load_config()
+    config.semantic_routing = body
+    save_config(config)
+    return body

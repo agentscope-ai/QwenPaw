@@ -7,6 +7,8 @@ import {
   LlmRetryCard,
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
+  EmbeddingConfigCard,
+  SemanticRoutingCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
