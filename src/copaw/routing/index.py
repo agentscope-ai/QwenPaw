@@ -80,20 +80,29 @@ def _embed_via_api(
     """Call an OpenAI-compatible embedding API and return vectors.
 
     Uses ``httpx`` which is already a CoPaw core dependency.
+    Batches requests to respect API ``max_batch_size`` limits (default 10).
     """
     import httpx
 
     url = f"{base_url.rstrip('/')}/embeddings"
     headers = {"Authorization": f"Bearer {api_key}"}
-    payload = {"input": texts, "model": model_name}
 
-    resp = httpx.post(url, json=payload, headers=headers, timeout=60.0)
-    resp.raise_for_status()
-    data = resp.json()
+    all_embeddings: list[list[float]] = []
+    batch_size = 10  # DashScope default; most APIs support >= 10
 
-    # OpenAI format: data.data[i].embedding
-    embeddings = [item["embedding"] for item in data["data"]]
-    return np.asarray(embeddings, dtype=np.float32)
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
+        payload = {"input": batch, "model": model_name}
+
+        resp = httpx.post(url, json=payload, headers=headers, timeout=60.0)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # OpenAI format: data.data[i].embedding
+        embeddings = [item["embedding"] for item in data["data"]]
+        all_embeddings.extend(embeddings)
+
+    return np.asarray(all_embeddings, dtype=np.float32)
 
 
 def _apply_hf_mirror_if_needed() -> None:
