@@ -31,6 +31,9 @@ let storageSyncAttached = false;
 let captureInitialized = false;
 let broadcast: BroadcastChannel | null = null;
 
+/** True while addDebugLog runs (storage + emit). Prevents emit→listener→console/addDebugLog loops. */
+let isProcessingInternalLog = false;
+
 function safeStringify(value: unknown): string {
   try {
     if (value instanceof Error) {
@@ -149,18 +152,24 @@ export function subscribeDebugLogs(cb: Listener): () => void {
 }
 
 export function addDebugLog(entry: Omit<DebugLogEntry, "id" | "ts" | "href">) {
-  const e: DebugLogEntry = {
-    id: newId(),
-    ts: Date.now(),
-    href: typeof window !== "undefined" ? window.location.href : undefined,
-    ...entry,
-  };
-  const entries = getCache();
-  entries.push(e);
-  if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
-  saveToStorage(entries);
-  notifyCrossTab();
-  emit();
+  if (isProcessingInternalLog) return;
+  try {
+    isProcessingInternalLog = true;
+    const e: DebugLogEntry = {
+      id: newId(),
+      ts: Date.now(),
+      href: typeof window !== "undefined" ? window.location.href : undefined,
+      ...entry,
+    };
+    const entries = getCache();
+    entries.push(e);
+    if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
+    saveToStorage(entries);
+    notifyCrossTab();
+    emit();
+  } finally {
+    isProcessingInternalLog = false;
+  }
 }
 
 export function initDebugLogCapture(options?: {
@@ -183,6 +192,11 @@ export function initDebugLogCapture(options?: {
     console.log?.bind(console);
 
   console.error = (...args: unknown[]) => {
+    // 🔒 Recursion guard: inside addDebugLog/emit, use native console only
+    if (isProcessingInternalLog) {
+      originalError(...args);
+      return;
+    }
     const { message, detail } = coerceMessage(args);
     const ignored = !!ignore?.(message);
     if (!ignored) {
@@ -200,6 +214,10 @@ export function initDebugLogCapture(options?: {
   };
 
   console.warn = (...args: unknown[]) => {
+    if (isProcessingInternalLog) {
+      originalWarn(...args);
+      return;
+    }
     const { message, detail } = coerceMessage(args);
     const ignored = !!ignore?.(message);
     if (!ignored) {
@@ -218,6 +236,10 @@ export function initDebugLogCapture(options?: {
 
   if (originalInfo) {
     console.info = (...args: unknown[]) => {
+      if (isProcessingInternalLog) {
+        originalInfo(...args);
+        return;
+      }
       const { message, detail } = coerceMessage(args);
       const ignored = !!ignore?.(message);
       if (!ignored) {
@@ -235,6 +257,10 @@ export function initDebugLogCapture(options?: {
 
   if (originalDebug) {
     console.debug = (...args: unknown[]) => {
+      if (isProcessingInternalLog) {
+        originalDebug(...args);
+        return;
+      }
       const { message, detail } = coerceMessage(args);
       const ignored = !!ignore?.(message);
       if (!ignored) {
@@ -252,6 +278,10 @@ export function initDebugLogCapture(options?: {
 
   if (originalLog) {
     console.log = (...args: unknown[]) => {
+      if (isProcessingInternalLog) {
+        originalLog(...args);
+        return;
+      }
       const { message, detail } = coerceMessage(args);
       const ignored = !!ignore?.(message);
       if (!ignored) {
