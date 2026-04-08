@@ -59,6 +59,35 @@ def _is_approval(text: str) -> bool:
     return normalized in _APPROVE_EXACT
 
 
+def _is_context_length_error(exc: Exception) -> bool:
+    """Check if exception is a model context length exceeded error.
+
+    Args:
+        exc: The exception to check.
+
+    Returns:
+        True if this is a context length error from the API.
+    """
+    exc_str = str(exc).lower()
+    exc_type = type(exc).__name__.lower()
+
+    # Check for BadRequest from LiteLLM/OpenAI
+    if "badrequest" not in exc_type:
+        return False
+
+    # Common patterns in context length error messages
+    patterns = [
+        "prompt too long",
+        "context length",
+        "exceeded max context",
+        "token limit",
+        "maximum context length",
+        "too many tokens",
+    ]
+
+    return any(pattern in exc_str for pattern in patterns)
+
+
 class AgentRunner(Runner):
     def __init__(
         self,
@@ -389,6 +418,31 @@ class AgentRunner(Runner):
                 await agent.interrupt()
             raise AgentException("Task has been cancelled!") from exc
         except Exception as e:
+            # Check if this is a context length error that should be
+            # converted to a user-friendly exception
+            if _is_context_length_error(e):
+                from agentscope_runtime.engine.schemas.exception import (
+                    ModelContextLengthExceededException,
+                )
+
+                # Get model name from agent if available
+                model_name = (
+                    getattr(agent, "model_name", None)
+                    if agent is not None
+                    else None
+                ) or "unknown"
+
+                # Raise user-friendly exception with suggestion
+                raise ModelContextLengthExceededException(
+                    model_name=model_name,
+                    details={
+                        "suggestion": (
+                            "Context is too large. Try running /compact"
+                        ),
+                    },
+                ) from e
+
+            # Original error handling for other exceptions
             debug_dump_path = write_query_error_dump(
                 request=request,
                 exc=e,
