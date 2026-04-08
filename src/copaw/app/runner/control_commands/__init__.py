@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
+from copaw.exceptions import SystemCommandException
 from .base import BaseControlCommandHandler, ControlContext
 from .stop_handler import StopCommandHandler
 
@@ -166,7 +167,9 @@ async def handle_control_command(
                 return f"**Command Failed**\n\n{str(e)}"
 
     # Should not reach here if is_control_command() was checked
-    raise ValueError(f"Unknown control command: {query}")
+    raise SystemCommandException(
+        message=f"Unknown control command: {query}",
+    )
 
 
 # Register default handlers on module import

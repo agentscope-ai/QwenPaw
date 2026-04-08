@@ -12,19 +12,23 @@ import json
 from pydantic import BaseModel
 
 from agentscope.model import ChatModelBase
+from agentscope_runtime.engine.schemas.exception import (
+    ModelNotFoundException,
+)
 
-from copaw.providers.provider import (
+from ..constant import SECRET_DIR
+from ..exceptions import ProviderError
+from .anthropic_provider import AnthropicProvider
+from .gemini_provider import GeminiProvider
+from .models import ModelSlotConfig
+from .ollama_provider import OllamaProvider
+from .openai_provider import OpenAIProvider
+from .provider import (
     ModelInfo,
     Provider,
     ProviderInfo,
 )
-from copaw.providers.models import ModelSlotConfig
-from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.anthropic_provider import AnthropicProvider
-from copaw.providers.gemini_provider import GeminiProvider
-from copaw.providers.ollama_provider import OllamaProvider
-from copaw.constant import SECRET_DIR
-from copaw.security.secret_store import (
+from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
     decrypt_dict_fields,
     encrypt_dict_fields,
@@ -861,10 +865,13 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # agent creates chat model instances.
         provider = self.get_provider(provider_id)
         if not provider:
-            raise ValueError(f"Provider '{provider_id}' not found.")
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         if not provider.has_model(model_id):
-            raise ValueError(
-                f"Model '{model_id}' not found in provider '{provider_id}'.",
+            raise ModelNotFoundException(
+                model_name=f"{provider_id}/{model_id}",
+                details={"provider_id": provider_id, "model_id": model_id},
             )
         self.active_model = ModelSlotConfig(
             provider_id=provider_id,
@@ -910,7 +917,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     ) -> ProviderInfo:
         provider = self.get_provider(provider_id)
         if not provider:
-            raise ValueError(f"Provider '{provider_id}' not found.")
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         await provider.add_model(model_info)
         self._save_provider(
             provider,
@@ -927,10 +936,13 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """Update per-model configuration and persist to disk."""
         provider = self.get_provider(provider_id)
         if not provider:
-            raise ValueError(f"Provider '{provider_id}' not found.")
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         if not provider.update_model_config(model_id, config):
-            raise ValueError(
-                f"Model '{model_id}' not found in provider '{provider_id}'.",
+            raise ModelNotFoundException(
+                model_name=f"{provider_id}/{model_id}",
+                details={"provider_id": provider_id, "model_id": model_id},
             )
         self._save_provider(
             provider,
@@ -945,7 +957,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     ) -> ProviderInfo:
         provider = self.get_provider(provider_id)
         if not provider:
-            raise ValueError(f"Provider '{provider_id}' not found.")
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         await provider.delete_model(model_id=model_id)
         self._save_provider(
             provider,
@@ -1353,10 +1367,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         manager = ProviderManager.get_instance()
         model = manager.get_active_model()
         if model is None or model.provider_id == "" or model.model == "":
-            raise ValueError("No active model configured.")
+            raise ProviderError(
+                message="No active model configured.",
+            )
         provider = manager.get_provider(model.provider_id)
         if provider is None:
-            raise ValueError(
-                f"Active provider '{model.provider_id}' not found.",
+            raise ProviderError(
+                message=f"Active provider '{model.provider_id}' not found.",
             )
         return provider.get_chat_model_instance(model.model)

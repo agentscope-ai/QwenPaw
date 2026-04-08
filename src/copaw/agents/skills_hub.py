@@ -22,6 +22,8 @@ from contextlib import contextmanager
 import frontmatter
 import yaml
 
+from agentscope_runtime.engine.schemas.exception import ConfigurationException
+from ..exceptions import SkillsError
 from .skills_manager import (
     SkillConflictError,
     SkillPoolService,
@@ -245,7 +247,9 @@ def _read_response_bytes(
 ) -> bytes:
     _ensure_not_cancelled()
     if max_bytes is not None and max_bytes <= 0:
-        raise ValueError("max_bytes must be greater than 0")
+        raise ConfigurationException(
+            message="max_bytes must be greater than 0",
+        )
 
     content_length = None
     headers = getattr(resp, "headers", None)
@@ -260,8 +264,8 @@ def _read_response_bytes(
         and content_length is not None
         and content_length > max_bytes
     ):
-        raise ValueError(
-            f"Response body too large from {full_url}: "
+        raise SkillsError(
+            message=f"Response body too large from {full_url}: "
             f"{content_length} bytes exceeds limit {max_bytes}",
         )
 
@@ -273,8 +277,8 @@ def _read_response_bytes(
             return bytes(body)
         body.extend(chunk)
         if max_bytes is not None and len(body) > max_bytes:
-            raise ValueError(
-                f"Response body too large from {full_url}: "
+            raise SkillsError(
+                message=f"Response body too large from {full_url}: "
                 f"download exceeded limit {max_bytes}",
             )
 
@@ -318,8 +322,8 @@ def _http_fetch(
                     "rate limit" in body.lower()
                     or "rate limit" in str(e).lower()
                 ):
-                    raise RuntimeError(
-                        "GitHub API rate limit exceeded"
+                    raise SkillsError(
+                        message="GitHub API rate limit exceeded"
                         ". Set GITHUB_TOKEN "
                         "to increase the limit, then retry.",
                     ) from e
@@ -346,13 +350,15 @@ def _http_fetch(
                         " For GitHub sources, set GITHUB_TOKEN to avoid "
                         "rate limits."
                     )
-                raise RuntimeError(
-                    f"Hub returned 429 (Too Many Requests) after {retries} "
-                    f"retries. Try again later.{hint}",
+                raise SkillsError(
+                    message=(
+                        f"Hub returned 429 (Too Many Requests) after "
+                        f"{retries} retries. Try again later.{hint}"
+                    ),
                 ) from e
             if status >= 500:
-                raise RuntimeError(
-                    f"Hub returned {status} after {retries} retries. "
+                raise SkillsError(
+                    message=f"Hub returned {status} after {retries} retries. "
                     "Try again later.",
                 ) from e
             raise
@@ -390,7 +396,7 @@ def _http_fetch(
             raise
     if last_error is not None:
         raise last_error
-    raise RuntimeError(f"Failed to request hub URL: {full_url}")
+    raise SkillsError(message=f"Failed to request hub URL: {full_url}")
 
 
 def _http_get(
@@ -617,8 +623,9 @@ def _hydrate_clawhub_payload(
 
     if not files.get("SKILL.md"):
         if last_fetch_error is not None:
-            raise RuntimeError(
-                "Failed to fetch SKILL.md from hub: " + str(last_fetch_error),
+            raise SkillsError(
+                message="Failed to fetch SKILL.md from hub: "
+                + str(last_fetch_error),
             ) from last_fetch_error
         return data
 
@@ -636,7 +643,7 @@ def _normalize_bundle(
     if isinstance(data, dict) and isinstance(data.get("skill"), dict):
         payload = data["skill"]
     if not isinstance(payload, dict):
-        raise ValueError("Hub bundle is not a valid JSON object")
+        raise SkillsError(message="Hub bundle is not a valid JSON object")
 
     content = (
         payload.get("content")
@@ -674,7 +681,7 @@ def _normalize_bundle(
             content = files["SKILL.md"]
 
     if not content:
-        raise ValueError("Hub bundle missing SKILL.md content")
+        raise SkillsError(message="Hub bundle missing SKILL.md content")
 
     name = payload.get("name", "")
     if not isinstance(name, str):
@@ -686,7 +693,7 @@ def _normalize_bundle(
         except yaml.YAMLError:
             name = ""
     if not name:
-        raise ValueError("Hub bundle missing skill name")
+        raise SkillsError(message="Hub bundle missing skill name")
 
     return name, content, references, scripts, extra_files
 
@@ -1041,7 +1048,9 @@ def _github_get_content_entry(
     content_url = _github_api_url(owner, repo, f"contents/{encoded_path}")
     data = _http_json_get(content_url, {"ref": ref})
     if not isinstance(data, dict):
-        raise ValueError(f"Unexpected GitHub response for path: {path}")
+        raise SkillsError(
+            message=f"Unexpected GitHub response for path: {path}",
+        )
     _github_cache_set(cache_key, data)
     return data
 
@@ -1083,7 +1092,7 @@ def _github_read_file(entry: dict[str, Any]) -> str:
         except Exception:
             pass
 
-    raise ValueError("Unable to read file content from GitHub entry")
+    raise SkillsError(message="Unable to read file content from GitHub entry")
 
 
 def _join_repo_path(root: str, leaf: str) -> str:
@@ -1145,7 +1154,7 @@ def _fetch_bundle_from_skills_sh_url(
 ) -> tuple[Any, str]:
     spec = _extract_skills_sh_spec(bundle_url)
     if spec is None:
-        raise ValueError("Invalid skills.sh URL format")
+        raise ConfigurationException(message="Invalid skills.sh URL format")
     owner, repo, skill = spec
     default_branch = _github_get_default_branch(owner, repo) or "main"
     bundle, source_url = _fetch_bundle_from_repo_and_skill_hint(
@@ -1243,8 +1252,8 @@ def _fetch_bundle_from_repo_and_skill_hint(
                 break
 
     if skill_md_entry is None:
-        raise ValueError(
-            f"Could not find SKILL.md in source repository "
+        raise SkillsError(
+            message=f"Could not find SKILL.md in source repository "
             f"https://github.com/{owner}/{repo}. "
             f"Path hint: {skill_hint!r}; tried branches: {branch_candidates}. "
             "Ensure the URL points to a folder containing SKILL.md, e.g. "
@@ -1271,8 +1280,8 @@ def _fetch_bundle_from_github_url(
 ) -> tuple[Any, str]:
     spec = _extract_github_spec(bundle_url)
     if spec is None:
-        raise ValueError(
-            "Invalid GitHub URL format. Use a repo or path URL, e.g. "
+        raise ConfigurationException(
+            message="Invalid GitHub URL format. Use a repo or path URL, e.g. "
             "https://github.com/owner/repo or "
             "https://github.com/owner/repo/tree/branch/path/to/skill",
         )
@@ -1304,7 +1313,7 @@ def _fetch_bundle_from_skillsmp_url(
 ) -> tuple[Any, str]:
     spec = _extract_skillsmp_spec(bundle_url)
     if spec is None:
-        raise ValueError("Invalid skillsmp URL format")
+        raise ConfigurationException(message="Invalid skillsmp URL format")
     owner, repo, skill_hint = spec
     return _fetch_bundle_from_repo_and_skill_hint(
         owner=owner,
@@ -1329,13 +1338,13 @@ def _lobehub_zip_to_bundle(identifier: str, payload: bytes) -> dict[str, Any]:
                     continue
                 entry_count += 1
                 if entry_count > LOBEHUB_MAX_ZIP_ENTRIES:
-                    raise ValueError(
-                        "LobeHub skill package has too many files",
+                    raise SkillsError(
+                        message="LobeHub skill package has too many files",
                     )
                 total_bytes += max(0, info.file_size)
                 if total_bytes > LOBEHUB_MAX_ZIP_BYTES:
-                    raise ValueError(
-                        "LobeHub skill package is too large to import",
+                    raise SkillsError(
+                        message="LobeHub skill package is too large to import",
                     )
                 parts = _safe_path_parts(info.filename.replace("\\", "/"))
                 if not parts:
@@ -1354,15 +1363,15 @@ def _lobehub_zip_to_bundle(identifier: str, payload: bytes) -> dict[str, Any]:
     except zipfile.BadZipFile as e:
         message = _extract_error_message_from_payload(payload)
         if message:
-            raise ValueError(
-                f"LobeHub skill download failed: {message}",
+            raise SkillsError(
+                message=f"LobeHub skill download failed: {message}",
             ) from e
-        raise ValueError(
-            "LobeHub skill download did not return a valid zip",
+        raise SkillsError(
+            message="LobeHub skill download did not return a valid zip",
         ) from e
 
     if "SKILL.md" not in files:
-        raise ValueError("LobeHub skill package is missing SKILL.md")
+        raise SkillsError(message="LobeHub skill package is missing SKILL.md")
     try:
         post = frontmatter.loads(files["SKILL.md"])
     except yaml.YAMLError:
@@ -1379,8 +1388,8 @@ def _fetch_bundle_from_modelscope_url(
 ) -> tuple[Any, str]:
     spec = _extract_modelscope_skill_spec(bundle_url)
     if spec is None:
-        raise ValueError(
-            "Invalid ModelScope URL format. Use URL like "
+        raise ConfigurationException(
+            message="Invalid ModelScope URL format. Use URL like "
             "https://modelscope.cn/skills/@owner/skill-name",
         )
     owner, skill_name, version_hint = spec
@@ -1388,8 +1397,8 @@ def _fetch_bundle_from_modelscope_url(
     try:
         detail = _http_json_get(detail_url)
     except HTTPError as e:
-        raise ValueError(
-            "ModelScope skill lookup failed: "
+        raise SkillsError(
+            message="ModelScope skill lookup failed: "
             f"{_lobehub_http_error_message(e)}",
         ) from e
 
@@ -1435,7 +1444,7 @@ def _fetch_bundle_from_modelscope_url(
                         f"When importing from ModelScope ({bundle_url}): "
                         f"{inner}"
                     )
-                    raise RuntimeError(msg) from e
+                    raise SkillsError(message=msg) from e
 
     readme_content = payload.get("ReadMeContent")
     if isinstance(readme_content, str) and readme_content.strip():
@@ -1447,9 +1456,12 @@ def _fetch_bundle_from_modelscope_url(
             "files": {"SKILL.md": readme_content},
         }, bundle_url
 
-    raise ValueError(
-        "ModelScope skill source is unsupported and ReadMeContent is empty. "
-        "Please import from the original source URL directly.",
+    raise SkillsError(
+        message=(
+            "ModelScope skill source is unsupported and "
+            "ReadMeContent is empty. "
+            "Please import from the original source URL directly."
+        ),
     )
 
 
@@ -1459,7 +1471,9 @@ def _fetch_bundle_from_lobehub_url(
 ) -> tuple[Any, str]:
     identifier = _extract_lobehub_identifier(bundle_url)
     if not identifier:
-        raise ValueError("Invalid LobeHub skill URL format")
+        raise ConfigurationException(
+            message="Invalid LobeHub skill URL format",
+        )
     params = (
         {"version": requested_version.strip()}
         if requested_version.strip()
@@ -1473,12 +1487,12 @@ def _fetch_bundle_from_lobehub_url(
             max_bytes=LOBEHUB_MAX_ZIP_BYTES,
         )
     except HTTPError as e:
-        raise ValueError(
-            "LobeHub skill download failed: "
+        raise SkillsError(
+            message="LobeHub skill download failed: "
             f"{_lobehub_http_error_message(e)}",
         ) from e
     except ValueError as e:
-        raise ValueError(f"LobeHub skill download failed: {e}") from e
+        raise SkillsError(message=f"LobeHub skill download failed: {e}") from e
     return _lobehub_zip_to_bundle(identifier, payload), bundle_url
 
 
@@ -1487,7 +1501,9 @@ def _fetch_bundle_from_clawhub_slug(
     version: str,
 ) -> tuple[Any, str]:
     if not slug:
-        raise ValueError("slug is required for clawhub install")
+        raise ConfigurationException(
+            message="slug is required for clawhub install",
+        )
     base = _hub_base_url()
     errors: list[str] = []
     candidates = [
@@ -1503,8 +1519,8 @@ def _fetch_bundle_from_clawhub_slug(
         except Exception as e:
             errors.append(f"{candidate}: {e}")
     if data is None:
-        raise RuntimeError(
-            "When importing from ClawHub: " + "; ".join(errors),
+        raise SkillsError(
+            message="When importing from ClawHub: " + "; ".join(errors),
         )
     return (
         _hydrate_clawhub_payload(
@@ -1581,7 +1597,9 @@ def install_skill_from_hub(
     cancel_checker: Any | None = None,
 ) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
-        raise ValueError("bundle_url must be a valid http(s) URL")
+        raise ConfigurationException(
+            message="bundle_url must be a valid http(s) URL",
+        )
     with _with_cancel_checker(cancel_checker):
         _ensure_not_cancelled()
         data, source_url = _resolve_bundle_from_url(bundle_url, version)
@@ -1639,7 +1657,9 @@ def import_pool_skill_from_hub(
     target_name: str | None = None,
 ) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
-        raise ValueError("bundle_url must be a valid http(s) URL")
+        raise ConfigurationException(
+            message="bundle_url must be a valid http(s) URL",
+        )
 
     data, source_url = _resolve_bundle_from_url(bundle_url, version)
     name, content, references, scripts, extra_files = _normalize_bundle(data)

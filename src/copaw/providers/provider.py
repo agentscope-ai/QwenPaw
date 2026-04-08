@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Dict, List, Type, Any
 from pydantic import BaseModel, Field
 
 from agentscope.model import ChatModelBase
+from copaw.exceptions import ProviderError
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -195,9 +196,11 @@ class Provider(ProviderInfo, ABC):
             None,
         )
         if chat_model_cls is None:
-            raise ValueError(
-                f"Chat model class '{self.chat_model}' not found"
-                f" for provider '{self.name}'.",
+            raise ProviderError(
+                message=(
+                    f"Chat model class '{self.chat_model}' "
+                    f"not found for provider '{self.name}'."
+                ),
             )
         return chat_model_cls
 

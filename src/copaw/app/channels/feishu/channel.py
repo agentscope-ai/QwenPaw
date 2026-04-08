@@ -34,6 +34,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
 )
 
+from ....exceptions import ChannelError
 from ....config.config import FeishuConfig as FeishuChannelConfig
 from ....config.utils import get_config_path
 from ....constant import DEFAULT_MEDIA_DIR
@@ -1968,14 +1969,20 @@ class FeishuChannel(BaseChannel):
         self._closed = False
         self._load_receive_id_store_from_disk()
         if lark is None:
-            raise RuntimeError(
-                "Feishu channel enabled but lark-oapi is not installed. "
-                "Run: pip install lark-oapi",
+            raise ChannelError(
+                channel_name="feishu",
+                message=(
+                    "Feishu channel enabled but lark-oapi is not "
+                    "installed. Run: pip install lark-oapi"
+                ),
             )
         if not self.app_id or not self.app_secret:
-            raise RuntimeError(
-                "FEISHU_APP_ID and FEISHU_APP_SECRET are required when "
-                "feishu channel is enabled.",
+            raise ChannelError(
+                channel_name="feishu",
+                message=(
+                    "FEISHU_APP_ID and FEISHU_APP_SECRET are required "
+                    "when feishu channel is enabled"
+                ),
             )
         self._loop = asyncio.get_running_loop()
         self._http_client = httpx.AsyncClient(

@@ -22,6 +22,8 @@ from typing import Any, TypeVar
 
 import frontmatter
 from pydantic import BaseModel, Field
+
+from ..exceptions import SkillsError
 from ..security.skill_scanner import scan_skill_directory
 from .utils.file_handling import read_text_file_with_encoding_fallback
 
@@ -451,16 +453,20 @@ def _extract_and_validate_zip(data: bytes, tmp_dir: Path) -> None:
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         total = sum(info.file_size for info in zf.infolist())
         if total > _MAX_ZIP_BYTES:
-            raise ValueError("Uncompressed zip exceeds 200MB limit")
+            raise SkillsError(
+                message="Uncompressed zip exceeds 200MB limit",
+            )
 
         root_path = tmp_dir.resolve()
         for info in zf.infolist():
             target = (tmp_dir / info.filename).resolve()
             if not target.is_relative_to(root_path):
-                raise ValueError(f"Unsafe path in zip: {info.filename}")
+                raise SkillsError(
+                    message=f"Unsafe path in zip: {info.filename}",
+                )
             if info.external_attr >> 16 & 0o120000 == 0o120000:
-                raise ValueError(
-                    f"Symlink not allowed in zip: {info.filename}",
+                raise SkillsError(
+                    message=f"Symlink not allowed in zip: {info.filename}",
                 )
 
         zf.extractall(tmp_dir)
@@ -470,15 +476,19 @@ def _safe_child_path(base_dir: Path, relative_name: str) -> Path:
     """Resolve a relative child path and reject traversal / absolute paths."""
     normalized = (relative_name or "").replace("\\", "/").strip()
     if not normalized:
-        raise ValueError("Skill file path cannot be empty")
+        raise SkillsError(
+            message="Skill file path cannot be empty",
+        )
     if normalized.startswith("/"):
-        raise ValueError(f"Absolute path not allowed: {relative_name}")
+        raise SkillsError(
+            message=f"Absolute path not allowed: {relative_name}",
+        )
 
     path = (base_dir / normalized).resolve()
     base_resolved = base_dir.resolve()
     if not path.is_relative_to(base_resolved):
-        raise ValueError(
-            f"Unsafe path outside skill directory: {relative_name}",
+        raise SkillsError(
+            message=f"Unsafe path outside skill directory: {relative_name}",
         )
     return path
 
@@ -487,14 +497,14 @@ def _normalize_skill_dir_name(name: str) -> str:
     """Normalize and validate a skill directory name."""
     normalized = str(name or "").strip()
     if not normalized:
-        raise ValueError("Skill name cannot be empty")
+        raise SkillsError(message="Skill name cannot be empty")
     if "\x00" in normalized:
-        raise ValueError("Skill name cannot contain NUL bytes")
+        raise SkillsError(message="Skill name cannot contain NUL bytes")
     if normalized in {".", ".."}:
-        raise ValueError(f"Invalid skill name: {normalized}")
+        raise SkillsError(message=f"Invalid skill name: {normalized}")
     if "/" in normalized or "\\" in normalized:
-        raise ValueError(
-            "Skill name cannot contain path separators",
+        raise SkillsError(
+            message="Skill name cannot contain path separators",
         )
     return normalized
 
@@ -509,7 +519,9 @@ def _create_files_from_tree(base_dir: Path, tree: dict[str, Any]) -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(value or "", encoding="utf-8")
         else:
-            raise ValueError(f"Invalid tree value for {name}: {type(value)}")
+            raise SkillsError(
+                message=f"Invalid tree value for {name}: {type(value)}",
+            )
 
 
 def _resolve_skill_name(skill_dir: Path) -> str:
@@ -833,8 +845,8 @@ def import_builtin_skills(
 
     unknown = [name for name in selected_names if name not in candidates]
     if unknown:
-        raise ValueError(
-            f"Unknown builtin skill(s): {', '.join(sorted(unknown))}",
+        raise SkillsError(
+            message=f"Unknown builtin skill(s): {', '.join(sorted(unknown))}",
         )
 
     conflicts = [
@@ -1210,19 +1222,24 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
     """Update one builtin skill in the pool to the latest packaged version."""
     builtin_sigs = _get_builtin_signatures()
     if skill_name not in builtin_sigs:
-        raise ValueError(f"'{skill_name}' is not a builtin skill")
+        raise SkillsError(
+            message=f"'{skill_name}' is not a builtin skill",
+        )
 
     manifest = read_skill_pool_manifest()
     existing = manifest.get("skills", {}).get(skill_name)
     if existing is None or not _is_pool_builtin_entry(existing):
-        raise ValueError(
-            f"'{skill_name}' is not a builtin pool skill",
+        raise SkillsError(
+            message=f"'{skill_name}' is not a builtin pool skill",
         )
 
     builtin_dir = get_builtin_skills_dir()
     src = builtin_dir / skill_name
     if not src.exists():
-        raise ValueError(f"Packaged builtin '{skill_name}' not found")
+        raise SkillsError(
+            message=f"Packaged builtin '{skill_name}' not found",
+            details={"skill_name": skill_name, "expected_path": str(src)},
+        )
 
     pool_dir = get_skill_pool_dir()
     target = pool_dir / skill_name
@@ -1309,8 +1326,11 @@ def _validate_skill_content(content: str) -> tuple[str, str]:
     skill_name = str(post.get("name") or "").strip()
     skill_description = str(post.get("description") or "").strip()
     if not skill_name or not skill_description:
-        raise ValueError(
-            "SKILL.md must include non-empty frontmatter name and description",
+        raise SkillsError(
+            message=(
+                "SKILL.md must include non-empty frontmatter "
+                "name and description"
+            ),
         )
     return skill_name, skill_description
 
@@ -1376,7 +1396,9 @@ def _extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
     This keeps import results consistent across different zip layouts.
     """
     if not zipfile.is_zipfile(io.BytesIO(data)):
-        raise ValueError("Uploaded file is not a valid zip archive")
+        raise SkillsError(
+            message="Uploaded file is not a valid zip archive",
+        )
     tmp_dir = Path(tempfile.mkdtemp(prefix="copaw_skill_upload_"))
     _extract_and_validate_zip(data, tmp_dir)
     real_entries = [
@@ -1399,7 +1421,9 @@ def _extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
         ]
     if not found:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise ValueError("No valid skills found in uploaded zip")
+        raise SkillsError(
+            message="No valid skills found in uploaded zip",
+        )
     return tmp_dir, found
 
 
@@ -1720,9 +1744,11 @@ class SkillService:
                     normalized_target,
                 )
                 if len(found) != 1:
-                    raise ValueError(
-                        "target_name is only supported for "
-                        "single-skill zip imports",
+                    raise SkillsError(
+                        message=(
+                            "target_name is only supported for "
+                            "single-skill zip imports"
+                        ),
                     )
                 found = [(found[0][0], normalized_target)]
             found = [
@@ -2076,9 +2102,11 @@ class SkillPoolService:
                     normalized_target,
                 )
                 if len(found) != 1:
-                    raise ValueError(
-                        "target_name is only supported for "
-                        "single-skill zip imports",
+                    raise SkillsError(
+                        message=(
+                            "target_name is only supported for "
+                            "single-skill zip imports"
+                        ),
                     )
                 found = [(found[0][0], normalized_target)]
             found = [

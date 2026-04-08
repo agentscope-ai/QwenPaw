@@ -20,6 +20,9 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     FunctionCallOutput,
     MessageType,
 )
+from agentscope_runtime.engine.schemas.exception import (
+    AgentRuntimeErrorException,
+)
 
 from ...config import load_config
 
@@ -312,7 +315,12 @@ def agentscope_msg_to_message(
     elif isinstance(messages, list):
         msgs = messages
     else:
-        raise TypeError(f"Expected Msg or list[Msg], got {type(messages)}")
+        raise AgentRuntimeErrorException(
+            code="INVALID_MESSAGE_TYPE",
+            message=(
+                f"Expected Msg or list[Msg], got {type(messages).__name__}"
+            ),
+        )
 
     results: List[Message] = []
 

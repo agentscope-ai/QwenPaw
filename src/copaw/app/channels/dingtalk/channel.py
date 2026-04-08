@@ -44,6 +44,7 @@ from ..utils import file_url_to_local_path
 from ....config.config import DingTalkConfig as DingTalkChannelConfig
 from ....config.utils import get_config_path
 from ....constant import DEFAULT_MEDIA_DIR
+from ....exceptions import ChannelError
 
 from ..base import (
     BaseChannel,
@@ -2172,9 +2173,12 @@ class DingTalkChannel(BaseChannel):
             return
         self._load_session_webhook_store_from_disk()
         if not self.client_id or not self.client_secret:
-            raise RuntimeError(
-                "DINGTALK_CLIENT_ID and DINGTALK_CLIENT_SECRET are required "
-                "when channel is enabled.",
+            raise ChannelError(
+                channel_name="dingtalk",
+                message=(
+                    "DINGTALK_CLIENT_ID and DINGTALK_CLIENT_SECRET "
+                    "are required when channel is enabled"
+                ),
             )
 
         self._loop = asyncio.get_running_loop()
@@ -2349,10 +2353,12 @@ class DingTalkChannel(BaseChannel):
                 body[:1000],
             )
             if resp.status >= 400:
-                raise RuntimeError(
-                    "create ai card failed"
-                    f" status={resp.status}"
-                    f" body={body[:500]}",
+                raise ChannelError(
+                    channel_name="dingtalk",
+                    message=(
+                        f"create ai card failed "
+                        f"status={resp.status} body={body[:500]}"
+                    ),
                 )
 
         if is_group:
@@ -2367,9 +2373,12 @@ class DingTalkChannel(BaseChannel):
             }
         else:
             if not sender_staff_id:
-                raise RuntimeError(
-                    "create ai card failed:"
-                    " missing sender_staff_id for IM_ROBOT",
+                raise ChannelError(
+                    channel_name="dingtalk",
+                    message=(
+                        "create ai card failed: "
+                        "missing sender_staff_id for IM_ROBOT"
+                    ),
                 )
             open_space_id = f"dtv1.card//IM_ROBOT.{sender_staff_id}"
             deliver_payload = {
@@ -2399,10 +2408,12 @@ class DingTalkChannel(BaseChannel):
                 deliver_body[:1000],
             )
             if resp.status >= 400:
-                raise RuntimeError(
-                    "deliver ai card failed"
-                    f" status={resp.status}"
-                    f" body={deliver_body[:500]}",
+                raise ChannelError(
+                    channel_name="dingtalk",
+                    message=(
+                        f"deliver ai card failed "
+                        f"status={resp.status} body={deliver_body[:500]}"
+                    ),
                 )
 
         try:
@@ -2428,11 +2439,14 @@ class DingTalkChannel(BaseChannel):
             ]
             if failed:
                 err = failed[0]
-                raise RuntimeError(
-                    "deliver ai card failed: "
-                    f"spaceId={err.get('spaceId')} "
-                    f"spaceType={err.get('spaceType')} "
-                    f"errorMsg={err.get('errorMsg')}",
+                raise ChannelError(
+                    channel_name="dingtalk",
+                    message=(
+                        f"deliver ai card failed: "
+                        f"spaceId={err.get('spaceId')} "
+                        f"spaceType={err.get('spaceType')} "
+                        f"errorMsg={err.get('errorMsg')}"
+                    ),
                 )
         logger.info(
             "dingtalk create ai card ok:"
@@ -2533,12 +2547,16 @@ class DingTalkChannel(BaseChannel):
 
         if status >= 400:
             if status == 500 and "unknownError" in txt:
-                raise RuntimeError(
-                    "dingtalk ai card unknownError:"
-                    " card_template_key mismatch?",
+                raise ChannelError(
+                    channel_name="dingtalk",
+                    message=(
+                        "dingtalk ai card unknownError: "
+                        "card_template_key mismatch?"
+                    ),
                 )
-            raise RuntimeError(
-                f"stream ai card failed status={status} body={txt[:500]}",
+            raise ChannelError(
+                channel_name="dingtalk",
+                message=f"stream ai card failed status={status}",
             )
         logger.info(
             "dingtalk stream ai card ok: conversation_id=%s finalize=%s",
@@ -2725,7 +2743,10 @@ class DingTalkChannel(BaseChannel):
     async def _get_access_token(self) -> str:
         """Get and cache DingTalk accessToken for 1 hour (instance-level)."""
         if not self.client_id or not self.client_secret:
-            raise RuntimeError("DingTalk client_id/client_secret missing")
+            raise ChannelError(
+                channel_name="dingtalk",
+                message="DingTalk client_id/client_secret missing",
+            )
 
         now = asyncio.get_running_loop().time()
         if self._token_value and now < self._token_expires_at:
@@ -2745,15 +2766,16 @@ class DingTalkChannel(BaseChannel):
             async with self._http.post(url, json=payload) as resp:
                 data = await resp.json(content_type=None)
                 if resp.status >= 400:
-                    raise RuntimeError(
-                        f"get accessToken failed status={resp.status} "
-                        f"body={data}",
+                    raise ChannelError(
+                        channel_name="dingtalk",
+                        message=f"get accessToken failed status={resp.status}",
                     )
 
             token = data.get("accessToken") or data.get("access_token")
             if not token:
-                raise RuntimeError(
-                    f"accessToken not found in response: {data}",
+                raise ChannelError(
+                    channel_name="dingtalk",
+                    message=f"accessToken not found in response: {data}",
                 )
 
             self._token_value = token
