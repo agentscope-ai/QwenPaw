@@ -1,7 +1,9 @@
 import React from "react";
-import { Card, Button, Checkbox } from "@agentscope-ai/design";
+import { Card, Button, Checkbox, Tooltip } from "@agentscope-ai/design";
+import { SkillTags } from "../../../Settings/SkillPool/components/SkillMeta";
 import {
   CalendarFilled,
+  ApiOutlined,
   FileTextFilled,
   FileZipFilled,
   FilePdfFilled,
@@ -160,11 +162,6 @@ export const SkillCard = React.memo(function SkillCard({
     }
   };
 
-  const isBuiltin =
-    skill.source === "builtin" ||
-    skill.source?.startsWith("builtin:") ||
-    skill.source === "system";
-
   return (
     <Card
       hoverable
@@ -177,85 +174,55 @@ export const SkillCard = React.memo(function SkillCard({
         selected ? styles.selectedCard : ""
       }`}
     >
-      {/* Top row: Icon (left) + Status + Batch checkbox (right) */}
-      <div className={styles.cardTopRow}>
-        <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.emoji)}
-        </span>
-        <div className={styles.cardTopRight}>
-          <span
-            className={`${styles.statusBadge} ${
-              skill.enabled ? styles.statusEnabled : styles.statusDisabled
-            }`}
-          >
-            <span className={styles.statusDot} />
-            {skill.enabled ? t("common.enabled") : t("common.disabled")}
+      {/* Header: Icon + Title + Status */}
+      <div className={styles.cardHeader}>
+        <div className={styles.leftSection}>
+          <span className={styles.fileIcon}>
+            {getSkillVisual(skill.name, skill.emoji)}
           </span>
-          {batchMode && (
-            <Checkbox checked={selected} onClick={handleSelectClick} />
-          )}
+          <div className={styles.titleInfoContainer}>
+            <div className={styles.titleRow}>
+              <h3 className={styles.skillTitle}>{skill.name}</h3>
+              <span
+                className={`${styles.statusValue} ${
+                  skill.enabled ? styles.enabled : styles.disabled
+                }`}
+              >
+                {skill.enabled ? t("common.enabled") : t("common.disabled")}
+              </span>
+            </div>
+            {skill.last_updated && (
+              <div className={styles.updatedTime}>
+                <CalendarFilled className={styles.calendarIcon} />
+                <span>{dayjs(skill.last_updated).fromNow()}</span>
+              </div>
+            )}
+          </div>
         </div>
+        {batchMode && (
+          <Checkbox checked={selected} onClick={handleSelectClick} />
+        )}
       </div>
 
-      {/* Title + Built-in tag */}
-      <div className={styles.titleRow}>
-        <h3 className={styles.skillTitle}>
-          {skill.name}{" "}
-          {isBuiltin && (
-            <span className={styles.builtinTag}>
-              {t("skills.builtin") ?? "Built-in"}
-            </span>
-          )}
-        </h3>
-      </div>
-
-      {/* Channels row */}
-      <div className={styles.metaRow}>
-        <span className={styles.metaLabel}>{t("skills.channels")}</span>
-        <span className={styles.metaValue}>
+      {/* Channels Section */}
+      <div className={styles.channelsRow}>
+        <Tooltip title={t("skills.channels")}>
+          <ApiOutlined className={styles.channelIcon} />
+        </Tooltip>
+        <span className={styles.channelValue}>
           {(skill.channels || ["all"])
             .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
             .join(", ")}
         </span>
       </div>
 
-      {/* Updated row */}
-      {skill.last_updated && (
-        <div className={styles.metaRow}>
-          <span className={styles.metaLabel}>{t("skills.lastUpdated")}</span>
-          <span className={styles.metaValue}>
-            {dayjs(skill.last_updated).fromNow()}
-          </span>
-        </div>
-      )}
-
-      {/* Tags row */}
-      {
-        <div className={styles.tagsRow}>
-          <span className={styles.metaLabel}>{t("skills.tags")}</span>
-          {!!skill.tags?.length ? (
-            <div className={styles.tagChips}>
-              {skill.tags.map((tag) => (
-                <span key={tag} className={styles.tagChip}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-          ) : (
-            "-"
-          )}
-        </div>
-      }
-
-      {/* Description */}
-      <div className={styles.descriptionSection}>
-        <span className={styles.descriptionLabel}>
-          {t("skills.skillDescription")}
-        </span>
+      {/* Description Section */}
+      <div className={styles.descriptionContainer}>
+        <SkillTags tags={skill.tags} styles={styles} />
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer with buttons - always show */}
+      {/* Footer with buttons - always show, disabled in batch mode */}
       <div className={styles.cardFooter}>
         <Button
           className={styles.actionButton}

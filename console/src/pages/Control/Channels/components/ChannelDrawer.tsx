@@ -27,6 +27,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "mattermost",
   "matrix",
   "weixin",
+  "imessage",
   "onebot",
 ];
 

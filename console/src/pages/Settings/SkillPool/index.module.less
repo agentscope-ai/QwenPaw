@@ -597,26 +597,10 @@
   }
 }
 
-/* ─── Categories & Tags ───────────────────────────────────────────────────── */
+/* ─── Tags ────────────────────────────────────────────────────────────────── */
 
-// category badge: 放在 titleRow / listItemHeader，实色填充，语义强
-.categoryBadge {
-  display: inline-flex;
-  align-items: center;
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 16px;
-  padding: 0 6px;
-  border-radius: 3px;
-  background: rgba(22, 119, 255, 0.08);
-  color: #1677ff;
-  border: 1px solid rgba(22, 119, 255, 0.18);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-// Categories and Tags container above description
-.categoriesTagsContainer {
+// Tags container above description
+.tagsContainer {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -658,7 +642,7 @@
   white-space: nowrap;
 }
 
-/* ─── tagChips: for list view ────────────────────────────────────────────── */
+// tag chips: 放在 description 下方，描边无填充，辅助信息
 .tagChips {
   display: flex;
   flex-wrap: wrap;
@@ -994,12 +978,6 @@
 
   .selectedListItem {
     background: rgba(255, 127, 22, 0.05);
-  }
-
-  .categoryBadge {
-    background: rgba(105, 177, 255, 0.12);
-    color: #69b1ff;
-    border-color: rgba(105, 177, 255, 0.22);
   }
 
   .tagChip {

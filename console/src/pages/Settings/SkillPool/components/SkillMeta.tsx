@@ -73,3 +73,21 @@ export function SkillCategoriesAndTags({
     </div>
   );
 }
+
+export function SkillTags({ tags, styles = defaultStyles }: Pick<SkillCategoryTagsProps, "tags" | "styles">) {
+  if (!tags?.length) return null;
+  return (
+    <div className={styles.tagsContainer}>
+      <div className={styles.metaRow}>
+        <span className={styles.metaIcon}>🏷️</span>
+        <div className={styles.metaContent}>
+          {tags.map((tag) => (
+            <span key={tag} className={styles.tagChip}>
+              {tag}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
