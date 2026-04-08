@@ -275,6 +275,10 @@ class ToolGuardMixin:
         pre-approved and non-guarded) runs **outside** the lock for
         true parallelism.
         """
+        ctx = getattr(self, "_request_context", None) or {}
+        if ctx.get("_headless_tool_guard", "true").lower() == "false":
+            return await super()._acting(tool_call)  # type: ignore[misc]
+
         self._ensure_tool_guard()
 
         action: _GuardAction | None = None

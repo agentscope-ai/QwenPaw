@@ -223,7 +223,7 @@ export function CopawWhy() {
             {isTopPhase ? (
               <span className="mx-0.5 inline-flex h-[1.5em] w-[1.5em] -translate-y-[0.04em] items-center justify-center align-middle">
                 <motion.img
-                  src="/paw.png"
+                  src="https://img.alicdn.com/imgextra/i2/O1CN01VeUJzu1UK8VNHg4nh_!!6000000002498-2-tps-147-139.png"
                   alt=""
                   aria-hidden
                   className="h-full w-full object-contain"
@@ -246,7 +246,7 @@ export function CopawWhy() {
             {!isTopPhase ? (
               <span className="mx-0.5 inline-flex h-[1.5em] w-[1.5em] -translate-y-[0.04em] items-center justify-center align-middle">
                 <motion.img
-                  src="/paw.png"
+                  src="https://img.alicdn.com/imgextra/i2/O1CN01VeUJzu1UK8VNHg4nh_!!6000000002498-2-tps-147-139.png"
                   alt=""
                   aria-hidden
                   className="h-full w-full object-contain"

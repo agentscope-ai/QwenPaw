@@ -135,6 +135,7 @@
     "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/、または https://modelscope.cn/skills/ で始まる必要があります",
     "type": "タイプ",
     "skillDescription": "説明",
+    "tags": "タグ",
     "builtin": "組み込み",
     "custom": "カスタム",
     "createSkill": "スキルを作成",
@@ -247,11 +248,8 @@
     "edit": "編集",
     "delete": "削除",
     "descriptionLabel": "説明",
-    "categories": "カテゴリ",
     "tags": "タグ",
-    "categoriesPlaceholder": "カテゴリを選択または入力",
     "tagsPlaceholder": "タグを選択または入力",
-    "filterByCategory": "カテゴリで絞り込む",
     "filterByTag": "タグで絞り込む",
     "version": "バージョン",
     "createTitle": "スキルプール項目を作成",
@@ -508,7 +506,9 @@
     "weixinScanHint": "WeChatでQRコードをスキャンして、完了後に保存してください",
     "weixinQrcodeFailed": "QRコードの取得に失敗しました。再試行してください",
     "weixinLoginSuccess": "WeChat ログイン成功、トークンが入力されました",
-    "weixinQrcodeExpired": "QRコードが期限切れです。再取得してください"
+    "weixinQrcodeExpired": "QRコードが期限切れです。再取得してください",
+    "onebotShareSessionInGroup": "グループでセッション共有",
+    "onebotShareSessionInGroupTooltip": "有効にすると、グループの全メンバーが同じ会話セッションを共有します。無効にすると、各メンバーが独自のセッションを持ちます。"
   },
   "sessions": {
     "title": "セッション",
@@ -1044,7 +1044,7 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
-    "inputPlaceholder": "/ を入力してコマンドを表示。承認時は /approve または /deny を使えます...",
+    "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"

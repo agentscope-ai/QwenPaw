@@ -27,17 +27,17 @@ const item = {
 const cards = [
   {
     key: "apps",
-    icon: "/explore-apps.svg",
+    icon: "https://img.alicdn.com/imgextra/i4/O1CN01f3kIzy1qpCv6YMPnc_!!6000000005544-55-tps-95-95.svg",
     href: "",
   },
   {
     key: "skills",
-    icon: "/support-skills.svg",
+    icon: "https://img.alicdn.com/imgextra/i1/O1CN01FZjjpn1c0uoErRfQI_!!6000000003539-55-tps-95-95.svg",
     href: "/docs/security",
   },
   {
     key: "control",
-    icon: "/under-control.svg",
+    icon: "https://img.alicdn.com/imgextra/i3/O1CN01zYweFi25bD3LD3QcW_!!6000000007544-55-tps-95-95.svg",
     href: "/docs/multi-agent",
   },
 ] as const;

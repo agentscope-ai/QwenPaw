@@ -242,7 +242,7 @@ async def execute_shell_command(
 
     if isinstance(timeout, str):
         try:
-            timeout = int(timeout)
+            timeout = int(float(timeout))
         except (ValueError, TypeError):
             pass
 

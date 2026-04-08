@@ -89,10 +89,55 @@ html.dark-mode .ant-table-wrapper {
 html.dark-mode .copaw-table-thead > tr > th,
 html.dark-mode .ant-table-thead > tr > th,
 html.dark-mode .copaw-table-thead > tr > td,
-html.dark-mode .ant-table-thead > tr > td {
+html.dark-mode .ant-table-thead > tr > td,
+html.dark-mode
+  .copaw-table-wrapper
+  .copaw-table-container
+  .copaw-table-thead
+  > tr
+  > th,
+html.dark-mode
+  .ant-table-wrapper
+  .ant-table-container
+  .ant-table-thead
+  > tr
+  > th,
+html.dark-mode
+  .copaw-table-wrapper
+  .copaw-table-container
+  .copaw-table-thead
+  > tr
+  > td,
+html.dark-mode
+  .ant-table-wrapper
+  .ant-table-container
+  .ant-table-thead
+  > tr
+  > td {
   background: #262626 !important;
   color: rgba(255, 255, 255, 0.65) !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Sticky thead background (scroll.y tables) */
+html.dark-mode .copaw-table-sticky-holder,
+html.dark-mode .ant-table-sticky-holder {
+  background: #262626 !important;
+}
+
+html.dark-mode .copaw-table-sticky-holder .copaw-table-thead > tr > th,
+html.dark-mode .ant-table-sticky-holder .ant-table-thead > tr > th,
+html.dark-mode .copaw-table-sticky-holder .copaw-table-thead > tr > td,
+html.dark-mode .ant-table-sticky-holder .ant-table-thead > tr > td {
+  background: #262626 !important;
+}
+
+/* Fix left/right sticky columns in thead */
+html.dark-mode .copaw-table-thead > tr > th.copaw-table-cell-fix-left,
+html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-left,
+html.dark-mode .copaw-table-thead > tr > th.copaw-table-cell-fix-right,
+html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-right {
+  background: #262626 !important;
 }
 
 html.dark-mode .copaw-table-tbody > tr > td,

@@ -24,6 +24,12 @@ from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.gemini_provider import GeminiProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
+from copaw.security.secret_store import (
+    PROVIDER_SECRET_FIELDS,
+    decrypt_dict_fields,
+    encrypt_dict_fields,
+    is_encrypted,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -1051,13 +1057,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         is_builtin: bool = False,
         skip_if_exists: bool = False,
     ):
-        """Save a provider configuration to disk."""
+        """Save a provider configuration to disk.
+
+        Sensitive fields (``api_key``) are encrypted before writing.
+        """
         provider_dir = self.builtin_path if is_builtin else self.custom_path
         provider_path = provider_dir / f"{provider.id}.json"
         if skip_if_exists and provider_path.exists():
             return
+        data = encrypt_dict_fields(
+            provider.model_dump(),
+            PROVIDER_SECRET_FIELDS,
+        )
         with open(provider_path, "w", encoding="utf-8") as f:
-            json.dump(provider.model_dump(), f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2)
         try:
             os.chmod(provider_path, 0o600)
         except OSError:
@@ -1078,7 +1091,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id: str,
         is_builtin: bool = False,
     ) -> Provider | None:
-        """Load a provider configuration from disk."""
+        """Load a provider configuration from disk.
+
+        Encrypted fields are transparently decrypted.  If a legacy
+        plaintext ``api_key`` is detected it is re-encrypted in place.
+        """
         provider_dir = self.builtin_path if is_builtin else self.custom_path
         provider_path = provider_dir / f"{provider_id}.json"
         if not provider_path.exists():
@@ -1086,7 +1103,30 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         try:
             with open(provider_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return self._provider_from_data(data)
+
+            needs_rewrite = self._maybe_migrate_plaintext(
+                data,
+                PROVIDER_SECRET_FIELDS,
+            )
+            data = decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
+            provider = self._provider_from_data(data)
+
+            if needs_rewrite:
+                try:
+                    self._save_provider(
+                        provider,
+                        is_builtin=is_builtin,
+                        skip_if_exists=False,
+                    )
+                except Exception as enc_err:
+                    logger.debug(
+                        "Deferred plaintext→encrypted migration for"
+                        " provider '%s': %s",
+                        provider_id,
+                        enc_err,
+                    )
+
+            return provider
         except Exception as e:
             logger.warning(
                 "Failed to load provider '%s' from %s: %s",
@@ -1095,6 +1135,19 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 e,
             )
             return None
+
+    @staticmethod
+    def _maybe_migrate_plaintext(
+        data: dict,
+        secret_fields: frozenset[str],
+    ) -> bool:
+        """Return ``True`` when *data* contains plaintext secret fields
+        that should be re-encrypted on disk."""
+        for field in secret_fields:
+            value = data.get(field)
+            if isinstance(value, str) and value and not is_encrypted(value):
+                return True
+        return False
 
     def _provider_from_data(self, data: Dict) -> Provider:
         """Deserialize provider data to a concrete provider type."""
