@@ -55,6 +55,20 @@ first, then send text to the model).
 You can attach **files** such as documents, images, and audio/video (follow
 on-screen limits; per-file size caps apply).
 
+**Knowledge base import note:**
+KB import from current-message uploads supports `.md`, `.txt`, `.pdf`, `.docx`,
+`.doc`, `.xlsx`, and `.pptx`.
+Legacy `.doc` files are converted via LibreOffice `soffice`. If `soffice` is
+missing, import fails. Run `soffice --version` to verify, then install
+LibreOffice and retry.
+For `.xlsx`, formula cells are imported as formula text unless the workbook
+already contains cached calculated values.
+To use the optional Docling engine, install it with
+`pip install 'copaw[docling]'` and set
+`COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING` before starting CoPaw.
+In this mode, Docling follows its official format support set (Office, Markdown/
+AsciiDoc/HTML/CSV, images, audio/video, VTT, XML, JSON).
+
 **Create a new session:**
 Click the **New Chat** button at the top-right of the chat page to start a new
 conversation. Each session keeps separate history.

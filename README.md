@@ -48,7 +48,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 > - **Social media**: Daily hot post digests (Xiaohongshu, Zhihu, Reddit), Bilibili/YouTube video summaries.
 > - **Productivity**: Email & newsletter highlights pushed to DingTalk/Feishu/QQ; email & calendar contact organization.
 > - **Creative & building**: Describe your goal before sleep, auto-execute, wake up to a prototype; full workflow from topic selection to final video.
-> - **Research & learning**: Track tech & AI news, personal knowledge base search and reuse.
+> - **Research & learning**: Track tech & AI news, personal knowledge base (KB import supports `.md`, `.txt`, `.pdf`, `.docx`, `.doc`, `.xlsx`, `.pptx`; `.doc` import requires LibreOffice `soffice`).
 > - **Desktop & files**: Organize and search local files, read & summarize documents, request files in chat.
 > - **Explore more**: Combine Skills with scheduled tasks into your own agentic app.
 >
@@ -125,6 +125,29 @@ pip install copaw
 copaw init --defaults
 copaw app
 ```
+
+Optional (Docling KB engine): install Docling and enable it via environment
+variable before starting CoPaw.
+
+```bash
+pip install 'copaw[docling]'
+export COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING
+copaw app
+```
+
+With `DOCLING`, KB import prioritizes Docling for its official format set,
+including `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.md`, `.adoc`, `.html`, `.csv`,
+images (`.png/.jpg/.tiff/.bmp/.webp`), audio (`.wav/.mp3/.m4a/.aac/.ogg/.flac`),
+video (`.mp4/.avi/.mov`), `.vtt`, `.xml`, and `.json`.
+Specialized parsers still handle `.doc` via `soffice`, and remain fallback for
+`.docx`, `.xlsx`, and `.pptx`.
+
+Knowledge Base import in chat is command-driven:
+
+- Attach file(s) and send `/kb` or `/kb import`.
+- Works in Console and other connected channels (when attachments are available).
+- The command imports files and returns an import summary only (it does not
+  continue the same turn with a normal LLM reply).
 
 Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Feishu, WeChat, etc., see the [Channel setup](https://copaw.agentscope.io/docs/channels) documentation.
 

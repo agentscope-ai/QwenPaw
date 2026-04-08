@@ -48,6 +48,18 @@
 **附件：**
 发送区支持上传**附件**，包括文档、图片、音视频等（以界面提示为准，单文件有大小上限）。
 
+**知识库导入说明：**
+当前消息上传文件可导入知识库，支持 `.md`、`.txt`、`.pdf`、`.docx`、`.doc`、`.xlsx`、`.pptx`。
+其中 `.doc` 会通过 LibreOffice `soffice` 转换后再导入；如果缺少
+`soffice`，导入会失败。可先执行 `soffice --version` 检查，若命令不存在请安装
+LibreOffice 后重试。
+对于 `.xlsx`，公式单元格默认以公式文本导入；只有工作簿已包含预计算缓存值时才会读到计算结果。
+如需启用可选的 Docling 引擎，可先安装
+`pip install 'copaw[docling]'`，并在启动 CoPaw 前设置
+`COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING`。
+该模式下会按 Docling 官方格式集合处理文件（Office、Markdown/AsciiDoc/HTML/CSV、
+图片、音视频、VTT、XML、JSON）。
+
 **新建会话：**
 点击聊天页面右上角 **新建聊天** 按钮，开始一段全新的对话。每个会话独立保存各自的对话记录。
 

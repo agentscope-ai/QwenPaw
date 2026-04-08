@@ -37,6 +37,10 @@ dependencies = [
     "pyyaml>=6.0",
     "json-repair>=0.30.0",
     "segno>=1.6.6",
+    "pypdf>=4.3.0",
+    "python-docx>=1.1.2",
+    "python-pptx>=1.0.2",
+    "openpyxl>=3.1.5",
     "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
@@ -91,6 +95,9 @@ mlx = [
 ]
 ollama = [
     "ollama>=0.6.1",
+]
+docling = [
+    "docling",
 ]
 whisper = [
     "openai-whisper>=20231117",

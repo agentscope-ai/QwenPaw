@@ -192,8 +192,10 @@ async def post_console_upload(
     path = (media_dir / stored_name).resolve()
     path.write_bytes(data)
     return {
+        "upload_id": stored_name,
         "url": path,
         "file_name": safe_name,
+        "stored_name": stored_name,
         "size": len(data),
     }
 

@@ -127,6 +127,16 @@ copaw init --defaults
 copaw app
 ```
 
+会话内知识库导入采用命令触发：
+
+- 上传附件后发送 `/kb` 或 `/kb import`。
+- 控制台与其他已接入频道（支持附件时）都可用。
+- 命令只执行导入并返回统计结果，不会在同一轮继续普通 LLM 回复。
+- 当前支持格式：`.md`、`.txt`、`.pdf`、`.docx`、`.doc`、`.xlsx`、`.pptx`。
+- 其中 `.doc` 依赖 LibreOffice `soffice` 转换。
+- 如启用 `COPAW_KB_DOCUMENT_LOADING_ENGINE=DOCLING`，将按 Docling 官方格式集合处理
+  更多格式（如 Office、Markdown/AsciiDoc/HTML/CSV、图片、音视频、VTT、XML、JSON）。
+
 然后在浏览器中打开控制台：**http://127.0.0.1:8088/**，配置模型后即可开始对话。
 若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://copaw.agentscope.io/docs/channels) 文档。
 

@@ -1106,6 +1106,9 @@
       },
       "deny": {
         "description": "拒绝待执行的工具操作"
+      },
+      "kb": {
+        "description": "将本条消息附件导入知识库（/kb 或 /kb import）"
       }
     },
     "attachments": {

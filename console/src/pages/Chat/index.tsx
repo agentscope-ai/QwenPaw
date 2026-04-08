@@ -615,14 +615,12 @@ export default function ChatPage() {
         }
       }
 
-      const response = await fetch(getApiUrl("/console/chat"), {
+      return fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
-
-      return response;
     },
     [selectedAgent],
   );
@@ -693,6 +691,11 @@ export default function ChatPage() {
         command: "/deny",
         value: "deny",
         description: t("chat.commands.deny.description"),
+      },
+      {
+        command: "/kb",
+        value: "kb",
+        description: t("chat.commands.kb.description"),
       },
     ];
 

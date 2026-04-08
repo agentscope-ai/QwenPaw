@@ -50,6 +50,7 @@ from .tools import (
     view_video,
     write_file,
     create_memory_search_tool,
+    create_knowledge_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
@@ -411,6 +412,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 namesake_strategy=namesake_strategy,
             )
             logger.debug("Registered memory_search tool")
+
+        # Register knowledge_search tool (workspace-local imported docs)
+        self.toolkit.register_tool_function(
+            create_knowledge_search_tool(self._workspace_dir or WORKING_DIR),
+            namesake_strategy=namesake_strategy,
+        )
+        logger.debug("Registered knowledge_search tool")
 
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""
