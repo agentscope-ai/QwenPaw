@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
 
@@ -63,7 +63,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             with open(self._config_path, "r", encoding="utf-8") as file_obj:
                 payload = json.load(file_obj)
             return LocalModelConfig.model_validate(payload)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, ValidationError) as exc:
             logger.warning(
                 "Failed to load local model config from %s: %s",
                 self._config_path,
@@ -71,29 +71,42 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             )
             return LocalModelConfig()
 
-    def _save_config(self) -> None:
-        """Persist local runtime settings to disk."""
-        self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._config_path, "w", encoding="utf-8") as file_obj:
+    @staticmethod
+    def _write_config_file(
+        config_path,
+        payload: dict[str, Any],
+    ) -> None:
+        """Write local runtime settings to disk in a worker thread."""
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w", encoding="utf-8") as file_obj:
             json.dump(
-                self._config.model_dump(),
+                payload,
                 file_obj,
                 ensure_ascii=False,
                 indent=2,
             )
         try:
-            self._config_path.chmod(0o600)
+            config_path.chmod(0o600)
         except OSError:
             pass
+
+    async def _save_config(self) -> None:
+        """Persist local runtime settings to disk without blocking the loop."""
+        await asyncio.to_thread(
+            self._write_config_file,
+            self._config_path,
+            self._config.model_dump(),
+        )
 
     def get_config(self) -> LocalModelConfig:
         """Return a defensive copy of the current local runtime settings."""
         return self._config.model_copy(deep=True)
 
-    def set_max_context_length(self, max_context_length: int) -> None:
+    async def set_max_context_length(self, max_context_length: int) -> None:
         """Persist the max context length for future llama.cpp startups."""
-        self._config.max_context_length = max_context_length
-        self._save_config()
+        async with self._server_lifecycle_lock:
+            self._config.max_context_length = max_context_length
+            await self._save_config()
 
     def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Return whether llama.cpp is already installed locally."""

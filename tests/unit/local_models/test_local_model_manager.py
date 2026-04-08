@@ -182,7 +182,7 @@ async def test_local_model_manager_forwards_async_server_calls(
         model_manager=cast(ModelManager, _FakeModelManager()),
         llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
-    manager.set_max_context_length(131072)
+    await manager.set_max_context_length(131072)
 
     ready = await manager.check_llamacpp_server_ready(timeout=7.5)
     port = await manager.setup_server("demo")
@@ -197,7 +197,8 @@ async def test_local_model_manager_forwards_async_server_calls(
     ]
 
 
-def test_set_max_context_length_persists_local_model_config(
+@pytest.mark.asyncio
+async def test_set_max_context_length_persists_local_model_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -211,7 +212,7 @@ def test_set_max_context_length_persists_local_model_config(
         llamacpp_backend=cast(LlamaCppBackend, _FakeLlamaCppBackend()),
     )
 
-    manager.set_max_context_length(131072)
+    await manager.set_max_context_length(131072)
 
     assert manager.get_config().max_context_length == 131072
     config_path = tmp_path / LocalModelManager.CONFIG_FILE_NAME

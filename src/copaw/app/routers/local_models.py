@@ -423,7 +423,7 @@ async def configure_local_model_settings(
 ) -> ActionResponse:
     """Configure local model settings."""
     if payload.max_context_length is not None:
-        local_manager.set_max_context_length(payload.max_context_length)
+        await local_manager.set_max_context_length(payload.max_context_length)
 
     if payload.generate_kwargs is not None:
         provider_manager.update_provider(
