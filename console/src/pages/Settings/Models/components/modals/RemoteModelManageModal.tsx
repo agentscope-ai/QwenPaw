@@ -319,7 +319,7 @@ export function RemoteModelManageModal({
     onClose();
   };
 
-  const handleDiscoverModels = async () => {
+  const handleDiscoverModels = useCallback(async () => {
     setDiscovering(true);
     try {
       const result = await api.discoverModels(provider.id);
@@ -353,7 +353,7 @@ export function RemoteModelManageModal({
     } finally {
       setDiscovering(false);
     }
-  };
+  }, [provider.id, message, t, onSaved]);
 
   useEffect(() => {
     if (open && runDiscover && canDiscover && !fetchedRef.current) {
@@ -363,7 +363,7 @@ export function RemoteModelManageModal({
     if (!open) {
       fetchedRef.current = false;
     }
-  }, [open, runDiscover, canDiscover]);
+  }, [open, runDiscover, canDiscover, handleDiscoverModels]);
 
   const all_models = [
     ...(provider.models ?? []),

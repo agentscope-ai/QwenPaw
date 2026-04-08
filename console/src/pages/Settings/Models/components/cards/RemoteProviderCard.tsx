@@ -51,6 +51,16 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
     });
   };
 
+  const handleRequestDiscover = () => {
+    setRunDiscover(true);
+    setModelManageOpen(true);
+  };
+
+  const handleModelManageClose = () => {
+    setModelManageOpen(false);
+    setRunDiscover(false);
+  };
+
   const totalCount = provider.models.length + provider.extra_models.length;
 
   let isConfigured = false;
@@ -214,18 +224,12 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSaved={onSaved}
-        onRequestDiscover={() => {
-          setRunDiscover(true);
-          setModelManageOpen(true);
-        }}
+        onRequestDiscover={handleRequestDiscover}
       />
       <ModelManageModal
         provider={provider}
         open={modelManageOpen}
-        onClose={() => {
-          setModelManageOpen(false);
-          setRunDiscover(false);
-        }}
+        onClose={handleModelManageClose}
         onSaved={onSaved}
         runDiscover={runDiscover}
       />
