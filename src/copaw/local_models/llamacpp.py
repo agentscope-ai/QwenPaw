@@ -204,12 +204,18 @@ class LlamaCppBackend:
         )
         self._download_controller.start(spec)
 
-    async def setup_server(self, model_path: Path, model_name: str) -> int:
+    async def setup_server(
+        self,
+        model_path: Path,
+        model_name: str,
+        max_context_length: int | None = None,
+    ) -> int:
         """Setup llama.cpp server, and return the port it's running on.
 
         Args:
             model_path: Path to a local HF repo directory or GGUF file
             model_name: Name of the model to be used in the server
+            max_context_length: Optional context window passed to llama.cpp
         """
         installed, message = self.check_llamacpp_installation()
         if not installed:
@@ -252,6 +258,7 @@ class LlamaCppBackend:
             resolved_mmproj_path=resolved_mmproj_path,
             model_name=model_name,
             port=port,
+            max_context_length=max_context_length,
             process_kwargs=process_kwargs,
         )
 
@@ -326,6 +333,7 @@ class LlamaCppBackend:
         resolved_mmproj_path: Path | None,
         model_name: str,
         port: int,
+        max_context_length: int | None,
         process_kwargs: dict[str, Any],
     ) -> ManagedProcess:
         command = [
@@ -341,6 +349,8 @@ class LlamaCppBackend:
             "--gpu-layers",
             "auto",
         ]
+        if max_context_length is not None:
+            command.extend(["--ctx-size", str(max_context_length)])
         if resolved_mmproj_path is not None:
             command.extend(
                 [

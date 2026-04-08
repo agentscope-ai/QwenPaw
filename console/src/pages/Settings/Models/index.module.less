@@ -1,3 +1,15 @@
+.localAdvancedConfigFieldRow {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.localAdvancedConfigLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
 /* ---- Page Layout ---- */
 .settingsPage {
   height: 100%;
@@ -401,6 +413,9 @@
 
 .jsonEditorContainer {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   border: 1px solid #d9d9d9;
   border-radius: 8px;
   overflow: hidden;
@@ -812,6 +827,13 @@
 .localAdvancedConfigHint {
   margin-top: 4px;
   color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.localAdvancedConfigError {
+  margin-top: 6px;
+  color: #dc2626;
   font-size: 12px;
   line-height: 1.5;
 }

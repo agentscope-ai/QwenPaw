@@ -4,14 +4,33 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from typing import Any
+
+from pydantic import BaseModel, Field
+
+from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
 
 from .llamacpp import LlamaCppBackend
 from .model_manager import LocalModelInfo as RecommendedLocalModelInfo
 from .model_manager import ModelManager, DownloadSource
 
 
-class LocalModelManager:
+logger = logging.getLogger(__name__)
+
+
+class LocalModelConfig(BaseModel):
+    """Persistent local runtime settings for embedded llama.cpp."""
+
+    max_context_length: int = Field(
+        default=65536,
+        description="Maximum context length passed to llama.cpp on startup.",
+        ge=32768,
+    )
+
+
+class LocalModelManager:  # pylint: disable=too-many-public-methods
     """Single entry point for local runtime downloads and server control."""
 
     _instance: LocalModelManager | None = None
@@ -21,6 +40,7 @@ class LocalModelManager:
         "https://download.copaw.agentscope.io/files/models/llama_cpp"
     )
     DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8635"
+    CONFIG_FILE_NAME = "config.json"
 
     def __init__(
         self,
@@ -31,6 +51,49 @@ class LocalModelManager:
         self._model_manager = model_manager or ModelManager()
         self._llamacpp_backend = llamacpp_backend or LlamaCppBackend()
         self._server_lifecycle_lock = asyncio.Lock()
+        self._config_path = DEFAULT_LOCAL_PROVIDER_DIR / self.CONFIG_FILE_NAME
+        self._config = self._load_config()
+
+    def _load_config(self) -> LocalModelConfig:
+        """Load persisted local runtime settings from disk."""
+        if not self._config_path.exists():
+            return LocalModelConfig()
+
+        try:
+            with open(self._config_path, "r", encoding="utf-8") as file_obj:
+                payload = json.load(file_obj)
+            return LocalModelConfig.model_validate(payload)
+        except (OSError, ValueError) as exc:
+            logger.warning(
+                "Failed to load local model config from %s: %s",
+                self._config_path,
+                exc,
+            )
+            return LocalModelConfig()
+
+    def _save_config(self) -> None:
+        """Persist local runtime settings to disk."""
+        self._config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._config_path, "w", encoding="utf-8") as file_obj:
+            json.dump(
+                self._config.model_dump(),
+                file_obj,
+                ensure_ascii=False,
+                indent=2,
+            )
+        try:
+            self._config_path.chmod(0o600)
+        except OSError:
+            pass
+
+    def get_config(self) -> LocalModelConfig:
+        """Return a defensive copy of the current local runtime settings."""
+        return self._config.model_copy(deep=True)
+
+    def set_max_context_length(self, max_context_length: int) -> None:
+        """Persist the max context length for future llama.cpp startups."""
+        self._config.max_context_length = max_context_length
+        self._save_config()
 
     def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Return whether llama.cpp is already installed locally."""
@@ -87,6 +150,10 @@ class LocalModelManager:
         """Cancel the current llama.cpp download task."""
         self._llamacpp_backend.cancel_download()
 
+    def update_llamacpp_settings(self, settings: dict[str, Any]) -> None:
+        """Set llama.cpp related settings."""
+        self._llamacpp_backend.set_settings(settings)
+
     def get_recommended_models(
         self,
     ) -> list[RecommendedLocalModelInfo]:
@@ -127,6 +194,7 @@ class LocalModelManager:
             return await self._llamacpp_backend.setup_server(
                 model_path=self._model_manager.get_model_dir(model_id),
                 model_name=model_id,
+                max_context_length=self._config.max_context_length,
             )
 
     async def shutdown_server(self) -> None:

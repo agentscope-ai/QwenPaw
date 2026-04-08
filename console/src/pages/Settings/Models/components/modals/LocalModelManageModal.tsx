@@ -136,6 +136,7 @@ export function LocalModelManageModal({
   const [stoppingServer, setStoppingServer] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedSaving, setAdvancedSaving] = useState(false);
+  const [loadingLocalConfig, setLoadingLocalConfig] = useState(false);
   const [maxContextLength, setMaxContextLength] = useState<number>(
     DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
   );
@@ -148,19 +149,58 @@ export function LocalModelManageModal({
   const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
   const previousLlamacppStatusRef = useRef<string | null>(null);
   const previousModelStatusRef = useRef<string | null>(null);
+  const onSavedRef = useRef(onSaved);
+  const initializedOpenRef = useRef(false);
 
   const { message } = useAppMessage();
 
+  useEffect(() => {
+    onSavedRef.current = onSaved;
+  }, [onSaved]);
+
   const initialLocalConfig = useMemo(
     () => ({
-      ...getInitialLocalModelConfig(provider.local_config),
       generateKwargsText:
         Object.keys(provider.generate_kwargs ?? {}).length > 0
           ? JSON.stringify(provider.generate_kwargs, null, 2)
           : "",
     }),
-    [provider.generate_kwargs, provider.local_config],
+    [provider.generate_kwargs],
   );
+
+  const parseGenerateConfig = useCallback(
+    (value?: string) => {
+      const trimmed = value?.trim();
+      if (!trimmed) {
+        return undefined;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        throw new Error(t("models.generateConfigInvalidJson"));
+      }
+
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error(t("models.generateConfigMustBeObject"));
+      }
+
+      return parsed as Record<string, unknown>;
+    },
+    [t],
+  );
+
+  const generateKwargsError = useMemo(() => {
+    try {
+      parseGenerateConfig(generateKwargsText);
+      return null;
+    } catch (error) {
+      return error instanceof Error
+        ? error.message
+        : t("models.generateConfigInvalidJson");
+    }
+  }, [generateKwargsText, parseGenerateConfig, t]);
 
   const getLocalModelDisplayName = (modelId: string | null) => {
     if (!modelId) {
@@ -185,6 +225,24 @@ export function LocalModelManageModal({
       setLocalModels([]);
     } finally {
       setLoadingLocal(false);
+    }
+  }, []);
+
+  const fetchLocalConfig = useCallback(async () => {
+    setLoadingLocalConfig(true);
+    try {
+      const config = await api.getLocalModelConfig();
+      const normalizedConfig = getInitialLocalModelConfig(config);
+      setMaxContextLength(normalizedConfig.maxContextLength);
+      setSavedMaxContextLength(normalizedConfig.maxContextLength);
+      return normalizedConfig;
+    } catch {
+      const fallbackConfig = getInitialLocalModelConfig();
+      setMaxContextLength(fallbackConfig.maxContextLength);
+      setSavedMaxContextLength(fallbackConfig.maxContextLength);
+      return fallbackConfig;
+    } finally {
+      setLoadingLocalConfig(false);
     }
   }, []);
 
@@ -287,7 +345,7 @@ export function LocalModelManageModal({
           nextModelDownload.status === "completed"
         ) {
           message.success(t("models.localDownloadSuccess"));
-          onSaved();
+          onSavedRef.current();
           void fetchLocalModels();
         }
 
@@ -329,7 +387,7 @@ export function LocalModelManageModal({
         }
       }
     },
-    [fetchLocalModels, onSaved, refreshUpdateStatus, stopPolling, t],
+    [fetchLocalModels, refreshUpdateStatus, stopPolling, t],
   );
 
   const startPolling = useCallback(() => {
@@ -340,40 +398,50 @@ export function LocalModelManageModal({
   }, [refreshStatus]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initializedOpenRef.current = false;
+      return;
+    }
+
+    if (initializedOpenRef.current) {
+      return;
+    }
+    initializedOpenRef.current = true;
 
     setAdvancedOpen(false);
-    setMaxContextLength(initialLocalConfig.maxContextLength);
-    setSavedMaxContextLength(initialLocalConfig.maxContextLength);
+    setMaxContextLength(DEFAULT_LOCAL_MAX_CONTEXT_LENGTH);
+    setSavedMaxContextLength(DEFAULT_LOCAL_MAX_CONTEXT_LENGTH);
     setGenerateKwargsText(initialLocalConfig.generateKwargsText);
     setSavedGenerateKwargsText(initialLocalConfig.generateKwargsText);
 
-    void Promise.all([fetchLocalModels(), refreshStatus(true)]).then(
-      ([, statuses]) => {
-        void refreshUpdateStatus(statuses?.server ?? null);
-        if (
-          statuses &&
-          (isBusyDownloadStatus(statuses.llamacpp.status) ||
-            isBusyDownloadStatus(statuses.model.status))
-        ) {
-          startPolling();
-        }
-      },
-    );
+    void Promise.all([
+      fetchLocalConfig(),
+      fetchLocalModels(),
+      refreshStatus(true),
+    ]).then(([, , statuses]) => {
+      void refreshUpdateStatus(statuses?.server ?? null);
+      if (
+        statuses &&
+        (isBusyDownloadStatus(statuses.llamacpp.status) ||
+          isBusyDownloadStatus(statuses.model.status))
+      ) {
+        startPolling();
+      }
+    });
 
     return () => stopPolling();
   }, [
+    fetchLocalConfig,
     fetchLocalModels,
     open,
     refreshStatus,
     refreshUpdateStatus,
     startPolling,
     stopPolling,
-    initialLocalConfig.generateKwargsText,
-    initialLocalConfig.maxContextLength,
+    initialLocalConfig,
   ]);
 
-  const handleSaveAdvancedConfig = useCallback(async () => {
+  const handleSaveMaxContextLength = useCallback(async () => {
     if (!Number.isInteger(maxContextLength)) {
       message.error(t("models.localMaxContextLengthRequired"));
       return;
@@ -388,37 +456,14 @@ export function LocalModelManageModal({
       return;
     }
 
-    const trimmed = generateKwargsText.trim();
-    let parsed: Record<string, unknown> = {};
-
-    if (trimmed) {
-      try {
-        const value = JSON.parse(trimmed);
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          message.error(t("models.generateConfigMustBeObject"));
-          return;
-        }
-        parsed = value;
-      } catch {
-        message.error(t("models.generateConfigInvalidJson"));
-        return;
-      }
-    }
-
-    const normalizedText = trimmed ? JSON.stringify(parsed, null, 2) : "";
-
     setAdvancedSaving(true);
     try {
-      await api.configureLocalModelSettings(provider.id, {
+      await api.configureLocalModelSettings({
         max_context_length: maxContextLength,
-        generate_kwargs: parsed,
       });
-      setMaxContextLength(maxContextLength);
       setSavedMaxContextLength(maxContextLength);
-      setGenerateKwargsText(normalizedText);
-      setSavedGenerateKwargsText(normalizedText);
       message.success(t("models.localAdvancedConfigSaved"));
-      await onSaved();
+      await onSavedRef.current();
     } catch (error) {
       const errMsg =
         error instanceof Error
@@ -428,7 +473,44 @@ export function LocalModelManageModal({
     } finally {
       setAdvancedSaving(false);
     }
-  }, [generateKwargsText, maxContextLength, message, onSaved, provider.id, t]);
+  }, [maxContextLength, message, t]);
+
+  const handleSaveGenerateKwargs = useCallback(async () => {
+    let parsed: Record<string, unknown> = {};
+
+    try {
+      parsed = parseGenerateConfig(generateKwargsText) ?? {};
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("models.generateConfigInvalidJson"),
+      );
+      return;
+    }
+
+    const trimmed = generateKwargsText.trim();
+    const normalizedText = trimmed ? JSON.stringify(parsed, null, 2) : "";
+
+    setAdvancedSaving(true);
+    try {
+      await api.configureLocalModelSettings({
+        generate_kwargs: parsed,
+      });
+      setGenerateKwargsText(normalizedText);
+      setSavedGenerateKwargsText(normalizedText);
+      message.success(t("models.localAdvancedConfigSaved"));
+      await onSavedRef.current();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setAdvancedSaving(false);
+    }
+  }, [generateKwargsText, message, parseGenerateConfig, t]);
 
   const handleStartLlamacppDownload = useCallback(async () => {
     const previousLlamacppDownload = llamacppDownload;
@@ -672,9 +754,7 @@ export function LocalModelManageModal({
     getLocalModelDisplayName(modelDownload?.model_name ?? null) ||
     t("models.localDownloadPending");
   const currentModelDownloadPercent = getProgressPercent(modelDownload);
-  const isAdvancedDirty =
-    maxContextLength !== savedMaxContextLength ||
-    generateKwargsText !== savedGenerateKwargsText;
+  // Removed isAdvancedDirty, now handled per-field
 
   return (
     <Modal
@@ -683,28 +763,16 @@ export function LocalModelManageModal({
       onCancel={handleClose}
       footer={
         <div className={styles.modalFooter}>
-          <div className={styles.modalFooterLeft}>
-          </div>
           <div className={styles.modalFooterRight}>
             <Button onClick={handleClose}>{t("models.cancel")}</Button>
-            <Button
-              type="primary"
-              icon={<SaveOutlined />}
-              loading={advancedSaving}
-              disabled={!isAdvancedDirty}
-              onClick={() => {
-                void handleSaveAdvancedConfig();
-              }}
-            >
-              {t("models.save")}
-            </Button>
           </div>
         </div>
       }
       width={600}
       destroyOnHidden
     >
-      {(loadingLocal || loadingStatus) && localModels.length === 0 ? (
+      {(loadingLocal || loadingStatus || loadingLocalConfig) &&
+      localModels.length === 0 ? (
         <div className={styles.modelListEmpty}>{t("common.loading")}</div>
       ) : null}
 
@@ -909,14 +977,27 @@ export function LocalModelManageModal({
 
         {advancedOpen ? (
           <div className={styles.localAdvancedConfigFields}>
-            <div className={styles.localAdvancedConfigField}>
-              <div className={styles.localAdvancedConfigLabel}>
-                {t("models.localMaxContextLengthLabel")}
-              </div>
-              <div className={styles.localAdvancedConfigHint}>
-                {t("models.localMaxContextLengthHint", {
-                  defaultValue: t("agentConfig.maxContextLengthTooltip"),
-                })}
+            <div
+              className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
+            >
+              <div
+                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+              >
+                <span>{t("models.localMaxContextLengthLabel")}</span>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SaveOutlined />}
+                  loading={advancedSaving}
+                  disabled={maxContextLength === savedMaxContextLength}
+                  onClick={() => {
+                    if (maxContextLength !== savedMaxContextLength) {
+                      void handleSaveMaxContextLength();
+                    }
+                  }}
+                >
+                  {t("models.save")}
+                </Button>
               </div>
               <InputNumber
                 min={MIN_LOCAL_MAX_CONTEXT_LENGTH}
@@ -933,14 +1014,36 @@ export function LocalModelManageModal({
                 className={styles.localAdvancedConfigInput}
                 placeholder={t("models.localMaxContextLengthPlaceholder")}
               />
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localMaxContextLengthHint")}
+              </div>
             </div>
 
             <div className={styles.localAdvancedConfigField}>
-              <div className={styles.localAdvancedConfigLabel}>
-                {t("models.modelGenerateConfig")}
-              </div>
-              <div className={styles.localAdvancedConfigHint}>
-                {t("models.localGenerateConfigHint")}
+              <div
+                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+              >
+                <span>{t("models.modelGenerateConfig")}</span>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SaveOutlined />}
+                  loading={advancedSaving}
+                  disabled={
+                    generateKwargsText === savedGenerateKwargsText ||
+                    Boolean(generateKwargsError)
+                  }
+                  onClick={() => {
+                    if (
+                      generateKwargsText !== savedGenerateKwargsText &&
+                      !generateKwargsError
+                    ) {
+                      void handleSaveGenerateKwargs();
+                    }
+                  }}
+                >
+                  {t("models.save")}
+                </Button>
               </div>
               <JsonConfigEditor
                 value={generateKwargsText}
@@ -948,6 +1051,14 @@ export function LocalModelManageModal({
                 placeholder={`Example:\n{\n  "temperature": 0.7,\n  "top_p": 0.95\n}`}
                 variant="expanded"
               />
+              {generateKwargsError ? (
+                <div className={styles.localAdvancedConfigError}>
+                  {generateKwargsError}
+                </div>
+              ) : null}
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localGenerateConfigHint")}
+              </div>
             </div>
           </div>
         ) : null}
