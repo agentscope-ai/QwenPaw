@@ -20,6 +20,7 @@ from typing import Any, Dict
 
 from .base import BaseControlCommandHandler, ControlContext
 from .model_handler import ModelCommandHandler
+from .skills_handler import SkillsCommandHandler
 from .stop_handler import StopCommandHandler
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ def _register_defaults() -> None:
     """Register default control command handlers."""
     register_command(StopCommandHandler())
     register_command(ModelCommandHandler())
+    register_command(SkillsCommandHandler())
 
 
 def register_command(handler: BaseControlCommandHandler) -> None:
@@ -62,6 +64,18 @@ def register_command(handler: BaseControlCommandHandler) -> None:
     )
 
 
+def _extract_command_token(query: str | None) -> str | None:
+    """Extract the command token from a query string.
+
+    Returns the first word (e.g. ``"/stop"`` from ``"/stop session=123"``),
+    or ``None`` if query is empty or not a slash command.
+    """
+    if not query or not isinstance(query, str):
+        return None
+    parts = query.strip().lower().split(None, 1)
+    return parts[0] if parts else None
+
+
 def is_control_command(query: str | None) -> bool:
     """Check if query is a registered control command.
 
@@ -76,17 +90,7 @@ def is_control_command(query: str | None) -> bool:
         is_control_command("/stop session=123") → True
         is_control_command("hello") → False
     """
-    if not query or not isinstance(query, str):
-        return False
-
-    query_lower = query.strip().lower()
-
-    # Check each registered command prefix
-    for command_prefix in _COMMAND_REGISTRY:
-        if query_lower.startswith(command_prefix):
-            return True
-
-    return False
+    return _extract_command_token(query) in _COMMAND_REGISTRY
 
 
 def parse_args(query: str, command_prefix: str) -> Dict[str, Any]:
@@ -144,31 +148,27 @@ async def handle_control_command(
         ValueError: If command not found (should not happen
                     if is_control_command() was checked first)
     """
-    query_lower = query.strip().lower()
+    token = _extract_command_token(query)
+    if token is None:
+        raise ValueError(f"Unknown control command: {query}")
+    handler = _COMMAND_REGISTRY.get(token)
+    if handler is None:
+        raise ValueError(f"Unknown control command: {query}")
 
-    # Find matching handler
-    for command_prefix, handler in _COMMAND_REGISTRY.items():
-        if query_lower.startswith(command_prefix):
-            # Parse arguments
-            args = parse_args(query, command_prefix)
-            context.args = args
+    args = parse_args(query, token)
+    context.args = args
 
-            logger.info(
-                f"Handling control command: {command_prefix} " f"args={args}",
-            )
+    logger.info(
+        f"Handling control command: {token} args={args}",
+    )
 
-            # Execute handler
-            try:
-                response = await handler.handle(context)
-                return response
-            except Exception as e:
-                logger.exception(
-                    f"Control command failed: {command_prefix}",
-                )
-                return f"**Command Failed**\n\n{str(e)}"
-
-    # Should not reach here if is_control_command() was checked
-    raise ValueError(f"Unknown control command: {query}")
+    try:
+        return await handler.handle(context)
+    except Exception as e:
+        logger.exception(
+            f"Control command failed: {token}",
+        )
+        return f"**Command Failed**\n\n{str(e)}"
 
 
 # Register default handlers on module import
@@ -180,6 +180,7 @@ __all__ = [
     "BaseControlCommandHandler",
     "ControlContext",
     "ModelCommandHandler",
+    "SkillsCommandHandler",
     "StopCommandHandler",
     "is_control_command",
     "handle_control_command",

@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import frontmatter as fm
 from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
 from agentscope_runtime.engine.runner import Runner
@@ -26,13 +27,16 @@ from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
-from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
+from ...agents.utils.file_handling import (
+    read_text_file_with_encoding_fallback,
+)
 from ...config.config import load_agent_config
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
 )
 from ...security.tool_guard.approval import ApprovalDecision
+from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
@@ -101,6 +105,135 @@ class AgentRunner(Runner):
             workspace: Workspace instance
         """
         self._workspace = workspace
+
+    @staticmethod
+    def _parse_skill_query(
+        query: str,
+    ) -> tuple[str, str] | None:
+        """Parse ``/name [input]`` or ``/[name with spaces] [input]``.
+
+        Bracket form ``/[...]`` handles spaces in skill names and
+        bypasses built-in command priority.
+
+        Returns ``(skill_name, user_input)`` or ``None``.
+        """
+        stripped = query.strip()
+        if not stripped.startswith("/"):
+            return None
+
+        rest = stripped[1:]  # drop leading /
+
+        # /[skill name] input — bracket form
+        if rest.startswith("["):
+            close = rest.find("]")
+            if close < 0:
+                return None
+            name = rest[1:close].strip().lower()
+            user_input = rest[close + 1 :].strip()
+            return (name, user_input) if name else None
+
+        # /name input — plain form
+        parts = rest.split(None, 1)
+        if not parts:
+            return None
+        name = parts[0].lower()
+        user_input = parts[1] if len(parts) > 1 else ""
+        return (name, user_input) if name else None
+
+    @staticmethod
+    def _maybe_inject_skill(
+        query: str | None,
+        msgs: list,
+        skills: dict,
+    ) -> Msg | None:
+        """Handle ``/<skill_name> [input]`` or ``/[skill name] [input]``.
+
+        *skills* is ``agent.toolkit.skills`` — already resolved for
+        the current channel during agent init.  Hot-reload safe because
+        the agent is recreated on every query.
+
+        Returns a ``Msg`` to short-circuit (skill info), or ``None``
+        to continue to the LLM with rewritten ``msgs``.
+        """
+        if not query or not query.startswith("/") or not msgs:
+            return None
+
+        parsed = AgentRunner._parse_skill_query(query)
+        if not parsed:
+            return None
+        name, user_input = parsed
+
+        # Lookup by folder name
+        skill = next(
+            (
+                s
+                for s in skills.values()
+                if Path(s["dir"]).name.lower() == name
+            ),
+            None,
+        )
+        if not skill:
+            return None
+
+        skill_dir = Path(skill["dir"])
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            return None
+
+        raw = read_text_file_with_encoding_fallback(skill_md)
+        post = fm.loads(raw)
+        display_name = post.get("name") or name
+
+        # /<name> without input → return skill info.
+        if not user_input:
+            desc = post.get("description") or "No description."
+            logger.info("Skill info: %s", name)
+            return Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"**{display_name}**\n\n"
+                            f"{desc}\n\n"
+                            f"Skill path: `{skill_dir}`\n\n"
+                            f"Use `/{name} <input>` to invoke."
+                        ),
+                    ),
+                ],
+            )
+
+        # /<name> <input> → rewrite user message with skill body.
+        merged = (
+            f"Use the below {name} skill to fulfill "
+            f"user's task: {user_input}\n\n"
+            f"{post.content}"
+        )
+        last = msgs[-1]
+        content = getattr(last, "content", None)
+        if isinstance(content, list):
+            replaced = False
+            for i, block in enumerate(content):
+                if isinstance(block, dict) and block.get("type") == "text":
+                    content[i] = TextBlock(
+                        type="text",
+                        text=merged,
+                    )
+                    replaced = True
+                    break
+            if not replaced:
+                content.insert(
+                    0,
+                    TextBlock(
+                        type="text",
+                        text=merged,
+                    ),
+                )
+        elif isinstance(content, str):
+            last.content = merged
+        logger.info("Skill invocation: %s", name)
+        return None
 
     _APPROVAL_TIMEOUT_SECONDS = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 
@@ -357,6 +490,17 @@ class AgentRunner(Runner):
                     f"ChatManager is None! Cannot auto-register chat for "
                     f"session_id={session_id}",
                 )
+
+            # Skill info (/<name> without input) is display-only:
+            # persisted in chat history but not in agent memory.
+            skill_response = self._maybe_inject_skill(
+                query,
+                msgs,
+                agent.toolkit.skills,
+            )
+            if skill_response is not None:
+                yield skill_response, True
+                return
 
             try:
                 await self.session.load_session_state(
