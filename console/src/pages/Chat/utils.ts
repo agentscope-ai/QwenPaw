@@ -69,6 +69,12 @@ export function extractUserMessageText(m: any): string {
     .join("\n");
 }
 
+export function extractTextFromMessage(msg: any): string {
+  const innerMessage = msg?.cards?.[0]?.data?.input?.[0];
+  if (!innerMessage) return "";
+  return extractUserMessageText(innerMessage);
+}
+
 // ---------------------------------------------------------------------------
 // Clipboard utilities
 // ---------------------------------------------------------------------------
@@ -176,4 +182,26 @@ export function toDisplayUrl(url: string | undefined): string {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   if (url.startsWith("file://")) url = url.replace("file://", "");
   return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
+}
+
+// ---------------------------------------------------------------------------
+// DOM utilities
+// ---------------------------------------------------------------------------
+
+/** Set textarea value and trigger input event for React state sync.
+ * Uses native value setter to bypass React's internal value tracker.
+ */
+export function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const nativeValueSetter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )?.set;
+  if (nativeValueSetter) {
+    nativeValueSetter.call(textarea, value);
+  } else {
+    textarea.value = value;
+  }
+  textarea.selectionStart = textarea.selectionEnd = value.length;
+  const event = new Event("input", { bubbles: true });
+  textarea.dispatchEvent(event);
 }

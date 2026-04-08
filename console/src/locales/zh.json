@@ -267,12 +267,9 @@
     "edit": "编辑",
     "delete": "删除",
     "descriptionLabel": "描述",
-    "categories": "分类",
     "tags": "标签",
-    "categoriesPlaceholder": "选择或输入分类",
     "tagsPlaceholder": "选择或输入标签",
     "tagTooLong": "标签长度不能超过 {{max}} 个字符",
-    "filterByCategory": "按分类筛选",
     "filterByTag": "按标签筛选",
     "version": "版本",
     "createTitle": "创建技能池项目",
@@ -1092,7 +1089,7 @@
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
-    "inputPlaceholder": "输入 / 查看快捷指令；审批时可使用 /approve 或 /deny ...",
+    "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令（审批时 \"/approve\" 或 \"/deny\"）",
     "commands": {
       "clear": {
         "description": "清空对话上下文"

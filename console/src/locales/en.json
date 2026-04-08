@@ -302,12 +302,9 @@
     "edit": "Edit",
     "delete": "Delete",
     "descriptionLabel": "Description",
-    "categories": "Categories",
     "tags": "Tags",
-    "categoriesPlaceholder": "Select or type to add categories",
     "tagsPlaceholder": "Select or type to add tags",
     "tagTooLong": "Tag must be at most {{max}} characters",
-    "filterByCategory": "Filter by category",
     "filterByTag": "Filter by tag",
     "version": "Version",
     "createTitle": "Create Skill Pool Item",
@@ -1119,7 +1116,7 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
-    "inputPlaceholder": "Type / to see commands; use /approve or /deny during approval...",
+    "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"

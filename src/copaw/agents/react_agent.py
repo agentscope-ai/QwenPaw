@@ -1003,7 +1003,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                             max_results=ms.force_max_results,
                             min_score=ms.force_min_score,
                         ),
-                        timeout=1,
+                        timeout=ms.force_memory_search_timeout,
                     )
                     self.memory._long_term_memory = "\n".join(
                         block["text"]
