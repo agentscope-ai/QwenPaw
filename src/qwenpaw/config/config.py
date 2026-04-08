@@ -1513,6 +1513,16 @@ class SecurityConfig(BaseModel):
     )
 
 
+# --- Semantic routing config (lazy import to avoid heavy deps) ---
+
+
+def _default_semantic_routing_config():
+    """Create a default SemanticRoutingConfig without top-level import."""
+    from ..routing.config import SemanticRoutingConfig
+
+    return SemanticRoutingConfig()
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -1534,6 +1544,13 @@ class Config(BaseModel):
         default_factory=dict,
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
+    )
+
+    # --- Semantic skill routing (optional, disabled by default) ---
+    semantic_routing: "SemanticRoutingConfig" = Field(
+        default_factory=lambda: _default_semantic_routing_config(),
+        description="Semantic skill routing configuration. "
+        "Requires optional deps: sentence-transformers, faiss-cpu.",
     )
 
 

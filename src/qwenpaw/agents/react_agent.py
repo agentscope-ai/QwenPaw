@@ -336,7 +336,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """Load and register skills from workspace directory.
 
         Uses the registry-backed skill resolver to determine effective
-        skills for the current channel.
+        skills for the current channel.  When semantic routing is enabled,
+        only the top-k most relevant skills are registered.
 
         Args:
             toolkit: Toolkit to register skills to
@@ -355,6 +356,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
 
+        # --- Semantic routing filter (optional) ---
+        effective_skills = self._apply_semantic_routing(
+            effective_skills,
+            working_skills_dir,
+            request_context,
+        )
+
         for skill_name in effective_skills:
             skill_dir = working_skills_dir / skill_name
             if skill_dir.exists():
@@ -367,6 +375,90 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                         skill_name,
                         e,
                     )
+
+    def _apply_semantic_routing(
+        self,
+        skill_names: list[str],
+        skills_dir: Path,
+        request_context: dict,
+    ) -> list[str]:
+        """Filter skills using semantic routing if enabled.
+
+        Returns the original list unchanged when semantic routing is
+        disabled, unavailable, or encounters any error.
+        """
+        try:
+            from ..routing import is_routing_available
+
+            if not is_routing_available():
+                return skill_names
+
+            from ..config.utils import load_config
+
+            config = load_config()
+            sr_config = getattr(config, "semantic_routing", None)
+            if sr_config is None or not sr_config.enabled:
+                return skill_names
+
+            # Extract user query from request context
+            query = ""
+            content_parts = request_context.get("content_parts", [])
+            if content_parts:
+                for part in content_parts:
+                    text = getattr(part, "text", None) or (
+                        part if isinstance(part, str) else ""
+                    )
+                    if text:
+                        query = str(text)
+                        break
+            if not query:
+                query = request_context.get("text", "")
+            if not query:
+                return skill_names
+
+            # Build skill metadata for the router
+            from ..agents.skills_manager import _read_frontmatter_safe
+
+            skill_metas = []
+            for name in skill_names:
+                skill_dir = skills_dir / name
+                if skill_dir.exists():
+                    post = _read_frontmatter_safe(skill_dir, name)
+                    skill_metas.append(
+                        {
+                            "name": name,
+                            "description": str(
+                                post.get("description", "") or ""
+                            ),
+                        }
+                    )
+
+            from ..routing.router import SkillRouter
+
+            persist_dir = Path(
+                self._workspace_dir or WORKING_DIR
+            ) / ".semantic_index"
+            router = SkillRouter(config=sr_config, persist_dir=persist_dir)
+            result = router.route(query, skill_metas)
+
+            if result.bypassed:
+                return skill_names
+
+            routed_names = [h.item.name for h in result.hits]
+            logger.info(
+                "Semantic routing: %d/%d skills selected for query: %.60s...",
+                len(routed_names),
+                len(skill_names),
+                query,
+            )
+            return routed_names
+
+        except Exception as exc:
+            logger.warning(
+                "Semantic routing error, using full skill list: %s",
+                exc,
+            )
+            return skill_names
 
     def _build_sys_prompt(self) -> str:
         """Build system prompt from working dir files and env context.
