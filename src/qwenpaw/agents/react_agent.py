@@ -406,7 +406,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             if content_parts:
                 for part in content_parts:
                     text = getattr(part, "text", None) or (
-                        part if isinstance(part, str) else ""
+                        part.get("text") if isinstance(part, dict) else (
+                            part if isinstance(part, str) else ""
+                        )
                     )
                     if text:
                         query = str(text)

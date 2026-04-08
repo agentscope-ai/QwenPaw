@@ -50,7 +50,8 @@ def _normalize(vectors: np.ndarray) -> np.ndarray:
 def _get_embedding_config() -> dict[str, Any] | None:
     """Try to load CoPaw's EmbeddingConfig for the active agent.
 
-    Returns a dict with base_url, api_key, model_name etc., or None.
+    Returns a dict with base_url, api_key, model_name, max_batch_size
+    etc., or None.
     """
     try:
         from copaw.config.utils import load_config
@@ -65,6 +66,7 @@ def _get_embedding_config() -> dict[str, Any] | None:
                 "base_url": emb.base_url.strip(),
                 "api_key": emb.api_key,
                 "model_name": emb.model_name.strip(),
+                "max_batch_size": getattr(emb, "max_batch_size", 10),
             }
     except Exception:
         pass
@@ -76,11 +78,12 @@ def _embed_via_api(
     base_url: str,
     api_key: str,
     model_name: str,
+    max_batch_size: int = 10,
 ) -> np.ndarray:
     """Call an OpenAI-compatible embedding API and return vectors.
 
     Uses ``httpx`` which is already a CoPaw core dependency.
-    Batches requests to respect API ``max_batch_size`` limits (default 10).
+    Batches requests to respect API limits per ``EmbeddingConfig.max_batch_size``.
     """
     import httpx
 
@@ -88,7 +91,7 @@ def _embed_via_api(
     headers = {"Authorization": f"Bearer {api_key}"}
 
     all_embeddings: list[list[float]] = []
-    batch_size = 10  # DashScope default; most APIs support >= 10
+    batch_size = max(1, max_batch_size)
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
@@ -217,6 +220,7 @@ class SemanticIndex:
                 self._api_config["base_url"],
                 self._api_config["api_key"],
                 self._api_config["model_name"],
+                self._api_config.get("max_batch_size", 10),
             )
             return _normalize(vecs)
 
