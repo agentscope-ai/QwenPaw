@@ -130,7 +130,7 @@ def build_console_frontend(*, quiet: bool = False) -> None:
         out = subprocess.DEVNULL if quiet else sys.stdout
         err = subprocess.DEVNULL if quiet else sys.stderr
         subprocess.check_call(
-            ["npm", "ci"],
+            ["npm", "install"],
             cwd=str(_CONSOLE_DIR),
             stdout=out,
             stderr=err,
