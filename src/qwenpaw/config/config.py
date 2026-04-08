@@ -1554,6 +1554,10 @@ class Config(BaseModel):
     )
 
 
+# Resolve forward references for Pydantic
+Config.model_rebuild()
+
+
 ChannelConfigUnion = Union[
     IMessageChannelConfig,
     DiscordConfig,
