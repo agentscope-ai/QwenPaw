@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
-import os
 import uuid as _uuid
 from typing import Any, Literal
 
@@ -276,10 +275,8 @@ class ToolGuardMixin:
         pre-approved and non-guarded) runs **outside** the lock for
         true parallelism.
         """
-        if (
-            os.environ.get("COPAW_TOOL_GUARD_ENABLED", "true").lower()
-            == "false"
-        ):
+        ctx = getattr(self, "_request_context", None) or {}
+        if ctx.get("_headless_tool_guard", "true").lower() == "false":
             return await super()._acting(tool_call)  # type: ignore[misc]
 
         self._ensure_tool_guard()

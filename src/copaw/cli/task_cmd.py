@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import sys
 import time
 from pathlib import Path
@@ -25,7 +24,7 @@ def _read_instruction(raw: str) -> str:
 async def _run_task(
     instruction: str,
     agent_config,
-    agent_id: str,
+    request_context: dict[str, str],
     max_iters: int,
     timeout: int,
     output_dir: str | None,
@@ -42,12 +41,7 @@ async def _run_task(
     agent = CoPawAgent(
         agent_config=agent_config,
         enable_memory_manager=False,
-        request_context={
-            "session_id": "headless-task",
-            "user_id": "headless",
-            "channel": "console",
-            "agent_id": agent_id,
-        },
+        request_context=request_context,
         workspace_dir=workspace_dir,
     )
 
@@ -183,12 +177,6 @@ def task_cmd(
         click.echo("Error: instruction is empty.", err=True)
         sys.exit(1)
 
-    if no_guard:
-        os.environ["COPAW_TOOL_GUARD_ENABLED"] = "false"
-
-    if skills_dir:
-        os.environ["COPAW_SKILLS_DIR"] = str(Path(skills_dir).resolve())
-
     try:
         agent_config = load_agent_config(agent_id)
     except ValueError as exc:
@@ -208,11 +196,24 @@ def task_cmd(
                 model=model,
             )
 
+    request_context: dict[str, str] = {
+        "session_id": "headless-task",
+        "user_id": "headless",
+        "channel": "console",
+        "agent_id": agent_id,
+    }
+    if no_guard:
+        request_context["_headless_tool_guard"] = "false"
+    if skills_dir:
+        request_context["_headless_skills_dir"] = str(
+            Path(skills_dir).resolve(),
+        )
+
     result = asyncio.run(
         _run_task(
             instruction=instruction_text,
             agent_config=agent_config,
-            agent_id=agent_id,
+            request_context=request_context,
             max_iters=max_iters,
             timeout=timeout,
             output_dir=output_dir,

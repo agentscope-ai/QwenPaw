@@ -655,6 +655,8 @@ def _release_skill_env_key(key: str) -> None:
 def apply_skill_config_env_overrides(
     workspace_dir: Path,
     channel_name: str,
+    *,
+    skills_dir_override: str | None = None,
 ) -> Iterator[None]:
     """Inject effective skill config into env for one agent turn.
 
@@ -670,6 +672,7 @@ def apply_skill_config_env_overrides(
         for skill_name in resolve_effective_skills(
             workspace_dir,
             channel_name,
+            skills_dir_override=skills_dir_override,
         ):
             entry = entries.get(skill_name) or {}
             config = entry.get("config") or {}
@@ -1145,11 +1148,12 @@ def read_skill_pool_manifest() -> dict[str, Any]:
 def resolve_effective_skills(
     workspace_dir: Path,
     channel_name: str,
+    *,
+    skills_dir_override: str | None = None,
 ) -> list[str]:
     """Resolve enabled workspace skills for one channel."""
-    env_skills_dir = os.environ.get("COPAW_SKILLS_DIR")
-    if env_skills_dir:
-        skills_path = Path(env_skills_dir)
+    if skills_dir_override:
+        skills_path = Path(skills_dir_override)
         if skills_path.is_dir():
             return [
                 str(p.resolve())

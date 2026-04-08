@@ -5,12 +5,16 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from copaw.cli.main import cli
 from copaw.cli.task_cmd import _read_instruction
+
+
+# ── _read_instruction ────────────────────────────────────────────────
 
 
 def test_read_instruction_returns_raw_text() -> None:
@@ -28,17 +32,23 @@ def test_read_instruction_nonexistent_path_returns_raw() -> None:
     assert result == "/nonexistent/path/to/file.md"
 
 
+# ── CLI surface ──────────────────────────────────────────────────────
+
+
 def test_task_command_registered_in_cli() -> None:
     result = CliRunner().invoke(cli, ["task", "--help"])
     assert result.exit_code == 0
-    assert "--instruction" in result.output
-    assert "--model" in result.output
-    assert "--no-guard" in result.output
-    assert "--skills-dir" in result.output
-    assert "--output-dir" in result.output
-    assert "--max-iters" in result.output
-    assert "--timeout" in result.output
-    assert "--agent-id" in result.output
+    for flag in (
+        "--instruction",
+        "--model",
+        "--no-guard",
+        "--skills-dir",
+        "--output-dir",
+        "--max-iters",
+        "--timeout",
+        "--agent-id",
+    ):
+        assert flag in result.output
 
 
 def test_task_rejects_empty_instruction(monkeypatch) -> None:
@@ -54,39 +64,7 @@ def test_task_rejects_empty_instruction(monkeypatch) -> None:
     )
 
 
-def test_no_guard_flag_sets_env_var(monkeypatch) -> None:
-    captured_env: dict = {}
-
-    def _fake_load(_agent_id):
-        captured_env["COPAW_TOOL_GUARD_ENABLED"] = os.environ.get(
-            "COPAW_TOOL_GUARD_ENABLED",
-        )
-        raise ValueError("stop early")
-
-    monkeypatch.setattr("copaw.config.config.load_agent_config", _fake_load)
-
-    CliRunner().invoke(cli, ["task", "-i", "hello", "--no-guard"])
-
-    assert captured_env.get("COPAW_TOOL_GUARD_ENABLED") == "false"
-
-
-def test_skills_dir_flag_sets_env_var(monkeypatch, tmp_path) -> None:
-    skills_dir = tmp_path / "skills"
-    skills_dir.mkdir()
-    captured_env: dict = {}
-
-    def _fake_load(_agent_id):
-        captured_env["COPAW_SKILLS_DIR"] = os.environ.get("COPAW_SKILLS_DIR")
-        raise ValueError("stop early")
-
-    monkeypatch.setattr("copaw.config.config.load_agent_config", _fake_load)
-
-    CliRunner().invoke(
-        cli,
-        ["task", "-i", "hello", "--skills-dir", str(skills_dir)],
-    )
-
-    assert captured_env.get("COPAW_SKILLS_DIR") == str(skills_dir.resolve())
+# ── --model flag ─────────────────────────────────────────────────────
 
 
 def test_model_flag_overrides_agent_config(monkeypatch) -> None:
@@ -136,6 +114,9 @@ def test_model_flag_without_slash(monkeypatch) -> None:
     assert fake_config.active_model.model == "gpt-4o"
 
 
+# ── --output-dir ─────────────────────────────────────────────────────
+
+
 def test_output_dir_writes_result_json(monkeypatch, tmp_path) -> None:
     from copaw.config.config import AgentProfileConfig
 
@@ -179,25 +160,14 @@ def test_output_dir_writes_result_json(monkeypatch, tmp_path) -> None:
     assert data["response"] == "42"
 
 
-def test_exit_code_zero_on_success(monkeypatch) -> None:
-    from copaw.config.config import AgentProfileConfig
-
-    monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
-        lambda _aid: AgentProfileConfig(id="default", name="Default"),
-    )
-    monkeypatch.setattr(
-        "copaw.cli.task_cmd._run_task",
-        AsyncMock(
-            return_value={"status": "success", "response": "ok", "usage": {}},
-        ),
-    )
-
-    result = CliRunner().invoke(cli, ["task", "-i", "hello"])
-    assert result.exit_code == 0
+# ── Exit codes & stdout ─────────────────────────────────────────────
 
 
-def test_exit_code_one_on_error(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "status",
+    ["error", "timeout"],
+)
+def test_exit_code_one_on_failure(monkeypatch, status) -> None:
     from copaw.config.config import AgentProfileConfig
 
     monkeypatch.setattr(
@@ -208,8 +178,7 @@ def test_exit_code_one_on_error(monkeypatch) -> None:
         "copaw.cli.task_cmd._run_task",
         AsyncMock(
             return_value={
-                "status": "error",
-                "error": "boom",
+                "status": status,
                 "response": "",
                 "usage": {},
             },
@@ -220,46 +189,27 @@ def test_exit_code_one_on_error(monkeypatch) -> None:
     assert result.exit_code == 1
 
 
-def test_exit_code_one_on_timeout(monkeypatch) -> None:
+def test_stdout_json_and_default_context(monkeypatch) -> None:
+    """Happy-path: valid JSON on stdout, exit 0, no headless overrides."""
     from copaw.config.config import AgentProfileConfig
 
     monkeypatch.setattr(
         "copaw.config.config.load_agent_config",
         lambda _aid: AgentProfileConfig(id="default", name="Default"),
     )
-    monkeypatch.setattr(
-        "copaw.cli.task_cmd._run_task",
-        AsyncMock(
-            return_value={
-                "status": "timeout",
-                "response": "",
-                "usage": {},
-            },
-        ),
-    )
 
-    result = CliRunner().invoke(cli, ["task", "-i", "hello"])
-    assert result.exit_code == 1
+    captured_ctx: dict = {}
 
+    async def _fake_run_task(**kwargs):
+        captured_ctx.update(kwargs["request_context"])
+        return {
+            "status": "success",
+            "elapsed_seconds": 1.5,
+            "response": "hello",
+            "usage": {},
+        }
 
-def test_stdout_contains_valid_json(monkeypatch) -> None:
-    from copaw.config.config import AgentProfileConfig
-
-    monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
-        lambda _aid: AgentProfileConfig(id="default", name="Default"),
-    )
-    monkeypatch.setattr(
-        "copaw.cli.task_cmd._run_task",
-        AsyncMock(
-            return_value={
-                "status": "success",
-                "elapsed_seconds": 1.5,
-                "response": "hello",
-                "usage": {},
-            },
-        ),
-    )
+    monkeypatch.setattr("copaw.cli.task_cmd._run_task", _fake_run_task)
 
     result = CliRunner().invoke(cli, ["task", "-i", "hello"])
     assert result.exit_code == 0
@@ -267,45 +217,154 @@ def test_stdout_contains_valid_json(monkeypatch) -> None:
     assert data["status"] == "success"
     assert "usage" in data
     assert "elapsed_seconds" in data
+    assert "_headless_tool_guard" not in captured_ctx
+    assert "_headless_skills_dir" not in captured_ctx
 
 
-def test_resolve_effective_skills_env_override(tmp_path, monkeypatch) -> None:
+# ── ToolGuardMixin behavior ─────────────────────────────────────────
+
+
+class _FakeActingBase:
+    """Provides ``_acting`` that ToolGuardMixin.super() resolves to."""
+
+    def __init__(self):
+        self.acting_called = False
+
+    async def _acting(self, _tool_call):
+        self.acting_called = True
+        return {"output": "executed"}
+
+
+def _build_guarded_agent(request_context: dict):
+    from copaw.agents.tool_guard_mixin import ToolGuardMixin
+
+    class _GuardInstance(ToolGuardMixin, _FakeActingBase):
+        pass
+
+    inst = _GuardInstance()
+    inst._request_context = dict(  # pylint: disable=protected-access
+        request_context,
+    )
+    return inst
+
+
+async def test_tool_guard_bypassed_via_request_context():
+    """_acting delegates directly to super when _headless_tool_guard=false."""
+    agent = _build_guarded_agent({"_headless_tool_guard": "false"})
+
+    tool_call = {"id": "tc_1", "name": "execute_shell_command", "input": {}}
+    result = await agent._acting(tool_call)  # pylint: disable=protected-access
+
+    assert agent.acting_called is True
+    assert result == {"output": "executed"}
+
+
+async def test_tool_guard_not_bypassed_without_flag():
+    """Without _headless_tool_guard, the mixin runs its guard logic."""
+    agent = _build_guarded_agent({"session_id": "s1"})
+
+    tool_call = {"id": "tc_2", "name": "execute_shell_command", "input": {}}
+    with patch(
+        "copaw.security.tool_guard.engine.get_guard_engine",
+    ) as mock_engine_fn:
+        mock_engine = MagicMock()
+        mock_engine.enabled = True
+        mock_engine.is_denied.return_value = False
+        mock_engine.is_guarded.return_value = False
+        mock_engine.guard.return_value = None
+        mock_engine_fn.return_value = mock_engine
+
+        with patch("copaw.app.approvals.get_approval_service"):
+            result = await agent._acting(  # pylint: disable=protected-access
+                tool_call,
+            )
+
+    assert agent.acting_called is True
+    assert result == {"output": "executed"}
+
+
+# ── Full CLI → request_context → component e2e ──────────────────────
+
+
+def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
+    """Full chain: CLI flags → request_context → components.
+
+    Verifies both ``--no-guard`` and ``--skills-dir`` propagate via
+    ``request_context``, resolve correctly at the component level,
+    and do **not** pollute environment variables.
+    """
+    from copaw.config.config import AgentProfileConfig
     from copaw.agents.skills_manager import resolve_effective_skills
 
     skills_dir = tmp_path / "my_skills"
-    skill_a = skills_dir / "skill-a"
-    skill_b = skills_dir / "skill-b"
-    no_skill = skills_dir / "not-a-skill"
-    skill_a.mkdir(parents=True)
-    skill_b.mkdir(parents=True)
-    no_skill.mkdir(parents=True)
-    (skill_a / "SKILL.md").write_text("---\nname: a\n---\n")
-    (skill_b / "SKILL.md").write_text("---\nname: b\n---\n")
-
-    monkeypatch.setenv("COPAW_SKILLS_DIR", str(skills_dir))
-
-    result = resolve_effective_skills(tmp_path, "console")
-
-    assert sorted(result) == ["skill-a", "skill-b"]
-
-
-def test_resolve_effective_skills_env_not_set_uses_manifest(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    from copaw.agents.skills_manager import resolve_effective_skills
-
-    monkeypatch.delenv("COPAW_SKILLS_DIR", raising=False)
-
-    result = resolve_effective_skills(tmp_path, "console")
-    assert isinstance(result, list)
-
-
-def test_tool_guard_env_var_recognized() -> None:
-    import copaw.agents.tool_guard_mixin as tgm
-    import inspect
-
-    source = inspect.getsource(
-        tgm.ToolGuardMixin._acting,  # pylint: disable=protected-access
+    skill_sub = skills_dir / "e2e-skill"
+    skill_sub.mkdir(parents=True)
+    (skill_sub / "SKILL.md").write_text(
+        "---\nname: e2e-skill\ndescription: test\n---\n",
     )
-    assert "COPAW_TOOL_GUARD_ENABLED" in source
+
+    fake_config = AgentProfileConfig(
+        id="e2e",
+        name="E2E",
+        workspace_dir=str(tmp_path / "workspace"),
+    )
+    (tmp_path / "workspace").mkdir()
+    monkeypatch.setattr(
+        "copaw.config.config.load_agent_config",
+        lambda _aid: fake_config,
+    )
+
+    captured: dict = {}
+
+    async def _spy_run_task(**kwargs):
+        ctx = kwargs["request_context"]
+        captured["request_context"] = dict(ctx)
+        captured["env_tool_guard"] = os.environ.get(
+            "COPAW_TOOL_GUARD_ENABLED",
+        )
+        captured["env_skills_dir"] = os.environ.get("COPAW_SKILLS_DIR")
+        resolved = resolve_effective_skills(
+            tmp_path,
+            ctx.get("channel", "console"),
+            skills_dir_override=ctx.get("_headless_skills_dir"),
+        )
+        captured["resolved_skills"] = [Path(p).name for p in resolved]
+        captured["guard_bypassed"] = (
+            ctx.get("_headless_tool_guard", "true").lower() == "false"
+        )
+        return {
+            "status": "success",
+            "response": "ok",
+            "elapsed_seconds": 0.01,
+            "usage": {},
+        }
+
+    monkeypatch.setattr("copaw.cli.task_cmd._run_task", _spy_run_task)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "task",
+            "-i",
+            "do the thing",
+            "--no-guard",
+            "--skills-dir",
+            str(skills_dir),
+            "--agent-id",
+            "e2e",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+    ctx = captured["request_context"]
+    assert ctx["_headless_tool_guard"] == "false"
+    assert ctx["_headless_skills_dir"] == str(skills_dir.resolve())
+    assert ctx["session_id"] == "headless-task"
+    assert ctx["agent_id"] == "e2e"
+    assert captured["env_tool_guard"] is None
+    assert captured["env_skills_dir"] is None
+    assert captured["resolved_skills"] == ["e2e-skill"]
+    assert captured["guard_bypassed"] is True
+    data = json.loads(result.output)
+    assert data["status"] == "success"
