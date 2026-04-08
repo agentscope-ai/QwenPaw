@@ -26,10 +26,12 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 
+from agentscope.mcp import StatefulClientBase
+
 logger = logging.getLogger(__name__)
 
 
-class StdIOStatefulClient:
+class StdIOStatefulClient(StatefulClientBase):
     """StdIO MCP client with proper cross-task lifecycle management.
 
     Drop-in replacement for agentscope.mcp.StdIOStatefulClient that solves
@@ -315,7 +317,7 @@ class StdIOStatefulClient:
             )
 
 
-class HttpStatefulClient:
+class HttpStatefulClient(StatefulClientBase):
     """HTTP/SSE MCP client with proper cross-task lifecycle management.
 
     Drop-in replacement for agentscope.mcp.HttpStatefulClient that solves
