@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { isSupportedSkillUrl, SUPPORTED_SKILL_URL_PREFIXES } from "./index";
+import { isSupportedSkillUrl, SUPPORTED_SKILL_URL_PREFIXES } from "@/constants/skill";
 import styles from "../index.module.less";
 
 interface ImportHubModalProps {

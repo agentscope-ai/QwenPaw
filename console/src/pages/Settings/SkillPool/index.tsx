@@ -13,10 +13,8 @@ import {
   UploadOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import {
-  ImportHubModal,
-  SkillFilterDropdown,
-} from "../../Agent/Skills/components";
+import { ImportHubModal } from "../../Agent/Skills/components/ImportHubModal";
+import { SkillFilterDropdown } from "../../Agent/Skills/components/SkillFilterDropdown";
 import {
   BroadcastModal,
   ImportBuiltinModal,
