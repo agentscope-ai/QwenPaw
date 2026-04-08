@@ -10,7 +10,8 @@ import type {
   TokenUsageStats,
 } from "../../../api/types/tokenUsage";
 import { formatCompact } from "../../../utils/formatNumber";
-import { PageHeader, LoadingState, EmptyState } from "./components";
+import { LoadingState, EmptyState } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type ByModelRow = TokenUsageStats & { key: string };
@@ -135,7 +136,7 @@ function TokenUsagePage() {
 
   return (
     <div className={styles.tokenUsagePage}>
-      <PageHeader parent="Settings" current={t("tokenUsage.title")} />
+      <PageHeader parent={t("nav.settings")} current={t("tokenUsage.title")} />
       <div className={styles.content}>
         {loading && !data ? (
           <LoadingState

@@ -4,6 +4,7 @@ import type { ProviderInfo } from "../../../../../api/types";
 import { ModelManageModal } from "../modals/ModelManageModal";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
+import { providerIcon } from "../providerIcon";
 
 interface LocalProviderCardProps {
   provider: ProviderInfo;
@@ -38,24 +39,31 @@ export function LocalProviderCard({
         statusReady ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
     >
-      {/* Status Header */}
-      <div className={styles.cardStatusHeader}>
-        <span
-          className={styles.statusDot}
-          style={{
-            backgroundColor: statusReady ? "#52c41a" : "#d9d9d9",
-            boxShadow: statusReady
-              ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
-              : "none",
-          }}
+      {/* Card Header with Icon and Status */}
+      <div className={styles.cardHeaderRow}>
+        <img
+          src={providerIcon(provider.id)}
+          alt={provider.name}
+          className={styles.providerIcon}
         />
-        <span
-          className={`${styles.statusText} ${
-            statusReady ? styles.enabled : styles.disabled
-          }`}
-        >
-          {statusLabel}
-        </span>
+        <div className={styles.cardStatusHeader}>
+          <span
+            className={styles.statusDot}
+            style={{
+              backgroundColor: statusReady ? "#52c41a" : "#d9d9d9",
+              boxShadow: statusReady
+                ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
+                : "none",
+            }}
+          />
+          <span
+            className={`${styles.statusText} ${
+              statusReady ? styles.enabled : styles.disabled
+            }`}
+          >
+            {statusLabel}
+          </span>
+        </div>
       </div>
 
       {/* Title Row */}

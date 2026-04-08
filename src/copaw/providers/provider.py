@@ -172,6 +172,13 @@ class Provider(ProviderInfo, ABC):
             and isinstance(config["generate_kwargs"], dict)
         ):
             self.generate_kwargs = config["generate_kwargs"]
+        if "extra_models" in config and config["extra_models"] is not None:
+            self.extra_models = [
+                model
+                if isinstance(model, ModelInfo)
+                else ModelInfo.model_validate(model)
+                for model in config["extra_models"]
+            ]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
         """Return the chat model class associated with this provider."""
@@ -239,33 +246,4 @@ class Provider(ProviderInfo, ABC):
             freeze_url=self.freeze_url,
             require_api_key=self.require_api_key,
             generate_kwargs=self.generate_kwargs,
-        )
-
-
-class DefaultProvider(Provider):
-    """Default provider implementation with no-op methods."""
-
-    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
-        if len(self.models) > 0:
-            return True, ""
-        return False, "No models available in the default provider"
-
-    async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
-        return self.models
-
-    async def check_model_connection(
-        self,
-        model_id: str,
-        timeout: float = 5,
-    ) -> tuple[bool, str]:
-        if model_id in {model.id for model in self.models}:
-            return True, ""
-        return False, f"Model '{model_id}' not found"
-
-    def update_config(self, config: Dict) -> None:
-        pass
-
-    def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
-        raise NotImplementedError(
-            "DefaultProvider does not implement chat model",
         )

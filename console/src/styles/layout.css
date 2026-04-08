@@ -31,6 +31,7 @@ html.dark-mode .copaw-layout-content {
 /* Page content area background */
 html.dark-mode .page-content {
   background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 /* Card components — @agentscope-ai/design uses copaw prefix */
@@ -709,6 +710,11 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   background: #f9f8f4;
 }
 
+/* Chat bubble list max-width override */
+.copaw-chat-anywhere-message-list .copaw-bubble-list {
+  max-width: 960px !important;
+}
+
 /* Menu background in light mode */
 .copaw-menu,
 .ant-menu {
@@ -742,7 +748,7 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
 /* Remove submenu indent - align with parent in light mode */
 .copaw-menu-submenu .copaw-menu-item,
 .ant-menu-submenu .ant-menu-item {
-  padding-left: 24px !important;
+  padding-left: 12px !important;
 }
 
 /* Selected submenu item - keep text color unchanged in light mode */
@@ -768,9 +774,11 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   flex: 1 1 auto;
   overflow: auto;
   background-color: #fff;
-  border-radius: 8px; /* 8px */
+  border-radius: 8px;
+  /* 8px */
   box-sizing: border-box;
-  border: 1px solid #eae9e7; /* #EAE9E7 */
+  border: 1px solid #eae9e7;
+  /* #EAE9E7 */
 }
 
 .table-container {
@@ -801,6 +809,7 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   min-height: 48px !important;
   overflow: visible !important;
 }
+
 [class*="chat-anywhere-welcome-default"] [class*="-avatar"] > img,
 [class*="message-list-welcome"] [class*="-avatar"] > img {
   object-fit: contain !important;
@@ -816,6 +825,7 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   margin: 0 auto 0 0 !important;
   justify-content: flex-start !important;
 }
+
 [class*="chat-anywhere-default-header-right"] > *,
 [class*="default-header-right"] > * {
   margin-right: auto !important;
@@ -849,4 +859,12 @@ html.dark-mode .copaw-btn-primary.copaw-btn-disabled {
   color: rgba(255, 255, 255, 0.3) !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   box-shadow: none !important;
+}
+
+/* Dark mode - default button */
+html.dark-mode .ant-btn-default,
+html.dark-mode .copaw-btn-default {
+  color: rgba(255, 235, 218, 0.88) !important;
+  background-color: #000000 !important;
+  border: 1px solid #3a312a !important;
 }

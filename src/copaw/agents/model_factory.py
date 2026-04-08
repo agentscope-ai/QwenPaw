@@ -38,7 +38,6 @@ from ..providers.retry_chat_model import (
     RateLimitConfig,
 )
 from ..token_usage import TokenRecordingModelWrapper
-from ..local_models import create_local_chat_model
 
 
 def _file_url_to_path(url: str) -> str:
@@ -132,11 +131,11 @@ def _create_file_block_support_formatter(
                     ):
                         extra_contents[block["id"]] = block["extra_content"]
 
-            # Convert file:// URLs to paths,
+            # Convert file:// URLs to paths for all media blocks,
             # TODO: remove this after AgentScope updated
             for msg in msgs:
                 for block in msg.get_content_blocks():
-                    if block.get("type") == "audio":
+                    if block.get("type") in ("image", "audio", "video"):
                         source = block.get("source")
                         if (
                             isinstance(source, dict)
@@ -325,6 +324,7 @@ def create_model_and_formatter(
             )
             rate_limit_config = RateLimitConfig(
                 max_concurrent=agent_config.running.llm_max_concurrent,
+                max_qpm=agent_config.running.llm_max_qpm,
                 pause_seconds=agent_config.running.llm_rate_limit_pause,
                 jitter_range=agent_config.running.llm_rate_limit_jitter,
                 acquire_timeout=agent_config.running.llm_acquire_timeout,
@@ -341,14 +341,8 @@ def create_model_and_formatter(
             raise ValueError(
                 f"Provider '{model_slot.provider_id}' not found.",
             )
-        if provider.is_local:
-            model = create_local_chat_model(
-                model_id=model_slot.model,
-                stream=True,
-                generate_kwargs={"max_tokens": None},
-            )
-        else:
-            model = provider.get_chat_model_instance(model_slot.model)
+
+        model = provider.get_chat_model_instance(model_slot.model)
         provider_id = model_slot.provider_id
     else:
         # Fallback to global active model

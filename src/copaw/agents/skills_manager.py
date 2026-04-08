@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import io
 import json
@@ -60,7 +61,13 @@ _MAX_ZIP_BYTES = 200 * 1024 * 1024
 
 
 class SkillInfo(BaseModel):
-    """Workspace or hub skill details returned to callers."""
+    """Workspace or hub skill details returned to callers.
+
+    ``name`` is the stable runtime identifier: the directory / manifest key
+    used by APIs, sync state, and channel routing. It is intentionally not
+    derived from frontmatter because frontmatter can drift while the on-disk
+    workspace identity must remain stable.
+    """
 
     name: str
     description: str = ""
@@ -444,6 +451,13 @@ def _create_files_from_tree(base_dir: Path, tree: dict[str, Any]) -> None:
 
 
 def _resolve_skill_name(skill_dir: Path) -> str:
+    """Resolve the import-time target name for one concrete skill directory.
+
+    This helper is intentionally import-oriented. Runtime registration inside a
+    workspace still keys skills by directory name; we only consult frontmatter
+    here so zip imports behave consistently whether a skill is packed at the
+    archive root or nested under a folder.
+    """
     try:
         post = _read_frontmatter(skill_dir)
         name = str(post.get("name") or "").strip()
@@ -1024,6 +1038,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         skills = payload["skills"]
 
         discovered = {
+            # Workspace identity is the directory name on disk. Frontmatter is
+            # metadata/validation, but the manifest key must stay stable even
+            # if a user edits ``name:`` inside ``SKILL.md``.
             path.name: path
             for path in workspace_skills_dir.iterdir()
             if path.is_dir() and (path / "SKILL.md").exists()
@@ -1104,6 +1121,8 @@ def list_workspaces() -> list[dict[str, str]]:
         from ..config.config import load_agent_config
 
         config = load_config()
+        # Only return agents that are still in the configuration
+        # This ensures deleted agents are not included
         for agent_id, profile in sorted(config.agents.profiles.items()):
             agent_name = agent_id
             try:
@@ -1122,24 +1141,9 @@ def list_workspaces() -> list[dict[str, str]]:
     except Exception as exc:
         logger.warning("Failed to load configured workspaces: %s", exc)
 
-    seen = {item["workspace_dir"] for item in workspaces}
-    from ..constant import WORKING_DIR
-
-    root = Path(WORKING_DIR) / "workspaces"
-    if root.exists():
-        for workspace_dir in sorted(root.iterdir()):
-            if not workspace_dir.is_dir():
-                continue
-            text = str(workspace_dir)
-            if text in seen:
-                continue
-            workspaces.append(
-                {
-                    "agent_id": workspace_dir.name,
-                    "agent_name": workspace_dir.name,
-                    "workspace_dir": text,
-                },
-            )
+    # Note: We intentionally do NOT scan the workspaces/ directory
+    # for unlisted workspaces, as those may belong to deleted agents
+    # and should not appear in the broadcast list
 
     return workspaces
 
@@ -1198,8 +1202,9 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
         _default_pool_manifest(),
     )
     pool_skills = manifest.get("skills", {})
-    result: dict[str, dict[str, Any]] = {}
 
+    # Collect all skill directories that need checking
+    skill_dirs_to_check = []
     for skill_dir in sorted(builtin_dir.iterdir()):
         if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
             continue
@@ -1209,20 +1214,43 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
             continue
         if not _is_pool_builtin_entry(pool_entry):
             continue
+        skill_dirs_to_check.append((name, skill_dir, pool_entry))
 
+    # Process skills in parallel
+    result: dict[str, dict[str, Any]] = {}
+
+    def _check_single_skill(item):
+        name, skill_dir, pool_entry = item
         builtin_sig = _build_signature(skill_dir)
         pool_sig = str(pool_entry.get("signature", ""))
         if pool_sig and pool_sig != builtin_sig:
             post = _read_frontmatter(skill_dir)
-            result[name] = {
+            return name, {
                 "sync_status": "outdated",
                 "latest_version_text": _extract_version(post),
             }
         else:
-            result[name] = {
+            return name, {
                 "sync_status": "synced",
                 "latest_version_text": "",
             }
+
+    # Use ThreadPoolExecutor for parallel I/O operations
+    # For I/O-bound tasks, use more threads than CPU count
+    max_workers = min(32, (os.cpu_count() or 1) + 4)
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=max_workers,
+    ) as executor:
+        futures = [
+            executor.submit(_check_single_skill, item)
+            for item in skill_dirs_to_check
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                name, status_info = future.result()
+                result[name] = status_info
+            except Exception as exc:
+                logger.warning("Failed to check skill sync status: %s", exc)
 
     return result
 
@@ -1280,6 +1308,7 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
     try:
         content = read_text_file_with_encoding_fallback(skill_md)
         description = ""
+        post: Any = {}
         try:
             post = frontmatter.loads(content)
             description = str(post.get("description", "") or "")
@@ -1367,6 +1396,12 @@ def _extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
     """Extract and validate a skill zip.
 
     Returns ``(tmp_dir, found_skills)``.
+
+    Naming rule:
+    - single-skill zips use the skill frontmatter ``name`` when present
+    - multi-skill zips apply the same rule per top-level skill directory
+
+    This keeps import results consistent across different zip layouts.
     """
     if not zipfile.is_zipfile(io.BytesIO(data)):
         raise ValueError("Uploaded file is not a valid zip archive")
@@ -1384,7 +1419,7 @@ def _extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
         found = [(extract_root, _resolve_skill_name(extract_root))]
     else:
         found = [
-            (path, path.name)
+            (path, _resolve_skill_name(path))
             for path in sorted(extract_root.iterdir())
             if not _is_hidden(path.name)
             and path.is_dir()
@@ -2288,6 +2323,17 @@ class SkillPoolService:
                     "name": skill_name,
                 }
 
+            if not is_rename and _is_pool_builtin_entry(entry):
+                return {
+                    "success": False,
+                    "reason": "conflict",
+                    "mode": "rename",
+                    "suggested_name": suggest_conflict_name(
+                        skill_name,
+                        set(manifest.get("skills", {}).keys()),
+                    ),
+                }
+
             if is_rename or content_changed:
                 _copy_skill_dir(staged_dir, skill_dir)
 
@@ -2451,7 +2497,7 @@ class SkillPoolService:
                 protected=False,
             )
             payload["skills"][final_name] = {
-                "enabled": False,
+                "enabled": True,
                 "channels": ["all"],
                 "source": metadata["source"],
                 "config": pool_config,

@@ -132,7 +132,7 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
         <Popconfirm
           title={t("security.fileGuard.removeConfirm")}
           onConfirm={() => handleRemove(record.path)}
-          okText={t("common.ok")}
+          okText={t("common.delete")}
           cancelText={t("common.cancel")}
         >
           <Button type="text" danger icon={<DeleteOutlined />} size="small" />

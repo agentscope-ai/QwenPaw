@@ -161,18 +161,16 @@ export function SkillDrawer({
 
   const handleSubmit = async (values: SkillDrawerFormValues) => {
     let parsedConfig: Record<string, unknown> | undefined;
-    if (editingSkill) {
-      const trimmed = configText.trim();
-      if (!trimmed) {
-        parsedConfig = {};
-      } else {
-        try {
-          parsedConfig = JSON.parse(trimmed);
-          setConfigError("");
-        } catch {
-          setConfigError(t("skills.configInvalidJson"));
-          return;
-        }
+    const trimmed = configText.trim();
+    if (!trimmed) {
+      parsedConfig = {};
+    } else {
+      try {
+        parsedConfig = JSON.parse(trimmed);
+        setConfigError("");
+      } catch {
+        setConfigError(t("skills.configInvalidJson"));
+        return;
       }
     }
     onSubmit({
@@ -296,84 +294,62 @@ export function SkillDrawer({
       footer={drawerFooter}
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit}>
-        {!editingSkill && (
-          <>
-            <Form.Item
-              name="name"
-              label="Name"
-              rules={[{ required: true, message: t("skills.pleaseInputName") }]}
-            >
-              <Input placeholder={t("skills.skillNamePlaceholder")} />
-            </Form.Item>
-
-            <Form.Item
-              name="content"
-              label="Content"
-              rules={[{ required: true, validator: validateFrontmatter }]}
-            >
-              <MarkdownCopy
-                content={contentValue}
-                showMarkdown={showMarkdown}
-                onShowMarkdownChange={setShowMarkdown}
-                editable={true}
-                onContentChange={handleContentChange}
-                textareaProps={{
-                  placeholder: t("skills.contentPlaceholder"),
-                  rows: 12,
-                }}
-              />
-            </Form.Item>
-
-            <Form.Item name="channels" label={t("skills.channels")}>
-              <Select mode="multiple" options={CHANNEL_OPTIONS} />
-            </Form.Item>
-          </>
+        {!editingSkill ? (
+          <Form.Item
+            name="name"
+            label="Name"
+            rules={[{ required: true, message: t("skills.pleaseInputName") }]}
+          >
+            <Input placeholder={t("skills.skillNamePlaceholder")} />
+          </Form.Item>
+        ) : (
+          <Form.Item name="name" label="Name">
+            <Input />
+          </Form.Item>
         )}
+
+        <Form.Item
+          name="content"
+          label="Content"
+          rules={[{ required: true, validator: validateFrontmatter }]}
+        >
+          <MarkdownCopy
+            content={contentValue}
+            showMarkdown={showMarkdown}
+            onShowMarkdownChange={setShowMarkdown}
+            editable={true}
+            onContentChange={handleContentChange}
+            textareaProps={{
+              ...(!editingSkill && {
+                placeholder: t("skills.contentPlaceholder"),
+              }),
+              rows: 12,
+            }}
+          />
+        </Form.Item>
+
+        <Form.Item name="channels" label={t("skills.channels")}>
+          <Select mode="multiple" options={CHANNEL_OPTIONS} />
+        </Form.Item>
+
+        <Form.Item
+          label={t("skills.config")}
+          validateStatus={configError ? "error" : undefined}
+          help={configError || undefined}
+        >
+          <Input.TextArea
+            rows={4}
+            value={configText}
+            onChange={(e) => {
+              setConfigText(e.target.value);
+              setConfigError("");
+            }}
+            placeholder={t("skills.configPlaceholder")}
+          />
+        </Form.Item>
 
         {editingSkill && (
           <>
-            <Form.Item name="name" label="Name">
-              <Input />
-            </Form.Item>
-
-            <Form.Item
-              name="content"
-              label="Content"
-              rules={[{ required: true, validator: validateFrontmatter }]}
-            >
-              <MarkdownCopy
-                content={contentValue}
-                showMarkdown={showMarkdown}
-                onShowMarkdownChange={setShowMarkdown}
-                editable={true}
-                onContentChange={handleContentChange}
-                textareaProps={{
-                  rows: 12,
-                }}
-              />
-            </Form.Item>
-
-            <Form.Item name="channels" label={t("skills.channels")}>
-              <Select mode="multiple" options={CHANNEL_OPTIONS} />
-            </Form.Item>
-
-            <Form.Item label={t("skills.config")}>
-              <Input.TextArea
-                rows={4}
-                value={configText}
-                onChange={(e) => {
-                  setConfigText(e.target.value);
-                  setConfigError("");
-                }}
-                placeholder={t("skills.configPlaceholder")}
-              />
-              {configError && (
-                <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>
-                  {configError}
-                </div>
-              )}
-            </Form.Item>
-
             <Form.Item name="source" label={t("skills.type")}>
               <Input disabled />
             </Form.Item>

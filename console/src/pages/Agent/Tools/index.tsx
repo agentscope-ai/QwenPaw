@@ -1,8 +1,10 @@
 import { useState, useMemo } from "react";
-import { Card, Switch, Empty } from "@agentscope-ai/design";
+import { Card, Switch, Empty, Button } from "@agentscope-ai/design";
+import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 export default function ToolsPage() {
@@ -33,22 +35,20 @@ export default function ToolsPage() {
 
   return (
     <div className={styles.toolsPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Agent</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>{t("tools.title")}</span>
-        </div>
-        <div className={styles.headerAction}>
-          <Switch
-            checked={hasEnabledTools && !hasDisabledTools}
-            onChange={() => (hasDisabledTools ? enableAll() : disableAll())}
-            disabled={batchLoading || loading}
-            checkedChildren={t("tools.enableAll")}
-            unCheckedChildren={t("tools.disableAll")}
-          />
-        </div>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.agent") }, { title: t("tools.title") }]}
+        extra={
+          <div className={styles.headerAction}>
+            <Switch
+              checked={hasEnabledTools && !hasDisabledTools}
+              onChange={() => (hasDisabledTools ? enableAll() : disableAll())}
+              disabled={batchLoading || loading}
+              checkedChildren={t("tools.enableAll")}
+              unCheckedChildren={t("tools.disableAll")}
+            />
+          </div>
+        }
+      />
       <div className={styles.toolsContainer}>
         {loading ? (
           <div className={styles.loading}>
@@ -85,21 +85,23 @@ export default function ToolsPage() {
 
                 <div className={styles.cardFooter}>
                   {tool.name === "execute_shell_command" && (
-                    <div className={styles.inlineSettingItem}>
-                      <span className={styles.settingLabel}>
-                        {t("tools.asyncExecution")}
-                      </span>
-                      <Switch
-                        checked={tool.async_execution}
-                        onChange={() => toggleAsyncExecution(tool)}
-                        disabled={!tool.enabled}
-                      />
-                    </div>
+                    <Button
+                      className={styles.asyncButton}
+                      onClick={() => toggleAsyncExecution(tool)}
+                      disabled={!tool.enabled}
+                    >
+                      {t("tools.asyncExecution")}
+                    </Button>
                   )}
-                  <Switch
-                    checked={tool.enabled}
-                    onChange={() => handleToggle(tool)}
-                  />
+                  <Button
+                    className={styles.toggleButton}
+                    onClick={() => handleToggle(tool)}
+                    icon={
+                      tool.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />
+                    }
+                  >
+                    {tool.enabled ? t("common.disable") : t("common.enable")}
+                  </Button>
                 </div>
               </Card>
             ))}

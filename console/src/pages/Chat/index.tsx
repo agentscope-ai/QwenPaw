@@ -24,6 +24,7 @@ import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
+import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import {
   toDisplayUrl,
   copyText,
@@ -34,6 +35,8 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
+
+const CHAT_ATTACHMENT_MAX_MB = 10;
 
 interface SessionInfo {
   session_id?: string;
@@ -284,11 +287,19 @@ export default function ChatPage() {
   );
 
   const lastSessionIdRef = useRef<string | null>(null);
+  /** Tracks the stale auto-selected session ID that was skipped on init, so we can suppress its late-arriving onSessionSelected callback. */
+  const staleAutoSelectedIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
+
+  // Tell sessionApi which session to put first in getSessionList, so the library's
+  // useMount auto-selects the correct session without an extra getSession round-trip.
+  if (chatId && sessionApi.preferredChatId !== chatId) {
+    sessionApi.preferredChatId = chatId;
+  }
 
   // Register session API event callbacks for URL synchronization
 
@@ -321,7 +332,32 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       // Update URL when session is selected and different from current
       const targetId = realId || sessionId;
-      if (targetId && targetId !== lastSessionIdRef.current) {
+      if (!targetId) return;
+
+      // If a preferred chatId from the URL exists and no navigation has happened yet,
+      // skip the library's initial auto-selection (always first session).
+      // ChatSessionInitializer will apply the correct selection afterward.
+      if (
+        chatIdRef.current &&
+        lastSessionIdRef.current === null &&
+        targetId !== chatIdRef.current
+      ) {
+        lastSessionIdRef.current = targetId;
+        // Record the stale ID so its delayed getSession callback is also suppressed.
+        staleAutoSelectedIdRef.current = targetId;
+        return;
+      }
+
+      // Suppress the stale getSession callback that arrives after the correct session loads.
+      if (
+        staleAutoSelectedIdRef.current &&
+        staleAutoSelectedIdRef.current === targetId
+      ) {
+        staleAutoSelectedIdRef.current = null;
+        return;
+      }
+
+      if (targetId !== lastSessionIdRef.current) {
         lastSessionIdRef.current = targetId;
         navigateRef.current(`/chat/${targetId}`, { replace: true });
       }
@@ -468,12 +504,17 @@ export default function ChatPage() {
           // Warn (not block) when only image is supported
           message.warning(t("chat.attachments.imageOnlyWarning"));
         }
-        // Check file size limit (10MB)
-        const isLt10M = file.size / 1024 / 1024 < 10;
+        const sizeMb = file.size / 1024 / 1024;
+        const isWithinLimit = sizeMb < CHAT_ATTACHMENT_MAX_MB;
 
-        if (!isLt10M) {
-          message.error(t("chat.attachments.fileSizeLimit"));
-          onError?.(new Error("File size exceeds 10MB"));
+        if (!isWithinLimit) {
+          message.error(
+            t("chat.attachments.fileSizeExceeded", {
+              limit: CHAT_ATTACHMENT_MAX_MB,
+              size: sizeMb.toFixed(2),
+            }),
+          );
+          onError?.(new Error(`File size exceeds ${CHAT_ATTACHMENT_MAX_MB}MB`));
           return;
         }
 
@@ -527,6 +568,7 @@ export default function ChatPage() {
         },
         rightHeader: (
           <>
+            <ChatSessionInitializer />
             <RuntimeLoadingBridge bridgeRef={runtimeLoadingBridgeRef} />
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
@@ -553,7 +595,7 @@ export default function ChatPage() {
                 : "chat.attachments.tooltip"
               : "chat.attachments.tooltipNoMultimodal";
             return (
-              <Tooltip title={t(tooltipKey)}>
+              <Tooltip title={t(tooltipKey, { limit: CHAT_ATTACHMENT_MAX_MB })}>
                 <IconButton
                   disabled={props?.disabled}
                   icon={<SparkAttachmentLine />}

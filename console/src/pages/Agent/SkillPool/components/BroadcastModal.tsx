@@ -6,6 +6,7 @@ import type {
   PoolSkillSpec,
   WorkspaceSkillSummary,
 } from "../../../../api/types";
+import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import styles from "../../Skills/index.module.less";
 
 interface BroadcastModalProps {
@@ -171,7 +172,13 @@ export function BroadcastModal({
                 <div
                   className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
                 >
-                  {workspace.agent_name || workspace.agent_id}
+                  {getAgentDisplayName(
+                    {
+                      id: workspace.agent_id,
+                      name: workspace.agent_name ?? "",
+                    },
+                    t,
+                  )}
                 </div>
               </div>
             );

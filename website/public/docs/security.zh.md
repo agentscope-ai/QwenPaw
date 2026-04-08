@@ -1,6 +1,6 @@
 # 安全
 
-CoPaw 内置了安全功能，保护你的 Agent 免受恶意输入和不安全技能的影响。这些功能在控制台 **设置 → 安全** 中配置，也可以通过 `config.json` 进行设置。
+CoPaw 内置了安全功能，保护你的 Agent 在运行过程中产生的不安全行为和不安全技能的影响。这些功能在控制台 **设置 → 安全** 中配置，也可以通过 `config.json` 进行设置。
 
 ## 概述
 
@@ -33,20 +33,21 @@ CoPaw 的安全系统由三个核心安全层组成:
 
 ## 工具守卫
 
-**工具守卫**在 Agent 调用工具**之前**扫描工具参数,检测命令注入、路径遍历、数据外泄等危险模式,阻止潜在的恶意操作。
+**工具守卫**在 Agent 调用工具**之前**扫描工具参数,检测危险命令、路径遍历、数据外泄等危险模式,阻止潜在的恶意操作。
 
 ### 工作原理
 
-1. 当 Agent 调用工具(如 `execute_shell_command`、`write_file`)时,工具守卫会检查调用参数
-2. 使用正则表达式规则检测危险模式:
+1. 当 Agent 调用工具时,工具守卫会检查相关参数。内置正则规则主要针对 **`execute_shell_command`**。
+2. 使用正则表达式规则检测危险模式,例如:
    - `rm -rf /` — 危险的文件删除
-   - SQL 注入模式
+   - SQL 注入相关片段
    - 命令替换 `$(...)` 或 `` `...` ``
    - 路径遍历 `../`
    - 特权提升 `sudo`、`su`
    - 反向 Shell、Fork 炸弹等
+     (具体覆盖范围以内置规则与自定义规则为准。)
 3. 每条规则有独立的严重级别(CRITICAL、HIGH、MEDIUM、LOW、INFO)
-4. 当发现 CRITICAL 或 HIGH 级别问题时,工具调用被阻止,Agent 收到拒绝消息
+4. 当发现 CRITICAL 或 HIGH 级别问题时:在控制台等带会话的交互环境中,工具调用会进入待审批流程,由你选择批准或拒绝;在无会话上下文的场景下,发现会记入日志,调用仍可能继续执行 — 若需更严格限制,可使用 `denied_tools` 禁止特定工具或调整规则。
 
 ### 配置
 
@@ -70,7 +71,7 @@ CoPaw 的安全系统由三个核心安全层组成:
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`        | 启用或禁用工具守卫。也可通过环境变量 `COPAW_TOOL_GUARD_ENABLED` 设置(优先级高于配置文件)。                                   |
 | `guarded_tools`  | 指定守护范围:<br>• `null`(默认) — 守护所有内置工具<br>• `[]` — 不守护任何工具<br>• `["tool_a", "tool_b"]` — 仅守护列出的工具 |
-| `denied_tools`   | 无条件阻止的工具列表,不论参数如何都不允许调用。                                                                              |
+| `denied_tools`   | 无条件阻止的工具列表:列在其中的工具**无论参数如何**均不可调用(自动拒绝,不提供审批)。                                         |
 | `custom_rules`   | 用户自定义正则规则(格式见下文)。                                                                                             |
 | `disabled_rules` | 要禁用的内置规则 ID 列表。                                                                                                   |
 
@@ -160,21 +161,48 @@ CoPaw 的安全系统由三个核心安全层组成:
 
 工具守卫包含以下内置检测规则(针对 `execute_shell_command` 工具):
 
-| 规则 ID                         | 严重级别 | 威胁类别     | 触发模式                                        | 说明                               |
-| ------------------------------- | -------- | ------------ | ----------------------------------------------- | ---------------------------------- |
-| `TOOL_CMD_DANGEROUS_RM`         | HIGH     | 命令注入     | 任何 `rm` 命令（匹配 `\brm\b`）                 | 检测可能导致数据丢失的文件删除操作 |
-| `TOOL_CMD_DANGEROUS_MV`         | HIGH     | 命令注入     | 任何 `mv` 命令（匹配 `\bmv\b`）                 | 检测可能移动或覆盖文件的操作       |
-| `TOOL_CMD_FS_DESTRUCTION`       | CRITICAL | 命令注入     | `mkfs`、`dd of=/dev/`、写入块设备               | 检测低级别磁盘格式化或擦除命令     |
-| `TOOL_CMD_DOS_FORK_BOMB`        | CRITICAL | 资源滥用     | Fork 炸弹 `:(){ :\|:& };:`、`kill -9 -1`        | 检测 Fork 炸弹和批量进程终止       |
-| `TOOL_CMD_PIPE_TO_SHELL`        | CRITICAL | 代码执行     | `curl/wget ... \| bash/sh` 模式                 | 下载并立即执行远程脚本             |
-| `TOOL_CMD_REVERSE_SHELL`        | CRITICAL | 网络滥用     | `/dev/tcp`、`nc -e`、`socat EXEC:`              | 建立反向 Shell 或网络隧道          |
-| `TOOL_CMD_SYSTEM_TAMPERING`     | HIGH     | 敏感文件访问 | `crontab`、`authorized_keys`、`/etc/sudoers`    | 访问定时任务、SSH 密钥或 sudo 配置 |
-| `TOOL_CMD_UNSAFE_PERMISSIONS`   | HIGH     | 权限提升     | `chmod -R 777 /`、`chattr +i`                   | 全局权限变更或设置不可变标志       |
-| `TOOL_CMD_OBFUSCATED_EXEC`      | HIGH     | 代码执行     | `base64 -d \| bash` 模式                        | 执行 base64 编码的命令             |
-| `TOOL_CMD_SYSTEM_REBOOT`        | CRITICAL | 资源滥用     | `reboot`、`shutdown`、`halt`、`init 0/6`        | 终止主机系统                       |
-| `TOOL_CMD_SERVICE_RESTART`      | HIGH     | 资源滥用     | `systemctl restart/stop`、`service ... restart` | 管理或中断系统服务                 |
-| `TOOL_CMD_PROCESS_KILL`         | HIGH     | 资源滥用     | `pkill`、`killall`、`kill`（排除 `kill $$`）    | 终止可能关键的进程                 |
-| `TOOL_CMD_PRIVILEGE_ESCALATION` | CRITICAL | 权限提升     | `sudo`、`su`、`doas`、`pkexec`                  | 使用提权命令执行操作               |
+**命令注入与文件操作（HIGH）：**
+
+| 规则 ID                       | 检测目标                 | 说明                               |
+| ----------------------------- | ------------------------ | ---------------------------------- |
+| `TOOL_CMD_DANGEROUS_RM`       | `rm` 命令                | 检测可能导致数据丢失的文件删除操作 |
+| `TOOL_CMD_DANGEROUS_MV`       | `mv` 命令                | 检测可能移动或覆盖文件的操作       |
+| `TOOL_CMD_UNSAFE_PERMISSIONS` | `chmod -R 777`、`chattr` | 全局权限变更或设置不可变标志       |
+
+**低级别磁盘操作（CRITICAL）：**
+
+| 规则 ID                   | 检测目标                          | 说明                           |
+| ------------------------- | --------------------------------- | ------------------------------ |
+| `TOOL_CMD_FS_DESTRUCTION` | `mkfs`、`dd of=/dev/`、块设备写入 | 检测低级别磁盘格式化或擦除命令 |
+
+**资源滥用（CRITICAL/HIGH）：**
+
+| 规则 ID                    | 严重级别 | 检测目标                                        | 说明                         |
+| -------------------------- | -------- | ----------------------------------------------- | ---------------------------- |
+| `TOOL_CMD_DOS_FORK_BOMB`   | CRITICAL | Fork 炸弹 `:(){ :\|:& };:`、`kill -9 -1`        | 检测 Fork 炸弹和批量进程终止 |
+| `TOOL_CMD_SYSTEM_REBOOT`   | CRITICAL | `reboot`、`shutdown`、`halt`、`init 0/6`        | 终止主机系统                 |
+| `TOOL_CMD_SERVICE_RESTART` | HIGH     | `systemctl restart/stop`、`service ... restart` | 管理或中断系统服务           |
+| `TOOL_CMD_PROCESS_KILL`    | HIGH     | `pkill`、`killall`、`kill`（排除 `kill $$`）    | 终止可能关键的进程           |
+
+**代码执行（CRITICAL/HIGH）：**
+
+| 规则 ID                    | 严重级别 | 检测目标                        | 说明                   |
+| -------------------------- | -------- | ------------------------------- | ---------------------- |
+| `TOOL_CMD_PIPE_TO_SHELL`   | CRITICAL | `curl/wget ... \| bash/sh` 模式 | 下载并立即执行远程脚本 |
+| `TOOL_CMD_OBFUSCATED_EXEC` | HIGH     | `base64 -d \| bash` 模式        | 执行 base64 编码的命令 |
+
+**权限提升（CRITICAL/HIGH）：**
+
+| 规则 ID                         | 严重级别 | 检测目标                                     | 说明                               |
+| ------------------------------- | -------- | -------------------------------------------- | ---------------------------------- |
+| `TOOL_CMD_PRIVILEGE_ESCALATION` | CRITICAL | `sudo`、`su`、`doas`、`pkexec`               | 使用提权命令执行操作               |
+| `TOOL_CMD_SYSTEM_TAMPERING`     | HIGH     | `crontab`、`authorized_keys`、`/etc/sudoers` | 访问定时任务、SSH 密钥或 sudo 配置 |
+
+**网络滥用（CRITICAL）：**
+
+| 规则 ID                  | 检测目标                           | 说明                      |
+| ------------------------ | ---------------------------------- | ------------------------- |
+| `TOOL_CMD_REVERSE_SHELL` | `/dev/tcp`、`nc -e`、`socat EXEC:` | 建立反向 Shell 或网络隧道 |
 
 **使用建议**:
 
@@ -374,7 +402,7 @@ scanner = SkillScanner(policy=policy)
 - `hardcoded_secrets` — 硬编码密钥
 - `prompt_injection` — 提示词注入
 - `social_engineering` — 社会工程
-- `supply_chain` — 供应链攻击
+- `supply_chain_attack` — 供应链攻击
 - `obfuscation` — 代码混淆
 - `resource_abuse` — 资源滥用
 - `unauthorized_tool_use` — 未授权工具使用

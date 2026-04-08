@@ -12,7 +12,7 @@ CoPaw supports multiple LLM providers: **cloud providers** (require an API Key, 
 
 ## Configure cloud providers
 
-Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, Azure OpenAI, Google Gemini, and MiniMax) call remote models via API and require an **API Key**.
+Cloud providers (including ModelScope, DashScope, Aliyun Coding Plan, OpenAI, Azure OpenAI, Anthropic, Google Gemini, and MiniMax) call remote models via API and require an **API Key**.
 
 **In the console:**
 
@@ -56,6 +56,65 @@ copaw models set-llm
 ```
 
 > **Tip:** Gemini models with thinking capabilities (e.g. Gemini 3.1 Pro, Gemini 2.5 Pro, Gemini 2.5 Flash) support extended reasoning. CoPaw automatically handles thinking blocks and thought signatures from these models.
+
+## MiniMax provider
+
+MiniMax offers two access points: International (MiniMax) and China (MiniMax China), each with different API endpoints and model lists.
+
+**Prerequisites:**
+
+- Register an account at [MiniMax](https://www.minimaxi.com/) and obtain an API Key
+- International and China versions require separate registration and API Keys
+
+**Supported models:**
+
+- **MiniMax (International)**:
+
+  - `MiniMax-M2.5`
+  - `MiniMax-M2.5-highspeed`
+  - `MiniMax-M2.7`
+  - `MiniMax-M2.7-highspeed`
+
+- **MiniMax China**:
+  - `MiniMax-Text-01`
+  - `MiniMax-M2.5-highspeed`
+  - `MiniMax-M2.7-highspeed`
+
+**In the console:**
+
+1. Open the console and go to **Settings → Models**.
+2. Find the **MiniMax** or **MiniMax China** provider card and click **Settings**.
+3. Enter your **API Key** and click **Save**.
+4. After saving, the card status becomes **Available**.
+5. Under **Default LLM**, select **MiniMax** or **MiniMax China** as the provider, choose a model, and click **Save** for the global default.
+
+**Manual configuration:**
+
+Add to the `providers` field in `$COPAW_SECRET_DIR/providers.json` (default `~/.copaw.secret/providers.json`):
+
+```json
+{
+  "providers": {
+    "minimax": {
+      "api_key": "your_minimax_api_key"
+    }
+  }
+}
+```
+
+Or for the China version:
+
+```json
+{
+  "providers": {
+    "minimax_cn": {
+      "api_key": "your_minimax_china_api_key"
+    }
+  }
+}
+```
+
+> **Note:** MiniMax models use an Anthropic-compatible API format. The current version does not support multimodal input (images, videos, etc.) — text conversations only.
 
 ## Local providers (llama.cpp / MLX)
 
@@ -190,3 +249,57 @@ The LM Studio provider connects to the **LM Studio** app’s OpenAI-compatible s
 > If setup fails, verify **Base URL**, **API Key**, and **Model ID** (case-sensitive). To remove a custom provider, click **Delete provider** on the card and confirm.
 >
 > ![delete](https://img.alicdn.com/imgextra/i3/O1CN0124kc9J1dv4zHYDWQg_!!6000000003797-2-tps-3802-1968.png)
+
+---
+
+## Configuration File Reference
+
+Model provider configurations are stored in `$COPAW_SECRET_DIR/providers.json` (default: `~/.copaw.secret/providers.json`).
+
+### `providers.json` Structure
+
+```json
+{
+  "providers": {
+    "dashscope": {
+      "id": "dashscope",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "sk-xxxxxx",
+      "models": ["qwen-max", "qwen-plus"],
+      "default_model": "qwen-max"
+    },
+    "openai": {
+      "id": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "sk-xxxxxx",
+      "models": ["gpt-4", "gpt-3.5-turbo"],
+      "default_model": "gpt-4"
+    }
+  },
+  "active_llm": {
+    "provider_id": "dashscope",
+    "model": "qwen-max"
+  }
+}
+```
+
+**`providers` object field descriptions:**
+
+Each provider (key is provider_id) contains the following fields:
+
+| Field           | Type     | Required | Description                                                        |
+| --------------- | -------- | -------- | ------------------------------------------------------------------ |
+| `id`            | string   | Yes      | Provider unique identifier (matches key)                           |
+| `base_url`      | string   | Yes      | API base URL                                                       |
+| `api_key`       | string   | Yes      | API key (can be empty for local providers)                         |
+| `models`        | string[] | No       | List of models supported by this provider (can be auto-discovered) |
+| `default_model` | string   | No       | Default model for this provider                                    |
+
+**`active_llm` object field descriptions:**
+
+| Field         | Type   | Description                  |
+| ------------- | ------ | ---------------------------- |
+| `provider_id` | string | Currently active provider ID |
+| `model`       | string | Currently active model name  |
+
+> **Tip:** Model configuration is typically managed through the Console or `copaw init` without manually editing this file.

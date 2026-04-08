@@ -5,6 +5,7 @@ import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
 import { EyeOff, Eye } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 
 interface AgentTableProps {
   agents: AgentSummary[];
@@ -40,7 +41,7 @@ export function AgentTable({
       dataIndex: "name",
       key: "name",
       width: 300,
-      render: (text: string, record: AgentSummary) => (
+      render: (_text: string, record: AgentSummary) => (
         <Space>
           <RobotOutlined
             style={{
@@ -48,7 +49,9 @@ export function AgentTable({
               opacity: record.enabled ? 1 : 0.5,
             }}
           />
-          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>{text}</span>
+          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
+            {getAgentDisplayName(record, t)}
+          </span>
           {!record.enabled && <Tag color="error">{t("agent.disabled")}</Tag>}
         </Space>
       ),

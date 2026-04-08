@@ -9,8 +9,9 @@ import pytest
 
 import copaw.providers.provider_manager as provider_manager_module
 from copaw.providers.anthropic_provider import AnthropicProvider
+from copaw.providers.models import ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.provider import DefaultProvider, ModelInfo
+from copaw.providers.provider import ModelInfo
 from copaw.providers.provider_manager import ProviderManager
 
 
@@ -153,6 +154,55 @@ async def test_activate_provider_persists_active_model(
     assert reloaded.active_model is not None
     assert reloaded.active_model.provider_id == "openai"
     assert reloaded.active_model.model == "gpt-5"
+
+
+async def test_resume_local_model_restores_server_and_runtime_state(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    model_id = "AgentScope/CoPaw-flash-2B-Q4_K_M"
+    manager.update_provider(
+        "copaw-local",
+        {
+            "base_url": "http://127.0.0.1:9000/v1",
+            "extra_models": [
+                {
+                    "id": model_id,
+                    "name": model_id,
+                },
+            ],
+        },
+    )
+    manager.active_model = ModelSlotConfig(
+        provider_id="copaw-local",
+        model=model_id,
+    )
+    manager.save_active_model(manager.active_model)
+
+    class FakeLocalManager:
+        def __init__(self) -> None:
+            self.restored_model_id = None
+
+        def check_llamacpp_installation(self) -> bool:
+            return True
+
+        def is_model_downloaded(self, requested_model_id: str) -> bool:
+            return requested_model_id == model_id
+
+        async def setup_server(self, requested_model_id: str) -> int:
+            self.restored_model_id = requested_model_id
+            return 43111
+
+    local_manager = FakeLocalManager()
+
+    await manager._resume_local_model(local_manager)
+
+    provider = manager.get_provider("copaw-local")
+
+    assert local_manager.restored_model_id == model_id
+    assert provider is not None
+    assert provider.base_url == "http://127.0.0.1:43111/v1"
+    assert [model.id for model in provider.extra_models] == [model_id]
 
 
 async def test_remove_custom_provider_missing_file_is_safe(
@@ -351,22 +401,6 @@ def test_provider_from_data_dispatch_to_anthropic(isolated_secret_dir) -> None:
     )
 
     assert isinstance(provider, AnthropicProvider)
-
-
-def test_provider_from_data_dispatch_to_default_local(
-    isolated_secret_dir,
-) -> None:
-    manager = ProviderManager()
-
-    provider = manager._provider_from_data(
-        {
-            "id": "local-default",
-            "name": "Local Default",
-            "is_local": True,
-        },
-    )
-
-    assert isinstance(provider, DefaultProvider)
 
 
 def test_provider_from_data_fallback_to_openai(isolated_secret_dir) -> None:

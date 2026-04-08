@@ -1,3 +1,4 @@
+import React from "react";
 import { Card, Button } from "@agentscope-ai/design";
 import {
   CalendarFilled,
@@ -9,6 +10,7 @@ import {
   FilePptFilled,
   FileImageFilled,
   CodeFilled,
+  EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
 import type { SkillSpec } from "../../../../api/types";
@@ -44,6 +46,18 @@ const normalizeSkillIconKey = (value: string) =>
 
 export const getFileIcon = (filePath: string) => {
   const skillKey = normalizeSkillIconKey(filePath);
+  const textSkillIcons = new Set([
+    "news",
+    "file_reader",
+    "browser_visible",
+    "guidance",
+    "himalaya",
+    "dingtalk_channel",
+  ]);
+
+  if (textSkillIcons.has(skillKey)) {
+    return <FileTextFilled style={{ color: "#1890ff" }} />;
+  }
 
   switch (skillKey) {
     case "docx":
@@ -56,13 +70,6 @@ export const getFileIcon = (filePath: string) => {
       return <FilePdfFilled style={{ color: "#f5222d" }} />;
     case "cron":
       return <CalendarFilled style={{ color: "#13c2c2" }} />;
-    case "news":
-    case "file_reader":
-    case "browser_visible":
-    case "guidance":
-    case "himalaya":
-    case "dingtalk_channel":
-      return <FileTextFilled style={{ color: "#1890ff" }} />;
     default:
       break;
   }
@@ -124,7 +131,7 @@ export const getSkillVisual = (name: string, content?: string) => {
   return getFileIcon(name);
 };
 
-export function SkillCard({
+export const SkillCard = React.memo(function SkillCard({
   skill,
   isHover,
   onClick,
@@ -171,6 +178,25 @@ export function SkillCard({
               {isBuiltin ? t("skills.builtin") : t("skills.custom")}
             </span>
           </div>
+          {/* Meta Info: Channels, Pool Sync - moved here */}
+          <div className={styles.metaContainer}>
+            <div className={styles.metaItem}>
+              <span className={styles.metaLabel}>{t("skills.channels")}</span>
+              <span className={styles.metaValue}>
+                {(skill.channels || ["all"])
+                  .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
+                  .join(", ")}
+              </span>
+            </div>
+            {skill.sync_to_pool && (
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
+                <span className={styles.metaValue}>
+                  {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
         <div className={styles.statusContainer}>
           <span
@@ -196,46 +222,26 @@ export function SkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Meta Info: Type, Channels, Pool Sync */}
-      <div className={styles.metaContainer}>
-        <div className={styles.metaItem}>
-          <span className={styles.metaLabel}>{t("skills.channels")}</span>
-          <span className={styles.metaValue}>
-            {(skill.channels || ["all"]).join(", ")}
-          </span>
-        </div>
-        {skill.sync_to_pool && (
-          <div className={styles.metaItem}>
-            <span className={styles.metaLabel}>{t("skills.poolSync")}</span>
-            <span className={styles.metaValue}>
-              {getSkillSyncStatusLabel(skill.sync_to_pool.status, t)}
-            </span>
-          </div>
+      {/* Footer with buttons - always show */}
+      <div className={styles.cardFooter}>
+        <Button
+          className={styles.actionButton}
+          onClick={handleToggleClick}
+          icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+        >
+          {skill.enabled ? t("common.disable") : t("common.enable")}
+        </Button>
+        {onDelete && (
+          <Button
+            danger
+            className={styles.deleteButton}
+            onClick={handleDeleteClick}
+            disabled={skill.enabled}
+          >
+            {t("common.delete")}
+          </Button>
         )}
       </div>
-
-      {/* Footer with buttons - only show on hover */}
-      {isHover && (
-        <div className={styles.cardFooter}>
-          <Button
-            className={styles.actionButton}
-            onClick={handleToggleClick}
-            icon={<EyeInvisibleOutlined />}
-          >
-            {skill.enabled ? t("common.disable") : t("common.enable")}
-          </Button>
-          {onDelete && (
-            <Button
-              danger
-              className={styles.deleteButton}
-              onClick={handleDeleteClick}
-              disabled={skill.enabled}
-            >
-              {t("common.delete")}
-            </Button>
-          )}
-        </div>
-      )}
     </Card>
   );
-}
+});

@@ -39,16 +39,17 @@ The **Tool Guard** scans tool parameters **before** the agent invokes a tool, de
 
 ### How it works
 
-1. When the agent calls a tool (e.g., `execute_shell_command`, `write_file`), the Tool Guard inspects the call parameters
-2. Uses regex rules to detect dangerous patterns:
+1. When the agent calls a tool, the Tool Guard inspects relevant parameters. Built-in regex rules primarily target **`execute_shell_command`**.
+2. Regex rules detect dangerous patterns, for example:
    - `rm -rf /` — Dangerous file deletion
-   - SQL injection patterns
+   - SQL-injection-like fragments
    - Command substitution `$(...)` or `` `...` ``
    - Path traversal `../`
    - Privilege escalation `sudo`, `su`
    - Reverse shells, fork bombs, etc.
+     (Exact coverage depends on built-in and custom rules.)
 3. Each rule has an independent severity level (CRITICAL, HIGH, MEDIUM, LOW, INFO)
-4. When a CRITICAL or HIGH finding is detected, the tool call is blocked and the agent receives a denial message
+4. For CRITICAL or HIGH findings: in the Console / interactive sessions, the tool call enters a pending-approval flow — you approve or reject before it runs. In non-interactive contexts without a session, findings are logged and execution may still proceed — use **`denied_tools`** to hard-block specific tools or tighten rules when needed.
 
 ### Configuration
 
@@ -162,21 +163,48 @@ In the Console under **Settings → Security → Tool Guard** tab, you can:
 
 Tool Guard includes the following built-in detection rules (for `execute_shell_command` tool):
 
-| Rule ID                         | Severity | Threat Category       | Trigger Pattern                                 | Description                                              |
-| ------------------------------- | -------- | --------------------- | ----------------------------------------------- | -------------------------------------------------------- |
-| `TOOL_CMD_DANGEROUS_RM`         | HIGH     | Command Injection     | Any `rm` command (matches `\brm\b`)             | Detects file removal operations that may cause data loss |
-| `TOOL_CMD_DANGEROUS_MV`         | HIGH     | Command Injection     | Any `mv` command (matches `\bmv\b`)             | Detects operations that may move or overwrite files      |
-| `TOOL_CMD_FS_DESTRUCTION`       | CRITICAL | Command Injection     | `mkfs`, `dd of=/dev/`, writes to block devices  | Detects low-level disk formatting or wiping commands     |
-| `TOOL_CMD_DOS_FORK_BOMB`        | CRITICAL | Resource Abuse        | Fork bombs `:(){ :\|:& };:`, `kill -9 -1`       | Detects fork bombs and mass process termination          |
-| `TOOL_CMD_PIPE_TO_SHELL`        | CRITICAL | Code Execution        | `curl/wget ... \| bash/sh` patterns             | Downloads and immediately executes remote scripts        |
-| `TOOL_CMD_REVERSE_SHELL`        | CRITICAL | Network Abuse         | `/dev/tcp`, `nc -e`, `socat EXEC:`              | Establishes reverse shells or network tunnels            |
-| `TOOL_CMD_SYSTEM_TAMPERING`     | HIGH     | Sensitive File Access | `crontab`, `authorized_keys`, `/etc/sudoers`    | Accesses cron jobs, SSH keys, or sudo configuration      |
-| `TOOL_CMD_UNSAFE_PERMISSIONS`   | HIGH     | Privilege Escalation  | `chmod -R 777 /`, `chattr +i`                   | Global permission changes or immutable flags             |
-| `TOOL_CMD_OBFUSCATED_EXEC`      | HIGH     | Code Execution        | `base64 -d \| bash` patterns                    | Executes base64-encoded commands                         |
-| `TOOL_CMD_SYSTEM_REBOOT`        | CRITICAL | Resource Abuse        | `reboot`, `shutdown`, `halt`, `init 0/6`        | Terminates the host system                               |
-| `TOOL_CMD_SERVICE_RESTART`      | HIGH     | Resource Abuse        | `systemctl restart/stop`, `service ... restart` | Manages or disrupts system services                      |
-| `TOOL_CMD_PROCESS_KILL`         | HIGH     | Resource Abuse        | `pkill`, `killall`, `kill` (excludes `kill $$`) | Terminates processes that may be critical                |
-| `TOOL_CMD_PRIVILEGE_ESCALATION` | CRITICAL | Privilege Escalation  | `sudo`, `su`, `doas`, `pkexec`                  | Executes commands with elevated privileges               |
+**Command Injection & File Operations (HIGH):**
+
+| Rule ID                       | Detection Target         | Description                                              |
+| ----------------------------- | ------------------------ | -------------------------------------------------------- |
+| `TOOL_CMD_DANGEROUS_RM`       | `rm` command             | Detects file removal operations that may cause data loss |
+| `TOOL_CMD_DANGEROUS_MV`       | `mv` command             | Detects operations that may move or overwrite files      |
+| `TOOL_CMD_UNSAFE_PERMISSIONS` | `chmod -R 777`, `chattr` | Global permission changes or immutable flags             |
+
+**Low-Level Disk Operations (CRITICAL):**
+
+| Rule ID                   | Detection Target                           | Description                                          |
+| ------------------------- | ------------------------------------------ | ---------------------------------------------------- |
+| `TOOL_CMD_FS_DESTRUCTION` | `mkfs`, `dd of=/dev/`, block device writes | Detects low-level disk formatting or wiping commands |
+
+**Resource Abuse (CRITICAL/HIGH):**
+
+| Rule ID                    | Severity | Detection Target                                | Description                                     |
+| -------------------------- | -------- | ----------------------------------------------- | ----------------------------------------------- |
+| `TOOL_CMD_DOS_FORK_BOMB`   | CRITICAL | Fork bombs `:(){ :\|:& };:`, `kill -9 -1`       | Detects fork bombs and mass process termination |
+| `TOOL_CMD_SYSTEM_REBOOT`   | CRITICAL | `reboot`, `shutdown`, `halt`, `init 0/6`        | Terminates the host system                      |
+| `TOOL_CMD_SERVICE_RESTART` | HIGH     | `systemctl restart/stop`, `service ... restart` | Manages or disrupts system services             |
+| `TOOL_CMD_PROCESS_KILL`    | HIGH     | `pkill`, `killall`, `kill` (excludes `kill $$`) | Terminates processes that may be critical       |
+
+**Code Execution (CRITICAL/HIGH):**
+
+| Rule ID                    | Severity | Detection Target                    | Description                                       |
+| -------------------------- | -------- | ----------------------------------- | ------------------------------------------------- |
+| `TOOL_CMD_PIPE_TO_SHELL`   | CRITICAL | `curl/wget ... \| bash/sh` patterns | Downloads and immediately executes remote scripts |
+| `TOOL_CMD_OBFUSCATED_EXEC` | HIGH     | `base64 -d \| bash` patterns        | Executes base64-encoded commands                  |
+
+**Privilege Escalation (CRITICAL/HIGH):**
+
+| Rule ID                         | Severity | Detection Target                             | Description                                         |
+| ------------------------------- | -------- | -------------------------------------------- | --------------------------------------------------- |
+| `TOOL_CMD_PRIVILEGE_ESCALATION` | CRITICAL | `sudo`, `su`, `doas`, `pkexec`               | Executes commands with elevated privileges          |
+| `TOOL_CMD_SYSTEM_TAMPERING`     | HIGH     | `crontab`, `authorized_keys`, `/etc/sudoers` | Accesses cron jobs, SSH keys, or sudo configuration |
+
+**Network Abuse (CRITICAL):**
+
+| Rule ID                  | Detection Target                   | Description                                   |
+| ------------------------ | ---------------------------------- | --------------------------------------------- |
+| `TOOL_CMD_REVERSE_SHELL` | `/dev/tcp`, `nc -e`, `socat EXEC:` | Establishes reverse shells or network tunnels |
 
 **Usage recommendations**:
 
@@ -376,7 +404,7 @@ Built-in signature categories:
 - `hardcoded_secrets` — Hardcoded secrets
 - `prompt_injection` — Prompt injection
 - `social_engineering` — Social engineering
-- `supply_chain` — Supply chain attacks
+- `supply_chain_attack` — Supply chain attacks
 - `obfuscation` — Code obfuscation
 - `resource_abuse` — Resource abuse
 - `unauthorized_tool_use` — Unauthorized tool use
@@ -661,7 +689,7 @@ This command will:
 
 1. Display the current registered username
 2. Prompt for a new password (hidden input, requires confirmation twice)
-3. Rotate the JWT signing secret, which **invalidates all existing sessions** — all logged-in devices must log in again with the new password
+3. Rotate the session signing secret (the key stored in `auth.json`), which **invalidates all existing sessions** — all logged-in devices must log in again with the new password
 
 **Docker deployments**:
 

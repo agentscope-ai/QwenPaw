@@ -13,13 +13,13 @@ import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
 import {
-  PageHeader,
   RuleTable,
   RuleModal,
   PreviewModal,
   SkillScannerSection,
   FileGuardSection,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 const BUILTIN_TOOLS = [
@@ -50,6 +50,17 @@ function SecurityPage() {
     reset: () => void;
     saving: boolean;
   } | null>(null);
+
+  const onFileGuardHandlersReady = useCallback(
+    (handlers: {
+      save: () => Promise<void>;
+      reset: () => void;
+      saving: boolean;
+    }) => {
+      setFileGuardHandlers(handlers);
+    },
+    [],
+  );
 
   const {
     config,
@@ -261,40 +272,42 @@ function SecurityPage() {
                         >
                           <Switch onChange={(val) => setEnabled(val)} />
                         </Form.Item>
-                      </Form>
-                      <div className={styles.toolGuardRow}>
-                        <Form.Item
-                          label={t("security.guardedTools")}
-                          name="guarded_tools"
-                          tooltip={t("security.guardedToolsTooltip")}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            mode="tags"
-                            options={toolOptions}
-                            placeholder={t("security.guardedToolsPlaceholder")}
-                            disabled={!enabled}
-                            allowClear
-                            style={{ width: "100%" }}
-                          />
-                        </Form.Item>
+                        <div className={styles.toolGuardRow}>
+                          <Form.Item
+                            label={t("security.guardedTools")}
+                            name="guarded_tools"
+                            tooltip={t("security.guardedToolsTooltip")}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              mode="tags"
+                              options={toolOptions}
+                              placeholder={t(
+                                "security.guardedToolsPlaceholder",
+                              )}
+                              disabled={!enabled}
+                              allowClear
+                              style={{ width: "100%" }}
+                            />
+                          </Form.Item>
 
-                        <Form.Item
-                          label={t("security.deniedTools")}
-                          name="denied_tools"
-                          tooltip={t("security.deniedToolsTooltip")}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            mode="tags"
-                            options={toolOptions}
-                            placeholder={t("security.deniedToolsPlaceholder")}
-                            disabled={!enabled}
-                            allowClear
-                            style={{ width: "100%" }}
-                          />
-                        </Form.Item>
-                      </div>
+                          <Form.Item
+                            label={t("security.deniedTools")}
+                            name="denied_tools"
+                            tooltip={t("security.deniedToolsTooltip")}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              mode="tags"
+                              options={toolOptions}
+                              placeholder={t("security.deniedToolsPlaceholder")}
+                              disabled={!enabled}
+                              allowClear
+                              style={{ width: "100%" }}
+                            />
+                          </Form.Item>
+                        </div>
+                      </Form>
                     </Card>
                   </div>
 
@@ -341,9 +354,7 @@ function SecurityPage() {
                     <p className={styles.tabDescription}>
                       {t("security.fileGuard.description")}
                     </p>
-                    <FileGuardSection
-                      onSave={(handlers) => setFileGuardHandlers(handlers)}
-                    />
+                    <FileGuardSection onSave={onFileGuardHandlersReady} />
                   </div>
                 </div>
               ),

@@ -80,7 +80,7 @@ export function ToolResultCompactCard() {
               if (
                 typeof value !== "number" ||
                 typeof oldMaxBytes !== "number" ||
-                value > oldMaxBytes
+                value >= oldMaxBytes
               ) {
                 return;
               }
