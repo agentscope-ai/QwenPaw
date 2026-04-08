@@ -42,6 +42,7 @@ const SemanticRoutingPage = lazyImportWithRetry(
   "../../pages/Settings/SemanticRouting",
 );
 
+
 const { Content } = Layout;
 
 const pathToKey: Record<string, string> = {
@@ -64,7 +65,6 @@ const pathToKey: Record<string, string> = {
   "/token-usage": "token-usage",
   "/agent-stats": "agent-stats",
   "/voice-transcription": "voice-transcription",
-  "/semantic-routing": "semantic-routing",
   "/debug": "debug",
   "/backups": "backups",
 };
@@ -127,10 +127,6 @@ export default function MainLayout() {
                   <Route
                     path="/voice-transcription"
                     element={<VoiceTranscriptionPage />}
-                  />
-                  <Route
-                    path="/semantic-routing"
-                    element={<SemanticRoutingPage />}
                   />
                   <Route path="/debug" element={<DebugPage />} />
                   <Route path="/backups" element={<BackupsPage />} />
