@@ -27,6 +27,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "mattermost",
   "matrix",
   "weixin",
+  "imessage",
 ];
 
 // Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
