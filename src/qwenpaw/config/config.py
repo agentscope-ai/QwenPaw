@@ -4,7 +4,10 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set
+from typing import Optional, Union, Dict, List, Literal, Any, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..routing.config import SemanticRoutingConfig
 
 from pydantic import (
     BaseModel,
