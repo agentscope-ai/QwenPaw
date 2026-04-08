@@ -74,9 +74,42 @@ async def _process_single_file_block(
 
 
 def _extract_source_and_filename(block: dict, block_type: str):
-    """Extract source and filename from a block."""
+    """Extract source and filename from a block.
+
+    Supports both the historical ``source``-dict format and audio blocks
+    that carry their payload in a top-level ``data`` field (for example
+    Telegram `AudioContent(data=...)`).
+    """
     if block_type == "file":
         return block.get("source", {}), block.get("filename")
+
+    # Compatibility: some audio content blocks use a top-level `data`
+    # field instead of a `source` dict. Treat the data value as a URL or
+    # local path and normalize it into the same shape used elsewhere.
+    if block_type == "audio" and not block.get("source"):
+        data = block.get("data")
+        if isinstance(data, str) and data:
+            parsed = urllib.parse.urlparse(data)
+            filename = (
+                os.path.basename(parsed.path) or os.path.basename(data) or None
+            )
+            # Normalize bare local paths to file:// URLs
+            if parsed.scheme and parsed.netloc:
+                # Full URL (https://, http://, etc.)
+                return {"type": "url", "url": data}, filename
+            elif parsed.scheme == "file":
+                # Already a file:// URL
+                return {"type": "url", "url": data}, filename
+            elif os.path.isfile(data):
+                # Bare local path → convert to file:// URL
+                return {
+                    "type": "url",
+                    "url": Path(data).as_uri(),
+                    "media_type": _media_type_from_path(data),
+                }, filename
+            else:
+                # Unknown - pass through as-is (may be base64 or invalid)
+                return {"type": "url", "url": data}, filename
 
     source = block.get("source", {})
     if not isinstance(source, dict):
@@ -92,6 +125,44 @@ def _extract_source_and_filename(block: dict, block_type: str):
     return source, filename
 
 
+def _normalize_audio_source_for_local_file(
+    block_type: str,
+    block: dict,
+    source: dict,
+):
+    """Normalize audio blocks whose payload is a local path or file URI."""
+    if block_type != "audio" or not isinstance(source, dict):
+        return source
+
+    if source.get("type") != "base64":
+        return source
+
+    data = source.get("data")
+    if not isinstance(data, str) or not data:
+        return source
+
+    local_path = None
+    if os.path.isfile(data):
+        local_path = data
+    else:
+        parsed = urllib.parse.urlparse(data)
+        if parsed.scheme == "file":
+            candidate = urllib.parse.unquote(parsed.path)
+            if os.path.isfile(candidate):
+                local_path = candidate
+
+    if not local_path:
+        return source
+
+    normalized = {
+        "type": "url",
+        "url": Path(local_path).as_uri(),
+        "media_type": _media_type_from_path(local_path),
+    }
+    block["source"] = normalized
+    return normalized
+
+
 def _media_type_from_path(path: str) -> str:
     """Infer audio media_type from file path suffix."""
     ext = (os.path.splitext(path)[1] or "").lower()
@@ -101,6 +172,7 @@ def _media_type_from_path(path: str) -> str:
         ".mp3": "audio/mp3",
         ".opus": "audio/opus",
         ".ogg": "audio/ogg",
+        ".oga": "audio/ogg",
         ".flac": "audio/flac",
         ".m4a": "audio/mp4",
         ".aac": "audio/aac",
@@ -303,6 +375,7 @@ async def _process_audio_block(
     return False
 
 
+# pylint: disable=too-many-branches
 async def _process_single_block(
     message_content: list,
     index: int,
@@ -323,19 +396,30 @@ async def _process_single_block(
     if source is None:
         return None
 
-    # Normalize: when source is "base64" but data is a local path (e.g.
-    # DingTalk voice returns path), treat as url only if under allowed dir.
+    # Normalize: when source is "base64" but data is really a local file
+    # path or file:// URI (for example some voice-message paths), treat it
+    # as a URL source instead of trying to base64-decode it.
     if (
         block_type == "audio"
         and isinstance(source, dict)
         and source.get("type") == "base64"
     ):
         data = source.get("data")
-        if isinstance(data, str) and os.path.isfile(data):
+        local_path = None
+        if isinstance(data, str) and data:
+            if os.path.isfile(data):
+                local_path = data
+            else:
+                parsed = urllib.parse.urlparse(data)
+                if parsed.scheme == "file":
+                    candidate = urllib.parse.unquote(parsed.path)
+                    if os.path.isfile(candidate):
+                        local_path = candidate
+        if local_path:
             block["source"] = {
                 "type": "url",
-                "url": Path(data).as_uri(),
-                "media_type": _media_type_from_path(data),
+                "url": Path(local_path).as_uri(),
+                "media_type": _media_type_from_path(local_path),
             }
             source = block["source"]
 
@@ -407,6 +491,10 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
         downloaded_files = []
 
         for i, block in enumerate(message.content):
+            # Convert Pydantic model objects (e.g., AudioContent, ImageContent
+            # from agentscope_runtime) to dicts for uniform processing.
+            if hasattr(block, "model_dump"):
+                block = block.model_dump()
             if not isinstance(block, dict):
                 continue
 
