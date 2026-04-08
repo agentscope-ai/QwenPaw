@@ -547,25 +547,9 @@
   }
 }
 
-/* ─── Categories & Tags ───────────────────────────────────────────────────── */
+/* ─── Tags ────────────────────────────────────────────────────────────────── */
 
-// category badge: 放在 titleRow / listItemHeader，实色填充，语义强
-.categoryBadge {
-  display: inline-flex;
-  align-items: center;
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 16px;
-  padding: 0 6px;
-  border-radius: 3px;
-  background: rgba(22, 119, 255, 0.08);
-  color: #1677ff;
-  border: 1px solid rgba(22, 119, 255, 0.18);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-// Categories and Tags container above description
+// Tags container above description
 .categoriesTagsContainer {
   display: flex;
   flex-direction: column;
@@ -592,20 +576,6 @@
   flex-wrap: wrap;
   gap: 4px;
   flex: 1;
-}
-
-.categoryChip {
-  display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 16px;
-  padding: 0 6px;
-  border-radius: 3px;
-  background: rgba(22, 119, 255, 0.08);
-  color: #1677ff;
-  border: 1px solid rgba(22, 119, 255, 0.18);
-  white-space: nowrap;
 }
 
 // tag chips: 放在 description 下方，描边无填充，辅助信息
@@ -970,21 +940,9 @@
     background: rgba(255, 127, 22, 0.05);
   }
 
-  .categoryBadge {
-    background: rgba(105, 177, 255, 0.12);
-    color: #69b1ff;
-    border-color: rgba(105, 177, 255, 0.22);
-  }
-
   .tagChip {
     color: rgba(255, 255, 255, 0.35);
     border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .categoryChip {
-    background: rgba(22, 119, 255, 0.15);
-    color: #69b1ff;
-    border-color: rgba(105, 177, 255, 0.3);
   }
 
   .statusValue {

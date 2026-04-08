@@ -53,11 +53,7 @@ import { useSkillFilter } from "../Skills/useSkillFilter";
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { ImportBuiltinModal } from "./components/ImportBuiltinModal";
-import {
-  SkillCategoryBadges,
-  SkillTagChips,
-  SkillCategoriesAndTags,
-} from "./components/SkillMeta";
+import { SkillTagChips, SkillTags } from "./components/SkillMeta";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -96,7 +92,6 @@ function SkillPoolPage() {
     setSearchQuery,
     searchTags,
     setSearchTags,
-    allCategories,
     allTags,
     filteredSkills,
   } = useSkillFilter(skills);
@@ -921,7 +916,6 @@ function SkillPoolPage() {
                 notFoundContent={<></>}
                 dropdownRender={() => (
                   <SkillFilterDropdown
-                    allCategories={allCategories}
                     allTags={allTags}
                     searchTags={searchTags}
                     setSearchTags={setSearchTags}
@@ -1023,10 +1017,7 @@ function SkillPoolPage() {
                       </div>
                     </div>
                     <div className={styles.descriptionContainer}>
-                      <SkillCategoriesAndTags
-                        categories={skill.categories}
-                        tags={skill.tags}
-                      />
+                      <SkillTags tags={skill.tags} />
                       <p className={styles.descriptionText}>
                         {skill.description || "-"}
                       </p>
@@ -1093,7 +1084,6 @@ function SkillPoolPage() {
                     <div className={styles.listItemInfo}>
                       <div className={styles.listItemHeader}>
                         <span className={styles.skillTitle}>{skill.name}</span>
-                        <SkillCategoryBadges categories={skill.categories} />
                         <span
                           className={`${styles.statusValue} ${
                             styles[getPoolBuiltinStatusTone(skill.sync_status)]

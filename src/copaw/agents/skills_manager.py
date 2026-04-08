@@ -73,7 +73,6 @@ class SkillInfo(BaseModel):
     version_text: str = ""
     content: str
     source: str
-    categories: list[str] = Field(default_factory=list)
     references: dict[str, Any] = Field(default_factory=dict)
     scripts: dict[str, Any] = Field(default_factory=dict)
     emoji: str = ""
@@ -1268,16 +1267,11 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
     try:
         content = read_text_file_with_encoding_fallback(skill_md)
         description = ""
-        categories = []
         emoji = ""
         post: Any = {}
         try:
             post = frontmatter.loads(content)
             description = str(post.get("description", "") or "")
-            # Extract categories from frontmatter (tags come from manifest)
-            raw_categories = post.get("categories", [])
-            if isinstance(raw_categories, list):
-                categories = [str(c).strip() for c in raw_categories if c]
 
             # Extract emoji from metadata.copaw.emoji
             emoji = _extract_emoji_from_metadata(post.get("metadata", {}))
@@ -1299,7 +1293,6 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
             version_text=_extract_version(post),
             content=content,
             source=source,
-            categories=categories,
             references=references,
             scripts=scripts,
             emoji=emoji,

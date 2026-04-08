@@ -87,7 +87,6 @@ function SkillsPage() {
     setSearchQuery,
     searchTags,
     setSearchTags,
-    allCategories,
     allTags,
     filteredSkills,
   } = useSkillFilter(skills);
@@ -679,7 +678,6 @@ function SkillsPage() {
               notFoundContent={<></>}
               dropdownRender={() => (
                 <SkillFilterDropdown
-                  allCategories={allCategories}
                   allTags={allTags}
                   searchTags={searchTags}
                   setSearchTags={setSearchTags}

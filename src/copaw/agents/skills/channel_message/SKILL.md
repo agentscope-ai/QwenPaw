@@ -1,9 +1,6 @@
 ---
 name: channel_message
 description: Use this skill to proactively send a one-way message to a user/session/channel, usually only when the user explicitly asks to send to a channel/session or when proactive notification is needed. First query sessions with copaw chats list, then push with copaw channels send. | 当需要主动向用户/会话/频道单向推送消息时使用，通常仅在用户明确要求发往某个 channel / 会话，或需要主动通知时使用；先用 copaw chats list 查 session，再用 copaw channels send 推送
-categories:
-  - communication
-  - messaging
 metadata:
   builtin_skill_version: "1.1"
   copaw:
