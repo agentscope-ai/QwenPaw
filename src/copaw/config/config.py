@@ -878,7 +878,10 @@ class BuiltinToolConfig(BaseModel):
         False,
         description="Whether to execute the tool asynchronously in background",
     )
-    icon: str = Field(default="🔧", description="Emoji icon for the tool")
+    icon: str | None = Field(
+        default=None,
+        description="Emoji icon for the tool",
+    )
 
 
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
@@ -986,7 +989,7 @@ class ToolsConfig(BaseModel):
         for name, tc in _default_builtin_tools().items():
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc
-            elif self.builtin_tools[name].icon == "🔧":
+            elif self.builtin_tools[name].icon is None:
                 self.builtin_tools[name].icon = tc.icon
         return self
 
