@@ -94,28 +94,20 @@ CoPaw is designed to be **extensible**: you can add models, channels, Skills, an
 
 ### Adding New Models / Model Providers
 
-CoPaw supports **multiple model backends**: cloud APIs (e.g. DashScope, ModelScope), **Ollama**, and local backends (**llama.cpp**, **MLX**). You can contribute in two ways:
+CoPaw supports multiple providers, including cloud providers (such as DashScope, ModelScope) and local providers (such as Ollama, LM Studio). We also welcome new model providers to enrich user choices.
 
-#### A. Custom provider (user configuration)
+Contributed model providers should have the following characteristics:
 
-Users can add **custom providers** via the Console or `providers.json`: any OpenAI-compatible API (e.g. vLLM, SGLang, private endpoints) can be configured with a unique ID, base URL, API key, and optional model list. No code change is required for standard OpenAI-compatible APIs.
+1. (Required) Natively compatible with the OpenAI `chat.completions` API or Anthropic `messages` API. If this condition is not met, please create an issue for discussion first. Directly adding an incompatible provider will significantly increase maintenance costs.
+2. (Recommended) Support the `/model/list` endpoint to automatically obtain the model list. Although not mandatory, this will greatly enhance the user experience.
 
-#### B. New built-in provider or new ChatModel (code contribution)
+If the above conditions are met, you can create a new Provider instance in `src/copaw/providers/provider_manager.py` and register it in the `ProviderManager` class to make it a built-in provider in CoPaw.
 
-If you want to add a **new built-in provider** or a **new API protocol** that is not OpenAI-compatible:
+If you wish to submit a Pull Request, please ensure that the following conditions are met.
 
-1. **Provider definition** (in `src/copaw/providers/registry.py` or equivalent):
-   - Add a `ProviderDefinition` with `id`, `name`, `default_base_url`, `api_key_prefix`, and optionally `models` and `chat_model`.
-   - For local/self-hosted backends, set `is_local` as appropriate.
-
-2. **Chat model class** (if the API is not OpenAI-compatible):
-   - Implement a class inheriting from `agentscope.model.ChatModelBase` (or CoPaw’s local/remote wrappers where applicable).
-   - Support streaming and non-streaming if the agent uses both; respect `tool_choice` and tools API if used.
-   - Register the class in the registry’s chat model map so the runtime can resolve it by name (see `_CHAT_MODEL_MAP` in `src/copaw/providers/registry.py`).
-
-3. **Documentation:** Document the new provider or model in the docs (e.g. under a “Models” or “Providers” section) and mention any env vars or config keys.
-
-Adding a fully new API (new message format, token counting, tools) is a larger change; we recommend opening an issue first to discuss scope and design.
+1. (Required) Include at least one tested model to ensure the model list is not empty, and provide a connection test and a screenshot of a chat session using this model in the PR.
+2. (Required) Add the provider to the provider list in the model documentation (website/public/docs/models.*.md). If the provider's configuration is significantly different from others, a separate section should be added for detailed explanation.
+3. (Recommended) Pre-set capability tags for the built-in model (such as whether it supports images or videos). This can reduce the user's effort in manually verifying model capabilities.
 
 ---
 

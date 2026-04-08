@@ -41,7 +41,7 @@ from ..base import (
     OutgoingContentPart,
     ProcessHandler,
 )
-from .utils import format_markdown_tables
+from .utils import compress_image_for_wecom, format_markdown_tables
 from ..utils import split_text
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,25 @@ _MEDIA_MSGTYPE: Dict[str, str] = {
     "voice": "voice",
     "video": "video",
     "file": "file",
+}
+
+# Mapping for quoted media types: msgtype → (filename_hint, ContentClass,
+# content_kwargs, url_field_name).  Used by _on_message to build content
+# parts from quoted image / file / video items.
+_QUOTE_MEDIA_MAP = {
+    "image": (
+        "image.jpg",
+        ImageContent,
+        {"type": ContentType.IMAGE},
+        "image_url",
+    ),
+    "file": (None, FileContent, {"type": ContentType.FILE}, "file_url"),
+    "video": (
+        "video.mp4",
+        VideoContent,
+        {"type": ContentType.VIDEO},
+        "video_url",
+    ),
 }
 
 
@@ -454,6 +473,72 @@ class WecomChannel(BaseChannel):
             else:
                 text_parts.append(f"[{msgtype}]")
 
+            # Handle quoted (replied-to) message if present
+            quote = body.get("quote")
+            if quote:
+                quote_type = quote.get("msgtype") or ""
+                # Flatten quote into a list of items for unified processing.
+                # Single-type quotes become a one-element list; mixed quotes
+                # already contain a list of items.
+                if quote_type == "mixed":
+                    quoted_items = quote.get("mixed", {}).get("msg_item", [])
+                elif quote_type:
+                    quoted_items = [quote]
+                else:
+                    quoted_items = []
+
+                for q_item in quoted_items:
+                    q_type = q_item.get("msgtype") or ""
+                    if q_type == "text":
+                        quoted_text = (
+                            (q_item.get("text") or {})
+                            .get("content", "")
+                            .strip()
+                        )
+                        if quoted_text:
+                            text_parts.insert(
+                                0,
+                                f"[quoted message: {quoted_text}]",
+                            )
+                    elif q_type in _QUOTE_MEDIA_MAP:
+                        (
+                            hint_default,
+                            content_cls,
+                            content_kwargs,
+                            url_field,
+                        ) = _QUOTE_MEDIA_MAP[q_type]
+                        q_data = q_item.get(q_type) or {}
+                        q_url = q_data.get("url") or ""
+                        q_aes_key = q_data.get("aeskey") or ""
+                        hint = (
+                            hint_default
+                            or q_data.get("filename")
+                            or "file.bin"
+                        )
+                        if q_url:
+                            q_path = await self._download_media(
+                                q_url,
+                                aes_key=q_aes_key,
+                                filename_hint=hint,
+                            )
+                            if q_path:
+                                content_parts.append(
+                                    content_cls(
+                                        **content_kwargs,
+                                        **{url_field: q_path},
+                                    ),
+                                )
+                            else:
+                                text_parts.insert(
+                                    0,
+                                    f"[quoted {q_type}: download failed]",
+                                )
+                    else:
+                        text_parts.insert(
+                            0,
+                            f"[quoted {q_type} message]",
+                        )
+
             text = "\n".join(text_parts).strip()
             if text:
                 content_parts.insert(
@@ -635,9 +720,15 @@ class WecomChannel(BaseChannel):
         if not p.is_file():
             logger.warning("wecom upload: file not found: %s", local[:80])
             return None
-        data = p.read_bytes()
+
+        # Compress image if needed (WeCom has 2MB limit)
+        if media_type == "image":
+            data, filename = compress_image_for_wecom(local)
+        else:
+            data = p.read_bytes()
+            filename = p.name
+
         total_size = len(data)
-        filename = p.name
         md5 = hashlib.md5(data).hexdigest()
 
         # Split into chunks
@@ -931,8 +1022,40 @@ class WecomChannel(BaseChannel):
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _ensure_stdio() -> None:
+        """Redirect broken stdout/stderr to devnull (Windows daemon)."""
+        for name in ("stdout", "stderr"):
+            stream = getattr(sys, name, None)
+            needs_fix = stream is None
+            if not needs_fix:
+                try:
+                    stream.write("")
+                    stream.flush()
+                except (
+                    OSError,
+                    ValueError,
+                    AttributeError,
+                    TypeError,
+                ):
+                    needs_fix = True
+            if needs_fix:
+                setattr(
+                    sys,
+                    name,
+                    open(  # noqa: SIM115  pylint: disable=consider-using-with
+                        os.devnull,
+                        "w",
+                        encoding="utf-8",
+                    ),
+                )
+
     def _run_ws_forever(self) -> None:
         """Background thread: run SDK event loop forever."""
+        # Windows daemon fix: aibot SDK logger calls print() which
+        # crashes when stdout is detached.  Ensure streams are valid.
+        self._ensure_stdio()
+
         # macOS/Python 3.12+ fix: use SelectorEventLoop explicitly
         if sys.platform == "darwin":
             ws_loop = asyncio.SelectorEventLoop()
@@ -1006,43 +1129,44 @@ class WecomChannel(BaseChannel):
         self._client.on("message", self._on_message_sync)
         self._client.on("event.enter_chat", self._on_enter_chat_sync)
 
-        # Patch SDK heartbeat to trigger reconnect on connection death
-        # SDK bug: _send_heartbeat returns without calling _schedule_reconnect
-        # when missed_pong_count exceeds max, causing permanent disconnection.
+        # Patch SDK heartbeat to trigger reconnect on pong timeout.
+        # Use ensure_future so reconnect survives heartbeat task cancel.
+        ws_mgr = self._client._ws_manager
+        _original_send_heartbeat = ws_mgr._send_heartbeat
+
         async def _patched_send_heartbeat() -> None:
-            """Patched heartbeat: trigger reconnect when connection is dead."""
-            ws_mgr = self._client._ws_manager
             if ws_mgr._missed_pong_count >= ws_mgr._max_missed_pong:
+                logger.warning(
+                    "wecom heartbeat: no pong for %d pings, "
+                    "triggering reconnect",
+                    ws_mgr._missed_pong_count,
+                )
+                # Schedule reconnect BEFORE _stop_heartbeat() because
+                # it cancels the current task; any await after that
+                # would raise CancelledError.
+                asyncio.ensure_future(ws_mgr._schedule_reconnect())
                 ws_mgr._stop_heartbeat()
                 if ws_mgr._ws:
                     try:
                         await ws_mgr._ws.close()
-                    except Exception as e:
-                        ws_mgr._logger.warning(
-                            "Failed to close ws on heartbeat failure: %s",
-                            e,
+                    except Exception as close_err:
+                        logger.warning(
+                            "wecom heartbeat: failed to close ws: %s",
+                            close_err,
                         )
-                # Fix: trigger reconnect instead of silent return
-                await ws_mgr._schedule_reconnect()
                 return
+            # Normal path: delegate to original SDK implementation.
+            await _original_send_heartbeat()
 
-            ws_mgr._missed_pong_count += 1
-            try:
-                await ws_mgr.send(
-                    {
-                        "cmd": "heartbeat",
-                        "headers": {"req_id": generate_req_id("heartbeat")},
-                    },
-                )
-            except Exception as e:
-                ws_mgr._logger.error("Failed to send heartbeat: %s", e)
+        ws_mgr._send_heartbeat = _patched_send_heartbeat
 
-        self._client._ws_manager._send_heartbeat = _patched_send_heartbeat
-
-        # Log reconnect events for observability
+        # Log reconnect events for observability.
         self._client.on(
             "disconnected",
-            lambda reason: logger.info("wecom disconnected: %s", reason),
+            lambda reason: logger.info(
+                "wecom disconnected: %s",
+                reason,
+            ),
         )
         self._client.on(
             "reconnecting",
@@ -1053,7 +1177,10 @@ class WecomChannel(BaseChannel):
         )
         self._client.on(
             "error",
-            lambda error: logger.error("wecom error: %s", error),
+            lambda error: logger.error(
+                "wecom error: %s",
+                error,
+            ),
         )
 
         self._ws_thread = threading.Thread(

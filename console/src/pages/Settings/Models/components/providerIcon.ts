@@ -11,7 +11,6 @@ export const providerIcon = (provider: string) => {
     case "azure-openai":
       return "https://gw.alicdn.com/imgextra/i2/O1CN01R42n1y1hQAjCEiVlB_!!6000000004271-2-tps-400-400.png";
     case "kimi-cn":
-      return "https://gw.alicdn.com/imgextra/i1/O1CN01xCKAr81Yz8Q9pXh1u_!!6000000003129-2-tps-400-400.png";
     case "kimi-intl":
       return "https://gw.alicdn.com/imgextra/i1/O1CN01xCKAr81Yz8Q9pXh1u_!!6000000003129-2-tps-400-400.png";
     case "anthropic":
@@ -19,7 +18,6 @@ export const providerIcon = (provider: string) => {
     case "ollama":
       return "https://gw.alicdn.com/imgextra/i3/O1CN01xZeNJ01R0Ufb3nqqb_!!6000000002049-2-tps-400-400.png";
     case "minimax-cn":
-      return "https://gw.alicdn.com/imgextra/i1/O1CN01B0FaVn1VzBcO4nF1C_!!6000000002723-2-tps-400-400.png";
     case "minimax":
       return "https://gw.alicdn.com/imgextra/i1/O1CN01B0FaVn1VzBcO4nF1C_!!6000000002723-2-tps-400-400.png";
     case "openai":
@@ -27,7 +25,18 @@ export const providerIcon = (provider: string) => {
     case "dashscope":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01aDHDeq1mgj7gbRkhi_!!6000000004984-2-tps-400-400.png";
     case "lmstudio":
-      return "https://gw.alicdn.com/imgextra/i1/O1CN01WSbA3P22YVs8j0vzf_!!6000000007132-2-tps-320-320.png";
+      return "https://gw.alicdn.com/imgextra/i4/O1CN01Abv67y1jHaXLqikIJ_!!6000000004523-2-tps-200-200.png";
+    case "siliconflow-cn":
+      return "https://img.alicdn.com/imgextra/i1/O1CN01TUkzVC1clAoPa2ix8_!!6000000003640-2-tps-520-520.png";
+    case "siliconflow-intl":
+      return "https://img.alicdn.com/imgextra/i1/O1CN01TUkzVC1clAoPa2ix8_!!6000000003640-2-tps-520-520.png";
+    case "copaw-local":
+      return "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png";
+    case "zhipu-cn":
+    case "zhipu-intl":
+    case "zhipu-cn-codingplan":
+    case "zhipu-intl-codingplan":
+      return "https://img.alicdn.com/imgextra/i2/O1CN01TFZcQz23xX7qacIEv_!!6000000007322-2-tps-640-640.png";
     default:
       return "https://gw.alicdn.com/imgextra/i4/O1CN01IWnlOw1lebfpiFrIL_!!6000000004844-0-tps-100-100.jpg";
   }

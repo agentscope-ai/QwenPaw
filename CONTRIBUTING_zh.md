@@ -94,28 +94,20 @@ CoPaw 设计为**可扩展的**：你可以添加模型、频道、Skills 等。
 
 ### 添加新模型 / 模型提供商
 
-CoPaw 支持**多种模型后端**：云 API（如 DashScope、ModelScope）、**Ollama** 和本地后端（**llama.cpp**、**MLX**）。你可以通过两种方式贡献：
+CoPaw 支持多种提供商：包括云提供商（如 DashScope、ModelScope）以及本地提供商（如 Ollama、LM Studio），但我们也欢迎新的模型供应商以丰富用户选择。
 
-#### A. 自定义提供商（用户配置）
+贡献的模型提供商具有以下特征：
 
-用户可以通过 Console 或 `providers.json` 添加**自定义提供商**：任何 OpenAI 兼容的 API（如 vLLM、SGLang、私有端点）都可以通过唯一 ID、base URL、API key 和可选的模型列表进行配置。标准 OpenAI 兼容 API 无需代码更改。
+1. （强制）原生兼容 OpenAI `chat.completions` API 或 Anthropic `messages` API，如不满足该条件，请先创建 issue 讨论，直接添加一个不兼容的提供商会大幅增加维护成本。
+2. （推荐）支持 `/model/list` 端点以自动获取模型列表，虽然不强制，但这会大大提升用户体验。
 
-#### B. 新的内置提供商或新的 ChatModel（代码贡献）
+确定满足上述条件后，可以在 `src/copaw/providers/provider_manager.py` 中创建新的 Provider 实例并在 `ProviderManager` 类中注册，使其成为 CoPaw 内置的提供商。
 
-如果你想添加**新的内置提供商**或**不兼容 OpenAI 的新 API 协议**：
+如果想要将新的提供商作为内置提供商贡献，请在 PR 中提供以下内容：
 
-1. **提供商定义**（在 `src/copaw/providers/registry.py` 或等效位置）：
-   - 添加一个 `ProviderDefinition`，包含 `id`、`name`、`default_base_url`、`api_key_prefix`，以及可选的 `models` 和 `chat_model`。
-   - 对于本地/自托管后端，根据需要设置 `is_local`。
-
-2. **聊天模型类**（如果 API 不兼容 OpenAI）：
-   - 实现一个继承自 `agentscope.model.ChatModelBase` 的类（或适用时使用 CoPaw 的本地/远程包装器）。
-   - 如果 agent 同时使用流式和非流式，则都要支持；如果使用了 tools API，则遵守 `tool_choice` 和 tools。
-   - 在注册表的聊天模型映射中注册该类，以便运行时可以按名称解析它（参见 `src/copaw/providers/registry.py` 中的 `_CHAT_MODEL_MAP`）。
-
-3. **文档：** 在文档中记录新的提供商或模型（例如在"模型"或"提供商"部分下），并提及任何环境变量或配置键。
-
-添加全新的 API（新消息格式、token 计数、tools）是较大的更改；我们建议先创建 issue 讨论范围和设计。
+1. （强制）内置至少一个通过测试的模型，确保模型列表不为空，并且在 PR 中提供连接测试以及使用该模型的聊天实例截图。
+2. （强制）在模型文档（`website/public/docs/models.*.md`）的提供商列表中增加该提供商，并且如果该提供商的配置与其他提供商有明显区别，应该单独开一节详细说明。
+3. （推荐）为内置的模型提前设置能力标签（例如是否支持图片、视频），这能够减少用户手动验证模型能力的开销。
 
 ---
 

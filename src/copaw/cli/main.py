@@ -7,9 +7,12 @@ import time
 
 import click
 
+from ..utils.stdio import ensure_standard_streams
+
 # On Windows, force UTF-8 for stdout/stderr so cron and other commands
 # can handle Chinese and other non-ASCII (Linux is UTF-8 by default).
 if sys.platform == "win32":
+    ensure_standard_streams()
     try:
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
@@ -134,6 +137,8 @@ class LazyGroup(click.Group):
         "agent": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
         "assets": ("copaw.cli.assets_cmd", "assets_group", ".assets_cmd"),
         "backup": ("copaw.cli.backup_cmd", "backup_group", ".backup_cmd"),
+        "plugin": ("copaw.cli.plugin_commands", "plugin", ".plugin_commands"),
+        "task": ("copaw.cli.task_cmd", "task_cmd", ".task_cmd"),
     },
 )
 @click.version_option(version=__version__, prog_name="CoPaw")

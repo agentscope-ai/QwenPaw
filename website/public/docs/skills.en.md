@@ -115,8 +115,7 @@ Adding skills to the pool:
 
 5. **Upload from a workspace**.
    On **Workspace → Skills**, click **Sync to Skill Pool** to publish a workspace skill to the
-   pool. After upload, the workspace entry is marked with `sync_to_pool.status =
-"synced"`.
+   pool.
 
 6. **Manual filesystem changes**.
    You can place folders directly under `$COPAW_WORKING_DIR/skill_pool/`, but this is not
@@ -129,18 +128,6 @@ Adding skills to the pool:
 Every workspace runs from its own local copies under
 `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`. Those copies are what the agent
 actually loads at runtime.
-
-The workspace tracks the relationship to the pool via `sync_to_pool`:
-
-| Status       | Meaning                                                     |
-| ------------ | ----------------------------------------------------------- |
-| `synced`     | Workspace copy matches the pool version                     |
-| `not_synced` | No corresponding pool entry exists for this workspace skill |
-| `conflict`   | Both exist but content differs                              |
-
-If a skill matters beyond one workspace, sync it to the pool early. Skills
-created only inside a workspace are easier to lose when that workspace is
-deleted, replaced, or manually cleaned up.
 
 ---
 
@@ -281,7 +268,8 @@ to `skill.json` as **disabled**. Enable them in the Console or CLI.
 Common workspace operations:
 
 - **Enable / disable:** Turn a skill on or off without changing its files.
-- **Delete:** Only disabled workspace skills can be deleted.
+- **Delete:** Delete a workspace skill. If the skill is currently enabled, it
+  is automatically disabled first.
 - **Upload to pool:** Publish a workspace skill to the shared pool for reuse by
   other workspaces.
 - **Edit channel scope / config:** Adjust where the skill applies and what
@@ -395,13 +383,16 @@ For `requires` metadata, the parser checks keys in order: `metadata.openclaw.req
 
 ## Upgrading from Earlier Versions
 
-Introduced in the latest version. Converts legacy `active_skills/` and `customized_skills/` directories into the unified workspace skill layout.
+Converts legacy `active_skills/` and `customized_skills/` directories into the
+unified workspace `skills/` layout.
 
-All migrations run automatically on first start. No manual file operations required.
-
-Back up any important custom skill content before upgrading. Migration reduces
-manual work, but you should still manage valuable skills carefully and keep
-your own copies when needed.
+Migration runs automatically on first start. Skills are **copied**, not moved —
+the original `active_skills/` and `customized_skills/` directories are
+preserved. Back up any important custom skill content before upgrading.
+Migration reduces manual work, but you should still manage valuable skills
+carefully and keep your own copies when needed. After verifying the migration
+result, you can manually delete the old directories. **Skills in the old
+`active_skills/` and `customized_skills/` directories are no longer read.**
 
 | Before               | After                                                                    |
 | -------------------- | ------------------------------------------------------------------------ |
@@ -409,9 +400,8 @@ your own copies when needed.
 | `customized_skills/` | Workspace `skills/` (disabled unless also active with identical content) |
 
 If the same skill name exists in both directories with **different content**,
-both copies are kept with `-active` / `-customize` suffixes. Builtin skills are
-managed separately and always synced from the packaged version. To share a
-workspace skill across agents, upload it to the skill pool manually via the UI.
+both copies are kept with `-active` / `-customize` suffixes. To share a
+workspace skill across agents, upload it to the skill pool via the UI.
 
 ---
 

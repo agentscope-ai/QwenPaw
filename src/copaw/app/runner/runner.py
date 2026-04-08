@@ -173,6 +173,11 @@ class AgentRunner(Runner):
                     remaining = record.extra.get("remaining_queue")
                     if isinstance(remaining, list):
                         approved_tool_call["_remaining_queue"] = remaining
+                    thinking_blocks = record.extra.get("thinking_blocks")
+                    if isinstance(thinking_blocks, list):
+                        approved_tool_call[
+                            "_thinking_blocks"
+                        ] = thinking_blocks
             return None, True, approved_tool_call
 
         await svc.resolve_request(
@@ -285,6 +290,8 @@ class AgentRunner(Runner):
 
             # Load agent-specific configuration
             agent_config = load_agent_config(self.agent_id)
+
+            logger.debug(f"Enabled MCP: {mcp_clients}")
 
             agent = CoPawAgent(
                 agent_config=agent_config,
@@ -411,7 +418,7 @@ class AgentRunner(Runner):
                 )
 
             if self._chat_manager is not None and chat is not None:
-                await self._chat_manager.update_chat(chat)
+                await self._chat_manager.touch_chat(chat.id)
 
     async def _cleanup_denied_session_memory(
         self,

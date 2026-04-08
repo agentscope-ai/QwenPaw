@@ -2,6 +2,8 @@ export { SkillCard } from "./SkillCard";
 export {
   SkillDrawer,
   parseFrontmatter,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
   type SkillDrawerFormValues,
 } from "./SkillDrawer";
 export { getFileIcon, getSkillVisual } from "./SkillCard";
@@ -9,22 +11,14 @@ export {
   getSkillDisplaySource,
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
-  getSkillSyncStatusLabel,
-} from "./skillMetadata";
+} from "@/utils/skill";
 export { useConflictRenameModal } from "./useConflictRenameModal";
 export { ImportHubModal } from "./ImportHubModal";
 export { PoolTransferModal } from "./PoolTransferModal";
+export { SkillFilterDropdown, TAG_PREFIX } from "./SkillFilterDropdown";
 
-export const SUPPORTED_SKILL_URL_PREFIXES = [
-  "https://skills.sh/",
-  "https://clawhub.ai/",
-  "https://skillsmp.com/",
-  "https://lobehub.com/",
-  "https://market.lobehub.com/",
-  "https://github.com/",
-  "https://modelscope.cn/skills/",
-];
-
-export function isSupportedSkillUrl(url: string): boolean {
-  return SUPPORTED_SKILL_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
-}
+// ─── Skill Hub URL constants (also available from "@/constants/skill") ────────
+export {
+  SUPPORTED_SKILL_URL_PREFIXES,
+  isSupportedSkillUrl,
+} from "@/constants/skill";

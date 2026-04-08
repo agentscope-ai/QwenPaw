@@ -10,6 +10,8 @@ from ..agents.skills_manager import (
     SkillPoolService,
     SkillService,
     read_skill_manifest,
+    reconcile_pool_manifest,
+    reconcile_workspace_manifest,
 )
 from ..constant import WORKING_DIR
 from ..config import load_config
@@ -126,12 +128,14 @@ def configure_skills_interactive(
 
     click.echo(f"Configuring skills for agent: {agent_id}\n")
 
+    reconcile_workspace_manifest(working_dir)
     skill_service = SkillService(working_dir)
     installed_skills = skill_service.list_all_skills()
     installed_by_name = {skill.name: skill for skill in installed_skills}
     pool_candidates = {}
     pool_service = SkillPoolService() if include_pool_candidates else None
     if pool_service is not None:
+        reconcile_pool_manifest()
         pool_candidates = {
             skill.name: skill
             for skill in pool_service.list_all_skills()
@@ -223,6 +227,7 @@ def list_cmd(agent_id: str) -> None:
 
     click.echo(f"Skills for agent: {agent_id}\n")
 
+    reconcile_workspace_manifest(working_dir)
     skill_service = SkillService(working_dir)
     all_skills = skill_service.list_all_skills()
     enabled = {

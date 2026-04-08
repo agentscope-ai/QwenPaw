@@ -83,6 +83,47 @@ def isolated_secret_dir(monkeypatch, tmp_path):
     return secret_dir
 
 
+def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
+    manager = ProviderManager()
+
+    expected_configs = {
+        "zhipu-cn": {
+            "base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "support_connection_check": True,
+        },
+        "zhipu-cn-codingplan": {
+            "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+            "support_connection_check": False,
+        },
+        "zhipu-intl": {
+            "base_url": "https://api.z.ai/api/paas/v4",
+            "support_connection_check": True,
+        },
+        "zhipu-intl-codingplan": {
+            "base_url": "https://api.z.ai/api/coding/paas/v4",
+            "support_connection_check": False,
+        },
+    }
+
+    for provider_id, expected in expected_configs.items():
+        provider = manager.get_provider(provider_id)
+
+        assert provider is not None
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.base_url == expected["base_url"]
+        assert provider.freeze_url is True
+        assert (
+            provider.support_connection_check
+            == expected["support_connection_check"]
+        )
+        assert [model.id for model in provider.models] == [
+            "glm-5",
+            "glm-5.1",
+            "glm-5-turbo",
+            "glm-5v-turbo",
+        ]
+
+
 async def test_add_custom_provider_and_reload_from_storage(
     isolated_secret_dir,
 ) -> None:
@@ -183,8 +224,8 @@ async def test_resume_local_model_restores_server_and_runtime_state(
         def __init__(self) -> None:
             self.restored_model_id = None
 
-        def check_llamacpp_installation(self) -> bool:
-            return True
+        def check_llamacpp_installation(self) -> tuple[bool, str]:
+            return True, ""
 
         def is_model_downloaded(self, requested_model_id: str) -> bool:
             return requested_model_id == model_id

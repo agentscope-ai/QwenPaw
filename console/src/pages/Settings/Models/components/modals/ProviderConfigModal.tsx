@@ -1,17 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { KeyboardEvent, ReactNode, UIEvent } from "react";
-import {
-  Form,
-  Input,
-  Modal,
-  message,
-  Button,
-  Select,
-} from "@agentscope-ai/design";
+import { Form, Input, Modal, Button, Select } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { ApiOutlined, DownOutlined, RightOutlined } from "@ant-design/icons";
 import type { ProviderConfigRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
+import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
 import styles from "../../index.module.less";
 
 interface ProviderConfigFormValues
@@ -273,6 +268,7 @@ export function ProviderConfigModal({
   const [formDirty, setFormDirty] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [form] = Form.useForm<ProviderConfigFormValues>();
+  const { message } = useAppMessage();
   const selectedChatModel = Form.useWatch("chat_model", form);
   const canEditBaseUrl = !provider.freeze_url;
 
@@ -402,7 +398,7 @@ export function ProviderConfigModal({
         });
 
         if (!result.success) {
-          message.error(result.message || t("models.testConnectionFailed"));
+          message.error(getLocalizedTestConnectionMessage(result, t));
           // For built-in providers, we want to enforce valid config before saving
           return;
         }
@@ -443,9 +439,9 @@ export function ProviderConfigModal({
         chat_model: values.chat_model,
       });
       if (result.success) {
-        message.success(result.message || t("models.testConnectionSuccess"));
+        message.success(getLocalizedTestConnectionMessage(result, t));
       } else {
-        message.warning(result.message || t("models.testConnectionFailed"));
+        message.warning(getLocalizedTestConnectionMessage(result, t));
       }
     } catch (error) {
       if (error && typeof error === "object" && "errorFields" in error) return;

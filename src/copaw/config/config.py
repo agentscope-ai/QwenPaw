@@ -2,7 +2,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal
+from typing import Optional, Union, Dict, List, Literal, Any
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
@@ -93,6 +93,15 @@ class QQConfig(BaseChannelConfig):
     client_secret: str = ""
     markdown_enabled: bool = True
     max_reconnect_attempts: int = 100
+
+
+class OneBotConfig(BaseChannelConfig):
+    """OneBot v11 channel: reverse WebSocket for NapCat/go-cqhttp/Lagrange."""
+
+    ws_host: str = "0.0.0.0"
+    ws_port: int = 6199
+    access_token: str = ""
+    share_session_in_group: bool = False
 
 
 class TelegramConfig(BaseChannelConfig):
@@ -212,6 +221,7 @@ class ChannelConfig(BaseModel):
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
     weixin: WeixinConfig = WeixinConfig()
+    onebot: OneBotConfig = OneBotConfig()
 
 
 class LastApiConfig(BaseModel):
@@ -406,6 +416,15 @@ class MemorySummaryConfig(BaseModel):
         description=(
             "Minimum relevance score for results when force memory"
             " search is enabled"
+        ),
+    )
+
+    force_memory_search_timeout: float = Field(
+        default=10.0,
+        gt=0.0,
+        description=(
+            "Timeout in seconds for force memory search. Increase this value"
+            " when using remote embedding APIs that may have higher latency."
         ),
     )
 
@@ -684,6 +703,10 @@ class AgentsConfig(BaseModel):
         default="default",
         description="Currently active agent ID",
     )
+    agent_order: List[str] = Field(
+        default_factory=lambda: ["default"],
+        description="Persisted UI order for configured agents",
+    )
     profiles: Dict[str, AgentProfileRef] = Field(
         default_factory=lambda: {
             "default": AgentProfileRef(
@@ -864,6 +887,10 @@ class BuiltinToolConfig(BaseModel):
         False,
         description="Whether to execute the tool asynchronously in background",
     )
+    icon: str | None = Field(
+        default=None,
+        description="Emoji icon for the tool",
+    )
 
 
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
@@ -873,68 +900,87 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="execute_shell_command",
             enabled=True,
             description="Execute shell commands",
+            icon="💻",
         ),
         "read_file": BuiltinToolConfig(
             name="read_file",
             enabled=True,
             description="Read file contents",
+            icon="📄",
         ),
         "write_file": BuiltinToolConfig(
             name="write_file",
             enabled=True,
             description="Write content to file",
+            icon="✍️",
         ),
         "edit_file": BuiltinToolConfig(
             name="edit_file",
             enabled=True,
             description="Edit file using find-and-replace",
+            icon="🖊️",
         ),
         "grep_search": BuiltinToolConfig(
             name="grep_search",
             enabled=True,
             description="Search file contents by pattern",
+            icon="🔍",
         ),
         "glob_search": BuiltinToolConfig(
             name="glob_search",
             enabled=True,
             description="Find files matching a glob pattern",
+            icon="📁",
         ),
         "browser_use": BuiltinToolConfig(
             name="browser_use",
             enabled=True,
             description="Browser automation and web interaction",
+            icon="🌐",
         ),
         "desktop_screenshot": BuiltinToolConfig(
             name="desktop_screenshot",
             enabled=True,
             description="Capture desktop screenshots",
+            icon="📸",
         ),
         "view_image": BuiltinToolConfig(
             name="view_image",
             enabled=True,
-            description="Load an image into LLM context "
-            "for visual analysis",
+            description="Load an image into LLM context for visual analysis",
             display_to_user=False,
+            icon="🖼️",
+        ),
+        "view_video": BuiltinToolConfig(
+            name="view_video",
+            enabled=True,
+            description="Load a video into LLM context for visual analysis",
+            display_to_user=False,
+            icon="🎥",
         ),
         "send_file_to_user": BuiltinToolConfig(
             name="send_file_to_user",
             enabled=True,
             description="Send files to user",
+            icon="📤",
         ),
         "get_current_time": BuiltinToolConfig(
             name="get_current_time",
             enabled=True,
             description="Get current date and time",
+            icon="🕐",
         ),
         "set_user_timezone": BuiltinToolConfig(
             name="set_user_timezone",
             enabled=True,
             description="Set user timezone",
+            icon="🌍",
         ),
         "get_token_usage": BuiltinToolConfig(
             name="get_token_usage",
             enabled=True,
             description="Get llm token usage",
+            icon="📊",
         ),
     }
 
@@ -952,6 +998,8 @@ class ToolsConfig(BaseModel):
         for name, tc in _default_builtin_tools().items():
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc
+            elif self.builtin_tools[name].icon is None:
+                self.builtin_tools[name].icon = tc.icon
         return self
 
 
@@ -1077,6 +1125,11 @@ class Config(BaseModel):
         default_factory=detect_system_timezone,
         description="User IANA timezone (e.g. Asia/Shanghai). "
         "Defaults to the system timezone.",
+    )
+    plugins: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Plugin configurations. Key is plugin_id, "
+        "value is plugin-specific config dict.",
     )
 
 

@@ -22,8 +22,6 @@ Security Architecture:
 
 **Additional feature**: Web Authentication — Optional login protection for the Console interface
 
-<!-- TODO: Add architecture diagram here -->
-
 **Key concepts**:
 
 - **Tool Guard** inspects tool calls in real-time before execution, using regex rules to detect dangerous patterns
@@ -148,7 +146,7 @@ Each custom rule is a JSON object with the following fields:
 
 In the Console under **Settings → Security → Tool Guard** tab, you can:
 
-<!-- TODO: Add screenshot of Tool Guard console interface -->
+![tool guard](https://img.alicdn.com/imgextra/i3/O1CN01RI8YBr1JorIWpB4uI_!!6000000001076-2-tps-3822-2064.png)
 
 - **Enable/disable Tool Guard** — Master switch; when disabled, all tool calls bypass checks
 - **Select guard scope** — Leave empty to guard all tools, or specify a list of tools to guard
@@ -265,7 +263,7 @@ In `config.json`:
 
 In the Console under **Settings → Security → File Guard** tab, you can:
 
-<!-- TODO: Add screenshot of File Guard console interface -->
+![file guard](https://img.alicdn.com/imgextra/i1/O1CN01tOHz591o77Z0SsWXA_!!6000000005177-2-tps-3822-2064.png)
 
 - **Enable/disable File Guard** — Independent toggle; controls file protection without affecting other Tool Guard features
 - **View protection list** — Table display of all protected paths:
@@ -337,6 +335,9 @@ Alert records include:
 
 ### Whitelist
 
+**Where to add:** In the Console, go to **Settings → Security → Skill Scanner**, open the **Scan Alerts** tab, and click the shield icon (**Add to Whitelist**) on the row for that skill’s alert. Entries appear under the **Whitelist** tab for review and removal (see **Scan Alerts** and **Console management** above).
+**Prerequisite:** The skill must have been scanned and show up as **blocked** or **warned** before it appears in Scan Alerts; you cannot add a whitelist entry from the Console with no prior alert. Advanced: edit `security.skill_scanner.whitelist` in `config.json` (see **Configuration** below).
+
 Whitelisted skills bypass the security scan. The whitelist mechanism is based on **content hash verification**:
 
 - Each whitelist entry contains:
@@ -356,7 +357,7 @@ The whitelist is useful for:
 
 In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
-<!-- TODO: Add screenshot of Skill Scanner console interface with tabs -->
+![skill scanner](https://img.alicdn.com/imgextra/i2/O1CN01oZHdxC1M983gp03Ox_!!6000000001391-2-tps-3822-2064.png)
 
 **Configuration area**:
 
@@ -365,7 +366,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
 **Scan Alerts tab** (shows badge count when alerts exist):
 
-<!-- TODO: Add screenshot of Scan Alerts tab with example alerts -->
+![alarm](https://img.alicdn.com/imgextra/i4/O1CN01B3j7d21yhtWQ7b0NB_!!6000000006611-2-tps-3822-2064.png)
 
 - View all blocked and warned records
 - Click eye icon to view detailed findings
@@ -375,7 +376,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
 **Whitelist tab** (shows badge count when entries exist):
 
-<!-- TODO: Add screenshot of Whitelist tab -->
+![white list](https://img.alicdn.com/imgextra/i1/O1CN01yZTkBE1EmVBHhaNwh_!!6000000000394-2-tps-3822-2064.png)
 
 - View all whitelisted skills
 - Shows skill name, content hash (first 16 chars), added time
@@ -535,7 +536,7 @@ Here's a complete `config.json` with all security features configured:
 
 CoPaw supports optional web login authentication to protect the Console from unauthorized access. Authentication is **disabled by default** and must be explicitly enabled via the `COPAW_AUTH_ENABLED` environment variable.
 
-<!-- TODO: Add screenshot of login page and registration page -->
+![login](https://img.alicdn.com/imgextra/i3/O1CN01SP7Ppd289g5e9kKO6_!!6000000007890-2-tps-3822-2064.png)
 
 ### How it works
 

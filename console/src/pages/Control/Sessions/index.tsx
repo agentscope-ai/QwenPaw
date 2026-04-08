@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
-import {
-  Card,
-  Form,
-  Modal,
-  Table,
-  message,
-  Button,
-} from "@agentscope-ai/design";
+import { Card, Form, Modal, Table, Button } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import {
   createColumns,
@@ -40,6 +34,8 @@ function SessionsPage() {
   const [filterUserId, setFilterUserId] = useState<string>("");
   const [filterChannel, setFilterChannel] = useState<string>("");
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+
+  const { message } = useAppMessage();
 
   useEffect(() => {
     const fetchChannelTypes = async () => {
@@ -125,7 +121,6 @@ function SessionsPage() {
       setSaving(true);
       try {
         const updated = {
-          ...editingSession,
           name: values.name,
         };
         const success = await updateSession(editingSession.id, updated);

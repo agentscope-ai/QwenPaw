@@ -501,6 +501,12 @@ class BaseChannel(ABC):
                     to_handle,
                     f"Error: {err_msg}",
                 )
+            else:
+                await self._on_process_completed(
+                    request,
+                    to_handle,
+                    send_meta,
+                )
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
@@ -717,6 +723,39 @@ class BaseChannel(ABC):
                         return getattr(part, "text", "") or ""
         return ""
 
+    def _debounce_payload(self, payload: Any) -> bool:
+        """Apply no-text debounce on payload; return False if buffered."""
+        if isinstance(payload, dict):
+            content_parts = payload.get("content_parts") or []
+        elif hasattr(payload, "input") and payload.input:
+            content_parts = getattr(payload.input[0], "content", None) or []
+        else:
+            return True
+
+        if not content_parts:
+            return True
+
+        session_id = self.get_debounce_key(payload)
+        should_process, merged = self._apply_no_text_debounce(
+            session_id,
+            content_parts,
+        )
+        if not should_process:
+            return False
+
+        # Write merged parts back so downstream paths see full content.
+        if isinstance(payload, dict):
+            payload["content_parts"] = merged
+        elif hasattr(payload, "input") and payload.input:
+            first = payload.input[0]
+            if hasattr(first, "model_copy"):
+                payload.input[0] = first.model_copy(
+                    update={"content": merged},
+                )
+            elif hasattr(first, "content"):
+                first.content = merged
+        return True
+
     async def _consume_one_request(self, payload: Any) -> None:
         """
         Convert payload to request, apply no-text debounce, run _process,
@@ -730,6 +769,9 @@ class BaseChannel(ABC):
             "base _consume_one_request: "
             f"has_workspace={self._workspace is not None}",
         )
+
+        if not self._debounce_payload(payload):
+            return
 
         if self._workspace is not None and self._command_registry is not None:
             query_text = self._extract_query_from_payload(payload)
@@ -759,25 +801,6 @@ class BaseChannel(ABC):
             # Always attach so channel _before_consume_process can use it
             # (e.g. Feishu save receive_id for cron send).
             setattr(request, "channel_meta", meta_from_payload)
-        session_id = getattr(request, "session_id", "") or ""
-        if request.input:
-            contents = list(getattr(request.input[0], "content", None) or [])
-            should_process, merged = self._apply_no_text_debounce(
-                session_id,
-                contents,
-            )
-            if not should_process:
-                return
-            if merged and (
-                hasattr(request.input[0], "model_copy")
-                or hasattr(request.input[0], "content")
-            ):
-                if hasattr(request.input[0], "model_copy"):
-                    request.input[0] = request.input[0].model_copy(
-                        update={"content": merged},
-                    )
-                else:
-                    request.input[0].content = merged
         to_handle = self.get_to_handle_from_request(request)
         await self._before_consume_process(request)
         # Prefer meta built from payload so session_webhook is present when
@@ -832,6 +855,12 @@ class BaseChannel(ABC):
                     request,
                     to_handle,
                     f"Error: {err_msg}",
+                )
+            else:
+                await self._on_process_completed(
+                    request,
+                    to_handle,
+                    send_meta,
                 )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
@@ -890,6 +919,17 @@ class BaseChannel(ABC):
         event: Any,
     ) -> None:
         """Hook: response event received. Default: no-op."""
+
+    async def _on_process_completed(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Hook called after all events processed without error.
+
+        Override for post-processing (e.g. Feishu DONE reaction).
+        """
 
     async def _on_consume_error(
         self,

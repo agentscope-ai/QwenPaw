@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Drawer } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine } from "@agentscope-ai/icons";
@@ -8,6 +8,7 @@ import {
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
+import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import ChatSessionItem from "../ChatSessionItem";
@@ -22,7 +23,8 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   meta?: Record<string, unknown>;
-  status?: "idle" | "running";
+  status?: ChatStatus;
+  generating?: boolean;
 }
 
 interface ChatSessionDrawerProps {
@@ -89,6 +91,31 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setSessions(list);
   }, [setSessions]);
 
+  /** Open drawer → refresh session list (same deduped fetch as getSessionList). */
+  useEffect(() => {
+    if (!props.open) return;
+
+    let isCancelled = false;
+
+    const fetchSessions = async () => {
+      try {
+        const list = await sessionApi.getSessionList();
+        if (!isCancelled) {
+          setSessions(list);
+        }
+      } catch (error) {
+        // It's good practice to log errors.
+        console.error("Failed to refresh session list:", error);
+      }
+    };
+
+    void fetchSessions();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [props.open, setSessions]);
+
   const handleSessionClick = useCallback(
     (sessionId: string) => {
       setCurrentSessionId(sessionId);
@@ -132,7 +159,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setEditValue(value);
   }, []);
 
-  /** Submit rename: call updateChat with all original fields overriding only name, then refresh */
+  /** Submit rename: send a minimal patch so stale session fields cannot overwrite the title. */
   const handleEditSubmit = useCallback(async () => {
     if (!editingSessionId) return;
 
@@ -143,16 +170,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     const newName = editValue.trim();
 
     if (backendId && newName && session) {
-      // Reconstruct full ChatSpec from ExtendedSession, replacing only the name
       await chatApi.updateChat(backendId, {
-        id: backendId,
         name: newName,
-        session_id: session.sessionId as string,
-        user_id: session.userId as string,
-        channel: session.channel as string,
-        created_at: session.createdAt ?? null,
-        meta: session.meta,
-        status: session.status,
       });
     }
 
@@ -226,6 +245,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
                 time={formatCreatedAt(ext.createdAt ?? null)}
                 channelKey={channelKey || undefined}
                 channelLabel={channelLabel}
+                chatStatus={ext.status}
+                generating={ext.generating}
                 active={session.id === currentSessionId}
                 editing={editingSessionId === session.id}
                 editValue={

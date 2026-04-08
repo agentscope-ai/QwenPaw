@@ -23,6 +23,10 @@ export interface ChatHistory {
   status?: ChatStatus; // Conversation status: idle or running
 }
 
+export interface ChatUpdateRequest {
+  name?: string;
+}
+
 export interface ChatDeleteResponse {
   success: boolean;
   chat_id: string;

@@ -529,17 +529,28 @@ CoPaw needs an LLM provider to work. You can set it up in three ways:
 
 **Built-in providers:**
 
-| Provider           | ID                  | Default Base URL                                    | API Key Prefix |
-| ------------------ | ------------------- | --------------------------------------------------- | -------------- |
-| ModelScope         | `modelscope`        | `https://api-inference.modelscope.cn/v1`            | `ms`           |
-| DashScope          | `dashscope`         | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`           |
-| Aliyun Coding Plan | `aliyun-codingplan` | `https://coding.dashscope.aliyuncs.com/v1`          | `sk-sp`        |
-| OpenAI             | `openai`            | `https://api.openai.com/v1`                         | _(any)_        |
-| Azure OpenAI       | `azure-openai`      | _(you set it)_                                      | _(any)_        |
-| Anthropic          | `anthropic`         | `https://api.anthropic.com`                         | _(any)_        |
-| Ollama             | `ollama`            | `http://localhost:11434`                            | _(none)_       |
-| LM Studio          | `lmstudio`          | `http://localhost:1234/v1`                          | _(none)_       |
-| Custom             | `custom`            | _(you set it)_                                      | _(any)_        |
+| Provider                     | ID                      | Default Base URL                                    | API Key Prefix |
+| ---------------------------- | ----------------------- | --------------------------------------------------- | -------------- |
+| CoPaw Local                  | `copaw-local`           | _(local)_                                           | _(none)_       |
+| Ollama                       | `ollama`                | `http://localhost:11434`                            | _(none)_       |
+| LM Studio                    | `lmstudio`              | `http://localhost:1234/v1`                          | _(none)_       |
+| ModelScope                   | `modelscope`            | `https://api-inference.modelscope.cn/v1`            | `ms`           |
+| DashScope                    | `dashscope`             | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`           |
+| Aliyun Coding Plan           | `aliyun-codingplan`     | `https://coding.dashscope.aliyuncs.com/v1`          | `sk-sp`        |
+| OpenAI                       | `openai`                | `https://api.openai.com/v1`                         | _(any)_        |
+| Azure OpenAI                 | `azure-openai`          | _(you set it)_                                      | _(any)_        |
+| Anthropic                    | `anthropic`             | `https://api.anthropic.com`                         | _(any)_        |
+| Google Gemini                | `gemini`                | `https://generativelanguage.googleapis.com`         | _(any)_        |
+| DeepSeek                     | `deepseek`              | `https://api.deepseek.com`                          | `sk-`          |
+| Kimi (China)                 | `kimi-cn`               | `https://api.moonshot.cn/v1`                        | _(any)_        |
+| Kimi (International)         | `kimi-intl`             | `https://api.moonshot.ai/v1`                        | _(any)_        |
+| MiniMax (China)              | `minimax-cn`            | `https://api.minimaxi.com/anthropic`                | _(any)_        |
+| MiniMax (International)      | `minimax`               | `https://api.minimax.io/anthropic`                  | _(any)_        |
+| Zhipu (BigModel)             | `zhipu-cn`              | `https://open.bigmodel.cn/api/paas/v4`              | _(any)_        |
+| Zhipu Coding Plan (BigModel) | `zhipu-cn-codingplan`   | `https://open.bigmodel.cn/api/coding/paas/v4`       | _(any)_        |
+| Zhipu (Z.AI)                 | `zhipu-intl`            | `https://api.z.ai/api/paas/v4`                      | _(any)_        |
+| Zhipu Coding Plan (Z.AI)     | `zhipu-intl-codingplan` | `https://api.z.ai/api/coding/paas/v4`               | _(any)_        |
+| Custom                       | `custom`                | _(you set it)_                                      | _(any)_        |
 
 For each provider you need to set:
 

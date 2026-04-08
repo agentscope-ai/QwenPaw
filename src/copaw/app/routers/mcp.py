@@ -129,6 +129,20 @@ class MCPClientUpdateRequest(BaseModel):
     )
 
 
+def _restore_original_values(
+    incoming: Dict[str, str],
+    existing: Dict[str, str],
+) -> Dict[str, str]:
+    """Preserve original values when incoming matches their masked form."""
+    restored: Dict[str, str] = {}
+    for k, v in incoming.items():
+        if k in existing and v == _mask_env_value(existing[k]):
+            restored[k] = existing[k]
+        else:
+            restored[k] = v
+    return restored
+
+
 def _mask_env_value(value: str) -> str:
     """
     Mask environment variable value showing first 2-3 chars and last 4 chars.
@@ -309,11 +323,18 @@ async def update_mcp_client(
     # Update fields if provided
     update_data = updates.model_dump(exclude_unset=True)
 
-    # Special handling for env: merge with existing, don't replace
+    # Restore masked env/header values to originals before replacing
     if "env" in update_data and update_data["env"] is not None:
-        updated_env = existing.env.copy() if existing.env else {}
-        updated_env.update(update_data["env"])
-        update_data["env"] = updated_env
+        update_data["env"] = _restore_original_values(
+            update_data["env"],
+            existing.env or {},
+        )
+
+    if "headers" in update_data and update_data["headers"] is not None:
+        update_data["headers"] = _restore_original_values(
+            update_data["headers"],
+            existing.headers or {},
+        )
 
     merged_data = existing.model_dump(mode="json")
     merged_data.update(update_data)
