@@ -344,11 +344,12 @@ def desktop_cmd(
                             "'QwenPaw Desktop (Debug)' and attach the terminal "
                             "output.",
                         )
-                    _abort_desktop_launch(
-                        "Failed to start the embedded desktop window. "
-                        "Run with '--log-level debug' and inspect the "
-                        "terminal output for details.",
-                    )
+                    else:
+                        _abort_desktop_launch(
+                            "Failed to start the embedded desktop window. "
+                            "Run with '--log-level debug' and inspect the "
+                            "terminal output for details.",
+                        )
             else:
                 logger.error("Server did not become ready in time.")
                 click.echo(
