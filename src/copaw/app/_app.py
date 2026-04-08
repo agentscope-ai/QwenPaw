@@ -225,6 +225,47 @@ async def lifespan(
 
     provider_manager.start_local_model_resume(local_model_manager)
 
+    # ==================== Plugin System Initialization ====================
+    logger.info("Initializing plugin system...")
+
+    from ..plugins.loader import PluginLoader
+    from ..plugins.runtime import RuntimeHelpers
+    from ..config.utils import get_plugins_dir
+
+    # Define plugin directories (user plugins only)
+    plugin_dirs = [
+        get_plugins_dir(),  # User installed plugins
+    ]
+
+    # Create plugin loader
+    plugin_loader = PluginLoader(plugin_dirs)
+
+    # Load all plugins (without config for now)
+    loaded_plugins = plugin_loader.load_all_plugins(configs=None)
+    logger.info(f"✓ Loaded {len(loaded_plugins)} plugin(s)")
+
+    # Set runtime helpers
+    runtime_helpers = RuntimeHelpers(provider_manager=provider_manager)
+    plugin_loader.registry.set_runtime_helpers(runtime_helpers)
+
+    # Register plugin providers to ProviderManager
+    for (
+        provider_id,
+        provider_reg,
+    ) in plugin_loader.registry.get_all_providers().items():
+        provider_manager.register_plugin_provider(
+            provider_id=provider_id,
+            provider_class=provider_reg.provider_class,
+            label=provider_reg.label,
+            base_url=provider_reg.base_url,
+            metadata=provider_reg.metadata,
+        )
+        logger.info(f"✓ Registered plugin provider: {provider_id}")
+
+    # Expose to application
+    app.state.plugin_loader = plugin_loader
+    app.state.plugin_registry = plugin_loader.registry
+
     # Setup approval service with default agent's channel_manager
     default_agent = await multi_agent_manager.get_agent("default")
     if default_agent.channel_manager:
