@@ -46,7 +46,49 @@
     "environments": "环境变量",
     "security": "安全",
     "tokenUsage": "Token 消耗",
-    "voiceTranscription": "语音转写"
+    "voiceTranscription": "语音转写",
+    "debug": "调试"
+  },
+  "debug": {
+    "title": "调试",
+    "desc": "此页面会收集前端 console 日志、未捕获的运行时错误，以及后端守护进程日志，方便排查问题。前端日志仅保存在浏览器本地，并会在多个标签页间同步。",
+    "href": "URL",
+    "searchPlaceholder": "搜索日志...",
+    "level": { "all": "全部" },
+    "frontend": {
+      "title": "前端日志",
+      "total": "当前显示 {{count}} 条"
+    },
+    "backend": {
+      "title": "后端日志",
+      "autoRefresh": "自动刷新",
+      "newestFirst": "最新在前",
+      "updatedAt": "更新时间",
+      "path": "日志文件",
+      "notFound": "暂未找到后端日志文件。",
+      "placeholder": "后端日志会显示在这里。",
+      "loadFailed": "加载后端日志失败",
+      "searchPlaceholder": "搜索后端日志..."
+    },
+    "actions": {
+      "copyJson": "复制 JSON",
+      "downloadJson": "下载 JSON",
+      "clear": "清空",
+      "log": "记录测试日志",
+      "debug": "记录测试调试日志",
+      "info": "记录测试信息",
+      "warn": "记录测试警告",
+      "throw": "抛出测试错误",
+      "reject": "触发 Promise 拒绝",
+      "refreshBackend": "刷新后端日志",
+      "copyBackend": "复制后端日志"
+    },
+    "columns": {
+      "time": "时间",
+      "level": "级别",
+      "source": "来源",
+      "message": "内容"
+    }
   },
   "workspace": {
     "title": "文件",

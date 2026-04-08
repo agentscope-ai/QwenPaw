@@ -35,6 +35,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   security: "/security",
   "token-usage": "/token-usage",
   "voice-transcription": "/voice-transcription",
+  debug: "/debug",
 };
 
 export const KEY_TO_LABEL: Record<string, string> = {
@@ -54,6 +55,7 @@ export const KEY_TO_LABEL: Record<string, string> = {
   security: "nav.security",
   "token-usage": "nav.tokenUsage",
   agents: "nav.agents",
+  debug: "nav.debug",
 };
 
 // ── URL helpers ───────────────────────────────────────────────────────────
@@ -83,7 +85,7 @@ export const compareVersions = (a: string, b: string): number => {
   const normalise = (v: string) =>
     v
       .replace(/\.post(\d+)/i, ".$1")
-      .split(/[.\-]/)
+      .split(/[.-]/)
       .map((seg) => (isNaN(Number(seg)) ? 0 : Number(seg)));
   const aN = normalise(a);
   const bN = normalise(b);

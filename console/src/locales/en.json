@@ -46,7 +46,49 @@
     "environments": "Environments",
     "security": "Security",
     "tokenUsage": "Token Usage",
-    "voiceTranscription": "Voice Transcription"
+    "voiceTranscription": "Voice Transcription",
+    "debug": "Debug"
+  },
+  "debug": {
+    "title": "Debug",
+    "desc": "This page collects frontend console logs, uncaught runtime errors, and backend daemon logs to help you track issues. Frontend logs are stored locally in your browser and sync across tabs.",
+    "href": "URL",
+    "searchPlaceholder": "Search logs...",
+    "level": { "all": "All" },
+    "frontend": {
+      "title": "Frontend logs",
+      "total": "Showing {{count}} entries"
+    },
+    "backend": {
+      "title": "Backend logs",
+      "autoRefresh": "Auto refresh",
+      "newestFirst": "Newest first",
+      "updatedAt": "Updated at",
+      "path": "Log file",
+      "notFound": "Backend log file was not found yet.",
+      "placeholder": "Backend log output will appear here.",
+      "loadFailed": "Failed to load backend logs",
+      "searchPlaceholder": "Search backend logs..."
+    },
+    "actions": {
+      "copyJson": "Copy JSON",
+      "downloadJson": "Download JSON",
+      "clear": "Clear",
+      "log": "Log test message",
+      "debug": "Debug test message",
+      "info": "Info test message",
+      "warn": "Warn test message",
+      "throw": "Throw test error",
+      "reject": "Reject test promise",
+      "refreshBackend": "Refresh backend logs",
+      "copyBackend": "Copy backend logs"
+    },
+    "columns": {
+      "time": "Time",
+      "level": "Level",
+      "source": "Source",
+      "message": "Message"
+    }
   },
   "voiceTranscription": {
     "title": "Voice Transcription",

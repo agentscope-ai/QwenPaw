@@ -43,7 +43,47 @@
     "tokenUsage": "トークン使用量",
     "tools": "ツール",
     "voiceTranscription": "音声文字起こし",
-    "agents": "エージェント管理"
+    "agents": "エージェント管理",
+    "debug": "デバッグ"
+  },
+  "debug": {
+    "title": "デバッグ",
+    "desc": "このページはフロントエンドの console ログ、未捕捉の実行時エラー、バックエンドのデーモンログを収集して問題調査を支援します。フロントエンドログはブラウザにローカル保存され、タブ間で同期されます。",
+    "href": "URL",
+    "searchPlaceholder": "ログを検索...",
+    "level": { "all": "すべて" },
+    "frontend": {
+      "title": "フロントエンドログ",
+      "total": "{{count}} 件を表示中"
+    },
+    "backend": {
+      "title": "バックエンドログ",
+      "autoRefresh": "自動更新",
+      "updatedAt": "更新時刻",
+      "path": "ログファイル",
+      "notFound": "バックエンドログファイルはまだ見つかっていません。",
+      "placeholder": "バックエンドログがここに表示されます。",
+      "loadFailed": "バックエンドログの読み込みに失敗しました"
+    },
+    "actions": {
+      "copyJson": "JSON をコピー",
+      "downloadJson": "JSON をダウンロード",
+      "clear": "クリア",
+      "log": "テストログを記録",
+      "debug": "テストデバッグログを記録",
+      "info": "テスト情報を記録",
+      "warn": "テスト警告を記録",
+      "throw": "テストエラーを投げる",
+      "reject": "Promise の reject を発生",
+      "refreshBackend": "バックエンドログを更新",
+      "copyBackend": "バックエンドログをコピー"
+    },
+    "columns": {
+      "time": "時間",
+      "level": "レベル",
+      "source": "ソース",
+      "message": "内容"
+    }
   },
   "agent": {
     "parent": "設定",
