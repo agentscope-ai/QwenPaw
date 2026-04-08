@@ -242,15 +242,25 @@ async def get_backend_debug_logs(
 ) -> dict:
     """Return the tail of WORKING_DIR/copaw.log for the debug UI."""
     log_path = (WORKING_DIR / "copaw.log").resolve()
-    exists = log_path.is_file()
-    return {
-        "path": str(log_path),
-        "exists": exists,
-        "lines": lines,
-        "updated_at": log_path.stat().st_mtime if exists else None,
-        "size": log_path.stat().st_size if exists else 0,
-        "content": _tail_text_file(log_path, lines=lines),
-    }
+    try:
+        st = log_path.stat()
+        return {
+            "path": str(log_path),
+            "exists": True,
+            "lines": lines,
+            "updated_at": st.st_mtime,
+            "size": st.st_size,
+            "content": _tail_text_file(log_path, lines=lines),
+        }
+    except FileNotFoundError:
+        return {
+            "path": str(log_path),
+            "exists": False,
+            "lines": lines,
+            "updated_at": None,
+            "size": 0,
+            "content": "",
+        }
 
 
 @router.get("/push-messages")
