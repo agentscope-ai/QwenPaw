@@ -181,6 +181,7 @@
     "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/, or https://modelscope.cn/skills/",
     "type": "Type",
     "skillDescription": "Description",
+    "tags": "Tags",
     "builtin": "Built-in",
     "custom": "Custom",
     "createSkill": "Create Skill",
@@ -570,7 +571,9 @@
     "weixinScanHint": "Scan the QR code with WeChat, then click Save",
     "weixinQrcodeFailed": "Failed to fetch QR code, please try again",
     "weixinLoginSuccess": "WeChat login successful, token has been filled in",
-    "weixinQrcodeExpired": "QR code expired, please get a new one"
+    "weixinQrcodeExpired": "QR code expired, please get a new one",
+    "onebotShareSessionInGroup": "Share Session in Group",
+    "onebotShareSessionInGroupTooltip": "When enabled, all group members share the same conversation session. When disabled, each member has their own session."
   },
   "sessions": {
     "title": "Sessions",

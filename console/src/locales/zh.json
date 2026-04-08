@@ -147,6 +147,7 @@
     "invalidSkillUrlSource": "技能 URL 当前需要以 https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/ 或 https://modelscope.cn/skills/ 开头",
     "type": "类型",
     "skillDescription": "描述",
+    "tags": "标签",
     "builtin": "内置",
     "custom": "自定义",
     "createSkill": "创建技能",
@@ -476,7 +477,8 @@
       "feishu": "飞书",
       "wecom": "企业微信",
       "weixin": "微信",
-      "xiaoyi": "小艺"
+      "xiaoyi": "小艺",
+      "onebot": "OneBot"
     },
     "pleaseInputDbPath": "请输入数据库路径",
     "pleaseInputPollInterval": "请输入轮询间隔",
@@ -543,7 +545,9 @@
     "weixinScanHint": "请用微信扫描二维码，扫码成功后点击保存",
     "weixinQrcodeFailed": "获取二维码失败，请稍后重试",
     "weixinLoginSuccess": "微信扫码登录成功，Token 已填入",
-    "weixinQrcodeExpired": "二维码已过期，请重新获取"
+    "weixinQrcodeExpired": "二维码已过期，请重新获取",
+    "onebotShareSessionInGroup": "群聊共享会话",
+    "onebotShareSessionInGroupTooltip": "开启后，群内所有成员共享同一个会话。关闭后，每个成员拥有独立会话。"
   },
   "sessions": {
     "title": "会话",

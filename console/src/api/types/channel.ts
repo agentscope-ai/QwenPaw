@@ -111,6 +111,13 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
+export interface OneBotConfig extends BaseChannelConfig {
+  ws_host: string;
+  ws_port: number;
+  access_token: string;
+  share_session_in_group: boolean;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -125,6 +132,7 @@ export interface ChannelConfig {
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
   xiaoyi: XiaoYiConfig;
+  onebot: OneBotConfig;
 }
 
 export type SingleChannelConfig =
@@ -140,4 +148,5 @@ export type SingleChannelConfig =
   | MattermostConfig
   | WecomConfig
   | VoiceChannelConfig
-  | XiaoYiConfig;
+  | XiaoYiConfig
+  | OneBotConfig;

@@ -806,6 +806,15 @@ function SkillsPage() {
                     <p className={styles.listItemDesc}>
                       {skill.description || "-"}
                     </p>
+                    {!!skill.tags?.length && (
+                      <div className={styles.listItemTags}>
+                        {skill.tags.map((tag) => (
+                          <span key={tag} className={styles.tagChip}>
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className={styles.listItemRight}>
