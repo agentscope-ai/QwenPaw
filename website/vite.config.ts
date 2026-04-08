@@ -15,33 +15,5 @@ export default defineConfig(({ mode }) => {
       },
     },
     base: env.VITE_BASE_PATH || "/",
-    build: {
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            markdown: [
-              "react-markdown",
-              "remark-gfm",
-              "rehype-highlight",
-              "rehype-raw",
-              "highlight.js",
-              "react-syntax-highlighter",
-            ],
-            mermaid: ["mermaid"],
-            router: ["react-router-dom"],
-            i18n: ["i18next", "react-i18next"],
-          },
-        },
-      },
-    },
-    optimizeDeps: {
-      include: [
-        "react",
-        "react-dom",
-        "react-router-dom",
-        "i18next",
-        "react-i18next",
-      ],
-    },
   };
 });

@@ -1,29 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
 
-@font-face {
-  font-family: "Newsreader";
-  src: url("/font/Newsreader.woff2") format("woff2");
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Inter";
-  src: url("/font/Inter.woff2") format("woff2");
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Noto Serif SC";
-  src: url("/font/NotoSerifSC.woff2") format("woff2");
-  font-display: swap;
-}
-@font-face {
-  font-family: "Noto Sans SC";
-  src: url("/font/NotoSansSC.woff2") format("woff2");
-  font-display: swap;
-}
 @custom-variant dark (&:is(.dark *));
 
 @theme {

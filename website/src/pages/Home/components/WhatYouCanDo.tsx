@@ -78,31 +78,29 @@ export function CopawWhatYouCanDo() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
-        <motion.div
+        <motion.img
           key={`${active.key}-bg`}
-          className="absolute inset-0"
-          initial={{ opacity: 0, scale: 1.04 }}
-          animate={{ opacity: 1, scale: 1 }}
+          src={active.background}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          className="absolute inset-0 h-full w-full object-cover object-bottom opacity-90"
+          initial={{ opacity: 0, filter: "blur(10px)" }}
+          animate={{ opacity: 1, filter: "blur(0px)" }}
           transition={{ duration: 1.15, ease: "easeOut" }}
-        >
-          <img
-            src={active.background}
-            alt=""
-            aria-hidden
-            loading="lazy"
-            className="h-full w-full object-cover object-bottom opacity-90"
-          />
-        </motion.div>
+        />
         <motion.div
           key={`${active.key}-frame`}
           className="relative z-10 -mb-[18px] overflow-hidden p-4 pb-0 md:p-10 md:pb-0"
           initial={{
             opacity: 0,
             y: 56,
+            filter: "blur(6px)",
           }}
           animate={{
             opacity: 1,
             y: 0,
+            filter: "blur(0px)",
           }}
           transition={{
             duration: 1.05,
@@ -110,9 +108,13 @@ export function CopawWhatYouCanDo() {
             ease: [0.22, 1, 0.36, 1],
           }}
         >
-          <motion.div
+          <motion.img
             key={`${active.key}-preview`}
-            className="w-full"
+            src={active.preview}
+            alt=""
+            aria-hidden
+            className="block w-full object-cover object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)] rounded-[8px]"
+            loading="lazy"
             initial={{ opacity: 0, y: 32 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{
@@ -120,15 +122,7 @@ export function CopawWhatYouCanDo() {
               delay: 0.2,
               ease: [0.22, 1, 0.36, 1],
             }}
-          >
-            <img
-              src={active.preview}
-              alt=""
-              aria-hidden
-              className="block w-full object-cover object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)] rounded-[8px]"
-              loading="lazy"
-            />
-          </motion.div>
+          />
         </motion.div>
       </motion.div>
     );

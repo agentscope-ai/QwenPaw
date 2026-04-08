@@ -13,7 +13,7 @@ export interface SiteConfig {
   modelScopeForkUrl?: string;
 }
 
-export const defaultConfig: SiteConfig = {
+const defaultConfig: SiteConfig = {
   projectName: "CoPaw",
   projectTaglineEn: "Works for you, grows with you",
   projectTaglineZh: "懂你所需，伴你左右",
