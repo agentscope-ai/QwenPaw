@@ -1,52 +1,54 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { loadSiteConfig, type SiteConfig } from "@/config";
+import { defaultConfig, loadSiteConfig, type SiteConfig } from "@/config";
 import { SiteConfigProvider } from "@/config-context";
 import { SiteLayout } from "@/components/SiteLayout";
 import { Home } from "@/pages/Home";
-import { Docs } from "@/pages/Docs";
-import { ReleaseNotes } from "@/pages/ReleaseNotes";
-import { Downloads } from "@/pages/Downloads";
 import "@/index.css";
+
+const Docs = lazy(() =>
+  import("@/pages/Docs").then((m) => ({ default: m.Docs })),
+);
+const ReleaseNotes = lazy(() =>
+  import("@/pages/ReleaseNotes").then((m) => ({ default: m.ReleaseNotes })),
+);
+const Downloads = lazy(() =>
+  import("@/pages/Downloads").then((m) => ({ default: m.Downloads })),
+);
 
 export default function App() {
   const { t } = useTranslation();
-  const [config, setConfig] = useState<SiteConfig | null>(null);
+  const [config, setConfig] = useState<SiteConfig>(defaultConfig);
 
   useEffect(() => {
     loadSiteConfig().then(setConfig);
   }, []);
 
-  if (!config) {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--text-muted)",
-        }}
-      >
-        {t("docs.searchLoading")}
-      </div>
-    );
-  }
-
   return (
     <SiteConfigProvider config={config}>
-      <Routes>
-        <Route element={<SiteLayout showFooter />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/downloads" element={<Downloads />} />
-        </Route>
-        <Route element={<SiteLayout showFooter={false} />}>
-          <Route path="/docs" element={<Navigate to="/docs/intro" replace />} />
-          <Route path="/docs/:slug" element={<Docs />} />
-          <Route path="/release-notes" element={<ReleaseNotes />} />
-        </Route>
-      </Routes>
+      <Suspense
+        fallback={
+          <div className="min-h-screen flex items-center justify-center text-[var(--text-muted)]">
+            {t("docs.searchLoading")}
+          </div>
+        }
+      >
+        <Routes>
+          <Route element={<SiteLayout showFooter />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/downloads" element={<Downloads />} />
+          </Route>
+          <Route element={<SiteLayout showFooter={false} />}>
+            <Route
+              path="/docs"
+              element={<Navigate to="/docs/intro" replace />}
+            />
+            <Route path="/docs/:slug" element={<Docs />} />
+            <Route path="/release-notes" element={<ReleaseNotes />} />
+          </Route>
+        </Routes>
+      </Suspense>
     </SiteConfigProvider>
   );
 }
