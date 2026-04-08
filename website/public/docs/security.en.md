@@ -725,15 +725,15 @@ Click the **Logout** button at the bottom of the sidebar in the Console:
 
 ### Security details
 
-| Feature               | Detail                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| Password storage      | Salted SHA-256 hash in `auth.json` (no plaintext stored)                                   |
-| Token format          | HMAC-SHA256 signed payload, 7-day expiry                                                   |
-| Token storage         | Browser localStorage, cleared on logout or 401 response                                    |
-| External dependencies | None — uses only Python standard library (`hashlib`, `hmac`, `secrets`)                    |
-| File permissions      | `auth.json` written with `0o600` (owner read/write only)                                   |
+| Feature               | Detail                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Password storage      | Salted SHA-256 hash in `auth.json` (no plaintext stored)                                                    |
+| Token format          | HMAC-SHA256 signed payload, 7-day expiry                                                                    |
+| Token storage         | Browser localStorage, cleared on logout or 401 response                                                     |
+| External dependencies | None — uses only Python standard library (`hashlib`, `hmac`, `secrets`)                                     |
+| File permissions      | `auth.json` written with `0o600` (owner read/write only)                                                    |
 | Local CLI auth        | Loopback CLI requests use an automatically attached local CLI token; localhost traffic does not bypass auth |
-| CORS preflight        | `OPTIONS` requests pass through without auth check                                         |
-| WebSocket auth        | Token passed via query parameter, restricted to upgrade requests only                      |
-| Protected routes      | Only `/api/*` routes require authentication                                                |
-| Public routes         | `/api/auth/login`, `/api/auth/register`, `/api/auth/status`, `/api/version`, static assets |
+| CORS preflight        | `OPTIONS` requests pass through without auth check                                                          |
+| WebSocket auth        | Token passed via query parameter, restricted to upgrade requests only                                       |
+| Protected routes      | Only `/api/*` routes require authentication                                                                 |
+| Public routes         | `/api/auth/login`, `/api/auth/register`, `/api/auth/status`, `/api/version`, static assets                  |

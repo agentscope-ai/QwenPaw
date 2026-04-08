@@ -727,7 +727,7 @@ copaw app
 | 令牌存储       | 浏览器 localStorage，退出登录或收到 401 响应时清除                                    |
 | 外部依赖       | 无 — 仅使用 Python 标准库（`hashlib`、`hmac`、`secrets`）                             |
 | 文件权限       | `auth.json` 以 `0o600` 权限写入（仅所有者可读写）                                     |
-| 本地 CLI 认证  | 回环地址上的 CLI 请求使用自动附加的本地 CLI 令牌；localhost 流量不会跳过认证        |
+| 本地 CLI 认证  | 回环地址上的 CLI 请求使用自动附加的本地 CLI 令牌；localhost 流量不会跳过认证          |
 | CORS 预检      | `OPTIONS` 请求无需认证直接放行                                                        |
 | WebSocket 认证 | 令牌通过查询参数传递，仅限升级请求                                                    |
 | 受保护路由     | 仅 `/api/*` 路由需要认证                                                              |
