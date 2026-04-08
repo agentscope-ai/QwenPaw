@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
-from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from anyio import ClosedResourceError
 from pydantic import BaseModel
 
+from ..app.mcp import HttpStatefulClient, StdIOStatefulClient
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .model_factory import create_model_and_formatter
@@ -618,31 +618,44 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         transport = rebuild_info.get("transport")
         name = rebuild_info.get("name")
 
-        try:
-            if transport == "stdio":
-                rebuilt_client = StdIOStatefulClient(
-                    name=name,
-                    command=rebuild_info.get("command"),
-                    args=rebuild_info.get("args", []),
-                    env=rebuild_info.get("env", {}),
-                    cwd=rebuild_info.get("cwd"),
-                )
-                setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
-                return rebuilt_client
+        # Validate required fields
+        if not name or not isinstance(name, str):
+            return None
 
-            raw_headers = rebuild_info.get("headers") or {}
-            headers = (
-                {k: os.path.expandvars(v) for k, v in raw_headers.items()}
-                if raw_headers
-                else None
-            )
-            rebuilt_client = HttpStatefulClient(
-                name=name,
-                transport=transport,
-                url=rebuild_info.get("url"),
-                headers=headers,
-            )
-            setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+        try:
+            rebuilt_client = None
+
+            if transport == "stdio":
+                command = rebuild_info.get("command")
+                if command and isinstance(command, str):
+                    rebuilt_client = StdIOStatefulClient(
+                        name=name,
+                        command=command,
+                        args=rebuild_info.get("args", []),
+                        env=rebuild_info.get("env", {}),
+                        cwd=rebuild_info.get("cwd"),
+                    )
+            elif (
+                transport in ["streamable_http", "sse"]
+                and rebuild_info.get("url")
+                and isinstance(rebuild_info.get("url"), str)
+            ):
+                raw_headers = rebuild_info.get("headers") or {}
+                headers = (
+                    {k: os.path.expandvars(v) for k, v in raw_headers.items()}
+                    if raw_headers
+                    else None
+                )
+                rebuilt_client = HttpStatefulClient(
+                    name=name,
+                    transport=transport,
+                    url=rebuild_info["url"],
+                    headers=headers,
+                )
+
+            if rebuilt_client:
+                setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+
             return rebuilt_client
         except Exception:  # pylint: disable=broad-except
             return None
