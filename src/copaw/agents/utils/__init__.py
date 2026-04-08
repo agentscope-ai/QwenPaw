@@ -27,6 +27,9 @@ from .setup_utils import copy_builtin_qa_md_files, copy_md_files
 
 # Token counting
 from .copaw_token_counter import get_copaw_token_counter
+from .openai_message_normalizer import (
+    normalize_messages_for_openai_compatible,
+)
 
 # Tool message utilities
 from .tool_message_utils import (
@@ -58,4 +61,5 @@ __all__ = [
     "_sanitize_tool_messages",
     "check_valid_messages",
     "extract_tool_ids",
+    "normalize_messages_for_openai_compatible",
 ]
