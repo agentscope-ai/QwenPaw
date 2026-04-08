@@ -23,6 +23,8 @@ from typing import Any, Literal
 
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -385,12 +387,9 @@ class HttpStatefulClient:
 
     async def _run_lifecycle(self) -> None:
         """Run MCP client lifecycle in a dedicated task."""
-        from mcp.client.sse import sse_client
-        from mcp.client.streamablehttp import streamablehttp_client
-
         # Select client based on transport
         if self.transport == "streamable_http":
-            client_factory = lambda: streamablehttp_client(
+            client_factory = lambda: streamable_http_client(
                 url=self.url,
                 headers=self.headers,
                 timeout=self.timeout,
