@@ -94,6 +94,7 @@ def _supports_multimodal_for_current_model() -> bool:
 def _normalize_messages_for_formatter(
     msgs: list,
     base_formatter_class: Type[FormatterBase],
+    formatter_instance: FormatterBase | None = None,
 ) -> tuple[list, bool, bool]:
     """Return normalized messages and formatter-family flags.
 
@@ -119,6 +120,8 @@ def _normalize_messages_for_formatter(
 
     if is_openai_compatible_formatter:
         supports_multimodal = _supports_multimodal_for_current_model()
+        if getattr(formatter_instance, "_copaw_force_strip_media", False):
+            supports_multimodal = False
         normalized_msgs = normalize_messages_for_openai_compatible(
             msgs,
             supports_multimodal=supports_multimodal,
@@ -540,6 +543,7 @@ def _create_file_block_support_formatter(
             ) = _normalize_messages_for_formatter(
                 msgs,
                 base_formatter_class,
+                self,
             )
 
             reasoning_contents = {}
