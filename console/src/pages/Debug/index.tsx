@@ -123,11 +123,26 @@ export default function DebugPage() {
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const timer = window.setInterval(() => {
-      void loadBackendLogs();
+    let cancelled = false;
+    let timeoutId: number | undefined;
+
+    const tick = async () => {
+      if (cancelled) return;
+      await loadBackendLogs();
+      if (cancelled) return;
+      timeoutId = window.setTimeout(() => {
+        void tick();
+      }, BACKEND_REFRESH_MS);
+    };
+
+    timeoutId = window.setTimeout(() => {
+      void tick();
     }, BACKEND_REFRESH_MS);
     return () => {
-      window.clearInterval(timer);
+      cancelled = true;
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [autoRefresh, loadBackendLogs]);
 
