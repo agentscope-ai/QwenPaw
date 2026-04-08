@@ -67,6 +67,12 @@ class SkillRouter:
             items = self._skills_to_items(skills)
             index = self._ensure_index(items)
             hits = index.search(query, top_k=top_k)
+
+            # Apply min_score threshold
+            min_score = self._config.min_score
+            if min_score > 0.0:
+                hits = [h for h in hits if h.score >= min_score]
+
             return RoutingResult(
                 hits=hits,
                 query=query,

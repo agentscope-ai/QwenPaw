@@ -259,6 +259,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.voiceTranscription"),
     },
     {
+      key: "semantic-routing",
+      icon: <SparkDataLine size={18} />,
+      path: "/semantic-routing",
+      label: t("nav.semanticRouting"),
+    },
+    {
       key: "debug",
       icon: <SparkDebugLine size={18} />,
       path: "/debug",
@@ -396,6 +402,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "voice-transcription",
           label: collapsed ? null : t("nav.voiceTranscription"),
           icon: <SparkMicLine size={16} />,
+        },
+        {
+          key: "semantic-routing",
+          label: collapsed ? null : t("nav.semanticRouting"),
+          icon: <SparkDataLine size={16} />,
         },
         {
           key: "debug",

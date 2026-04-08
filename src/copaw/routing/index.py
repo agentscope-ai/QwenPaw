@@ -57,10 +57,18 @@ class SemanticIndex:
     # ------------------------------------------------------------------
 
     def _ensure_model(self) -> Any:
-        """Load the sentence-transformers model on first use."""
+        """Load the sentence-transformers model on first use.
+
+        Respects CoPaw's ``token_count_use_mirror`` setting — when the
+        HF mirror is already configured (``HF_ENDPOINT`` env var), the
+        model download will automatically use it.  If not set, we check
+        CoPaw's running config and apply the mirror if enabled.
+        """
         if self._model is not None:
             return self._model
         try:
+            self._apply_hf_mirror_if_needed()
+
             from sentence_transformers import SentenceTransformer
 
             self._model = SentenceTransformer(self._encoder_name)
@@ -77,6 +85,35 @@ class SemanticIndex:
                 exc,
             )
             raise
+
+    @staticmethod
+    def _apply_hf_mirror_if_needed() -> None:
+        """Ensure HF_ENDPOINT is set when CoPaw's mirror config is on.
+
+        CoPaw's CopawTokenCounter already sets ``HF_ENDPOINT`` at startup
+        when ``token_count_use_mirror`` is True.  This method is a safety
+        net for cases where the token counter hasn't been initialised yet.
+        """
+        import os
+
+        if os.environ.get("HF_ENDPOINT"):
+            return  # Already configured (by CoPaw or user)
+
+        try:
+            from copaw.config.utils import load_config
+
+            config = load_config()
+            agent_id = config.agents.active_agent or "default"
+            from copaw.config.config import load_agent_config
+
+            agent_cfg = load_agent_config(agent_id)
+            cc = agent_cfg.running.context_compact
+            if cc.token_count_use_mirror:
+                mirror = "https://hf-mirror.com"
+                os.environ["HF_ENDPOINT"] = mirror
+                logger.info("Using HuggingFace mirror: %s", mirror)
+        except Exception:
+            pass  # Config not available yet — no-op
 
     # ------------------------------------------------------------------
     # Build

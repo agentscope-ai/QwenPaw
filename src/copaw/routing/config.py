@@ -48,3 +48,11 @@ class SemanticRoutingConfig(BaseModel):
         default_factory=list,
         description="Tool names that are always included in filtering",
     )
+    min_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score threshold. "
+        "Skills below this score are excluded from results. "
+        "Set to 0.0 to disable score filtering.",
+    )
