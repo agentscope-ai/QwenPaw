@@ -389,11 +389,38 @@ class AgentRunner(Runner):
                 await agent.interrupt()
             raise AgentException("Task has been cancelled!") from exc
         except Exception as e:
+            # Dump before cleanup so the debug file captures the full
+            # memory state including the message that caused the error.
             debug_dump_path = write_query_error_dump(
                 request=request,
                 exc=e,
                 locals_=locals(),
             )
+
+            # Remove the user messages that were added to memory before the
+            # error.  Without this, the malformed content (e.g. a bad image
+            # URI) is persisted by save_session_state in the finally block
+            # and poisons every subsequent request in this session.
+            if agent is not None and msgs:
+                try:
+                    msg_ids = [
+                        m.id for m in (
+                            msgs if isinstance(msgs, list) else [msgs]
+                        )
+                        if hasattr(m, "id")
+                    ]
+                    if msg_ids:
+                        await agent.memory.delete(msg_ids)
+                        logger.info(
+                            "Removed %d failed msg(s) from memory: %s",
+                            len(msg_ids),
+                            msg_ids,
+                        )
+                except Exception:
+                    logger.warning(
+                        "Failed to remove msgs from memory",
+                        exc_info=True,
+                    )
             path_hint = (
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
