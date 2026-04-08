@@ -5,12 +5,75 @@ import asyncio
 import json
 import logging
 import sys
+import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 import click
 
 logger = logging.getLogger(__name__)
+
+
+_SKILL_FS_NAMES = {"skills", "skill", "skill.json", ".skill.json.lock"}
+
+
+@contextmanager
+def _isolated_skills_workspace(
+    skills_dir: str | None,
+    base_workspace: Path | None,
+) -> Iterator[Path | None]:
+    """Create a temporary overlay workspace when *skills_dir* is given.
+
+    The overlay symlinks the external skills directory as ``skills/`` and
+    pre-populates a manifest with every discovered skill enabled.  Non-skill
+    files from *base_workspace* are symlinked so that prompt/bootstrap files
+    remain accessible.  All manifest writes land in the temporary directory,
+    keeping the real workspace untouched.
+    """
+    if not skills_dir:
+        yield base_workspace
+        return
+
+    with tempfile.TemporaryDirectory(prefix="copaw_headless_") as tmp:
+        tmp_path = Path(tmp)
+        resolved = Path(skills_dir).resolve()
+        (tmp_path / "skills").symlink_to(resolved)
+
+        skill_entries: dict = {}
+        if resolved.is_dir():
+            for p in sorted(resolved.iterdir()):
+                if p.is_dir() and (p / "SKILL.md").exists():
+                    skill_entries[p.name] = {
+                        "enabled": True,
+                        "channels": ["all"],
+                        "source": "headless",
+                    }
+        (tmp_path / "skill.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "workspace-skill-manifest.v1",
+                    "version": 1,
+                    "skills": skill_entries,
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        if base_workspace and base_workspace.is_dir():
+            for item in base_workspace.iterdir():
+                if item.name in _SKILL_FS_NAMES or item.name.startswith(
+                    ".skill_",
+                ):
+                    continue
+                target = tmp_path / item.name
+                if not target.exists():
+                    target.symlink_to(item)
+
+        yield tmp_path
 
 
 def _read_instruction(raw: str) -> str:
@@ -28,51 +91,55 @@ async def _run_task(
     max_iters: int,
     timeout: int,
     output_dir: str | None,
+    skills_dir: str | None = None,
 ) -> dict:
     from agentscope.message import Msg
     from ..agents.react_agent import CoPawAgent
 
     agent_config.running.max_iters = max_iters
 
-    workspace_dir: Path | None = None
+    base_workspace: Path | None = None
     if agent_config.workspace_dir:
-        workspace_dir = Path(agent_config.workspace_dir).expanduser()
+        base_workspace = Path(agent_config.workspace_dir).expanduser()
 
-    agent = CoPawAgent(
-        agent_config=agent_config,
-        enable_memory_manager=False,
-        request_context=request_context,
-        workspace_dir=workspace_dir,
-    )
-
-    t0 = time.monotonic()
-    try:
-        response = await asyncio.wait_for(
-            agent.reply([Msg(name="user", role="user", content=instruction)]),
-            timeout=timeout,
+    with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
+        agent = CoPawAgent(
+            agent_config=agent_config,
+            enable_memory_manager=False,
+            request_context=request_context,
+            workspace_dir=workspace,
         )
-        elapsed = time.monotonic() - t0
-        result: dict = {
-            "status": "success",
-            "elapsed_seconds": round(elapsed, 2),
-            "response": response.get_text_content() if response else "",
-        }
-    except asyncio.TimeoutError:
-        elapsed = time.monotonic() - t0
-        result = {
-            "status": "timeout",
-            "elapsed_seconds": round(elapsed, 2),
-            "timeout_seconds": timeout,
-            "response": "",
-        }
-    except Exception as exc:
-        elapsed = time.monotonic() - t0
-        result = {
-            "status": "error",
-            "elapsed_seconds": round(elapsed, 2),
-            "error": str(exc),
-            "response": "",
-        }
+
+        t0 = time.monotonic()
+        try:
+            response = await asyncio.wait_for(
+                agent.reply(
+                    [Msg(name="user", role="user", content=instruction)],
+                ),
+                timeout=timeout,
+            )
+            elapsed = time.monotonic() - t0
+            result: dict = {
+                "status": "success",
+                "elapsed_seconds": round(elapsed, 2),
+                "response": (response.get_text_content() if response else ""),
+            }
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - t0
+            result = {
+                "status": "timeout",
+                "elapsed_seconds": round(elapsed, 2),
+                "timeout_seconds": timeout,
+                "response": "",
+            }
+        except Exception as exc:
+            elapsed = time.monotonic() - t0
+            result = {
+                "status": "error",
+                "elapsed_seconds": round(elapsed, 2),
+                "error": str(exc),
+                "response": "",
+            }
 
     usage: dict = {}
     try:
@@ -204,10 +271,6 @@ def task_cmd(
     }
     if no_guard:
         request_context["_headless_tool_guard"] = "false"
-    if skills_dir:
-        request_context["_headless_skills_dir"] = str(
-            Path(skills_dir).resolve(),
-        )
 
     result = asyncio.run(
         _run_task(
@@ -217,6 +280,7 @@ def task_cmd(
             max_iters=max_iters,
             timeout=timeout,
             output_dir=output_dir,
+            skills_dir=skills_dir,
         ),
     )
 

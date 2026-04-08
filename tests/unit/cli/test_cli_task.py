@@ -287,14 +287,14 @@ async def test_tool_guard_not_bypassed_without_flag():
 
 
 def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
-    """Full chain: CLI flags → request_context → components.
+    """Full chain: CLI flags → _run_task kwargs.
 
-    Verifies both ``--no-guard`` and ``--skills-dir`` propagate via
-    ``request_context``, resolve correctly at the component level,
-    and do **not** pollute environment variables.
+    Verifies ``--no-guard`` propagates via ``request_context``,
+    ``--skills-dir`` is forwarded as a dedicated ``skills_dir`` kwarg
+    (no longer embedded in ``request_context``), and neither flag
+    pollutes environment variables.
     """
     from copaw.config.config import AgentProfileConfig
-    from copaw.agents.skills_manager import resolve_effective_skills
 
     skills_dir = tmp_path / "my_skills"
     skill_sub = skills_dir / "e2e-skill"
@@ -319,16 +319,11 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
     async def _spy_run_task(**kwargs):
         ctx = kwargs["request_context"]
         captured["request_context"] = dict(ctx)
+        captured["skills_dir"] = kwargs.get("skills_dir")
         captured["env_tool_guard"] = os.environ.get(
             "COPAW_TOOL_GUARD_ENABLED",
         )
         captured["env_skills_dir"] = os.environ.get("COPAW_SKILLS_DIR")
-        resolved = resolve_effective_skills(
-            tmp_path,
-            ctx.get("channel", "console"),
-            skills_dir_override=ctx.get("_headless_skills_dir"),
-        )
-        captured["resolved_skills"] = [Path(p).name for p in resolved]
         captured["guard_bypassed"] = (
             ctx.get("_headless_tool_guard", "true").lower() == "false"
         )
@@ -359,12 +354,87 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
 
     ctx = captured["request_context"]
     assert ctx["_headless_tool_guard"] == "false"
-    assert ctx["_headless_skills_dir"] == str(skills_dir.resolve())
+    assert "_headless_skills_dir" not in ctx
     assert ctx["session_id"] == "headless-task"
     assert ctx["agent_id"] == "e2e"
+    assert captured["skills_dir"] == str(skills_dir)
     assert captured["env_tool_guard"] is None
     assert captured["env_skills_dir"] is None
-    assert captured["resolved_skills"] == ["e2e-skill"]
     assert captured["guard_bypassed"] is True
     data = json.loads(result.output)
     assert data["status"] == "success"
+
+
+# ── _isolated_skills_workspace ───────────────────────────────────────
+
+
+def test_isolated_workspace_creates_overlay(tmp_path):
+    """Overlay workspace symlinks skills and pre-populates manifest."""
+    from copaw.cli.task_cmd import _isolated_skills_workspace
+    from copaw.agents.skills_manager import resolve_effective_skills
+
+    skills_dir = tmp_path / "ext_skills"
+    (skills_dir / "alpha").mkdir(parents=True)
+    (skills_dir / "alpha" / "SKILL.md").write_text("# alpha\n")
+    (skills_dir / "beta").mkdir(parents=True)
+    (skills_dir / "beta" / "SKILL.md").write_text("# beta\n")
+    (skills_dir / "not-a-skill").mkdir(parents=True)
+
+    base_ws = tmp_path / "real_workspace"
+    base_ws.mkdir()
+    (base_ws / "AGENTS.md").write_text("agent prompt")
+
+    with _isolated_skills_workspace(
+        str(skills_dir),
+        base_ws,
+    ) as overlay:
+        assert overlay is not None
+        assert overlay != base_ws
+
+        assert (overlay / "skills").is_symlink()
+        assert (overlay / "skills").resolve() == skills_dir.resolve()
+
+        manifest_path = overlay / "skill.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert "alpha" in manifest["skills"]
+        assert "beta" in manifest["skills"]
+        assert "not-a-skill" not in manifest["skills"]
+        assert manifest["skills"]["alpha"]["enabled"] is True
+
+        assert (overlay / "AGENTS.md").is_symlink()
+        assert (overlay / "AGENTS.md").read_text() == "agent prompt"
+
+        resolved = resolve_effective_skills(overlay, "console")
+        assert sorted(resolved) == ["alpha", "beta"]
+
+    assert not overlay.exists()
+
+
+def test_isolated_workspace_none_without_skills_dir(tmp_path):
+    """Without skills_dir the context manager yields base_workspace as-is."""
+    from copaw.cli.task_cmd import _isolated_skills_workspace
+
+    base_ws = tmp_path / "ws"
+    base_ws.mkdir()
+
+    with _isolated_skills_workspace(None, base_ws) as result:
+        assert result == base_ws
+
+
+def test_isolated_workspace_does_not_pollute_real_workspace(tmp_path):
+    """Real workspace must have zero new files after overlay teardown."""
+    from copaw.cli.task_cmd import _isolated_skills_workspace
+
+    skills_dir = tmp_path / "skills_src"
+    (skills_dir / "s1").mkdir(parents=True)
+    (skills_dir / "s1" / "SKILL.md").write_text("# s1\n")
+
+    real_ws = tmp_path / "workspace"
+    real_ws.mkdir()
+    original_contents = set(real_ws.iterdir())
+
+    with _isolated_skills_workspace(str(skills_dir), real_ws):
+        pass
+
+    assert set(real_ws.iterdir()) == original_contents

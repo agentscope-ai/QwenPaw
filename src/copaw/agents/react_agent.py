@@ -318,12 +318,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         request_context = getattr(self, "_request_context", {})
         channel_name = request_context.get("channel", "console")
-        skills_dir_override = request_context.get("_headless_skills_dir")
 
         effective_skills = resolve_effective_skills(
             workspace_dir,
             channel_name,
-            skills_dir_override=skills_dir_override,
         )
 
         working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
@@ -1023,13 +1021,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         request_context = getattr(self, "_request_context", {}) or {}
         channel_name = request_context.get("channel", "console")
-        skills_dir_override = request_context.get("_headless_skills_dir")
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
-        with apply_skill_config_env_overrides(
-            workspace_dir,
-            channel_name,
-            skills_dir_override=skills_dir_override,
-        ):
+        with apply_skill_config_env_overrides(workspace_dir, channel_name):
             return await super().reply(
                 msg=msg,
                 structured_model=structured_model,
