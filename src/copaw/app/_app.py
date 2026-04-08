@@ -266,6 +266,40 @@ async def lifespan(
     app.state.plugin_loader = plugin_loader
     app.state.plugin_registry = plugin_loader.registry
 
+    # ==================== Register Plugin Control Commands ===================
+    logger.info("Registering plugin control commands...")
+    from ..app.runner.control_commands import register_command
+    from ..app.channels.command_registry import CommandRegistry
+
+    # Get the global command registry (will be created if not exists)
+    command_registry = CommandRegistry()
+
+    control_commands = plugin_loader.registry.get_control_commands()
+    for cmd_reg in control_commands:
+        try:
+            # Register to control command system
+            register_command(cmd_reg.handler)
+
+            # Register to command registry for priority
+            command_registry.register_command(
+                f"/{cmd_reg.handler.command_name}",
+                priority_level=cmd_reg.priority_level,
+            )
+
+            logger.info(
+                f"✓ Registered plugin control command: "
+                f"/{cmd_reg.handler.command_name} "
+                f"from plugin '{cmd_reg.plugin_id}' (priority"
+                f"={cmd_reg.priority_level})",
+            )
+        except Exception as e:
+            logger.error(
+                f"✗ Failed to register control command "
+                f"'{cmd_reg.handler.command_name}' "
+                f"from plugin '{cmd_reg.plugin_id}': {e}",
+                exc_info=True,
+            )
+
     # ==================== Execute Startup Hooks ====================
     logger.info("Executing plugin startup hooks...")
     startup_hooks = plugin_loader.registry.get_startup_hooks()

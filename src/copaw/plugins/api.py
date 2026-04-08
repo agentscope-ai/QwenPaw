@@ -150,6 +150,29 @@ class PluginApi:
                 f"'{hook_name}' (priority={priority})",
             )
 
+    def register_control_command(
+        self,
+        handler: Any,
+        priority_level: int = 10,
+    ):
+        """Register a control command handler.
+
+        Args:
+            handler: Control command handler instance
+                (BaseControlCommandHandler)
+            priority_level: Command priority (default: 10 = high)
+        """
+        if self._registry:
+            self._registry.register_control_command(
+                plugin_id=self.plugin_id,
+                handler=handler,
+                priority_level=priority_level,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered control command "
+                f"'{handler.command_name}' (priority={priority_level})",
+            )
+
     @property
     def runtime(self):
         """Access runtime helper functions.

@@ -30,6 +30,15 @@ class HookRegistration:
     priority: int = 100
 
 
+@dataclass
+class ControlCommandRegistration:
+    """Control command registration record."""
+
+    plugin_id: str
+    handler: Any  # BaseControlCommandHandler
+    priority_level: int = 10
+
+
 class PluginRegistry:
     """Central plugin registry (Singleton).
 
@@ -56,6 +65,7 @@ class PluginRegistry:
         self._providers: Dict[str, ProviderRegistration] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
+        self._control_commands: List[ControlCommandRegistration] = []
         self._runtime_helpers = None
 
         self._initialized = True
@@ -209,3 +219,35 @@ class PluginRegistry:
             List of HookRegistration
         """
         return self._shutdown_hooks.copy()
+
+    def register_control_command(
+        self,
+        plugin_id: str,
+        handler: Any,
+        priority_level: int = 10,
+    ):
+        """Register a control command handler.
+
+        Args:
+            plugin_id: Plugin identifier
+            handler: Control command handler instance
+            priority_level: Command priority (default: 10 = high)
+        """
+        cmd_reg = ControlCommandRegistration(
+            plugin_id=plugin_id,
+            handler=handler,
+            priority_level=priority_level,
+        )
+        self._control_commands.append(cmd_reg)
+        logger.info(
+            f"Registered control command '{handler.command_name}' "
+            f"from plugin '{plugin_id}' (priority={priority_level})",
+        )
+
+    def get_control_commands(self) -> List[ControlCommandRegistration]:
+        """Get all registered control command handlers.
+
+        Returns:
+            List of ControlCommandRegistration
+        """
+        return self._control_commands.copy()
