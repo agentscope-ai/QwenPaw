@@ -888,7 +888,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             name="execute_shell_command",
             enabled=True,
             description="Execute shell commands",
-            icon="💾",
+            icon="💻",
         ),
         "read_file": BuiltinToolConfig(
             name="read_file",
