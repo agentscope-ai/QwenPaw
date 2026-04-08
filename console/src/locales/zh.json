@@ -267,6 +267,13 @@
     "edit": "编辑",
     "delete": "删除",
     "descriptionLabel": "描述",
+    "categories": "分类",
+    "tags": "标签",
+    "categoriesPlaceholder": "选择或输入分类",
+    "tagsPlaceholder": "选择或输入标签",
+    "tagTooLong": "标签长度不能超过 {{max}} 个字符",
+    "filterByCategory": "按分类筛选",
+    "filterByTag": "按标签筛选",
     "version": "版本",
     "createTitle": "创建技能池项目",
     "editTitle": "编辑 {{name}}",
@@ -818,6 +825,7 @@
     "testConnection": "测试连接",
     "testConnectionSuccess": "连接测试成功",
     "testConnectionFailed": "连接测试失败",
+    "testConnectionFailedWithMessage": "连接测试失败：{{message}}",
     "testConnectionError": "测试连接时发生错误",
     "discoverModels": "自动获取模型",
     "discoverModelsFailed": "自动获取模型失败",
@@ -1073,6 +1081,7 @@
   "chat": {
     "modelSelectTooltip": "模型选择",
     "newChatTooltip": "新建聊天",
+    "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",
@@ -1107,6 +1116,15 @@
       "multimodalWarning": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理",
       "imageOnlyAccept": "当前模型仅支持图片文件",
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
+    },
+    "search": {
+      "title": "搜索聊天",
+      "tooltip": "搜索当前聊天",
+      "placeholder": "搜索消息...",
+      "noResults": "未找到结果",
+      "resultsCount": "找到 {{count}} 个结果",
+      "userMessage": "用户",
+      "assistantMessage": "助手"
     }
   },
   "security": {

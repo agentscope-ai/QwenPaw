@@ -252,6 +252,12 @@
     "edit": "Редактировать",
     "delete": "Удалить",
     "descriptionLabel": "Описание",
+    "categories": "Категории",
+    "tags": "Теги",
+    "categoriesPlaceholder": "Выберите или введите категории",
+    "tagsPlaceholder": "Выберите или введите теги",
+    "filterByCategory": "Фильтр по категории",
+    "filterByTag": "Фильтр по тегу",
     "version": "Версия",
     "createTitle": "Создать элемент пула навыков",
     "editTitle": "Редактировать {{name}}",
@@ -789,6 +795,7 @@
     "testConnection": "Проверить подключение",
     "testConnectionSuccess": "Проверка подключения прошла успешно",
     "testConnectionFailed": "Проверка подключения не удалась",
+    "testConnectionFailedWithMessage": "Проверка подключения не удалась: {{message}}",
     "testConnectionError": "Произошла ошибка при проверке подключения",
     "discoverModels": "Обнаружить модели",
     "discoverModelsFailed": "Не удалось обнаружить модели",
@@ -1041,6 +1048,7 @@
   "chat": {
     "modelSelectTooltip": "Выбор модели",
     "newChatTooltip": "Новый чат",
+    "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
     "allChats": "Все чаты",
     "createNewChat": "Создать новый чат",
@@ -1075,6 +1083,15 @@
       "multimodalWarning": "Мультимодальные возможности текущей модели не обнаружены, изображения или видео могут быть обработаны некорректно",
       "imageOnlyAccept": "Текущая модель поддерживает только файлы изображений",
       "imageOnlyWarning": "Текущая модель поддерживает только изображения, видео и другие файлы могут быть обработаны некорректно"
+    },
+    "search": {
+      "title": "Поиск в чате",
+      "tooltip": "Поиск в текущем чате",
+      "placeholder": "Поиск сообщений...",
+      "noResults": "Результаты не найдены",
+      "resultsCount": "Найдено {{count}} результат(ов)",
+      "userMessage": "Пользователь",
+      "assistantMessage": "Ассистент"
     }
   },
   "security": {

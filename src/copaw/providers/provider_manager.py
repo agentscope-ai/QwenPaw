@@ -547,6 +547,8 @@ PROVIDER_MINIMAX = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
 )
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
@@ -628,6 +630,28 @@ PROVIDER_LMSTUDIO = OpenAIProvider(
     generate_kwargs={"max_tokens": None},
 )
 
+PROVIDER_SILICONFLOW_CN = OpenAIProvider(
+    id="siliconflow-cn",
+    name="SiliconFlow (China)",
+    base_url="https://api.siliconflow.cn/v1",
+    api_key_prefix="sk-",
+    models=[],
+    freeze_url=True,
+    support_model_discovery=True,
+    require_api_key=True,
+)
+
+PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
+    id="siliconflow-intl",
+    name="SiliconFlow (International)",
+    base_url="https://api.siliconflow.com/v1",
+    api_key_prefix="sk-",
+    models=[],
+    freeze_url=True,
+    support_model_discovery=True,
+    require_api_key=True,
+)
+
 
 class ActiveModelsInfo(BaseModel):
     active_llm: ModelSlotConfig | None
@@ -686,6 +710,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
         self._add_builtin(PROVIDER_ZHIPU_INTL)
         self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
+        self._add_builtin(PROVIDER_SILICONFLOW_CN)
+        self._add_builtin(PROVIDER_SILICONFLOW_INTL)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider

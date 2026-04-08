@@ -15,6 +15,10 @@ import { useTranslation } from "react-i18next";
 import { useTheme } from "../../../../../contexts/ThemeContext";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { JsonConfigEditor } from "./JsonConfigEditor.tsx";
+import {
+  getLocalizedTestConnectionMessage,
+  getTestConnectionFailureDetail,
+} from "./testConnectionMessage";
 import styles from "../../index.module.less";
 
 function ModelConfigEditor({
@@ -188,10 +192,13 @@ export function RemoteModelManageModal({
       if (!testResult.success) {
         // Test failed – ask user whether to proceed anyway
         setSaving(false);
+        const failureDetail =
+          getTestConnectionFailureDetail(testResult.message) ||
+          t("models.modelTestFailed");
         Modal.confirm({
           title: t("models.testConnectionFailed"),
           content: t("models.modelTestFailedConfirm", {
-            message: testResult.message || t("models.modelTestFailed"),
+            message: failureDetail,
           }),
           okText: t("models.addModel"),
           cancelText: t("models.cancel"),
@@ -232,9 +239,9 @@ export function RemoteModelManageModal({
         model_id: modelId,
       });
       if (result.success) {
-        message.success(result.message || t("models.testConnectionSuccess"));
+        message.success(getLocalizedTestConnectionMessage(result, t));
       } else {
-        message.warning(result.message || t("models.testConnectionFailed"));
+        message.warning(getLocalizedTestConnectionMessage(result, t));
       }
     } catch (error) {
       const errMsg =

@@ -58,6 +58,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
+MAX_TAGS = 8
+MAX_TAG_LENGTH = 16
+
 
 def _scan_error_payload(exc: SkillScanError) -> dict[str, Any]:
     """Normalize scanner exceptions into a stable API payload.
@@ -105,6 +108,7 @@ def _scan_error_response(exc: SkillScanError) -> JSONResponse:
 class SkillSpec(SkillInfo):
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
+    tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
 
@@ -114,6 +118,7 @@ class PoolSkillSpec(SkillInfo):
     commit_text: str = ""
     sync_status: str = ""
     latest_version_text: str = ""
+    tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
 
@@ -476,9 +481,11 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
         skill = _read_skill_from_dir(skill_dir, source)
         if skill is None:
             continue
+        dump = skill.model_dump()
+        dump["tags"] = entry.get("tags") or []
         specs.append(
             SkillSpec(
-                **skill.model_dump(),
+                **dump,
                 enabled=entry.get("enabled", False),
                 channels=entry.get("channels") or ["all"],
                 config=entry.get("config") or {},
@@ -501,9 +508,11 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
         if skill is None:
             continue
         info = sync_info.get(skill_name, {})
+        dump = skill.model_dump(exclude={"version_text"})
+        dump["tags"] = entry.get("tags") or []
         specs.append(
             PoolSkillSpec(
-                **skill.model_dump(exclude={"version_text"}),
+                **dump,
                 protected=bool(entry.get("protected", False)),
                 version_text=str(entry.get("version_text", "") or ""),
                 commit_text=str(entry.get("commit_text", "") or ""),
@@ -1092,6 +1101,35 @@ async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
     return {"cleared": True}
 
 
+def _validate_tags(tags: list[str]) -> list[str]:
+    if len(tags) > MAX_TAGS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"At most {MAX_TAGS} tags allowed",
+        )
+    cleaned: list[str] = []
+    for t in tags:
+        t = str(t).strip()[:MAX_TAG_LENGTH]
+        if t:
+            cleaned.append(t)
+    return cleaned
+
+
+@router.put("/pool/{skill_name}/tags")
+async def update_pool_skill_tags(
+    skill_name: str,
+    tags: list[str],
+) -> dict[str, Any]:
+    tags = _validate_tags(tags)
+    updated = SkillPoolService().set_pool_skill_tags(skill_name, tags)
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail="Pool skill not found",
+        )
+    return {"updated": True, "tags": tags}
+
+
 @router.post("/batch-delete")
 async def batch_delete_skills(
     request: Request,
@@ -1296,6 +1334,26 @@ async def update_skill_channels_endpoint(
         raise HTTPException(status_code=404, detail="Skill not found")
     schedule_agent_reload(request, workspace.agent_id)
     return {"updated": True, "channels": channels}
+
+
+@router.put("/{skill_name}/tags")
+async def update_skill_tags(
+    request: Request,
+    skill_name: str,
+    tags: list[str],
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    tags = _validate_tags(tags)
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    updated = SkillService(workspace_dir).set_skill_tags(
+        skill_name,
+        tags,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return {"updated": True, "tags": tags}
 
 
 @router.get("/{skill_name}/config")

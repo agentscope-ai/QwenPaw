@@ -13,8 +13,11 @@ export interface SkillSpec {
   source: string;
   enabled?: boolean;
   channels?: string[];
+  categories?: string[];
+  tags?: string[];
   config?: Record<string, unknown>;
   last_updated?: string;
+  emoji?: string;
 }
 
 export interface PoolSkillSpec {
@@ -27,8 +30,11 @@ export interface PoolSkillSpec {
   commit_text?: string;
   sync_status?: SkillSyncStatus | "";
   latest_version_text?: string;
+  categories?: string[];
+  tags?: string[];
   config?: Record<string, unknown>;
   last_updated?: string;
+  emoji?: string;
 }
 
 export interface WorkspaceSkillSummary {

@@ -73,8 +73,10 @@ class SkillInfo(BaseModel):
     version_text: str = ""
     content: str
     source: str
+    categories: list[str] = Field(default_factory=list)
     references: dict[str, Any] = Field(default_factory=dict)
     scripts: dict[str, Any] = Field(default_factory=dict)
+    emoji: str = ""
 
 
 class SkillRequirements(BaseModel):
@@ -976,6 +978,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
             )
             has_config = "config" in existing
             config = existing.get("config") if has_config else None
+            existing_tags = existing.get("tags")
             skills[skill_name] = _build_skill_metadata(
                 skill_name,
                 skill_dir,
@@ -985,6 +988,8 @@ def reconcile_pool_manifest() -> dict[str, Any]:
             )
             if has_config:
                 skills[skill_name]["config"] = config
+            if existing_tags is not None:
+                skills[skill_name]["tags"] = existing_tags
 
         for skill_name in list(skills):
             if skill_name not in discovered:
@@ -1067,6 +1072,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
             }
             if "config" in existing:
                 next_entry["config"] = existing.get("config")
+            existing_tags = existing.get("tags")
+            if existing_tags is not None:
+                next_entry["tags"] = existing_tags
             skills[skill_name] = next_entry
             skills[skill_name].pop("sync_to_hub", None)
             skills[skill_name].pop("sync_to_pool", None)
@@ -1239,6 +1247,16 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
     )
 
 
+def _extract_emoji_from_metadata(metadata: Any) -> str:
+    """Extract emoji from metadata.copaw.emoji."""
+    if not isinstance(metadata, dict):
+        return ""
+    copaw = metadata.get("copaw", {})
+    if isinstance(copaw, dict):
+        return str(copaw.get("emoji", "") or "")
+    return ""
+
+
 def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
     if not skill_dir.is_dir():
         return None
@@ -1250,10 +1268,19 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
     try:
         content = read_text_file_with_encoding_fallback(skill_md)
         description = ""
+        categories = []
+        emoji = ""
         post: Any = {}
         try:
             post = frontmatter.loads(content)
             description = str(post.get("description", "") or "")
+            # Extract categories from frontmatter (tags come from manifest)
+            raw_categories = post.get("categories", [])
+            if isinstance(raw_categories, list):
+                categories = [str(c).strip() for c in raw_categories if c]
+
+            # Extract emoji from metadata.copaw.emoji
+            emoji = _extract_emoji_from_metadata(post.get("metadata", {}))
         except Exception:
             pass
 
@@ -1272,8 +1299,10 @@ def _read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
             version_text=_extract_version(post),
             content=content,
             source=source,
+            categories=categories,
             references=references,
             scripts=scripts,
+            emoji=emoji,
         )
     except Exception as exc:
         logger.error("Failed to read skill %s: %s", skill_dir, exc)
@@ -1876,6 +1905,31 @@ class SkillService:
         )
         return updated
 
+    def set_skill_tags(
+        self,
+        name: str,
+        tags: list[str] | None,
+    ) -> bool:
+        """Update one workspace skill's user tags."""
+        skill_name = str(name or "")
+        manifest_path = get_workspace_skill_manifest_path(
+            self.workspace_dir,
+        )
+        normalized = tags or []
+
+        def _update(payload: dict[str, Any]) -> bool:
+            entry = payload.get("skills", {}).get(skill_name)
+            if entry is None:
+                return False
+            entry["tags"] = normalized
+            return True
+
+        return _mutate_json(
+            manifest_path,
+            _default_workspace_manifest(),
+            _update,
+        )
+
     def delete_skill(self, name: str) -> bool:
         skill_name = str(name or "")
         manifest = self._read_manifest()
@@ -2140,6 +2194,28 @@ class SkillPoolService:
         )
         return True
 
+    def set_pool_skill_tags(
+        self,
+        name: str,
+        tags: list[str] | None,
+    ) -> bool:
+        """Update one pool skill's user tags."""
+        skill_name = str(name or "")
+        normalized = tags or []
+
+        def _update(payload: dict[str, Any]) -> bool:
+            entry = payload.get("skills", {}).get(skill_name)
+            if entry is None:
+                return False
+            entry["tags"] = normalized
+            return True
+
+        return _mutate_json(
+            get_pool_skill_manifest_path(),
+            _default_pool_manifest(),
+            _update,
+        )
+
     def get_edit_target_name(
         self,
         skill_name: str,
@@ -2280,6 +2356,9 @@ class SkillPoolService:
             compute_signature=False,
         )
         next_entry["config"] = new_config
+        existing_tags = entry.get("tags")
+        if existing_tags is not None:
+            next_entry["tags"] = existing_tags
 
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
@@ -2343,18 +2422,21 @@ class SkillPoolService:
         )
         workspace_entry = ws_manifest.get("skills", {}).get(skill_name, {})
         ws_config = workspace_entry.get("config") or {}
+        ws_tags = workspace_entry.get("tags")
 
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
-            entry = _build_skill_metadata(
+            pool_entry = _build_skill_metadata(
                 final_name,
                 target_dir,
                 source="customized",
                 protected=False,
             )
             if ws_config:
-                entry["config"] = ws_config
-            payload["skills"][final_name] = entry
+                pool_entry["config"] = ws_config
+            if ws_tags is not None:
+                pool_entry["tags"] = ws_tags
+            payload["skills"][final_name] = pool_entry
 
         _mutate_json(
             get_pool_skill_manifest_path(),
@@ -2444,6 +2526,7 @@ class SkillPoolService:
             _copy_skill_dir(staged_dir, target_dir)
 
         pool_config = entry.get("config") or {}
+        pool_tags = entry.get("tags")
 
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
@@ -2455,7 +2538,7 @@ class SkillPoolService:
                 else "customized",
                 protected=False,
             )
-            payload["skills"][final_name] = {
+            ws_entry: dict[str, Any] = {
                 "enabled": True,
                 "channels": ["all"],
                 "source": metadata["source"],
@@ -2464,6 +2547,9 @@ class SkillPoolService:
                 "requirements": metadata["requirements"],
                 "updated_at": metadata["updated_at"],
             }
+            if pool_tags is not None:
+                ws_entry["tags"] = pool_tags
+            payload["skills"][final_name] = ws_entry
 
         _mutate_json(
             get_workspace_skill_manifest_path(workspace_dir),

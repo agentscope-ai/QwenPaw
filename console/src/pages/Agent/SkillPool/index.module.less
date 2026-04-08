@@ -93,10 +93,83 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px 0;
+  gap: 12px;
 }
 
-.searchInput {
-  width: 240px;
+.searchContainer {
+  flex: 1;
+  max-width: 600px;
+}
+
+.searchSelect {
+  width: 100%;
+
+  :global {
+    .ant-select-selector {
+      min-height: 36px;
+      padding: 2px 4px;
+    }
+
+    .ant-select-selection-search {
+      margin-inline-start: 4px;
+    }
+
+    .ant-select-selection-item {
+      background: rgba(22, 119, 255, 0.08);
+      border: 1px solid rgba(22, 119, 255, 0.18);
+      color: #1677ff;
+      border-radius: 4px;
+      padding: 0 8px;
+      margin: 2px 4px 2px 0;
+      font-size: 12px;
+    }
+  }
+}
+
+.filterGroup {
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.filterGroupTitle {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.filterOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 12px;
+}
+
+.filterOption {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: rgba(22, 119, 255, 0.08);
+    color: #1677ff;
+  }
+}
+
+.filterOptionActive {
+  background: rgba(22, 119, 255, 0.12);
+  color: #1677ff;
+  font-weight: 500;
 }
 
 .toolbarRight {
@@ -301,19 +374,59 @@
 
 .leftSection {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
   flex: 1;
   width: 100%;
+
+  .titleInfoContainer {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .updatedTime {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: rgba(20, 20, 19, 0.45);
+      margin-top: -2px;
+
+      .calendarIcon {
+        font-size: 10px;
+      }
+    }
+
+    .channelsRow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+
+      .channelLabel {
+        color: rgba(26, 23, 22, 0.65);
+        flex-shrink: 0;
+      }
+
+      .channelValue {
+        color: rgba(20, 20, 19, 0.88);
+        font-weight: 500;
+        padding: 2px 8px;
+        border-radius: 4px;
+        background-color: rgba(239, 240, 243, 0.5);
+      }
+    }
+  }
 }
 
 .fileIconWrapper {
-  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
-  justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .fileIcon {
@@ -331,7 +444,9 @@
 .titleRow {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  width: 100%;
 }
 
 .skillTitle {
@@ -363,10 +478,12 @@
 }
 
 .statusValue {
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
 
   &.synced {
     background-color: rgba(82, 196, 26, 0.12);
@@ -430,6 +547,88 @@
   }
 }
 
+/* ─── Categories & Tags ───────────────────────────────────────────────────── */
+
+// category badge: 放在 titleRow / listItemHeader，实色填充，语义强
+.categoryBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: rgba(22, 119, 255, 0.08);
+  color: #1677ff;
+  border: 1px solid rgba(22, 119, 255, 0.18);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+// Categories and Tags container above description
+.categoriesTagsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.metaRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.metaIcon {
+  font-size: 12px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 1px;
+}
+
+.metaContent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+}
+
+.categoryChip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: rgba(22, 119, 255, 0.08);
+  color: #1677ff;
+  border: 1px solid rgba(22, 119, 255, 0.18);
+  white-space: nowrap;
+}
+
+// tag chips: 放在 description 下方，描边无填充，辅助信息
+.tagChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(26, 23, 22, 0.45);
+  border: 1px solid rgba(26, 23, 22, 0.15);
+  white-space: nowrap;
+}
+
 /* ─── Tags ────────────────────────────────────────────────────────────────── */
 .builtinTag {
   font-size: 10px;
@@ -474,7 +673,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 
@@ -564,6 +763,49 @@
     color: rgba(255, 255, 255, 0.35);
   }
 
+  /* Search select - dark mode */
+  .searchSelect {
+    :global {
+      .ant-select-selector {
+        background: #2a2a2a;
+        border-color: rgba(255, 255, 255, 0.15);
+      }
+
+      .ant-select-selection-item {
+        background: rgba(22, 119, 255, 0.15);
+        border-color: rgba(22, 119, 255, 0.3);
+        color: #4da3ff;
+      }
+
+      .ant-select-selection-placeholder {
+        color: rgba(255, 255, 255, 0.25);
+      }
+    }
+  }
+
+  .filterGroup {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .filterGroupTitle {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .filterOption {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.65);
+
+    &:hover {
+      background: rgba(22, 119, 255, 0.15);
+      color: #4da3ff;
+    }
+  }
+
+  .filterOptionActive {
+    background: rgba(22, 119, 255, 0.2);
+    color: #4da3ff;
+  }
+
   .selectedCard {
     border-color: #ff7f16 !important;
     box-shadow: 0 0 0 1px rgba(255, 127, 22, 0.3) !important;
@@ -585,6 +827,27 @@
 
   .skillTitle {
     color: rgba(255, 255, 255, 1);
+  }
+
+  .updatedTime {
+    color: rgba(255, 255, 255, 0.65) !important;
+
+    .calendarIcon {
+      color: rgba(255, 255, 255, 0.65) !important;
+    }
+
+    > span {
+      color: rgba(255, 255, 255, 0.65) !important;
+    }
+  }
+
+  .channelLabel {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .channelValue {
+    color: rgba(255, 255, 255, 0.88);
+    background-color: rgba(255, 255, 255, 0.1);
   }
 
   .builtinTag {
@@ -672,22 +935,6 @@
     }
   }
 
-  .searchInput {
-    :global {
-      .ant-input-prefix {
-        color: rgba(255, 255, 255, 0.5);
-      }
-
-      .ant-input-clear-icon {
-        color: rgba(255, 255, 255, 0.4);
-
-        &:hover {
-          color: rgba(255, 255, 255, 0.7);
-        }
-      }
-    }
-  }
-
   .viewToggleBtn {
     color: rgba(255, 255, 255, 0.45);
 
@@ -721,6 +968,50 @@
 
   .selectedListItem {
     background: rgba(255, 127, 22, 0.05);
+  }
+
+  .categoryBadge {
+    background: rgba(105, 177, 255, 0.12);
+    color: #69b1ff;
+    border-color: rgba(105, 177, 255, 0.22);
+  }
+
+  .tagChip {
+    color: rgba(255, 255, 255, 0.35);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .categoryChip {
+    background: rgba(22, 119, 255, 0.15);
+    color: #69b1ff;
+    border-color: rgba(105, 177, 255, 0.3);
+  }
+
+  .statusValue {
+    &.synced {
+      background-color: rgba(82, 196, 26, 0.15);
+      color: #67cf22;
+    }
+
+    &.outdated {
+      background-color: rgba(250, 173, 20, 0.15);
+      color: #ffc53d;
+    }
+
+    &.neutral {
+      background-color: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
+
+  .descriptionText {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .metaIcon {
+    filter: brightness(1.2);
   }
 }
 

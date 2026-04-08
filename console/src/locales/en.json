@@ -123,7 +123,6 @@
     "updateSuccess": "Agent updated successfully",
     "updateFailed": "Failed to update agent",
     "delete": "Delete",
-
     "deleteConfirm": "Confirm Delete Agent",
     "deleteConfirmDesc": "Agent will be unavailable after deletion, but workspace files will be kept",
     "deleteSuccess": "Agent deleted successfully",
@@ -303,6 +302,13 @@
     "edit": "Edit",
     "delete": "Delete",
     "descriptionLabel": "Description",
+    "categories": "Categories",
+    "tags": "Tags",
+    "categoriesPlaceholder": "Select or type to add categories",
+    "tagsPlaceholder": "Select or type to add tags",
+    "tagTooLong": "Tag must be at most {{max}} characters",
+    "filterByCategory": "Filter by category",
+    "filterByTag": "Filter by tag",
     "version": "Version",
     "createTitle": "Create Skill Pool Item",
     "editTitle": "Edit {{name}}",
@@ -846,6 +852,7 @@
     "testConnection": "Test Connection",
     "testConnectionSuccess": "Connection test successful",
     "testConnectionFailed": "Connection test failed",
+    "testConnectionFailedWithMessage": "Connection test failed: {{message}}",
     "testConnectionError": "An error occurred while testing connection",
     "discoverModels": "Discover Models",
     "discoverModelsFailed": "Failed to discover models",
@@ -1101,6 +1108,7 @@
   "chat": {
     "modelSelectTooltip": "Select model",
     "newChatTooltip": "New chat",
+    "searchTooltip": "Search all chats",
     "chatHistoryTooltip": "Chat history",
     "allChats": "All Chats",
     "createNewChat": "Create New Chat",
@@ -1135,6 +1143,15 @@
       "multimodalWarning": "No multimodal capability detected for current model, images or videos may not be processed correctly",
       "imageOnlyAccept": "Current model only supports image files",
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
+    },
+    "search": {
+      "title": "Search Chat",
+      "tooltip": "Search current chat",
+      "placeholder": "Search messages...",
+      "noResults": "No results found",
+      "resultsCount": "Found {{count}} result(s)",
+      "userMessage": "User",
+      "assistantMessage": "Assistant"
     }
   },
   "security": {

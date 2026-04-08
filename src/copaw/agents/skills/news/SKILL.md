@@ -1,15 +1,14 @@
 ---
 name: news
 description: "Look up the latest news for the user from specified news sites. Provides authoritative URLs for politics, finance, society, world, tech, sports, and entertainment. Use browser_use to open each URL and snapshot to get content, then summarize for the user."
+categories:
+  - information
+  - web
 metadata:
-  {
-    "builtin_skill_version": "1.0",
-    "copaw":
-      {
-        "emoji": "📰",
-        "requires": {}
-      }
-  }
+  builtin_skill_version: "1.1"
+  copaw:
+    emoji: "📰"
+    requires: {}
 ---
 
 # News Reference
