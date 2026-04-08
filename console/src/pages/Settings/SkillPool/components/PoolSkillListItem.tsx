@@ -6,9 +6,10 @@ import type { PoolSkillSpec } from "../../../../api/types";
 import {
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
-  getSkillVisual,
-} from "../../../Agent/Skills/components";
-import { SkillCategoryBadges, SkillTagChips } from "./SkillMeta";
+  isSkillBuiltin,
+} from "@/utils/skill";
+import { getSkillVisual } from "../../../Agent/Skills/components";
+import { SkillTagChips } from "./SkillMeta";
 import styles from "../index.module.less";
 dayjs.extend(relativeTime);
 
@@ -63,7 +64,9 @@ export function PoolSkillListItem({
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>
             <span className={styles.skillTitle}>{skill.name}</span>
-            <SkillCategoryBadges categories={skill.categories} />
+            {isSkillBuiltin(skill.source) && (
+              <span className={styles.typeBadge}>{t("skillPool.builtin")}</span>
+            )}
             <span
               className={`${styles.statusValue} ${
                 styles[getPoolBuiltinStatusTone(skill.sync_status)]

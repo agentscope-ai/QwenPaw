@@ -4,9 +4,8 @@ import type { PoolSkillSpec } from "../../../../api/types";
 import {
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
-  MAX_TAGS,
-  MAX_TAG_LENGTH,
-} from "../../../Agent/Skills/components";
+} from "@/utils/skill";
+import { MAX_TAGS, MAX_TAG_LENGTH } from "../../../Agent/Skills/components";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import type { PoolMode } from "../useSkillPool";
 import styles from "../index.module.less";

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button, Card, Checkbox, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
@@ -5,8 +6,9 @@ import type { PoolSkillSpec } from "../../../../api/types";
 import {
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
-  getSkillVisual,
-} from "../../../Agent/Skills/components";
+  isSkillBuiltin,
+} from "@/utils/skill";
+import { getSkillVisual } from "../../../Agent/Skills/components";
 import styles from "../index.module.less";
 
 interface PoolSkillCardProps {
@@ -29,17 +31,17 @@ export function PoolSkillCard({
   onDelete,
 }: PoolSkillCardProps) {
   const { t } = useTranslation();
+  const [isHover, setIsHover] = useState(false);
   const syncTone = getPoolBuiltinStatusTone(skill.sync_status);
-  const isBuiltin =
-    skill.source === "builtin" ||
-    skill.source?.startsWith("builtin:") ||
-    skill.source === "system";
+  const isBuiltin = isSkillBuiltin(skill.source);
 
   return (
     <Card
       key={skill.name}
       hoverable
       className={`${styles.skillCard} ${isSelected ? styles.selectedCard : ""}`}
+      onMouseEnter={() => setIsHover(true)}
+      onMouseLeave={() => setIsHover(false)}
       onClick={() => {
         if (batchModeEnabled) {
           onToggleSelect(skill.name);
@@ -127,30 +129,32 @@ export function PoolSkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer */}
-      <div className={styles.cardFooter}>
-        <Button
-          className={styles.actionButton}
-          disabled={batchModeEnabled}
-          onClick={(e) => {
-            e.stopPropagation();
-            onBroadcast(skill);
-          }}
-        >
-          {t("skillPool.broadcast")}
-        </Button>
-        <Button
-          danger
-          className={styles.deleteButton}
-          disabled={batchModeEnabled}
-          onClick={(e) => {
-            e.stopPropagation();
-            void onDelete(skill);
-          }}
-        >
-          {t("skillPool.delete")}
-        </Button>
-      </div>
+      {/* Footer - only show on hover or batch mode */}
+      {(isHover || batchModeEnabled) && (
+        <div className={styles.cardFooter}>
+          <Button
+            className={styles.actionButton}
+            disabled={batchModeEnabled}
+            onClick={(e) => {
+              e.stopPropagation();
+              onBroadcast(skill);
+            }}
+          >
+            {t("skillPool.broadcast")}
+          </Button>
+          <Button
+            danger
+            className={styles.deleteButton}
+            disabled={batchModeEnabled}
+            onClick={(e) => {
+              e.stopPropagation();
+              void onDelete(skill);
+            }}
+          >
+            {t("skillPool.delete")}
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }

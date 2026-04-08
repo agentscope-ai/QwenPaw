@@ -5,8 +5,8 @@ import type { PoolSkillSpec } from "../../../../api/types";
 import {
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
-  getSkillVisual,
-} from "../../../Agent/Skills/components";
+} from "@/utils/skill";
+import { getSkillVisual } from "../../../Agent/Skills/components";
 import styles from "../index.module.less";
 
 interface SkillPoolListItemProps {

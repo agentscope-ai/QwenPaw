@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
+import { SKILL_TAG_FILTER_PREFIX } from "@/constants/skill";
 
-export const TAG_PREFIX = "tag:";
+/** @deprecated Import SKILL_TAG_FILTER_PREFIX from "@/constants/skill" instead */
+export const TAG_PREFIX = SKILL_TAG_FILTER_PREFIX;
 
 interface SkillFilterDropdownProps {
   allTags: string[];

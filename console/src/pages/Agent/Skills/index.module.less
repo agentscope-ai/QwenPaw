@@ -158,18 +158,18 @@
 
 /* ─── Skill Card ──────────────────────────────────────────────────────────── */
 .skillCard {
-  min-height: 178px;
+  min-height: 240px;
   height: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-radius: var(--border-radius, 8px);
+  gap: 0;
+  border-radius: var(--border-radius, 12px);
   background: var(--color-bg-base, #ffffff);
   border: 1px solid var(--color-border-secondary, #eae8e7);
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
-  padding-bottom: 56px;
+  overflow: hidden;
 
   :global {
     .ant-card-body {
@@ -180,26 +180,58 @@
       padding: 16px !important;
     }
   }
-
-  &.enabledCard {
-    .statusDot {
-      background-color: rgba(20, 184, 166, 1);
-    }
-
-    .statusText {
-      color: rgba(20, 184, 166, 1);
-    }
-  }
-
-  &.hover {
+  &:hover {
     border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+}
+
+/* Top row: large icon (left) + status badge + checkbox (right) */
+.cardTopRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.cardTopRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Status badge: dot + text */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+
+  &.status_enabled {
+    color: #17b26a;
+
+    .statusDot {
+      background-color: #17b26a;
+    }
   }
 
-  &.normal {
-    border-color: var(--color-border-secondary, #eae8e7);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  &.status_disabled {
+    color: rgba(20, 20, 19, 0.45);
+
+    .statusDot {
+      background-color: rgba(20, 20, 19, 0.25);
+    }
   }
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .cardHeader {
@@ -271,11 +303,11 @@
 }
 
 .fileIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: 6px;
-  background: #fcfaf8;
-  font-size: 28px;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: #f7f5f3;
+  font-size: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -283,11 +315,11 @@
 }
 
 .skillEmoji {
-  width: 40px;
-  height: 40px;
-  border-radius: 6px;
-  background: #fcfaf8;
-  font-size: 24px;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: #f7f5f3;
+  font-size: 28px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -297,22 +329,23 @@
 .titleRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  width: 100%;
+  margin-bottom: 10px;
+  flex-wrap: nowrap;
 }
 
 .skillTitle {
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   color: rgba(20, 20, 19, 0.88);
   font-family: Inter;
-  line-height: 24px;
-  max-width: 200px;
+  line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .statusValue {
@@ -346,20 +379,66 @@
 }
 
 .descriptionText {
-  border-radius: 8px;
+  border-radius: 4px;
   background: rgba(43, 18, 0, 0.02);
   box-sizing: border-box;
   border: 1px solid #f3f1f0;
-  padding: 4px;
+  padding: 2px 4px;
   line-height: 20px;
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: rgba(20, 20, 19, 0.65);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+/* Description section */
+.descriptionSection {
+  margin-top: 8px;
+  flex: 1;
+}
+
+.descriptionSectionLabel {
+  display: block;
+  margin: 0 0 5px 0;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.55);
+  font-weight: normal;
+}
+
+/* Meta info rows: Channels / Updated / Tags */
+.metaInfoRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.metaInfoLabel {
+  color: rgba(20, 20, 19, 0.55);
+  min-width: 72px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.metaInfoValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(20, 20, 19, 0.88);
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background-color: rgba(239, 240, 243, 0.6);
+}
+
+.calendarIcon {
+  font-size: 11px;
+  color: rgba(26, 23, 22, 0.45);
 }
 
 .metaContainer {
@@ -399,22 +478,29 @@
   border-radius: 4px;
 }
 
+/* Built-in / Custom tags */
 .builtinTag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.8);
+  background-color: rgba(239, 240, 243, 0.9);
   color: #8e8c99;
+  flex-shrink: 0;
+  white-space: nowrap;
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .customTag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 4px;
   font-weight: 500;
-  background-color: rgba(255, 247, 230, 0.8);
+  background-color: rgba(255, 247, 230, 0.9);
   color: #d48806;
+  flex-shrink: 0;
+  white-space: nowrap;
+  border: 1px solid rgba(250, 173, 20, 0.2);
 }
 
 /* ─── Tags ────────────────────────────────────────────────────────────────── */
@@ -450,55 +536,47 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 6px;
 }
 
 .tagChip {
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 16px;
-  padding: 0 6px;
-  border-radius: 3px;
-  font-weight: 400;
-  background-color: transparent;
-  color: rgba(26, 23, 22, 0.45);
-  border: 1px solid rgba(26, 23, 22, 0.15);
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: rgba(239, 240, 243, 0.6);
+  color: rgba(20, 20, 19, 0.88);
   white-space: nowrap;
 }
 
+/* ─── Card Footer ─────────────────────────────────────────────────────────── */
 .cardFooter {
   position: absolute;
-  bottom: 16px;
+  bottom: 0;
   left: 0;
   right: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 8px;
-  padding: 0 16px;
+  padding: 12px 16px;
+  background: #fff;
 }
 
 .actionButton {
   flex: 1;
-  height: 32px;
+  height: 34px;
   font-size: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  background-color: #ffffff;
-  color: rgba(20, 20, 19, 0.88);
-  cursor: pointer;
-
-  &:hover {
-    border-color: rgba(20, 20, 19, 0.88);
-    background-color: #ffffff;
-  }
+  border-radius: 8px;
 }
 
 .deleteButton {
   flex: 1;
-  height: 32px;
+  height: 34px;
   font-size: 14px;
-  cursor: pointer;
+  border-radius: 8px;
 }
 
 .emptyState {
@@ -888,6 +966,7 @@
   background: var(--color-bg-base, #ffffff);
   cursor: pointer;
   transition: background 0.15s ease;
+  gap: 8px;
 
   &:first-child {
     border-radius: 8px 8px 0 0;
@@ -926,12 +1005,29 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+
+  .skillTitle {
+    flex: unset;
+    min-width: unset;
+  }
+}
+
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  background-color: rgba(239, 240, 243, 0.9);
+  color: rgba(20, 20, 19, 0.65);
 }
 
 .channelBadge {
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 4px;
   font-weight: 500;
   background-color: rgba(239, 240, 243, 0.8);
   color: #8e8c99;
@@ -957,6 +1053,13 @@
   gap: 12px;
   flex-shrink: 0;
   margin-left: 24px;
+}
+
+.listItemTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
@@ -1042,16 +1145,34 @@
   /* Skill card */
   .skillCard {
     background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.15);
 
-    &.normal {
-      border-color: rgba(255, 255, 255, 0.15) !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+    &:hover {
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+  }
+
+  .statusBadge {
+    &.status_enabled {
+      color: #4ade80;
+
+      .statusDot {
+        background-color: #4ade80;
+      }
     }
 
-    &.hover {
-      border-color: rgba(255, 255, 255, 0.3) !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+    &.status_disabled {
+      color: rgba(255, 255, 255, 0.45);
+
+      .statusDot {
+        background-color: rgba(255, 255, 255, 0.3);
+      }
     }
+  }
+
+  .cardFooter {
+    background: #1f1f1f;
   }
 
   .skillTitle {
@@ -1092,6 +1213,10 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
+  .descriptionSectionLabel {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
   .descriptionText {
     color: rgba(255, 255, 255, 0.85);
     background: rgba(255, 255, 255, 0.08);
@@ -1111,6 +1236,20 @@
     color: rgba(255, 255, 255, 0.88);
   }
 
+  /* Meta info rows - dark mode */
+  .metaInfoLabel {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .metaInfoValue {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .calendarIcon {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
   .builtinTag {
     background-color: rgba(255, 255, 255, 0.15);
     color: rgba(255, 255, 255, 0.8);
@@ -1123,9 +1262,8 @@
 
   /* Tags - dark mode */
   .tagChip {
-    background-color: transparent;
-    color: rgba(255, 255, 255, 0.45);
-    border-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.88);
   }
 
   /* Search select - dark mode */
@@ -1180,6 +1318,18 @@
     &:hover {
       border-color: #777 !important;
       background-color: #555 !important;
+    }
+  }
+
+  .deleteButton {
+    background-color: #4a4a4a !important;
+    color: rgba(255, 100, 100, 0.85) !important;
+    border-color: #5a5a5a !important;
+
+    &:hover {
+      background-color: rgba(255, 77, 79, 0.15) !important;
+      border-color: rgba(255, 77, 79, 0.4) !important;
+      color: #ff4d4f !important;
     }
   }
 

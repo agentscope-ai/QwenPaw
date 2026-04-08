@@ -165,7 +165,6 @@ function SkillPoolPage() {
                 notFoundContent={<></>}
                 dropdownRender={() => (
                   <SkillFilterDropdown
-                    allCategories={pool.allCategories}
                     allTags={pool.allTags}
                     searchTags={pool.searchTags}
                     setSearchTags={pool.setSearchTags}
@@ -205,7 +204,7 @@ function SkillPoolPage() {
           </div>
         ) : pool.viewMode === "card" ? (
           <div className={styles.skillsGrid}>
-            {pool.sortedSkills.map((skill) => (
+            {pool.sortedSkills.map((skill: any) => (
               <PoolSkillCard
                 key={skill.name}
                 skill={skill}
@@ -220,7 +219,7 @@ function SkillPoolPage() {
           </div>
         ) : (
           <div className={styles.skillsList}>
-            {pool.sortedSkills.map((skill) => (
+            {pool.sortedSkills.map((skill: any) => (
               <PoolSkillListItem
                 key={skill.name}
                 skill={skill}

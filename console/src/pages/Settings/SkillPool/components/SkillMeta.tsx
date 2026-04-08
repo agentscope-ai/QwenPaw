@@ -74,7 +74,10 @@ export function SkillCategoriesAndTags({
   );
 }
 
-export function SkillTags({ tags, styles = defaultStyles }: Pick<SkillCategoryTagsProps, "tags" | "styles">) {
+export function SkillTags({
+  tags,
+  styles = defaultStyles,
+}: Pick<SkillCategoryTagsProps, "tags" | "styles">) {
   if (!tags?.length) return null;
   return (
     <div className={styles.tagsContainer}>
