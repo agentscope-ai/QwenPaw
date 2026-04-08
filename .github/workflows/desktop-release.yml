@@ -45,7 +45,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: console/package-lock.json
+          cache-dependency-path: console/package.json
 
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
@@ -105,7 +105,7 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: console/package-lock.json
+          cache-dependency-path: console/package.json
 
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
