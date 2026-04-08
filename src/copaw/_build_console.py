@@ -66,19 +66,17 @@ def _needs_rebuild() -> bool:
     if not _CONSOLE_DIST.exists() or not index_html.exists():
         return True
 
-    try:
-        dist_mtime = max(
-            f.stat().st_mtime for f in _CONSOLE_DIST.rglob("*") if f.is_file()
-        )
-    except StopIteration:
-        return True
+    # Use index.html mtime as proxy for build time (it's written last by Vite)
+    dist_mtime = (_CONSOLE_DIST / "index.html").stat().st_mtime
 
     # Files/dirs whose modification should trigger a rebuild
-    watch_dirs = [_CONSOLE_SRC] if _CONSOLE_SRC else []
+    watch_dirs = [_CONSOLE_SRC, _CONSOLE_DIR / "public"] if _CONSOLE_SRC else []
     watch_files = [
         _CONSOLE_DIR / "package.json",
+        _CONSOLE_DIR / "package-lock.json",
         _CONSOLE_DIR / "vite.config.ts",
         _CONSOLE_DIR / "tsconfig.json",
+        _CONSOLE_DIR / "index.html",
     ]
     for watch_dir in watch_dirs:
         if not watch_dir.exists():
@@ -109,10 +107,15 @@ def build_console_frontend(*, quiet: bool = False) -> None:
     if not (_CONSOLE_DIR / "package.json").exists():
         return
 
-    # Ensure dest is populated even when dist is already fresh
+    # Ensure dest is populated and in sync even when dist is already fresh
     if not _needs_rebuild():
-        if _CONSOLE_DEST is not None:
-            if not (_CONSOLE_DEST / "index.html").exists():
+        if _CONSOLE_DEST is not None and _CONSOLE_DIST is not None:
+            dest_idx = _CONSOLE_DEST / "index.html"
+            dist_idx = _CONSOLE_DIST / "index.html"
+            if not dest_idx.exists() or (
+                dist_idx.exists()
+                and dest_idx.stat().st_mtime < dist_idx.stat().st_mtime
+            ):
                 _copy_dist()
         return
 
