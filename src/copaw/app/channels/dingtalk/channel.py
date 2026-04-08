@@ -390,9 +390,11 @@ class DingTalkChannel(BaseChannel):
                 for k, v in data.items():
                     # Support both old format (plain string) and new format
                     # (dict with webhook, expired_time, etc.)
+                    # Load any dict entry even if webhook is empty, because
+                    # conversation_id etc. are needed for Open API fallback.
                     if isinstance(v, str) and v:
                         self._session_webhook_store[k] = {"webhook": v}
-                    elif isinstance(v, dict) and v.get("webhook"):
+                    elif isinstance(v, dict):
                         self._session_webhook_store[k] = v
         except Exception:
             logger.debug(
@@ -505,9 +507,13 @@ class DingTalkChannel(BaseChannel):
                         "but keeping conversation_id for Open API fallback",
                         webhook_key,
                     )
-                    # Clear webhook but keep conversation_id etc for fallback
-                    entry = {k: v for k, v in entry.items() if k != "webhook"}
-                    return entry
+                    # Clear webhook in memory and persist to disk
+                    cleaned = {
+                        k: v for k, v in entry.items() if k != "webhook"
+                    }
+                    self._session_webhook_store[webhook_key] = cleaned
+                    self._save_session_webhook_store_to_disk()
+                    return cleaned
                 return entry
 
             logger.info(
