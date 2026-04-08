@@ -419,6 +419,15 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    force_memory_search_timeout: float = Field(
+        default=10.0,
+        gt=0.0,
+        description=(
+            "Timeout in seconds for force memory search. Increase this value"
+            " when using remote embedding APIs that may have higher latency."
+        ),
+    )
+
     rebuild_memory_index_on_start: bool = Field(
         default=False,
         description=(
