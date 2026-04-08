@@ -214,9 +214,9 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         async with self._server_lifecycle_lock:
             await self._llamacpp_backend.shutdown_server()
 
-    def force_shutdown_server(self) -> None:
+    def shutdown_server_sync(self) -> None:
         """Best-effort synchronous shutdown for process teardown paths."""
-        self._llamacpp_backend.force_shutdown_server()
+        self._llamacpp_backend.shutdown_server_sync()
 
     @staticmethod
     def get_instance() -> LocalModelManager:

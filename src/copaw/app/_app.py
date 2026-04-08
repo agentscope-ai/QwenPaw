@@ -397,7 +397,7 @@ async def lifespan(
                     exc,
                 )
                 with suppress(OSError, RuntimeError, ValueError):
-                    local_model_mgr.force_shutdown_server()
+                    local_model_mgr.shutdown_server_sync()
 
         # Stop multi-agent manager (stops all agents and their components)
         multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)

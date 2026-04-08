@@ -9,9 +9,9 @@ import shutil
 import socket
 import tempfile
 import uuid
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 import httpx
 from pydantic import BaseModel
@@ -397,33 +397,27 @@ class LlamaCppBackend:
 
     async def shutdown_server(self) -> None:
         """Shutdown the llama.cpp server if it's running."""
-        self._server_transitioning = True
-        await self._cancel_server_log_task()
+        with self._server_shutdown_context() as process:
+            await self._cancel_server_log_task()
 
-        process = self._server_process
-        if process and process.returncode is None:
-            await shutdown_process(
-                process,
-                graceful_timeout=5.0,
-                kill_timeout=3.0,
-            )
+            if process and process.returncode is None:
+                await shutdown_process(
+                    process,
+                    graceful_timeout=5.0,
+                    kill_timeout=3.0,
+                )
 
-        self._reset_server_state()
-
-    def force_shutdown_server(self) -> None:
+    def shutdown_server_sync(self) -> None:
         """Best-effort synchronous cleanup for shutdown and atexit paths."""
-        self._server_transitioning = True
-        self._cancel_server_log_task_nowait()
+        with self._server_shutdown_context() as process:
+            self._cancel_server_log_task_nowait()
 
-        process = self._server_process
-        if process and process.returncode is None:
-            shutdown_process_sync(
-                process,
-                graceful_timeout=5.0,
-                kill_timeout=1.0,
-            )
-
-        self._reset_server_state()
+            if process and process.returncode is None:
+                shutdown_process_sync(
+                    process,
+                    graceful_timeout=5.0,
+                    kill_timeout=1.0,
+                )
 
     # -----------------------------
     # Internal helpers
@@ -509,10 +503,29 @@ class LlamaCppBackend:
         if result.status != DownloadTaskStatus.COMPLETED:
             return result, None
 
-        if final_dir.exists():
-            shutil.rmtree(final_dir)
-        final_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(staging_dir), str(final_dir))
+        try:
+            if final_dir.exists():
+                shutil.rmtree(final_dir)
+            final_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(staging_dir), str(final_dir))
+        except (OSError, shutil.Error) as exc:
+            logger.warning(
+                "Failed to finalize llama.cpp download from %s to %s: %s",
+                staging_dir,
+                final_dir,
+                exc,
+            )
+            return (
+                DownloadTaskResult(
+                    status=DownloadTaskStatus.FAILED,
+                    error=(
+                        "llama.cpp download completed, but installing "
+                        f"files to {final_dir} failed: {exc}"
+                    ),
+                ),
+                None,
+            )
+
         return (
             DownloadTaskResult(
                 status=DownloadTaskStatus.COMPLETED,
@@ -701,6 +714,15 @@ class LlamaCppBackend:
         if task and not task.done():
             task.cancel()
 
+    @contextmanager
+    def _server_shutdown_context(self) -> Iterator[ManagedProcess | None]:
+        self._server_transitioning = True
+        process = self._server_process
+        try:
+            yield process
+        finally:
+            self._reset_server_state()
+
     def _reset_server_state(self) -> None:
         self._server_process = None
         self._server_log_task = None
@@ -710,7 +732,7 @@ class LlamaCppBackend:
 
     def _shutdown_server_at_exit(self) -> None:
         with suppress(Exception):
-            self.force_shutdown_server()
+            self.shutdown_server_sync()
 
     @staticmethod
     def _extract_archive(
