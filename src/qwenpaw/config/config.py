@@ -1558,7 +1558,13 @@ class Config(BaseModel):
 
 
 # Resolve forward references for Pydantic
-Config.model_rebuild()
+# Import SemanticRoutingConfig at runtime for model_rebuild to work
+try:
+    from ..routing.config import SemanticRoutingConfig as _SemanticRoutingConfig
+    Config.model_rebuild()
+except ImportError:
+    # Optional dependencies not available; rebuild with string resolution
+    Config.model_rebuild(_raise_errors=False)
 
 
 ChannelConfigUnion = Union[
