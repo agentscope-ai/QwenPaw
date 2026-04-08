@@ -24,7 +24,7 @@ export function SkillTagChips({
 export function SkillTags({ tags, styles = defaultStyles }: SkillTagsProps) {
   if (!tags?.length) return null;
   return (
-    <div className={styles.categoriesTagsContainer}>
+    <div className={styles.tagsContainer}>
       <div className={styles.metaRow}>
         <span className={styles.metaIcon}>🏷️</span>
         <div className={styles.metaContent}>

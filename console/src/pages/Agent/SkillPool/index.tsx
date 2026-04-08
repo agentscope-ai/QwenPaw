@@ -51,9 +51,12 @@ import {
 } from "../Skills/components";
 import { useSkillFilter } from "../Skills/useSkillFilter";
 import { MarkdownCopy } from "../../../components/MarkdownCopy/MarkdownCopy";
-import { BroadcastModal } from "./components/BroadcastModal";
-import { ImportBuiltinModal } from "./components/ImportBuiltinModal";
-import { SkillTagChips, SkillTags } from "./components/SkillMeta";
+import {
+  BroadcastModal,
+  ImportBuiltinModal,
+  SkillTagChips,
+  SkillTags,
+} from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
