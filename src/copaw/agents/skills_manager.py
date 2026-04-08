@@ -530,10 +530,12 @@ def _resolve_skill_name(skill_dir: Path) -> str:
 
 def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
     """Extract requirements from a parsed frontmatter dict."""
-    metadata = post.get("metadata") or {}
-    if "openclaw" in metadata:
+    metadata = post.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    if "openclaw" in metadata and isinstance(metadata["openclaw"], dict):
         requires = metadata["openclaw"].get("requires", {})
-    elif "copaw" in metadata:
+    elif "copaw" in metadata and isinstance(metadata["copaw"], dict):
         requires = metadata["copaw"].get("requires", {})
     else:
         requires = metadata.get(
