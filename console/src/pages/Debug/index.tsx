@@ -89,6 +89,8 @@ export default function DebugPage() {
   const [entries, setEntries] = useState<DebugLogEntry[]>(() => getDebugLogs());
   const [level, setLevel] = useState<LevelFilter>("all");
   const [query, setQuery] = useState("");
+  const [frontendPage, setFrontendPage] = useState(1);
+  const [frontendPageSize, setFrontendPageSize] = useState(20);
   const [backendLogs, setBackendLogs] =
     useState<BackendDebugLogsResponse | null>(null);
   const [backendLoading, setBackendLoading] = useState(false);
@@ -158,6 +160,20 @@ export default function DebugPage() {
     });
   }, [entries, level, query]);
 
+  useEffect(() => {
+    setFrontendPage(1);
+  }, [level, query]);
+
+  useEffect(() => {
+    const totalPages = Math.max(
+      1,
+      Math.ceil(filtered.length / frontendPageSize),
+    );
+    if (frontendPage > totalPages) {
+      setFrontendPage(totalPages);
+    }
+  }, [filtered.length, frontendPage, frontendPageSize]);
+
   const columns: ColumnsType<DebugLogEntry> = useMemo(
     () => [
       {
@@ -165,7 +181,9 @@ export default function DebugPage() {
         dataIndex: "ts",
         width: 170,
         render: (ts: number) => (
-          <Text type="secondary">{dayjs(ts).format("YYYY-MM-DD HH:mm:ss")}</Text>
+          <Text type="secondary">
+            {dayjs(ts).format("YYYY-MM-DD HH:mm:ss")}
+          </Text>
         ),
       },
       {
@@ -374,7 +392,15 @@ export default function DebugPage() {
             rowKey="id"
             columns={columns}
             dataSource={filtered}
-            pagination={{ pageSize: 20, showSizeChanger: true }}
+            pagination={{
+              current: frontendPage,
+              pageSize: frontendPageSize,
+              showSizeChanger: true,
+              onChange: (page, pageSize) => {
+                setFrontendPage(page);
+                setFrontendPageSize(pageSize);
+              },
+            }}
           />
         </Space>
       </Card>
@@ -399,7 +425,10 @@ export default function DebugPage() {
       >
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
           <Space wrap>
-            <Button loading={backendLoading} onClick={() => void loadBackendLogs()}>
+            <Button
+              loading={backendLoading}
+              onClick={() => void loadBackendLogs()}
+            >
               {t("debug.actions.refreshBackend", "Refresh backend logs")}
             </Button>
             <Button onClick={() => void handleCopyBackend()}>
@@ -505,4 +534,3 @@ export default function DebugPage() {
     </Space>
   );
 }
-

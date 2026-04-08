@@ -1,9 +1,4 @@
-export type DebugLogLevel =
-  | "error"
-  | "warn"
-  | "info"
-  | "debug"
-  | "log";
+export type DebugLogLevel = "error" | "warn" | "info" | "debug" | "log";
 
 export type DebugLogSource =
   | "console"
@@ -128,7 +123,9 @@ function attachCrossTabSync() {
 
 function newId(): string {
   // stable enough for UI + export without extra deps
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 }
 
 export function getDebugLogs(): DebugLogEntry[] {
@@ -163,7 +160,8 @@ export function addDebugLog(entry: Omit<DebugLogEntry, "id" | "ts" | "href">) {
     };
     const entries = getCache();
     entries.push(e);
-    if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
+    if (entries.length > MAX_ENTRIES)
+      entries.splice(0, entries.length - MAX_ENTRIES);
     saveToStorage(entries);
     notifyCrossTab();
     emit();
@@ -182,7 +180,8 @@ export function initDebugLogCapture(options?: {
   const suppress = options?.suppressIgnoredConsole ?? false;
   attachCrossTabSync();
 
-  const originalError: (...args: unknown[]) => void = console.error.bind(console);
+  const originalError: (...args: unknown[]) => void =
+    console.error.bind(console);
   const originalWarn: (...args: unknown[]) => void = console.warn.bind(console);
   const originalInfo: ((...args: unknown[]) => void) | undefined =
     console.info?.bind(console);
@@ -307,7 +306,9 @@ export function initDebugLogCapture(options?: {
       message: msg,
       stack: err?.stack,
       detail: (ev as ErrorEvent).filename
-        ? `${(ev as ErrorEvent).filename}:${(ev as ErrorEvent).lineno}:${(ev as ErrorEvent).colno}`
+        ? `${(ev as ErrorEvent).filename}:${(ev as ErrorEvent).lineno}:${
+            (ev as ErrorEvent).colno
+          }`
         : undefined,
     });
   });
@@ -318,8 +319,8 @@ export function initDebugLogCapture(options?: {
       reason instanceof Error
         ? reason.message
         : typeof reason === "string"
-          ? reason
-          : "Unhandled promise rejection";
+        ? reason
+        : "Unhandled promise rejection";
     if (ignore?.(msg)) return;
     addDebugLog({
       level: "error",
