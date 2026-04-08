@@ -375,9 +375,15 @@ async def delete_agent(
     manager = _get_multi_agent_manager(request)
     await manager.stop_agent(agentId)
 
+    workspace_dir = config.agents.profiles[agentId].workspace_dir
     del config.agents.profiles[agentId]
     config.agents.agent_order = _normalized_agent_order(config)
     save_config(config)
+
+    if workspace_dir:
+        workspace_path = Path(workspace_dir)
+        if workspace_path.exists() and workspace_path.is_dir():
+            shutil.rmtree(workspace_path, ignore_errors=True)
 
     return {"success": True, "agent_id": agentId}
 
