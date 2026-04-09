@@ -45,6 +45,10 @@ class ChatSpec(BaseModel):
         default="idle",
         description="Conversation status: idle or running",
     )
+    pinned: bool = Field(
+        default=False,
+        description="Whether the chat is pinned to the top",
+    )
 
 
 class ChatUpdate(BaseModel):
@@ -58,6 +62,10 @@ class ChatUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, description="Chat name")
+    pinned: bool | None = Field(
+        default=None,
+        description="Whether the chat is pinned to the top",
+    )
 
 
 class ChatHistory(BaseModel):

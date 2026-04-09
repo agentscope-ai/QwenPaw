@@ -1,7 +1,12 @@
 import React from "react";
 import { Input } from "antd";
 import { IconButton } from "@agentscope-ai/design";
-import { SparkEditLine, SparkDeleteLine } from "@agentscope-ai/icons";
+import {
+  SparkEditLine,
+  SparkDeleteLine,
+  SparkTopLine,
+  SparkCancelTopLine,
+} from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import {
   getChannelIconUrl,
@@ -27,12 +32,16 @@ interface ChatSessionItemProps {
   editing?: boolean;
   /** Current value of the edit input */
   editValue?: string;
+  /** Whether the chat is pinned */
+  pinned?: boolean;
   /** Click callback */
   onClick?: () => void;
   /** Edit button callback */
   onEdit?: () => void;
   /** Delete button callback */
   onDelete?: () => void;
+  /** Pin button callback */
+  onPin?: () => void;
   /** Edit input value change callback */
   onEditChange?: (value: string) => void;
   /** Confirm edit callback (Enter key or blur) */
@@ -60,6 +69,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
     styles.chatSessionItem,
     props.active ? styles.active : "",
     props.editing ? styles.editing : "",
+    props.pinned ? styles.pinned : "",
     props.className || "",
   ]
     .filter(Boolean)
@@ -125,9 +135,19 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
           )}
         </div>
       </div>
-      {/* Action buttons visible on hover */}
+      {/* Action buttons */}
       {!props.editing && (
         <div className={styles.actions}>
+          <IconButton
+            bordered={false}
+            size="small"
+            className={styles.pinButton}
+            icon={props.pinned ? <SparkCancelTopLine /> : <SparkTopLine />}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onPin?.();
+            }}
+          />
           <IconButton
             bordered={false}
             size="small"
