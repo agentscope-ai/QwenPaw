@@ -262,14 +262,14 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 Commands for managing and switching AI models. These commands execute directly without going through the Agent.
 
-| Command                           | Description                                      | Chat |
-| --------------------------------- | ------------------------------------------------ | ---- |
-| `/model`                          | Show current active model                        | ✅   |
-| `/model -h` or `/model help`      | Show help information                            | ✅   |
-| `/model list`                     | List all available models                        | ✅   |
-| `/model <provider>:<model>`       | Switch to specified model                        | ✅   |
-| `/model reset`                    | Reset to global default model                    | ✅   |
-| `/model info <provider>:<model>`  | Show detailed information about a specific model | ✅   |
+| Command                          | Description                                      | Chat |
+| -------------------------------- | ------------------------------------------------ | ---- |
+| `/model`                         | Show current active model                        | ✅   |
+| `/model -h` or `/model help`     | Show help information                            | ✅   |
+| `/model list`                    | List all available models                        | ✅   |
+| `/model <provider>:<model>`      | Switch to specified model                        | ✅   |
+| `/model reset`                   | Reset to global default model                    | ✅   |
+| `/model info <provider>:<model>` | Show detailed information about a specific model | ✅   |
 
 ---
 
@@ -359,6 +359,7 @@ Display all configured providers and their available models. The currently activ
   - `gpt-4o` 🖼️ **[ACTIVE]**
   - `gpt-4o-mini` 🖼️
   - `gpt-3.5-turbo`
+  - `my-custom-model` *(user-added)*
 
 **Anthropic** (`anthropic`)
   - `claude-3-5-sonnet-20241022`
@@ -368,15 +369,17 @@ Display all configured providers and their available models. The currently activ
   - `gemini-2.0-flash-exp` 🖼️🎥
 
 ---
-Total: 3 provider(s), 7 model(s)
+Total: 3 provider(s), 8 model(s)
 
 Use `/model <provider>:<model>` to switch models.
 Example: `/model openai:gpt-4o`
 ```
 
-**Capability indicators:**
+**Indicators:**
+
 - 🖼️ - Supports image input
 - 🎥 - Supports video input
+- _(user-added)_ - User-added model (via `copaw models add-model` command)
 
 ---
 

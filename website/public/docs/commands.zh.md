@@ -359,6 +359,7 @@ Manage and switch AI models for the current agent.
   - `gpt-4o` 🖼️ **[ACTIVE]**
   - `gpt-4o-mini` 🖼️
   - `gpt-3.5-turbo`
+  - `my-custom-model` *(user-added)*
 
 **Anthropic** (`anthropic`)
   - `claude-3-5-sonnet-20241022`
@@ -368,15 +369,17 @@ Manage and switch AI models for the current agent.
   - `gemini-2.0-flash-exp` 🖼️🎥
 
 ---
-Total: 3 provider(s), 7 model(s)
+Total: 3 provider(s), 8 model(s)
 
 Use `/model <provider>:<model>` to switch models.
 Example: `/model openai:gpt-4o`
 ```
 
-**能力标识：**
+**标识说明：**
+
 - 🖼️ - 支持图片输入
 - 🎥 - 支持视频输入
+- _(user-added)_ - 用户手动添加的模型（通过 `copaw models add-model` 命令）
 
 ---
 

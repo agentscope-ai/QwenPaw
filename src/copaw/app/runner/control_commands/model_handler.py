@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint:disable=too-many-return-statements
 """Handler for /model command.
 
 The /model command manages model configuration for the current agent.
@@ -54,6 +55,15 @@ class ModelCommandHandler(BaseControlCommandHandler):
             return await self._list_models(context)
         elif args_str.lower() == "reset":
             return await self._reset_model(context)
+        elif args_str.lower() == "info":
+            # Handle /model info without model spec
+            return (
+                "**Missing Model Specification**\n\n"
+                "Please specify a model to show information.\n\n"
+                "Usage: `/model info <provider>:<model>`\n\n"
+                "Example: `/model info openai:gpt-4o`\n"
+                "Use `/model list` to see available models."
+            )
         elif args_str.lower().startswith("info "):
             model_spec = args_str[5:].strip()
             return await self._show_model_info(context, model_spec)
@@ -114,7 +124,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
                     "**No Active Model**\n\n"
                     "No model is currently configured.\n\n"
                     "Use `/model list` to see available models, "
-                    "then use `/model <provider:model>` to select one."
+                    "then use `/model <provider>:<model>` to select one."
                 )
 
             source = "global default"
@@ -124,7 +134,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         return (
             f"**Current Model** ({source})\n\n"
             f"Provider: `{active_model.provider_id}`\n"
-            f"Model: `{active_model.model}`"
+            f"Model: `{active_model.model}` ✓"
         )
 
     async def _list_models(self, context: ControlContext) -> str:
@@ -157,7 +167,11 @@ class ModelCommandHandler(BaseControlCommandHandler):
             if provider_info.require_api_key and not provider_info.api_key:
                 continue
             # Skip if provider has no models
-            if not provider_info.models:
+            # (check both models and extra_models)
+            all_models = list(provider_info.models) + list(
+                provider_info.extra_models,
+            )
+            if not all_models:
                 continue
             configured_providers.append(provider_info)
 
@@ -176,8 +190,10 @@ class ModelCommandHandler(BaseControlCommandHandler):
             provider_id = provider_info.id
             provider_name = provider_info.name
 
-            # Get all models for this provider
-            all_models = provider_info.models
+            # Get all models for this provider (both built-in and user-added)
+            extra_models = list(provider_info.extra_models)
+            all_models = list(provider_info.models) + extra_models
+            extra_model_ids = {m.id for m in extra_models}
 
             lines.append(f"\n**Provider: {provider_name}** (`{provider_id}`)")
 
@@ -193,6 +209,11 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
                 active_marker = " **[ACTIVE]**" if is_active else ""
 
+                # Add user-added marker
+                user_added_marker = (
+                    " *(user-added)*" if model_id in extra_model_ids else ""
+                )
+
                 # Add multimodal indicators
                 indicators = []
                 if model.supports_image:
@@ -204,7 +225,8 @@ class ModelCommandHandler(BaseControlCommandHandler):
                     indicator_str = f" {indicator_str}"
 
                 lines.append(
-                    f"  - `{model_id}`{indicator_str}{active_marker}",
+                    f"  - `{model_id}`{indicator_str}{user_added_marker}"
+                    f"{active_marker}",
                 )
 
                 total_models += 1
@@ -213,7 +235,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
             f"\n---\n"
             f"Total: {len(configured_providers)} provider(s), "
             f"{total_models} model(s)\n\n"
-            f"Use `/model <provider:model>` to switch models.",
+            f"Use `/model <provider_id>:<model_id>` to switch models.",
         )
 
         return "\n".join(lines)
@@ -236,7 +258,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         if ":" not in model_spec:
             return (
                 "**Invalid Format**\n\n"
-                "Please use format: `/model <provider:model>`\n\n"
+                "Please use format: `/model <provider>:<model>`\n\n"
                 "Example: `/model openai:gpt-4o`\n"
                 "Use `/model list` to see available models."
             )
@@ -368,7 +390,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         if ":" not in model_spec:
             return (
                 "**Invalid Format**\n\n"
-                "Please use format: `/model info <provider:model>`\n\n"
+                "Please use format: `/model info <provider>:<model>`\n\n"
                 "Example: `/model info openai:gpt-4o`"
             )
 
@@ -430,6 +452,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 "documentation": "Documentation",
                 "api": "API Discovery",
                 "probe": "Runtime Probe",
+                "probed": "Runtime Probe",
             }.get(model_info.probe_source, model_info.probe_source)
             lines.append(f"**Source:** {probe_source_display}")
 
