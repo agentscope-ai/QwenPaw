@@ -523,19 +523,33 @@ export default function ChatPage() {
 
   // Setup multimodal capabilities tracking via custom hook
 
-  // Refresh chat when selectedAgent changes
+  // Refresh chat when selectedAgent changes, preserving last active chat per agent
+  const { setLastChatId, getLastChatId } = useAgentStore();
   const prevSelectedAgentRef = useRef(selectedAgent);
   useEffect(() => {
-    // Only refresh if selectedAgent actually changed (not initial mount)
-    if (
-      prevSelectedAgentRef.current !== selectedAgent &&
-      prevSelectedAgentRef.current !== undefined
-    ) {
-      // Force re-render by updating refresh key
+    const prevAgent = prevSelectedAgentRef.current;
+    if (prevAgent !== selectedAgent && prevAgent !== undefined) {
+      // Save current chat ID for the agent we're leaving
+      const currentChatId =
+        chatIdRef.current || lastSessionIdRef.current || undefined;
+      if (currentChatId && prevAgent) {
+        setLastChatId(prevAgent, currentChatId);
+      }
+
+      // Restore last chat ID for the agent we're switching to
+      const restored = getLastChatId(selectedAgent);
+      if (restored) {
+        navigateRef.current(`/chat/${restored}`, { replace: true });
+        sessionApi.preferredChatId = restored;
+      } else {
+        navigateRef.current("/chat", { replace: true });
+      }
+      lastSessionIdRef.current = null;
+
       setRefreshKey((prev) => prev + 1);
     }
     prevSelectedAgentRef.current = selectedAgent;
-  }, [selectedAgent]);
+  }, [selectedAgent, setLastChatId, getLastChatId]);
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
