@@ -1,7 +1,10 @@
 ---
 name: cron
 description: Use this skill only for scheduled or recurring tasks. Manage cron jobs with copaw cron list/create/get/state/pause/resume/delete/run. Always pass --agent-id explicitly. | 仅在需要未来定时执行或周期执行时使用本 skill。用 copaw cron list/create/get/state/pause/resume/delete/run 管理任务；必须显式传 --agent-id
-metadata: { "builtin_skill_version": "1.1", "copaw": { "emoji": "⏰" } }
+metadata:
+  builtin_skill_version: "1.2"
+  copaw:
+    emoji: "⏰"
 ---
 
 # Cron（定时任务管理）

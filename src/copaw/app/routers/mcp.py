@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Literal
+import logging
+from typing import Any, Dict, List, Optional, Literal
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 from ..utils import schedule_agent_reload
 from ...config.config import MCPClientConfig
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -201,6 +204,78 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         env=masked_env,
         cwd=client.cwd,
     )
+
+
+class MCPToolInfo(BaseModel):
+    """MCP tool information returned from a connected server."""
+
+    name: str = Field(..., description="Tool name")
+    description: str = Field(default="", description="Tool description")
+    input_schema: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON Schema for the tool's input parameters",
+    )
+
+
+@router.get(
+    "/{client_key}/tools",
+    response_model=List[MCPToolInfo],
+    summary="List tools from a connected MCP server",
+)
+async def list_mcp_tools(
+    request: Request,
+    client_key: str = Path(...),
+) -> List[MCPToolInfo]:
+    """Query a running MCP server for its available tools.
+
+    Returns 503 if the client is not yet connected, empty list if
+    disabled, or 502 if the MCP server query fails.
+    """
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+
+    mcp_config = agent.config.mcp
+    if mcp_config is None or client_key not in (mcp_config.clients or {}):
+        raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
+
+    client_config = mcp_config.clients[client_key]
+    if not client_config.enabled:
+        return []
+
+    mcp_manager = agent.mcp_manager
+    if mcp_manager is None:
+        raise HTTPException(
+            503,
+            detail="MCP manager is not ready yet, please try again later",
+        )
+
+    client = await mcp_manager.get_client(client_key)
+    if client is None or not getattr(client, "is_connected", False):
+        raise HTTPException(
+            503,
+            detail="MCP server is still connecting, please try again later",
+        )
+
+    try:
+        tools = await client.list_tools()
+    except Exception as e:
+        logger.warning(
+            f"Failed to list tools for MCP client '{client_key}': {e}",
+        )
+        raise HTTPException(
+            502,
+            detail=f"Failed to query tools from MCP server: {e}",
+        ) from e
+
+    return [
+        MCPToolInfo(
+            name=t.name,
+            description=getattr(t, "description", "") or "",
+            input_schema=getattr(t, "inputSchema", {}) or {},
+        )
+        for t in tools
+    ]
 
 
 @router.get(

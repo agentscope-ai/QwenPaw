@@ -3,7 +3,9 @@
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from agentscope_runtime.engine.schemas.exception import (
+    ConfigurationException,
+)
 
 from copaw.config.config import (
     AgentProfileConfig,
@@ -288,7 +290,7 @@ def test_agent_running_config_llm_retry_persists(
 
 def test_agent_running_config_rejects_backoff_cap_below_base():
     """Test that backoff cap cannot be lower than backoff base."""
-    with pytest.raises(ValidationError):
+    with pytest.raises(ConfigurationException):
         AgentsRunningConfig(
             llm_backoff_base=2.0,
             llm_backoff_cap=1.0,

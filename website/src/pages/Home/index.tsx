@@ -11,7 +11,7 @@ import { CopawWhatYouCanDo } from "./components/WhatYouCanDo";
 import { CopawWorksForYou } from "./components/WorksForYou";
 import { CopawWhy } from "./components/WhyCopaw";
 
-export function Home() {
+export default function Home() {
   const config = useSiteConfig();
   const docsBase = (config.docsPath ?? "/docs/").replace(/\/$/, "") || "/docs";
 

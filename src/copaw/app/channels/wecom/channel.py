@@ -34,6 +34,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 from aibot import WSClient, WSClientOptions, generate_req_id
 
 from ....constant import DEFAULT_MEDIA_DIR
+from ....exceptions import ChannelError
 from ..base import (
     BaseChannel,
     ContentType,
@@ -63,6 +64,25 @@ _MEDIA_MSGTYPE: Dict[str, str] = {
     "voice": "voice",
     "video": "video",
     "file": "file",
+}
+
+# Mapping for quoted media types: msgtype → (filename_hint, ContentClass,
+# content_kwargs, url_field_name).  Used by _on_message to build content
+# parts from quoted image / file / video items.
+_QUOTE_MEDIA_MAP = {
+    "image": (
+        "image.jpg",
+        ImageContent,
+        {"type": ContentType.IMAGE},
+        "image_url",
+    ),
+    "file": (None, FileContent, {"type": ContentType.FILE}, "file_url"),
+    "video": (
+        "video.mp4",
+        VideoContent,
+        {"type": ContentType.VIDEO},
+        "video_url",
+    ),
 }
 
 
@@ -454,6 +474,72 @@ class WecomChannel(BaseChannel):
             else:
                 text_parts.append(f"[{msgtype}]")
 
+            # Handle quoted (replied-to) message if present
+            quote = body.get("quote")
+            if quote:
+                quote_type = quote.get("msgtype") or ""
+                # Flatten quote into a list of items for unified processing.
+                # Single-type quotes become a one-element list; mixed quotes
+                # already contain a list of items.
+                if quote_type == "mixed":
+                    quoted_items = quote.get("mixed", {}).get("msg_item", [])
+                elif quote_type:
+                    quoted_items = [quote]
+                else:
+                    quoted_items = []
+
+                for q_item in quoted_items:
+                    q_type = q_item.get("msgtype") or ""
+                    if q_type == "text":
+                        quoted_text = (
+                            (q_item.get("text") or {})
+                            .get("content", "")
+                            .strip()
+                        )
+                        if quoted_text:
+                            text_parts.insert(
+                                0,
+                                f"[quoted message: {quoted_text}]",
+                            )
+                    elif q_type in _QUOTE_MEDIA_MAP:
+                        (
+                            hint_default,
+                            content_cls,
+                            content_kwargs,
+                            url_field,
+                        ) = _QUOTE_MEDIA_MAP[q_type]
+                        q_data = q_item.get(q_type) or {}
+                        q_url = q_data.get("url") or ""
+                        q_aes_key = q_data.get("aeskey") or ""
+                        hint = (
+                            hint_default
+                            or q_data.get("filename")
+                            or "file.bin"
+                        )
+                        if q_url:
+                            q_path = await self._download_media(
+                                q_url,
+                                aes_key=q_aes_key,
+                                filename_hint=hint,
+                            )
+                            if q_path:
+                                content_parts.append(
+                                    content_cls(
+                                        **content_kwargs,
+                                        **{url_field: q_path},
+                                    ),
+                                )
+                            else:
+                                text_parts.insert(
+                                    0,
+                                    f"[quoted {q_type}: download failed]",
+                                )
+                    else:
+                        text_parts.insert(
+                            0,
+                            f"[quoted {q_type} message]",
+                        )
+
             text = "\n".join(text_parts).strip()
             if text:
                 content_parts.insert(
@@ -608,9 +694,12 @@ class WecomChannel(BaseChannel):
             self._upload_ack_futures.pop(req_id, None)
         errcode = ack.get("errcode", -1)
         if errcode != 0:
-            raise RuntimeError(
-                f"wecom upload cmd={cmd} failed: "
-                f"errcode={errcode} errmsg={ack.get('errmsg')}",
+            raise ChannelError(
+                channel_name="wecom",
+                message=(
+                    f"wecom upload cmd={cmd} failed: "
+                    f"errcode={errcode} errmsg={ack.get('errmsg')}"
+                ),
             )
         return ack.get("body") or {}
 
@@ -668,7 +757,10 @@ class WecomChannel(BaseChannel):
                 )
                 upload_id = init_body.get("upload_id", "")
                 if not upload_id:
-                    raise RuntimeError("wecom upload: empty upload_id")
+                    raise ChannelError(
+                        channel_name="wecom",
+                        message="wecom upload: empty upload_id",
+                    )
                 logger.debug(
                     "wecom upload init: upload_id=%s chunks=%d",
                     upload_id[:20],
@@ -693,7 +785,10 @@ class WecomChannel(BaseChannel):
                 )
                 media_id = finish_body.get("media_id", "")
                 if not media_id:
-                    raise RuntimeError("wecom upload: empty media_id")
+                    raise ChannelError(
+                        channel_name="wecom",
+                        message="wecom upload: empty media_id",
+                    )
                 logger.info(
                     "wecom upload done: media_id=%s type=%s",
                     media_id[:20],
@@ -1010,9 +1105,12 @@ class WecomChannel(BaseChannel):
             return
 
         if not self.bot_id or not self.secret:
-            raise RuntimeError(
-                "WECOM_BOT_ID and WECOM_SECRET are required when "
-                "the wecom channel is enabled.",
+            raise ChannelError(
+                channel_name="wecom",
+                message=(
+                    "WECOM_BOT_ID and WECOM_SECRET are required "
+                    "when the wecom channel is enabled"
+                ),
             )
 
         self._loop = asyncio.get_running_loop()

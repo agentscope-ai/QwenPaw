@@ -26,6 +26,13 @@
     "actions": "操作",
     "total": "共 {{count}} 条"
   },
+  "chunkError": {
+    "title": "页面加载失败",
+    "subTitle": "可能由网络问题或应用更新导致，请稍后重试。",
+    "genericTitle": "页面出现异常",
+    "genericSubTitle": "渲染此页面时发生了意外错误。",
+    "reload": "刷新页面"
+  },
   "nav": {
     "chat": "聊天",
     "control": "控制",
@@ -147,6 +154,7 @@
     "invalidSkillUrlSource": "技能 URL 当前需要以 https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/ 或 https://modelscope.cn/skills/ 开头",
     "type": "类型",
     "skillDescription": "描述",
+    "tags": "标签",
     "builtin": "内置",
     "custom": "自定义",
     "createSkill": "创建技能",
@@ -267,6 +275,10 @@
     "edit": "编辑",
     "delete": "删除",
     "descriptionLabel": "描述",
+    "tags": "标签",
+    "tagsPlaceholder": "选择或输入标签",
+    "tagTooLong": "标签长度不能超过 {{max}} 个字符",
+    "filterByTag": "按标签筛选",
     "version": "版本",
     "createTitle": "创建技能池项目",
     "editTitle": "编辑 {{name}}",
@@ -333,7 +345,12 @@
     "deleteConfirm": "确定要删除此 MCP 客户端吗？",
     "deleteSuccess": "MCP 客户端删除成功",
     "deleteError": "MCP 客户端删除失败",
-    "maskedFieldHint": "敏感字段已用 *** 遮掩，不支持在遮掩值上直接编辑，如需修改请替换为完整新值。"
+    "maskedFieldHint": "敏感字段已用 *** 遮掩，不支持在遮掩值上直接编辑，如需修改请替换为完整新值。",
+    "tools": "工具列表",
+    "noTools": "该 MCP 服务器暂无可用工具",
+    "toolsLoadError": "获取 MCP 服务器工具列表失败",
+    "toolsConnecting": "MCP 服务器正在连接中，请稍后重试",
+    "toolSchema": "输入参数"
   },
   "heartbeat": {
     "title": "心跳",
@@ -469,7 +486,8 @@
       "feishu": "飞书",
       "wecom": "企业微信",
       "weixin": "微信",
-      "xiaoyi": "小艺"
+      "xiaoyi": "小艺",
+      "onebot": "OneBot"
     },
     "pleaseInputDbPath": "请输入数据库路径",
     "pleaseInputPollInterval": "请输入轮询间隔",
@@ -536,7 +554,9 @@
     "weixinScanHint": "请用微信扫描二维码，扫码成功后点击保存",
     "weixinQrcodeFailed": "获取二维码失败，请稍后重试",
     "weixinLoginSuccess": "微信扫码登录成功，Token 已填入",
-    "weixinQrcodeExpired": "二维码已过期，请重新获取"
+    "weixinQrcodeExpired": "二维码已过期，请重新获取",
+    "onebotShareSessionInGroup": "群聊共享会话",
+    "onebotShareSessionInGroupTooltip": "开启后，群内所有成员共享同一个会话。关闭后，每个成员拥有独立会话。"
   },
   "sessions": {
     "title": "会话",
@@ -727,7 +747,7 @@
     "local": "本地",
     "localType": "类型",
     "localEmbedded": "嵌入式（进程内）",
-    "localDownloadFirst": "请先下载模型",
+    "localDownloadFirst": "未启动模型服务",
     "localDownloadModel": "下载模型",
     "localModelsTitle": "{{provider}} — 本地模型",
     "localNoModels": "暂无已下载的模型",
@@ -750,7 +770,7 @@
     "localDownloadInProgress": "已有下载任务正在进行",
     "localDownloaded": "已下载",
     "localNotDownloaded": "未下载",
-    "localNoRecommendedModels": "当前没有可用的推荐本地模型",
+    "localNoRecommendedModels": "当前机器配置较低，不适合运行本地模型",
     "localCancelDownloadTitle": "取消下载",
     "localCancelDownloadAction": "取消下载",
     "localCancelDownloadConfirm": "确定取消下载 \"{{repo}}\"？",
@@ -800,6 +820,16 @@
     "localAlternativeRuntimeHint": "请尝试使用 Ollama 或 LM Studio",
     "localModelsCount": "已下载 {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "当前下载",
+    "localAdvancedConfigTitle": "本地模型进阶配置",
+    "localAdvancedConfigDescription": "这些设置会应用到内置本地推理运行时。其中最大上下文长度会在下一次启动本地服务时生效",
+    "localAdvancedConfigSaved": "本地模型进阶配置已保存",
+    "localAdvancedConfigSaveFailed": "保存本地模型进阶配置失败",
+    "localMaxContextLengthLabel": "最大上下文长度",
+    "localMaxContextLengthHint": "模型上下文窗口的最大 token 数，决定每次请求可携带的历史长度，在下一次启动本地服务时生效",
+    "localMaxContextLengthRequired": "请输入最大上下文长度",
+    "localMaxContextLengthMin": "最大上下文长度必须大于等于 {{min}}",
+    "localMaxContextLengthPlaceholder": "请输入最大上下文长度",
+    "localGenerateConfigHint": "使用 JSON 格式表示的生成参数配置项，会被展开传入到生成请求中",
     "localCustomModelTitle": "自定义模型下载",
     "localCustomModelHint": "输入模型仓库 ID，仅支持 GGUF 格式。",
     "localSourceHuggingFace": "Hugging Face",
@@ -808,6 +838,7 @@
     "testConnection": "测试连接",
     "testConnectionSuccess": "连接测试成功",
     "testConnectionFailed": "连接测试失败",
+    "testConnectionFailedWithMessage": "连接测试失败：{{message}}",
     "testConnectionError": "测试连接时发生错误",
     "discoverModels": "自动获取模型",
     "discoverModelsFailed": "自动获取模型失败",
@@ -1063,6 +1094,7 @@
   "chat": {
     "modelSelectTooltip": "模型选择",
     "newChatTooltip": "新建聊天",
+    "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",
@@ -1073,7 +1105,7 @@
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
-    "inputPlaceholder": "输入 / 查看快捷指令；审批时可使用 /approve 或 /deny ...",
+    "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令（审批时 \"/approve\" 或 \"/deny\"）",
     "commands": {
       "clear": {
         "description": "清空对话上下文"
@@ -1097,6 +1129,15 @@
       "multimodalWarning": "当前模型未检测到多模态能力，图片或视频可能无法被正确处理",
       "imageOnlyAccept": "当前模型仅支持图片文件",
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
+    },
+    "search": {
+      "title": "搜索聊天",
+      "tooltip": "搜索当前聊天",
+      "placeholder": "搜索消息...",
+      "noResults": "未找到结果",
+      "resultsCount": "找到 {{count}} 个结果",
+      "userMessage": "用户",
+      "assistantMessage": "助手"
     }
   },
   "security": {

@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import type { KeyboardEvent, ReactNode, UIEvent } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button, Form, Input, Modal, Tag } from "@agentscope-ai/design";
 import {
   DeleteOutlined,
@@ -15,161 +14,12 @@ import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../../../../../contexts/ThemeContext";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
+import { JsonConfigEditor } from "./JsonConfigEditor.tsx";
+import {
+  getLocalizedTestConnectionMessage,
+  getTestConnectionFailureDetail,
+} from "./testConnectionMessage";
 import styles from "../../index.module.less";
-
-function highlightJson(text: string): ReactNode[] {
-  const tokens: ReactNode[] = [];
-  const pattern =
-    /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
-
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    const [token, stringToken, keySuffix] = match;
-
-    if (match.index > lastIndex) {
-      tokens.push(text.slice(lastIndex, match.index));
-    }
-
-    if (stringToken) {
-      tokens.push(
-        <span
-          key={`${match.index}-${token}`}
-          className={
-            keySuffix ? styles.jsonEditorTokenKey : styles.jsonEditorTokenString
-          }
-        >
-          {token}
-        </span>,
-      );
-    } else if (token === "true" || token === "false") {
-      tokens.push(
-        <span
-          key={`${match.index}-${token}`}
-          className={styles.jsonEditorTokenBoolean}
-        >
-          {token}
-        </span>,
-      );
-    } else if (token === "null") {
-      tokens.push(
-        <span
-          key={`${match.index}-${token}`}
-          className={styles.jsonEditorTokenNull}
-        >
-          {token}
-        </span>,
-      );
-    } else if (/^-?\d/.test(token)) {
-      tokens.push(
-        <span
-          key={`${match.index}-${token}`}
-          className={styles.jsonEditorTokenNumber}
-        >
-          {token}
-        </span>,
-      );
-    } else {
-      tokens.push(
-        <span
-          key={`${match.index}-${token}`}
-          className={styles.jsonEditorTokenPunctuation}
-        >
-          {token}
-        </span>,
-      );
-    }
-
-    lastIndex = match.index + token.length;
-  }
-
-  if (lastIndex < text.length) {
-    tokens.push(text.slice(lastIndex));
-  }
-
-  return tokens;
-}
-
-function MiniJsonEditor({
-  value = "",
-  onChange,
-  placeholder,
-}: {
-  value?: string;
-  onChange?: (value: string) => void;
-  placeholder?: string;
-}) {
-  const indentUnit = "  ";
-  const highlightRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const handleScroll = (event: UIEvent<HTMLTextAreaElement>) => {
-    if (!highlightRef.current) return;
-    highlightRef.current.scrollTop = event.currentTarget.scrollTop;
-    highlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Tab") return;
-    event.preventDefault();
-
-    const textarea = event.currentTarget;
-    const selectionStart = textarea.selectionStart;
-    const selectionEnd = textarea.selectionEnd;
-
-    if (event.shiftKey) {
-      const lineStart = value.lastIndexOf("\n", selectionStart - 1) + 1;
-      const linePrefix = value.slice(lineStart, selectionStart);
-      if (!linePrefix.endsWith(indentUnit)) return;
-      const nextValue =
-        value.slice(0, selectionStart - indentUnit.length) +
-        value.slice(selectionStart);
-      onChange?.(nextValue);
-      requestAnimationFrame(() => {
-        textareaRef.current?.setSelectionRange(
-          selectionStart - indentUnit.length,
-          selectionStart - indentUnit.length,
-        );
-      });
-      return;
-    }
-
-    const nextValue =
-      value.slice(0, selectionStart) + indentUnit + value.slice(selectionEnd);
-    onChange?.(nextValue);
-    requestAnimationFrame(() => {
-      const nextCursor = selectionStart + indentUnit.length;
-      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
-  };
-
-  return (
-    <div className={styles.jsonEditorContainer} style={{ marginTop: 8 }}>
-      <div
-        ref={highlightRef}
-        aria-hidden="true"
-        className={styles.jsonEditorHighlight}
-        style={{ minHeight: 100 }}
-      >
-        {value ? highlightJson(value) : placeholder}
-        {!value && <span>{"\n"}</span>}
-      </div>
-      <textarea
-        ref={textareaRef}
-        rows={5}
-        value={value}
-        onChange={(event) => onChange?.(event.target.value)}
-        onKeyDown={handleKeyDown}
-        onScroll={handleScroll}
-        placeholder={placeholder}
-        spellCheck={false}
-        className={styles.jsonEditorTextarea}
-        style={{ minHeight: 100 }}
-      />
-    </div>
-  );
-}
 
 function ModelConfigEditor({
   providerId,
@@ -260,7 +110,7 @@ function ModelConfigEditor({
       >
         {t("models.modelGenerateConfigHint")}
       </div>
-      <MiniJsonEditor
+      <JsonConfigEditor
         value={text}
         onChange={handleChange}
         placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  },\n  "max_tokens": 2048\n}`}
@@ -342,10 +192,13 @@ export function RemoteModelManageModal({
       if (!testResult.success) {
         // Test failed – ask user whether to proceed anyway
         setSaving(false);
+        const failureDetail =
+          getTestConnectionFailureDetail(testResult.message) ||
+          t("models.modelTestFailed");
         Modal.confirm({
           title: t("models.testConnectionFailed"),
           content: t("models.modelTestFailedConfirm", {
-            message: testResult.message || t("models.modelTestFailed"),
+            message: failureDetail,
           }),
           okText: t("models.addModel"),
           cancelText: t("models.cancel"),
@@ -386,9 +239,9 @@ export function RemoteModelManageModal({
         model_id: modelId,
       });
       if (result.success) {
-        message.success(result.message || t("models.testConnectionSuccess"));
+        message.success(getLocalizedTestConnectionMessage(result, t));
       } else {
-        message.warning(result.message || t("models.testConnectionFailed"));
+        message.warning(getLocalizedTestConnectionMessage(result, t));
       }
     } catch (error) {
       const errMsg =

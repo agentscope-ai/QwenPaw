@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Dict, List, Type, Any
 from pydantic import BaseModel, Field
 
 from agentscope.model import ChatModelBase
+from copaw.exceptions import ProviderError
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -99,6 +100,11 @@ class ProviderInfo(BaseModel):
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
+    )
+    meta: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata for the provider "
+        "(e.g., api_key_url, api_key_hint).",
     )
 
 
@@ -195,9 +201,11 @@ class Provider(ProviderInfo, ABC):
             None,
         )
         if chat_model_cls is None:
-            raise ValueError(
-                f"Chat model class '{self.chat_model}' not found"
-                f" for provider '{self.name}'.",
+            raise ProviderError(
+                message=(
+                    f"Chat model class '{self.chat_model}' "
+                    f"not found for provider '{self.name}'."
+                ),
             )
         return chat_model_cls
 

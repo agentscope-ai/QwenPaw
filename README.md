@@ -58,27 +58,16 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
+[2026-04-09] We released v1.0.2! See the [v1.0.2 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
+
+- **[v1.0.2] Added:** Plugin system support; run `copaw task` without the web UI; use `/model` in chat to switch models; SiliconFlow provider; CoPaw Local multimodal support and richer console settings; sensitive credential encryption; `/skills` and `/<skill name>` commands to list and run skills; skill-pool tags.
+- **[v1.0.2] Changed:** Timezone names follow the UI language; settings pages load on demand; smoother interaction for large skill lists; localized provider connection-test prompts; more consistent error codes across chat channels, HTTP API, and CLI.
+- **[v1.0.2] Fixed:** MCP client CPU usage after close/reconnect; browser automation duplicate-element targeting and docs; shell tool newlines inside quotes.
+- **[v1.0.2] Contributors:** Thanks to new contributors: [@energyd](https://github.com/energyd), [@fengrui-z](https://github.com/fengrui-z), [@alostbear](https://github.com/alostbear), [@chr6192](https://github.com/chr6192), [@yyyzl](https://github.com/yyyzl).
+
 [2026-04-04] We released v1.0.1! See the [v1.0.1 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
-- **[v1.0.1] Added:** Zhipu AI model support; video analysis for multimodal models; per-model generate parameters configuration; CoPaw local provider auto-update mechanism; OneBot v11 channel for NapCat/QQ; Agent drag-and-drop ordering; Batch skill operations; WeChat file upload and typing improvements; Extra instructions for manual compact.
-- **[v1.0.1] Changed:** Website UI modernization; enhanced skill card and list view; MCP console UI refresh.
-- **[v1.0.1] Fixed:** DingTalk sessionWebhook and allowlist handling; WeCom WebSocket reliability; QQ reconnect state; console UI fixes; Windows tool compatibility; browser idle watchdog; tool guard with thinking models; llama.cpp Windows NVIDIA GPU support.
-- **[v1.0.1] Documentation:** CoPaw-Flash deployment FAQ; skill documentation updates.
-- **[v1.0.1] Contributors:** Thanks to new contributors: [@Jacky51351684](https://github.com/Jacky51351684), [@xianzhisheng](https://github.com/xianzhisheng), [@kobewl](https://github.com/kobewl), [@rikey123](https://github.com/rikey123), [@solarhell](https://github.com/solarhell).
-
 [2026-03-30] We released v1.0.0! See the [v1.0.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
-
-- **[v1.0.0] Added:**
-  - **Multi-Agent System**: Background task support with CLI `--background` flag and task tracking; agent enable/disable toggle via console and API; unified priority queue system with `/stop` command for task cancellation
-  - **Providers and Models**: CoPaw local model provider with llama.cpp; global LLM rate limiter with QPM sliding window
-  - **Security**: Tool guard rules for system reboot & service protection; Chinese prompt injection detection in skill scanner
-  - **Console & UI**: Download page for desktop installers with mirror sites; multimodal preview (image, audio, video, files) in console chat
-  - **Channels**: WeChat iLink Bot channel; custom channel HTTP routes for webhooks
-  - **Tools & Skills**: Async tool execution with background task helpers; two-layer skill pool architecture; browser CDP support for Chrome automation
-- **[v1.0.0] Changed:** Context management v2.0 with nested configuration models, new compaction hooks, tool result compaction, and proactive memory search; improved truncation logic; streaming grep search.
-- **[v1.0.0] Fixed:** Feishu WebSocket reconnection and multi-instance message routing; Discord duplicate messages; QQ voice message conversion; multi-agent model configuration; cross-platform file encoding.
-- **[v1.0.0] Documentation:** Comprehensive documentation update including multi-agent, installation & CLI docs, model provider docs, project structure guidelines, context management, security, MCP & tools, skills, and magic commands.
-- **[v1.0.0] Contributors:** Thanks to new contributors: [@qzcpl](https://github.com/qzcpl), [@livehl](https://github.com/livehl), [@carlos999-hqsama](https://github.com/carlos999-hqsama), [@bowenliang123](https://github.com/bowenliang123), [@jinglinpeng](https://github.com/jinglinpeng).
 
 [2026-03-24] We released v0.2.0! See the [v0.2.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
