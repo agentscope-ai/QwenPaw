@@ -204,13 +204,16 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       const backendId = session ? getBackendId(session) : null;
 
       if (backendId && session) {
-        const newPinnedState = !session.pinned;
-        await chatApi.updateChat(backendId, {
-          pinned: newPinnedState,
-        });
+        try {
+          const newPinnedState = !session.pinned;
+          await chatApi.updateChat(backendId, {
+            pinned: newPinnedState,
+          });
+          await refreshSessions();
+        } catch (error) {
+          console.error("Failed to toggle pin status:", error);
+        }
       }
-
-      await refreshSessions();
     },
     [sessions, refreshSessions],
   );
