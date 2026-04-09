@@ -195,10 +195,12 @@ class AgentRunner(Runner):
                     TextBlock(
                         type="text",
                         text=(
-                            f"**{display_name}**\n\n"
-                            f"{desc}\n\n"
-                            f"Skill path: `{skill_dir}`\n\n"
-                            f"Use `/{name} <input>` to invoke."
+                            f"**{name}**\n\n"
+                            f"- **command**: `/{name}`, "
+                            f"`/[{name}]`\n"
+                            f"- **name**: {display_name}\n"
+                            f"- **description**: {desc}\n"
+                            f"- **path**: `{skill_dir}`"
                         ),
                     ),
                 ],
@@ -206,7 +208,8 @@ class AgentRunner(Runner):
 
         # /<name> <input> → rewrite user message with skill body.
         merged = (
-            f"Use the below {name} skill to fulfill "
+            f"Use the [{display_name}] skill in "
+            f"`{skill_dir}` to fulfill "
             f"user's task: {user_input}\n\n"
             f"{post.content}"
         )

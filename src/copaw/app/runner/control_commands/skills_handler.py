@@ -8,10 +8,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import frontmatter as fm
+
 from .base import BaseControlCommandHandler, ControlContext
 from ....agents.skills_manager import (
     get_workspace_skills_dir,
     reconcile_workspace_manifest,
+)
+from ....agents.utils.file_handling import (
+    read_text_file_with_encoding_fallback,
 )
 
 
@@ -38,9 +43,9 @@ class SkillsCommandHandler(BaseControlCommandHandler):
         manifest = reconcile_workspace_manifest(workspace_dir)
         skills_dir = get_workspace_skills_dir(workspace_dir)
 
-        lines = ["**Enabled Skills**\n"]
+        lines = []
         found = False
-        for name, entry in sorted(
+        for folder_name, entry in sorted(
             manifest.get("skills", {}).items(),
         ):
             if not entry.get("enabled", False):
@@ -48,19 +53,38 @@ class SkillsCommandHandler(BaseControlCommandHandler):
             channels = entry.get("channels") or ["all"]
             if "all" not in channels and channel_id not in channels:
                 continue
-            if not (skills_dir / name).exists():
+            skill_dir = skills_dir / folder_name
+            if not skill_dir.exists():
                 continue
             found = True
+
+            # Read frontmatter for display name.
+            skill_md = skill_dir / "SKILL.md"
+            display_name = folder_name
             desc = (
                 entry.get("metadata", {}).get("description")
                 or "No description"
             )
-            lines.append(f"- **{name}**: {desc}")
+            if skill_md.exists():
+                raw = read_text_file_with_encoding_fallback(skill_md)
+                post = fm.loads(raw)
+                display_name = post.get("name") or folder_name
+                desc = post.get("description") or desc
+
+            lines.append(
+                f"**{folder_name}**\n\n"
+                f"- **name**: {display_name}\n"
+                f"- **description**: {desc}\n"
+                f"- **command**: `/{folder_name}`, "
+                f"`/[{folder_name}]`",
+            )
 
         if not found:
             return "No skills are currently enabled for this channel."
         lines.append(
-            "\nUse `/<name> <input>` to invoke a skill"
-            " (or `/[name with spaces] <input>`).",
+            "\n---\n"
+            "*These are all enabled skills for this channel. "
+            "Use `/<skill_name> <input>` to invoke, "
+            "or `/<skill_name>` to view details.*",
         )
-        return "\n".join(lines)
+        return "\n\n".join(lines)
