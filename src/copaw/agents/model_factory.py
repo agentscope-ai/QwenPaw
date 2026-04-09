@@ -33,9 +33,8 @@ except ImportError:  # pragma: no cover - compatibility fallback
     GeminiChatFormatter = None
     GeminiChatModel = None
 
-from .utils.tool_message_utils import _sanitize_tool_messages
-from .utils.openai_message_normalizer import (
-    normalize_messages_for_openai_compatible,
+from .utils.message_request_normalizer import (
+    normalize_messages_for_model_request,
 )
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import (
@@ -100,7 +99,7 @@ def _normalize_messages_for_formatter(
 
     The returned booleans are
     ``(is_anthropic_formatter, is_gemini_formatter)``.
-    OpenAI-compatible formatters receive a copied, normalized message list so
+    All formatters receive a copied, normalized message list so
     request-time repair does not mutate stored history.
     """
     is_anthropic_formatter = AnthropicChatFormatter is not None and (
@@ -109,25 +108,13 @@ def _normalize_messages_for_formatter(
     is_gemini_formatter = GeminiChatFormatter is not None and (
         issubclass(base_formatter_class, GeminiChatFormatter)
     )
-    is_openai_compatible_formatter = (
-        issubclass(
-            base_formatter_class,
-            OpenAIChatFormatter,
-        )
-        and not is_anthropic_formatter
-        and not is_gemini_formatter
+    supports_multimodal = _supports_multimodal_for_current_model()
+    if getattr(formatter_instance, "_copaw_force_strip_media", False):
+        supports_multimodal = False
+    normalized_msgs = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=supports_multimodal,
     )
-
-    if is_openai_compatible_formatter:
-        supports_multimodal = _supports_multimodal_for_current_model()
-        if getattr(formatter_instance, "_copaw_force_strip_media", False):
-            supports_multimodal = False
-        normalized_msgs = normalize_messages_for_openai_compatible(
-            msgs,
-            supports_multimodal=supports_multimodal,
-        )
-    else:
-        normalized_msgs = _sanitize_tool_messages(msgs)
 
     return normalized_msgs, is_anthropic_formatter, is_gemini_formatter
 

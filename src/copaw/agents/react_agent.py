@@ -12,21 +12,10 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
-from agentscope.formatter import OpenAIChatFormatter
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
-
-try:
-    from agentscope.formatter import AnthropicChatFormatter
-except ImportError:  # pragma: no cover - compatibility fallback
-    AnthropicChatFormatter = None
-
-try:
-    from agentscope.formatter import GeminiChatFormatter
-except ImportError:  # pragma: no cover - compatibility fallback
-    GeminiChatFormatter = None
 
 from anyio import ClosedResourceError
 from pydantic import BaseModel
@@ -674,26 +663,12 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         return self._strip_media_blocks_from_memory()
 
-    def _uses_openai_compatible_formatter(self) -> bool:
-        """Return True when the active formatter is OpenAI-compatible."""
-        formatter = getattr(self, "formatter", None)
-        if formatter is None:
-            return False
-        if AnthropicChatFormatter is not None and isinstance(
-            formatter,
-            AnthropicChatFormatter,
-        ):
-            return False
-        if GeminiChatFormatter is not None and isinstance(
-            formatter,
-            GeminiChatFormatter,
-        ):
-            return False
-        return isinstance(formatter, OpenAIChatFormatter)
+    def _uses_request_time_media_normalization(self) -> bool:
+        """Return True when request-time normalization can handle media."""
+        return getattr(self, "formatter", None) is not None
 
-    def _set_openai_formatter_media_strip(self, enabled: bool) -> None:
-        """Toggle request-time media stripping on OpenAI-compatible
-        formatters."""
+    def _set_formatter_media_strip(self, enabled: bool) -> None:
+        """Toggle request-time media stripping on the active formatter."""
         formatter = getattr(self, "formatter", None)
         if formatter is None:
             return
@@ -717,10 +692,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         # --- Proactive filtering layer ---
         if not get_active_model_supports_multimodal():
-            if self._uses_openai_compatible_formatter():
+            if self._uses_request_time_media_normalization():
                 logger.debug(
-                    "OpenAI-compatible formatter will strip media "
-                    "from copied messages before reasoning.",
+                    "Formatter will strip media from copied messages "
+                    "before reasoning.",
                 )
             else:
                 n = self._proactive_strip_media_blocks()
@@ -738,24 +713,23 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             if not self._is_bad_request_or_media_error(e):
                 raise
 
-            if self._uses_openai_compatible_formatter():
+            if self._uses_request_time_media_normalization():
                 if get_active_model_supports_multimodal():
                     logger.warning(
                         "Model marked multimodal but "
                         "rejected media. "
                         "Capability flag may be wrong.",
                     )
-                self._set_openai_formatter_media_strip(True)
+                self._set_formatter_media_strip(True)
                 try:
                     logger.warning(
                         "_reasoning failed (%s). "
-                        "Retrying with OpenAI-compatible request-time "
-                        "media stripping.",
+                        "Retrying with request-time media stripping.",
                         e,
                     )
                     return await super()._reasoning(tool_choice=tool_choice)
                 finally:
-                    self._set_openai_formatter_media_strip(False)
+                    self._set_formatter_media_strip(False)
 
             n_stripped = self._strip_media_blocks_from_memory()
             if n_stripped == 0:
@@ -795,10 +769,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         # --- Proactive filtering layer ---
         if not get_active_model_supports_multimodal():
-            if self._uses_openai_compatible_formatter():
+            if self._uses_request_time_media_normalization():
                 logger.debug(
-                    "OpenAI-compatible formatter will strip media "
-                    "from copied messages before summarizing.",
+                    "Formatter will strip media from copied messages "
+                    "before summarizing.",
                 )
             else:
                 n = self._proactive_strip_media_blocks()
@@ -818,24 +792,23 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 if not self._is_bad_request_or_media_error(e):
                     raise
 
-                if self._uses_openai_compatible_formatter():
+                if self._uses_request_time_media_normalization():
                     if get_active_model_supports_multimodal():
                         logger.warning(
                             "Model marked multimodal but "
                             "rejected media. "
                             "Capability flag may be wrong.",
                         )
-                    self._set_openai_formatter_media_strip(True)
+                    self._set_formatter_media_strip(True)
                     try:
                         logger.warning(
                             "_summarizing failed (%s). "
-                            "Retrying with OpenAI-compatible request-time "
-                            "media stripping.",
+                            "Retrying with request-time media stripping.",
                             e,
                         )
                         msg = await super()._summarizing()
                     finally:
-                        self._set_openai_formatter_media_strip(False)
+                        self._set_formatter_media_strip(False)
                     return self._strip_tool_use_from_msg(msg)
 
                 n_stripped = self._strip_media_blocks_from_memory()

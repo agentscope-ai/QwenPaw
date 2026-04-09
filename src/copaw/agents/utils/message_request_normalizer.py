@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Normalization helpers for OpenAI-compatible chat payloads.
+"""Normalization helpers for provider chat payloads.
 
 The persisted session history remains AgentScope ``Msg`` objects. For
-OpenAI-compatible backends we build a normalized copy before formatting so
-backend-specific repair and multimodal downgrade logic does not mutate the
+provider requests we build a normalized copy before formatting so
+request-time repair and multimodal downgrade logic does not mutate the
 stored conversation state.
 """
 
@@ -86,12 +86,12 @@ def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
     return total_stripped
 
 
-def normalize_messages_for_openai_compatible(
+def normalize_messages_for_model_request(
     msgs: list[Msg],
     *,
     supports_multimodal: bool,
 ) -> list[Msg]:
-    """Return a normalized copy for OpenAI-compatible formatting."""
+    """Return a normalized copy for provider request formatting."""
     normalized = _clone_messages(msgs)
     normalized = _sanitize_tool_messages(normalized)
     if not supports_multimodal:
@@ -99,4 +99,19 @@ def normalize_messages_for_openai_compatible(
     return normalized
 
 
-__all__ = ["normalize_messages_for_openai_compatible"]
+def normalize_messages_for_openai_compatible(
+    msgs: list[Msg],
+    *,
+    supports_multimodal: bool,
+) -> list[Msg]:
+    """Backward-compatible alias kept for older OpenAI-specific callers."""
+    return normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=supports_multimodal,
+    )
+
+
+__all__ = [
+    "normalize_messages_for_model_request",
+    "normalize_messages_for_openai_compatible",
+]

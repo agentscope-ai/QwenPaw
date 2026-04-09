@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from agentscope.message import Msg, TextBlock, ToolResultBlock
 
-from copaw.agents.utils.openai_message_normalizer import (
+from copaw.agents.utils.message_request_normalizer import (
+    normalize_messages_for_model_request,
     normalize_messages_for_openai_compatible,
 )
 
@@ -158,3 +159,33 @@ def test_normalizer_keeps_text_only_messages_stable() -> None:
 
     assert normalized[0].content == [{"type": "text", "text": "hello"}]
     assert original[0].content == [{"type": "text", "text": "hello"}]
+
+
+def test_generic_normalizer_matches_openai_alias() -> None:
+    original = [
+        Msg(
+            name="user",
+            role="user",
+            content=[
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": "file:///tmp/demo.png",
+                    },
+                },
+            ],
+        ),
+    ]
+
+    generic = normalize_messages_for_model_request(
+        original,
+        supports_multimodal=False,
+    )
+    alias = normalize_messages_for_openai_compatible(
+        original,
+        supports_multimodal=False,
+    )
+
+    assert generic[0].content == alias[0].content
+    assert original[0].content[0]["type"] == "image"
