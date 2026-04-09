@@ -14,7 +14,6 @@ from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.provider import ModelInfo
 from copaw.providers.provider_manager import ProviderManager
 from copaw.local_models.llamacpp import LlamaCppServerSetupResult
-from copaw.providers.provider import ModelInfo
 
 
 LEGACY_PROVIDER = {
