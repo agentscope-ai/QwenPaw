@@ -232,11 +232,11 @@ cd my-llm-provider
 # -*- coding: utf-8 -*-
 """My LLM Provider Implementation."""
 
-from copaw.providers.provider import BaseProvider
+from copaw.providers.provider import ModelInfo, Provider
 from typing import List
 
 
-class MyLLMProvider(BaseProvider):
+class MyLLMProvider(Provider):
     """My custom LLM provider."""
 
     def __init__(self, **kwargs):
@@ -244,11 +244,16 @@ class MyLLMProvider(BaseProvider):
         super().__init__(**kwargs)
 
     @classmethod
-    def get_default_models(cls) -> List[str]:
+    def get_default_models(cls) -> List[ModelInfo]:
         """Get default models."""
         return [
-            "my-model-v1",
-            "my-model-v2",
+            ModelInfo(
+                id="my-model",
+                name="My Model",
+                supports_multimodal=False,
+                supports_image=False,
+                supports_video=False,
+            ),
         ]
 ```
 
