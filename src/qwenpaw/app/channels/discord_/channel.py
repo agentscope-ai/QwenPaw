@@ -230,9 +230,18 @@ class DiscordChannel(BaseChannel):
                             )
 
                 is_group = message.guild is not None
+                _is_thread = isinstance(message.channel, discord.Thread)
+                _thread_started = (
+                    not _is_thread
+                    and getattr(message, "thread", None) is not None
+                )
                 meta = {
                     "user_id": str(message.author.id),
-                    "channel_id": str(message.channel.id),
+                    "channel_id": str(
+                        message.thread.id
+                        if _thread_started
+                        else message.channel.id
+                    ),
                     "guild_id": (
                         str(message.guild.id) if message.guild else None
                     ),
@@ -240,6 +249,18 @@ class DiscordChannel(BaseChannel):
                     "is_dm": not is_group,
                     "is_group": is_group,
                 }
+                if _is_thread:
+                    meta["is_thread"] = True
+                    meta["thread_id"] = str(message.channel.id)
+                    meta["parent_channel_id"] = (
+                        str(message.channel.parent_id)
+                        if message.channel.parent_id
+                        else None
+                    )
+                elif _thread_started:
+                    meta["is_thread"] = True
+                    meta["thread_id"] = str(message.thread.id)
+                    meta["parent_channel_id"] = str(message.channel.id)
                 if is_bot_mentioned:
                     meta["bot_mentioned"] = True
 
