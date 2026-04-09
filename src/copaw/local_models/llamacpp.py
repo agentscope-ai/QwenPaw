@@ -490,8 +490,8 @@ class LlamaCppBackend:
             supports_multimodal=supports_multimodal,
             # TODO: add more detailed capability flags
             supports_image=supports_multimodal,
-            supports_video=supports_multimodal,
-            probe_source="documentation",
+            supports_video=False,
+            probe_source="probed",
         )
 
     def _finalize_download_result(

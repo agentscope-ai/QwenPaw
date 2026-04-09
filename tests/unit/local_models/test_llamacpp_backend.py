@@ -880,7 +880,7 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
         "supports_multimodal": False,
         "supports_image": False,
         "supports_video": False,
-        "probe_source": "documentation",
+        "probe_source": "probed",
         "generate_kwargs": {},
     }
     assert downloader.get_server_status() == {
@@ -1024,8 +1024,8 @@ async def test_setup_server_passes_mmproj_argument(
         "name": "vision-model",
         "supports_multimodal": True,
         "supports_image": True,
-        "supports_video": True,
-        "probe_source": "documentation",
+        "supports_video": False,
+        "probe_source": "probed",
         "generate_kwargs": {},
     }
 
