@@ -376,6 +376,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                         e,
                     )
 
+    # Session-sticky routing cache: {session_id: routed_skill_names}
+    # Keeps skill list stable within a session for KV cache friendliness.
+    _routing_cache: dict[str, list[str]] = {}
+    # Skill metadata cache: {skill_name: {"name": ..., "description": ...}}
+    _skill_meta_cache: dict[str, dict[str, str]] = {}
+    _skill_meta_cache_key: str = ""  # hash of skill_names list
+
     def _apply_semantic_routing(
         self,
         skill_names: list[str],
@@ -383,6 +390,11 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         request_context: dict,
     ) -> list[str]:
         """Filter skills using semantic routing if enabled.
+
+        Uses session-sticky caching: within the same session, the first
+        message triggers semantic routing and subsequent messages reuse
+        the cached result.  This keeps the system prompt (and therefore
+        the LLM KV cache) stable across turns.
 
         Returns the original list unchanged when semantic routing is
         disabled, unavailable, or encounters any error.
@@ -399,6 +411,21 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             sr_config = getattr(config, "semantic_routing", None)
             if sr_config is None or not sr_config.enabled:
                 return skill_names
+
+            # --- Session-sticky cache check ---
+            session_id = request_context.get("session_id", "")
+            if session_id and session_id in CoPawAgent._routing_cache:
+                cached = CoPawAgent._routing_cache[session_id]
+                # Verify cached skills are still valid (subset of current)
+                valid = [s for s in cached if s in skill_names]
+                if valid:
+                    logger.debug(
+                        "Semantic routing: reusing cached result for "
+                        "session %s (%d skills)",
+                        session_id,
+                        len(valid),
+                    )
+                    return valid
 
             # Extract user query from request context
             query = ""
@@ -418,22 +445,10 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             if not query:
                 return skill_names
 
-            # Build skill metadata for the router
-            from ..agents.skills_manager import _read_frontmatter_safe
-
-            skill_metas = []
-            for name in skill_names:
-                skill_dir = skills_dir / name
-                if skill_dir.exists():
-                    post = _read_frontmatter_safe(skill_dir, name)
-                    skill_metas.append(
-                        {
-                            "name": name,
-                            "description": str(
-                                post.get("description", "") or ""
-                            ),
-                        }
-                    )
+            # --- Skill metadata cache ---
+            skill_metas = self._get_cached_skill_metas(
+                skill_names, skills_dir,
+            )
 
             from ..routing.router import SkillRouter
 
@@ -453,6 +468,15 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 len(skill_names),
                 query,
             )
+
+            # Cache result for this session
+            if session_id:
+                CoPawAgent._routing_cache[session_id] = routed_names
+                # Limit cache size to prevent memory leak
+                if len(CoPawAgent._routing_cache) > 100:
+                    oldest = next(iter(CoPawAgent._routing_cache))
+                    del CoPawAgent._routing_cache[oldest]
+
             return routed_names
 
         except Exception as exc:
@@ -461,6 +485,41 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 exc,
             )
             return skill_names
+
+    @classmethod
+    def _get_cached_skill_metas(
+        cls,
+        skill_names: list[str],
+        skills_dir: Path,
+    ) -> list[dict[str, str]]:
+        """Return skill metadata, using cache when skill list is unchanged.
+
+        Only calls ``_read_frontmatter_safe()`` when the skill list
+        changes, avoiding repeated disk I/O on every query.
+        """
+        cache_key = ",".join(sorted(skill_names))
+        if cache_key != cls._skill_meta_cache_key:
+            # Skill list changed — rebuild cache
+            from ..agents.skills_manager import _read_frontmatter_safe
+
+            cls._skill_meta_cache.clear()
+            for name in skill_names:
+                skill_dir = skills_dir / name
+                if skill_dir.exists():
+                    post = _read_frontmatter_safe(skill_dir, name)
+                    cls._skill_meta_cache[name] = {
+                        "name": name,
+                        "description": str(
+                            post.get("description", "") or ""
+                        ),
+                    }
+            cls._skill_meta_cache_key = cache_key
+
+        return [
+            cls._skill_meta_cache[n]
+            for n in skill_names
+            if n in cls._skill_meta_cache
+        ]
 
     def _build_sys_prompt(self) -> str:
         """Build system prompt from working dir files and env context.
