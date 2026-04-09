@@ -27,11 +27,11 @@ import {
   SkillDrawer,
   type SkillDrawerFormValues,
   useConflictRenameModal,
-  ImportHubModal,
   PoolTransferModal,
   SkillFilterDropdown,
   getSkillVisual,
 } from "./components";
+import { ImportHubModal } from "./components/ImportHubModal";
 import { isSkillBuiltin } from "@/utils/skill";
 import { useSkills } from "./useSkills";
 import { useSkillFilter } from "./useSkillFilter";
