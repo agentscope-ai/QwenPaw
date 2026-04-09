@@ -37,28 +37,13 @@ def _kill_process_tree_win32(pid: int) -> None:
         pass
 
 
-def _collapse_embedded_newlines(cmd: str) -> str:
-    r"""Replace *unquoted* embedded newline characters with spaces.
+def _collapse_newlines_outside_quotes(cmd: str) -> str:
+    r"""Collapse newlines outside quoted strings; preserve those inside.
 
-    LLMs produce tool-call arguments in JSON where ``\n`` is parsed as an
-    actual newline character.  In the original shell command the user
-    intended the *literal* two-character sequence ``\n`` (e.g. inside a
-    ``--content`` flag), but after JSON decoding it becomes a real line
-    break.  When passed to a shell:
-
-    * **Windows** ``cmd.exe`` truncates the command at the first newline.
-    * **Unix** ``sh -c`` treats an unquoted newline as a command separator,
-      so only the first "line" is executed with its arguments.
-
-    However, newlines *inside* quoted strings (single or double quotes) are
-    intentional — e.g. ``--text "Hello\nWorld"`` — and must be preserved so
-    that downstream commands receive the correct multi-line content.
-
-    This function only collapses newlines that appear outside of quotes.
+    Used only on Unix where sh/bash correctly handles newlines in quotes.
+    Handles backslash-newline (line continuation) by removing both chars,
+    and treats single-quoted content as fully literal per POSIX.
     """
-    if "\n" not in cmd:
-        return cmd
-
     result: list[str] = []
     in_single_quote = False
     in_double_quote = False
@@ -67,13 +52,6 @@ def _collapse_embedded_newlines(cmd: str) -> str:
 
     while i < length:
         char = cmd[i]
-
-        # Handle escape sequences (backslash) — skip next char if not a newline
-        if char == "\\" and i + 1 < length and cmd[i + 1] not in ("\r", "\n"):
-            result.append(char)
-            result.append(cmd[i + 1])
-            i += 2
-            continue
 
         # Toggle quote state
         if char == "'" and not in_double_quote:
@@ -88,16 +66,37 @@ def _collapse_embedded_newlines(cmd: str) -> str:
             i += 1
             continue
 
-        # Replace newlines only when outside quotes
-        if (
-            char in ("\r", "\n")
-            and not in_single_quote
-            and not in_double_quote
-        ):
-            # Collapse \r\n as a single space
-            if char == "\r" and i + 1 < length and cmd[i + 1] == "\n":
+        # Inside single quotes: everything is literal (POSIX)
+        if in_single_quote:
+            result.append(char)
+            i += 1
+            continue
+
+        # Backslash-newline (line continuation): remove both chars
+        if char == "\\" and i + 1 < length and cmd[i + 1] in ("\r", "\n"):
+            i += 2
+            # \r\n sequence: skip the \n as well
+            if i < length and cmd[i - 1] == "\r" and cmd[i] == "\n":
                 i += 1
-            result.append(" ")
+            continue
+
+        # Backslash escape (non-newline): keep both chars
+        if char == "\\" and i + 1 < length:
+            result.append(char)
+            result.append(cmd[i + 1])
+            i += 2
+            continue
+
+        # Newlines
+        if char in ("\r", "\n"):
+            if in_double_quote:
+                # Preserve newlines inside double quotes
+                result.append(char)
+            else:
+                # Collapse \r\n as a single space
+                if char == "\r" and i + 1 < length and cmd[i + 1] == "\n":
+                    i += 1
+                result.append(" ")
             i += 1
             continue
 
@@ -105,6 +104,35 @@ def _collapse_embedded_newlines(cmd: str) -> str:
         i += 1
 
     return "".join(result)
+
+
+def _collapse_embedded_newlines(cmd: str) -> str:
+    r"""Replace embedded newline characters with spaces in a command string.
+
+    LLMs produce tool-call arguments in JSON where ``\n`` is parsed as an
+    actual newline character.  In the original shell command the user
+    intended the *literal* two-character sequence ``\n`` (e.g. inside a
+    ``--content`` flag), but after JSON decoding it becomes a real line
+    break.  When passed to a shell:
+
+    * **Windows** ``cmd.exe`` truncates the command at the first newline
+      regardless of quoting context — this is a hard limitation of the
+      Windows command processor.  All newlines must be collapsed.
+    * **Unix** ``sh -c`` treats an unquoted newline as a command separator,
+      but correctly handles newlines inside quoted strings.
+
+    On Unix/macOS, newlines inside quoted strings are preserved so that
+    downstream commands receive the correct multi-line content (e.g.
+    ``--text "Hello\nWorld"``).  On Windows, all newlines are collapsed
+    to ensure the command at least executes successfully.
+    """
+    if "\n" not in cmd:
+        return cmd
+    if sys.platform == "win32":
+        # cmd.exe truncates at newlines regardless of quoting — must
+        # collapse all to ensure the command executes at all.
+        return cmd.replace("\r\n", " ").replace("\n", " ")
+    return _collapse_newlines_outside_quotes(cmd)
 
 
 def _sanitize_win_cmd(cmd: str) -> str:
