@@ -679,13 +679,24 @@ class WecomChannel(BaseChannel):
         Returns the ack frame body dict, or raises on timeout / error.
         """
         req_id = generate_req_id(cmd)
-        loop = asyncio.get_event_loop()
-        fut: asyncio.Future[Any] = loop.create_future()
+        # Use the main event loop for the future (response handling)
+        main_loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Any] = main_loop.create_future()
         self._upload_ack_futures[req_id] = fut
-        try:
+
+        # WebSocket operations must run in the WS thread's event loop
+        ws_loop = self._ws_loop
+        if ws_loop is None:
+            raise RuntimeError("WebSocket loop not initialized")
+
+        async def _send() -> None:
             await self._client._ws_manager.send(
                 {"cmd": cmd, "headers": {"req_id": req_id}, "body": body},
             )
+
+        try:
+            # Schedule send in WS thread and wait for response
+            asyncio.run_coroutine_threadsafe(_send(), ws_loop)
             ack = await asyncio.wait_for(
                 asyncio.shield(fut),
                 timeout=_UPLOAD_ACK_TIMEOUT,
@@ -795,10 +806,11 @@ class WecomChannel(BaseChannel):
                     media_type,
                 )
                 return media_id
-            except Exception:
+            except Exception as e:
                 logger.exception(
-                    "wecom _upload_media failed path=%s",
+                    "wecom _upload_media failed path=%s error=%s",
                     local[:60],
+                    str(e)[:100],
                 )
                 return None
 
