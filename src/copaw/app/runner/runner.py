@@ -31,7 +31,6 @@ from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import CoPawAgent
 from ...exceptions import convert_model_exception
-from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 from ...agents.utils.file_handling import (
     read_text_file_with_encoding_fallback,
 )
