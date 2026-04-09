@@ -79,7 +79,7 @@ class ColorFormatter(logging.Formatter):
         return f"{prefix} | {original_msg}"
 
 
-class PlainFormatter(ColorFormatter):
+class PlainFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         full_path = record.pathname
         cwd = os.getcwd()
