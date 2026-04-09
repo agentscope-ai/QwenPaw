@@ -59,6 +59,8 @@ class CronExecutor:
         )
         assert job.request is not None
         req: Dict[str, Any] = job.request.model_dump(mode="json")
+        # Set runtime context: Executor knows the actual execution channel
+        req["channel"] = job.dispatch.channel
         req["user_id"] = target_user_id or "cron"
         req["session_id"] = target_session_id or f"cron:{job.id}"
 
