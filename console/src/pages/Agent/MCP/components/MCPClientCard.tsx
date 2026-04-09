@@ -1,7 +1,7 @@
 import { Card, Button, Modal, Tooltip, Input } from "@agentscope-ai/design";
 import type { MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
-import { useState } from "react";
+import React, { useState } from "react";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
 import styles from "../index.module.less";
@@ -24,22 +24,17 @@ interface MCPClientCardProps {
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
-  isHovered: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
 }
 
-export function MCPClientCard({
+export const MCPClientCard = React.memo(function MCPClientCard({
   client,
   onToggle,
   onDelete,
   onUpdate,
-  isHovered,
-  onMouseEnter,
-  onMouseLeave,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const [isHovered, setIsHovered] = useState(false);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editedJson, setEditedJson] = useState("");
@@ -95,8 +90,8 @@ export function MCPClientCard({
       <Card
         hoverable
         onClick={handleCardClick}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         className={`${styles.mcpCard} ${
           client.enabled ? styles.enabledCard : ""
         } ${isHovered ? styles.hover : styles.normal}`}
@@ -213,4 +208,4 @@ export function MCPClientCard({
       </Modal>
     </>
   );
-}
+});
