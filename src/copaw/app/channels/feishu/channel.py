@@ -1782,9 +1782,9 @@ class FeishuChannel(BaseChannel):
             event_handler=event_handler,
             log_level=lark.LogLevel.INFO,
             domain=(
-                "https://open.larksuite.com"
+                lark.LARK_DOMAIN
                 if self.domain == "lark"
-                else "https://open.feishu.cn"
+                else lark.FEISHU_DOMAIN
             ),
         )
 
