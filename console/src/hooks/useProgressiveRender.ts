@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 const INITIAL_COUNT = 20;
 const BATCH_SIZE = 20;
@@ -9,10 +9,14 @@ const BATCH_SIZE = 20;
  *
  * Uses IntersectionObserver on a sentinel element to trigger loading,
  * keeping the existing layout (e.g. CSS Grid) completely untouched.
+ *
+ * Returns `sentinelRef` as a callback-ref setter so the observer is
+ * correctly (re-)attached whenever the sentinel DOM element changes
+ * (e.g. when switching between card / list view modes).
  */
 export function useProgressiveRender<T>(items: T[]) {
   const [visibleCount, setVisibleCount] = useState(INITIAL_COUNT);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
 
   // Reset visible count when the source list changes (filter / sort / new data)
   useEffect(() => {
@@ -25,7 +29,6 @@ export function useProgressiveRender<T>(items: T[]) {
 
   // Observe the sentinel element to trigger loading more items
   useEffect(() => {
-    const sentinel = sentinelRef.current;
     if (!sentinel) return;
 
     const observer = new IntersectionObserver(
@@ -39,10 +42,10 @@ export function useProgressiveRender<T>(items: T[]) {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore]);
+  }, [loadMore, sentinel]);
 
   const visibleItems = items.slice(0, visibleCount);
   const hasMore = visibleCount < items.length;
 
-  return { visibleItems, hasMore, sentinelRef };
+  return { visibleItems, hasMore, sentinelRef: setSentinel };
 }
