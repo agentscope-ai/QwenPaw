@@ -146,8 +146,8 @@ jobs:
             if (hasChinese) {
               // Bilingual response with logo
               comment = `<div align="center">\n\n`;
-              comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
-              comment += `## 欢迎来到 CoPaw! 🐾 Welcome to CoPaw!\n\n`;
+              comment += `<img src="https://qwenpaw.agentscope.io/qwenpaw_ip.svg" width="80" height="80" />\n\n`;
+              comment += `## 欢迎来到 QwenPaw! 🐾 Welcome to QwenPaw!\n\n`;
               comment += `</div>\n\n`;
 
               if (hasValidPRCount) {
@@ -161,8 +161,8 @@ jobs:
                   // Add milestone celebration if applicable
                   if (isMilestone) {
                     comment += `### 🎁 里程碑庆祝 / Milestone Celebration\n\n`;
-                    comment += `${medalEmoji} 恭喜！这是你的第 ${prCount} 个贡献，感谢你对 CoPaw 的持续支持！你是 CoPaw 社区的重要成员！🐾\n`;
-                    comment += `${medalEmoji} Congratulations! This is your ${prCount}${getOrdinalSuffix(prCount)} contribution. Thank you for your continued support! You're an important member of the CoPaw community! 🐾\n\n`;
+                    comment += `${medalEmoji} 恭喜！这是你的第 ${prCount} 个贡献，感谢你对 QwenPaw 的持续支持！你是 QwenPaw 社区的重要成员！🐾\n`;
+                    comment += `${medalEmoji} Congratulations! This is your ${prCount}${getOrdinalSuffix(prCount)} contribution. Thank you for your continued support! You're an important member of the QwenPaw community! 🐾\n\n`;
                   }
                 }
               } else {
@@ -199,11 +199,11 @@ jobs:
               }
 
               comment += `### 🙌 加入开发者社区 / Join Developer Community\n\n`;
-              comment += `非常感谢你的贡献！我们诚挚地邀请你加入 CoPaw 官方开发者群！\n`;
-              comment += `Thanks so much for your contribution! We'd love to invite you to join the official CoPaw developer group!\n\n`;
+              comment += `非常感谢你的贡献！我们诚挚地邀请你加入 QwenPaw 官方开发者群！\n`;
+              comment += `Thanks so much for your contribution! We'd love to invite you to join the official QwenPaw developer group!\n\n`;
               comment += `你可以在我们的文档页面的 "Developer Community" 部分找到 Discord 和钉钉群链接：\n`;
               comment += `You can find the Discord and DingTalk group links under the "Developer Community" section on our docs page:\n`;
-              comment += `https://copaw.agentscope.io/docs/community\n\n`;
+              comment += `https://qwenpaw.agentscope.io/docs/community\n\n`;
               comment += `我们真诚地感谢你的热情，也期待你未来的更多贡献！😊\n`;
               comment += `We truly appreciate your enthusiasm—and look forward to your future contributions! 😊\n\n`;
               comment += `我们会尽快审查你的 PR。\n`;
@@ -213,21 +213,21 @@ jobs:
               if (!hasStarred) {
                 comment += `---\n\n`;
                 comment += `> [!TIP]\n`;
-                comment += `> **⭐ 如果你觉得 CoPaw 有帮助，请给我们一个 Star！**\n`;
+                comment += `> **⭐ 如果你觉得 QwenPaw 有帮助，请给我们一个 Star！**\n`;
                 comment += `> \n`;
-                comment += `> **⭐ If you find CoPaw useful, please give us a Star!**\n`;
+                comment += `> **⭐ If you find QwenPaw useful, please give us a Star!**\n`;
                 comment += `> \n`;
                 comment += `> <div align="center">\n`;
                 comment += `> \n`;
-                comment += `> [![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)\n`;
+                comment += `> [![Star QwenPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/QwenPaw)\n`;
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;
                 comment += `> **掌握最新动态 / Staying ahead**\n`;
                 comment += `> \n`;
-                comment += `> 在 GitHub 上 Star CoPaw，第一时间收到新版本发布通知。\n`;
+                comment += `> 在 GitHub 上 Star QwenPaw，第一时间收到新版本发布通知。\n`;
                 comment += `> \n`;
-                comment += `> Star CoPaw on GitHub and be instantly notified of new releases.\n`;
+                comment += `> Star QwenPaw on GitHub and be instantly notified of new releases.\n`;
                 comment += `> \n`;
                 comment += `> 你的 star 将帮助更多开发者发现这个项目！🐾\n`;
                 comment += `> \n`;
@@ -237,8 +237,8 @@ jobs:
             } else {
               // English only with logo
               comment = `<div align="center">\n\n`;
-              comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
-              comment += `## Welcome to CoPaw! 🐾\n\n`;
+              comment += `<img src="https://qwenpaw.agentscope.io/qwenpaw_ip.svg" width="80" height="80" />\n\n`;
+              comment += `## Welcome to QwenPaw! 🐾\n\n`;
               comment += `</div>\n\n`;
 
               if (hasValidPRCount) {
@@ -250,7 +250,7 @@ jobs:
                   // Add milestone celebration if applicable
                   if (isMilestone) {
                     comment += `### 🎁 Milestone Celebration\n\n`;
-                    comment += `${medalEmoji} Congratulations! This is your ${prCount}${getOrdinalSuffix(prCount)} contribution. Thank you for your continued support! You're an important member of the CoPaw community! 🐾\n\n`;
+                    comment += `${medalEmoji} Congratulations! This is your ${prCount}${getOrdinalSuffix(prCount)} contribution. Thank you for your continued support! You're an important member of the QwenPaw community! 🐾\n\n`;
                   }
                 }
               } else {
@@ -283,8 +283,8 @@ jobs:
               }
 
               comment += `### 🙌 Join Developer Community\n\n`;
-              comment += `Thanks so much for your contribution! We'd love to invite you to join the official CoPaw developer group! You can find the Discord and DingTalk group links under the "Developer Community" section on our docs page:\n`;
-              comment += `https://copaw.agentscope.io/docs/community\n\n`;
+              comment += `Thanks so much for your contribution! We'd love to invite you to join the official QwenPaw developer group! You can find the Discord and DingTalk group links under the "Developer Community" section on our docs page:\n`;
+              comment += `https://qwenpaw.agentscope.io/docs/community\n\n`;
               comment += `We truly appreciate your enthusiasm—and look forward to your future contributions! 😊\n\n`;
               comment += `We'll review your PR soon.\n\n`;
 
@@ -292,17 +292,17 @@ jobs:
               if (!hasStarred) {
                 comment += `---\n\n`;
                 comment += `> [!TIP]\n`;
-                comment += `> **⭐ If you find CoPaw useful, please give us a Star!**\n`;
+                comment += `> **⭐ If you find QwenPaw useful, please give us a Star!**\n`;
                 comment += `> \n`;
                 comment += `> <div align="center">\n`;
                 comment += `> \n`;
-                comment += `> [![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)\n`;
+                comment += `> [![Star QwenPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/QwenPaw)\n`;
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;
                 comment += `> **Staying ahead**\n`;
                 comment += `> \n`;
-                comment += `> Star CoPaw on GitHub and be instantly notified of new releases.\n`;
+                comment += `> Star QwenPaw on GitHub and be instantly notified of new releases.\n`;
                 comment += `> \n`;
                 comment += `> Your star helps more developers discover this project! 🐾`;
               }
