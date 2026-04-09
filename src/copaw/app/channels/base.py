@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from abc import ABC
 from typing import (
     Optional,
@@ -1028,6 +1029,10 @@ class BaseChannel(ABC):
             ):
                 media_parts.append(p)
         body = "\n".join(text_parts) if text_parts else ""
+        # Filter out AI thinking tags like <brackets>
+        body = re.sub(r"<brackets>[\s\S]*?</brackets>", "", body)
+        body = re.sub(r"<think>[\s\S]*?</think>", "", body)
+        body = body.strip()
         prefix = (meta or {}).get("bot_prefix", "") or ""
         if prefix and body:
             body = prefix + "  " + body

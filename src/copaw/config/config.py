@@ -104,6 +104,16 @@ class OneBotConfig(BaseChannelConfig):
     share_session_in_group: bool = False
 
 
+class NapCatConfig(BaseChannelConfig):
+    """NapCat (OneBot 11) channel: self-hosted QQ bot."""
+
+    host: str = "127.0.0.1"
+    port: int = 3000
+    ws_port: int = 3001
+    access_token: str = ""
+    media_dir: str = "~/.copaw/media"
+
+
 class TelegramConfig(BaseChannelConfig):
     bot_token: str = ""
     http_proxy: str = ""
@@ -212,6 +222,7 @@ class ChannelConfig(BaseModel):
     dingtalk: DingTalkConfig = DingTalkConfig()
     feishu: FeishuConfig = FeishuConfig()
     qq: QQConfig = QQConfig()
+    napcat: NapCatConfig = NapCatConfig()
     telegram: TelegramConfig = TelegramConfig()
     mattermost: MattermostConfig = MattermostConfig()
     mqtt: MQTTConfig = MQTTConfig()
