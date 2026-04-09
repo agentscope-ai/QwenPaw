@@ -1760,6 +1760,34 @@ class FeishuChannel(BaseChannel):
                 receive_id_type,
             )
 
+    def _create_ws_client(self) -> Any:
+        """Create a fresh lark ws.Client instance.
+
+        A new Client is needed for each reconnection attempt because the
+        SDK's internal ``asyncio.Lock`` binds to the event loop on first
+        acquire.  Reusing the same Client after creating a new event loop
+        causes "is bound to a different event loop" errors.
+        """
+        event_handler = (
+            lark.EventDispatcherHandler.builder(
+                self.encrypt_key,
+                self.verification_token,
+            )
+            .register_p2_im_message_receive_v1(self._on_message_sync)
+            .build()
+        )
+        return lark.ws.Client(
+            self.app_id,
+            self.app_secret,
+            event_handler=event_handler,
+            log_level=lark.LogLevel.INFO,
+            domain=(
+                "https://open.larksuite.com"
+                if self.domain == "lark"
+                else "https://open.feishu.cn"
+            ),
+        )
+
     def _run_ws_forever(self) -> None:
         """Run WebSocket with automatic reconnection.
 
@@ -1787,6 +1815,10 @@ class FeishuChannel(BaseChannel):
             lock_released = False
             connection_started = False
             try:
+                # Recreate ws.Client each iteration so the SDK's internal
+                # asyncio.Lock is bound to the current (new) event loop.
+                self._ws_client = self._create_ws_client()
+
                 try:
                     import lark_oapi.ws.client as _lark_ws_mod
 
@@ -1993,25 +2025,8 @@ class FeishuChannel(BaseChannel):
             .log_level(lark.LogLevel.INFO)
             .build()
         )
-        event_handler = (
-            lark.EventDispatcherHandler.builder(
-                self.encrypt_key,
-                self.verification_token,
-            )
-            .register_p2_im_message_receive_v1(self._on_message_sync)
-            .build()
-        )
-        self._ws_client = lark.ws.Client(
-            self.app_id,
-            self.app_secret,
-            event_handler=event_handler,
-            log_level=lark.LogLevel.INFO,
-            domain=(
-                "https://open.larksuite.com"
-                if self.domain == "lark"
-                else "https://open.feishu.cn"
-            ),
-        )
+        # ws.Client is created inside _run_ws_forever on each reconnect
+        # so the SDK's internal asyncio.Lock binds to the fresh event loop.
         self._stop_event.clear()
         self._ws_thread = threading.Thread(
             target=self._run_ws_forever,
