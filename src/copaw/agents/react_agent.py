@@ -478,6 +478,28 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         """
         for i, client in enumerate(self._mcp_clients):
             client_name = getattr(client, "name", repr(client))
+
+            # Pre-flight: if the client is already known-disconnected,
+            # attempt recovery *before* hitting the toolkit's is_connected
+            # guard (which raises RuntimeError caught by the generic handler
+            # that re-raises instead of recovering).
+            if getattr(client, "is_connected", True) is False:
+                logger.warning(
+                    "MCP client '%s' is disconnected; "
+                    "attempting recovery before registration",
+                    client_name,
+                )
+                recovered_client = await self._recover_mcp_client(client)
+                if recovered_client is not None:
+                    self._mcp_clients[i] = recovered_client
+                    client = recovered_client
+                else:
+                    logger.warning(
+                        "MCP client '%s' recovery failed, skipping",
+                        client_name,
+                    )
+                    continue
+
             try:
                 await self.toolkit.register_mcp_client(
                     client,
