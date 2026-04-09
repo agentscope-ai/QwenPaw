@@ -14,7 +14,6 @@ import atexit
 from concurrent import futures
 import json
 import logging
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -30,7 +29,7 @@ from ...config import (
     is_running_in_container,
 )
 from ...config.context import get_current_workspace_dir
-from ...constant import WORKING_DIR
+from ...constant import WORKING_DIR, EnvVarLoader
 
 from .browser_snapshot import build_role_snapshot_from_aria
 
@@ -49,8 +48,8 @@ def _resolve_output_path(path: str) -> str:
 # Hybrid mode detection: Windows + Uvicorn reload mode requires sync Playwright
 # to avoid NotImplementedError with asyncio.create_subprocess_exec.
 # On other platforms or without reload, use async Playwright for better performance.
-_USE_SYNC_PLAYWRIGHT = (
-    sys.platform == "win32" and os.environ.get("COPAW_RELOAD_MODE") == "1"
+_USE_SYNC_PLAYWRIGHT = sys.platform == "win32" and EnvVarLoader.get_bool(
+    "QWENPAW_RELOAD_MODE",
 )
 
 if _USE_SYNC_PLAYWRIGHT:
@@ -294,10 +293,10 @@ def _sync_browser_launch(state: dict, cdp_port: int = 0):
     """Launch browser using sync Playwright (for hybrid mode)."""
     sync_playwright = _ensure_playwright_sync()
     pw = sync_playwright().start()  # Start without context manager
-    use_default = not is_running_in_container() and os.environ.get(
-        "COPAW_BROWSER_USE_DEFAULT",
-        "1",
-    ).strip().lower() in ("1", "true", "yes")
+    use_default = not is_running_in_container() and EnvVarLoader.get_bool(
+        "QWENPAW_BROWSER_USE_DEFAULT",
+        True,
+    )
     default_kind, default_path = (
         get_system_default_browser() if use_default else (None, None)
     )
@@ -538,10 +537,13 @@ async def _ensure_browser(
             async_playwright = _ensure_playwright_async()
             pw = await async_playwright().start()
             # Prefer OS default browser when available (e.g. user's default Chrome/Safari).
-            use_default = not is_running_in_container() and os.environ.get(
-                "COPAW_BROWSER_USE_DEFAULT",
-                "1",
-            ).strip().lower() in ("1", "true", "yes")
+            use_default = (
+                not is_running_in_container()
+                and EnvVarLoader.get_bool(
+                    "QWENPAW_BROWSER_USE_DEFAULT",
+                    True,
+                )
+            )
             default_kind, default_path = (
                 get_system_default_browser() if use_default else (None, None)
             )
@@ -724,10 +726,13 @@ async def _action_start(
         else:
             async_playwright = _ensure_playwright_async()
             pw = await async_playwright().start()
-            use_default = not is_running_in_container() and os.environ.get(
-                "COPAW_BROWSER_USE_DEFAULT",
-                "1",
-            ).strip().lower() in ("1", "true", "yes")
+            use_default = (
+                not is_running_in_container()
+                and EnvVarLoader.get_bool(
+                    "QWENPAW_BROWSER_USE_DEFAULT",
+                    True,
+                )
+            )
             default_kind, default_path = (
                 get_system_default_browser() if use_default else (None, None)
             )

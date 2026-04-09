@@ -17,25 +17,14 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
+from copaw.constant import SECRET_DIR, WORKING_DIR
 from copaw.security.secret_store import decrypt, encrypt, is_encrypted
 
 logger = logging.getLogger(__name__)
 
-_BOOTSTRAP_WORKING_DIR = (
-    Path(os.environ.get("COPAW_WORKING_DIR", "~/.copaw"))
-    .expanduser()
-    .resolve()
-)
-_BOOTSTRAP_SECRET_DIR = (
-    Path(
-        os.environ.get(
-            "COPAW_SECRET_DIR",
-            f"{_BOOTSTRAP_WORKING_DIR}.secret",
-        ),
-    )
-    .expanduser()
-    .resolve()
-)
+
+_BOOTSTRAP_WORKING_DIR = WORKING_DIR
+_BOOTSTRAP_SECRET_DIR = SECRET_DIR
 
 _ENVS_JSON = _BOOTSTRAP_SECRET_DIR / "envs.json"
 _LEGACY_ENVS_JSON_CANDIDATES = (
@@ -96,8 +85,8 @@ def _migrate_legacy_envs_json(path: Path) -> None:
 # not persisted envs.json.
 _PROTECTED_BOOTSTRAP_KEYS = frozenset(
     {
-        "COPAW_WORKING_DIR",
-        "COPAW_SECRET_DIR",
+        "QWENPAW_WORKING_DIR",
+        "QWENPAW_SECRET_DIR",
     },
 )
 

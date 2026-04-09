@@ -565,7 +565,9 @@ def _skill_config_env_var_name(skill_name: str) -> str:
         char if char.isalnum() else "_"
         for char in str(skill_name or "").upper()
     ]
-    return f"COPAW_SKILL_CONFIG_{''.join(normalized).strip('_') or 'DEFAULT'}"
+    return (
+        f"QWENPAW_SKILL_CONFIG_{''.join(normalized).strip('_') or 'DEFAULT'}"
+    )
 
 
 def _build_skill_config_env_overrides(
@@ -660,7 +662,7 @@ def apply_skill_config_env_overrides(
 
     Config keys matching ``metadata.requires.env`` entries are injected
     as environment variables.  The full config is always available as
-    ``COPAW_SKILL_CONFIG_<SKILL_NAME>`` (JSON string).
+    ``QWENPAW_SKILL_CONFIG_<SKILL_NAME>`` (JSON string).
     """
     manifest = read_skill_manifest(workspace_dir)
     entries = manifest.get("skills", {})

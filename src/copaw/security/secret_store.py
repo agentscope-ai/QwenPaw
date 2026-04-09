@@ -21,6 +21,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from ..constant import EnvVarLoader
+
 logger = logging.getLogger(__name__)
 
 _ENC_PREFIX = "ENC:"
@@ -49,11 +51,7 @@ def _should_skip_keyring() -> bool:
     Covers Docker containers, headless Linux servers, and CI
     environments where attempting keyring access could hang on D-Bus.
     """
-    if os.environ.get("COPAW_RUNNING_IN_CONTAINER", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
+    if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return True
 
     import sys

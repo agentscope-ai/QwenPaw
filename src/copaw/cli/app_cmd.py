@@ -85,9 +85,9 @@ def app_cmd(
     # Signal reload mode to browser_control.py for Windows
     # compatibility: use sync Playwright + ThreadPool only when reload=True
     if reload:
-        os.environ["COPAW_RELOAD_MODE"] = "1"
+        os.environ["QWENPAW_RELOAD_MODE"] = "1"
     else:
-        os.environ.pop("COPAW_RELOAD_MODE", None)
+        os.environ.pop("QWENPAW_RELOAD_MODE", None)
 
     setup_logger(log_level)
     if log_level in ("debug", "trace"):

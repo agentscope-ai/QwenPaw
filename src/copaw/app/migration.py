@@ -784,7 +784,7 @@ def _do_ensure_qa_agent() -> None:
         name=BUILTIN_QA_AGENT_NAME,
         description=(
             "Builtin Q&A helper for CoPaw setup, local config under "
-            "COPAW_WORKING_DIR, and documentation. Prefer reading files "
+            "QWENPAW_WORKING_DIR, and documentation. Prefer reading files "
             "before answering; use absolute paths for code outside this "
             "workspace."
         ),

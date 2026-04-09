@@ -2,11 +2,10 @@
 """Authentication API endpoints."""
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from ...constant import EnvVarLoader
 from ..auth import (
     authenticate,
     has_registered_users,
@@ -55,7 +54,7 @@ async def login(req: LoginRequest):
 @router.post("/register")
 async def register(req: RegisterRequest):
     """Register the single user account (only allowed once)."""
-    env_flag = os.environ.get("COPAW_AUTH_ENABLED", "").strip().lower()
+    env_flag = EnvVarLoader.get_str("QWENPAW_AUTH_ENABLED", "").strip().lower()
     if env_flag not in ("true", "1", "yes"):
         raise HTTPException(
             status_code=403,

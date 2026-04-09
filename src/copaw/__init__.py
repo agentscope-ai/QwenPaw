@@ -6,7 +6,7 @@ import time
 from .utils.logging import setup_logger
 
 # Fallback before we can safely read canonical constant definitions.
-LOG_LEVEL_ENV = "COPAW_LOG_LEVEL"
+LOG_LEVEL_ENV = "QWENPAW_LOG_LEVEL"
 
 _bootstrap_err: Exception | None = None
 try:

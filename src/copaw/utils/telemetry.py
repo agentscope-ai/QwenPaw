@@ -28,19 +28,11 @@ def _safe_get(func: Callable[[], str], default: str = "unknown") -> str:
 
 def _detect_install_method() -> str:
     """Detect how CoPaw was installed based on environment signals."""
-    import os
+    from ..constant import EnvVarLoader
 
-    if os.environ.get("COPAW_RUNNING_IN_CONTAINER", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
+    if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return "docker"
-    if os.environ.get("COPAW_DESKTOP_APP", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    ):
+    if EnvVarLoader.get_bool("QWENPAW_DESKTOP_APP"):
         return "desktop"
     return "pip"
 

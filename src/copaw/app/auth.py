@@ -2,7 +2,7 @@
 """Authentication module: password hashing, JWT tokens, and FastAPI middleware.
 
 Login is disabled by default and only enabled when the environment
-variable ``COPAW_AUTH_ENABLED`` is set to a truthy value (``true``,
+variable ``QWENPAW_AUTH_ENABLED`` is set to a truthy value (``true``,
 ``1``, ``yes``).  Credentials are created through a web-based
 registration flow rather than environment variables, so that agents
 running inside the process cannot read plaintext passwords.
@@ -29,7 +29,7 @@ from typing import Optional
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ..constant import SECRET_DIR
+from ..constant import SECRET_DIR, EnvVarLoader
 from ..security.secret_store import (
     AUTH_SECRET_FIELDS,
     decrypt_dict_fields,
@@ -223,12 +223,12 @@ def _save_auth_data(data: dict) -> None:
 def is_auth_enabled() -> bool:
     """Check whether authentication is enabled via environment variable.
 
-    Returns ``True`` when ``COPAW_AUTH_ENABLED`` is set to a truthy
+    Returns ``True`` when ``QWENPAW_AUTH_ENABLED`` is set to a truthy
     value (``true``, ``1``, ``yes``).  The presence of a registered
     user is checked separately by the middleware so that the first
     user can still reach the registration page.
     """
-    env_flag = os.environ.get("COPAW_AUTH_ENABLED", "").strip().lower()
+    env_flag = EnvVarLoader.get_str("QWENPAW_AUTH_ENABLED", "").strip().lower()
     return env_flag in ("true", "1", "yes")
 
 
@@ -273,8 +273,8 @@ def register_user(username: str, password: str) -> Optional[str]:
 def auto_register_from_env() -> None:
     """Auto-register admin user from environment variables.
 
-    Called once during application startup.  If ``COPAW_AUTH_ENABLED``
-    is truthy and both ``COPAW_AUTH_USERNAME`` and ``COPAW_AUTH_PASSWORD``
+    Called once during application startup.  If ``QWENPAW_AUTH_ENABLED``
+    is truthy and both ``QWENPAW_AUTH_USERNAME`` and ``QWENPAW_AUTH_PASSWORD``
     are set, the admin account is created automatically — useful for
     Docker, Kubernetes, server-panel, and other automated deployments
     where interactive web registration is not practical.
@@ -289,8 +289,8 @@ def auto_register_from_env() -> None:
     if has_registered_users():
         return
 
-    username = os.environ.get("COPAW_AUTH_USERNAME", "").strip()
-    password = os.environ.get("COPAW_AUTH_PASSWORD", "").strip()
+    username = EnvVarLoader.get_str("QWENPAW_AUTH_USERNAME", "").strip()
+    password = EnvVarLoader.get_str("QWENPAW_AUTH_PASSWORD", "").strip()
     if not username or not password:
         return
 

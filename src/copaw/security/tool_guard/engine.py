@@ -18,10 +18,10 @@ Custom guardians can be registered at construction time or later via
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import Any
 
+from ...constant import EnvVarLoader
 from .guardians import BaseToolGuardian
 from .guardians.file_guardian import FilePathToolGuardian
 from .guardians.rule_guardian import RuleBasedToolGuardian
@@ -37,7 +37,7 @@ def _guard_enabled() -> bool:
 
     Priority: env var > config.json > default (True).
     """
-    env_val = os.environ.get("COPAW_TOOL_GUARD_ENABLED")
+    env_val = EnvVarLoader.get_str("QWENPAW_TOOL_GUARD_ENABLED") or None
     if env_val is not None:
         return env_val.lower() in _TRUE_STRINGS
 
@@ -59,7 +59,7 @@ class ToolGuardEngine:
         Explicit list of guardians.  If *None* the default set
         (rule-based) is used.
     enabled:
-        Override ``COPAW_TOOL_GUARD_ENABLED`` env var.
+        Override ``QWENPAW_TOOL_GUARD_ENABLED`` env var.
     """
 
     def __init__(

@@ -24,6 +24,7 @@ from ..constant import (
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV,
     RUNNING_IN_CONTAINER,
     WORKING_DIR,
+    EnvVarLoader,
 )
 from .config import (
     Config,
@@ -40,7 +41,7 @@ logger = logging.getLogger(__name__)
 def _normalize_working_dir_bound_paths(data: object) -> object:
     """Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
 
-    This keeps COPAW_WORKING_DIR effective even if user config files contain
+    This keeps QWENPAW_WORKING_DIR effective even if user config files contain
     older hard-coded paths like "~/.copaw/media" or
     "/Users/x/.copaw/workspaces/...".
     Only rewrites known working-dir-bound keys.
@@ -341,12 +342,12 @@ def get_system_default_browser() -> Tuple[Optional[str], Optional[str]]:
 
 def get_available_channels() -> Tuple[str, ...]:
     """Return channel keys enabled for this run (built-in + entry point
-    copaw.channels), filtered by COPAW_ENABLED_CHANNELS or
-    COPAW_DISABLED_CHANNELS when set.
+    copaw.channels), filtered by QWENPAW_ENABLED_CHANNELS or
+    QWENPAW_DISABLED_CHANNELS when set.
 
-    * COPAW_ENABLED_CHANNELS — whitelist (only these channels are active).
-    * COPAW_DISABLED_CHANNELS — blacklist (all channels *except* these).
-    * If both are set, COPAW_ENABLED_CHANNELS takes precedence.
+    * QWENPAW_ENABLED_CHANNELS — whitelist (only these channels are active).
+    * QWENPAW_DISABLED_CHANNELS — blacklist (all channels *except* these).
+    * If both are set, QWENPAW_ENABLED_CHANNELS takes precedence.
     * If neither is set, all discovered channels are returned.
     """
     from ..app.channels.registry import get_channel_registry
@@ -354,12 +355,15 @@ def get_available_channels() -> Tuple[str, ...]:
     registry = get_channel_registry()
     all_keys = tuple(registry.keys())
 
-    raw_enabled = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
+    raw_enabled = EnvVarLoader.get_str("QWENPAW_ENABLED_CHANNELS", "").strip()
     if raw_enabled:
         enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
         return tuple(k for k in all_keys if k in enabled) or all_keys
 
-    raw_disabled = os.environ.get("COPAW_DISABLED_CHANNELS", "").strip()
+    raw_disabled = EnvVarLoader.get_str(
+        "QWENPAW_DISABLED_CHANNELS",
+        "",
+    ).strip()
     if raw_disabled:
         disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
         return tuple(k for k in all_keys if k not in disabled) or all_keys
@@ -369,7 +373,7 @@ def get_available_channels() -> Tuple[str, ...]:
 
 def is_running_in_container() -> bool:
     """Return True if running inside a container (Docker/Kubernetes).
-    Prefer env COPAW_RUNNING_IN_CONTAINER (1/true/yes) at call time so
+    Prefer env QWENPAW_RUNNING_IN_CONTAINER (1/true/yes) at call time so
     supervisord child gets correct value; else check /.dockerenv and cgroup.
     """
     if RUNNING_IN_CONTAINER:

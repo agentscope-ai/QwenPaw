@@ -48,6 +48,7 @@ from .models import (
     ThreatCategory,
 )
 from .scan_policy import ScanPolicy
+from ...constant import EnvVarLoader
 from .analyzers import BaseAnalyzer
 from .analyzers.pattern_analyzer import PatternAnalyzer
 from .scanner import SkillScanner
@@ -95,9 +96,9 @@ def _load_scanner_config() -> Any:
 def _get_scan_mode(cfg: Any = None) -> str:
     """Return the effective scan mode: ``block``, ``warn``, or ``off``.
 
-    Priority: env ``COPAW_SKILL_SCAN_MODE`` > config > default ``warn``.
+    Priority: env ``QWENPAW_SKILL_SCAN_MODE`` > config > default ``warn``.
     """
-    env = os.environ.get("COPAW_SKILL_SCAN_MODE")
+    env = EnvVarLoader.get_str("QWENPAW_SKILL_SCAN_MODE") or None
     if env is not None:
         val = env.lower().strip()
         if val in _VALID_MODES:

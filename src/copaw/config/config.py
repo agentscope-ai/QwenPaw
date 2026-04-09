@@ -1229,7 +1229,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
         data = json.load(f)
 
     # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
-    # This keeps COPAW_WORKING_DIR effective even if existing agent.json
+    # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
     # contains older hard-coded paths like "~/.copaw/media".
     try:
         from .utils import _normalize_working_dir_bound_paths
@@ -1350,7 +1350,7 @@ def migrate_legacy_config_to_multi_agent() -> bool:
         )
 
     # Migrate existing workspace files from legacy default working dir.
-    # When COPAW_WORKING_DIR is customized, historical data may still exist
+    # When QWENPAW_WORKING_DIR is customized, historical data may still exist
     # under "~/.copaw".
     old_workspace = Path("~/.copaw").expanduser().resolve()
 

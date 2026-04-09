@@ -436,13 +436,15 @@ if CORS_ORIGINS:
     )
 
 
-# Console static dir: env, or copaw package data (console), or cwd.
-_CONSOLE_STATIC_ENV = "COPAW_CONSOLE_STATIC_DIR"
+_CONSOLE_STATIC_ENV = "QWENPAW_CONSOLE_STATIC_DIR"
 
 
 def _resolve_console_static_dir() -> str:
-    if os.environ.get(_CONSOLE_STATIC_ENV):
-        return os.environ[_CONSOLE_STATIC_ENV]
+    from ..constant import EnvVarLoader
+
+    static_dir = EnvVarLoader.get_str(_CONSOLE_STATIC_ENV)
+    if static_dir:
+        return static_dir
     # Shipped dist lives in copaw package as static data
     pkg_dir = Path(__file__).resolve().parent.parent
     candidate = pkg_dir / "console"

@@ -24,7 +24,7 @@ def reset_password_cmd() -> None:
     if not is_auth_enabled():
         click.echo(
             "Authentication is not enabled.\n"
-            "Set COPAW_AUTH_ENABLED=true to enable it first.",
+            "Set QWENPAW_AUTH_ENABLED=true to enable it first.",
         )
         return
 
