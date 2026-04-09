@@ -240,7 +240,7 @@ class DiscordChannel(BaseChannel):
                     "channel_id": str(
                         message.thread.id
                         if _thread_started
-                        else message.channel.id
+                        else message.channel.id,
                     ),
                     "guild_id": (
                         str(message.guild.id) if message.guild else None
