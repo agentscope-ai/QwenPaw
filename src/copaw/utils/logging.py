@@ -89,7 +89,7 @@ class PlainFormatter(ColorFormatter):
         except ValueError:
             pass
 
-        prefix = f"{record.levelname} ｜ {full_path}:{record.lineno}"
+        prefix = f"{record.levelname} | {full_path}:{record.lineno}"
         formatted_time = self.formatTime(record, self.datefmt)
         return f"{formatted_time} | {prefix} | {record.getMessage()}"
 
