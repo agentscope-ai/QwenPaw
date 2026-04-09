@@ -200,23 +200,6 @@ class MatrixChannelConfig:
             0,
             raw.get("history_limit", DEFAULT_HISTORY_LIMIT),
         )
-        # When True (default), outbound text/media with meta.sender_id call
-        # _apply_mention: m.mentions + HTML pill. Plain body stays the original
-        # text (no leading display name) to avoid duplicate @ in clients.
-        # Set False or use meta skip_structured_mention if a manager-style bot
-        # loops on structured mentions.
-        self.outbound_structured_mentions: bool = raw.get(
-            "outbound_structured_mentions",
-            True,
-        )
-        # When True, prepend the HTML pill (clickable mention link) to
-        # formatted_body. Default is False: m.mentions is always set for push
-        # notifications, but the visible pill prefix is omitted from the
-        # rendered message to avoid duplicate @-mentions in rich clients.
-        self.mention_pill_in_body: bool = raw.get(
-            "mention_pill_in_body",
-            False,
-        )
         # matrix-nio sync long-poll timeout (ms); typical 30s
         self.sync_timeout_ms: int = raw.get("sync_timeout_ms", 30000)
 
@@ -334,7 +317,26 @@ class MatrixChannel(BaseChannel):
     # starts _sync_loop (§3).
     # ------------------------------------------------------------------
 
-    async def start(self) -> None:  # pylint: disable=too-many-branches
+    def _build_client_config(
+        self,
+        encryption: bool = False,
+    ) -> AsyncClientConfig:
+        """Build an AsyncClientConfig with proper request timeout.
+
+        The HTTP request timeout must exceed the sync long-poll timeout
+        so the HTTP layer doesn't kill the connection while the
+        homeserver is legitimately waiting for new events.
+        """
+        sync_s = self._cfg.sync_timeout_ms / 1000
+        request_timeout = max(sync_s + 30, 60)
+        return AsyncClientConfig(
+            store_sync_tokens=False,
+            encryption_enabled=encryption,
+            request_timeout=request_timeout,
+        )
+
+    # pylint: disable=too-many-branches
+    async def start(self) -> None:
         if not self._cfg.homeserver:
             logger.warning(
                 "MatrixChannel: homeserver not configured, skipping",
@@ -345,21 +347,19 @@ class MatrixChannel(BaseChannel):
         # persists Olm/Megolm keys, and set config to auto-trust all devices
         # (appropriate for bot use cases where interactive verification is
         # impractical).
+        store_path = None
         if self._cfg.encryption:
             store_path = self._e2ee_store_path()
             store_path.mkdir(parents=True, exist_ok=True)
-            client_config = AsyncClientConfig(
-                store_sync_tokens=False,
-                encryption_enabled=True,
-            )
-            self._client = AsyncClient(
-                self._cfg.homeserver,
-                user="",
-                store_path=str(store_path),
-                config=client_config,
-            )
-        else:
-            self._client = AsyncClient(self._cfg.homeserver, user="")
+        client_config = self._build_client_config(
+            encryption=self._cfg.encryption,
+        )
+        self._client = AsyncClient(
+            self._cfg.homeserver,
+            user="",
+            store_path=str(store_path) if store_path else "",
+            config=client_config,
+        )
 
         # Login
         if self._cfg.access_token:
@@ -984,6 +984,20 @@ class MatrixChannel(BaseChannel):
                         )
         elif isinstance(event, RoomMessageFile):
             body_desc = f"[sent a file: {body}]" if body else "[sent a file]"
+            mxc_url = getattr(event, "url", "") or ""
+            if mxc_url:
+                eid = event.event_id[:8].lstrip("$")
+                filename = body or f"matrix_media_{eid}"
+                filename = f"{eid}_{filename}"
+                local_path = await self._download_mxc(mxc_url, filename)
+                if local_path:
+                    media_parts.append(
+                        {
+                            "type": "file",
+                            "file_url": Path(local_path).as_uri(),
+                            "filename": body or filename,
+                        },
+                    )
         elif isinstance(event, RoomMessageAudio):
             body_desc = f"[sent audio: {body}]" if body else "[sent audio]"
         elif isinstance(event, RoomMessageVideo):
@@ -1896,110 +1910,35 @@ class MatrixChannel(BaseChannel):
         return meta.get("room_id", getattr(request, "user_id", ""))
 
     # ------------------------------------------------------------------
-    # Mention helper — spec-compliant Matrix mention (m.mentions + HTML pill)
-    # outbound m.mentions (P0) + formatted_body pill
-    # for push + Element-style render; display name from room state (§12–§13).
+    # Mention helper — MSC3952 m.mentions from body text scan
     # ------------------------------------------------------------------
 
-    def _strip_lead_echo_of_ping_target(
-        self,
-        body: str,
-        user_id: str,
-        room_id: str,
-    ) -> str:
-        """Drop a leading display name / MXID that duplicates the HTML pill.
+    # Regex to match Matrix user IDs: @localpart:domain (with optional port)
+    _MATRIX_USER_ID_RE = re.compile(
+        r"@[a-zA-Z0-9._=+/\-]+:[a-zA-Z0-9.\-]+(?::\d+)?",
+    )
 
-        Manager/worker pipelines often prefix replies with the target's room
-        display name (e.g. ``manager 💕 TASK: ...``).  We still prepend a pill
-        in ``formatted_body``; without stripping, rich clients show the name
-        twice (pill + markdown HTML).
-        """
-        if not body.strip():
-            return body
-        display_name = self._resolve_display_name(user_id, room_id)
-        stripped = body.lstrip()
-        for prefix in (display_name, user_id):
-            if not prefix or not stripped.startswith(prefix):
-                continue
-            tail = stripped[len(prefix) :].lstrip(" \t:：，,、\n\r-—")
-            return tail if tail.strip() else body
-        return body
+    def _extract_mentions_from_text(self, text: str) -> list[str]:
+        """Extract all @user:domain Matrix IDs from message text."""
+        matches = self._MATRIX_USER_ID_RE.findall(text)
+        return list(dict.fromkeys(matches))  # dedupe, preserve order
 
-    def _apply_mention(
+    def _apply_mention(  # pylint: disable=unused-argument
         self,
         content: dict[str, Any],
         user_id: str,
         room_id: str,
-        meta: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Add a full Matrix mention to an outgoing event content dict.
+        """Add Matrix mentions to an outgoing event content dict.
 
-        Sets ``m.mentions`` (for push notifications) and optionally adds a
-        ``formatted_body`` with an HTML pill so clients render the
-        mention visually (controlled by ``mention_pill_in_body`` config).
-
-        Plain ``body`` is not prefixed with the display name (that duplicated
-        @).  If the upstream ``body`` already starts with the same display
-        name or MXID as the pill, that lead is stripped and HTML is rebuilt
-        so the rich client does not show the name twice.
-
-        Args:
-            content: The Matrix event content dict to modify in place.
-            user_id: The MXID to mention (e.g. "@user:server").
-            room_id: The room where this event will be sent.
-            meta: Optional message metadata; supports overrides:
-                - ``skip_mention_pill``: If True, omit HTML pill even if config
-                  enables it.
-                - ``force_mention_pill``: If True, include HTML pill even if
-                  config disables it.
+        Scans the message body for @user:domain patterns and populates
+        ``m.mentions.user_ids`` (MSC3952). Only includes user IDs that
+        actually appear in the text. Does NOT modify the body text.
         """
-        # Always set m.mentions for push notification delivery
-        content["m.mentions"] = {"user_ids": [user_id]}
-
         body = content.get("body", "")
-        body = self._strip_lead_echo_of_ping_target(body, user_id, room_id)
-
-        # Convert body to HTML
-        html_body = _md_to_html(body)
-        content["format"] = "org.matrix.custom.html"
-
-        # Determine whether to show HTML pill (config + meta overrides)
-        show_pill = self._should_show_mention_pill(meta)
-
-        # Conditionally prepend HTML pill
-        if show_pill:
-            display_name = self._resolve_display_name(user_id, room_id)
-            pill = (
-                f'<a href="https://matrix.to/#/{user_id}">'
-                f"{display_name}</a>"
-            )
-            content["formatted_body"] = (
-                f"{pill} {html_body}" if html_body else pill
-            )
-        else:
-            # No pill prefix, just the converted HTML body
-            content["formatted_body"] = html_body
-
-        if body.strip():
-            content["body"] = body
-        else:
-            display_name = self._resolve_display_name(user_id, room_id)
-            content["body"] = display_name
-
-    def _should_show_mention_pill(
-        self,
-        meta: Optional[Dict[str, Any]],
-    ) -> bool:
-        """Determine whether to prepend HTML pill to formatted_body.
-
-        Checks meta overrides first, then falls back to config default.
-        """
-        m = meta or {}
-        if m.get("skip_mention_pill"):
-            return False
-        if m.get("force_mention_pill"):
-            return True
-        return bool(self._cfg.mention_pill_in_body)
+        mentioned_ids = self._extract_mentions_from_text(body)
+        if mentioned_ids:
+            content["m.mentions"] = {"user_ids": mentioned_ids}
 
     def _resolve_display_name(self, user_id: str, room_id: str) -> str:
         """Best-effort display name for *user_id* in *room_id*."""
@@ -2021,9 +1960,7 @@ class MatrixChannel(BaseChannel):
 
     # ------------------------------------------------------------------
     # Outgoing send — text
-    # Markdown→HTML
-    # (formatted_body); m.mentions + HTML pill when meta has sender_id
-    # (P0; _apply_mention); typing cleared in finally (§10).
+    # Markdown→HTML (formatted_body); m.mentions when meta has sender_id.
     # ------------------------------------------------------------------
 
     async def send(
@@ -2066,8 +2003,8 @@ class MatrixChannel(BaseChannel):
         sender_id = (meta or {}).get("sender_id") or (meta or {}).get(
             "user_id",
         )
-        if sender_id and self._should_apply_outbound_mention(meta):
-            self._apply_mention(content, sender_id, room_id, meta)
+        if sender_id:
+            self._apply_mention(content, sender_id, room_id)
 
         try:
             await self._client.room_send(
@@ -2085,22 +2022,8 @@ class MatrixChannel(BaseChannel):
         finally:
             await self._send_typing(room_id, False)
 
-    def _should_apply_outbound_mention(
-        self,
-        meta: Optional[Dict[str, Any]],
-    ) -> bool:
-        """Whether to set m.mentions + pill on this outbound event."""
-        m = meta or {}
-        if m.get("skip_structured_mention"):
-            return False
-        if m.get("force_structured_mention"):
-            return True
-        return bool(self._cfg.outbound_structured_mentions)
-
     # ------------------------------------------------------------------
     # Outgoing send — media
-    # _upload_file then room_send; optional _apply_mention (see
-    # outbound_structured_mentions and meta overrides; §13).
     # ------------------------------------------------------------------
 
     async def send_media(
@@ -2171,8 +2094,8 @@ class MatrixChannel(BaseChannel):
             sender_id = (meta or {}).get("sender_id") or (meta or {}).get(
                 "user_id",
             )
-            if sender_id and self._should_apply_outbound_mention(meta):
-                self._apply_mention(event_content, sender_id, room_id, meta)
+            if sender_id:
+                self._apply_mention(event_content, sender_id, room_id)
 
             await self._client.room_send(
                 room_id,
