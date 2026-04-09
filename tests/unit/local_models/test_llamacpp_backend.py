@@ -744,6 +744,42 @@ def test_finalize_download_result_moves_staging_dir(
     assert (final_dir / "bin" / "server").read_text() == "tar-binary"
 
 
+def test_finalize_download_result_returns_failed_result_on_fs_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    staging_dir = tmp_path / "staging"
+    final_dir = tmp_path / "final"
+    staging_dir.mkdir()
+    (staging_dir / "bin").mkdir()
+    (staging_dir / "bin" / "server").write_text("tar-binary")
+
+    def _raise_move_error(src: str, dst: str) -> None:
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr(downloader_module.shutil, "move", _raise_move_error)
+
+    result, downloaded_bytes = downloader._finalize_download_result(
+        DownloadTaskResult(
+            status=DownloadTaskStatus.COMPLETED,
+            local_path=str(staging_dir),
+        ),
+        staging_dir=staging_dir,
+        final_dir=final_dir,
+    )
+
+    assert result.status == DownloadTaskStatus.FAILED
+    assert result.local_path is None
+    assert downloaded_bytes is None
+    assert result.error == (
+        "llama.cpp download completed, but installing files to "
+        f"{final_dir} failed: Permission denied"
+    )
+    assert staging_dir.exists()
+    assert not final_dir.exists()
+
+
 def test_download_worker_flattens_single_top_level_archive_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -834,13 +870,22 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     )
     monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
 
-    port = await downloader.setup_server(model_path, "demo-model")
+    setup_result = await downloader.setup_server(model_path, "demo-model")
     await asyncio.sleep(0)
 
-    assert port == downloader.get_server_status()["port"]
+    assert setup_result.port == downloader.get_server_status()["port"]
+    assert setup_result.model_info.model_dump() == {
+        "id": "demo-model",
+        "name": "demo-model",
+        "supports_multimodal": False,
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "probed",
+        "generate_kwargs": {},
+    }
     assert downloader.get_server_status() == {
         "running": True,
-        "port": port,
+        "port": setup_result.port,
         "model_name": "demo-model",
         "pid": 2468,
     }
@@ -851,7 +896,7 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
                 "--host",
                 "127.0.0.1",
                 "--port",
-                str(port),
+                str(setup_result.port),
                 "--model",
                 str(model_path.resolve()),
                 "--alias",
@@ -971,8 +1016,18 @@ async def test_setup_server_passes_mmproj_argument(
     )
     monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
 
-    port = await downloader.setup_server(model_dir, "vision-model")
+    setup_result = await downloader.setup_server(model_dir, "vision-model")
     await asyncio.sleep(0)
+
+    assert setup_result.model_info.model_dump() == {
+        "id": "vision-model",
+        "name": "vision-model",
+        "supports_multimodal": True,
+        "supports_image": True,
+        "supports_video": False,
+        "probe_source": "probed",
+        "generate_kwargs": {},
+    }
 
     assert start_calls == [
         (
@@ -981,7 +1036,7 @@ async def test_setup_server_passes_mmproj_argument(
                 "--host",
                 "127.0.0.1",
                 "--port",
-                str(port),
+                str(setup_result.port),
                 "--model",
                 str(model_file.resolve()),
                 "--alias",
@@ -1082,6 +1137,6 @@ def test_force_shutdown_server_uses_shared_shutdown_helper(
         fake_shutdown_process_sync,
     )
 
-    downloader.force_shutdown_server()
+    downloader.shutdown_server_sync()
 
     assert calls == [(process, 5.0, 1.0)]

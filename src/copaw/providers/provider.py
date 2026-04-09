@@ -101,6 +101,11 @@ class ProviderInfo(BaseModel):
         default_factory=dict,
         description="Generation parameters for agentscope chat models.",
     )
+    meta: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata for the provider "
+        "(e.g., api_key_url, api_key_hint).",
+    )
 
 
 class Provider(ProviderInfo, ABC):

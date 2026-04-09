@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import suppress
@@ -16,6 +17,9 @@ from ..utils.command_runner import (
     shutdown_process_sync,
     start_multiprocessing_process,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadTaskStatus(str, Enum):
@@ -507,7 +511,22 @@ class ProcessDownloadController:
                 continue
 
             result = DownloadTaskResult.from_message(message)
-            result, downloaded_bytes = spec.task.finalize(result)
+            try:
+                result, downloaded_bytes = spec.task.finalize(result)
+            except Exception as exc:
+                logger.exception(
+                    "Download finalize step failed for %s",
+                    spec.process_name,
+                )
+                self._finish_task(
+                    spec=spec,
+                    result=DownloadTaskResult(
+                        status=DownloadTaskStatus.FAILED,
+                        error=("Download finalize step failed: " f"{exc}"),
+                    ),
+                    cleanup_spec=True,
+                )
+                return True
 
             self._finish_task(
                 spec=spec,

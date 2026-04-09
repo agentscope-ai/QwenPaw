@@ -23,6 +23,13 @@
     "contentPlaceholder": "Введите содержимое...",
     "close": "Закрыть"
   },
+  "chunkError": {
+    "title": "Не удалось загрузить страницу",
+    "subTitle": "Возможно, это вызвано проблемой сети или обновлением приложения.",
+    "genericTitle": "Что-то пошло не так",
+    "genericSubTitle": "При отображении этой страницы произошла непредвиденная ошибка.",
+    "reload": "Перезагрузить"
+  },
   "nav": {
     "chat": "Чат",
     "control": "Управление",
@@ -135,6 +142,7 @@
     "invalidSkillUrlSource": "URL навыка должен начинаться с https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/ или https://modelscope.cn/skills/",
     "type": "Тип",
     "skillDescription": "Описание",
+    "tags": "Теги",
     "builtin": "Встроенный",
     "custom": "Пользовательский",
     "createSkill": "Создать навык",
@@ -510,7 +518,9 @@
     "weixinScanHint": "Отсканируйте QR-код в WeChat, затем нажмите Сохранить",
     "weixinQrcodeFailed": "Не удалось получить QR-код, попробуйте снова",
     "weixinLoginSuccess": "Вход через WeChat выполнен, токен заполнен",
-    "weixinQrcodeExpired": "QR-код истёк, получите новый"
+    "weixinQrcodeExpired": "QR-код истёк, получите новый",
+    "onebotShareSessionInGroup": "Общий сеанс в группе",
+    "onebotShareSessionInGroupTooltip": "Если включено, все участники группы используют один сеанс разговора. Если выключено, у каждого участника свой сеанс."
   },
   "sessions": {
     "title": "Сессии",
@@ -701,7 +711,7 @@
     "local": "Локальные",
     "localType": "Тип",
     "localEmbedded": "Встроенная (в процессе)",
-    "localDownloadFirst": "Сначала скачайте модель",
+    "localDownloadFirst": "Сервис модели не запущен",
     "localDownloadModel": "Скачать модель",
     "localModelsTitle": "{{provider}} — Локальные модели",
     "localNoModels": "Пока нет скачанных моделей",
@@ -774,6 +784,16 @@
     "localAlternativeRuntimeHint": "Попробуйте использовать Ollama или LM Studio",
     "localModelsCount": "Загружено {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "Текущая загрузка",
+    "localAdvancedConfigTitle": "Расширенные настройки локальной модели",
+    "localAdvancedConfigDescription": "Эти настройки применяются к встроенному локальному рантайму инференса. Изменения максимальной длины контекста вступят в силу при следующем запуске локального сервера.",
+    "localAdvancedConfigSaved": "Расширенные настройки локальной модели сохранены",
+    "localAdvancedConfigSaveFailed": "Не удалось сохранить расширенные настройки локальной модели",
+    "localMaxContextLengthLabel": "Макс. длина контекста",
+    "localMaxContextLengthHint": "Максимальное число токенов в контекстном окне модели, определяющее, сколько истории помещается в каждый запрос. Изменения вступят в силу при следующем запуске локального сервера.",
+    "localMaxContextLengthRequired": "Укажите макс. длину контекста",
+    "localMaxContextLengthMin": "Макс. длина контекста должна быть не меньше {{min}}",
+    "localMaxContextLengthPlaceholder": "Введите макс. длину контекста",
+    "localGenerateConfigHint": "Настройте параметры генерации локальной модели в виде JSON-объекта. Они будут развёрнуты в последующие запросы генерации.",
     "localCustomModelTitle": "Загрузка пользовательской модели",
     "localCustomModelHint": "Введите ID репозитория модели. Поддерживается только GGUF.",
     "localSourceHuggingFace": "Hugging Face",
@@ -1046,7 +1066,7 @@
     "description": "Я полезный ассистент, который поможет вам с вашими вопросами.",
     "prompt1": "Давайте начнём новое путешествие!",
     "prompt2": "Расскажи мне, какими навыками ты обладаешь?",
-    "inputPlaceholder": "Введите /, чтобы посмотреть команды; во время подтверждения используйте /approve или /deny...",
+    "inputPlaceholder": "\"↑↓\" для навигации по сообщениям · \"/\" для быстрых команд (\"/approve\" или \"/deny\" во время подтверждения)",
     "commands": {
       "clear": {
         "description": "Очистить контекст диалога"

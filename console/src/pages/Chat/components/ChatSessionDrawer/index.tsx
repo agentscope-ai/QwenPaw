@@ -25,6 +25,7 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   meta?: Record<string, unknown>;
   status?: ChatStatus;
   generating?: boolean;
+  pinned?: boolean;
 }
 
 interface ChatSessionDrawerProps {
@@ -73,11 +74,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
 
-  /** Sessions sorted by createdAt descending, independent of context internal order */
+  /** Sessions sorted by pinned first, then by createdAt descending */
   const sortedSessions = useMemo(() => {
     return [...sessions].sort((a, b) => {
-      const aTime = (a as ExtendedChatSession).createdAt;
-      const bTime = (b as ExtendedChatSession).createdAt;
+      const extA = a as ExtendedChatSession;
+      const extB = b as ExtendedChatSession;
+
+      // Pinned items come first
+      if (extA.pinned && !extB.pinned) return -1;
+      if (!extA.pinned && extB.pinned) return 1;
+
+      // Then sort by createdAt descending
+      const aTime = extA.createdAt;
+      const bTime = extB.createdAt;
       if (!aTime && !bTime) return 0;
       if (!aTime) return 1;
       if (!bTime) return -1;
@@ -186,6 +195,29 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setEditValue("");
   }, []);
 
+  /** Toggle pin status for a session */
+  const handlePinToggle = useCallback(
+    async (sessionId: string) => {
+      const session = sessions.find((s) => s.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+
+      if (backendId && session) {
+        try {
+          const newPinnedState = !session.pinned;
+          await chatApi.updateChat(backendId, {
+            pinned: newPinnedState,
+          });
+          await refreshSessions();
+        } catch (error) {
+          console.error("Failed to toggle pin status:", error);
+        }
+      }
+    },
+    [sessions, refreshSessions],
+  );
+
   return (
     <Drawer
       open={props.open}
@@ -247,6 +279,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
                 channelLabel={channelLabel}
                 chatStatus={ext.status}
                 generating={ext.generating}
+                pinned={ext.pinned}
                 active={session.id === currentSessionId}
                 editing={editingSessionId === session.id}
                 editValue={
@@ -257,6 +290,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
                   handleEditStart(session.id!, session.name || "New Chat")
                 }
                 onDelete={() => handleDelete(session.id!)}
+                onPin={() => handlePinToggle(session.id!)}
                 onEditChange={handleEditChange}
                 onEditSubmit={handleEditSubmit}
                 onEditCancel={handleEditCancel}

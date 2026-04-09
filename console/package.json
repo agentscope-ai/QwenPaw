@@ -31,6 +31,7 @@
     "dayjs": "^1.11.13",
     "i18next": "^25.8.4",
     "lucide-react": "^0.562.0",
+    "pretty-bytes": "^7.1.0",
     "react": "^18",
     "react-dom": "^18",
     "react-i18next": "^16.5.4",

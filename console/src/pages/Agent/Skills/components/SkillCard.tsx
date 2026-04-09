@@ -1,9 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { Card, Button, Checkbox, Tooltip } from "@agentscope-ai/design";
-import { SkillTags } from "../../SkillPool/components/SkillMeta";
 import {
   CalendarFilled,
-  ApiOutlined,
   FileTextFilled,
   FileZipFilled,
   FilePdfFilled,
@@ -22,12 +20,11 @@ import styles from "../index.module.less";
 
 interface SkillCardProps {
   skill: SkillSpec;
-  isHover: boolean;
   selected?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
   onClick: () => void;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
   onToggleEnabled: (e: React.MouseEvent) => void;
   onDelete?: (e?: React.MouseEvent) => void;
 }
@@ -127,7 +124,6 @@ export const getSkillVisual = (name: string, emoji?: string) => {
 
 export const SkillCard = React.memo(function SkillCard({
   skill,
-  isHover,
   selected,
   onSelect,
   onClick,
@@ -138,6 +134,7 @@ export const SkillCard = React.memo(function SkillCard({
 }: SkillCardProps) {
   const { t } = useTranslation();
   const batchMode = selected !== undefined;
+  const [isHover, setIsHover] = useState(false);
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -162,87 +159,130 @@ export const SkillCard = React.memo(function SkillCard({
     }
   };
 
+  const isBuiltin =
+    skill.source === "builtin" ||
+    skill.source?.startsWith("builtin:") ||
+    skill.source === "system";
+
   return (
     <Card
       hoverable
       onClick={handleCardClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      className={`${styles.skillCard} ${
-        skill.enabled ? styles.enabledCard : ""
-      } ${isHover ? styles.hover : styles.normal} ${
-        selected ? styles.selectedCard : ""
-      }`}
+      onMouseEnter={() => {
+        setIsHover(true);
+        onMouseEnter?.();
+      }}
+      onMouseLeave={() => {
+        setIsHover(false);
+        onMouseLeave?.();
+      }}
+      className={`${styles.skillCard} ${selected ? styles.selectedCard : ""}`}
+      style={{ cursor: "pointer" }}
     >
-      {/* Header: Icon + Title + Status */}
-      <div className={styles.cardHeader}>
-        <div className={styles.leftSection}>
-          <span className={styles.fileIcon}>
-            {getSkillVisual(skill.name, skill.emoji)}
+      {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
+      <div className={styles.cardTopRow}>
+        <span className={styles.fileIcon}>
+          {getSkillVisual(skill.name, skill.emoji)}
+        </span>
+        <div className={styles.cardTopRight}>
+          <span
+            className={`${styles.statusBadge} ${
+              skill.enabled ? styles.status_enabled : styles.status_disabled
+            }`}
+          >
+            <span className={styles.statusDot} />
+            {skill.enabled ? t("common.enabled") : t("common.disabled")}
           </span>
-          <div className={styles.titleInfoContainer}>
-            <div className={styles.titleRow}>
-              <h3 className={styles.skillTitle}>{skill.name}</h3>
-              <span
-                className={`${styles.statusValue} ${
-                  skill.enabled ? styles.enabled : styles.disabled
-                }`}
-              >
-                {skill.enabled ? t("common.enabled") : t("common.disabled")}
-              </span>
-            </div>
-            {skill.last_updated && (
-              <div className={styles.updatedTime}>
-                <CalendarFilled className={styles.calendarIcon} />
-                <span>{dayjs(skill.last_updated).fromNow()}</span>
-              </div>
-            )}
-          </div>
+          {batchMode && (
+            <Checkbox checked={selected} onClick={handleSelectClick} />
+          )}
         </div>
-        {batchMode && (
-          <Checkbox checked={selected} onClick={handleSelectClick} />
-        )}
       </div>
 
-      {/* Channels Section */}
-      <div className={styles.channelsRow}>
-        <Tooltip title={t("skills.channels")}>
-          <ApiOutlined className={styles.channelIcon} />
+      {/* Title + Built-in/Custom tag */}
+      <div className={styles.titleRow}>
+        <Tooltip title={skill.name}>
+          <h3 className={styles.skillTitle}>
+            {skill.name}{" "}
+            {isBuiltin ? (
+              <span className={styles.builtinTag}>{t("skills.builtin")}</span>
+            ) : (
+              <span className={styles.customTag}>{t("skills.custom")}</span>
+            )}
+          </h3>
         </Tooltip>
-        <span className={styles.channelValue}>
+      </div>
+
+      {/* Channels row */}
+      <div className={styles.metaInfoRow}>
+        <span className={styles.metaInfoLabel}>{t("skills.channels")}</span>
+        <span className={styles.metaInfoValue}>
           {(skill.channels || ["all"])
             .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
             .join(", ")}
         </span>
       </div>
 
-      {/* Description Section */}
-      <div className={styles.descriptionContainer}>
-        <SkillTags tags={skill.tags} styles={styles} />
+      {/* Updated row */}
+      {skill.last_updated && (
+        <div className={styles.metaInfoRow}>
+          <span className={styles.metaInfoLabel}>
+            {t("skills.lastUpdated")}
+          </span>
+          <span className={styles.metaInfoValue}>
+            {dayjs(skill.last_updated).fromNow()}
+          </span>
+        </div>
+      )}
+
+      {/* Tags row */}
+      <div className={styles.metaInfoRow}>
+        <span className={styles.metaInfoLabel}>{t("skills.tags")}</span>
+        {!!skill.tags?.length ? (
+          <div className={styles.tagChips}>
+            {skill.tags.map((tag) => (
+              <span key={tag} className={styles.tagChip}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span style={{ color: "rgba(20,20,19,0.35)" }}>-</span>
+        )}
+      </div>
+
+      {/* Description */}
+      <div className={styles.descriptionSection}>
+        <span className={styles.descriptionSectionLabel}>
+          {t("skills.skillDescription")}
+        </span>
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer with buttons - always show, disabled in batch mode */}
-      <div className={styles.cardFooter}>
-        <Button
-          className={styles.actionButton}
-          onClick={handleToggleClick}
-          icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-          disabled={batchMode}
-        >
-          {skill.enabled ? t("common.disable") : t("common.enable")}
-        </Button>
-        {onDelete && (
+      {/* Footer - only show on hover or batch mode */}
+      {(isHover || batchMode) && (
+        <div className={styles.cardFooter}>
           <Button
-            danger
-            className={styles.deleteButton}
-            onClick={handleDeleteClick}
+            type="default"
+            className={styles.actionButton}
             disabled={batchMode}
+            onClick={handleToggleClick}
+            icon={skill.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
           >
-            {t("common.delete")}
+            {skill.enabled ? t("common.disable") : t("common.enable")}
           </Button>
-        )}
-      </div>
+          {onDelete && (
+            <Button
+              danger
+              className={styles.deleteButton}
+              disabled={batchMode}
+              onClick={handleDeleteClick}
+            >
+              {t("common.delete")}
+            </Button>
+          )}
+        </div>
+      )}
     </Card>
   );
 });

@@ -397,11 +397,11 @@ async def shutdown_process(
         )
 
     process.terminate()
-    try:
-        returncode = await asyncio.wait_for(
-            process.wait(),
-            timeout=graceful_timeout,
-        )
+    returncode = await _wait_for_process_exit_async(
+        process,
+        timeout=graceful_timeout,
+    )
+    if returncode is not None:
         return ShutdownResult(
             command=process.command,
             pid=process.pid,
@@ -411,17 +411,13 @@ async def shutdown_process(
             timed_out=False,
             returncode=returncode,
         )
-    except asyncio.TimeoutError:
-        process.kill()
 
-    try:
-        if kill_timeout is None:
-            returncode = await process.wait()
-        else:
-            returncode = await asyncio.wait_for(
-                process.wait(),
-                timeout=kill_timeout,
-            )
+    process.kill()
+    returncode = await _wait_for_process_exit_async(
+        process,
+        timeout=kill_timeout,
+    )
+    if returncode is not None:
         return ShutdownResult(
             command=process.command,
             pid=process.pid,
@@ -431,16 +427,16 @@ async def shutdown_process(
             timed_out=False,
             returncode=returncode,
         )
-    except asyncio.TimeoutError:
-        return ShutdownResult(
-            command=process.command,
-            pid=process.pid,
-            exited=False,
-            terminated_gracefully=False,
-            killed=True,
-            timed_out=True,
-            returncode=process.returncode,
-        )
+
+    return ShutdownResult(
+        command=process.command,
+        pid=process.pid,
+        exited=False,
+        terminated_gracefully=False,
+        killed=True,
+        timed_out=True,
+        returncode=process.returncode,
+    )
 
 
 def shutdown_process_sync(
@@ -493,6 +489,19 @@ def shutdown_process_sync(
         timed_out=True,
         returncode=process.returncode,
     )
+
+
+async def _wait_for_process_exit_async(
+    process: ManagedProcess,
+    *,
+    timeout: float | None,
+) -> int | None:
+    try:
+        if timeout is None:
+            return await process.wait()
+        return await asyncio.wait_for(process.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return None
 
 
 def _wait_for_process_exit(

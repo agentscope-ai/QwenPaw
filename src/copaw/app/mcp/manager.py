@@ -12,7 +12,7 @@ import logging
 import os
 from typing import Any, Dict, List, TYPE_CHECKING
 
-from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
+from .stateful_client import HttpStatefulClient, StdIOStatefulClient
 
 if TYPE_CHECKING:
     from ...config.config import MCPClientConfig, MCPConfig

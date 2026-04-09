@@ -295,6 +295,8 @@ class AgentRunner(Runner):
             # Load agent-specific configuration
             agent_config = load_agent_config(self.agent_id)
 
+            logger.debug(f"Enabled MCP: {mcp_clients}")
+
             agent = CoPawAgent(
                 agent_config=agent_config,
                 env_context=env_context,

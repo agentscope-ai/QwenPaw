@@ -20,7 +20,6 @@ import styles from "./index.module.less";
 function ModelsPage() {
   const { t } = useTranslation();
   const { providers, activeModels, loading, error, fetchAll } = useProviders();
-  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -48,14 +47,6 @@ function ModelsPage() {
     };
   }, [providers, searchQuery]);
 
-  const handleMouseEnter = (providerId: string) => {
-    setHoveredCard(providerId);
-  };
-
-  const handleMouseLeave = () => {
-    setHoveredCard(null);
-  };
-
   const renderProviderCards = (list: ProviderInfo[]) =>
     list.map((provider) => (
       <ProviderCard
@@ -63,9 +54,6 @@ function ModelsPage() {
         provider={provider}
         activeModels={activeModels}
         onSaved={refreshProvidersSilently}
-        isHover={hoveredCard === provider.id}
-        onMouseEnter={() => handleMouseEnter(provider.id)}
-        onMouseLeave={handleMouseLeave}
       />
     ));
 

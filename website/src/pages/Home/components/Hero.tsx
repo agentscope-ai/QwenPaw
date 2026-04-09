@@ -18,15 +18,6 @@ const container = {
   },
 };
 
-const item = {
-  hidden: { opacity: 0, y: 10 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.6, ease: "easeOut" },
-  },
-};
-
 export function CopawHero() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage === "zh";
@@ -102,10 +93,9 @@ export function CopawHero() {
               disabled={false}
             />
           </div>
-          <motion.h1
+          <h1
             id="copaw-hero-heading"
             className="font-newsreader font-semibold leading-[1.1] tracking-[-0.02em] text-(--color-text) sm:leading-[1.08] text-[32px] md:text-[48px] md:leading-[1.06]"
-            variants={item}
           >
             <span className="font-newsreader font-medium whitespace-pre-wrap">
               {t("hero.titleleft")}
@@ -144,20 +134,14 @@ export function CopawHero() {
             <span className="mt-1 block font-newsreader text-[0.92em] font-medium text-(--color-text-secondary) sm:mt-1.5 sm:text-[1em]">
               {t("hero.slogan")}
             </span>
-          </motion.h1>
-          <motion.p
-            className="font-inter mx-auto mt-3 max-w-3xl px-2 text-[14px] font-medium leading-[1.55] text-(--color-text-tertiary) sm:mt-4 sm:px-0 sm:text-[15px] md:mt-5 md:text-[16px]"
-            variants={item}
-          >
+          </h1>
+          <p className="font-inter mx-auto mt-3 max-w-3xl px-2 text-[14px] font-medium leading-[1.55] text-(--color-text-tertiary) sm:mt-4 sm:px-0 sm:text-[15px] md:mt-5 md:text-[16px]">
             {t("hero.sub")}
             <br />
             {t("hero.sub1")}
-          </motion.p>
+          </p>
 
-          <motion.div
-            className="mt-7 flex w-full flex-col items-center justify-center gap-2.5 sm:mt-8 sm:w-auto sm:flex-row sm:gap-3"
-            variants={item}
-          >
+          <div className="mt-7 flex w-full flex-col items-center justify-center gap-2.5 sm:mt-8 sm:w-auto sm:flex-row sm:gap-3">
             <button
               type="button"
               onClick={scrollToQuickStart}
@@ -166,22 +150,21 @@ export function CopawHero() {
               <DottedlinedownArrowIcon />
               <span>{t("hero.quickStart")}</span>
             </button>
-          </motion.div>
+          </div>
 
           <motion.div
             className="relative mt-10 h-56 overflow-hidden sm:h-90 md:mt-12 md:h-150"
-            variants={item}
+            initial={{ opacity: 0, filter: "blur(10px)" }}
+            whileInView={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+            viewport={{ once: true, amount: 0.35 }}
+            transition={{ duration: 1.15, ease: "easeOut" }}
           >
-            <motion.img
+            <img
               src="https://img.alicdn.com/imgextra/i1/O1CN01omYMId1zLHaFKHulx_!!6000000006697-2-tps-2936-1650.png"
               alt=""
               className="absolute inset-0 h-full w-full object-cover"
               aria-hidden
               loading="lazy"
-              initial={{ opacity: 0, scale: 1.06, filter: "blur(10px)" }}
-              whileInView={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-              viewport={{ once: true, amount: 0.35 }}
-              transition={{ duration: 1.15, ease: "easeOut" }}
             />
             <motion.div
               className="relative z-10 flex h-full flex-col justify-end overflow-hidden p-4 pb-0 md:p-16 md:pb-0"
@@ -194,19 +177,11 @@ export function CopawHero() {
                 ease: [0.22, 1, 0.36, 1],
               }}
             >
-              <motion.img
+              <img
                 src="https://img.alicdn.com/imgextra/i1/O1CN01cIH6fF1g0h4zuKzOZ_!!6000000004080-2-tps-2270-1419.png"
                 alt="CoPaw console preview"
                 className="block h-auto max-h-full w-full rounded-t-[8px] object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)] md:h-full md:object-cover"
                 loading="lazy"
-                initial={{ opacity: 0, y: 32 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.35 }}
-                transition={{
-                  duration: 0.95,
-                  delay: 0.42,
-                  ease: [0.22, 1, 0.36, 1],
-                }}
               />
             </motion.div>
           </motion.div>

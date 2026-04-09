@@ -2,7 +2,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal
+from typing import Optional, Union, Dict, List, Literal, Any
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
@@ -1135,6 +1135,11 @@ class Config(BaseModel):
         default_factory=detect_system_timezone,
         description="User IANA timezone (e.g. Asia/Shanghai). "
         "Defaults to the system timezone.",
+    )
+    plugins: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Plugin configurations. Key is plugin_id, "
+        "value is plugin-specific config dict.",
     )
 
 

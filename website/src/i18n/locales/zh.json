@@ -274,6 +274,7 @@
     "config": "配置与工作目录",
     "security": "安全",
     "cli": "CLI",
+    "plugins": "插件系统",
     "faq": "FAQ 常见问题",
     "community": "问题反馈与交流",
     "contributing": "开源与贡献",

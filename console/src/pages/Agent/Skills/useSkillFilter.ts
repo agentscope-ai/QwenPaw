@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { TAG_PREFIX } from "./components/SkillFilterDropdown";
+import { SKILL_TAG_FILTER_PREFIX } from "@/constants/skill";
 
 interface Filterable {
   name: string;
@@ -19,8 +19,8 @@ export function useSkillFilter<T extends Filterable>(skills: T[]) {
   const selectedTags = useMemo(
     () =>
       searchTags
-        .filter((t) => t.startsWith(TAG_PREFIX))
-        .map((t) => t.slice(TAG_PREFIX.length)),
+        .filter((t) => t.startsWith(SKILL_TAG_FILTER_PREFIX))
+        .map((t) => t.slice(SKILL_TAG_FILTER_PREFIX.length)),
     [searchTags],
   );
 
