@@ -133,7 +133,8 @@ class WecomChannel(BaseChannel):
         self.welcome_text = welcome_text
         # Store media_dir config, will be resolved in set_workspace()
         self._media_dir_config = Path(media_dir).expanduser() if media_dir else None
-        self._media_dir: Optional[Path] = None  # Will be set in set_workspace()
+        # Default to config or global default until set_workspace is called
+        self._media_dir = self._media_dir_config or DEFAULT_MEDIA_DIR
         self._max_reconnect_attempts = max_reconnect_attempts
 
         self._client: Any = None
@@ -1243,22 +1244,22 @@ class WecomChannel(BaseChannel):
         super().set_workspace(workspace, command_registry)
         
         if workspace:
-            workspace_dir = Path(workspace.workspace_dir)
+            workspace_dir = workspace.workspace_dir
             # Try workspace media dir first
             media_dir = workspace_dir / "media"
-            if not media_dir.exists():
+            if not media_dir.is_dir():
                 try:
                     media_dir.mkdir(parents=True, exist_ok=True)
                     logger.info("wecom media_dir: created workspace media path=%s", media_dir)
                 except Exception as e:
                     logger.warning("wecom media_dir: failed to create workspace media path=%s, error=%s", media_dir, e)
                     # Fallback to global default
-                    media_dir = self._media_dir_config or Path(DEFAULT_MEDIA_DIR).expanduser()
+                    media_dir = self._media_dir_config or DEFAULT_MEDIA_DIR
             self._media_dir = media_dir
             logger.info("wecom media_dir: using workspace path=%s", self._media_dir)
         else:
             # No workspace, use default
-            self._media_dir = self._media_dir_config or Path(DEFAULT_MEDIA_DIR).expanduser()
+            self._media_dir = self._media_dir_config or DEFAULT_MEDIA_DIR
             logger.info("wecom media_dir: using default path=%s", self._media_dir)
 
     async def stop(self) -> None:
