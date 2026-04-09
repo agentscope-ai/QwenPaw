@@ -317,7 +317,7 @@ plugin = MyLLMProviderPlugin()
 copaw plugin install my-llm-provider
 
 # Start CoPaw
-copaw start
+copaw app
 
 # Configure API Key in Web UI
 # Then you can use the new provider
@@ -407,7 +407,7 @@ plugin = MonitoringHookPlugin()
 
 ```bash
 copaw plugin install monitoring-hook
-copaw start
+copaw app
 ```
 
 ### Example 3: Add Custom Command
@@ -548,7 +548,7 @@ plugin = StatusCommandPlugin()
 
 ```bash
 copaw plugin install status-command
-copaw start
+copaw app
 
 # Use the command
 /status
@@ -792,7 +792,7 @@ A: Plugins access core functionality through `PluginApi`, including:
 
 - Provider registration
 - Hook registration
-- Runtime helpers (provider_manager, etc.)
+- Runtime helpers (`provider_manager`, etc.)
 
 ### Q: Can plugins modify CoPaw's core behavior?
 
@@ -800,4 +800,4 @@ A: Yes, through monkey patching or hook mechanisms. But use with caution to avoi
 
 ### Q: Will plugins conflict with each other?
 
-A: If multiple plugins register the same provider_id or command_name, the later one will override the earlier one. Use unique IDs.
+A: If multiple plugins register the same `provider_id` or `command_name`, the later one will override the earlier one. Use unique IDs.
