@@ -896,7 +896,7 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
                 "--host",
                 "127.0.0.1",
                 "--port",
-                str(port),
+                str(setup_result.port),
                 "--model",
                 str(model_path.resolve()),
                 "--alias",
