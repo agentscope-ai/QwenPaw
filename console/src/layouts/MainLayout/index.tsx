@@ -12,7 +12,7 @@ import HeartbeatPage from "../../pages/Control/Heartbeat";
 import MeetingsPage from "../../pages/Control/Meetings";
 import AgentConfigPage from "../../pages/Agent/Config";
 import SkillsPage from "../../pages/Agent/Skills";
-import SkillPoolPage from "../../pages/Agent/SkillPool";
+import SkillPoolPage from "../../pages/Settings/SkillPool";
 import ToolsPage from "../../pages/Agent/Tools";
 import WorkspacePage from "../../pages/Agent/Workspace";
 import MCPPage from "../../pages/Agent/MCP";

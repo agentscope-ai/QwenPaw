@@ -8,7 +8,12 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 
-from ...local_models import DownloadSource, LocalModelInfo, LocalModelManager
+from ...local_models import (
+    DownloadSource,
+    LocalModelConfig,
+    LocalModelInfo,
+    LocalModelManager,
+)
 from ...providers.provider_manager import ProviderManager
 
 router = APIRouter(prefix="/local-models", tags=["local-models"])
@@ -108,6 +113,20 @@ class ServerUpdateStatus(BaseModel):
     has_update: bool = Field(
         ...,
         description="Whether a newer llama.cpp package is available",
+    )
+
+
+class LocalModelConfigRequest(BaseModel):
+    """Request body for configuring local model settings."""
+
+    max_context_length: Optional[int] = Field(
+        default=None,
+        description="Maximum context length for local models.",
+        ge=32768,
+    )
+    generate_kwargs: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=("Additional generation parameters for local models."),
     )
 
 
@@ -390,3 +409,43 @@ async def cancel_local_model_download(
         status="ok",
         message="Local model download cancellation requested",
     )
+
+
+@router.put(
+    "/config",
+    response_model=ActionResponse,
+    summary="Configure local model settings",
+)
+async def configure_local_model_settings(
+    payload: LocalModelConfigRequest,
+    local_manager: LocalModelManager = Depends(get_local_model_manager),
+    provider_manager: ProviderManager = Depends(get_provider_manager),
+) -> ActionResponse:
+    """Configure local model settings."""
+    if payload.max_context_length is not None:
+        await local_manager.set_max_context_length(payload.max_context_length)
+
+    if payload.generate_kwargs is not None:
+        provider_manager.update_provider(
+            "copaw-local",
+            {
+                "generate_kwargs": payload.generate_kwargs,
+            },
+        )
+
+    return ActionResponse(
+        status="ok",
+        message="Local model settings updated",
+    )
+
+
+@router.get(
+    "/config",
+    response_model=LocalModelConfig,
+    summary="Get local model settings",
+)
+async def get_local_model_settings(
+    local_manager: LocalModelManager = Depends(get_local_model_manager),
+) -> LocalModelConfig:
+    """Return persisted local model runtime settings."""
+    return local_manager.get_config()

@@ -90,7 +90,7 @@ def _read_temp_file(path: str) -> str:
 def _execute_subprocess_sync(
     cmd: str,
     cwd: str,
-    timeout: int,
+    timeout: float,
     env: dict | None = None,
 ) -> tuple[int, str, str]:
     """Execute subprocess synchronously in a thread.
@@ -118,7 +118,7 @@ def _execute_subprocess_sync(
             newlines — see note above).
         cwd (`str`):
             The working directory for the command execution.
-        timeout (`int`):
+        timeout (`float`):
             The maximum time (in seconds) allowed for the command to run.
         env (`dict | None`):
             Environment variables for the subprocess.
@@ -212,7 +212,7 @@ def _execute_subprocess_sync(
 # pylint: disable=too-many-branches, too-many-statements
 async def execute_shell_command(
     command: str,
-    timeout: int = 60,
+    timeout: float = 60.0,
     cwd: Optional[Path] = None,
 ) -> ToolResponse:
     """Execute a shell command and return its output.
@@ -224,9 +224,9 @@ async def execute_shell_command(
     Args:
         command (`str`):
             The shell command to execute.
-        timeout (`int`, defaults to `60`):
+        timeout (`float`, defaults to `60.0`):
             The maximum time (in seconds) allowed for the command to run.
-            Default is 60 seconds.
+            Default is 60.0 seconds.
         cwd (`Optional[Path]`, defaults to `None`):
             The working directory for the command execution.
             If None, defaults to WORKING_DIR.
@@ -242,9 +242,9 @@ async def execute_shell_command(
 
     if isinstance(timeout, str):
         try:
-            timeout = int(timeout)
+            timeout = float(timeout)
         except (ValueError, TypeError):
-            pass
+            timeout = 60.0
 
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:

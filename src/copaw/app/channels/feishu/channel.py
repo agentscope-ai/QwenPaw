@@ -237,10 +237,10 @@ class FeishuChannel(BaseChannel):
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         # session_id -> (receive_id, receive_id_type) for send
         self._receive_id_store: Dict[str, Tuple[str, str]] = {}
-        self._receive_id_lock = asyncio.Lock()
+        self._receive_id_lock = threading.Lock()
         # open_id -> nickname (from Contact API) for sender display
         self._nickname_cache: Dict[str, str] = {}
-        self._nickname_cache_lock = asyncio.Lock()
+        self._nickname_cache_lock = threading.Lock()
 
     @classmethod
     def from_env(
@@ -481,7 +481,7 @@ class FeishuChannel(BaseChannel):
         """
         if not open_id or open_id.startswith("unknown_"):
             return None
-        async with self._nickname_cache_lock:
+        with self._nickname_cache_lock:
             if open_id in self._nickname_cache:
                 return self._nickname_cache[open_id]
         try:
@@ -519,7 +519,7 @@ class FeishuChannel(BaseChannel):
                 )
 
             if name:
-                async with self._nickname_cache_lock:
+                with self._nickname_cache_lock:
                     if len(self._nickname_cache) >= FEISHU_NICKNAME_CACHE_MAX:
                         # Drop oldest: dict has no order, drop arbitrary
                         self._nickname_cache.pop(
@@ -1059,7 +1059,7 @@ class FeishuChannel(BaseChannel):
     ) -> None:
         if not session_id or not receive_id:
             return
-        async with self._receive_id_lock:
+        with self._receive_id_lock:
             # Store (receive_id_type, receive_id) to match unpack elsewhere
             self._receive_id_store[session_id] = (receive_id_type, receive_id)
             # Also key by open_id so cron can resolve when session_id is full
@@ -1081,7 +1081,7 @@ class FeishuChannel(BaseChannel):
     ) -> Optional[Tuple[str, str]]:
         if not session_id:
             return None
-        async with self._receive_id_lock:
+        with self._receive_id_lock:
             out = self._receive_id_store.get(session_id)
             if out is not None:
                 return out
@@ -1557,7 +1557,7 @@ class FeishuChannel(BaseChannel):
             if "#" in session_key:
                 suffix = session_key.split("#", 1)[-1].strip()
                 if len(suffix) >= 4:
-                    async with self._receive_id_lock:
+                    with self._receive_id_lock:
                         for _, v in self._receive_id_store.items():
                             # v is (receive_id_type, receive_id)
                             if v[1] and str(v[1]).endswith(suffix):

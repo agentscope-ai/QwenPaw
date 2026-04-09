@@ -1,6 +1,6 @@
 import { Form, InputNumber, Select, Card, Alert } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { TIMEZONE_OPTIONS } from "../../../../constants/timezone";
+import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
 
 const LANGUAGE_OPTIONS = [
@@ -63,7 +63,7 @@ export function ReactAgentCard({
                 .toLowerCase()
                 .includes(input.toLowerCase())
             }
-            options={TIMEZONE_OPTIONS}
+            options={useTimezoneOptions()}
             onChange={onTimezoneChange}
             loading={savingTimezone}
             disabled={savingTimezone}

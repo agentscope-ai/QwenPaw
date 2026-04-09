@@ -51,13 +51,26 @@ class IMessageChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        dm_policy: str = "open",
+        group_policy: str = "open",
+        allow_from: Optional[list] = None,
+        deny_message: str = "",
+        require_mention: bool = False,
     ):
+        # group_policy and require_mention are accepted for channel
+        # interface consistency but currently inactive — iMessage
+        # has no group chat support yet.
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=dm_policy,
+            group_policy=group_policy,
+            allow_from=allow_from,
+            deny_message=deny_message,
+            require_mention=require_mention,
         )
         self.enabled = enabled
         self.db_path = os.path.expanduser(db_path)
@@ -83,6 +96,12 @@ class IMessageChannel(BaseChannel):
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
     ) -> "IMessageChannel":
+        allow_from_env = os.getenv("IMESSAGE_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
         return cls(
             process=process,
             enabled=os.getenv("IMESSAGE_CHANNEL_ENABLED", "1") == "1",
@@ -97,6 +116,16 @@ class IMessageChannel(BaseChannel):
                 os.getenv("IMESSAGE_MAX_DECODED_SIZE", "10485760"),
             ),  # 10MB
             on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("IMESSAGE_DM_POLICY", "open"),
+            group_policy=os.getenv(
+                "IMESSAGE_GROUP_POLICY",
+                "open",
+            ),
+            allow_from=allow_from,
+            deny_message=os.getenv("IMESSAGE_DENY_MESSAGE", ""),
+            require_mention=(
+                os.getenv("IMESSAGE_REQUIRE_MENTION", "0") == "1"
+            ),
         )
 
     @classmethod
@@ -121,6 +150,11 @@ class IMessageChannel(BaseChannel):
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
             filter_thinking=filter_thinking,
+            dm_policy=config.dm_policy,
+            group_policy=config.group_policy,
+            allow_from=config.allow_from,
+            deny_message=config.deny_message,
+            require_mention=config.require_mention,
         )
 
     def _ensure_imsg(self) -> str:
@@ -171,6 +205,25 @@ class IMessageChannel(BaseChannel):
         if self._enqueue is not None:
             self._enqueue(request)
 
+    def _send_deny_if_blocked(self, sender: str) -> bool:
+        """Return True if sender is allowed, False if blocked."""
+        allowed, error_msg = self._check_allowlist(
+            sender,
+            is_group=False,
+        )
+        if allowed:
+            return True
+        logger.info("imessage allowlist blocked: sender=%s", sender)
+        if error_msg:
+            try:
+                self._send_sync(sender, error_msg)
+            except Exception:
+                logger.debug(
+                    "imessage reject send failed sender=%s",
+                    sender,
+                )
+        return False
+
     def _watcher_loop(self) -> None:
         logger.info(
             "watcher thread started (poll=%.2fs, db=%s)",
@@ -209,6 +262,9 @@ ORDER BY m.ROWID ASC
                             continue
                         sender = (r["sender"] or "").strip()
                         if not sender:
+                            continue
+
+                        if not self._send_deny_if_blocked(sender):
                             continue
 
                         content_parts = [

@@ -81,6 +81,15 @@ export interface ModelConfigRequest {
   generate_kwargs?: Record<string, unknown>;
 }
 
+export interface LocalModelConfig {
+  max_context_length: number;
+}
+
+export interface LocalModelConfigRequest {
+  max_context_length?: number;
+  generate_kwargs?: Record<string, unknown>;
+}
+
 /* ---- Local models ---- */
 
 export interface LocalModelInfo {

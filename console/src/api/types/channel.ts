@@ -111,6 +111,13 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
+export interface OneBotConfig extends BaseChannelConfig {
+  ws_host: string;
+  ws_port: number;
+  access_token: string;
+  share_session_in_group: boolean;
+}
+
 export interface SACPChannelConfig
   extends Omit<BaseChannelConfig, "bot_prefix"> {
   bot_prefix?: string;
@@ -131,6 +138,7 @@ export interface ChannelConfig {
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
   xiaoyi: XiaoYiConfig;
+  onebot: OneBotConfig;
   sacp: SACPChannelConfig;
 }
 
@@ -148,4 +156,5 @@ export type SingleChannelConfig =
   | WecomConfig
   | VoiceChannelConfig
   | XiaoYiConfig
+  | OneBotConfig
   | SACPChannelConfig;

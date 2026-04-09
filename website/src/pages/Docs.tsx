@@ -187,6 +187,7 @@ const DOC_GROUPS: DocGroup[] = [
       { slug: "models", titleKey: "docs.models" },
       { slug: "security", titleKey: "docs.security" },
       { slug: "cli", titleKey: "docs.cli" },
+      { slug: "plugins", titleKey: "docs.plugins" },
     ],
   },
   {

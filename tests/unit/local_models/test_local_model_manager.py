@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-from copaw.local_models.manager import LocalModelManager, DownloadSource
+from copaw.local_models import manager as local_model_manager_module
+from copaw.local_models.manager import (
+    DownloadSource,
+    LocalModelManager,
+)
 from copaw.local_models.llamacpp import LlamaCppBackend
 from copaw.local_models.model_manager import ModelManager
 
@@ -48,8 +53,22 @@ class _FakeLlamaCppBackend:
         self.calls.append(("server_ready", timeout))
         return True
 
-    async def setup_server(self, model_path: Path, model_name: str) -> int:
-        self.calls.append(("setup", (model_path, model_name)))
+    async def setup_server(
+        self,
+        model_path: Path,
+        model_name: str,
+        max_context_length: int | None = None,
+    ) -> int:
+        self.calls.append(
+            (
+                "setup",
+                (
+                    (model_path, model_name)
+                    if max_context_length is None
+                    else (model_path, model_name, max_context_length)
+                ),
+            ),
+        )
         return 8080
 
     async def shutdown_server(self) -> None:
@@ -149,12 +168,21 @@ async def test_local_model_manager_forwards_sync_calls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_local_model_manager_forwards_async_server_calls() -> None:
+async def test_local_model_manager_forwards_async_server_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        local_model_manager_module,
+        "DEFAULT_LOCAL_PROVIDER_DIR",
+        tmp_path,
+    )
     fake_llamacpp_backend = _FakeLlamaCppBackend()
     manager = LocalModelManager(
         model_manager=cast(ModelManager, _FakeModelManager()),
         llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
+    await manager.set_max_context_length(131072)
 
     ready = await manager.check_llamacpp_server_ready(timeout=7.5)
     port = await manager.setup_server("demo")
@@ -164,9 +192,33 @@ async def test_local_model_manager_forwards_async_server_calls() -> None:
     assert port == 8080
     assert fake_llamacpp_backend.calls == [
         ("server_ready", 7.5),
-        ("setup", (Path("/fake/path/demo"), "demo")),
+        ("setup", (Path("/fake/path/demo"), "demo", 131072)),
         ("shutdown", None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_set_max_context_length_persists_local_model_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        local_model_manager_module,
+        "DEFAULT_LOCAL_PROVIDER_DIR",
+        tmp_path,
+    )
+    manager = LocalModelManager(
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, _FakeLlamaCppBackend()),
+    )
+
+    await manager.set_max_context_length(131072)
+
+    assert manager.get_config().max_context_length == 131072
+    config_path = tmp_path / LocalModelManager.CONFIG_FILE_NAME
+    assert json.loads(config_path.read_text(encoding="utf-8")) == {
+        "max_context_length": 131072,
+    }
 
 
 @pytest.mark.asyncio

@@ -221,6 +221,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 16px;
   border: 1px solid var(--color-border-secondary, #eae8e7);
   border-bottom: none;
@@ -266,6 +267,50 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+
+  .skillTitle {
+    flex: unset;
+    min-width: unset;
+  }
+}
+
+/* List view Built-in badge */
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  background-color: rgba(239, 240, 243, 0.9);
+  color: rgba(20, 20, 19, 0.65);
+}
+
+/* List view status value badge */
+.statusValue {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+
+  &.synced {
+    background-color: rgba(82, 196, 26, 0.1);
+    color: #389e0d;
+  }
+
+  &.outdated {
+    background-color: rgba(250, 173, 20, 0.12);
+    color: #d48806;
+  }
+
+  &.neutral {
+    background-color: rgba(239, 240, 243, 0.8);
+    color: rgba(20, 20, 19, 0.65);
+  }
 }
 
 .listItemTime {
@@ -328,18 +373,18 @@
 
 /* ─── Skill Card ──────────────────────────────────────────────────────────── */
 .skillCard {
-  min-height: 178px;
+  min-height: 240px;
   height: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-radius: var(--border-radius, 8px);
+  gap: 0;
+  border-radius: var(--border-radius, 12px);
   background: var(--color-bg-base, #ffffff);
   border: 1px solid var(--color-border-secondary, #eae8e7);
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
   position: relative;
-  padding-bottom: 56px;
+  overflow: hidden;
 
   :global {
     .ant-card-body {
@@ -353,88 +398,72 @@
 
   &:hover {
     border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   }
 }
 
-.cardBody {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.cardHeader {
+/* Top row: large icon (left) + status badge + checkbox (right) */
+.cardTopRow {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 4px;
-  flex-direction: column;
+  margin-bottom: 12px;
 }
 
-.leftSection {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 12px;
-  flex: 1;
-  width: 100%;
-
-  .titleInfoContainer {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-
-    .updatedTime {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      color: rgba(20, 20, 19, 0.45);
-      margin-top: -2px;
-
-      .calendarIcon {
-        font-size: 10px;
-      }
-    }
-
-    .channelsRow {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-
-      .channelLabel {
-        color: rgba(26, 23, 22, 0.65);
-        flex-shrink: 0;
-      }
-
-      .channelValue {
-        color: rgba(20, 20, 19, 0.88);
-        font-weight: 500;
-        padding: 2px 8px;
-        border-radius: 4px;
-        background-color: rgba(239, 240, 243, 0.5);
-      }
-    }
-  }
-}
-
-.fileIconWrapper {
+.cardTopRight {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
+/* Status badge: dot + text */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+
+  &.status_synced {
+    color: #17b26a;
+
+    .statusDot {
+      background-color: #17b26a;
+    }
+  }
+
+  &.status_outdated {
+    color: #d48806;
+
+    .statusDot {
+      background-color: #f5a623;
+    }
+  }
+
+  &.status_neutral {
+    color: rgba(20, 20, 19, 0.45);
+
+    .statusDot {
+      background-color: rgba(20, 20, 19, 0.25);
+    }
+  }
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .fileIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: 6px;
-  background: #fcfaf8;
-  font-size: 28px;
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: #f7f5f3;
+  font-size: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -444,63 +473,97 @@
 .titleRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  width: 100%;
+  margin-bottom: 10px;
+  flex-wrap: nowrap;
 }
 
 .skillTitle {
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   color: rgba(20, 20, 19, 0.88);
   font-family: Inter;
-  line-height: 24px;
-  max-width: 200px;
+  line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
-.statusRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* Built-in / Custom tags */
+.builtinTag {
   font-size: 11px;
-  flex-wrap: wrap;
-  row-gap: 4px;
-  column-gap: 12px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: rgba(239, 240, 243, 0.9);
+  color: #8e8c99;
+  flex-shrink: 0;
+  white-space: nowrap;
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-.statusLabel {
-  color: rgba(26, 23, 22, 0.65);
+.customTag {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: rgba(255, 247, 230, 0.9);
+  color: #d48806;
+  flex-shrink: 0;
+  white-space: nowrap;
+  border: 1px solid rgba(250, 173, 20, 0.2);
+}
+
+/* Meta info rows: Updated / Tags */
+.metaInfoRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 6px;
+
+  .metaInfoLabel {
+    color: rgba(20, 20, 19, 0.55);
+    min-width: 72px;
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+
+  .metaInfoValue {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: rgba(20, 20, 19, 0.88);
+    font-weight: 500;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background-color: rgba(239, 240, 243, 0.6);
+  }
+
+  .calendarIcon {
+    font-size: 11px;
+    color: rgba(26, 23, 22, 0.45);
+  }
+}
+
+/* Description section */
+.descriptionSection {
+  margin-top: 8px;
+  flex: 1;
+}
+
+.descriptionSectionLabel {
+  display: block;
+  margin: 0 0 5px 0;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.55);
   font-weight: normal;
 }
 
-.statusValue {
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  flex-shrink: 0;
-  white-space: nowrap;
-
-  &.synced {
-    background-color: rgba(82, 196, 26, 0.12);
-    color: #389e0d;
-  }
-
-  &.outdated {
-    background-color: rgba(250, 173, 20, 0.14);
-    color: #d48806;
-  }
-
-  &.neutral {
-    background-color: rgba(239, 240, 243, 0.8);
-    color: rgba(20, 20, 19, 0.65);
-  }
-}
-
+/* preserved for drawer usage */
 .metaStack {
   display: flex;
   flex-direction: column;
@@ -547,26 +610,10 @@
   }
 }
 
-/* ─── Categories & Tags ───────────────────────────────────────────────────── */
+/* ─── Tags ────────────────────────────────────────────────────────────────── */
 
-// category badge: 放在 titleRow / listItemHeader，实色填充，语义强
-.categoryBadge {
-  display: inline-flex;
-  align-items: center;
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 16px;
-  padding: 0 6px;
-  border-radius: 3px;
-  background: rgba(22, 119, 255, 0.08);
-  color: #1677ff;
-  border: 1px solid rgba(22, 119, 255, 0.18);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-// Categories and Tags container above description
-.categoriesTagsContainer {
+// Tags container above description
+.tagsContainer {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -619,61 +666,31 @@
 .tagChip {
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font-size: 13px;
   line-height: 16px;
-  padding: 0 6px;
-  border-radius: 3px;
-  background: transparent;
-  color: rgba(26, 23, 22, 0.45);
-  border: 1px solid rgba(26, 23, 22, 0.15);
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: rgba(239, 240, 243, 0.6);
+  color: rgba(20, 20, 19, 0.88);
   white-space: nowrap;
 }
 
 /* ─── Tags ────────────────────────────────────────────────────────────────── */
-.builtinTag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.8);
-  color: #8e8c99;
-}
-
-.customizedTag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: 500;
-  background-color: rgba(255, 247, 230, 0.8);
-  color: #d48806;
-}
-
-/* ─── Description Section ─────────────────────────────────────────────────── */
-.descriptionContainer {
-  margin-top: 4px;
-}
-
-.descriptionLabel {
-  margin: 0 0 4px 0;
-  font-size: 12px;
-  color: rgba(26, 23, 22, 0.65);
-  font-weight: normal;
-}
-
 .descriptionText {
-  border-radius: 8px;
+  border-radius: 4px;
   background: rgba(43, 18, 0, 0.02);
   box-sizing: border-box;
   border: 1px solid #f3f1f0;
-  padding: 4px;
+  padding: 2px 4px;
   line-height: 20px;
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: rgba(20, 20, 19, 0.65);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
 
@@ -705,36 +722,37 @@
 /* ─── Card Footer ─────────────────────────────────────────────────────────── */
 .cardFooter {
   position: absolute;
-  bottom: 16px;
+  bottom: 0;
   left: 0;
   right: 0;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 8px;
-  padding: 0 16px;
+  padding: 12px 16px;
+  background: #fff;
 }
 
 .actionButton {
   flex: 1;
-  height: 32px;
+  height: 34px;
   font-size: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   background-color: #ffffff;
   color: rgba(20, 20, 19, 0.88);
   cursor: pointer;
-
-  &:hover {
-    border-color: rgba(20, 20, 19, 0.88);
-    background-color: #ffffff;
-  }
+  border-radius: 8px;
 }
 
 .deleteButton {
   flex: 1;
-  height: 32px;
+  height: 34px;
   font-size: 14px;
   cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background-color: #ffffff;
+  color: rgba(20, 20, 19, 0.55);
 }
 
 /* ─── Dark Mode ───────────────────────────────────────────────────────────── */
@@ -829,74 +847,69 @@
     color: rgba(255, 255, 255, 1);
   }
 
-  .updatedTime {
-    color: rgba(255, 255, 255, 0.65) !important;
+  .statusBadge {
+    &.status_synced {
+      color: #4ade80;
 
-    .calendarIcon {
-      color: rgba(255, 255, 255, 0.65) !important;
+      .statusDot {
+        background-color: #4ade80;
+      }
     }
 
-    > span {
-      color: rgba(255, 255, 255, 0.65) !important;
+    &.status_outdated {
+      color: #ffc53d;
+
+      .statusDot {
+        background-color: #ffc53d;
+      }
     }
-  }
 
-  .channelLabel {
-    color: rgba(255, 255, 255, 0.7);
-  }
+    &.status_neutral {
+      color: rgba(255, 255, 255, 0.45);
 
-  .channelValue {
-    color: rgba(255, 255, 255, 0.88);
-    background-color: rgba(255, 255, 255, 0.1);
+      .statusDot {
+        background-color: rgba(255, 255, 255, 0.3);
+      }
+    }
   }
 
   .builtinTag {
-    background-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  .customizedTag {
-    background-color: rgba(255, 247, 230, 0.2);
-    color: #ffcc66;
-  }
-
-  .descriptionLabel {
+    background-color: rgba(255, 255, 255, 0.12);
     color: rgba(255, 255, 255, 0.7);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .customTag {
+    background-color: rgba(255, 247, 230, 0.15);
+    color: #ffc53d;
+    border-color: rgba(250, 173, 20, 0.25);
+  }
+
+  .metaInfoRow {
+    .metaInfoLabel {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .metaInfoValue {
+      color: rgba(255, 255, 255, 0.88);
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .calendarIcon {
+      color: rgba(255, 255, 255, 0.45);
+    }
+  }
+
+  .descriptionSection {
+    .descriptionSectionLabel {
+      color: rgba(255, 255, 255, 0.5);
+    }
   }
 
   .descriptionText {
     color: rgba(255, 255, 255, 0.85);
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(255, 255, 255, 0.15);
-  }
-
-  .metaLabel {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .metaValue {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .statusLabel {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .statusValue {
-    &.synced {
-      background-color: rgba(82, 196, 26, 0.18);
-      color: #b7eb8f;
-    }
-
-    &.outdated {
-      background-color: rgba(250, 173, 20, 0.2);
-      color: #ffd666;
-    }
-
-    &.neutral {
-      background-color: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.8);
-    }
   }
 
   .infoLabel {
@@ -923,16 +936,21 @@
     }
   }
 
+  .cardFooter {
+    background: #1f1f1f;
+  }
+
   /* Action button */
   .actionButton {
-    background-color: #4a4a4a !important;
-    color: #fff !important;
-    border-color: #5a5a5a !important;
+    background-color: #3a3a3a !important;
+    color: rgba(255, 255, 255, 0.88) !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+  }
 
-    &:hover {
-      border-color: #777 !important;
-      background-color: #555 !important;
-    }
+  .deleteButton {
+    background-color: #3a3a3a !important;
+    color: rgba(255, 255, 255, 0.55) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
   }
 
   .viewToggleBtn {
@@ -970,21 +988,22 @@
     background: rgba(255, 127, 22, 0.05);
   }
 
-  .categoryBadge {
-    background: rgba(105, 177, 255, 0.12);
-    color: #69b1ff;
-    border-color: rgba(105, 177, 255, 0.22);
-  }
-
   .tagChip {
-    color: rgba(255, 255, 255, 0.35);
-    border-color: rgba(255, 255, 255, 0.12);
+    background-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.88);
+    border-color: rgba(255, 255, 255, 0.15);
   }
 
   .categoryChip {
     background: rgba(22, 119, 255, 0.15);
     color: #69b1ff;
     border-color: rgba(105, 177, 255, 0.3);
+  }
+
+  /* List view status badge */
+  .typeBadge {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.8);
   }
 
   .statusValue {
@@ -1002,12 +1021,6 @@
       background-color: rgba(255, 255, 255, 0.08);
       color: rgba(255, 255, 255, 0.65);
     }
-  }
-
-  .descriptionText {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.65);
   }
 
   .metaIcon {
