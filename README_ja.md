@@ -416,7 +416,7 @@ QwenPaw は多層セキュリティ防護メカニズムを内蔵し、データ
 - **ファイルアクセスガード** — エージェントが機密パス（`~/.ssh`、鍵ファイル、システムディレクトリなど）にアクセスするのを制限
 - **スキルセキュリティスキャン** — スキルインストール前に自動スキャンし、プロンプトインジェクション、コマンドインジェクション、ハードコードされた鍵、データ漏洩などのリスクを検出
 - **ローカル展開** — すべてのデータとメモリはローカルに保存され、サードパーティへのアップロードなし（クラウド LLM API 使用時は、対話内容は対応する API プロバイダーに送信されます）
-- **Web 認証** — コンソールへのオプションのログイン保護。デフォルトで無効；`COPAW_AUTH_ENABLED=true` に設定することで有効化できます。詳細は [Web 認証](https://qwenpaw.agentscope.io/docs/security#Web-Authentication) を参照してください。
+- **Web 認証** — コンソールへのオプションのログイン保護。デフォルトで無効；`QWENPAW_AUTH_ENABLED=true` に設定することで有効化できます。詳細は [Web 認証](https://qwenpaw.agentscope.io/docs/security#Web-Authentication) を参照してください。
 
 詳細は[セキュリティドキュメント](https://qwenpaw.agentscope.io/docs/security)を参照してください。
 
