@@ -16,13 +16,15 @@ import base64
 import asyncio
 import json
 import logging
+import os
 import re
 import sys
 import threading
 import time
+from collections import OrderedDict
+from collections.abc import AsyncGenerator
 from email.utils import parsedate_to_datetime
 import types
-from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -31,6 +33,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     AudioContent,
     FileContent,
     ImageContent,
+    RunStatus,
     TextContent,
 )
 
@@ -147,9 +150,16 @@ finally:
             delattr(_pkg_resources_module, "declare_namespace")
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from agentscope_runtime.engine.schemas.agent_schemas import (
+        AgentRequest,
+    )
 
 logger = logging.getLogger(__name__)
+
+# Streaming card constants
+_STREAMING_ELEMENT_ID = "content"
+_STREAMING_UPDATE_INTERVAL_SEC = 0.06
+_STREAMING_ENV_KEY = "FEISHU_STREAMING_ENABLED"
 
 # Serialise multi-instance WebSocket start-up: lark_oapi.ws.client.loop is a
 # module-level variable that concurrent start() calls would overwrite.
@@ -242,14 +252,15 @@ class FeishuChannel(BaseChannel):
         self._nickname_cache: Dict[str, str] = {}
         self._nickname_cache_lock = threading.Lock()
 
+        # Streaming card sequence counter
+        self._stream_seq: int = 0
+
     @classmethod
     def from_env(
         cls,
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
     ) -> "FeishuChannel":
-        import os
-
         allow_from_env = os.getenv("FEISHU_ALLOW_FROM", "")
         allow_from = (
             [s.strip() for s in allow_from_env.split(",") if s.strip()]
@@ -1692,6 +1703,195 @@ class FeishuChannel(BaseChannel):
             meta["_last_sent_message_id"] = last_message_id
         return last_message_id
 
+    # ----- streaming card helpers
+
+    def _is_streaming_enabled(self) -> bool:
+        """Check if streaming card output is enabled via env var."""
+        val = os.environ.get(_STREAMING_ENV_KEY, "").lower()
+        return val in ("1", "true", "yes")
+
+    def _next_stream_seq(self) -> int:
+        """Monotonic sequence counter for streaming card updates."""
+        self._stream_seq += 1
+        return self._stream_seq
+
+    def _feishu_base_url(self) -> str:
+        """Resolve API base URL from domain."""
+        return (
+            "https://open.larksuite.com"
+            if self.domain == "lark"
+            else "https://open.feishu.cn"
+        )
+
+    def _streaming_auth_headers(self) -> dict:
+        """Build auth headers for streaming card API calls."""
+        from lark_oapi.core.token import TokenManager
+
+        token = TokenManager.get_self_tenant_token(self._client._config)
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+    async def _card_create(self) -> Optional[str]:
+        """Step 1: create an empty streaming card. Returns card_id or None."""
+        card_json = {
+            "schema": "2.0",
+            "config": {
+                "streaming_mode": True,
+                "streaming_config": {
+                    "print_frequency_ms": {"default": 50},
+                    "print_step": {"default": 1},
+                },
+            },
+            "header": {
+                "title": {"tag": "plain_text", "content": ""},
+                "template": "invisible",
+            },
+            "body": {
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "element_id": _STREAMING_ELEMENT_ID,
+                        "content": "⏳ 思考中...",
+                    },
+                ],
+            },
+        }
+        try:
+            resp = await self._http_client.post(
+                f"{self._feishu_base_url()}/open-apis/cardkit/v1/cards",
+                headers=self._streaming_auth_headers(),
+                json={
+                    "type": "card_json",
+                    "data": json.dumps(card_json, ensure_ascii=False),
+                },
+                timeout=10.0,
+            )
+            if resp.status_code >= 400:
+                logger.warning(
+                    "card create failed: status=%d body=%s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                return None
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.warning(
+                    "card create failed: code=%s msg=%s",
+                    data.get("code"),
+                    data.get("msg", ""),
+                )
+                return None
+            return data["data"]["card_id"]
+        except Exception:
+            logger.exception("card create error")
+            return None
+
+    async def _card_send(
+        self,
+        card_id: str,
+        receive_id: str,
+        receive_id_type: str,
+    ) -> Optional[str]:
+        """Step 2: send card as message. Returns message_id or None."""
+        try:
+            resp = await self._http_client.post(
+                f"{self._feishu_base_url()}/open-apis/im/v1/messages"
+                f"?receive_id_type={receive_id_type}",
+                headers=self._streaming_auth_headers(),
+                json={
+                    "receive_id": receive_id,
+                    "msg_type": "interactive",
+                    "content": json.dumps(
+                        {
+                            "type": "card",
+                            "data": {"card_id": card_id},
+                        },
+                    ),
+                },
+                timeout=10.0,
+            )
+            if resp.status_code >= 400:
+                logger.warning(
+                    "card send failed: status=%d body=%s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                return None
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.warning(
+                    "card send failed: code=%s msg=%s",
+                    data.get("code"),
+                    data.get("msg", ""),
+                )
+                return None
+            return data["data"]["message_id"]
+        except Exception:
+            logger.exception("card send error")
+            return None
+
+    async def _card_update_text(self, card_id: str, text: str) -> bool:
+        """Step 3: update streaming text element (PUT)."""
+        seq = self._next_stream_seq()
+        try:
+            base = self._feishu_base_url()
+            url = (
+                f"{base}/open-apis/cardkit/v1/cards"
+                f"/{card_id}/elements/{_STREAMING_ELEMENT_ID}/content"
+            )
+            resp = await self._http_client.put(
+                url,
+                headers=self._streaming_auth_headers(),
+                json={
+                    "content": text,
+                    "sequence": seq,
+                    "uuid": f"s_{card_id}_{seq}",
+                },
+                timeout=5.0,
+            )
+            if resp.status_code >= 400:
+                logger.warning(
+                    "card update failed: status=%d body=%s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+                return False
+            return resp.json().get("code") == 0
+        except Exception:
+            logger.exception("card update error")
+            return False
+
+    async def _card_close(self, card_id: str) -> None:
+        """Step 4: turn off streaming mode (finalize card)."""
+        try:
+            seq = self._next_stream_seq()
+            base = self._feishu_base_url()
+            url = f"{base}/open-apis/cardkit/v1/cards/{card_id}/settings"
+            resp = await self._http_client.patch(
+                url,
+                headers=self._streaming_auth_headers(),
+                json={
+                    "settings": json.dumps(
+                        {
+                            "config": {"streaming_mode": False},
+                        },
+                    ),
+                    "sequence": seq,
+                    "uuid": f"c_{card_id}_{seq}",
+                },
+                timeout=5.0,
+            )
+            if resp.status_code >= 400:
+                logger.warning(
+                    "card close failed: status=%d body=%s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+        except Exception:
+            logger.exception("card close error")
+
     async def _on_process_completed(
         self,
         request: Any,
@@ -1702,6 +1902,275 @@ class FeishuChannel(BaseChannel):
         last_msg_id = send_meta.get("_last_sent_message_id")
         if last_msg_id:
             await self._add_reaction(last_msg_id, "DONE")
+
+    # ----- _stream_with_tracker override (CoPaw post-1.0 architecture)
+
+    def _extract_streaming_text(self, ev: Any) -> Optional[str]:
+        """Extract text from a streaming event (message InProgress)."""
+        for attr in ("delta", "content", "text", "content_part"):
+            val = getattr(ev, attr, None)
+            if val and isinstance(val, str) and val.strip():
+                return val
+
+        inner = getattr(ev, "message", None)
+        if inner:
+            inner_text = getattr(inner, "content", None) or getattr(
+                inner,
+                "text",
+                None,
+            )
+            if (
+                inner_text
+                and isinstance(inner_text, str)
+                and inner_text.strip()
+            ):
+                return inner_text
+        return None
+
+    async def _stream_with_tracker(
+        self,
+        payload: Any,
+    ) -> AsyncGenerator[str, None]:
+        """Override for CoPaw versions that use _stream_with_tracker.
+
+        When streaming is enabled, creates a streaming card on first token
+        and updates it periodically. Falls back to super() when disabled.
+        """
+        if not self._is_streaming_enabled():
+            async for chunk in super()._stream_with_tracker(
+                payload,
+            ):  # type: ignore[misc]
+                yield chunk
+            return
+
+        # Build request and meta (mirror BaseChannel._stream_with_tracker)
+        request = self._payload_to_request(payload)
+
+        if isinstance(payload, dict):
+            send_meta = dict(payload.get("meta") or {})
+            if payload.get("session_webhook"):
+                send_meta["session_webhook"] = payload["session_webhook"]
+        else:
+            send_meta = getattr(request, "channel_meta", None) or {}
+
+        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
+            self,
+            "_bot_prefix",
+            "",
+        )
+        if bot_prefix and "bot_prefix" not in send_meta:
+            send_meta = {**send_meta, "bot_prefix": bot_prefix}
+
+        to_handle = self.get_to_handle_from_request(request)
+        await self._before_consume_process(request)
+
+        # --- Streaming card state ---
+        card_id: Optional[str] = None  # None=not attempted, ""=failed
+        text_acc = ""
+        last_msg_id: Optional[str] = None
+        last_response = None
+        _updater_task: Optional[asyncio.Task] = None
+
+        async def _card_updater() -> None:
+            nonlocal card_id, text_acc
+            last_pushed_text = ""
+            while card_id and card_id != "":
+                await asyncio.sleep(_STREAMING_UPDATE_INTERVAL_SEC)
+                if not card_id or card_id == "":
+                    break
+                if text_acc and text_acc != last_pushed_text:
+                    ok = await self._card_update_text(card_id, text_acc)
+                    if ok:
+                        last_pushed_text = text_acc
+                    else:
+                        card_id = ""
+                        return
+
+        async def _stop_updater() -> None:
+            nonlocal _updater_task
+            if _updater_task and not _updater_task.done():
+                _updater_task.cancel()
+                try:
+                    await _updater_task
+                except asyncio.CancelledError:
+                    pass
+                _updater_task = None
+
+        async def _close_card(final_text: str) -> None:
+            nonlocal card_id, text_acc
+            await _stop_updater()
+            if card_id and card_id != "":
+                if final_text:
+                    await self._card_update_text(card_id, final_text)
+                await self._card_close(card_id)
+            card_id = None
+            text_acc = ""
+
+        async def _send_others(parts: list) -> None:
+            nonlocal last_msg_id
+            try:
+                mid = await self.send_content_parts(
+                    to_handle,
+                    parts,
+                    send_meta,
+                )
+                if mid:
+                    last_msg_id = mid
+            except Exception:
+                pass
+
+        async def _create_card() -> bool:
+            nonlocal card_id, last_msg_id, _updater_task
+            try:
+                recv = await self._get_receive_for_send(to_handle, send_meta)
+                if not recv:
+                    card_id = ""
+                    return False
+                rid_type, rid = recv
+                cid = await self._card_create()
+                if not cid:
+                    card_id = ""
+                    return False
+                mid = await self._card_send(cid, rid, rid_type)
+                if not mid:
+                    card_id = ""
+                    return False
+                card_id = cid
+                last_msg_id = mid
+                _updater_task = asyncio.create_task(_card_updater())
+                return True
+            except Exception:
+                logger.warning(
+                    "streaming card create failed, falling back",
+                    exc_info=True,
+                )
+                card_id = ""
+                return False
+
+        # --- Main event loop ---
+        process_iterator = None
+        try:
+            process_iterator = self._process(request)
+            async for event in process_iterator:
+                # Yield SSE event
+                if hasattr(event, "model_dump_json"):
+                    data = event.model_dump_json()
+                elif hasattr(event, "json"):
+                    data = event.json()
+                else:
+                    data = json.dumps({"text": str(event)})
+                yield f"data: {data}\n\n"
+
+                obj = getattr(event, "object", None)
+                st = getattr(event, "status", None)
+
+                # --- response event ---
+                if obj == "response":
+                    last_response = event
+                    await self.on_event_response(request, event)
+                    continue
+
+                # --- message Completed: finalize ---
+                if obj == "message" and st == RunStatus.Completed:
+                    parts = self._message_to_content_parts(event)
+                    if not parts:
+                        continue
+
+                    texts = [
+                        p
+                        for p in parts
+                        if getattr(p, "type", None) in ("text", "markdown")
+                    ]
+                    others = [
+                        p
+                        for p in parts
+                        if getattr(p, "type", None) not in ("text", "markdown")
+                    ]
+                    new_text = "".join(getattr(t, "text", "") for t in texts)
+
+                    if card_id == "":
+                        # Streaming failed, normal send
+                        await _send_others(parts)
+                        continue
+
+                    if card_id and card_id != "":
+                        final = new_text or text_acc
+                        await _close_card(final)
+                        if others:
+                            await _send_others(others)
+                        continue
+
+                    # No card yet: quick create + close
+                    if new_text:
+                        if await _create_card():
+                            await self._card_update_text(
+                                card_id,  # type: ignore[arg-type]
+                                new_text,
+                            )
+                            await _close_card(new_text)
+                            if others:
+                                await _send_others(others)
+                        else:
+                            await _send_others(parts)
+                    else:
+                        if others:
+                            await _send_others(others)
+                    continue
+
+                # --- InProgress streaming deltas ---
+                if st == RunStatus.InProgress:
+                    text = self._extract_streaming_text(event)
+                    if not text:
+                        continue
+                    text_acc = text
+                    if card_id is None:
+                        await _create_card()
+                    continue
+
+        except asyncio.CancelledError:
+            if process_iterator is not None:
+                await process_iterator.aclose()
+            if card_id:
+                await _close_card(text_acc)
+            raise
+
+        except Exception:
+            logger.exception("streaming _stream_with_tracker error")
+            if process_iterator is not None:
+                try:
+                    await process_iterator.aclose()
+                except Exception:
+                    pass
+            if card_id:
+                await _close_card(text_acc)
+            return
+
+        # --- Post-processing ---
+        if card_id and card_id != "":
+            await _close_card(text_acc)
+
+        err = self._get_response_error_message(last_response)
+        if err:
+            try:
+                await self._on_consume_error(
+                    request,
+                    to_handle,
+                    f"Error: {err}",
+                )
+            except Exception:
+                pass
+        elif last_msg_id:
+            try:
+                await self._add_reaction(last_msg_id, "DONE")
+            except Exception:
+                pass
+
+        if self._on_reply_sent:
+            try:
+                args = self.get_on_reply_sent_args(request, to_handle)
+                self._on_reply_sent(self.channel, *args)
+            except Exception:
+                pass
 
     async def send(
         self,
