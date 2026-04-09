@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Optional
 
 import click
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
 
 from ..config import (
     get_config_path,
@@ -887,7 +890,7 @@ def list_cmd(agent_id: str) -> None:
                 click.echo(f"  {field_name:20s}: {display}")
 
         click.echo()
-    except ValueError as e:
+    except (ValueError, AppBaseException) as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from e
 
@@ -1113,7 +1116,7 @@ def configure_cmd(agent_id: str) -> None:
         agent_config.channels = temp_config.channels
         save_agent_config(agent_id, agent_config)
         click.echo(f"\n✓ Configuration saved for agent {agent_id}")
-    except ValueError as e:
+    except (ValueError, AppBaseException) as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from e
 

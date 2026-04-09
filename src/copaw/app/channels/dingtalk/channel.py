@@ -2557,6 +2557,7 @@ class DingTalkChannel(BaseChannel):
             raise ChannelError(
                 channel_name="dingtalk",
                 message=f"stream ai card failed status={status}",
+                details={"body": txt[:500]},
             )
         logger.info(
             "dingtalk stream ai card ok: conversation_id=%s finalize=%s",
@@ -2768,7 +2769,10 @@ class DingTalkChannel(BaseChannel):
                 if resp.status >= 400:
                     raise ChannelError(
                         channel_name="dingtalk",
-                        message=f"get accessToken failed status={resp.status}",
+                        message=(
+                            "get accessToken failed " f"status={resp.status}"
+                        ),
+                        details={"response": data},
                     )
 
             token = data.get("accessToken") or data.get("access_token")

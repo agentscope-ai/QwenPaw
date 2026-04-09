@@ -15,7 +15,7 @@ from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from agentscope_runtime.engine.schemas.exception import (
     AgentException,
-    AgentRuntimeErrorException,
+    AppBaseException,
 )
 from dotenv import load_dotenv
 
@@ -390,7 +390,7 @@ class AgentRunner(Runner):
             if agent is not None:
                 await agent.interrupt()
             raise AgentException("Task has been cancelled!") from exc
-        except AgentRuntimeErrorException:
+        except AppBaseException:
             raise
         except Exception as e:
             model_name = None
@@ -416,13 +416,15 @@ class AgentRunner(Runner):
                         f"(Details:  {debug_dump_path})",
                     )
                 suffix = f"\n(Details:  {debug_dump_path})"
-                converted.args = (
-                    (
-                        f"{converted.args[0]}{suffix}"
-                        if converted.args
-                        else suffix.strip()
-                    ),
-                ) + converted.args[1:]
+                if hasattr(converted, "message") and isinstance(
+                    converted.message,
+                    str,
+                ):
+                    converted.message += suffix
+                elif converted.args:
+                    converted.args = (
+                        f"{converted.args[0]}{suffix}",
+                    ) + converted.args[1:]
             raise converted from e
         finally:
             if agent is not None and session_state_loaded:

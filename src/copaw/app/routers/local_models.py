@@ -5,6 +5,9 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 
@@ -275,22 +278,25 @@ async def start_llamacpp_server(
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    provider_manager.update_provider(
-        "copaw-local",
-        {
-            "base_url": f"http://127.0.0.1:{port}/v1",
-            "extra_models": [
-                {
-                    "id": payload.model_id,
-                    "name": payload.model_id,
-                },
-            ],
-        },
-    )
-    await provider_manager.activate_model(
-        provider_id="copaw-local",
-        model_id=payload.model_id,
-    )
+    try:
+        provider_manager.update_provider(
+            "copaw-local",
+            {
+                "base_url": f"http://127.0.0.1:{port}/v1",
+                "extra_models": [
+                    {
+                        "id": payload.model_id,
+                        "name": payload.model_id,
+                    },
+                ],
+            },
+        )
+        await provider_manager.activate_model(
+            provider_id="copaw-local",
+            model_id=payload.model_id,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return StartServerResponse(
         port=port,
         model_name=payload.model_id,

@@ -6,8 +6,12 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from agentscope_runtime.engine.schemas.exception import (
+    ModelNotFoundException,
+)
 
 import copaw.providers.provider_manager as provider_manager_module
+from copaw.exceptions import ProviderError
 from copaw.providers.anthropic_provider import AnthropicProvider
 from copaw.providers.models import ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
@@ -387,7 +391,7 @@ async def test_activate_provider_invalid_provider_raises(
 ) -> None:
     manager = ProviderManager()
 
-    with pytest.raises(ValueError, match="Provider 'missing' not found"):
+    with pytest.raises(ProviderError, match="Provider 'missing' not found"):
         await manager.activate_model("missing", "gpt-5")
 
 
@@ -396,7 +400,7 @@ async def test_activate_provider_invalid_model_raises(
 ) -> None:
     manager = ProviderManager()
 
-    with pytest.raises(ValueError, match="Model 'not-exists' not found"):
+    with pytest.raises(ModelNotFoundException, match="not-exists"):
         await manager.activate_model("openai", "not-exists")
 
 
