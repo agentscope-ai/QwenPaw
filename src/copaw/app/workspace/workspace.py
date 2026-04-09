@@ -66,7 +66,7 @@ def _resolve_memory_class(backend: str) -> type:
         f"Unsupported memory manager backend: '{backend}'. "
         f"Built-in: 'remelight'. "
         f"Install a plugin to add more backends "
-        f"(e.g. memos-copaw-plugin for 'memos')."
+        f"(e.g. memos-copaw-plugin for 'memos').",
     )
 
 
