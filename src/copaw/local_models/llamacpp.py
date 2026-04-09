@@ -488,6 +488,7 @@ class LlamaCppBackend:
             id=model_name,
             name=model_name,
             supports_multimodal=supports_multimodal,
+            # TODO: add more detailed capability flags
             supports_image=supports_multimodal,
             supports_video=supports_multimodal,
             probe_source="documentation",
