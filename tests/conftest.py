@@ -8,6 +8,7 @@ All fixtures are designed to be isolated, safe, and easy to use.
 
 import os
 import shutil
+import sys
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -15,6 +16,19 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+
+# =============================================================================
+# Third-Party Library Mocks
+# =============================================================================
+# Mock missing third-party libraries before any imports
+_MISSING_MODULES = {
+    "aibot",  # WeCom AI Bot SDK
+    "lark_oapi",  # Feishu Lark SDK
+}
+
+for _module in _MISSING_MODULES:
+    if _module not in sys.modules:
+        sys.modules[_module] = MagicMock()
 
 
 # =============================================================================
@@ -392,7 +406,8 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
+    config: pytest.Config,
+    items: list[pytest.Item],
 ) -> None:
     """Modify test collection to add markers based on test location."""
     for item in items:

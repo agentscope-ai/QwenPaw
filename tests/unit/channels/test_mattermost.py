@@ -57,17 +57,21 @@ class MockHttpxResponse:
         self._text_data = text_data
         self.headers = headers or {}
 
-    async def json(self) -> dict:
+    def json(self) -> dict:
         """Return JSON data."""
         return self._json_data
 
-    async def text(self) -> str:
+    def text(self) -> str:
         """Return text data."""
         return self._text_data
 
     def read(self) -> bytes:
         """Return bytes data."""
         return self._text_data.encode()
+
+    async def aiter_bytes(self, chunk_size: int = 65536):
+        """Async iterator over response bytes."""
+        yield self._text_data.encode()
 
     def raise_for_status(self):
         """Raise exception for error status codes."""
@@ -146,7 +150,7 @@ class MockHttpxClient:
                     return exp["response"]
         return MockHttpxResponse(status_code=404, text_data="Not Found")
 
-    async def stream(self, method: str, url: str, **kwargs):
+    def stream(self, method: str, url: str, **kwargs):
         """Mock stream context manager."""
         self._requests.append({"method": method, "url": url, "kwargs": kwargs})
         self.call_count += 1
@@ -282,9 +286,9 @@ class TestMattermostChannelInit:
         assert channel.enabled is False
         assert channel._show_typing is False
         assert channel._thread_follow is True
-        assert channel.show_tool_details is True
-        assert channel.filter_tool_messages is True
-        assert channel.filter_thinking is True
+        assert channel._show_tool_details is True
+        assert channel._filter_tool_messages is True
+        assert channel._filter_thinking is True
         assert channel.allow_from == {"user1", "user2"}
         assert channel.deny_message == "Access denied"
 
@@ -501,7 +505,7 @@ class TestMattermostChannelFromConfig:
         assert channel.enabled is True
         assert channel._url == "https://config.mm.com"
         assert channel._bot_token == "config_token_123"
-        assert channel.bot_prefix == "[ConfigBot] "
+        assert channel.bot_prefix == "[ConfigBot]"
         assert channel.dm_policy == "allowlist"
         assert channel.group_policy == "allowlist"
 
@@ -886,14 +890,14 @@ class TestMattermostFetchHistory:
                     },
                     "post2": {
                         "id": "post2",
-                        "user_id": "bot_123",
-                        "message": "Bot reply",
+                        "user_id": "user_def",
+                        "message": "Second message",
                         "create_at": 2000,
                     },
                     "post3": {
                         "id": "post3",
                         "user_id": "user_abc",
-                        "message": "Second message",
+                        "message": "Third message",
                         "create_at": 3000,
                     },
                 },
@@ -909,7 +913,7 @@ class TestMattermostFetchHistory:
 
         assert "[Thread history]" in result
         assert "User: First message" in result
-        assert "Bot: Bot reply" in result
+        assert "User: Second message" in result
 
     @pytest.mark.asyncio
     async def test_fetch_thread_history_api_error(
@@ -1257,7 +1261,8 @@ class TestMattermostFileOperations:
 class TestMattermostTyping:
     """Tests for typing indicator functionality."""
 
-    def test_start_typing_creates_task(self, mattermost_channel):
+    @pytest.mark.asyncio
+    async def test_start_typing_creates_task(self, mattermost_channel):
         """Should create typing task when started."""
         mattermost_channel._bot_id = "bot_123"
         mattermost_channel._typing_loop = AsyncMock()
@@ -1271,7 +1276,8 @@ class TestMattermostTyping:
         # Cleanup
         mattermost_channel._stop_typing("channel_123")
 
-    def test_stop_typing_cancels_task(self, mattermost_channel):
+    @pytest.mark.asyncio
+    async def test_stop_typing_cancels_task(self, mattermost_channel):
         """Should cancel typing task when stopped."""
         mattermost_channel._bot_id = "bot_123"
 
@@ -1283,6 +1289,9 @@ class TestMattermostTyping:
         mattermost_channel._typing_tasks["channel_123"] = task
 
         mattermost_channel._stop_typing("channel_123")
+
+        # Give event loop a chance to process the cancellation
+        await asyncio.sleep(0)
 
         assert "channel_123" not in mattermost_channel._typing_tasks
         assert task.cancelled() or task.done()
