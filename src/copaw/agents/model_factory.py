@@ -480,6 +480,26 @@ def _create_file_block_support_formatter(
             """
             msgs = _sanitize_tool_messages(msgs)
 
+            # Ensure assistant messages with only thinking blocks have a
+            # placeholder text block so the parent formatter won't skip them.
+            # Otherwise in_assistant/out_assistant count mismatch occurs and
+            # reasoning_content injection is skipped, causing slot reset.
+            for msg in msgs:
+                if msg.role != "assistant":
+                    continue
+                if isinstance(msg.content, str):
+                    continue
+                blocks = msg.content or []
+                if not blocks:
+                    continue
+                has_visible = any(
+                    b.get("type")
+                    in ("text", "tool_use", "tool_result", "image", "audio", "video")
+                    for b in blocks
+                )
+                if not has_visible:
+                    blocks.append({"type": "text", "text": " "})
+
             reasoning_contents = {}
             extra_contents: dict[str, Any] = {}
             for msg in msgs:
