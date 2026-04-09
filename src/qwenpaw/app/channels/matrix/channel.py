@@ -1922,7 +1922,12 @@ class MatrixChannel(BaseChannel):
 
         Matrix requires room_id to send messages, not user_id.
         Override BaseChannel's default implementation which returns user_id.
+        The session_id carries a ``matrix:`` prefix added by
+        :meth:`resolve_session_id`; strip it so the value is a raw
+        Matrix room_id that can be passed directly to ``room_send``.
         """
+        if session_id.startswith("matrix:"):
+            return session_id[len("matrix:") :]
         return session_id
 
     def get_to_handle_from_request(self, request: Any) -> str:
