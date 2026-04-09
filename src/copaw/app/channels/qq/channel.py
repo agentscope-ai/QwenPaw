@@ -81,6 +81,7 @@ _BARE_DOMAIN_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _IMAGE_TAG_PATTERN = re.compile(r"\[Image: (https?://[^\]]+)\]", re.IGNORECASE)
+_FILE_TAG_PATTERN = re.compile(r"\[File: (https?://[^\]]+)\]", re.IGNORECASE)
 
 # Rich media paths
 _DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "qq"
@@ -1016,6 +1017,45 @@ class QQChannel(BaseChannel):
             except Exception:
                 logger.exception(f"Failed to send image: {image_url}")
 
+    async def _send_file(
+        self,
+        file_url: str,
+        message_type: str,
+        target_openid: Optional[str],
+        msg_id: Optional[str],
+        token: str,
+        text_already_sent: bool,
+    ) -> None:
+        """Upload and send file via QQ rich media API."""
+        if message_type not in ("c2c", "group"):
+            logger.warning(f"File sending not supported for message_type: {message_type}")
+            return
+        if not target_openid:
+            return
+        try:
+            file_info = await _upload_media_async(
+                self._http,
+                token,
+                target_openid,
+                media_type=4,
+                url=file_url,
+                message_type=message_type,
+            )
+            if not file_info:
+                logger.warning(f"Failed to upload file, skipping: {file_url}")
+                return
+            await _send_media_message_async(
+                self._http,
+                token,
+                target_openid,
+                file_info,
+                msg_id if not text_already_sent else None,
+                message_type=message_type,
+            )
+            logger.info(f"Successfully sent file: {file_url}")
+        except Exception:
+            logger.exception(f"Failed to send file: {file_url}")
+
     async def send(
         self,
         to_handle: str,
@@ -1060,7 +1100,9 @@ class QQChannel(BaseChannel):
             return
 
         image_urls = _IMAGE_TAG_PATTERN.findall(text)
-        clean_text = _IMAGE_TAG_PATTERN.sub("", text).strip()
+        file_urls = _FILE_TAG_PATTERN.findall(text)
+        clean_text = _IMAGE_TAG_PATTERN.sub("", text)
+        clean_text = _FILE_TAG_PATTERN.sub("", clean_text).strip()
 
         text_sent = False
         for chunk in split_text(clean_text) if clean_text else []:
@@ -1085,6 +1127,15 @@ class QQChannel(BaseChannel):
             token,
             text_sent,
         )
+        for file_url in file_urls:
+            await self._send_file(
+                file_url,
+                message_type,
+                target_openid,
+                msg_id,
+                token,
+                text_sent,
+            )
 
     _EXT_TYPE_MAP = {
         ".jpg": "image",
