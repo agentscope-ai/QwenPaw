@@ -47,12 +47,32 @@ function loadGoogleAnalytics(id: string) {
   gtag("js", new Date());
   gtag("config", id);
 
-  // Load GA script
+  // Load GA script with timeout protection
   const script = document.createElement("script");
   script.src = `https://www.googletagmanager.com/gtag/js?id=${id}`;
   script.async = true;
-  script.onload = () => console.log("[GA] Loaded successfully");
-  script.onerror = () => console.warn("[GA] Failed to load (may be blocked)");
+
+  let isLoaded = false;
+  const timeoutId = setTimeout(() => {
+    if (!isLoaded) {
+      console.warn("[GA] Load timeout - removing script");
+      script.remove();
+      delete window.gtag;
+    }
+  }, 6000);
+
+  script.onload = () => {
+    isLoaded = true;
+    clearTimeout(timeoutId);
+    console.log("[GA] Loaded successfully");
+  };
+
+  script.onerror = () => {
+    isLoaded = true;
+    clearTimeout(timeoutId);
+    console.warn("[GA] Failed to load (may be blocked)");
+    delete window.gtag;
+  };
 
   document.head.appendChild(script);
 }

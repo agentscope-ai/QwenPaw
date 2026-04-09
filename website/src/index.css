@@ -22,12 +22,6 @@
     sans-serif;
 }
 
-/* html[lang^="zh"] {
-  --font-newsreader: "Noto Serif SC", ui-serif, Georgia, "Times New Roman",
-    serif;
-  --font-inter: "Noto Sans SC", ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", sans-serif;
-} */
 
 html[lang^="zh"] em,
 html[lang^="zh"] i,
