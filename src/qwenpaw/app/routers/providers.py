@@ -129,8 +129,7 @@ def _validate_model_slot(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Model '{model_id}' not found in provider "
-                f"'{provider_id}'."
+                f"Model '{model_id}' not found in provider '{provider_id}'."
             ),
         )
 
@@ -313,6 +312,10 @@ async def discover_models(
     manager: ProviderManager = Depends(get_provider_manager),
     provider_id: str = Path(...),
     body: Optional[DiscoverModelsRequest] = Body(default=None),
+    save: bool = Query(
+        default=True,
+        description="Save discovered models to provider",
+    ),
 ) -> DiscoverModelsResponse:
     try:
         ok = manager.update_provider(
@@ -330,6 +333,7 @@ async def discover_models(
         try:
             result = await manager.fetch_provider_models(
                 provider_id,
+                save=save,
             )
             success = True
         except Exception:
