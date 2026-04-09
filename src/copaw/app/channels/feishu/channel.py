@@ -876,6 +876,63 @@ class FeishuChannel(BaseChannel):
         except Exception:
             logger.exception("feishu _on_message failed")
 
+    async def handle_webhook_event(self, payload: Dict[str, Any]) -> None:
+        """Handle webhook event from Feishu HTTP callback.
+
+        Converts webhook event format (2.0 schema) to internal format
+        and processes it like WebSocket events.
+
+        Args:
+            payload: The webhook event payload from Feishu
+        """
+        try:
+            # Extract event data from the 2.0 schema
+            event = payload.get("event", payload)
+            if not event:
+                logger.warning("Feishu webhook: no event data in payload")
+                return
+
+            # Get message and sender from event
+            message = event.get("message", {})
+            sender = event.get("sender", {})
+
+            if not message or not sender:
+                logger.debug("Feishu webhook: missing message or sender")
+                return
+
+            # Build a compatible data structure for _on_message
+            # Convert webhook format to internal format
+            event_obj = types.SimpleNamespace(
+                message=types.SimpleNamespace(
+                    message_id=message.get("message_id", ""),
+                    chat_id=message.get("chat_id", ""),
+                    chat_type=message.get("chat_type", "p2p"),
+                    message_type=message.get("message_type", "text"),
+                    content=message.get("content", ""),
+                ),
+                sender=types.SimpleNamespace(
+                    sender_type=sender.get("sender_type", ""),
+                    sender_id=types.SimpleNamespace(
+                        open_id=sender.get("sender_id", {}).get("open_id", ""),
+                    ),
+                    name=sender.get("name", ""),
+                    nickname=sender.get("nickname", ""),
+                ),
+            )
+
+            # Create wrapper like WebSocket event structure
+            class WebhookData:
+                def __init__(self, event):
+                    self.event = event
+
+            data = WebhookData(event_obj)
+
+            # Process using existing _on_message logic
+            await self._on_message(data)
+
+        except Exception:
+            logger.exception("Feishu webhook: handle_webhook_event failed")
+
     async def _add_reaction(
         self,
         message_id: str,
