@@ -153,7 +153,7 @@ class HistoryEntry:
     # Optional structured media parts (e.g. downloaded images for vision
     # models) to be included alongside the text history when the mention
     # arrives.
-    media_parts: Optional[List[Dict[str, Any]]] = None
+    media_parts: Optional[List[Any]] = None
 
 
 class MatrixChannelConfig:
@@ -898,8 +898,8 @@ class MatrixChannel(BaseChannel):
     def _apply_history_to_parts(
         self,
         room_id: str,
-        content_parts: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+        content_parts: list[Any],
+    ) -> list[Any]:
         """Prepend accumulated history context to *content_parts*.
 
         If the first part is text, the history block is merged into it;
@@ -917,31 +917,32 @@ class MatrixChannel(BaseChannel):
             return content_parts
 
         # Collect media content parts carried by history entries
-        history_media: list[dict[str, Any]] = []
+        history_media: list[Any] = []
         for entry in self._room_histories.get(room_id, []):
             if entry.media_parts:
                 history_media.extend(entry.media_parts)
 
         # Merge into the leading text part when possible
-        if content_parts and content_parts[0].get("type") == "text":
-            current_text = content_parts[0]["text"]
+        first = content_parts[0] if content_parts else None
+        if first and getattr(first, "type", None) == ContentType.TEXT:
+            current_text = first.text or ""
             combined = (
                 f"{HISTORY_CONTEXT_MARKER}\n{history_text}\n\n"
                 f"{CURRENT_MESSAGE_MARKER}\n{current_text}"
             )
             return (
-                [{"type": "text", "text": combined}]
+                [TextContent(type=ContentType.TEXT, text=combined)]
                 + history_media
                 + content_parts[1:]
             )
         # No leading text part (e.g. pure media) — prepend a dedicated block
-        prefix_part = {
-            "type": "text",
-            "text": (
+        prefix_part = TextContent(
+            type=ContentType.TEXT,
+            text=(
                 f"{HISTORY_CONTEXT_MARKER}\n{history_text}\n\n"
                 f"{CURRENT_MESSAGE_MARKER}"
             ),
-        }
+        )
         return [prefix_part] + history_media + content_parts
 
     def _clear_history(self, room_id: str) -> None:
@@ -962,7 +963,7 @@ class MatrixChannel(BaseChannel):
         can be included as an image content part later.
         """
         body = event.body or ""
-        media_parts: list[dict[str, Any]] = []
+        media_parts: list[Any] = []
 
         if isinstance(event, RoomMessageImage):
             body_desc = (
@@ -977,10 +978,10 @@ class MatrixChannel(BaseChannel):
                     local_path = await self._download_mxc(mxc_url, filename)
                     if local_path:
                         media_parts.append(
-                            {
-                                "type": "image",
-                                "image_url": Path(local_path).as_uri(),
-                            },
+                            ImageContent(
+                                type=ContentType.IMAGE,
+                                image_url=Path(local_path).as_uri(),
+                            ),
                         )
         elif isinstance(event, RoomMessageFile):
             body_desc = f"[sent a file: {body}]" if body else "[sent a file]"
@@ -992,11 +993,11 @@ class MatrixChannel(BaseChannel):
                 local_path = await self._download_mxc(mxc_url, filename)
                 if local_path:
                     media_parts.append(
-                        {
-                            "type": "file",
-                            "file_url": Path(local_path).as_uri(),
-                            "filename": body or filename,
-                        },
+                        FileContent(
+                            type=ContentType.FILE,
+                            file_url=Path(local_path).as_uri(),
+                            filename=body or filename,
+                        ),
                     )
         elif isinstance(event, RoomMessageAudio):
             body_desc = f"[sent audio: {body}]" if body else "[sent audio]"
@@ -1223,9 +1224,11 @@ class MatrixChannel(BaseChannel):
         hashes = getattr(event, "hashes", {}) or {}
         iv = getattr(event, "iv", "") or ""
 
-        content_parts: list[dict[str, Any]] = []
+        content_parts: list[Any] = []
         if body:
-            content_parts.append({"type": "text", "text": body})
+            content_parts.append(
+                TextContent(type=ContentType.TEXT, text=body),
+            )
 
         if mxc_url and key and iv:
             eid = event.event_id[:8].lstrip("$")
@@ -1243,7 +1246,10 @@ class MatrixChannel(BaseChannel):
                 if isinstance(event, RoomEncryptedImage):
                     if self._cfg.vision_enabled:
                         content_parts.append(
-                            {"type": "image", "image_url": file_uri},
+                            ImageContent(
+                                type=ContentType.IMAGE,
+                                image_url=file_uri,
+                            ),
                         )
                     else:
                         _no_vis = (
@@ -1251,31 +1257,39 @@ class MatrixChannel(BaseChannel):
                             f"support image input): {body or filename}]"
                         )
                         content_parts.append(
-                            {
-                                "type": "text",
-                                "text": _no_vis,
-                            },
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=_no_vis,
+                            ),
                         )
                 elif isinstance(event, RoomEncryptedAudio):
-                    content_parts.append({"type": "audio", "data": file_uri})
+                    content_parts.append(
+                        AudioContent(
+                            type=ContentType.AUDIO,
+                            data=file_uri,
+                        ),
+                    )
                 elif isinstance(event, RoomEncryptedVideo):
                     content_parts.append(
-                        {"type": "video", "video_url": file_uri},
+                        VideoContent(
+                            type=ContentType.VIDEO,
+                            video_url=file_uri,
+                        ),
                     )
                 else:
                     content_parts.append(
-                        {
-                            "type": "file",
-                            "file_url": file_uri,
-                            "filename": body or filename,
-                        },
+                        FileContent(
+                            type=ContentType.FILE,
+                            file_url=file_uri,
+                            filename=body or filename,
+                        ),
                     )
             else:
                 content_parts.append(
-                    {
-                        "type": "text",
-                        "text": f"[Encrypted media unavailable: {body}]",
-                    },
+                    TextContent(
+                        type=ContentType.TEXT,
+                        text=f"[Encrypted media unavailable: {body}]",
+                    ),
                 )
 
         if not content_parts:
@@ -1284,14 +1298,19 @@ class MatrixChannel(BaseChannel):
         if not is_dm:
             # Prefix sender identity so the LLM can distinguish participants
             sender_name = self._get_display_name(room, sender_id)
-            if content_parts and content_parts[0].get("type") == "text":
-                content_parts[0][
-                    "text"
-                ] = f"{sender_name}: {content_parts[0]['text']}"
+            first = content_parts[0] if content_parts else None
+            if first and getattr(first, "type", None) == ContentType.TEXT:
+                content_parts[0] = TextContent(
+                    type=ContentType.TEXT,
+                    text=f"{sender_name}: {first.text}",
+                )
             else:
                 content_parts.insert(
                     0,
-                    {"type": "text", "text": f"{sender_name}:"},
+                    TextContent(
+                        type=ContentType.TEXT,
+                        text=f"{sender_name}:",
+                    ),
                 )
             content_parts = self._apply_history_to_parts(
                 room_id,
@@ -1536,14 +1555,17 @@ class MatrixChannel(BaseChannel):
         # Build content parts, prepending accumulated history for group rooms.
         # Skip history prepend for slash commands — CoPaw's command parser
         # requires the message to start with "/" to recognise it.
-        content_parts: list[dict[str, Any]] = [
-            {"type": "text", "text": command_text},
+        content_parts: list[Any] = [
+            TextContent(type=ContentType.TEXT, text=command_text),
         ]
         is_slash_cmd = command_text.startswith("/")
         if not is_dm and not is_slash_cmd:
             # Prefix sender identity so the LLM can distinguish participants
             sender_name = self._get_display_name(room, sender_id)
-            content_parts[0]["text"] = f"{sender_name}: {command_text}"
+            content_parts[0] = TextContent(
+                type=ContentType.TEXT,
+                text=f"{sender_name}: {command_text}",
+            )
             content_parts = self._apply_history_to_parts(
                 room_id,
                 content_parts,
@@ -1871,11 +1893,9 @@ class MatrixChannel(BaseChannel):
         room_id = meta.get("room_id", sender_id)
         session_id = f"matrix:{room_id}"
 
-        content = [
-            obj
-            for p in parts
-            if (obj := self._build_content_part(p)) is not None
-        ]
+        # content_parts are already ContentType objects; filter out None
+        # and fall back to an empty text part if nothing remains.
+        content = [p for p in parts if p is not None]
         if not content:
             content = [TextContent(type=ContentType.TEXT, text="")]
 
