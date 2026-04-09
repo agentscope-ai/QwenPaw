@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import { useAgentStore } from "../../../stores/agentStore";
 
 export function useAgentConfig() {
   const { t } = useTranslation();
@@ -16,6 +17,7 @@ export function useAgentConfig() {
   const [savingLang, setSavingLang] = useState(false);
   const [timezone, setTimezone] = useState<string>("UTC");
   const [savingTimezone, setSavingTimezone] = useState(false);
+  const { selectedAgent } = useAgentStore();
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -40,7 +42,7 @@ export function useAgentConfig() {
 
   useEffect(() => {
     fetchConfig();
-  }, [fetchConfig]);
+  }, [fetchConfig, selectedAgent]);
 
   const handleSave = useCallback(async () => {
     try {
@@ -49,7 +51,8 @@ export function useAgentConfig() {
       await api.updateAgentRunningConfig(values as AgentsRunningConfig);
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
-      if (err instanceof Error && "errorFields" in err) return;
+      // Antd form validation errors have errorFields but are not Error instances
+      if (err && typeof err === "object" && "errorFields" in err) return;
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.saveFailed");
       message.error(errMsg);

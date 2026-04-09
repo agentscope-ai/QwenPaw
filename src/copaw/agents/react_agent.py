@@ -400,6 +400,19 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
 
         # Register memory_search tool if enabled and available
         if self._enable_memory_manager and self.memory_manager is not None:
+            # Inject per-request context for ADBPG memory isolation
+            rc = self._agent_config.running
+            if (
+                rc.memory_manager_backend == "adbpg"
+                and rc.adbpg
+                and hasattr(self.memory_manager, "set_request_context")
+            ):
+                ctx = self._request_context or {}
+                self.memory_manager.set_request_context(
+                    user_id=ctx.get("user_id", ""),
+                    session_id=ctx.get("session_id", ""),
+                )
+
             # update memory manager
             self.memory = self.memory_manager.get_in_memory_memory()
             self.memory_manager.chat_model = self.model
