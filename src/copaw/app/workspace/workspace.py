@@ -36,12 +36,38 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_memory_class(backend: str) -> type:
-    """Return the memory manager class for the given backend name."""
+    """Return the memory manager class for the given backend name.
+
+    Resolution order:
+    1. Built-in backends (remelight)
+    2. Plugin-registered backends (e.g. memos via MemOS plugin)
+    """
     from ...agents.memory import ReMeLightMemoryManager
 
     if backend == "remelight":
         return ReMeLightMemoryManager
-    raise ValueError(f"Unsupported memory manager backend: '{backend}'")
+
+    # Check plugin registry for externally registered backends
+    try:
+        from ...plugins.registry import PluginRegistry
+
+        registry = PluginRegistry()
+        cls = registry.get_memory_manager_class(backend)
+        if cls is not None:
+            logger.info(
+                "Using plugin-registered memory backend: '%s'",
+                backend,
+            )
+            return cls
+    except Exception as e:
+        logger.debug("Plugin registry lookup failed: %s", e)
+
+    raise ValueError(
+        f"Unsupported memory manager backend: '{backend}'. "
+        f"Built-in: 'remelight'. "
+        f"Install a plugin to add more backends "
+        f"(e.g. memos-copaw-plugin for 'memos')."
+    )
 
 
 class Workspace:

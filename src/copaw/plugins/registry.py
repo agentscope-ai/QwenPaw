@@ -66,6 +66,7 @@ class PluginRegistry:
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        self._memory_managers: Dict[str, Type] = {}
         self._runtime_helpers = None
 
         self._initialized = True
@@ -251,3 +252,43 @@ class PluginRegistry:
             List of ControlCommandRegistration
         """
         return self._control_commands.copy()
+
+    def register_memory_manager(
+        self,
+        plugin_id: str,
+        backend_id: str,
+        manager_class: Type,
+    ):
+        """Register a memory manager backend.
+
+        Args:
+            plugin_id: Plugin identifier
+            backend_id: Backend name (e.g. "memos")
+            manager_class: Class extending BaseMemoryManager
+
+        Raises:
+            ValueError: If backend_id already registered
+        """
+        if backend_id in self._memory_managers:
+            raise ValueError(
+                f"Memory manager backend '{backend_id}' already registered",
+            )
+        self._memory_managers[backend_id] = manager_class
+        logger.info(
+            f"Registered memory manager '{backend_id}' "
+            f"from plugin '{plugin_id}'",
+        )
+
+    def get_memory_manager_class(
+        self,
+        backend_id: str,
+    ) -> Optional[Type]:
+        """Get memory manager class for a backend.
+
+        Args:
+            backend_id: Backend identifier
+
+        Returns:
+            Memory manager class or None if not found
+        """
+        return self._memory_managers.get(backend_id)

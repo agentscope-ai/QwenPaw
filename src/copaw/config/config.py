@@ -438,6 +438,67 @@ class MemorySummaryConfig(BaseModel):
     )
 
 
+class MemOSConfig(BaseModel):
+    """MemOS Cloud memory backend configuration.
+
+    Used when ``memory_manager_backend`` is set to ``"memos"``.
+    All fields can also be set via environment variables prefixed
+    with ``MEMOS_`` (e.g. ``MEMOS_API_KEY``, ``MEMOS_BASE_URL``).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: str = Field(
+        default="https://memos.memtensor.cn/api/openmem/v1",
+        description="MemOS Cloud API base URL",
+    )
+    api_key: str = Field(
+        default="",
+        description="MemOS API key (Token auth)",
+    )
+    user_id: str = Field(
+        default="copaw-user",
+        description="MemOS user identifier",
+    )
+    memory_limit_number: int = Field(
+        default=9,
+        ge=1,
+        description="Max memory items to retrieve per search",
+    )
+    include_preference: bool = Field(
+        default=True,
+        description="Include user preferences in recall",
+    )
+    preference_limit_number: int = Field(
+        default=6,
+        ge=0,
+        description="Max preference items to retrieve",
+    )
+    relativity: float = Field(
+        default=0.45,
+        ge=0.0,
+        le=1.0,
+        description="Min relativity score for recalled items",
+    )
+    timeout: float = Field(
+        default=8.0,
+        gt=0.0,
+        description="HTTP timeout in seconds for MemOS API calls",
+    )
+    conversation_id: str = Field(
+        default="",
+        description="Override conversation_id for memory scoping",
+    )
+    knowledgebase_ids: list = Field(
+        default_factory=list,
+        description="Limit search to specific knowledge bases",
+    )
+    async_mode: bool = Field(
+        default=True,
+        description="Non-blocking memory storage",
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -567,11 +628,19 @@ class AgentsRunningConfig(BaseModel):
         description="Embedding model configuration",
     )
 
-    memory_manager_backend: Literal["remelight"] = Field(
+    memory_manager_backend: str = Field(
         default="remelight",
         description=(
-            "Memory manager backend type. "
-            "Currently only 'remelight' is supported."
+            "Memory manager backend type. Built-in: 'remelight'. "
+            "Plugins can register additional backends (e.g. 'memos')."
+        ),
+    )
+
+    memos_config: MemOSConfig = Field(
+        default_factory=MemOSConfig,
+        description=(
+            "MemOS Cloud memory configuration. "
+            "Used when memory_manager_backend is 'memos'."
         ),
     )
 

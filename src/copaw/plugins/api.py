@@ -173,6 +173,37 @@ class PluginApi:
                 f"'{handler.command_name}' (priority={priority_level})",
             )
 
+    def register_memory_manager(
+        self,
+        backend_id: str,
+        manager_class: Type,
+    ):
+        """Register a custom memory manager backend.
+
+        Once registered, users can activate the backend by setting
+        ``memory_manager_backend`` in agent config to *backend_id*.
+
+        Args:
+            backend_id: Unique backend name (e.g. "memos")
+            manager_class: Class that extends BaseMemoryManager
+
+        Example:
+            >>> api.register_memory_manager(
+            ...     backend_id="memos",
+            ...     manager_class=MemOSMemoryManager,
+            ... )
+        """
+        if self._registry:
+            self._registry.register_memory_manager(
+                plugin_id=self.plugin_id,
+                backend_id=backend_id,
+                manager_class=manager_class,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered memory manager "
+                f"backend '{backend_id}'",
+            )
+
     @property
     def runtime(self):
         """Access runtime helper functions.
