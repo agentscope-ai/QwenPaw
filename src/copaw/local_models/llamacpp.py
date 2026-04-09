@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+from pydantic import BaseModel
 
 from copaw.constant import DEFAULT_LOCAL_PROVIDER_DIR
+from copaw.providers.provider import ModelInfo
 
 from .download_manager import (
     DownloadProgressUpdate,
@@ -37,6 +39,13 @@ from ..utils import system_info
 from ..utils.stdio import ensure_standard_streams
 
 logger = logging.getLogger(__name__)
+
+
+class LlamaCppServerSetupResult(BaseModel):
+    """Runtime information for a started llama.cpp server."""
+
+    port: int
+    model_info: ModelInfo
 
 
 class LlamaCppBackend:
@@ -209,8 +218,8 @@ class LlamaCppBackend:
         model_path: Path,
         model_name: str,
         max_context_length: int | None = None,
-    ) -> int:
-        """Setup llama.cpp server, and return the port it's running on.
+    ) -> LlamaCppServerSetupResult:
+        """Setup llama.cpp server and return the runtime port and model info.
 
         Args:
             model_path: Path to a local HF repo directory or GGUF file
@@ -223,6 +232,14 @@ class LlamaCppBackend:
         if not model_path.exists():
             raise FileNotFoundError(f"Model path not found: {model_path}")
 
+        resolved_model_path, resolved_mmproj_path = self._resolve_model_file(
+            model_path,
+        )
+        model_info = self._build_model_info(
+            model_name=model_name,
+            resolved_mmproj_path=resolved_mmproj_path,
+        )
+
         if (
             model_name == self._server_model_name
             and self._server_process is not None
@@ -233,7 +250,10 @@ class LlamaCppBackend:
                     model_name,
                     self._server_port,
                 )
-                return self._server_port  # type: ignore[return-value]
+                return LlamaCppServerSetupResult(
+                    port=self._server_port,
+                    model_info=model_info,
+                )
             else:
                 logger.warning(
                     "Previous llama.cpp server process for model %s exited "
@@ -241,10 +261,6 @@ class LlamaCppBackend:
                     self._server_model_name,
                     self._server_process.returncode,
                 )
-
-        resolved_model_path, resolved_mmproj_path = self._resolve_model_file(
-            model_path,
-        )
         if self._server_process and self._server_process.returncode is None:
             await self.shutdown_server()
 
@@ -285,7 +301,10 @@ class LlamaCppBackend:
             port,
             model_name,
         )
-        return port
+        return LlamaCppServerSetupResult(
+            port=port,
+            model_info=model_info,
+        )
 
     async def list_devices(self) -> list[str]:
         """List available devices for llama.cpp using
@@ -463,6 +482,21 @@ class LlamaCppBackend:
         return (
             model_files[0].resolve(),
             mmproj_files[0].resolve() if mmproj_files else None,
+        )
+
+    @staticmethod
+    def _build_model_info(
+        model_name: str,
+        resolved_mmproj_path: Path | None,
+    ) -> ModelInfo:
+        supports_multimodal = resolved_mmproj_path is not None
+        return ModelInfo(
+            id=model_name,
+            name=model_name,
+            supports_multimodal=supports_multimodal,
+            supports_image=supports_multimodal,
+            supports_video=supports_multimodal,
+            probe_source="documentation",
         )
 
     def _finalize_download_result(

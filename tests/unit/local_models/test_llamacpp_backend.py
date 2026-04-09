@@ -834,13 +834,22 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     )
     monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
 
-    port = await downloader.setup_server(model_path, "demo-model")
+    setup_result = await downloader.setup_server(model_path, "demo-model")
     await asyncio.sleep(0)
 
-    assert port == downloader.get_server_status()["port"]
+    assert setup_result.port == downloader.get_server_status()["port"]
+    assert setup_result.model_info.model_dump() == {
+        "id": "demo-model",
+        "name": "demo-model",
+        "supports_multimodal": False,
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+        "generate_kwargs": {},
+    }
     assert downloader.get_server_status() == {
         "running": True,
-        "port": port,
+        "port": setup_result.port,
         "model_name": "demo-model",
         "pid": 2468,
     }
@@ -971,8 +980,18 @@ async def test_setup_server_passes_mmproj_argument(
     )
     monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
 
-    port = await downloader.setup_server(model_dir, "vision-model")
+    setup_result = await downloader.setup_server(model_dir, "vision-model")
     await asyncio.sleep(0)
+
+    assert setup_result.model_info.model_dump() == {
+        "id": "vision-model",
+        "name": "vision-model",
+        "supports_multimodal": True,
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+        "generate_kwargs": {},
+    }
 
     assert start_calls == [
         (
@@ -981,7 +1000,7 @@ async def test_setup_server_passes_mmproj_argument(
                 "--host",
                 "127.0.0.1",
                 "--port",
-                str(port),
+                str(setup_result.port),
                 "--model",
                 str(model_file.resolve()),
                 "--alias",

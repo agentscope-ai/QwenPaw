@@ -1372,7 +1372,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return
 
         try:
-            port = await local_manager.setup_server(model_id)
+            setup_result = await local_manager.setup_server(model_id)
         except (FileNotFoundError, RuntimeError, ValueError) as exc:
             logger.warning(
                 "Failed to restore local model server for %s: %s",
@@ -1384,8 +1384,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self.update_provider(
             "copaw-local",
             {
-                "base_url": f"http://127.0.0.1:{port}/v1",
-                "extra_models": [ModelInfo(id=model_id, name=model_id)],
+                "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
+                "extra_models": [setup_result.model_info],
             },
         )
 

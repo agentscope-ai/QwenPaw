@@ -14,6 +14,7 @@ from ...local_models import (
     LocalModelInfo,
     LocalModelManager,
 )
+from ...providers.provider import ModelInfo
 from ...providers.provider_manager import ProviderManager
 
 router = APIRouter(prefix="/local-models", tags=["local-models"])
@@ -87,9 +88,9 @@ class StartServerRequest(BaseModel):
 
 class StartServerResponse(BaseModel):
     port: int = Field(..., description="Port bound by the llama.cpp server")
-    model_name: str = Field(
+    model_info: ModelInfo = Field(
         ...,
-        description="Alias exposed by the llama.cpp server",
+        description="Metadata for the model exposed by the llama.cpp server",
     )
 
 
@@ -288,7 +289,7 @@ async def start_llamacpp_server(
 ) -> StartServerResponse:
     """Start a local llama.cpp server for a downloaded model."""
     try:
-        port = await model_manager.setup_server(
+        setup_result = await model_manager.setup_server(
             model_id=payload.model_id,
         )
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
@@ -297,22 +298,17 @@ async def start_llamacpp_server(
     provider_manager.update_provider(
         "copaw-local",
         {
-            "base_url": f"http://127.0.0.1:{port}/v1",
-            "extra_models": [
-                {
-                    "id": payload.model_id,
-                    "name": payload.model_id,
-                },
-            ],
+            "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
+            "extra_models": [setup_result.model_info],
         },
     )
     await provider_manager.activate_model(
         provider_id="copaw-local",
-        model_id=payload.model_id,
+        model_id=setup_result.model_info.id,
     )
     return StartServerResponse(
-        port=port,
-        model_name=payload.model_id,
+        port=setup_result.port,
+        model_info=setup_result.model_info,
     )
 
 
