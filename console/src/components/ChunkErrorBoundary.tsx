@@ -1,6 +1,7 @@
 import { Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { Button, Result } from "antd";
+import i18n from "../i18n";
 
 interface Props {
   children: ReactNode;
@@ -43,11 +44,11 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       return (
         <Result
           status="error"
-          title="Failed to load page"
-          subTitle="This may be caused by a network issue or an application update."
+          title={i18n.t("chunkError.title")}
+          subTitle={i18n.t("chunkError.subTitle")}
           extra={
             <Button type="primary" onClick={() => window.location.reload()}>
-              Reload
+              {i18n.t("chunkError.reload")}
             </Button>
           }
           style={{ marginTop: "10vh" }}

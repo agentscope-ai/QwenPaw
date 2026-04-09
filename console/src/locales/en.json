@@ -26,6 +26,11 @@
     "actions": "Actions",
     "total": "Total {{count}}"
   },
+  "chunkError": {
+    "title": "Failed to load page",
+    "subTitle": "This may be caused by a network issue or an application update.",
+    "reload": "Reload"
+  },
   "nav": {
     "chat": "Chat",
     "control": "Control",

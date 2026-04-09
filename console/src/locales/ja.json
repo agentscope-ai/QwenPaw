@@ -23,6 +23,11 @@
     "contentPlaceholder": "内容を入力してください...",
     "close": "閉じる"
   },
+  "chunkError": {
+    "title": "ページの読み込みに失敗しました",
+    "subTitle": "ネットワークの問題またはアプリの更新が原因の可能性があります。",
+    "reload": "再読み込み"
+  },
   "nav": {
     "chat": "チャット",
     "control": "コントロール",

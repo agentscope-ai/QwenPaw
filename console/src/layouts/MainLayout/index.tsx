@@ -1,36 +1,54 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { Layout, Spin } from "antd";
 import { Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsoleCronBubble from "../../components/ConsoleCronBubble";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
+import { lazyWithRetry } from "../../utils/lazyWithRetry";
 import styles from "../index.module.less";
 
 // Chat is eagerly loaded (default landing page)
 import Chat from "../../pages/Chat";
 
-// All other pages are lazily loaded
-const ChannelsPage = lazy(() => import("../../pages/Control/Channels"));
-const SessionsPage = lazy(() => import("../../pages/Control/Sessions"));
-const CronJobsPage = lazy(() => import("../../pages/Control/CronJobs"));
-const HeartbeatPage = lazy(() => import("../../pages/Control/Heartbeat"));
-const AgentConfigPage = lazy(() => import("../../pages/Agent/Config"));
-const SkillsPage = lazy(() => import("../../pages/Agent/Skills"));
-const SkillPoolPage = lazy(() => import("../../pages/Settings/SkillPool"));
-const ToolsPage = lazy(() => import("../../pages/Agent/Tools"));
-const WorkspacePage = lazy(() => import("../../pages/Agent/Workspace"));
-const MCPPage = lazy(() => import("../../pages/Agent/MCP"));
-const ModelsPage = lazy(() => import("../../pages/Settings/Models"));
-const EnvironmentsPage = lazy(
+// All other pages are lazily loaded with automatic retry on chunk failure
+const ChannelsPage = lazyWithRetry(
+  () => import("../../pages/Control/Channels"),
+);
+const SessionsPage = lazyWithRetry(
+  () => import("../../pages/Control/Sessions"),
+);
+const CronJobsPage = lazyWithRetry(
+  () => import("../../pages/Control/CronJobs"),
+);
+const HeartbeatPage = lazyWithRetry(
+  () => import("../../pages/Control/Heartbeat"),
+);
+const AgentConfigPage = lazyWithRetry(() => import("../../pages/Agent/Config"));
+const SkillsPage = lazyWithRetry(() => import("../../pages/Agent/Skills"));
+const SkillPoolPage = lazyWithRetry(
+  () => import("../../pages/Settings/SkillPool"),
+);
+const ToolsPage = lazyWithRetry(() => import("../../pages/Agent/Tools"));
+const WorkspacePage = lazyWithRetry(
+  () => import("../../pages/Agent/Workspace"),
+);
+const MCPPage = lazyWithRetry(() => import("../../pages/Agent/MCP"));
+const ModelsPage = lazyWithRetry(() => import("../../pages/Settings/Models"));
+const EnvironmentsPage = lazyWithRetry(
   () => import("../../pages/Settings/Environments"),
 );
-const SecurityPage = lazy(() => import("../../pages/Settings/Security"));
-const TokenUsagePage = lazy(() => import("../../pages/Settings/TokenUsage"));
-const VoiceTranscriptionPage = lazy(
+const SecurityPage = lazyWithRetry(
+  () => import("../../pages/Settings/Security"),
+);
+const TokenUsagePage = lazyWithRetry(
+  () => import("../../pages/Settings/TokenUsage"),
+);
+const VoiceTranscriptionPage = lazyWithRetry(
   () => import("../../pages/Settings/VoiceTranscription"),
 );
-const AgentsPage = lazy(() => import("../../pages/Settings/Agents"));
+const AgentsPage = lazyWithRetry(() => import("../../pages/Settings/Agents"));
 
 const { Content } = Layout;
 
@@ -55,6 +73,7 @@ const pathToKey: Record<string, string> = {
 };
 
 export default function MainLayout() {
+  const { t } = useTranslation();
   const location = useLocation();
   const currentPath = location.pathname;
   const selectedKey = pathToKey[currentPath] || "chat";
@@ -70,7 +89,10 @@ export default function MainLayout() {
             <ChunkErrorBoundary resetKey={currentPath}>
               <Suspense
                 fallback={
-                  <Spin style={{ display: "block", margin: "20vh auto" }} />
+                  <Spin
+                    tip={t("common.loading")}
+                    style={{ display: "block", margin: "20vh auto" }}
+                  />
                 }
               >
                 <Routes>
