@@ -213,30 +213,34 @@ class AgentRunner(Runner):
             f"user's task: {user_input}\n\n"
             f"{post.content}"
         )
+        AgentRunner._rewrite_last_message_text(msgs, merged)
+        logger.info("Skill invocation: %s", name)
+        return None
+
+    @staticmethod
+    def _rewrite_last_message_text(
+        msgs: list,
+        new_text: str,
+    ) -> None:
+        """Rewrite the text content of the last message in-place."""
+        if not msgs:
+            return
         last = msgs[-1]
         content = getattr(last, "content", None)
         if isinstance(content, list):
-            replaced = False
             for i, block in enumerate(content):
                 if isinstance(block, dict) and block.get("type") == "text":
                     content[i] = TextBlock(
                         type="text",
-                        text=merged,
+                        text=new_text,
                     )
-                    replaced = True
-                    break
-            if not replaced:
-                content.insert(
-                    0,
-                    TextBlock(
-                        type="text",
-                        text=merged,
-                    ),
-                )
+                    return
+            content.insert(
+                0,
+                TextBlock(type="text", text=new_text),
+            )
         elif isinstance(content, str):
-            last.content = merged
-        logger.info("Skill invocation: %s", name)
-        return None
+            last.content = new_text
 
     _APPROVAL_TIMEOUT_SECONDS = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 
