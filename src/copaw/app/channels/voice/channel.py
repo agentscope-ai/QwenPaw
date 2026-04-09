@@ -101,7 +101,14 @@ class VoiceChannel(BaseChannel):
         from copaw.tunnel import CloudflareTunnelDriver
         from copaw.config.utils import read_last_api
 
-        self.tunnel_mgr = CloudflareTunnelDriver()
+        from ...console_push_store import append as push_store_append
+
+        async def on_tunnel_progress(msg: str) -> None:
+            await push_store_append("__system__", msg)
+
+        self.tunnel_mgr = CloudflareTunnelDriver(
+            progress_callback=on_tunnel_progress,
+        )
         api_info = read_last_api()
         local_port = api_info[1] if api_info else 8088
 

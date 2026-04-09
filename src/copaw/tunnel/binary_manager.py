@@ -2,6 +2,7 @@
 """Auto-download cloudflared binary if not in PATH."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -10,6 +11,7 @@ import shutil
 import stat
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 import httpx
 
@@ -91,8 +93,24 @@ async def _download_file(
 class BinaryManager:
     """Locate or auto-download the ``cloudflared`` binary."""
 
-    def __init__(self, bin_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        bin_dir: Path | None = None,
+        *,
+        progress_callback: Callable[[str], None]
+        | Callable[[str], object]
+        | None = None,
+    ) -> None:
         self._bin_dir = bin_dir or _BIN_DIR
+        self._progress_callback = progress_callback
+
+    async def _notify_progress(self, message: str) -> None:
+        """Call progress_callback if set (supports sync and async)."""
+        if not self._progress_callback:
+            return
+        result = self._progress_callback(message)
+        if asyncio.iscoroutine(result):
+            await result
 
     async def get_binary_path(self) -> str:
         """Return path to ``cloudflared``, downloading if necessary."""
@@ -144,6 +162,10 @@ class BinaryManager:
         bin_name = "cloudflared.exe" if is_windows else "cloudflared"
         dest = self._bin_dir / bin_name
 
+        await self._notify_progress(
+            "CoPaw is downloading cloudflared (first-time setup). "
+            "This may take a minute...",
+        )
         logger.info(
             "Downloading cloudflared %s from %s ...",
             _CLOUDFLARED_VERSION,
@@ -201,6 +223,7 @@ class BinaryManager:
             dest.chmod(
                 dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP,
             )
+        await self._notify_progress("cloudflared installed successfully.")
         logger.info(
             "cloudflared %s installed to %s",
             _CLOUDFLARED_VERSION,

@@ -11,7 +11,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from .binary_manager import BinaryManager
 
@@ -43,8 +43,20 @@ class CloudflareTunnelDriver:
         await driver.stop()
     """
 
-    def __init__(self, binary_manager: BinaryManager | None = None) -> None:
-        self._binary_mgr = binary_manager or BinaryManager()
+    def __init__(
+        self,
+        binary_manager: BinaryManager | None = None,
+        *,
+        progress_callback: Callable[[str], None]
+        | Callable[[str], object]
+        | None = None,
+    ) -> None:
+        if binary_manager is not None:
+            self._binary_mgr = binary_manager
+        else:
+            self._binary_mgr = BinaryManager(
+                progress_callback=progress_callback,
+            )
         self._process: Optional[asyncio.subprocess.Process] = None
         self._info: Optional[TunnelInfo] = None
         self._monitor_task: Optional[asyncio.Task] = None
