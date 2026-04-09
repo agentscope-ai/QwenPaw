@@ -4,8 +4,8 @@ import { IconButton } from "@agentscope-ai/design";
 import {
   SparkEditLine,
   SparkDeleteLine,
-  SparkTopLine,
-  SparkCancelTopLine,
+  SparkMarkLine,
+  SparkMarkFill,
 } from "@agentscope-ai/icons";
 import { useTranslation } from "react-i18next";
 import {
@@ -135,19 +135,23 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
           )}
         </div>
       </div>
-      {/* Action buttons */}
+      {/* Pin button - always visible when pinned, positioned independently */}
+      {!props.editing && (
+        <IconButton
+          bordered={false}
+          size="small"
+          className={styles.pinButton}
+          data-pinned={props.pinned}
+          icon={props.pinned ? <SparkMarkFill /> : <SparkMarkLine />}
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onPin?.();
+          }}
+        />
+      )}
+      {/* Action buttons - edit and delete, only visible on hover */}
       {!props.editing && (
         <div className={styles.actions}>
-          <IconButton
-            bordered={false}
-            size="small"
-            className={styles.pinButton}
-            icon={props.pinned ? <SparkCancelTopLine /> : <SparkTopLine />}
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onPin?.();
-            }}
-          />
           <IconButton
             bordered={false}
             size="small"
