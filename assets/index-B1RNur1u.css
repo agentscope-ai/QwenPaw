@@ -1,0 +1,1 @@
+.shiny-text{color:#b5b5b5a4;background:linear-gradient(120deg,#fff0 40%,#fffc,#fff0 60%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;display:inline-block;animation:shine 5s linear infinite}@keyframes shine{0%{background-position:100%}to{background-position:-100%}}.shiny-text.disabled{animation:none}
