@@ -13,6 +13,7 @@ from .workspace import router as workspace_router
 from .envs import router as envs_router
 from .mcp import router as mcp_router
 from .tools import router as tools_router
+from .feishu_notify import router as feishu_notify_router
 from ..crons.api import router as cron_router
 from ..runner.api import router as runner_router
 from .console import router as console_router
@@ -29,6 +30,7 @@ router.include_router(agent_router)
 router.include_router(config_router)
 router.include_router(console_router)
 router.include_router(cron_router)
+router.include_router(feishu_notify_router)
 router.include_router(local_models_router)
 router.include_router(mcp_router)
 router.include_router(messages_router)
