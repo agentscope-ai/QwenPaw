@@ -8,8 +8,9 @@ const RETRY_DELAY_MS = 1000;
  * A wrapper around `React.lazy` that retries the dynamic import on failure.
  *
  * Chunk loads can fail due to stale caches, transient network errors, or
- * deploy races.  This helper retries up to {@link MAX_RETRIES} times with
- * a {@link RETRY_DELAY_MS} ms delay between attempts before giving up and
+ * deploy races.  After the initial attempt fails, this helper retries up to
+ * {@link MAX_RETRIES} additional times (so up to 4 total attempts) with a
+ * {@link RETRY_DELAY_MS} ms delay between each retry before giving up and
  * letting the error propagate to the nearest error boundary.
  */
 export function lazyWithRetry<T extends ComponentType<unknown>>(

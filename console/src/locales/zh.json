@@ -29,6 +29,8 @@
   "chunkError": {
     "title": "页面加载失败",
     "subTitle": "可能由网络问题或应用更新导致，请稍后重试。",
+    "genericTitle": "页面出现异常",
+    "genericSubTitle": "渲染此页面时发生了意外错误。",
     "reload": "刷新页面"
   },
   "nav": {

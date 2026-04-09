@@ -29,6 +29,8 @@
   "chunkError": {
     "title": "Failed to load page",
     "subTitle": "This may be caused by a network issue or an application update.",
+    "genericTitle": "Something went wrong",
+    "genericSubTitle": "An unexpected error occurred while rendering this page.",
     "reload": "Reload"
   },
   "nav": {
