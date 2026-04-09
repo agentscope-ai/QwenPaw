@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import {
   Button,
   Checkbox,
@@ -99,6 +100,12 @@ function SkillsPage() {
       }),
     [filteredSkills],
   );
+
+  const {
+    visibleItems: visibleSkills,
+    hasMore,
+    sentinelRef,
+  } = useProgressiveRender(sortedSkills);
 
   const toggleSelect = (name: string) => {
     setSelectedSkills((prev) => {
@@ -736,7 +743,7 @@ function SkillsPage() {
         </div>
       ) : viewMode === "card" ? (
         <div className={styles.skillsGrid}>
-          {sortedSkills.map((skill) => (
+          {visibleSkills.map((skill) => (
             <SkillCard
               key={skill.name}
               skill={skill}
@@ -751,10 +758,11 @@ function SkillsPage() {
               onDelete={(e) => handleDelete(skill, e)}
             />
           ))}
+          {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
         </div>
       ) : (
         <div className={styles.skillsList}>
-          {sortedSkills.map((skill) => {
+          {visibleSkills.map((skill) => {
             const isBuiltin = isSkillBuiltin(skill.source);
             const channels = (skill.channels || ["all"])
               .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
@@ -838,6 +846,7 @@ function SkillsPage() {
               </div>
             );
           })}
+          {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
         </div>
       )}
 
