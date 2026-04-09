@@ -67,7 +67,7 @@ export default function MainLayout() {
         <Content className="page-container">
           <ConsoleCronBubble />
           <div className="page-content">
-            <ChunkErrorBoundary>
+            <ChunkErrorBoundary resetKey={currentPath}>
               <Suspense
                 fallback={
                   <Spin style={{ display: "block", margin: "20vh auto" }} />
