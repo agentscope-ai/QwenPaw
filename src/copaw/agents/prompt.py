@@ -377,7 +377,7 @@ def format_multimodal_hint(model_info, _model_name: str) -> str:
     if (
         model_info.supports_image
         or model_info.supports_video
-        or model_info.supports_multimodal is None
+        or model_info.supports_multimodal is not False
     ):
         return ""
     return (
