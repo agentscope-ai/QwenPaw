@@ -418,6 +418,20 @@ async def put_transcription_provider(
 ) -> dict:
     """Set the transcription provider."""
     provider_id = (body.get("provider_id") or "").strip()
+    if provider_id:
+        from ...agents.utils.audio_transcription import (
+            list_transcription_providers,
+        )
+
+        available_ids = {
+            provider["id"] for provider in list_transcription_providers()
+        }
+        if provider_id not in available_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown transcription provider '{provider_id}'",
+            )
+
     config = load_config()
     config.agents.transcription_provider_id = provider_id
     save_config(config)

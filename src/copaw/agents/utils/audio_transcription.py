@@ -101,14 +101,20 @@ def list_transcription_providers() -> List[dict]:
     }
     for provider in all_providers.values():
         creds = _url_for_provider(provider)
-        if creds is not None:
-            results.append(
-                {
-                    "id": provider.id,
-                    "name": provider.name,
-                    "available": True,
-                },
-            )
+        if creds is None:
+            from ...providers.openai_provider import OpenAIProvider
+            from ...providers.ollama_provider import OllamaProvider
+
+            if not isinstance(provider, (OpenAIProvider, OllamaProvider)):
+                continue
+
+        results.append(
+            {
+                "id": provider.id,
+                "name": provider.name,
+                "available": creds is not None,
+            },
+        )
     return results
 
 
