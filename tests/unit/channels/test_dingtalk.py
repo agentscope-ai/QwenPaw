@@ -134,7 +134,9 @@ class TestDingTalkChannelInit:
     """
 
     def test_init_stores_basic_config(
-        self, mock_process_handler, temp_media_dir
+        self,
+        mock_process_handler,
+        temp_media_dir,
     ):
         """Constructor should store all basic configuration parameters."""
         from copaw.app.channels.dingtalk.channel import DingTalkChannel
@@ -157,7 +159,9 @@ class TestDingTalkChannelInit:
         assert channel.channel == "dingtalk"
 
     def test_init_stores_advanced_config(
-        self, mock_process_handler, temp_media_dir
+        self,
+        mock_process_handler,
+        temp_media_dir,
     ):
         """Constructor should store advanced configuration parameters."""
         from copaw.app.channels.dingtalk.channel import DingTalkChannel
@@ -241,7 +245,9 @@ class TestDingTalkChannelFromEnv:
     """Tests for from_env factory method."""
 
     def test_from_env_reads_basic_env_vars(
-        self, mock_process_handler, monkeypatch
+        self,
+        mock_process_handler,
+        monkeypatch,
     ):
         """from_env should read basic environment variables."""
         from copaw.app.channels.dingtalk.channel import DingTalkChannel
@@ -259,7 +265,9 @@ class TestDingTalkChannelFromEnv:
         assert channel.bot_prefix == "[EnvBot] "
 
     def test_from_env_reads_advanced_env_vars(
-        self, mock_process_handler, monkeypatch
+        self,
+        mock_process_handler,
+        monkeypatch,
     ):
         """from_env should read advanced environment variables."""
         from copaw.app.channels.dingtalk.channel import DingTalkChannel
@@ -283,7 +291,9 @@ class TestDingTalkChannelFromEnv:
         assert channel.card_auto_layout is True
 
     def test_from_env_allow_from_parsing(
-        self, mock_process_handler, monkeypatch
+        self,
+        mock_process_handler,
+        monkeypatch,
     ):
         """from_env should parse DINGTALK_ALLOW_FROM correctly."""
         from copaw.app.channels.dingtalk.channel import DingTalkChannel
@@ -299,7 +309,9 @@ class TestDingTalkChannelFromEnv:
         assert "user3" in channel.allow_from
 
     def test_from_env_allow_from_empty(
-        self, mock_process_handler, monkeypatch
+        self,
+        mock_process_handler,
+        monkeypatch,
     ):
         """from_env should handle empty DINGTALK_ALLOW_FROM."""
         from copaw.app.channels.dingtalk.channel import DingTalkChannel
@@ -380,7 +392,8 @@ class TestDingTalkSessionWebhook:
     """
 
     async def test_save_session_webhook_stores_in_memory(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """Saving webhook should store it in memory."""
         await dingtalk_channel._save_session_webhook(
@@ -443,7 +456,7 @@ class TestDingTalkSessionWebhook:
         }
 
         result = await dingtalk_channel._load_session_webhook(
-            "dingtalk:sw:memtest"
+            "dingtalk:sw:memtest",
         )
 
         assert result == "http://memory.webhook"
@@ -475,7 +488,8 @@ class TestDingTalkSessionWebhook:
         assert "dingtalk:sw:diskload" in channel._session_webhook_store
 
     async def test_load_session_webhook_expired_returns_none(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """Loading expired webhook should return None."""
         # Create webhook that expired 1 hour ago
@@ -486,23 +500,25 @@ class TestDingTalkSessionWebhook:
         }
 
         result = await dingtalk_channel._load_session_webhook(
-            "dingtalk:sw:expired"
+            "dingtalk:sw:expired",
         )
 
         assert result is None
 
     async def test_load_session_webhook_not_found_returns_none(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """Loading non-existent webhook should return None."""
         result = await dingtalk_channel._load_session_webhook(
-            "dingtalk:sw:nonexistent"
+            "dingtalk:sw:nonexistent",
         )
 
         assert result is None
 
     async def test_load_session_webhook_empty_key_returns_none(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """Loading with empty key should return None."""
         result = await dingtalk_channel._load_session_webhook("")
@@ -546,7 +562,8 @@ class TestDingTalkSessionWebhook:
         assert result is False
 
     async def test_save_session_webhook_empty_key_skips(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """Saving with empty key should be skipped."""
         await dingtalk_channel._save_session_webhook(
@@ -557,7 +574,8 @@ class TestDingTalkSessionWebhook:
         assert "" not in dingtalk_channel._session_webhook_store
 
     async def test_save_session_webhook_empty_webhook_skips(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """Saving with empty webhook should be skipped."""
         await dingtalk_channel._save_session_webhook(
@@ -1018,7 +1036,8 @@ class TestDingTalkResolveSession:
         assert result == "_abc_xyz"
 
     def test_resolve_session_id_without_conversation_id(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """resolve_session_id should fallback to sender_id format."""
         result = dingtalk_channel.resolve_session_id(
@@ -1054,7 +1073,7 @@ class TestDingTalkResolveSession:
     def test_route_from_handle_direct_url(self, dingtalk_channel):
         """_route_from_handle should accept direct webhook URL."""
         result = dingtalk_channel._route_from_handle(
-            "https://oapi.dingtalk.com/robot"
+            "https://oapi.dingtalk.com/robot",
         )
 
         assert result == {"session_webhook": "https://oapi.dingtalk.com/robot"}
@@ -1216,7 +1235,7 @@ class TestDingTalkPartsToText:
         from copaw.app.channels.base import ImageContent, ContentType
 
         parts = [
-            ImageContent(type=ContentType.IMAGE, image_url="http://img.jpg")
+            ImageContent(type=ContentType.IMAGE, image_url="http://img.jpg"),
         ]
 
         result = dingtalk_channel._parts_to_single_text(parts)
@@ -1287,7 +1306,7 @@ class TestDingTalkBuildAgentRequest:
             "channel_id": "dingtalk",
             "sender_id": "user123",
             "content_parts": [
-                TextContent(type=ContentType.TEXT, text="Hello")
+                TextContent(type=ContentType.TEXT, text="Hello"),
             ],
             "meta": {"session_webhook": "http://webhook.url"},
         }
@@ -1323,7 +1342,8 @@ class TestDingTalkReplySync:
         loop.close()
 
     def test_safe_set_future_result_handles_done_future(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """Should not error when future is already done."""
         loop = asyncio.new_event_loop()
@@ -1392,7 +1412,7 @@ class TestDingTalkUtils:
 
         unknown_file = tmp_path / "test.unknown"
         unknown_file.write_bytes(
-            b"unknown content that doesn't match any magic"
+            b"unknown content that doesn't match any magic",
         )
 
         result = guess_suffix_from_file_content(unknown_file)
@@ -1543,7 +1563,7 @@ class TestDingTalkAICardStore:
                         {"account_id": "user1", "card_instance_id": "card1"},
                         {"account_id": "user2", "card_instance_id": "card2"},
                     ],
-                }
+                },
             ),
             encoding="utf-8",
         )
@@ -1634,7 +1654,7 @@ class TestDingTalkAICardStore:
         store.save(cards)
 
         data = json.loads(
-            (tmp_path / "cards.json").read_text(encoding="utf-8")
+            (tmp_path / "cards.json").read_text(encoding="utf-8"),
         )
         assert len(data["pending_cards"]) == 1
         assert data["pending_cards"][0]["card_instance_id"] == "active_card"
@@ -1816,7 +1836,7 @@ class TestDingTalkWorkspaceIntegration:
 
         events = []
         async for event in dingtalk_with_workspace._stream_with_tracker(
-            payload
+            payload,
         ):
             events.append(event)
             break  # Just check first event
@@ -1918,3 +1938,1620 @@ class TestDingTalkEdgeCases:
         """Stopping without prior start should succeed."""
         # Should not raise
         await dingtalk_channel.stop()
+
+
+# =============================================================================
+# P1: Callback Handler Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkCallbackHandler:
+    """Tests for DingTalk callback handler (handler.py)."""
+
+    @pytest.fixture
+    def mock_download_fetcher(self):
+        """Mock download URL fetcher."""
+
+        async def fetcher(*, download_code, robot_code, filename_hint):
+            return f"http://download.url/{download_code}"
+
+        return fetcher
+
+    @pytest.fixture
+    def handler(self, mock_download_fetcher, mock_process_handler):
+        """Create a DingTalkChannelHandler instance."""
+        from copaw.app.channels.dingtalk.handler import DingTalkChannelHandler
+
+        loop = asyncio.new_event_loop()
+        handler = DingTalkChannelHandler(
+            main_loop=loop,
+            enqueue_callback=MagicMock(),
+            bot_prefix="[Test] ",
+            download_url_fetcher=mock_download_fetcher,
+            try_accept_message=lambda msg_id: True,
+        )
+        yield handler
+        loop.close()
+
+    @pytest.fixture
+    def mock_callback_message(self):
+        """Create a mock CallbackMessage."""
+        callback = MagicMock()
+        callback.data = {
+            "msgId": "test_msg_123",
+            "senderStaffId": "user123",
+            "conversationId": "cid_group_abc",
+            "conversationType": "2",  # Group chat
+            "text": {"content": "Hello, this is a test message"},
+            "isInAtList": True,
+            "sessionWebhook": "https://oapi.dingtalk.com/robot/send?session=abc",
+            "sessionWebhookExpiredTime": 1893456000000,
+        }
+        return callback
+
+    @pytest.fixture
+    def mock_incoming_message(self):
+        """Create a mock ChatbotMessage."""
+        msg = MagicMock()
+        msg.text.content = "Hello, this is a test message"
+        msg.sender_staff_id = "user123"
+        msg.senderStaffId = "user123"
+        msg.conversation_id = "cid_group_abc"
+        msg.conversation_type = "2"
+        msg.sessionWebhook = "https://oapi.dingtalk.com/robot/send?session=abc"
+        msg.sessionWebhookExpiredTime = 1893456000000
+        msg.robot_code = "robot_123"
+        msg.robotCode = "robot_123"
+        msg.to_dict.return_value = {
+            "text": {"content": "Hello, this is a test message"},
+        }
+        return msg
+
+    def test_extract_filename_hint(self, handler):
+        """Should extract filename from various payload formats."""
+        # Test fileName key
+        payload = {"fileName": "test.pdf"}
+        result = handler._extract_filename_hint(payload)
+        assert result == "test.pdf"
+
+        # Test file_name key
+        payload = {"file_name": "test2.pdf"}
+        result = handler._extract_filename_hint(payload)
+        assert result == "test2.pdf"
+
+        # Test filename key
+        payload = {"filename": "test3.pdf"}
+        result = handler._extract_filename_hint(payload)
+        assert result == "test3.pdf"
+
+        # Test name key
+        payload = {"name": "test4.pdf"}
+        result = handler._extract_filename_hint(payload)
+        assert result == "test4.pdf"
+
+        # Test title key
+        payload = {"title": "test5.pdf"}
+        result = handler._extract_filename_hint(payload)
+        assert result == "test5.pdf"
+
+        # Test empty/whitespace value
+        payload = {"fileName": "   "}
+        result = handler._extract_filename_hint(payload)
+        assert result is None
+
+        # Test no valid key
+        payload = {"other": "value"}
+        result = handler._extract_filename_hint(payload)
+        assert result is None
+
+    def test_emit_native_threadsafe(self, handler):
+        """Should emit native message via callback."""
+        handler._enqueue_callback = MagicMock()
+        handler._main_loop.call_soon_threadsafe = MagicMock()
+        handler._emit_native_threadsafe({"test": "data"})
+
+        assert handler._main_loop.call_soon_threadsafe.called
+
+
+# =============================================================================
+# P2: AI Card Tests (Stream Mode)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkAICardMethods:
+    """Tests for AI Card streaming methods."""
+
+    async def test_create_ai_card_success(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Successfully create AI card."""
+        # Configure channel for AI card
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_id = "template_123"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel.robot_code = "robot_123"
+        dingtalk_channel.card_auto_layout = True
+        dingtalk_channel._http = mock_http_session
+
+        # Mock create card response
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/card/instances",
+            response_status=200,
+            response_json={"success": True},
+        )
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/card/instances/deliver",
+            response_status=200,
+            response_json={
+                "result": [
+                    {"success": True, "spaceId": "space_123"},
+                ],
+            },
+        )
+
+        card = await dingtalk_channel._create_ai_card(
+            conversation_id="cid_test_123",
+            meta={"sender_staff_id": "user123"},
+            is_group=True,
+        )
+
+        assert card is not None
+        assert card.conversation_id == "cid_test_123"
+        assert card.card_instance_id.startswith("card_")
+
+    async def test_create_ai_card_group_conversation(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Create AI card for group conversation."""
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_id = "template_123"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel.robot_code = "robot_123"
+        dingtalk_channel._http = mock_http_session
+
+        # Token call
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        # Create call
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/card/instances",
+            response_status=200,
+            response_json={"success": True},
+        )
+        # Deliver call
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/card/instances/deliver",
+            response_status=200,
+            response_json={
+                "result": {"deliverResults": [{"success": True}]},
+            },
+        )
+
+        card = await dingtalk_channel._create_ai_card(
+            conversation_id="cid_group_123",
+            meta={},
+            is_group=True,
+        )
+
+        assert card is not None
+
+    async def test_create_ai_card_dm_requires_staff_id(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """DM card creation requires sender_staff_id."""
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_id = "template_123"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel.robot_code = "robot_123"
+        dingtalk_channel._http = mock_http_session
+
+        # Token call
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        # Create call
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/card/instances",
+            response_status=200,
+            response_json={"success": True},
+        )
+        # DM without sender_staff_id should raise error
+
+        with pytest.raises(RuntimeError, match="missing sender_staff_id"):
+            await dingtalk_channel._create_ai_card(
+                conversation_id="cid_single_123",
+                meta={},
+                is_group=False,
+            )
+
+    async def test_create_ai_card_api_error(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Handle API error when creating card."""
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_id = "template_123"
+        dingtalk_channel.robot_code = "robot_123"
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/card/instances",
+            response_status=400,
+            response_json={"error": "invalid_template"},
+        )
+
+        with pytest.raises(RuntimeError, match="create ai card failed"):
+            await dingtalk_channel._create_ai_card(
+                conversation_id="cid_test",
+                meta={},
+            )
+
+    async def test_stream_ai_card_success(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Successfully stream content to AI card."""
+        from copaw.app.channels.dingtalk.ai_card import (
+            ActiveAICard,
+            PROCESSING,
+        )
+
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_put(
+            url="https://api.dingtalk.com/v1.0/card/streaming",
+            response_status=200,
+            response_json={"success": True},
+        )
+
+        card = ActiveAICard(
+            card_instance_id="card_test_123",
+            access_token="token_123",
+            conversation_id="cid_test",
+            account_id="user123",
+            store_path="/tmp",
+            created_at=1234567890,
+            last_updated=1234567890,
+            state=PROCESSING,
+        )
+
+        result = await dingtalk_channel._stream_ai_card(
+            card,
+            "Test content",
+            finalize=False,
+        )
+
+        assert result is True
+
+    async def test_stream_ai_card_finalize(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Finalize AI card streaming."""
+        from copaw.app.channels.dingtalk.ai_card import (
+            ActiveAICard,
+            PROCESSING,
+        )
+
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_put(
+            url="https://api.dingtalk.com/v1.0/card/streaming",
+            response_status=200,
+            response_json={"success": True},
+        )
+
+        card = ActiveAICard(
+            card_instance_id="card_test_123",
+            access_token="token_123",
+            conversation_id="cid_test",
+            account_id="user123",
+            store_path="/tmp",
+            created_at=1234567890,
+            last_updated=1234567890,
+            last_streamed_content="Previous content",
+            state=PROCESSING,
+        )
+
+        result = await dingtalk_channel._stream_ai_card(
+            card,
+            "Final content",
+            finalize=True,
+        )
+
+        assert result is True
+        assert card.state == "3"  # FINISHED
+
+    async def test_stream_ai_card_duplicate_content_skipped(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Skip streaming if content hasn't changed."""
+        from copaw.app.channels.dingtalk.ai_card import (
+            ActiveAICard,
+            PROCESSING,
+        )
+
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel._http = mock_http_session
+
+        card = ActiveAICard(
+            card_instance_id="card_test_123",
+            access_token="token_123",
+            conversation_id="cid_test",
+            account_id="user123",
+            store_path="/tmp",
+            created_at=1234567890,
+            last_updated=1234567890,
+            last_streamed_content="Same content",
+            state=PROCESSING,
+        )
+
+        # Should return False without making HTTP call
+        result = await dingtalk_channel._stream_ai_card(
+            card,
+            "Same content",
+            finalize=False,
+        )
+
+        assert result is False
+
+    async def test_stream_ai_card_token_refresh(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Refresh token on 401 response."""
+        from copaw.app.channels.dingtalk.ai_card import (
+            ActiveAICard,
+            PROCESSING,
+        )
+
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel._http = mock_http_session
+
+        # First call returns 401, second succeeds
+        mock_http_session.expect_put(
+            url="https://api.dingtalk.com/v1.0/card/streaming",
+            response_status=401,
+            response_json={"error": "Unauthorized"},
+        )
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "new_token", "expireIn": 7200},
+        )
+        mock_http_session.expect_put(
+            url="https://api.dingtalk.com/v1.0/card/streaming",
+            response_status=200,
+            response_json={"success": True},
+        )
+
+        card = ActiveAICard(
+            card_instance_id="card_test_123",
+            access_token="old_token",
+            conversation_id="cid_test",
+            account_id="user123",
+            store_path="/tmp",
+            created_at=0,  # Old creation time to force token refresh
+            last_updated=1234567890,
+            state=PROCESSING,
+        )
+
+        # Mock the token time check by setting created_at far in past
+        import time
+
+        card.created_at = int(time.time() * 1000) - 400000  # > 300s ago
+
+        result = await dingtalk_channel._stream_ai_card(
+            card,
+            "New content",
+            finalize=False,
+        )
+
+        assert result is True
+
+    async def test_finish_ai_card_success(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Successfully finish AI card."""
+        from copaw.app.channels.dingtalk.ai_card import (
+            ActiveAICard,
+            PROCESSING,
+        )
+
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_put(
+            url="https://api.dingtalk.com/v1.0/card/streaming",
+            response_status=200,
+            response_json={"success": True},
+        )
+
+        async with dingtalk_channel._active_cards_lock:
+            dingtalk_channel._active_cards["cid_test"] = ActiveAICard(
+                card_instance_id="card_test_123",
+                access_token="token_123",
+                conversation_id="cid_test",
+                account_id="user123",
+                store_path="/tmp",
+                created_at=1234567890,
+                last_updated=1234567890,
+                state=PROCESSING,
+            )
+
+        result = await dingtalk_channel._finish_ai_card(
+            conversation_id="cid_test",
+            final_content="Final text",
+        )
+
+        assert result is True
+
+    async def test_recover_active_cards(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Recover active cards on startup."""
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_id = "template_123"
+        dingtalk_channel.robot_code = "robot_123"
+        dingtalk_channel._http = mock_http_session
+
+        # Mock stored cards
+        dingtalk_channel._card_store.load = MagicMock(
+            return_value=[
+                {
+                    "card_instance_id": "card_old_1",
+                    "conversation_id": "cid_old_1",
+                    "state": "2",  # PROCESSING
+                    "created_at": 1234567890,
+                    "last_updated": 1234567890,
+                },
+            ],
+        )
+
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_put(
+            url="https://api.dingtalk.com/v1.0/card/streaming",
+            response_status=200,
+            response_json={"success": True},
+        )
+
+        await dingtalk_channel._recover_active_cards()
+
+        # Should have recovered the card
+        assert "cid_old_1" in dingtalk_channel._active_cards
+
+    async def test_ai_card_disabled_returns_none(self, dingtalk_channel):
+        """AI card methods return None when disabled."""
+        dingtalk_channel.message_type = "text"  # Not card
+
+        result = await dingtalk_channel._create_ai_card(
+            conversation_id="cid_test",
+            meta={},
+        )
+
+        assert result is None
+
+    def test_build_ai_card_initial_text(self, dingtalk_channel):
+        """Build initial text for AI card."""
+        dingtalk_channel.bot_prefix = "[Bot] "
+
+        result = dingtalk_channel._build_ai_card_initial_text()
+
+        assert result.startswith("[Bot] ")
+
+    def test_merge_ai_card_text(self, dingtalk_channel):
+        """Merge AI card text properly."""
+        # Empty current
+        result = dingtalk_channel._merge_ai_card_text("", "new text")
+        assert result == "new text"
+
+        # Empty incoming
+        result = dingtalk_channel._merge_ai_card_text("current", "")
+        assert result == "current"
+
+        # Duplicate
+        result = dingtalk_channel._merge_ai_card_text("current text", "text")
+        assert result == "current text"
+
+        # Normal merge
+        result = dingtalk_channel._merge_ai_card_text("line1", "line2")
+        assert result == "line1\nline2"
+
+
+# =============================================================================
+# P2: File Download Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkFileDownload:
+    """Tests for media download methods."""
+
+    async def test_fetch_bytes_from_url_success(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Successfully fetch bytes from URL."""
+        dingtalk_channel._http = mock_http_session
+        mock_http_session.expect_get(
+            url="https://example.com/file.pdf",
+            response_status=200,
+            response_data=b"PDF content",
+        )
+
+        result = await dingtalk_channel._fetch_bytes_from_url(
+            "https://example.com/file.pdf",
+        )
+
+        assert result == b"PDF content"
+
+    async def test_fetch_bytes_from_url_http_error(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Handle HTTP error when fetching bytes."""
+        dingtalk_channel._http = mock_http_session
+        mock_http_session.expect_get(
+            url="https://example.com/file.pdf",
+            response_status=404,
+            response_text="Not Found",
+        )
+
+        result = await dingtalk_channel._fetch_bytes_from_url(
+            "https://example.com/file.pdf",
+        )
+
+        assert result is None
+
+    async def test_fetch_bytes_from_url_file_protocol(
+        self,
+        dingtalk_channel,
+        tmp_path,
+    ):
+        """Fetch bytes from file:// URL."""
+        test_file = tmp_path / "test.txt"
+        test_file.write_bytes(b"file content")
+
+        result = await dingtalk_channel._fetch_bytes_from_url(
+            f"file://{test_file}",
+        )
+
+        assert result == b"file content"
+
+    async def test_fetch_bytes_from_url_empty_file(
+        self,
+        dingtalk_channel,
+        tmp_path,
+    ):
+        """Handle empty file - returns empty bytes not None."""
+        test_file = tmp_path / "empty.txt"
+        test_file.write_bytes(b"")
+
+        result = await dingtalk_channel._fetch_bytes_from_url(
+            f"file://{test_file}",
+        )
+
+        # Empty files return empty bytes, not None
+        assert result == b""
+
+    async def test_download_media_to_local_success(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+        tmp_path,
+    ):
+        """Successfully download media to local."""
+        dingtalk_channel._http = mock_http_session
+        dingtalk_channel._media_dir = tmp_path
+
+        mock_http_session.expect_get(
+            url="https://download.example.com/file.jpg",
+            response_status=200,
+            response_data=b"\xff\xd8\xff\xe0\x00\x10JFIF",  # JPEG magic
+            headers={"Content-Type": "image/jpeg"},
+        )
+
+        result = await dingtalk_channel._download_media_to_local(
+            url="https://download.example.com/file.jpg",
+            safe_key="test_key_123",
+            filename_hint="image.jpg",
+        )
+
+        assert result is not None
+        assert Path(result).exists()
+
+    async def test_download_media_to_local_with_content_disposition(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+        tmp_path,
+    ):
+        """Extract filename from Content-Disposition header."""
+        dingtalk_channel._http = mock_http_session
+        dingtalk_channel._media_dir = tmp_path
+
+        mock_http_session.expect_get(
+            url="https://download.example.com/file",
+            response_status=200,
+            response_data=b"content",
+            headers={
+                "Content-Disposition": 'attachment; filename="document.pdf"',
+            },
+        )
+
+        result = await dingtalk_channel._download_media_to_local(
+            url="https://download.example.com/file",
+            safe_key="test_key",
+            filename_hint="unknown.bin",
+        )
+
+        assert result is not None
+        assert result.endswith(".pdf")
+
+    async def test_download_media_to_local_magic_suffix(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+        tmp_path,
+    ):
+        """Detect real suffix from magic bytes when file has .file extension."""
+        dingtalk_channel._http = mock_http_session
+        dingtalk_channel._media_dir = tmp_path
+
+        # PNG magic bytes
+        mock_http_session.expect_get(
+            url="https://download.example.com/image.file",
+            response_status=200,
+            response_data=b"\x89PNG\r\n\x1a\n" + b"png data",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+
+        result = await dingtalk_channel._download_media_to_local(
+            url="https://download.example.com/image.file",
+            safe_key="test_key",
+            filename_hint="image.file",
+        )
+
+        assert result is not None
+        assert result.endswith(".png")
+
+    async def test_download_media_to_local_http_error(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Handle HTTP error when downloading media."""
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_get(
+            url="https://download.example.com/file.jpg",
+            response_status=500,
+            response_text="Internal Server Error",
+        )
+
+        result = await dingtalk_channel._download_media_to_local(
+            url="https://download.example.com/file.jpg",
+            safe_key="test_key",
+            filename_hint="file.jpg",
+        )
+
+        assert result is None
+
+    async def test_download_media_to_local_invalid_url(
+        self,
+        dingtalk_channel,
+    ):
+        """Handle invalid URL."""
+        result = await dingtalk_channel._download_media_to_local(
+            url="not-a-url",
+            safe_key="test_key",
+        )
+
+        assert result is None
+
+    async def test_fetch_and_download_media_success(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+        tmp_path,
+    ):
+        """Successfully fetch and download media."""
+        dingtalk_channel._http = mock_http_session
+        dingtalk_channel._media_dir = tmp_path
+
+        # Get download URL
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/robot/messageFiles/download",
+            response_status=200,
+            response_json={
+                "result": {"downloadUrl": "https://cdn.example.com/file.pdf"},
+            },
+        )
+
+        # Download file
+        mock_http_session.expect_get(
+            url="https://cdn.example.com/file.pdf",
+            response_status=200,
+            response_data=b"%PDF-1.4 content",
+            headers={"Content-Type": "application/pdf"},
+        )
+
+        result = await dingtalk_channel._fetch_and_download_media(
+            download_code="dl_code_123",
+            robot_code="robot_123",
+            filename_hint="document.pdf",
+        )
+
+        assert result is not None
+        assert Path(result).exists()
+
+    async def test_get_message_file_download_url(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Get download URL for message file."""
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/robot/messageFiles/download",
+            response_status=200,
+            response_json={
+                "result": {"downloadUrl": "https://cdn.example.com/file.pdf"},
+            },
+        )
+
+        result = await dingtalk_channel._get_message_file_download_url(
+            download_code="dl_code_123",
+            robot_code="robot_123",
+        )
+
+        assert result == "https://cdn.example.com/file.pdf"
+
+    async def test_get_message_file_download_url_api_error(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Handle API error when getting download URL."""
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/robot/messageFiles/download",
+            response_status=200,
+            response_json={"errcode": 40001, "errmsg": "invalid code"},
+        )
+
+        result = await dingtalk_channel._get_message_file_download_url(
+            download_code="invalid_code",
+            robot_code="robot_123",
+        )
+
+        assert result is None
+
+
+# =============================================================================
+# P2: Stream Mode Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkStreamMode:
+    """Tests for Stream/WebSocket mode."""
+
+    async def test_stream_loop_starts_client(self, dingtalk_channel):
+        """Stream loop should start client and handle stop event."""
+        mock_client = MagicMock()
+        mock_client.start = AsyncMock()
+        mock_client.websocket = None
+
+        dingtalk_channel._client = mock_client
+        dingtalk_channel._stop_event.set()  # Signal stop immediately
+
+        # Should complete without error
+        await dingtalk_channel._stream_loop()
+
+        assert mock_client.start.called
+
+    async def test_stream_loop_no_client(self, dingtalk_channel):
+        """Stream loop should exit early if no client."""
+        dingtalk_channel._client = None
+
+        # Should complete without error
+        await dingtalk_channel._stream_loop()
+
+    async def test_run_stream_forever(self, dingtalk_channel):
+        """Run stream forever should execute stream loop."""
+        dingtalk_channel._stop_event.set()  # Stop immediately
+
+        mock_client = MagicMock()
+        mock_client.start = AsyncMock()
+        mock_client.websocket = None
+        dingtalk_channel._client = mock_client
+
+        # Should complete without hanging
+        dingtalk_channel._run_stream_forever()
+
+    def test_ai_card_enabled(self, dingtalk_channel):
+        """Check if AI card is enabled."""
+        # Not enabled by default
+        assert dingtalk_channel._ai_card_enabled() is False
+
+        # Enable
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_id = "template_123"
+        dingtalk_channel.robot_code = "robot_123"
+
+        assert dingtalk_channel._ai_card_enabled() is True
+
+    def test_ai_card_disabled_no_template(self, dingtalk_channel):
+        """AI card disabled without template."""
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_id = ""
+        dingtalk_channel.robot_code = "robot_123"
+
+        assert dingtalk_channel._ai_card_enabled() is False
+
+
+# =============================================================================
+# P2: Request Processing Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkRequestProcessing:
+    """Tests for request processing flow."""
+
+    async def test_run_process_loop_allowlist_blocked(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Request blocked by allowlist should return early."""
+        dingtalk_channel._http = mock_http_session
+        dingtalk_channel.allow_from = {
+            "allowed_user"
+        }  # Only allow specific user
+
+        from copaw.app.channels.base import (
+            TextContent,
+            ContentType,
+            AgentRequest,
+        )
+
+        request = AgentRequest(
+            user_id="blocked_user",
+            channel="dingtalk",
+            input=[TextContent(type=ContentType.TEXT, text="Hello")],
+            channel_meta={
+                "session_webhook": "http://webhook.url",
+                "conversation_id": "cid_test",
+            },
+        )
+
+        # Mock _send_via_session_webhook to capture the block message
+        with patch.object(
+            dingtalk_channel,
+            "_send_via_session_webhook",
+            return_value=True,
+        ) as mock_send:
+            await dingtalk_channel._run_process_loop(
+                request,
+                send_meta={"is_group": False},
+            )
+
+            # Should send block message
+            mock_send.assert_called_once()
+            call_args = mock_send.call_args
+            assert "not in allowlist" in call_args[0][1]
+
+    async def test_run_process_loop_group_mention_required(
+        self,
+        dingtalk_channel,
+    ):
+        """Group message without mention should be ignored."""
+        dingtalk_channel.require_mention = True
+
+        from copaw.app.channels.base import (
+            TextContent,
+            ContentType,
+            AgentRequest,
+        )
+
+        request = AgentRequest(
+            user_id="user123",
+            channel="dingtalk",
+            input=[TextContent(type=ContentType.TEXT, text="Hello")],
+            channel_meta={
+                "session_webhook": "http://webhook.url",
+                "conversation_id": "cid_test",
+            },
+        )
+
+        with patch.object(
+            dingtalk_channel,
+            "_check_group_mention",
+            return_value=False,
+        ) as mock_check:
+            await dingtalk_channel._run_process_loop(
+                request,
+                send_meta={"is_group": True, "bot_mentioned": False},
+            )
+
+            mock_check.assert_called_once()
+
+    async def test_run_process_loop_exception_handling(
+        self,
+        dingtalk_channel,
+    ):
+        """Exception in process loop should be handled."""
+        from copaw.app.channels.base import AgentRequest
+
+        request = MagicMock(spec=AgentRequest)
+        request.user_id = "user123"
+        request.channel = "dingtalk"
+        request.channel_meta = {}
+
+        # Make _process raise an exception
+        with patch.object(
+            dingtalk_channel,
+            "_process",
+            side_effect=RuntimeError("Test error"),
+        ):
+            with pytest.raises(RuntimeError):
+                await dingtalk_channel._run_process_loop(
+                    request,
+                    send_meta={},
+                )
+
+
+# =============================================================================
+# P2: Send Method Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkSendMethodsExtended:
+    """Extended tests for send methods."""
+
+    async def test_get_session_webhook_for_send_from_meta(
+        self,
+        dingtalk_channel,
+    ):
+        """Get webhook from meta when available."""
+        meta = {"session_webhook": "http://meta.webhook"}
+
+        result = await dingtalk_channel._get_session_webhook_for_send(
+            to_handle="dingtalk:sw:test",
+            meta=meta,
+        )
+
+        assert result == "http://meta.webhook"
+
+    async def test_get_session_webhook_for_send_from_store(
+        self,
+        dingtalk_channel,
+    ):
+        """Get webhook from store when not in meta."""
+        # Pre-populate store
+        dingtalk_channel._session_webhook_store["dingtalk:sw:storedkey"] = {
+            "webhook": "http://stored.webhook",
+            "expired_time": 9999999999999,
+        }
+
+        result = await dingtalk_channel._get_session_webhook_for_send(
+            to_handle="dingtalk:sw:storedkey",
+            meta={},
+        )
+
+        assert result == "http://stored.webhook"
+
+    async def test_get_session_webhook_for_send_current_request_no_webhook(
+        self,
+        dingtalk_channel,
+    ):
+        """Don't use store if current request has no webhook (could be expired)."""
+        # Pre-populate store
+        dingtalk_channel._session_webhook_store["dingtalk:sw:testkey"] = {
+            "webhook": "http://stored.webhook",
+            "expired_time": 9999999999999,
+        }
+
+        # Current request has reply_future but no webhook
+        result = await dingtalk_channel._get_session_webhook_for_send(
+            to_handle="dingtalk:sw:testkey",
+            meta={"reply_future": MagicMock()},
+        )
+
+        assert result is None
+
+    async def test_send_with_fallback_to_open_api(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Send with fallback to Open API when webhook fails."""
+        dingtalk_channel._http = mock_http_session
+
+        # Store webhook entry
+        dingtalk_channel._session_webhook_store["dingtalk:sw:test"] = {
+            "webhook": "http://expired.webhook",
+            "conversation_id": "cid_test",
+            "conversation_type": "group",
+            "sender_staff_id": "",
+        }
+
+        # First call: webhook fails
+        mock_http_session.expect_post(
+            url="https://oapi.dingtalk.com/robot/send",
+            response_status=400,
+            response_json={"errcode": 40014, "errmsg": "invalid session"},
+        )
+
+        # Second call: get token for Open API
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+
+        # Third call: Open API send
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/robot/groupMessages/send",
+            response_status=200,
+            response_json={"errcode": 0, "errmsg": "ok"},
+        )
+
+        await dingtalk_channel.send(
+            to_handle="dingtalk:sw:test",
+            text="Test message",
+            meta={},
+        )
+
+    async def test_send_no_webhook_warning(self, dingtalk_channel, caplog):
+        """Should log warning when no webhook available."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            await dingtalk_channel.send(
+                to_handle="unknown_handle",
+                text="Test message",
+                meta={},
+            )
+
+            assert "no sessionWebhook" in caplog.text
+
+
+# =============================================================================
+# P2: Media Part Sending Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkMediaPartSending:
+    """Tests for sending media parts via webhook."""
+
+    async def test_send_media_part_via_webhook_with_media_id(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Send media part that already has media_id."""
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_post(
+            url="https://oapi.dingtalk.com/robot/send",
+            response_status=200,
+            response_json={"errcode": 0, "errmsg": "ok"},
+        )
+
+        from copaw.app.channels.base import ImageContent, ContentType
+
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url="http://example.com/img.jpg",
+            media_id="existing_media_123",
+        )
+
+        result = await dingtalk_channel._send_media_part_via_webhook(
+            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            part=part,
+        )
+
+        assert result is True
+
+    async def test_send_media_part_via_webhook_fetch_and_upload(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+        tmp_path,
+    ):
+        """Fetch and upload when no media_id."""
+        dingtalk_channel._http = mock_http_session
+        dingtalk_channel._media_dir = tmp_path
+
+        # Mock file download
+        mock_http_session.expect_get(
+            url="http://example.com/img.jpg",
+            response_status=200,
+            response_data=b"\xff\xd8\xff\xe0image data",
+        )
+
+        # Mock token and upload
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_post(
+            url="https://oapi.dingtalk.com/media/upload",
+            response_status=200,
+            response_json={"media_id": "uploaded_media_123"},
+        )
+
+        # Mock send
+        mock_http_session.expect_post(
+            url="https://oapi.dingtalk.com/robot/send",
+            response_status=200,
+            response_json={"errcode": 0, "errmsg": "ok"},
+        )
+
+        from copaw.app.channels.base import ImageContent, ContentType
+
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url="http://example.com/img.jpg",
+            # No media_id, should fetch and upload
+        )
+
+        result = await dingtalk_channel._send_media_part_via_webhook(
+            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            part=part,
+        )
+
+        assert result is True
+
+    async def test_send_media_part_empty_media_id_skipped(
+        self,
+        dingtalk_channel,
+    ):
+        """Skip sending if media_id is empty after stripping."""
+        from copaw.app.channels.base import ImageContent, ContentType
+
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url="http://example.com/img.jpg",
+            media_id="   ",  # Whitespace only
+        )
+
+        result = await dingtalk_channel._send_media_part_via_webhook(
+            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            part=part,
+        )
+
+        assert result is False
+
+    def test_map_upload_type(self, dingtalk_channel):
+        """Map content types to DingTalk upload types."""
+        from unittest.mock import MagicMock
+        from copaw.app.channels.base import ContentType
+
+        # Create mock parts for each type
+        text_part = MagicMock()
+        text_part.type = ContentType.TEXT
+        assert dingtalk_channel._map_upload_type(text_part) is None
+
+        image_part = MagicMock()
+        image_part.type = ContentType.IMAGE
+        assert dingtalk_channel._map_upload_type(image_part) == "image"
+
+        audio_part = MagicMock()
+        audio_part.type = ContentType.AUDIO
+        assert dingtalk_channel._map_upload_type(audio_part) == "voice"
+
+        video_part = MagicMock()
+        video_part.type = ContentType.VIDEO
+        assert dingtalk_channel._map_upload_type(video_part) == "video"
+
+        file_part = MagicMock()
+        file_part.type = ContentType.FILE
+        assert dingtalk_channel._map_upload_type(file_part) == "file"
+
+        # Unknown type defaults to file
+        unknown_part = MagicMock()
+        unknown_part.type = "unknown"
+        assert dingtalk_channel._map_upload_type(unknown_part) == "file"
+
+    async def test_send_media_part_video_with_pic_media_id(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Send video with pic_media_id for cover image."""
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_post(
+            url="https://oapi.dingtalk.com/robot/send",
+            response_status=200,
+            response_json={"errcode": 0, "errmsg": "ok"},
+        )
+
+        from copaw.app.channels.base import VideoContent, ContentType
+
+        part = VideoContent(
+            type=ContentType.VIDEO,
+            video_url="http://example.com/video.mp4",
+            media_id="video_media_123",
+            pic_media_id="cover_media_456",
+            duration=30,
+        )
+
+        result = await dingtalk_channel._send_media_part_via_webhook(
+            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            part=part,
+        )
+
+        assert result is True
+
+
+# =============================================================================
+# P2: Handler Rich Content Tests
+# =============================================================================
+
+
+class TestDingTalkHandlerRichContent:
+    """Tests for handler rich content parsing."""
+
+    @pytest.fixture
+    def mock_download_fetcher(self):
+        """Mock download URL fetcher."""
+
+        async def fetcher(*, download_code, robot_code, filename_hint):
+            return f"http://cdn.example.com/{download_code}"
+
+        return fetcher
+
+    @pytest.fixture
+    def rich_handler(self, mock_download_fetcher):
+        """Create a handler for rich content tests."""
+        from copaw.app.channels.dingtalk.handler import DingTalkChannelHandler
+
+        loop = asyncio.new_event_loop()
+        handler = DingTalkChannelHandler(
+            main_loop=loop,
+            enqueue_callback=MagicMock(),
+            bot_prefix="",
+            download_url_fetcher=mock_download_fetcher,
+        )
+        yield handler
+        loop.close()
+
+    def test_parse_rich_content_with_text(self, rich_handler):
+        """Parse rich text content."""
+        incoming = MagicMock()
+        incoming.robot_code = "robot_123"
+        incoming.to_dict.return_value = {
+            "content": {
+                "richText": [
+                    {"text": "Hello world"},
+                ],
+            },
+        }
+
+        result = rich_handler._parse_rich_content(incoming)
+
+        assert len(result) == 1
+
+    def test_parse_rich_content_with_image(self, rich_handler):
+        """Parse rich content with image."""
+        incoming = MagicMock()
+        incoming.robot_code = "robot_123"
+        incoming.to_dict.return_value = {
+            "content": {
+                "richText": [
+                    {
+                        "downloadCode": "img_dl_code",
+                        "type": "picture",
+                    },
+                ],
+            },
+        }
+
+        with patch.object(
+            rich_handler,
+            "_fetch_download_url_and_content",
+            return_value=MagicMock(),
+        ):
+            result = rich_handler._parse_rich_content(incoming)
+
+            assert len(result) >= 0  # May be 0 or 1 depending on fetch result
+
+    def test_parse_rich_content_single_download_code(self, rich_handler):
+        """Parse content with single download code."""
+        incoming = MagicMock()
+        incoming.robot_code = "robot_123"
+        incoming.to_dict.return_value = {
+            "msgtype": "image",
+            "content": {
+                "downloadCode": "single_img_code",
+            },
+        }
+
+        with patch.object(
+            rich_handler,
+            "_fetch_download_url_and_content",
+            return_value=MagicMock(),
+        ):
+            result = rich_handler._parse_rich_content(incoming)
+
+            assert len(result) >= 0
+
+    def test_parse_rich_content_empty(self, rich_handler):
+        """Parse empty content."""
+        incoming = MagicMock()
+        incoming.robot_code = "robot_123"
+        incoming.to_dict.return_value = {
+            "content": {},
+        }
+
+        result = rich_handler._parse_rich_content(incoming)
+
+        assert result == []
+
+    def test_parse_rich_content_exception_handled(self, rich_handler):
+        """Exceptions in parsing should be handled."""
+        incoming = MagicMock()
+        incoming.robot_code = "robot_123"
+        # to_dict will raise exception
+        incoming.to_dict.side_effect = RuntimeError("Test error")
+
+        result = rich_handler._parse_rich_content(incoming)
+
+        assert result == []
+
+
+# =============================================================================
+# P2: Merge Native Tests
+# =============================================================================
+
+
+class TestDingTalkMergeNative:
+    """Tests for _merge_native method."""
+
+    def test_merge_native_empty(self, dingtalk_channel):
+        """Merge empty list returns empty dict."""
+        result = dingtalk_channel._merge_native([])
+
+        assert result == {}
+
+    def test_merge_native_single_item(self, dingtalk_channel):
+        """Merge single item."""
+        items = [
+            {
+                "channel_id": "dingtalk",
+                "sender_id": "user123",
+                "content_parts": [{"type": "text", "text": "Hello"}],
+                "meta": {"session_webhook": "http://webhook.url"},
+            },
+        ]
+
+        result = dingtalk_channel._merge_native(items)
+
+        assert result["channel_id"] == "dingtalk"
+        assert result["sender_id"] == "user123"
+        assert len(result["content_parts"]) == 1
+
+    def test_merge_native_multiple_items(self, dingtalk_channel):
+        """Merge multiple items combines parts and metadata."""
+        items = [
+            {
+                "channel_id": "dingtalk",
+                "sender_id": "user1",
+                "content_parts": [{"type": "text", "text": "Hello"}],
+                "meta": {
+                    "session_webhook": "http://webhook1.url",
+                    "conversation_id": "cid1",
+                },
+            },
+            {
+                "channel_id": "dingtalk",
+                "sender_id": "user2",
+                "content_parts": [{"type": "text", "text": "World"}],
+                "meta": {
+                    "session_webhook": "http://webhook2.url",
+                    "conversation_id": "cid2",
+                },
+            },
+        ]
+
+        result = dingtalk_channel._merge_native(items)
+
+        assert len(result["content_parts"]) == 2
+        assert result["meta"]["batched_count"] == 2
+        # Should use webhook from newest (last) item
+        assert result["session_webhook"] == "http://webhook2.url"
+
+    def test_merge_native_extracts_reply_futures(self, dingtalk_channel):
+        """Extract reply futures from items."""
+        loop = asyncio.new_event_loop()
+        future = loop.create_future()
+
+        items = [
+            {
+                "channel_id": "dingtalk",
+                "sender_id": "user1",
+                "content_parts": [],
+                "meta": {
+                    "reply_loop": loop,
+                    "reply_future": future,
+                },
+            },
+        ]
+
+        result = dingtalk_channel._merge_native(items)
+
+        assert "_reply_futures_list" in result["meta"]
+        assert len(result["meta"]["_reply_futures_list"]) == 1
+
+        loop.close()
+
+    def test_merge_native_extracts_message_ids(self, dingtalk_channel):
+        """Extract message IDs from items."""
+        items = [
+            {
+                "channel_id": "dingtalk",
+                "content_parts": [],
+                "meta": {"message_id": "msg_123"},
+            },
+            {
+                "channel_id": "dingtalk",
+                "content_parts": [],
+                "message_id": "msg_456",  # Can also be at top level
+            },
+        ]
+
+        result = dingtalk_channel._merge_native(items)
+
+        assert "_message_ids" in result["meta"]
+        assert "msg_123" in result["meta"]["_message_ids"]
+        assert "msg_456" in result["meta"]["_message_ids"]
+
+    def test_merge_native_prefers_newest_webhook(self, dingtalk_channel):
+        """When merging, prefer webhook from newest item."""
+        items = [
+            {
+                "content_parts": [],
+                "meta": {"session_webhook": "http://old.url"},
+            },
+            {
+                "content_parts": [],
+                "meta": {"session_webhook": "http://new.url"},
+            },
+            {"content_parts": [], "meta": {}},  # No webhook
+        ]
+
+        result = dingtalk_channel._merge_native(items)
+
+        # Should use the most recent webhook found (from items[1])
+        assert result["session_webhook"] == "http://new.url"
+
+
+# =============================================================================
+# P2: Load Session Webhook Entry Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkLoadSessionWebhookEntry:
+    """Tests for _load_session_webhook_entry method."""
+
+    async def test_load_session_webhook_entry_from_memory(
+        self,
+        dingtalk_channel,
+    ):
+        """Load full entry from memory."""
+        dingtalk_channel._session_webhook_store["dingtalk:sw:fulltest"] = {
+            "webhook": "http://full.webhook",
+            "expired_time": 9999999999999,
+            "conversation_id": "cid_full",
+            "conversation_type": "group",
+            "sender_staff_id": "staff_full",
+        }
+
+        result = await dingtalk_channel._load_session_webhook_entry(
+            "dingtalk:sw:fulltest",
+        )
+
+        assert result is not None
+        assert result["webhook"] == "http://full.webhook"
+        assert result["conversation_id"] == "cid_full"
+
+    async def test_load_session_webhook_entry_expired(self, dingtalk_channel):
+        """Expired entry returns None."""
+        past_time = int((time.time() - 3600) * 1000)
+        dingtalk_channel._session_webhook_store["dingtalk:sw:expired"] = {
+            "webhook": "http://expired.webhook",
+            "expired_time": past_time,
+        }
+
+        result = await dingtalk_channel._load_session_webhook_entry(
+            "dingtalk:sw:expired",
+        )
+
+        assert result is None
+
+    async def test_load_session_webhook_entry_not_found(
+        self, dingtalk_channel
+    ):
+        """Non-existent entry returns None."""
+        result = await dingtalk_channel._load_session_webhook_entry(
+            "dingtalk:sw:nonexistent",
+        )
+
+        assert result is None

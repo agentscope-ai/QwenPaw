@@ -672,10 +672,14 @@ class TestSend:
 
         # Mock _send_text_with_fallback to capture the send attempt
         with patch.object(
-            qq_channel, "_send_text_with_fallback", AsyncMock()
+            qq_channel,
+            "_send_text_with_fallback",
+            AsyncMock(),
         ) as mock_send:
             await qq_channel.send(
-                "user123", "Hello", meta={"message_type": "c2c"}
+                "user123",
+                "Hello",
+                meta={"message_type": "c2c"},
             )
 
             # Verify that send was attempted
@@ -697,7 +701,9 @@ class TestSend:
 
         # Mock _send_text_with_fallback to capture the send attempt
         with patch.object(
-            qq_channel, "_send_text_with_fallback", AsyncMock()
+            qq_channel,
+            "_send_text_with_fallback",
+            AsyncMock(),
         ) as mock_send:
             await qq_channel.send("group:group456", "Hello group")
 
@@ -1133,6 +1139,643 @@ class TestLifecycle:
 # =============================================================================
 # P9: Integration Helpers
 # =============================================================================
+
+
+class TestDownloadAttachmentSync:
+    """Tests for _download_attachment_sync method."""
+
+    def test_download_attachment_loop_not_running(self, qq_channel):
+        """Should return URL if event loop is not running."""
+        qq_channel._loop = None
+
+        result = qq_channel._download_attachment_sync(
+            "https://example.com/file.jpg",
+            "file.jpg",
+        )
+
+        assert result == "https://example.com/file.jpg"
+
+    def test_download_attachment_exception(self, qq_channel):
+        """Should return None when download raises exception."""
+        import asyncio
+
+        qq_channel._loop = MagicMock()
+        qq_channel._loop.is_running.return_value = True
+
+        # Mock run_coroutine_threadsafe to raise exception
+        future = asyncio.Future()
+        future.set_exception(RuntimeError("Download failed"))
+        qq_channel._loop.run_coroutine_threadsafe.return_value = future
+
+        result = qq_channel._download_attachment_sync(
+            "https://example.com/file.jpg",
+            "file.jpg",
+        )
+
+        assert result is None
+
+
+class TestParseQQAttachments:
+    """Tests for _parse_qq_attachments method."""
+
+    def test_parse_empty_attachments(self, qq_channel):
+        """Should return empty list for no attachments."""
+        result = qq_channel._parse_qq_attachments([])
+
+        assert result == []
+
+    def test_parse_attachments_no_http(self, qq_channel):
+        """Should return empty list when HTTP session is None."""
+        qq_channel._http = None
+
+        result = qq_channel._parse_qq_attachments(
+            [
+                {
+                    "url": "https://example.com/file.jpg",
+                    "filename": "file.jpg",
+                },
+            ]
+        )
+
+        assert result == []
+
+    def test_parse_attachment_missing_url(self, qq_channel):
+        """Should skip attachments without URL."""
+        result = qq_channel._parse_qq_attachments(
+            [
+                {"url": "", "filename": "file.jpg"},
+                {"filename": "file2.jpg"},  # No url key
+            ]
+        )
+
+        assert result == []
+
+    def test_parse_attachment_download_failure(self, qq_channel):
+        """Should skip attachments that fail to download."""
+        # Ensure _http is set so the method proceeds to download
+        qq_channel._http = MagicMock()
+
+        with patch.object(
+            qq_channel,
+            "_download_attachment_sync",
+            return_value=None,
+        ) as mock_download:
+            result = qq_channel._parse_qq_attachments(
+                [
+                    {
+                        "url": "https://example.com/file.jpg",
+                        "filename": "file.jpg",
+                    },
+                ]
+            )
+
+            assert result == []
+            mock_download.assert_called_once_with(
+                "https://example.com/file.jpg",
+                "file.jpg",
+            )
+
+
+class TestSendTextWithFallback:
+    """Tests for _send_text_with_fallback method."""
+
+    @pytest.mark.asyncio
+    async def test_send_success_no_fallback(self, qq_channel):
+        """Should succeed without fallback when send works."""
+        qq_channel._dispatch_text = AsyncMock()
+
+        result = await qq_channel._send_text_with_fallback(
+            message_type="c2c",
+            sender_id="user123",
+            channel_id=None,
+            group_openid=None,
+            text="Hello",
+            msg_id="msg123",
+            token="token123",
+            use_markdown=False,
+        )
+
+        assert result is True
+        qq_channel._dispatch_text.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_plaintext_on_markdown_error(self, qq_channel):
+        """Should fallback to plain text when markdown fails."""
+        from copaw.app.channels.qq.channel import QQApiError
+
+        # First call fails with markdown error, second succeeds
+        qq_channel._dispatch_text = AsyncMock(
+            side_effect=[
+                QQApiError("/test", 400, {"message": "markdown not allowed"}),
+                None,
+            ],
+        )
+
+        result = await qq_channel._send_text_with_fallback(
+            message_type="c2c",
+            sender_id="user123",
+            channel_id=None,
+            group_openid=None,
+            text="Hello https://example.com",
+            msg_id="msg123",
+            token="token123",
+            use_markdown=True,
+        )
+
+        assert result is True
+        assert qq_channel._dispatch_text.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_aggressive_fallback_on_url_error(self, qq_channel):
+        """Should use aggressive URL stripping on URL content errors."""
+        from copaw.app.channels.qq.channel import QQApiError
+
+        # First call fails with URL error, second succeeds after stripping
+        qq_channel._dispatch_text = AsyncMock(
+            side_effect=[
+                QQApiError("/test", 400, {"code": "304003"}),
+                None,
+            ],
+        )
+
+        result = await qq_channel._send_text_with_fallback(
+            message_type="c2c",
+            sender_id="user123",
+            channel_id=None,
+            group_openid=None,
+            text="Visit example.com today",
+            msg_id="msg123",
+            token="token123",
+            use_markdown=False,
+        )
+
+        assert result is True
+        # First attempt with original text, second with aggressive sanitized
+        assert qq_channel._dispatch_text.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_fallback_for_non_validation_errors(self, qq_channel):
+        """Should not fallback for non-validation errors."""
+        from copaw.app.channels.qq.channel import QQApiError
+
+        qq_channel._dispatch_text = AsyncMock(
+            side_effect=QQApiError("/test", 500, {"message": "server error"}),
+        )
+
+        result = await qq_channel._send_text_with_fallback(
+            message_type="c2c",
+            sender_id="user123",
+            channel_id=None,
+            group_openid=None,
+            text="Hello",
+            msg_id="msg123",
+            token="token123",
+            use_markdown=True,
+        )
+
+        assert result is False
+        qq_channel._dispatch_text.assert_called_once()
+
+
+class TestTryAggressiveUrlFallback:
+    """Tests for _try_aggressive_url_fallback method."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_success(self, qq_channel):
+        """Should succeed with aggressive URL stripping."""
+        from copaw.app.channels.qq.channel import QQApiError
+
+        qq_channel._dispatch_text = AsyncMock()
+        exc = QQApiError("/test", 400, {"code": "304003"})
+
+        result = await qq_channel._try_aggressive_url_fallback(
+            exc,
+            "Visit example.com for info",
+            "c2c",
+            "user123",
+            None,
+            None,
+            "msg123",
+            "token123",
+            None,
+        )
+
+        assert result is True
+        qq_channel._dispatch_text.assert_called_once()
+        # Verify that aggressive sanitization was applied
+        call_args = qq_channel._dispatch_text.call_args
+        assert "example.com" not in call_args[1].get("text", "")
+
+    @pytest.mark.asyncio
+    async def test_no_fallback_non_url_error(self, qq_channel):
+        """Should return False for non-URL errors."""
+        qq_channel._dispatch_text = AsyncMock()
+        exc = ValueError("Some error")
+
+        result = await qq_channel._try_aggressive_url_fallback(
+            exc,
+            "Hello",
+            "c2c",
+            "user123",
+            None,
+            None,
+            "msg123",
+            "token123",
+            None,
+        )
+
+        assert result is False
+        qq_channel._dispatch_text.assert_not_called()
+
+
+class TestHandleWSPayload:
+    """Tests for _handle_ws_payload method."""
+
+    def test_handle_hello_with_resume(self, qq_channel, mock_websocket):
+        """Should send RESUME on HELLO when session exists."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+            OP_RESUME,
+        )
+
+        state = _WSState()
+        state.session_id = "sess_123"
+        state.last_seq = 100
+
+        hb = MagicMock(spec=_HeartbeatController)
+        payload = {"op": 10, "d": {"heartbeat_interval": 45000}}  # OP_HELLO
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result is None
+        mock_websocket.send.assert_called_once()
+        # Verify RESUME was sent
+        sent_data = json.loads(mock_websocket.send.call_args[0][0])
+        assert sent_data["op"] == OP_RESUME
+        assert sent_data["d"]["session_id"] == "sess_123"
+        hb.start.assert_called_once_with(45000)
+
+    def test_handle_hello_with_identify(self, qq_channel, mock_websocket):
+        """Should send IDENTIFY on HELLO when no session."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+            OP_IDENTIFY,
+        )
+
+        state = _WSState()
+        hb = MagicMock(spec=_HeartbeatController)
+        payload = {"op": 10, "d": {"heartbeat_interval": 30000}}  # OP_HELLO
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result is None
+        mock_websocket.send.assert_called_once()
+        sent_data = json.loads(mock_websocket.send.call_args[0][0])
+        assert sent_data["op"] == OP_IDENTIFY
+        hb.start.assert_called_once_with(30000)
+
+    def test_handle_dispatch_ready(self, qq_channel, mock_websocket):
+        """Should update state on READY dispatch."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        state.reconnect_attempts = 5
+        hb = MagicMock(spec=_HeartbeatController)
+        payload = {
+            "op": 0,  # OP_DISPATCH
+            "t": "READY",
+            "d": {"session_id": "new_sess_456"},
+            "s": 200,
+        }
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result is None
+        assert state.session_id == "new_sess_456"
+        assert state.reconnect_attempts == 0
+        assert state.last_seq == 200
+
+    def test_handle_dispatch_resumed(self, qq_channel, mock_websocket):
+        """Should handle RESUMED dispatch."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        hb = MagicMock(spec=_HeartbeatController)
+        payload = {
+            "op": 0,  # OP_DISPATCH
+            "t": "RESUMED",
+            "s": 150,
+        }
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result is None
+        assert state.last_seq == 150
+
+    def test_handle_dispatch_message_event(self, qq_channel, mock_websocket):
+        """Should handle C2C_MESSAGE_CREATE dispatch."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        hb = MagicMock(spec=_HeartbeatController)
+        qq_channel._enqueue = MagicMock()
+
+        payload = {
+            "op": 0,  # OP_DISPATCH
+            "t": "C2C_MESSAGE_CREATE",
+            "d": {
+                "id": "msg123",
+                "content": "Hello bot",
+                "author": {"user_openid": "user456"},
+            },
+            "s": 300,
+        }
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result is None
+        assert state.last_seq == 300
+        qq_channel._enqueue.assert_called_once()
+
+    def test_handle_heartbeat_ack(self, qq_channel, mock_websocket):
+        """Should handle HEARTBEAT_ACK."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        hb = MagicMock(spec=_HeartbeatController)
+        payload = {"op": 11}  # OP_HEARTBEAT_ACK
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result is None
+
+    def test_handle_reconnect(self, qq_channel, mock_websocket):
+        """Should return 'break' on RECONNECT."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        hb = MagicMock(spec=_HeartbeatController)
+        payload = {"op": 7}  # OP_RECONNECT
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result == "break"
+
+    def test_handle_invalid_session_no_resume(
+        self, qq_channel, mock_websocket
+    ):
+        """Should clear session on INVALID_SESSION when cannot resume."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        state.session_id = "sess_123"
+        state.last_seq = 100
+        hb = MagicMock(spec=_HeartbeatController)
+        payload = {"op": 9, "d": False}  # OP_INVALID_SESSION, cannot resume
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result == "break"
+        assert state.session_id is None
+        assert state.last_seq is None
+        assert state.should_refresh_token is True
+
+    def test_handle_invalid_session_can_resume(
+        self, qq_channel, mock_websocket
+    ):
+        """Should keep session on INVALID_SESSION when can resume."""
+        from copaw.app.channels.qq.channel import (
+            _WSState,
+            _HeartbeatController,
+        )
+
+        state = _WSState()
+        state.session_id = "sess_123"
+        state.last_seq = 100
+        hb = MagicMock(spec=_HeartbeatController)
+        payload = {"op": 9, "d": True}  # OP_INVALID_SESSION, can resume
+
+        result = qq_channel._handle_ws_payload(
+            payload,
+            mock_websocket,
+            "token123",
+            state,
+            hb,
+        )
+
+        assert result == "break"
+        # Session should remain intact
+        assert state.session_id == "sess_123"
+
+
+class TestWSConnectOnce:
+    """Tests for _ws_connect_once method."""
+
+    def test_stop_event_set(self, qq_channel):
+        """Should return False when stop event is set."""
+        from copaw.app.channels.qq.channel import _WSState
+
+        qq_channel._stop_event.set()
+        state = _WSState()
+        mock_websocket = MagicMock()
+
+        result = qq_channel._ws_connect_once(state, mock_websocket)
+
+        assert result is False
+
+    def test_get_token_failure(self, qq_channel):
+        """Should return True to retry on token failure."""
+        from copaw.app.channels.qq.channel import _WSState
+
+        qq_channel._get_access_token_sync = MagicMock(
+            side_effect=RuntimeError("Token failed"),
+        )
+        state = _WSState()
+        mock_websocket = MagicMock()
+
+        result = qq_channel._ws_connect_once(state, mock_websocket)
+
+        assert result is True
+
+    def test_ws_connection_failure(self, qq_channel):
+        """Should return True to retry on connection failure."""
+        from copaw.app.channels.qq.channel import _WSState
+
+        qq_channel._get_access_token_sync = MagicMock(return_value="token123")
+        state = _WSState()
+
+        mock_websocket = MagicMock()
+        mock_websocket.create_connection.side_effect = Exception(
+            "Connection refused"
+        )
+
+        result = qq_channel._ws_connect_once(state, mock_websocket)
+
+        assert result is True
+
+    def test_max_reconnect_attempts_reached(self, qq_channel):
+        """Should return False when max attempts reached after disconnect."""
+        from unittest.mock import patch
+        from copaw.app.channels.qq.channel import _WSState
+
+        qq_channel._max_reconnect_attempts = 3
+        qq_channel._get_access_token_sync = MagicMock(return_value="token123")
+
+        # reconnect_attempts is 2, after this disconnect it becomes 3 (max)
+        state = _WSState()
+        state.reconnect_attempts = 2
+
+        mock_ws = MagicMock()
+        mock_ws.recv.side_effect = Exception("Connection closed")
+
+        mock_websocket = MagicMock()
+        mock_websocket.create_connection.return_value = mock_ws
+        mock_websocket.WebSocketConnectionClosedException = Exception
+
+        with patch(
+            "copaw.app.channels.qq.channel._get_channel_url_sync",
+            return_value="wss://gateway",
+        ):
+            result = qq_channel._ws_connect_once(state, mock_websocket)
+
+        # After ws disconnect and reaching max attempts, should return False
+        assert state.reconnect_attempts == 3
+        assert result is False
+
+    def test_normal_connection_flow(self, qq_channel):
+        """Should handle normal connection and cleanup properly."""
+        from unittest.mock import patch
+        from copaw.app.channels.qq.channel import _WSState
+
+        qq_channel._get_access_token_sync = MagicMock(return_value="token123")
+
+        state = _WSState()
+        state.should_refresh_token = True
+
+        mock_ws = MagicMock()
+        mock_ws.connected = True
+        # First recv returns HELLO, then set stop_event to break the loop
+        call_count = [0]
+
+        def mock_recv():
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return json.dumps(
+                    {
+                        "op": 10,
+                        "d": {"heartbeat_interval": 45000},
+                    }
+                )
+            # After HELLO, set stop event and return empty to break
+            qq_channel._stop_event.set()
+            return None
+
+        mock_ws.recv = MagicMock(side_effect=mock_recv)
+
+        mock_websocket = MagicMock()
+        mock_websocket.create_connection.return_value = mock_ws
+        mock_websocket.WebSocketConnectionClosedException = Exception
+
+        with patch(
+            "copaw.app.channels.qq.channel._get_channel_url_sync",
+            return_value="wss://gateway",
+        ) as mock_get_url:
+            result = qq_channel._ws_connect_once(state, mock_websocket)
+
+            assert (
+                state.should_refresh_token is False
+            )  # Token cache was cleared
+            mock_get_url.assert_called_once_with("token123")
+            mock_ws.close.assert_called_once()
+
+    def test_connection_closed_exception(self, qq_channel):
+        """Should handle WebSocketConnectionClosedException gracefully."""
+        from copaw.app.channels.qq.channel import _WSState
+
+        qq_channel._get_access_token_sync = MagicMock(return_value="token123")
+
+        state = _WSState()
+
+        mock_ws = MagicMock()
+        mock_ws.recv.side_effect = Exception("Connection closed")
+
+        mock_websocket = MagicMock()
+        mock_websocket.create_connection.return_value = mock_ws
+        mock_websocket.WebSocketConnectionClosedException = Exception
+
+        qq_channel._stop_event.set()  # Exit immediately
+
+        result = qq_channel._ws_connect_once(state, mock_websocket)
+
+        assert result is False
 
 
 class TestDownloadQQFile:

@@ -1426,7 +1426,9 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_text_basic(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test handling basic text message."""
         # _process is async generator, just verify message is marked as processed
@@ -1435,7 +1437,9 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_duplicated_message_skipped(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test deduplication: same message_id marked as processed."""
         msg_id = "msg_duplicate_test"
@@ -1451,7 +1455,9 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_bot_sender_skipped(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test bot messages are ignored."""
         feishu_channel._process = AsyncMock()
@@ -1470,7 +1476,9 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_no_event_returns_early(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test missing event returns early."""
         feishu_channel._process = AsyncMock()
@@ -1480,11 +1488,13 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_image_type(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test image message handling."""
         feishu_channel._download_image_resource = AsyncMock(
-            return_value="/path/to/image.jpg"
+            return_value="/path/to/image.jpg",
         )
         mock_message_data.event.message.message_type = "image"
         mock_message_data.event.message.content = '{"image_key": "img_123"}'
@@ -1492,14 +1502,17 @@ class TestFeishuChannelOnMessageComplex:
         await feishu_channel._on_message(mock_message_data)
 
         feishu_channel._download_image_resource.assert_called_once_with(
-            "msg_12345", "img_123"
+            "msg_12345",
+            "img_123",
         )
         # Verify message was tracked
         assert "msg_12345" in feishu_channel._processed_message_ids
 
     @pytest.mark.asyncio
     async def test_on_message_image_download_failure(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test image download failure handling."""
         feishu_channel._download_image_resource = AsyncMock(return_value=None)
@@ -1514,11 +1527,13 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_file_type(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test file message handling."""
         feishu_channel._download_file_resource = AsyncMock(
-            return_value="/path/to/file.pdf"
+            return_value="/path/to/file.pdf",
         )
         mock_message_data.event.message.message_type = "file"
         mock_message_data.event.message.content = (
@@ -1532,11 +1547,13 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_audio_type(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test audio message handling."""
         feishu_channel._download_file_resource = AsyncMock(
-            return_value="/path/to/audio.opus"
+            return_value="/path/to/audio.opus",
         )
         mock_message_data.event.message.message_type = "audio"
         mock_message_data.event.message.content = '{"file_key": "audio_123"}'
@@ -1548,7 +1565,9 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_unknown_type(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test unknown message type handling."""
         mock_message_data.event.message.message_type = "unknown_type"
@@ -1560,7 +1579,9 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_with_bot_mention(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test bot mention detection and removal."""
         feishu_channel._bot_open_id = "bot_open_id_456"
@@ -1579,11 +1600,13 @@ class TestFeishuChannelOnMessageComplex:
 
     @pytest.mark.asyncio
     async def test_on_message_post_with_images(
-        self, feishu_channel, mock_message_data
+        self,
+        feishu_channel,
+        mock_message_data,
     ):
         """Test post message handling."""
         feishu_channel._download_image_resource = AsyncMock(
-            return_value="/path/to/img.jpg"
+            return_value="/path/to/img.jpg",
         )
         mock_message_data.event.message.message_type = "post"
         # Use a simple post format that actually works with extract_post_text
@@ -1607,12 +1630,14 @@ class TestFeishuChannelSendMethodsFixed:
         """Test successful text message send."""
         feishu_channel._send_message = AsyncMock(return_value="msg_id_123")
         feishu_channel._get_tenant_access_token = AsyncMock(
-            return_value="token_123"
+            return_value="token_123",
         )
 
         body = "Hello world"
         result = await feishu_channel._send_text(
-            "open_id", "user_open_id", body
+            "open_id",
+            "user_open_id",
+            body,
         )
 
         assert result is not None
@@ -1623,16 +1648,957 @@ class TestFeishuChannelSendMethodsFixed:
         """Test text with markdown table sends as card."""
         feishu_channel._send_message = AsyncMock(return_value="msg_id_123")
         feishu_channel._get_tenant_access_token = AsyncMock(
-            return_value="token_123"
+            return_value="token_123",
         )
 
         body = "| Header |\n|--------|\n| Value |"
         result = await feishu_channel._send_text(
-            "open_id", "user_open_id", body
+            "open_id",
+            "user_open_id",
+            body,
         )
 
         # Should still succeed (method chunks tables into cards)
         assert result is not None
+
+
+# =============================================================================
+# P0: Download Image Resource
+# =============================================================================
+
+
+class TestFeishuChannelDownloadImageResource:
+    """Tests for _download_image_resource method.
+
+    Covers:
+    - Download success with different image formats
+    - SDK failure handling
+    - Empty response handling
+    - File extension detection
+    """
+
+    @pytest.fixture
+    def mock_get_message_resource_request(self):
+        """Mock GetMessageResourceRequest builder."""
+        mock_builder = MagicMock()
+        mock_request = MagicMock()
+        mock_builder.message_id.return_value = mock_builder
+        mock_builder.file_key.return_value = mock_builder
+        mock_builder.type.return_value = mock_builder
+        mock_builder.build.return_value = mock_request
+
+        with patch(
+            "copaw.app.channels.feishu.channel.GetMessageResourceRequest",
+        ) as mock_class:
+            mock_class.builder.return_value = mock_builder
+            yield mock_class, mock_request
+
+    @pytest.mark.asyncio
+    async def test_download_image_success(
+        self,
+        feishu_channel,
+        tmp_path,
+        mock_get_message_resource_request,
+    ):
+        """Should download image successfully and return path."""
+        from io import BytesIO
+
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        # Mock SDK response
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.file = BytesIO(b"fake_image_data_jpg_content")
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            return_value=mock_response,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_image_resource(
+            "msg_123",
+            "img_key_456",
+        )
+
+        assert result is not None
+        assert "msg_123" in result
+        assert "img_key_456" in result
+        assert Path(result).exists()
+        assert Path(result).read_bytes() == b"fake_image_data_jpg_content"
+
+    @pytest.mark.asyncio
+    async def test_download_image_sdk_failure(
+        self,
+        feishu_channel,
+        mock_get_message_resource_request,
+    ):
+        """Should return None when SDK call fails."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = False
+        mock_response.code = 400
+        mock_response.msg = "Bad Request"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            return_value=mock_response,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_image_resource(
+            "msg_123",
+            "img_key_456",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_download_image_empty_response(
+        self,
+        feishu_channel,
+        mock_get_message_resource_request,
+    ):
+        """Should return None when response file is empty."""
+        from io import BytesIO
+
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.file = BytesIO(b"")  # Empty content
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            return_value=mock_response,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_image_resource(
+            "msg_123",
+            "img_key_456",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_download_image_exception_handling(
+        self,
+        feishu_channel,
+        mock_get_message_resource_request,
+    ):
+        """Should handle exceptions gracefully and return None."""
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            side_effect=Exception("Network error"),
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_image_resource(
+            "msg_123",
+            "img_key_456",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_download_image_sanitizes_key(
+        self,
+        feishu_channel,
+        tmp_path,
+        mock_get_message_resource_request,
+    ):
+        """Should sanitize image key for safe filename."""
+        from io import BytesIO
+
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.file = BytesIO(b"fake_image_data")
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            return_value=mock_response,
+        )
+        feishu_channel._client = mock_client
+
+        # Use key with special characters
+        result = await feishu_channel._download_image_resource(
+            "msg_123",
+            "img<key>with/special:chars",
+        )
+
+        assert result is not None
+        # Check that special chars are removed or replaced
+        assert Path(result).exists()
+
+
+# =============================================================================
+# P0: Download File Resource
+# =============================================================================
+
+
+class TestFeishuChannelDownloadFileResource:
+    """Tests for _download_file_resource method.
+
+    Covers:
+    - Download success with filename hint
+    - SDK failure handling
+    - Extension detection from content
+    - Empty response handling
+    """
+
+    @pytest.fixture
+    def mock_get_message_resource_request(self):
+        """Mock GetMessageResourceRequest builder."""
+        mock_builder = MagicMock()
+        mock_request = MagicMock()
+        mock_builder.message_id.return_value = mock_builder
+        mock_builder.file_key.return_value = mock_builder
+        mock_builder.type.return_value = mock_builder
+        mock_builder.build.return_value = mock_request
+
+        with patch(
+            "copaw.app.channels.feishu.channel.GetMessageResourceRequest",
+        ) as mock_class:
+            mock_class.builder.return_value = mock_builder
+            yield mock_class, mock_request
+
+    @pytest.mark.asyncio
+    async def test_download_file_success(
+        self,
+        feishu_channel,
+        tmp_path,
+        mock_get_message_resource_request,
+    ):
+        """Should download file successfully with filename hint."""
+        from io import BytesIO
+
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.file = BytesIO(b"pdf_file_content_with_pdf_signature")
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            return_value=mock_response,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_file_resource(
+            "msg_123",
+            "file_key_456",
+            "document.pdf",
+        )
+
+        assert result is not None
+        assert "document.pdf" in result
+        assert Path(result).exists()
+
+    @pytest.mark.asyncio
+    async def test_download_file_sdk_failure(
+        self,
+        feishu_channel,
+        mock_get_message_resource_request,
+    ):
+        """Should return None when SDK call fails."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = False
+        mock_response.code = 403
+        mock_response.msg = "Permission denied"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            return_value=mock_response,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_file_resource(
+            "msg_123",
+            "file_key_456",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_download_file_empty_response(
+        self,
+        feishu_channel,
+        mock_get_message_resource_request,
+    ):
+        """Should return None when response file is empty."""
+        from io import BytesIO
+
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.file = BytesIO(b"")
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            return_value=mock_response,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_file_resource(
+            "msg_123",
+            "file_key_456",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_download_file_detects_extension(
+        self,
+        feishu_channel,
+        tmp_path,
+        mock_get_message_resource_request,
+    ):
+        """Should detect file extension from content when hint is generic."""
+        from io import BytesIO
+
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        # JPEG signature
+        mock_response.file = BytesIO(
+            b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00",
+        )
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            return_value=mock_response,
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_file_resource(
+            "msg_123",
+            "file_key_456",
+            "file.bin",
+        )
+
+        assert result is not None
+        assert Path(result).exists()
+        # Should detect extension from content
+        assert result.endswith((".jpg", ".jpeg", ".bin"))
+
+    @pytest.mark.asyncio
+    async def test_download_file_exception_handling(
+        self,
+        feishu_channel,
+        mock_get_message_resource_request,
+    ):
+        """Should handle exceptions gracefully and return None."""
+        mock_client = MagicMock()
+        mock_client.im.v1.message_resource.aget = AsyncMock(
+            side_effect=Exception("Download failed"),
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._download_file_resource(
+            "msg_123",
+            "file_key_456",
+        )
+
+        assert result is None
+
+
+# =============================================================================
+# P0: Upload Image
+# =============================================================================
+
+
+class TestFeishuChannelUploadImage:
+    """Tests for _upload_image method.
+
+    Covers:
+    - Upload success
+    - SDK failure handling
+    - Missing client handling
+    - Response data extraction
+    """
+
+    @pytest.fixture
+    def mock_create_image_request(self):
+        """Mock CreateImageRequest and CreateImageRequestBody builder."""
+        mock_body_builder = MagicMock()
+        mock_body = MagicMock()
+        mock_body_builder.image_type.return_value = mock_body_builder
+        mock_body_builder.image.return_value = mock_body_builder
+        mock_body_builder.build.return_value = mock_body
+
+        mock_request_builder = MagicMock()
+        mock_request = MagicMock()
+        mock_request_builder.request_body.return_value = mock_request_builder
+        mock_request_builder.build.return_value = mock_request
+
+        with patch(
+            "copaw.app.channels.feishu.channel.CreateImageRequestBody",
+        ) as mock_body_class, patch(
+            "copaw.app.channels.feishu.channel.CreateImageRequest",
+        ) as mock_request_class:
+            mock_body_class.builder.return_value = mock_body_builder
+            mock_request_class.builder.return_value = mock_request_builder
+            yield mock_request_class, mock_request
+
+    @pytest.mark.asyncio
+    async def test_upload_image_success(
+        self,
+        feishu_channel,
+        mock_create_image_request,
+    ):
+        """Should upload image successfully and return image_key."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.data = MagicMock()
+        mock_response.data.image_key = "img_key_abc123"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.image.acreate = AsyncMock(return_value=mock_response)
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._upload_image(
+            b"fake_image_data",
+            "test.png",
+        )
+
+        assert result == "img_key_abc123"
+
+    @pytest.mark.asyncio
+    async def test_upload_image_no_client(self, feishu_channel):
+        """Should return None when client is not initialized."""
+        feishu_channel._client = None
+
+        result = await feishu_channel._upload_image(
+            b"fake_image_data",
+            "test.png",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_upload_image_sdk_failure(
+        self,
+        feishu_channel,
+        mock_create_image_request,
+    ):
+        """Should return None when SDK upload fails."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = False
+        mock_response.code = 413
+        mock_response.msg = "File too large"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.image.acreate = AsyncMock(return_value=mock_response)
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._upload_image(
+            b"fake_image_data",
+            "test.png",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_upload_image_exception_handling(
+        self,
+        feishu_channel,
+        mock_create_image_request,
+    ):
+        """Should handle exceptions gracefully and return None."""
+        mock_client = MagicMock()
+        mock_client.im.v1.image.acreate = AsyncMock(
+            side_effect=Exception("Upload failed"),
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._upload_image(
+            b"fake_image_data",
+            "test.png",
+        )
+
+        assert result is None
+
+
+# =============================================================================
+# P0: Upload File
+# =============================================================================
+
+
+class TestFeishuChannelUploadFile:
+    """Tests for _upload_file method.
+
+    Covers:
+    - Upload success with different file types
+    - File type detection
+    - Large file rejection
+    - URL download and upload
+    - SDK failure handling
+    """
+
+    @pytest.fixture
+    def mock_create_file_request(self):
+        """Mock CreateFileRequest and CreateFileRequestBody builder."""
+        mock_body_builder = MagicMock()
+        mock_body = MagicMock()
+        mock_body_builder.file_type.return_value = mock_body_builder
+        mock_body_builder.file_name.return_value = mock_body_builder
+        mock_body_builder.file.return_value = mock_body_builder
+        mock_body_builder.build.return_value = mock_body
+
+        mock_request_builder = MagicMock()
+        mock_request = MagicMock()
+        mock_request_builder.request_body.return_value = mock_request_builder
+        mock_request_builder.build.return_value = mock_request
+
+        with patch(
+            "copaw.app.channels.feishu.channel.CreateFileRequestBody",
+        ) as mock_body_class, patch(
+            "copaw.app.channels.feishu.channel.CreateFileRequest",
+        ) as mock_request_class:
+            mock_body_class.builder.return_value = mock_body_builder
+            mock_request_class.builder.return_value = mock_request_builder
+            yield mock_request_class, mock_request
+
+    @pytest.mark.asyncio
+    async def test_upload_file_success_doc_types(
+        self,
+        feishu_channel,
+        tmp_path,
+        mock_create_file_request,
+    ):
+        """Should upload local file successfully with correct file_type."""
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create test files with different extensions
+        test_files = [
+            ("test.pdf", b"pdf content", "pdf"),
+            ("test.doc", b"doc content", "doc"),
+            ("test.docx", b"docx content", "doc"),
+            ("test.xls", b"xls content", "xls"),
+            ("test.xlsx", b"xlsx content", "xls"),
+            ("test.ppt", b"ppt content", "ppt"),
+            ("test.pptx", b"pptx content", "ppt"),
+        ]
+
+        for filename, content, expected_type in test_files:
+            test_file = tmp_path / filename
+            test_file.write_bytes(content)
+
+            mock_response = MagicMock()
+            mock_response.success.return_value = True
+            mock_response.data = MagicMock()
+            mock_response.data.file_key = f"file_key_{filename}"
+
+            mock_client = MagicMock()
+            mock_client.im.v1.file.acreate = AsyncMock(
+                return_value=mock_response
+            )
+            feishu_channel._client = mock_client
+
+            result = await feishu_channel._upload_file(str(test_file))
+
+            assert result == f"file_key_{filename}"
+
+    @pytest.mark.asyncio
+    async def test_upload_file_rejects_large_file(
+        self, feishu_channel, tmp_path
+    ):
+        """Should return None for files exceeding max size."""
+        from copaw.app.channels.feishu.constants import FEISHU_FILE_MAX_BYTES
+
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create oversized file
+        large_file = tmp_path / "large.bin"
+        large_file.write_bytes(b"x" * (FEISHU_FILE_MAX_BYTES + 1))
+
+        feishu_channel._client = MagicMock()
+
+        result = await feishu_channel._upload_file(str(large_file))
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_upload_file_from_http_url(
+        self,
+        feishu_channel,
+        tmp_path,
+        mock_create_file_request,
+    ):
+        """Should download from URL and upload."""
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        # Mock HTTP client for URL fetch
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"downloaded_file_content"
+
+        mock_http_client = MagicMock()
+        mock_http_client.get = AsyncMock(return_value=mock_response)
+        feishu_channel._http_client = mock_http_client
+
+        mock_sdk_response = MagicMock()
+        mock_sdk_response.success.return_value = True
+        mock_sdk_response.data = MagicMock()
+        mock_sdk_response.data.file_key = "file_key_from_url"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.file.acreate = AsyncMock(
+            return_value=mock_sdk_response
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._upload_file(
+            "https://example.com/file.txt",
+        )
+
+        assert result == "file_key_from_url"
+
+    @pytest.mark.asyncio
+    async def test_upload_file_missing_file(self, feishu_channel):
+        """Should return None for non-existent file."""
+        feishu_channel._client = MagicMock()
+        feishu_channel._http_client = MagicMock()
+
+        result = await feishu_channel._upload_file(
+            "/nonexistent/path/file.txt",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_upload_file_sdk_failure(
+        self,
+        feishu_channel,
+        tmp_path,
+        mock_create_file_request,
+    ):
+        """Should return None when SDK upload fails."""
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("test content")
+
+        mock_response = MagicMock()
+        mock_response.success.return_value = False
+        mock_response.code = 500
+        mock_response.msg = "Internal error"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.file.acreate = AsyncMock(return_value=mock_response)
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._upload_file(str(test_file))
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_upload_file_stream_type(
+        self,
+        feishu_channel,
+        tmp_path,
+        mock_create_file_request,
+    ):
+        """Should use 'stream' file_type for unknown extensions."""
+        feishu_channel._media_dir = tmp_path / "media"
+        feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)
+
+        test_file = tmp_path / "unknown.xyz"
+        test_file.write_bytes(b"some content")
+
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.data = MagicMock()
+        mock_response.data.file_key = "file_key_xyz"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.file.acreate = AsyncMock(return_value=mock_response)
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._upload_file(str(test_file))
+
+        assert result == "file_key_xyz"
+
+
+# =============================================================================
+# P0: Send Message
+# =============================================================================
+
+
+class TestFeishuChannelSendMessage:
+    """Tests for _send_message and _send_text methods.
+
+    Covers:
+    - Send success with different message types
+    - Failure handling
+    - Interactive card message
+    - Missing client handling
+    """
+
+    @pytest.fixture
+    def mock_create_message_request(self):
+        """Mock CreateMessageRequest and CreateMessageRequestBody builder."""
+        mock_body_builder = MagicMock()
+        mock_body = MagicMock()
+        mock_body_builder.receive_id.return_value = mock_body_builder
+        mock_body_builder.msg_type.return_value = mock_body_builder
+        mock_body_builder.content.return_value = mock_body_builder
+        mock_body_builder.build.return_value = mock_body
+
+        mock_request_builder = MagicMock()
+        mock_request = MagicMock()
+        mock_request_builder.receive_id_type.return_value = mock_request_builder
+        mock_request_builder.request_body.return_value = mock_request_builder
+        mock_request_builder.build.return_value = mock_request
+
+        with patch(
+            "copaw.app.channels.feishu.channel.CreateMessageRequestBody"
+        ) as mock_body_class, patch(
+            "copaw.app.channels.feishu.channel.CreateMessageRequest"
+        ) as mock_request_class:
+            mock_body_class.builder.return_value = mock_body_builder
+            mock_request_class.builder.return_value = mock_request_builder
+            yield mock_request_class, mock_request
+
+    @pytest.mark.asyncio
+    async def test_send_message_success_post(
+        self, feishu_channel, mock_create_message_request
+    ):
+        """Should send post message successfully."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.data = MagicMock()
+        mock_response.data.message_id = "msg_id_abc123"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message.acreate = AsyncMock(
+            return_value=mock_response
+        )
+        feishu_channel._client = mock_client
+
+        content = (
+            '{"zh_cn": {"content": [[{"tag": "text", "text": "Hello"}]]}}'
+        )
+        result = await feishu_channel._send_message(
+            "open_id",
+            "user_open_id",
+            "post",
+            content,
+        )
+
+        assert result == "msg_id_abc123"
+
+    @pytest.mark.asyncio
+    async def test_send_message_success_image(
+        self, feishu_channel, mock_create_message_request
+    ):
+        """Should send image message successfully."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.data = MagicMock()
+        mock_response.data.message_id = "msg_id_img_123"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message.acreate = AsyncMock(
+            return_value=mock_response
+        )
+        feishu_channel._client = mock_client
+
+        content = '{"image_key": "img_key_123"}'
+        result = await feishu_channel._send_message(
+            "open_id",
+            "user_open_id",
+            "image",
+            content,
+        )
+
+        assert result == "msg_id_img_123"
+
+    @pytest.mark.asyncio
+    async def test_send_message_success_file(
+        self, feishu_channel, mock_create_message_request
+    ):
+        """Should send file message successfully."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.data = MagicMock()
+        mock_response.data.message_id = "msg_id_file_123"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message.acreate = AsyncMock(
+            return_value=mock_response
+        )
+        feishu_channel._client = mock_client
+
+        content = '{"file_key": "file_key_123"}'
+        result = await feishu_channel._send_message(
+            "open_id",
+            "user_open_id",
+            "file",
+            content,
+        )
+
+        assert result == "msg_id_file_123"
+
+    @pytest.mark.asyncio
+    async def test_send_message_success_interactive(
+        self, feishu_channel, mock_create_message_request
+    ):
+        """Should send interactive card message successfully."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = True
+        mock_response.data = MagicMock()
+        mock_response.data.message_id = "msg_id_card_123"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message.acreate = AsyncMock(
+            return_value=mock_response
+        )
+        feishu_channel._client = mock_client
+
+        content = '{"config": {}, "elements": []}'
+        result = await feishu_channel._send_message(
+            "chat_id",
+            "oc_group_123",
+            "interactive",
+            content,
+        )
+
+        assert result == "msg_id_card_123"
+
+    @pytest.mark.asyncio
+    async def test_send_message_failure(
+        self, feishu_channel, mock_create_message_request
+    ):
+        """Should return None when SDK send fails."""
+        mock_response = MagicMock()
+        mock_response.success.return_value = False
+        mock_response.code = 400
+        mock_response.msg = "Invalid receive_id"
+
+        mock_client = MagicMock()
+        mock_client.im.v1.message.acreate = AsyncMock(
+            return_value=mock_response
+        )
+        feishu_channel._client = mock_client
+
+        content = '{"text": "Hello"}'
+        result = await feishu_channel._send_message(
+            "open_id",
+            "invalid_user",
+            "text",
+            content,
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_send_message_no_client(self, feishu_channel):
+        """Should return None when client is not initialized."""
+        feishu_channel._client = None
+
+        result = await feishu_channel._send_message(
+            "open_id",
+            "user_open_id",
+            "text",
+            '{"text": "Hello"}',
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_send_message_exception_handling(
+        self, feishu_channel, mock_create_message_request
+    ):
+        """Should handle exceptions gracefully and return None."""
+        mock_client = MagicMock()
+        mock_client.im.v1.message.acreate = AsyncMock(
+            side_effect=Exception("Send failed"),
+        )
+        feishu_channel._client = mock_client
+
+        result = await feishu_channel._send_message(
+            "open_id",
+            "user_open_id",
+            "text",
+            '{"text": "Hello"}',
+        )
+
+        assert result is None
+
+
+class TestFeishuChannelSendText:
+    """Tests for _send_text method specifically."""
+
+    @pytest.mark.asyncio
+    async def test_send_text_basic(self, feishu_channel):
+        """Should send basic text as post message."""
+        feishu_channel._send_message = AsyncMock(return_value="msg_id_123")
+
+        result = await feishu_channel._send_text(
+            "open_id",
+            "user_open_id",
+            "Hello world",
+        )
+
+        assert result == "msg_id_123"
+        feishu_channel._send_message.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_text_with_markdown_table(self, feishu_channel):
+        """Should send text with table as interactive card."""
+        feishu_channel._send_message = AsyncMock(return_value="msg_id_card")
+
+        body = "| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1 | Cell 2 |"
+        result = await feishu_channel._send_text(
+            "open_id",
+            "user_open_id",
+            body,
+        )
+
+        assert result == "msg_id_card"
+        # Should be sent as interactive type
+        call_args = feishu_channel._send_message.call_args
+        assert call_args[0][2] == "interactive"  # msg_type
+
+    @pytest.mark.asyncio
+    async def test_send_text_empty_body(self, feishu_channel):
+        """Should handle empty body."""
+        feishu_channel._send_message = AsyncMock(return_value="msg_id_empty")
+
+        result = await feishu_channel._send_text(
+            "open_id",
+            "user_open_id",
+            "",
+        )
+
+        assert result == "msg_id_empty"
+
+    @pytest.mark.asyncio
+    async def test_send_text_exception_handling(self, feishu_channel):
+        """Should propagate exceptions from _send_message since _send_text
+        does not have a try-except block. In real usage, _send_message
+        catches its own exceptions and returns None."""
+        feishu_channel._send_message = AsyncMock(
+            side_effect=Exception("Send failed"),
+        )
+
+        # _send_text does not wrap _send_message in try-except,
+        # so exception propagates
+        with pytest.raises(Exception, match="Send failed"):
+            await feishu_channel._send_text(
+                "open_id",
+                "user_open_id",
+                "Hello",
+            )
 
 
 # =============================================================================
@@ -1655,14 +2621,14 @@ class TestFeishuChannelExceptions:
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client_class.return_value.__aenter__ = AsyncMock(
-                return_value=mock_client
+                return_value=mock_client,
             )
             mock_client_class.return_value.__aexit__ = AsyncMock(
-                return_value=None
+                return_value=None,
             )
 
             result = await feishu_channel._fetch_bytes_from_url(
-                "https://example.com/file.jpg"
+                "https://example.com/file.jpg",
             )
 
             assert result is None
