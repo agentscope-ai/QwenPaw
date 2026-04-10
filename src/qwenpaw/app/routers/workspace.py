@@ -74,7 +74,7 @@ def _extract_and_merge_zip(data: bytes, workspace_dir: Path) -> None:
     """Extract zip data and merge into workspace_dir (blocking operation)."""
     tmp_dir = None
     try:
-        tmp_dir = Path(tempfile.mkdtemp(prefix="copaw_upload_"))
+        tmp_dir = Path(tempfile.mkdtemp(prefix="qwenpaw_upload_"))
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             zf.extractall(tmp_dir)
 
@@ -139,7 +139,7 @@ async def download_workspace(request: Request):
     buf = await asyncio.to_thread(_zip_directory, workspace_dir)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"copaw_workspace_{agent.agent_id}_{timestamp}.zip"
+    filename = f"qwenpaw_workspace_{agent.agent_id}_{timestamp}.zip"
 
     return StreamingResponse(
         buf,
@@ -157,7 +157,7 @@ async def download_workspace(request: Request):
     description=(
         "Upload a zip archive.  Paths present in the zip are merged into "
         "agent workspace (files overwritten, dirs merged).  Paths not in "
-        "the zip are left unchanged (e.g. copaw.db, runtime dirs). "
+        "the zip are left unchanged (e.g. qwenpaw.db, runtime dirs). "
         "Download packs the entire workspace; upload only "
         "overwrites/merges zip contents."
     ),

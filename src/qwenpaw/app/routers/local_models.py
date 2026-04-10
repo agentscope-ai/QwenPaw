@@ -38,13 +38,13 @@ def _clear_local_runtime_provider_state(
 ) -> None:
     """Reset persisted provider state for the managed local runtime."""
     provider_manager.update_provider(
-        "copaw-local",
+        "qwenpaw-local",
         {
             "base_url": "",
             "extra_models": [],
         },
     )
-    provider_manager.clear_active_model("copaw-local")
+    provider_manager.clear_active_model("qwenpaw-local")
 
 
 class ServerStatus(BaseModel):
@@ -300,14 +300,14 @@ async def start_llamacpp_server(
 
     try:
         provider_manager.update_provider(
-            "copaw-local",
+            "qwenpaw-local",
             {
                 "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
                 "extra_models": [setup_result.model_info],
             },
         )
         await provider_manager.activate_model(
-            provider_id="copaw-local",
+            provider_id="qwenpaw-local",
             model_id=setup_result.model_info.id,
         )
     except (ValueError, AppBaseException) as exc:
@@ -429,7 +429,7 @@ async def configure_local_model_settings(
 
     if payload.generate_kwargs is not None:
         provider_manager.update_provider(
-            "copaw-local",
+            "qwenpaw-local",
             {
                 "generate_kwargs": payload.generate_kwargs,
             },
