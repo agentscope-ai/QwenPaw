@@ -540,34 +540,6 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
         raise HTTPException(status_code=404, detail="Not Found")
 
-    @app.get("/logo.png")
-    def _console_logo():
-        f = _console_path / "logo.png"
-        if f.is_file():
-            return FileResponse(f, media_type="image/png")
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    @app.get("/dark-logo.png")
-    def _console_dark_logo():
-        f = _console_path / "dark-logo.png"
-        if f.is_file():
-            return FileResponse(f, media_type="image/png")
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    @app.get("/qwenpaw-symbol.svg")
-    def _console_icon():
-        f = _console_path / "qwenpaw-symbol.svg"
-        if f.is_file():
-            return FileResponse(f, media_type="image/svg+xml")
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    @app.get("/qwenpaw-dark.png")
-    def _console_dark_icon():
-        f = _console_path / "qwenpaw-dark.png"
-        if f.is_file():
-            return FileResponse(f, media_type="image/png")
-        raise HTTPException(status_code=404, detail="Not Found")
-
     _assets_dir = _console_path / "assets"
     if _assets_dir.is_dir():
         app.mount(
