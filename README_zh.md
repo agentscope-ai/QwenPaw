@@ -104,7 +104,7 @@ qwenpaw app
 然后在浏览器中打开控制台：**http://127.0.0.1:8088/**，配置模型后即可开始对话。
 若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://qwenpaw.agentscope.io/docs/channels) 文档。
 
-![Console](https://img.alicdn.com/imgextra/i2/O1CN01h8X6HZ1g2z3lhP0uP_!!6000000004085-2-tps-3822-2144.png)
+![Console](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
 
 ---
 

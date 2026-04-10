@@ -107,7 +107,7 @@ qwenpaw app
 Затем откройте консоль в браузере: **http://127.0.0.1:8088/**, настройте модель и начните диалог.
 Для использования в DingTalk, Feishu, WeChat и других приложениях см. документацию [Настройка каналов](https://qwenpaw.agentscope.io/docs/channels).
 
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01tqG9E621WqoqaCAPN_!!6000000006993-2-tps-3822-2144.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01Kbpbrl1JAYRjlCCpq_!!6000000000988-2-tps-3442-2062.png)
 
 ---
 

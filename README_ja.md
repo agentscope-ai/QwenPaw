@@ -106,7 +106,7 @@ qwenpaw app
 
 ブラウザで **http://127.0.0.1:8088/** を開いてコンソールでモデルを設定します。DingTalk、Feishu、WeChat などでチャットするには、[チャネル設定](https://qwenpaw.agentscope.io/docs/channels)ドキュメントを参照してください。
 
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01pyaTXq1nqAuRBGbJc_!!6000000005140-2-tps-3822-2144.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01zDl0T41m4Fr71McSx_!!6000000004900-2-tps-3442-2062.png)
 
 ---
 

@@ -216,7 +216,7 @@ QwenPaw 内置的本地提供商均可接入 QwenPaw-Flash 模型：
 
 直接在 QwenPaw Local 的模型界面中选择下载 QwenPaw-Flash 模型并启动即可。
 
-![Start Model](https://gw.alicdn.com/imgextra/i1/O1CN01NSNFUN1I21RynZwGy_!!6000000000834-2-tps-1224-1194.png)
+![Start Model](https://img.alicdn.com/imgextra/i2/O1CN01Nl0aQb1a3XqqosqAC_!!6000000003274-2-tps-1342-1682.png)
 
 > QwenPaw Local 目前仍处于测试阶段，对不同设备的兼容性以及运行稳定性仍在持续优化中，如果你在使用过程中遇到任何问题，欢迎随时在 GitHub 上提 issue 反馈。
 > 如果无法正常使用 QwenPaw Local，建议先使用 Ollama 或 LM Studio 部署 QwenPaw-Flash 模型。

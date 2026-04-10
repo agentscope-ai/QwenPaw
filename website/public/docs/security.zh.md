@@ -144,7 +144,7 @@ QwenPaw 的安全系统由三个核心安全层组成:
 
 在控制台 **设置 → 安全 → 工具防护** 标签页中,你可以:
 
-![tool guard](https://img.alicdn.com/imgextra/i3/O1CN01YbncNv1vjmIspo3od_!!6000000006209-2-tps-3822-2064.png)
+![tool guard](https://img.alicdn.com/imgextra/i1/O1CN01aAqcPv290Ldjj8NNi_!!6000000008005-2-tps-3822-2070.png)
 
 - **启用/禁用工具守卫** — 总开关,关闭后所有工具调用不做检查
 - **选择守护范围** — 留空守护所有工具,或指定需要守护的工具列表
@@ -261,7 +261,7 @@ QwenPaw 的安全系统由三个核心安全层组成:
 
 在控制台 **设置 → 安全 → 文件防护** 标签页中,你可以:
 
-![file guard](https://img.alicdn.com/imgextra/i1/O1CN01opqmGz27U032Jr2RM_!!6000000007799-2-tps-3822-2064.png)
+![file guard](https://img.alicdn.com/imgextra/i4/O1CN01EqUuWs1sPDgDvsbeV_!!6000000005758-2-tps-3822-2070.png)
 
 - **启用/禁用文件防护** — 独立开关,可在不影响工具守卫其他功能的情况下单独控制文件保护
 - **查看保护列表** — 表格形式展示所有受保护的路径:
@@ -352,7 +352,7 @@ QwenPaw 的安全系统由三个核心安全层组成:
 
 在控制台 **设置 → 安全 → 技能扫描器** 标签页中,你可以:
 
-![skill scanner](https://img.alicdn.com/imgextra/i1/O1CN01sLbUCB1gLlIULIWjb_!!6000000004126-2-tps-3822-2064.png)
+![skill scanner](https://img.alicdn.com/imgextra/i4/O1CN01c4UGLh1Yd9PbL2bZC_!!6000000003081-2-tps-3822-2070.png)
 
 **配置区**:
 
@@ -361,7 +361,7 @@ QwenPaw 的安全系统由三个核心安全层组成:
 
 **扫描告警标签页** (有告警时显示数字角标):
 
-![alarm](https://img.alicdn.com/imgextra/i2/O1CN01lye8M721IC94SUEMO_!!6000000006961-2-tps-3822-2064.png)
+![alarm](https://img.alicdn.com/imgextra/i1/O1CN013IUVEk26x1X9MtFen_!!6000000007727-2-tps-3822-2070.png)
 
 - 查看所有拦截和警告记录
 - 点击眼睛图标查看详细发现
@@ -371,7 +371,7 @@ QwenPaw 的安全系统由三个核心安全层组成:
 
 **白名单标签页** (有条目时显示数字角标):
 
-![white list](https://img.alicdn.com/imgextra/i2/O1CN01hT7yLd21lVUdX82zo_!!6000000007025-2-tps-3822-2064.png)
+![white list](https://img.alicdn.com/imgextra/i3/O1CN01aQ0miE1kzO1vB34Vu_!!6000000004754-2-tps-3822-2070.png)
 
 - 查看所有已加入白名单的技能
 - 显示技能名称、内容哈希(前16字符)、添加时间
@@ -531,7 +531,7 @@ scanner = SkillScanner(policy=policy)
 
 QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。认证**默认关闭**,需要通过 `QWENPAW_AUTH_ENABLED` 环境变量显式启用。
 
-![login](https://img.alicdn.com/imgextra/i4/O1CN01oQyuxV1giChoxYKqt_!!6000000004175-2-tps-3822-2064.png)
+![login](https://img.alicdn.com/imgextra/i4/O1CN01VdXCuP1tWpsl0TlQ5_!!6000000005910-2-tps-3822-2070.png)
 
 ### 工作原理
 

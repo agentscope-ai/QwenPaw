@@ -2,7 +2,7 @@
 
 Before using QwenPaw, you need to configure at least one available model. QwenPaw supports multiple model providers, which you can configure and manage on the **Settings -> Models** page in the left sidebar.
 
-![Settings Models](https://gw.alicdn.com/imgextra/i3/O1CN01MmM8iv1rcfh95wdn3_!!6000000005652-2-tps-3394-1880.png)
+![Settings Models](https://img.alicdn.com/imgextra/i3/O1CN011pmbBt1sDJNlaFem4_!!6000000005732-2-tps-3826-2076.png)
 
 QwenPaw supports various LLM providers:
 
@@ -26,23 +26,23 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 QwenPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
 
-![QwenPaw Local Provider](https://gw.alicdn.com/imgextra/i4/O1CN01OAi8oN1acoLWlsm6B_!!6000000003351-2-tps-2410-1634.png)
+![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i2/O1CN01d2O5Bi1oUwA5J27XE_!!6000000005229-2-tps-3826-2076.png)
 
 When configuring QwenPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and QwenPaw will automatically download and configure the runtime. Once the download is complete, you can use the QwenPaw Local provider.
 
-![Download llama.cpp](https://gw.alicdn.com/imgextra/i3/O1CN01Nqs9Cg1Vp6uA2WdiM_!!6000000002701-2-tps-1270-874.png)
+![Download llama.cpp](https://img.alicdn.com/imgextra/i1/O1CN01VhSJKd1yhtWZ0SgYc_!!6000000006611-2-tps-1530-1290.png)
 
 QwenPaw team has trained a series of small models (the QwenPaw-Flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), QwenPaw will automatically recommend suitable model versions for you. If you want to use QwenPaw-Flash, simply choose an appropriate version here, download it, and start it. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to where the model is downloaded from. Currently, ModelScope and Hugging Face are supported.
 
-![Download Model](https://gw.alicdn.com/imgextra/i2/O1CN01IF2OXz1c99w9W8XGU_!!6000000003557-2-tps-1226-1202.png)
+![Download Model](https://img.alicdn.com/imgextra/i4/O1CN01ualQNr1KMkbpBiuTa_!!6000000001150-2-tps-1342-1680.png)
 
 After the model is downloaded, you can click the **Start** button to launch the model. The startup time may vary depending on the model size. Once started, QwenPaw will automatically set this model as the global default. Only one model can be running at a time; starting another model will automatically stop the currently running one.
 
-![Start Model](https://gw.alicdn.com/imgextra/i1/O1CN01NSNFUN1I21RynZwGy_!!6000000000834-2-tps-1224-1194.png)
+![Start Model](https://img.alicdn.com/imgextra/i4/O1CN019nuWG21Zy36HLYRWR_!!6000000003262-2-tps-1344-1678.png)
 
 When you do not need to use a model temporarily, you can click **Stop** to stop the model service.
 
-![Stop Model](https://gw.alicdn.com/imgextra/i4/O1CN01ewNXXD1nMrYq8zvuC_!!6000000005076-2-tps-1230-1284.png)
+![Stop Model](https://img.alicdn.com/imgextra/i2/O1CN01fkeHhn1onG0ItKjT5_!!6000000005269-2-tps-1358-1786.png)
 
 QwenPaw Local will automatically record the model's running state. If you close the QwenPaw process while a QwenPaw Local model is running, it will attempt to restart the last used model the next time you open QwenPaw, so you do not need to start the model manually each time.
 
@@ -95,7 +95,7 @@ ollama create qwenpaw-flash -f qwenpaw-flash.txt
 
 After installing and configuring Ollama, go to the **Models** page of the QwenPaw Ollama provider and click **Discover Models** to get the list of available Ollama models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
 
-![Ollama Model List](https://gw.alicdn.com/imgextra/i3/O1CN01esQyTg1eSyIlpRK69_!!6000000003871-2-tps-1208-1322.png)
+![Ollama Model List](https://img.alicdn.com/imgextra/i1/O1CN01BbAw7o1W7QkXG8C8k_!!6000000002741-2-tps-1290-1504.png)
 
 ## LM Studio Configuration
 
@@ -159,7 +159,7 @@ Currently supported cloud providers include:
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 
-![Cloud Provider List](https://gw.alicdn.com/imgextra/i3/O1CN01EoK2LV2AH7lFM4GJu_!!6000000008177-2-tps-3402-1942.png)
+![Cloud Provider List](https://img.alicdn.com/imgextra/i1/O1CN01rdAXCF1ogqSRScNHI_!!6000000005255-2-tps-3826-2076.png)
 
 To activate a cloud provider, go to the provider's configuration page. Most cloud providers have pre-configured base URL; you only need to enter your API Key.
 
@@ -171,11 +171,11 @@ After entering the API Key, click the **Test Connection** button. The system wil
 
 Once the cloud provider is configured, you can further check if the models are available. A series of models are preset for each cloud provider. You can click the **Test Connection** button for a specific model on the provider's model management page to verify if the model is working properly.
 
-![Model Connection Test Result](https://gw.alicdn.com/imgextra/i3/O1CN01aAyd2L1N77wX0OvtY_!!6000000001522-2-tps-1150-1154.png)
+![Model Connection Test Result](https://img.alicdn.com/imgextra/i3/O1CN01tKRARl1UaAMsQC4En_!!6000000002533-2-tps-1268-1508.png)
 
 If the preset models do not meet your needs, you can also click **Add Model** on the model management page to add new models. When adding, you need to provide the **Model ID** (the identifier used by the API, usually found in the provider's documentation) and the **Model Name** (for display in the UI). Manually added models can also be tested using the **Test Connection** button.
 
-![Add Model](https://gw.alicdn.com/imgextra/i1/O1CN01FBIdEH1ud4tTIHpEZ_!!6000000006059-2-tps-1148-1342.png)
+![Add Model](https://img.alicdn.com/imgextra/i3/O1CN01gvYta11FXfyhNGE89_!!6000000000497-2-tps-1260-1692.png)
 
 ## Custom Provider Configuration
 
@@ -185,13 +185,13 @@ If the preset cloud and local providers do not meet your needs, QwenPaw also sup
 
 You can add a new provider by clicking **Add Provider** in the upper right corner of **Settings -> Models -> Providers**. When adding, you need to provide the **Provider ID** (for internal indexing in QwenPaw) and **Provider Name** (for display in the UI), and select the API compatibility mode (currently supports OpenAI `chat.completions` and Anthropic `messages`). After adding, you can add models under this provider just like with cloud providers, and select the provider's models in chat and other scenarios.
 
-![Add Provider](https://gw.alicdn.com/imgextra/i1/O1CN01UE3Vbu1hGYPWlzpps_!!6000000004250-2-tps-3394-1882.png)
+![Add Provider](https://img.alicdn.com/imgextra/i4/O1CN011733V426ODQt6xkrv_!!6000000007651-2-tps-3826-2076.png)
 
 ### Configure Provider
 
 After adding a provider, go to its **Settings** page to configure the API access information, including _Base URL_ and _API Key_.
 
-![Custom Provider Settings](https://gw.alicdn.com/imgextra/i1/O1CN01naWZLN1T8OjjlOtWo_!!6000000002337-2-tps-1118-1172.png)
+![Custom Provider Settings](https://img.alicdn.com/imgextra/i2/O1CN01XHC4521TzWgODbUFa_!!6000000002453-2-tps-1180-1204.png)
 
 ### Add Model
 
@@ -203,11 +203,11 @@ After configuring a custom provider, go to its **Models** page and click **Add M
 
 Configured model providers and models will appear in the **Settings -> Models -> Default LLM** list. You can select a model as the global default and click the **Save** button on the right. The model set on this page will be used as the global default by QwenPaw. If you do not specify a model in certain scenarios (such as chat), QwenPaw will use the default model set here.
 
-![Default Model Settings](https://gw.alicdn.com/imgextra/i4/O1CN01NH2eBZ1UBQyhucWdj_!!6000000002479-2-tps-3388-808.png)
+![Default Model Settings](https://img.alicdn.com/imgextra/i3/O1CN01DBvdcd1RQ8qrz5PAG_!!6000000002105-2-tps-3814-964.png)
 
 Since different tasks may require different model capabilities, QwenPaw also supports using different models in different chats. You can select the appropriate provider and model from the dropdown menu in the upper right corner of the **Chat** page. This setting only applies to the current agent and chat. If you do not configure a provider or model in the chat page, QwenPaw will use the global default model.
 
-![Chat Model Settings](https://gw.alicdn.com/imgextra/i3/O1CN01BjQlqH1eC1eC7xNm8_!!6000000003834-2-tps-3402-1768.png)
+![Chat Model Settings](https://img.alicdn.com/imgextra/i4/O1CN01E8McfR1ZToxYO1ddD_!!6000000003196-2-tps-3826-2076.png)
 
 ## Advanced Model Configuration
 
@@ -237,4 +237,4 @@ Since different models and tasks may require different generation parameters (su
 
 After configuring, click **Save**. QwenPaw will automatically include these parameters when generating with models from this provider.
 
-![Generation Parameters](https://gw.alicdn.com/imgextra/i2/O1CN01et3R371uamugLZiT0_!!6000000006054-2-tps-1078-1732.png)
+![Generation Parameters](https://img.alicdn.com/imgextra/i1/O1CN0194Bihd239bxJwoVpi_!!6000000007213-2-tps-1180-1858.png)
