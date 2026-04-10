@@ -574,7 +574,7 @@ def test_start_download_delegates_to_process_controller(
 
     assert controller.started_spec is not None
     assert controller.started_spec.command == [
-        "copaw-llamacpp-download",
+        "qwenpaw-llamacpp-download",
         "https://example.com/releases/b1234/"
         "llama-b1234-bin-ubuntu-x64.tar.gz",
     ]

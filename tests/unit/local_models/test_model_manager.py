@@ -80,7 +80,7 @@ def test_start_download_uses_reachable_source(
 
     assert controller.started_spec is not None
     assert controller.started_spec.command == [
-        "copaw-model-download",
+        "qwenpaw-model-download",
         "Qwen/Qwen2-0.5B-Instruct-GGUF",
         "modelscope",
     ]
@@ -247,7 +247,7 @@ def test_start_download_uses_explicit_source_without_probe(
 
     assert controller.started_spec is not None
     assert controller.started_spec.command == [
-        "copaw-model-download",
+        "qwenpaw-model-download",
         "Qwen/Qwen2-0.5B-Instruct-GGUF",
         "huggingface",
     ]
