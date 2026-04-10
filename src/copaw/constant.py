@@ -157,6 +157,12 @@ CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 # Local models directory
 MODELS_DIR = WORKING_DIR / "models"
 
+# Placeholder text used when request-time or fallback normalization strips
+# media blocks for a model that does not support them.
+MEDIA_UNSUPPORTED_PLACEHOLDER = (
+    "[Media content removed - model does not support this media type]"
+)
+
 MEMORY_COMPACT_KEEP_RECENT = EnvVarLoader.get_int(
     "COPAW_MEMORY_COMPACT_KEEP_RECENT",
     3,

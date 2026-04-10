@@ -54,6 +54,7 @@ from .tools import (
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
+    MEDIA_UNSUPPORTED_PLACEHOLDER,
     WORKING_DIR,
 )
 from ..agents.memory import BaseMemoryManager
@@ -944,10 +945,6 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         ]
         return any(kw in error_str for kw in keywords)
 
-    _MEDIA_PLACEHOLDER = (
-        "[Media content removed - model does not support this media type]"
-    )
-
     def _strip_media_blocks_from_memory(self) -> int:
         """Remove media blocks (image/audio/video) from all messages.
 
@@ -991,13 +988,16 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                     stripped_count = original_len - len(block["output"])
                     total_stripped += stripped_count
                     if stripped_count > 0 and not block["output"]:
-                        block["output"] = self._MEDIA_PLACEHOLDER
+                        block["output"] = MEDIA_UNSUPPORTED_PLACEHOLDER
 
                 new_content.append(block)
 
             if not new_content and total_stripped > 0:
                 new_content.append(
-                    {"type": "text", "text": self._MEDIA_PLACEHOLDER},
+                    {
+                        "type": "text",
+                        "text": MEDIA_UNSUPPORTED_PLACEHOLDER,
+                    },
                 )
 
             msg.content = new_content

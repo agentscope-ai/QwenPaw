@@ -13,12 +13,10 @@ from copy import deepcopy
 
 from agentscope.message import Msg
 
+from ...constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from .tool_message_utils import _sanitize_tool_messages
 
 _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
-_MEDIA_PLACEHOLDER = (
-    "[Media content removed - model does not support this media type]"
-)
 
 
 def _clone_msg(msg: Msg) -> Msg:
@@ -72,13 +70,13 @@ def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
                 total_stripped += stripped_count
                 stripped_this_message += stripped_count
                 if stripped_count > 0 and not block["output"]:
-                    block["output"] = _MEDIA_PLACEHOLDER
+                    block["output"] = MEDIA_UNSUPPORTED_PLACEHOLDER
 
             new_content.append(block)
 
         if not new_content and stripped_this_message > 0:
             new_content.append(
-                {"type": "text", "text": _MEDIA_PLACEHOLDER},
+                {"type": "text", "text": MEDIA_UNSUPPORTED_PLACEHOLDER},
             )
 
         msg.content = new_content
