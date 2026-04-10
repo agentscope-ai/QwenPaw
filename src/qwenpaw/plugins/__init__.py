@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CoPaw Plugin System."""
+"""QwenPaw Plugin System."""
 
 from .loader import PluginLoader
 from .registry import PluginRegistry

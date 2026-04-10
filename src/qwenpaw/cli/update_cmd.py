@@ -278,7 +278,7 @@ def _confirm_force_shutdown(running: RunningServiceInfo) -> bool:
     click.echo("")
     click.secho("!" * 72, fg="yellow", bold=True)
     click.secho(
-        "WARNING: RUNNING COPAW SERVICE DETECTED",
+        "WARNING: RUNNING QWENPAW SERVICE DETECTED",
         fg="yellow",
         bold=True,
     )
