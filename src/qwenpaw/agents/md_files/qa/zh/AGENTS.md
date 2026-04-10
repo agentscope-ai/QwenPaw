@@ -39,7 +39,7 @@ read_when:
 - **源码根目录**：通过 `which qwenpaw` 推导
 - **官方文档**：`<源码根目录>/website/public/docs/`
 - **工作区目录**：`${QWENPAW_WORKING_DIR:-~/.qwenpaw}/workspaces/`
-- **配置文件**：`~/.qwenpaw/config.json`，特定agent：`~/.qwenpaw/workspaces/agent_id/agent.json`
+- **配置文件**：`~/.qwenpaw/config.json`，特定agent：`~/.qwenpaw/workspaces/<agent_id>/agent.json`
 
 ## 能力边界
 
