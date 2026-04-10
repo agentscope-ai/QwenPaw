@@ -1,8 +1,8 @@
 ---
 name: multi_agent_collaboration
-description: Use this skill when another agent's expertise/context is needed, or when the user explicitly asks to involve another agent. First use the built-in list_agents tool to discover targets, then use the built-in agent_chat tool for agent-to-agent collaboration; use copaw agents commands only for manual debugging. | 当需要其他 agent 的专长/上下文，或用户明确要求调用其他 agent 时使用；先用内置 list_agents 工具查目标，再默认用内置 agent_chat 工具进行双向协作，copaw agents 命令仅用于人工调试。
+description: Use this skill when another agent's expertise/context is needed, or when the user explicitly asks to involve another agent. | 当需要其他 agent 的专长/上下文，或用户明确要求调用其他 agent 时使用。
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   copaw:
     emoji: "🤝"
 ---
