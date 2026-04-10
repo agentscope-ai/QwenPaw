@@ -19,7 +19,8 @@ const defaultConfig = {
     greeting: "Hello, how can I help you today?",
     description:
       "I am a helpful assistant that can help you with your questions.",
-    avatar: `${import.meta.env.BASE_URL}qwenpaw-symbol.svg`,
+    avatar:
+      "https://gw.alicdn.com/imgextra/i2/O1CN01AhpakO1sQ8TLGlBox_!!6000000005760-55-tps-175-235.svg",
     prompts: [
       {
         value: "Let's start a new journey!",
