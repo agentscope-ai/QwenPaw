@@ -411,7 +411,8 @@ def agents_group() -> None:
     \b
     Examples:
       copaw agents list
-            copaw agents chat --from-agent bot_a --to-agent bot_b --text-file ./request.txt
+      copaw agents chat --from-agent bot_a \\
+        --to-agent bot_b --text-file ./request.txt
     """
 
 
