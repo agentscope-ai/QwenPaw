@@ -67,6 +67,47 @@ def _is_approval(text: str) -> bool:
     return normalized in _APPROVE_EXACT
 
 
+def _convert_approval_request_block(
+    element: dict,
+    message,
+    last: bool,
+    tool_start: bool,
+    metadata: dict | None,
+    usage: dict | None,
+):
+    """Convert an approval_request content block into MCP_APPROVAL_REQUEST
+    runtime Message events for the frontend Approval component."""
+    from agentscope_runtime.engine.schemas.agent_schemas import (
+        DataContent,
+        Message,
+        MessageType,
+        RunStatus,
+    )
+
+    approval_msg = Message(
+        type=MessageType.MCP_APPROVAL_REQUEST,
+        role="assistant",
+        status=RunStatus.Completed,
+    )
+    if metadata:
+        approval_msg.metadata = metadata
+
+    data_content = DataContent(
+        delta=False,
+        data={
+            "id": element.get("id", ""),
+            "name": element.get("name", ""),
+            "arguments": element.get("arguments", ""),
+            "server_label": element.get("server_label", ""),
+        },
+    )
+    approval_msg.add_content(new_content=data_content)
+
+    yield approval_msg.in_progress()
+    yield data_content.completed()
+    yield approval_msg.completed()
+
+
 class AgentRunner(Runner):
     def __init__(
         self,
@@ -85,6 +126,9 @@ class AgentRunner(Runner):
         self._workspace: Any = None  # Workspace instance for control commands
         self.memory_manager: BaseMemoryManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
+        self.out_type_converters = {
+            "approval_request": _convert_approval_request_block,
+        }
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
