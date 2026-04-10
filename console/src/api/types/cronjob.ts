@@ -23,6 +23,14 @@ export interface CronJobRuntime {
   misfire_grace_seconds?: number;
 }
 
+export interface CronJobExecutionSession {
+  mode?: "dispatch" | "new_per_run";
+}
+
+export interface CronJobExecution {
+  session?: CronJobExecutionSession;
+}
+
 export interface CronJobRequest {
   input: unknown;
   session_id?: string | null;
@@ -39,6 +47,7 @@ export interface CronJobSpecInput {
   text?: string;
   request?: CronJobRequest;
   dispatch: CronJobDispatch;
+  execution?: CronJobExecution;
   runtime?: CronJobRuntime;
   meta?: Record<string, unknown>;
 }

@@ -70,6 +70,7 @@ function CronJobsPage() {
           : "",
       },
       cronType: cronParts.type,
+      sessionStrategy: job.execution?.session?.mode || "dispatch",
     };
 
     // Set time picker value
@@ -157,7 +158,18 @@ function CronJobsPage() {
         ...values.schedule,
         cron: cronExpression,
       },
+      execution: {
+        session: {
+          mode: values.sessionStrategy || "dispatch",
+        },
+      },
     };
+
+    delete (processedValues as any).sessionStrategy;
+    if (processedValues.request) {
+      delete (processedValues.request as any).session_id;
+      delete (processedValues.request as any).user_id;
+    }
 
     // Parse request input JSON
     if (values.request?.input && typeof values.request.input === "string") {
@@ -165,7 +177,7 @@ function CronJobsPage() {
         processedValues = {
           ...processedValues,
           request: {
-            ...values.request,
+            ...(processedValues.request || {}),
             input: JSON.parse(values.request.input as any),
           },
         };

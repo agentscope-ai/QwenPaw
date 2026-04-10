@@ -10,6 +10,12 @@ export const DEFAULT_FORM_VALUES = {
   cronType: "daily",
   cronTime: dayjs().hour(9).minute(0),
   task_type: "agent" as const,
+  execution: {
+    session: {
+      mode: "dispatch" as const,
+    },
+  },
+  sessionStrategy: "dispatch" as const,
   dispatch: {
     type: "channel" as const,
     channel: "console",

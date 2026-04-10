@@ -7,6 +7,7 @@ import {
   Switch,
   Button,
   Checkbox,
+  Radio,
 } from "@agentscope-ai/design";
 import { TimePicker } from "antd";
 import { useTranslation } from "react-i18next";
@@ -329,19 +330,29 @@ export function JobDrawer({
         </Form.Item>
 
         <Form.Item
-          name={["request", "session_id"]}
-          label={t("cronJobs.requestSessionId")}
-          tooltip={t("cronJobs.requestSessionIdTooltip")}
+          name="sessionStrategy"
+          label={t("cronJobs.executionSessionStrategy")}
+          tooltip={t("cronJobs.executionSessionStrategyTooltip")}
+          initialValue="dispatch"
         >
-          <Input placeholder="default" />
+          <Radio.Group>
+            <Radio value="dispatch">
+              {t("cronJobs.executionSessionReuseDispatch")}
+            </Radio>
+            <Radio value="new_per_run">
+              {t("cronJobs.executionSessionNewPerRun")}
+            </Radio>
+          </Radio.Group>
         </Form.Item>
 
-        <Form.Item
-          name={["request", "user_id"]}
-          label={t("cronJobs.requestUserId")}
-          tooltip={t("cronJobs.requestUserIdTooltip")}
-        >
-          <Input placeholder="system" />
+        <Form.Item noStyle shouldUpdate>
+          {({ getFieldValue }) =>
+            getFieldValue("sessionStrategy") === "new_per_run" ? (
+              <div className={styles.formExtraText} style={{ marginBottom: 16 }}>
+                {t("cronJobs.executionSessionNewPerRunHint")}
+              </div>
+            ) : null
+          }
         </Form.Item>
 
         <Form.Item name={["dispatch", "type"]} label="DispatchType" hidden>
@@ -370,11 +381,11 @@ export function JobDrawer({
 
         <Form.Item
           name={["dispatch", "target", "session_id"]}
-          label={t("cronJobs.dispatchTargetSessionId")}
+          label={t("cronJobs.outputSession")}
           rules={[
             { required: true, message: t("cronJobs.pleaseInputSessionId") },
           ]}
-          tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
+          tooltip={t("cronJobs.outputSessionTooltip")}
         >
           <Input placeholder="default" />
         </Form.Item>

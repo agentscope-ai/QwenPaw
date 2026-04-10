@@ -236,16 +236,14 @@ export const createColumns = (
       },
     },
     {
-      title: "RequestSessionID",
-      dataIndex: ["request", "session_id"],
-      key: "session_id",
-      width: 160,
-    },
-    {
-      title: "RequestUserID",
-      dataIndex: ["request", "user_id"],
-      key: "user_id",
-      width: 140,
+      title: handlers.t("cronJobs.executionSessionStrategy"),
+      dataIndex: ["execution", "session", "mode"],
+      key: "execution_session_mode",
+      width: 220,
+      render: (mode?: string) =>
+        mode === "new_per_run"
+          ? handlers.t("cronJobs.executionSessionNewPerRun")
+          : handlers.t("cronJobs.executionSessionReuseDispatch"),
     },
     {
       title: "DispatchType",
@@ -266,7 +264,7 @@ export const createColumns = (
       width: 190,
     },
     {
-      title: "DispatchTargetSessionID",
+      title: handlers.t("cronJobs.outputSession"),
       dataIndex: ["dispatch", "target", "session_id"],
       key: "target_session_id",
       width: 210,
