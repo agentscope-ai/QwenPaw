@@ -197,7 +197,7 @@ The system prompt also includes tool and Skill descriptions:
 
 ## Built-in QA Agent
 
-QwenPaw automatically creates a built-in agent named **"QA Agent"** (ID: `QwenPaw_QA_Agent_0.1beta1`) when you first run `qwenpaw init`.
+QwenPaw automatically creates a built-in agent named **"QA Agent"** (ID: `QwenPaw_QA_Agent_0.2beta1`) when you first run `qwenpaw init`.
 
 ### QA Agent Features
 
@@ -226,4 +226,4 @@ You can select "QA Agent" in the agent switcher at the top-right of the Console,
 
 - **Can modify**: You can manage it like any other agent—edit persona files in "Agent → Workspace" or adjust skills and tools in "Agent → Skills"
 - **Can delete**: Delete it in "Settings → Agent Management" (doesn't affect other agents; will be recreated on next `qwenpaw init`)
-- **Workspace location**: `$QWENPAW_WORKING_DIR/workspaces/QwenPaw_QA_Agent_0.1beta1/` (defaults to `~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.1beta1/`)
+- **Workspace location**: `$QWENPAW_WORKING_DIR/workspaces/QwenPaw_QA_Agent_0.2beta1/` (defaults to `~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.2beta1/`)
