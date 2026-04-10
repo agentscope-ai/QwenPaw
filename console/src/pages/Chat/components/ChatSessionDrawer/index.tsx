@@ -15,7 +15,7 @@ import ChatSessionItem from "../ChatSessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import styles from "./index.module.less";
 
-/** Sessions from Qwenpaw backend include extra fields beyond the runtime UI type */
+/** Sessions from QwenPaw backend include extra fields beyond the runtime UI type */
 interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   realId?: string;
   sessionId?: string;

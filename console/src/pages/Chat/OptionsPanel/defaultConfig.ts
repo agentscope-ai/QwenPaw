@@ -7,7 +7,7 @@ const defaultConfig = {
     prefix: "qwenpaw",
     leftHeader: {
       logo: "",
-      title: "Work with Qwenpaw",
+      title: "Work with QwenPaw",
     },
   },
   sender: {
