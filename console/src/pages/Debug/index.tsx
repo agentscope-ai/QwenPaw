@@ -3,10 +3,10 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Alert,
+  App,
   Button,
   Card,
   Input,
-  message,
   Select,
   Space,
   Spin,
@@ -70,6 +70,7 @@ function highlightLine(line: string, needle: string): ReactNode {
 
 export default function DebugPage() {
   const { t } = useTranslation();
+  const { message: messageApi } = App.useApp();
   const [backendLogs, setBackendLogs] =
     useState<BackendDebugLogsResponse | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -88,7 +89,7 @@ export default function DebugPage() {
         setBackendLogs(res);
         setBackendError("");
         if (opts?.successToast) {
-          message.success(
+          messageApi.success(
             t("debug.actions.refreshSuccess", "Logs refreshed"),
           );
         }
@@ -99,7 +100,7 @@ export default function DebugPage() {
             : t("debug.backend.loadFailed", "Failed to load backend logs"),
         );
         if (opts?.successToast) {
-          message.error(
+          messageApi.error(
             error instanceof Error
               ? error.message
               : t("debug.backend.loadFailed", "Failed to load backend logs"),
@@ -112,7 +113,7 @@ export default function DebugPage() {
         }
       }
     },
-    [t],
+    [t, messageApi],
   );
 
   useEffect(() => {
@@ -147,9 +148,9 @@ export default function DebugPage() {
   const handleCopyBackend = async () => {
     try {
       await navigator.clipboard.writeText(filteredBackendText);
-      message.success(t("common.copied"));
+      messageApi.success(t("common.copied"));
     } catch {
-      message.error(t("common.copyFailed"));
+      messageApi.error(t("common.copyFailed"));
     }
   };
 
