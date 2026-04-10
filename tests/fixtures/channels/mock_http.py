@@ -143,12 +143,14 @@ class MockAiohttpSession:
 
         # Find matching expectation
         expectation = None
-        for exp in self._expectations:
+        exp_idx = None
+        for idx, exp in enumerate(self._expectations):
             if exp["method"] != "POST":
                 continue
             if exp["url"] and exp["url"] not in url:
                 continue
             expectation = exp
+            exp_idx = idx
             break
 
         if expectation is None:
@@ -159,6 +161,9 @@ class MockAiohttpSession:
                 json_data=expectation.get("response_json"),
                 text_data=expectation.get("response_text", ""),
             )
+            # Consume this expectation
+            if exp_idx is not None:
+                self._expectations.pop(exp_idx)
 
         yield response
 
@@ -197,12 +202,14 @@ class MockAiohttpSession:
         self.call_count += 1
 
         expectation = None
-        for exp in self._expectations:
+        exp_idx = None
+        for idx, exp in enumerate(self._expectations):
             if exp["method"] != "PUT":
                 continue
             if exp["url"] and exp["url"] not in url:
                 continue
             expectation = exp
+            exp_idx = idx
             break
 
         if expectation is None:
@@ -213,6 +220,9 @@ class MockAiohttpSession:
                 json_data=expectation.get("response_json"),
                 text_data=expectation.get("response_text", ""),
             )
+            # Consume this expectation
+            if exp_idx is not None:
+                self._expectations.pop(exp_idx)
 
         yield response
 

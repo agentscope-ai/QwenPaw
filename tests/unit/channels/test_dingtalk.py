@@ -2100,8 +2100,7 @@ class TestDingTalkAICardMethods:
 
         card = await dingtalk_channel._create_ai_card(
             conversation_id="cid_test_123",
-            meta={"sender_staff_id": "user123"},
-            is_group=True,
+            meta={"sender_staff_id": "user123", "is_group": True},
         )
 
         assert card is not None
@@ -2143,8 +2142,7 @@ class TestDingTalkAICardMethods:
 
         card = await dingtalk_channel._create_ai_card(
             conversation_id="cid_group_123",
-            meta={},
-            is_group=True,
+            meta={"is_group": True},
         )
 
         assert card is not None
@@ -2178,8 +2176,7 @@ class TestDingTalkAICardMethods:
         with pytest.raises(RuntimeError, match="missing sender_staff_id"):
             await dingtalk_channel._create_ai_card(
                 conversation_id="cid_single_123",
-                meta={},
-                is_group=False,
+                meta={"is_group": False},
             )
 
     async def test_create_ai_card_api_error(
@@ -2270,11 +2267,18 @@ class TestDingTalkAICardMethods:
         dingtalk_channel.card_template_key = "content"
         dingtalk_channel._http = mock_http_session
 
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
         mock_http_session.expect_put(
             url="https://api.dingtalk.com/v1.0/card/streaming",
             response_status=200,
             response_json={"success": True},
         )
+
+        import time
 
         card = ActiveAICard(
             card_instance_id="card_test_123",
@@ -2282,7 +2286,9 @@ class TestDingTalkAICardMethods:
             conversation_id="cid_test",
             account_id="user123",
             store_path="/tmp",
-            created_at=1234567890,
+            created_at=int(
+                time.time() * 1000
+            ),  # Current time to avoid token refresh
             last_updated=1234567890,
             last_streamed_content="Previous content",
             state=PROCESSING,
@@ -2349,6 +2355,12 @@ class TestDingTalkAICardMethods:
         dingtalk_channel._http = mock_http_session
 
         # First call returns 401, second succeeds
+        # Need 2 token calls: one for preemptive refresh, one for 401 retry
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "new_token_1", "expireIn": 7200},
+        )
         mock_http_session.expect_put(
             url="https://api.dingtalk.com/v1.0/card/streaming",
             response_status=401,
@@ -2357,7 +2369,7 @@ class TestDingTalkAICardMethods:
         mock_http_session.expect_post(
             url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
             response_status=200,
-            response_json={"accessToken": "new_token", "expireIn": 7200},
+            response_json={"accessToken": "new_token_2", "expireIn": 7200},
         )
         mock_http_session.expect_put(
             url="https://api.dingtalk.com/v1.0/card/streaming",
@@ -2399,11 +2411,17 @@ class TestDingTalkAICardMethods:
             ActiveAICard,
             PROCESSING,
         )
+        import time
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
         dingtalk_channel._http = mock_http_session
 
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
         mock_http_session.expect_put(
             url="https://api.dingtalk.com/v1.0/card/streaming",
             response_status=200,
@@ -2417,7 +2435,9 @@ class TestDingTalkAICardMethods:
                 conversation_id="cid_test",
                 account_id="user123",
                 store_path="/tmp",
-                created_at=1234567890,
+                created_at=int(
+                    time.time() * 1000
+                ),  # Current time to avoid token refresh
                 last_updated=1234567890,
                 state=PROCESSING,
             )
@@ -2466,8 +2486,8 @@ class TestDingTalkAICardMethods:
 
         await dingtalk_channel._recover_active_cards()
 
-        # Should have recovered the card
-        assert "cid_old_1" in dingtalk_channel._active_cards
+        # Card should be removed from active cards after recovery + finalize
+        assert "cid_old_1" not in dingtalk_channel._active_cards
 
     async def test_ai_card_disabled_returns_none(self, dingtalk_channel):
         """AI card methods return None when disabled."""
@@ -2876,19 +2896,27 @@ class TestDingTalkRequestProcessing:
         """Request blocked by allowlist should return early."""
         dingtalk_channel._http = mock_http_session
         dingtalk_channel.allow_from = {
-            "allowed_user"
+            "allowed_user",
         }  # Only allow specific user
+        # Need to set dm_policy to "closed" for allowlist to work
+        dingtalk_channel.dm_policy = "closed"
 
-        from copaw.app.channels.base import (
-            TextContent,
-            ContentType,
+        from agentscope_runtime.engine.schemas.agent_schemas import (
             AgentRequest,
+            Message,
+            TextContent,
         )
 
         request = AgentRequest(
             user_id="blocked_user",
             channel="dingtalk",
-            input=[TextContent(type=ContentType.TEXT, text="Hello")],
+            input=[
+                Message(
+                    role="user",
+                    type="message",
+                    content=[TextContent(type="text", text="Hello")],
+                ),
+            ],
             channel_meta={
                 "session_webhook": "http://webhook.url",
                 "conversation_id": "cid_test",
@@ -2903,13 +2931,17 @@ class TestDingTalkRequestProcessing:
         ) as mock_send:
             await dingtalk_channel._run_process_loop(
                 request,
-                send_meta={"is_group": False},
+                to_handle="dingtalk:user123",
+                send_meta={
+                    "is_group": False,
+                    "session_webhook": "http://webhook.url",
+                },
             )
 
             # Should send block message
             mock_send.assert_called_once()
             call_args = mock_send.call_args
-            assert "not in allowlist" in call_args[0][1]
+            assert "not authorized" in call_args[0][1]
 
     async def test_run_process_loop_group_mention_required(
         self,
@@ -2918,16 +2950,22 @@ class TestDingTalkRequestProcessing:
         """Group message without mention should be ignored."""
         dingtalk_channel.require_mention = True
 
-        from copaw.app.channels.base import (
-            TextContent,
-            ContentType,
+        from agentscope_runtime.engine.schemas.agent_schemas import (
             AgentRequest,
+            Message,
+            TextContent,
         )
 
         request = AgentRequest(
             user_id="user123",
             channel="dingtalk",
-            input=[TextContent(type=ContentType.TEXT, text="Hello")],
+            input=[
+                Message(
+                    role="user",
+                    type="message",
+                    content=[TextContent(type="text", text="Hello")],
+                ),
+            ],
             channel_meta={
                 "session_webhook": "http://webhook.url",
                 "conversation_id": "cid_test",
@@ -2941,6 +2979,7 @@ class TestDingTalkRequestProcessing:
         ) as mock_check:
             await dingtalk_channel._run_process_loop(
                 request,
+                to_handle="dingtalk:user123",
                 send_meta={"is_group": True, "bot_mentioned": False},
             )
 
@@ -2951,22 +2990,28 @@ class TestDingTalkRequestProcessing:
         dingtalk_channel,
     ):
         """Exception in process loop should be handled."""
-        from copaw.app.channels.base import AgentRequest
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            AgentRequest,
+            Message,
+        )
 
         request = MagicMock(spec=AgentRequest)
         request.user_id = "user123"
         request.channel = "dingtalk"
         request.channel_meta = {}
+        request.input = [MagicMock(spec=Message)]
 
-        # Make _process raise an exception
+        # Patch _process_one_request to raise exception
+        # (rather than _process which is an async generator)
         with patch.object(
             dingtalk_channel,
-            "_process",
+            "_process_one_request",
             side_effect=RuntimeError("Test error"),
         ):
             with pytest.raises(RuntimeError):
                 await dingtalk_channel._run_process_loop(
                     request,
+                    to_handle="dingtalk:user123",
                     send_meta={},
                 )
 
@@ -3074,18 +3119,33 @@ class TestDingTalkSendMethodsExtended:
             meta={},
         )
 
-    async def test_send_no_webhook_warning(self, dingtalk_channel, caplog):
+    async def test_send_no_webhook_warning(
+        self, dingtalk_channel, mock_http_session
+    ):
         """Should log warning when no webhook available."""
-        import logging
+        from unittest.mock import patch
 
-        with caplog.at_level(logging.WARNING):
+        # Set http session (required for send to proceed)
+        dingtalk_channel._http = mock_http_session
+
+        # Patch logger.warning to capture the call
+        with patch(
+            "copaw.app.channels.dingtalk.channel.logger.warning"
+        ) as mock_warning:
             await dingtalk_channel.send(
                 to_handle="unknown_handle",
                 text="Test message",
                 meta={},
             )
 
-            assert "no sessionWebhook" in caplog.text
+            # Check that the warning was logged with 'no sessionWebhook'
+            # Filter for calls containing 'no sessionWebhook'
+            warning_calls = [
+                call
+                for call in mock_warning.call_args_list
+                if "no sessionWebhook" in str(call)
+            ]
+            assert len(warning_calls) == 1
 
 
 # =============================================================================
@@ -3236,6 +3296,25 @@ class TestDingTalkMediaPartSending:
         """Send video with pic_media_id for cover image."""
         dingtalk_channel._http = mock_http_session
 
+        # Mock the video download
+        mock_http_session.expect_get(
+            url="http://example.com/video.mp4",
+            response_status=200,
+            response_data=b"fake video content",
+        )
+        # Mock token endpoint for media upload
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        # Mock media upload endpoint
+        mock_http_session.expect_post(
+            url="https://oapi.dingtalk.com/media/upload",
+            response_status=200,
+            response_json={"media_id": "uploaded_media_123"},
+        )
+        # Mock robot send endpoint
         mock_http_session.expect_post(
             url="https://oapi.dingtalk.com/robot/send",
             response_status=200,
@@ -3547,7 +3626,8 @@ class TestDingTalkLoadSessionWebhookEntry:
         assert result is None
 
     async def test_load_session_webhook_entry_not_found(
-        self, dingtalk_channel
+        self,
+        dingtalk_channel,
     ):
         """Non-existent entry returns None."""
         result = await dingtalk_channel._load_session_webhook_entry(
@@ -3555,3 +3635,254 @@ class TestDingTalkLoadSessionWebhookEntry:
         )
 
         assert result is None
+
+
+# =============================================================================
+# P2: Additional Coverage Tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkAdditionalCoverage:
+    """Additional tests to reach 60% coverage."""
+
+    def test_check_allowlist_empty(self, dingtalk_channel):
+        """Check allowlist when empty allows all."""
+        dingtalk_channel.allow_from = set()
+
+        allowed, _ = dingtalk_channel._check_allowlist("any_user", False)
+        assert allowed is True
+
+    def test_check_allowlist_blocked(self, dingtalk_channel):
+        """Check blocked user in allowlist."""
+        dingtalk_channel.allow_from = {"user1", "user2"}
+        dingtalk_channel.dm_policy = "allowlist"
+
+        allowed, msg = dingtalk_channel._check_allowlist("other_user", False)
+        assert allowed is False
+        assert "not authorized" in msg
+
+    def test_check_allowlist_allowed(self, dingtalk_channel):
+        """Check allowed user in allowlist."""
+        dingtalk_channel.allow_from = {"user1", "user2"}
+
+        allowed, _ = dingtalk_channel._check_allowlist("user1", False)
+        assert allowed is True
+
+    def test_check_group_mention_not_required(self, dingtalk_channel):
+        """Check group mention when not required."""
+        dingtalk_channel.require_mention = False
+
+        result = dingtalk_channel._check_group_mention(True, {})
+        assert result is True
+
+    def test_check_group_mention_not_group(self, dingtalk_channel):
+        """Check group mention when not a group."""
+        dingtalk_channel.require_mention = True
+
+        result = dingtalk_channel._check_group_mention(False, {})
+        assert result is True
+
+    def test_check_group_mentioned(self, dingtalk_channel):
+        """Check group mention when bot is mentioned."""
+        dingtalk_channel.require_mention = True
+
+        result = dingtalk_channel._check_group_mention(
+            True,
+            {"bot_mentioned": True},
+        )
+        assert result is True
+
+    def test_check_group_mention_missing(self, dingtalk_channel):
+        """Check group mention when not mentioned."""
+        dingtalk_channel.require_mention = True
+
+        result = dingtalk_channel._check_group_mention(True, {})
+        assert result is False
+
+    def test_guess_filename_and_ext_with_filename(self, dingtalk_channel):
+        """Guess filename from content part with filename."""
+        from unittest.mock import MagicMock
+
+        part = MagicMock()
+        part.filename = "document.pdf"
+        part.file_url = None
+        part.image_url = None
+        part.video_url = None
+
+        filename, ext = dingtalk_channel._guess_filename_and_ext(
+            part,
+            "default.txt",
+        )
+
+        assert filename == "document.pdf"
+        assert ext == "pdf"
+
+    def test_guess_filename_and_ext_from_url(self, dingtalk_channel):
+        """Guess filename from content part URL."""
+        from unittest.mock import MagicMock
+
+        part = MagicMock()
+        part.filename = ""
+        part.file_url = "http://example.com/file.pdf"
+        part.image_url = None
+        part.video_url = None
+
+        filename, ext = dingtalk_channel._guess_filename_and_ext(
+            part,
+            "default.txt",
+        )
+
+        assert filename == "file.pdf"
+        assert ext == "pdf"
+
+    def test_guess_filename_and_ext_default(self, dingtalk_channel):
+        """Use default filename when nothing else available."""
+        from unittest.mock import MagicMock
+
+        part = MagicMock()
+        part.filename = ""
+        part.file_url = None
+        part.image_url = None
+        part.video_url = None
+
+        filename, ext = dingtalk_channel._guess_filename_and_ext(
+            part,
+            "default.txt",
+        )
+
+        assert filename == "default.txt"
+        assert ext == "txt"
+
+    def test_resolve_open_api_params_meta_priority(self, dingtalk_channel):
+        """Meta values take priority over entry values."""
+        meta = {
+            "conversation_id": "meta_cid",
+            "conversation_type": "single",
+        }
+        entry = {
+            "conversation_id": "entry_cid",
+            "conversation_type": "group",
+        }
+
+        result = dingtalk_channel._resolve_open_api_params(meta, entry)
+
+        assert result["conversation_id"] == "meta_cid"
+        assert result["conversation_type"] == "single"
+
+    def test_resolve_open_api_params_entry_fallback(self, dingtalk_channel):
+        """Entry values used when meta is empty."""
+        meta = {}
+        entry = {
+            "conversation_id": "entry_cid",
+            "conversation_type": "group",
+        }
+
+        result = dingtalk_channel._resolve_open_api_params(meta, entry)
+
+        assert result["conversation_id"] == "entry_cid"
+        assert result["conversation_type"] == "group"
+
+    def test_resolve_open_api_params_defaults(self, dingtalk_channel):
+        """Default values when both meta and entry are empty."""
+        result = dingtalk_channel._resolve_open_api_params({}, {})
+
+        assert result["conversation_id"] == ""
+        assert result["conversation_type"] == ""
+        assert result["sender_staff_id"] == ""
+
+    def test_get_response_error_message(self, dingtalk_channel):
+        """Extract error message from response."""
+        # Create a response without 'data' attribute to avoid triggering
+        # the data path in _get_response_error_message
+        response = MagicMock(spec=["error"])
+        response.error = MagicMock(spec=["message"])
+        response.error.message = "Test error message"
+
+        result = dingtalk_channel._get_response_error_message(response)
+
+        assert result == "Test error message"
+
+    def test_get_response_error_message_none(self, dingtalk_channel):
+        """Return None when no error."""
+        result = dingtalk_channel._get_response_error_message(None)
+
+        assert result is None
+
+    def test_get_response_error_message_no_error(self, dingtalk_channel):
+        """Return None when response has no error."""
+        response = MagicMock(spec=["error"])
+        response.error = None
+
+        result = dingtalk_channel._get_response_error_message(response)
+
+        assert result is None
+
+    async def test_try_open_api_fallback_with_meta(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Open API fallback using meta directly."""
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
+            response_status=200,
+            response_json={"accessToken": "token_123", "expireIn": 7200},
+        )
+        mock_http_session.expect_post(
+            url="https://api.dingtalk.com/v1.0/robot/groupMessages/send",
+            response_status=200,
+            response_json={"errcode": 0},
+        )
+
+        result = await dingtalk_channel._try_open_api_fallback(
+            text="Test message",
+            to_handle="dingtalk:sw:test",
+            meta={
+                "conversation_id": "cid_test",
+                "conversation_type": "group",
+            },
+        )
+
+        assert result is True
+
+    async def test_send_content_parts_text_only(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Send content parts with text only."""
+        dingtalk_channel._http = mock_http_session
+
+        mock_http_session.expect_post(
+            url="https://oapi.dingtalk.com/robot/send",
+            response_status=200,
+            response_json={"errcode": 0, "errmsg": "ok"},
+        )
+
+        from copaw.app.channels.base import TextContent, ContentType
+
+        parts = [TextContent(type=ContentType.TEXT, text="Hello world")]
+
+        await dingtalk_channel.send_content_parts(
+            to_handle="dingtalk:sw:test",
+            parts=parts,
+            meta={"session_webhook": "http://webhook.url"},
+        )
+
+    def test_sender_from_chatbot_message_skip_bot(self):
+        """Skip messages from bot itself."""
+        from copaw.app.channels.dingtalk.content_utils import (
+            sender_from_chatbot_message,
+        )
+
+        msg = MagicMock()
+        msg.sender_staff_id = "bot_staff_id"
+        msg.senderStaffId = "bot_staff_id"
+        msg.is_bot = True
+
+        sender, skip = sender_from_chatbot_message(msg)
+
+        assert skip is True

@@ -1157,13 +1157,13 @@ class TestDownloadAttachmentSync:
 
     def test_download_attachment_exception(self, qq_channel):
         """Should return None when download raises exception."""
-        import asyncio
+        from concurrent.futures import Future
 
         qq_channel._loop = MagicMock()
         qq_channel._loop.is_running.return_value = True
 
         # Mock run_coroutine_threadsafe to raise exception
-        future = asyncio.Future()
+        future = Future()
         future.set_exception(RuntimeError("Download failed"))
         qq_channel._loop.run_coroutine_threadsafe.return_value = future
 
@@ -1194,7 +1194,7 @@ class TestParseQQAttachments:
                     "url": "https://example.com/file.jpg",
                     "filename": "file.jpg",
                 },
-            ]
+            ],
         )
 
         assert result == []
@@ -1205,7 +1205,7 @@ class TestParseQQAttachments:
             [
                 {"url": "", "filename": "file.jpg"},
                 {"filename": "file2.jpg"},  # No url key
-            ]
+            ],
         )
 
         assert result == []
@@ -1226,7 +1226,7 @@ class TestParseQQAttachments:
                         "url": "https://example.com/file.jpg",
                         "filename": "file.jpg",
                     },
-                ]
+                ],
             )
 
             assert result == []
@@ -1581,7 +1581,9 @@ class TestHandleWSPayload:
         assert result == "break"
 
     def test_handle_invalid_session_no_resume(
-        self, qq_channel, mock_websocket
+        self,
+        qq_channel,
+        mock_websocket,
     ):
         """Should clear session on INVALID_SESSION when cannot resume."""
         from copaw.app.channels.qq.channel import (
@@ -1609,7 +1611,9 @@ class TestHandleWSPayload:
         assert state.should_refresh_token is True
 
     def test_handle_invalid_session_can_resume(
-        self, qq_channel, mock_websocket
+        self,
+        qq_channel,
+        mock_websocket,
     ):
         """Should keep session on INVALID_SESSION when can resume."""
         from copaw.app.channels.qq.channel import (
@@ -1674,7 +1678,7 @@ class TestWSConnectOnce:
 
         mock_websocket = MagicMock()
         mock_websocket.create_connection.side_effect = Exception(
-            "Connection refused"
+            "Connection refused",
         )
 
         result = qq_channel._ws_connect_once(state, mock_websocket)
@@ -1732,7 +1736,7 @@ class TestWSConnectOnce:
                     {
                         "op": 10,
                         "d": {"heartbeat_interval": 45000},
-                    }
+                    },
                 )
             # After HELLO, set stop event and return empty to break
             qq_channel._stop_event.set()

@@ -2196,7 +2196,7 @@ class TestFeishuChannelUploadFile:
 
             mock_client = MagicMock()
             mock_client.im.v1.file.acreate = AsyncMock(
-                return_value=mock_response
+                return_value=mock_response,
             )
             feishu_channel._client = mock_client
 
@@ -2206,7 +2206,9 @@ class TestFeishuChannelUploadFile:
 
     @pytest.mark.asyncio
     async def test_upload_file_rejects_large_file(
-        self, feishu_channel, tmp_path
+        self,
+        feishu_channel,
+        tmp_path,
     ):
         """Should return None for files exceeding max size."""
         from copaw.app.channels.feishu.constants import FEISHU_FILE_MAX_BYTES
@@ -2251,7 +2253,7 @@ class TestFeishuChannelUploadFile:
 
         mock_client = MagicMock()
         mock_client.im.v1.file.acreate = AsyncMock(
-            return_value=mock_sdk_response
+            return_value=mock_sdk_response,
         )
         feishu_channel._client = mock_client
 
@@ -2355,14 +2357,16 @@ class TestFeishuChannelSendMessage:
 
         mock_request_builder = MagicMock()
         mock_request = MagicMock()
-        mock_request_builder.receive_id_type.return_value = mock_request_builder
+        mock_request_builder.receive_id_type.return_value = (
+            mock_request_builder
+        )
         mock_request_builder.request_body.return_value = mock_request_builder
         mock_request_builder.build.return_value = mock_request
 
         with patch(
-            "copaw.app.channels.feishu.channel.CreateMessageRequestBody"
+            "copaw.app.channels.feishu.channel.CreateMessageRequestBody",
         ) as mock_body_class, patch(
-            "copaw.app.channels.feishu.channel.CreateMessageRequest"
+            "copaw.app.channels.feishu.channel.CreateMessageRequest",
         ) as mock_request_class:
             mock_body_class.builder.return_value = mock_body_builder
             mock_request_class.builder.return_value = mock_request_builder
@@ -2370,7 +2374,9 @@ class TestFeishuChannelSendMessage:
 
     @pytest.mark.asyncio
     async def test_send_message_success_post(
-        self, feishu_channel, mock_create_message_request
+        self,
+        feishu_channel,
+        mock_create_message_request,
     ):
         """Should send post message successfully."""
         mock_response = MagicMock()
@@ -2380,7 +2386,7 @@ class TestFeishuChannelSendMessage:
 
         mock_client = MagicMock()
         mock_client.im.v1.message.acreate = AsyncMock(
-            return_value=mock_response
+            return_value=mock_response,
         )
         feishu_channel._client = mock_client
 
@@ -2398,7 +2404,9 @@ class TestFeishuChannelSendMessage:
 
     @pytest.mark.asyncio
     async def test_send_message_success_image(
-        self, feishu_channel, mock_create_message_request
+        self,
+        feishu_channel,
+        mock_create_message_request,
     ):
         """Should send image message successfully."""
         mock_response = MagicMock()
@@ -2408,7 +2416,7 @@ class TestFeishuChannelSendMessage:
 
         mock_client = MagicMock()
         mock_client.im.v1.message.acreate = AsyncMock(
-            return_value=mock_response
+            return_value=mock_response,
         )
         feishu_channel._client = mock_client
 
@@ -2424,7 +2432,9 @@ class TestFeishuChannelSendMessage:
 
     @pytest.mark.asyncio
     async def test_send_message_success_file(
-        self, feishu_channel, mock_create_message_request
+        self,
+        feishu_channel,
+        mock_create_message_request,
     ):
         """Should send file message successfully."""
         mock_response = MagicMock()
@@ -2434,7 +2444,7 @@ class TestFeishuChannelSendMessage:
 
         mock_client = MagicMock()
         mock_client.im.v1.message.acreate = AsyncMock(
-            return_value=mock_response
+            return_value=mock_response,
         )
         feishu_channel._client = mock_client
 
@@ -2450,7 +2460,9 @@ class TestFeishuChannelSendMessage:
 
     @pytest.mark.asyncio
     async def test_send_message_success_interactive(
-        self, feishu_channel, mock_create_message_request
+        self,
+        feishu_channel,
+        mock_create_message_request,
     ):
         """Should send interactive card message successfully."""
         mock_response = MagicMock()
@@ -2460,7 +2472,7 @@ class TestFeishuChannelSendMessage:
 
         mock_client = MagicMock()
         mock_client.im.v1.message.acreate = AsyncMock(
-            return_value=mock_response
+            return_value=mock_response,
         )
         feishu_channel._client = mock_client
 
@@ -2476,7 +2488,9 @@ class TestFeishuChannelSendMessage:
 
     @pytest.mark.asyncio
     async def test_send_message_failure(
-        self, feishu_channel, mock_create_message_request
+        self,
+        feishu_channel,
+        mock_create_message_request,
     ):
         """Should return None when SDK send fails."""
         mock_response = MagicMock()
@@ -2486,7 +2500,7 @@ class TestFeishuChannelSendMessage:
 
         mock_client = MagicMock()
         mock_client.im.v1.message.acreate = AsyncMock(
-            return_value=mock_response
+            return_value=mock_response,
         )
         feishu_channel._client = mock_client
 
@@ -2516,7 +2530,9 @@ class TestFeishuChannelSendMessage:
 
     @pytest.mark.asyncio
     async def test_send_message_exception_handling(
-        self, feishu_channel, mock_create_message_request
+        self,
+        feishu_channel,
+        mock_create_message_request,
     ):
         """Should handle exceptions gracefully and return None."""
         mock_client = MagicMock()
