@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Logging setup for CoPaw: console output and optional file handler."""
+"""Logging setup for application logging and optional file output."""
 import io
 import logging
 import logging.handlers
@@ -7,6 +7,8 @@ import os
 import platform
 import sys
 from pathlib import Path
+
+from ..constant import PROJECT_NAME
 
 # Rotating file handler limits (idempotent add avoids duplicate handlers)
 _LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
@@ -22,7 +24,7 @@ _LEVEL_MAP = {
 }
 
 # Top-level name for this package; only loggers under this name are shown.
-LOG_NAMESPACE = "copaw"
+LOG_NAMESPACE = PROJECT_NAME.lower()
 
 
 def _enable_windows_ansi() -> None:
@@ -117,7 +119,7 @@ class SuppressPathAccessLogFilter(logging.Filter):
 
 
 def setup_logger(level: int | str = logging.INFO):
-    """Configure logging to only output from this package (copaw), not deps."""
+    """Configure logging to only output from this package, not deps."""
     log_format = "%(asctime)s | %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
 
@@ -137,7 +139,7 @@ def setup_logger(level: int | str = logging.INFO):
         else:
             handler.setLevel(logging.WARNING)
 
-    # Only attach handler to our namespace so only copaw.* logs are printed.
+    # Only attach handler to the project namespace so only app logs are printed.
     logger = logging.getLogger(LOG_NAMESPACE)
     logger.setLevel(level)
     logger.propagate = False
@@ -154,8 +156,8 @@ def setup_logger(level: int | str = logging.INFO):
     return logger
 
 
-def add_copaw_file_handler(log_path: Path) -> None:
-    """Add a file handler to the copaw logger for daemon logs.
+def add_project_file_handler(log_path: Path) -> None:
+    """Add a file handler to the project logger for daemon logs.
 
     Windows/Linux: Uses simple FileHandler to avoid file locking issues.
     macOS: Uses RotatingFileHandler with automatic log rotation.
@@ -165,7 +167,7 @@ def add_copaw_file_handler(log_path: Path) -> None:
     when lifespan runs multiple times in the same process).
 
     Args:
-        log_path: Path to the log file (e.g. WORKING_DIR / "copaw.log").
+        log_path: Path to the log file.
     """
     log_path = Path(log_path).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
