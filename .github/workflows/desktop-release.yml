@@ -1,4 +1,4 @@
-# Build CoPaw Desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
+# Build CoPaw Desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app), Linux (AppImage)
 # Runs automatically on release publish; also manually via Actions tab.
 
 name: CoPaw Desktop Build
@@ -130,8 +130,56 @@ jobs:
           name: CoPaw-Desktop-macOS-${{ steps.version.outputs.version }}
           path: dist/CoPaw-*.zip
 
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/copaw/__version__.py)" >> $GITHUB_OUTPUT
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.10"
+          activate-environment: "copaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
+
+      - name: Install appimagetool
+        run: |
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
+          chmod +x appimagetool
+          sudo mv appimagetool /usr/local/bin/
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build Linux AppImage
+        run: |
+          chmod +x scripts/pack/build_linux.sh
+          conda run -n copaw-build bash scripts/pack/build_linux.sh
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoPaw-Desktop-Linux-${{ steps.version.outputs.version }}
+          path: dist/CoPaw-*.AppImage
+
   upload-release:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-linux]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
@@ -144,6 +192,7 @@ jobs:
         run: |
           mv CoPaw-Desktop-Windows-*/CoPaw-Setup-*.exe . 2>/dev/null || true
           mv CoPaw-Desktop-macOS-*/CoPaw-*.zip . 2>/dev/null || true
+          mv CoPaw-Desktop-Linux-*/CoPaw-*.AppImage . 2>/dev/null || true
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -151,7 +200,8 @@ jobs:
           files: |
             CoPaw-Setup-*.exe
             CoPaw-*-macOS.zip
-          fail-on-unmatched-files: false
+            CoPaw-*.AppImage
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
