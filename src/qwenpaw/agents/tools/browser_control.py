@@ -267,7 +267,7 @@ def _ensure_playwright_async():
         return async_playwright
     except ImportError as exc:
         raise ImportError(
-            "Playwright not installed. Use the same Python that runs CoPaw (e.g. "
+            "Playwright not installed. Use the same Python that runs QwenPaw (e.g. "
             "activate your venv or use 'uv run'): "
             f"'{sys.executable}' -m pip install playwright && "
             f"'{sys.executable}' -m playwright install",
@@ -282,7 +282,7 @@ def _ensure_playwright_sync():
         return sync_playwright
     except ImportError as exc:
         raise ImportError(
-            "Playwright not installed. Use the same Python that runs CoPaw (e.g. "
+            "Playwright not installed. Use the same Python that runs QwenPaw (e.g. "
             "activate your venv or use 'uv run'): "
             f"'{sys.executable}' -m pip install playwright && "
             f"'{sys.executable}' -m playwright install",
