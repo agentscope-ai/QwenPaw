@@ -47,7 +47,7 @@
   flex-shrink: 0;
 
   :global {
-    .copaw-switch-inner-unchecked {
+    .qwenpaw-switch-inner-unchecked {
       color: #000000 !important;
     }
   }
@@ -129,7 +129,7 @@
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
 
-  :global(.copaw-card-body) {
+  :global(.qwenpaw-card-body) {
     padding: 0 !important;
   }
 
@@ -318,41 +318,41 @@
 
   /* Switch component in dark mode */
   .headerAction {
-    :global(.copaw-switch) {
+    :global(.qwenpaw-switch) {
       background-color: rgba(255, 255, 255, 0.15);
 
-      &:hover:not(.copaw-switch-disabled) {
+      &:hover:not(.qwenpaw-switch-disabled) {
         background-color: rgba(255, 255, 255, 0.25);
       }
 
-      &.copaw-switch-disabled {
+      &.qwenpaw-switch-disabled {
         background-color: rgba(255, 255, 255, 0.08);
         opacity: 0.65;
 
-        :global(.copaw-switch-inner) {
+        :global(.qwenpaw-switch-inner) {
           color: rgba(255, 255, 255, 0.45);
         }
       }
     }
 
-    :global(.copaw-switch-checked) {
+    :global(.qwenpaw-switch-checked) {
       background-color: #ff7f16;
 
-      &:hover:not(.copaw-switch-disabled) {
+      &:hover:not(.qwenpaw-switch-disabled) {
         background-color: #ff9d4d;
       }
 
-      &.copaw-switch-disabled {
+      &.qwenpaw-switch-disabled {
         background-color: rgba(255, 127, 22, 0.35);
         opacity: 0.65;
 
-        :global(.copaw-switch-inner) {
+        :global(.qwenpaw-switch-inner) {
           color: rgba(255, 255, 255, 0.55);
         }
       }
     }
 
-    :global(.copaw-switch-inner) {
+    :global(.qwenpaw-switch-inner) {
       color: rgba(255, 255, 255, 0.85);
     }
   }
