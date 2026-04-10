@@ -132,7 +132,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
         )
 
     try:
-        content = read_file_safe(file_path)
+        content = await read_file_safe(file_path)
         all_lines = content.split("\n")
         total = len(all_lines)
 
@@ -304,7 +304,7 @@ async def edit_file(
         )
 
     try:
-        content = read_file_safe(resolved_path)
+        content = await read_file_safe(resolved_path)
     except Exception as e:
         return ToolResponse(
             content=[
