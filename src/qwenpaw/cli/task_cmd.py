@@ -36,7 +36,7 @@ def _isolated_skills_workspace(
         yield base_workspace
         return
 
-    with tempfile.TemporaryDirectory(prefix="copaw_headless_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="qwenpaw_headless_") as tmp:
         tmp_path = Path(tmp)
         resolved = Path(skills_dir).resolve()
         (tmp_path / "skills").symlink_to(resolved)

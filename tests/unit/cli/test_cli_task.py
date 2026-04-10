@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for the ``copaw task`` headless CLI command."""
+"""Tests for the ``qwenpaw task`` headless CLI command."""
 from __future__ import annotations
 
 import json

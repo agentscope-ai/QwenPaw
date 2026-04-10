@@ -61,7 +61,7 @@ _ALL_CHANNEL_NAMES = {
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
 
-# Template for `copaw channels install <key>` stub (channel key substituted).
+# Template for `qwenpaw channels install <key>` stub (channel key substituted).
 CHANNEL_TEMPLATE = '''# -*- coding: utf-8 -*-
 """Custom channel: {key}. Edit and implement required methods."""
 from __future__ import annotations
@@ -600,7 +600,7 @@ def configure_voice(
     welcome_greeting = click.prompt(
         "Welcome greeting",
         default=current_config.welcome_greeting
-        or "Hi! This is CoPaw. How can I help you?",
+        or "Hi! This is QwenPaw. How can I help you?",
         type=str,
     )
     current_config.welcome_greeting = welcome_greeting
@@ -959,7 +959,7 @@ def _install_channel_to_dir(
     )
     click.echo(
         f"✓ Created {dest_file}. Edit and add config with "
-        "`copaw channels config`.",
+        "`qwenpaw channels config`.",
     )
 
 
@@ -1138,12 +1138,12 @@ def configure_cmd(agent_id: str) -> None:
 @click.option(
     "--target-user",
     required=True,
-    help=("Target user ID (REQUIRED, get from 'copaw chats list' query)"),
+    help=("Target user ID (REQUIRED, get from 'qwenpaw chats list' query)"),
 )
 @click.option(
     "--target-session",
     required=True,
-    help=("Target session ID (REQUIRED, get from 'copaw chats list' query)"),
+    help=("Target session ID (REQUIRED, get from 'qwenpaw chats list' query)"),
 )
 @click.option(
     "--text",
@@ -1176,32 +1176,32 @@ def send_cmd(
     \b
     Complete Usage Flow:
       Step 1 - Query available sessions (REQUIRED):
-        copaw chats list --agent-id my_bot --channel console
+        qwenpaw chats list --agent-id my_bot --channel console
 
       Step 2 - Extract parameters from query output:
         user_id: "alice"
         session_id: "alice_session_001"
 
       Step 3 - Send message using queried parameters:
-        copaw channels send --agent-id my_bot --channel console \\
+        qwenpaw channels send --agent-id my_bot --channel console \\
           --target-user alice --target-session alice_session_001 \\
           --text "Hello!"
 
     \b
     Examples with jq automation:
       # Query and auto-extract parameters
-      SESSIONS=$(copaw chats list --agent-id bot --channel console)
+      SESSIONS=$(qwenpaw chats list --agent-id bot --channel console)
       USER=$(echo "$SESSIONS" | jq -r '.[0].user_id')
       SESSION=$(echo "$SESSIONS" | jq -r '.[0].session_id')
 
       # Send message
-      copaw channels send --agent-id bot --channel console \\
+      qwenpaw channels send --agent-id bot --channel console \\
         --target-user "$USER" --target-session "$SESSION" \\
         --text "Automated notification"
 
     \b
     Prerequisites:
-      1. MUST use 'copaw chats list' to get valid target-user and
+      1. MUST use 'qwenpaw chats list' to get valid target-user and
          target-session
       2. Ensure the channel is properly configured
       3. All 5 parameters are required (no defaults)

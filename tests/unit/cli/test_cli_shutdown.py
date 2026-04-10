@@ -89,7 +89,7 @@ def test_shutdown_command_reports_nothing_found(monkeypatch) -> None:
     result = CliRunner().invoke(cli, ["shutdown"])
 
     assert result.exit_code != 0
-    assert "No running CoPaw" in result.output
+    assert "No running QwenPaw" in result.output
 
 
 def test_shutdown_command_stops_windows_wrapper_ancestors(monkeypatch) -> None:
@@ -176,7 +176,7 @@ def test_pid_exists_uses_windows_snapshot(monkeypatch) -> None:
     monkeypatch.setattr("qwenpaw.cli.shutdown_cmd.sys.platform", "win32")
     monkeypatch.setattr(
         "qwenpaw.cli.shutdown_cmd._windows_process_snapshot",
-        lambda: {29104: (1, "qwenpaw.exe", "copaw app")},
+        lambda: {29104: (1, "qwenpaw.exe", "qwenpaw app")},
     )
 
     assert (
