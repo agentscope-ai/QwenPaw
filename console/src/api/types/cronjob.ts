@@ -38,8 +38,7 @@ export interface CronJobRequest {
   [key: string]: unknown;
 }
 
-export interface CronJobSpecInput {
-  id: string;
+export interface CronJobSpecBase {
   name: string;
   enabled?: boolean;
   schedule: CronJobSchedule;
@@ -52,7 +51,13 @@ export interface CronJobSpecInput {
   meta?: Record<string, unknown>;
 }
 
-export type CronJobSpecOutput = CronJobSpecInput;
+export interface CronJobSpecInput extends CronJobSpecBase {
+  id?: string;
+}
+
+export interface CronJobSpecOutput extends CronJobSpecBase {
+  id: string;
+}
 
 export interface CronJobView extends CronJobSpecOutput {
   // Extended view with runtime state

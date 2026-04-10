@@ -131,8 +131,7 @@ class CronJobRequest(BaseModel):
 TaskType = Literal["text", "agent"]
 
 
-class CronJobSpec(BaseModel):
-    id: str
+class CronJobBase(BaseModel):
     name: str
     enabled: bool = True
 
@@ -147,7 +146,7 @@ class CronJobSpec(BaseModel):
     meta: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _validate_task_type_fields(self) -> "CronJobSpec":
+    def _validate_task_type_fields(self) -> "CronJobBase":
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
                 raise ConfigurationException(
@@ -166,6 +165,10 @@ class CronJobSpec(BaseModel):
                 },
             )
         return self
+
+
+class CronJobSpec(CronJobBase):
+    id: str
 
 
 class JobsFile(BaseModel):

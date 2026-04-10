@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { Button, Card, Form, Modal, Table } from "@agentscope-ai/design";
 import dayjs from "dayjs";
-import type { CronJobSpecOutput } from "../../../api/types";
+import type { CronJobSpecInput, CronJobSpecOutput } from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   createColumns,
   JobDrawer,
@@ -15,9 +16,17 @@ import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type CronJob = CronJobSpecOutput;
+type CronJobFormValues = CronJobSpecInput & {
+  cronType?: string;
+  cronTime?: dayjs.Dayjs;
+  cronDaysOfWeek?: string[];
+  cronCustom?: string;
+  sessionStrategy?: "dispatch" | "new_per_run";
+};
 
 function CronJobsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const {
     jobs,
     loading,
@@ -129,7 +138,7 @@ function CronJobsPage() {
     setEditingJob(null);
   };
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async (values: CronJobFormValues) => {
     // Serialize cron from form fields
     const cronParts: any = {
       type: values.cronType || "daily",
@@ -152,7 +161,7 @@ function CronJobsPage() {
 
     const cronExpression = serializeCron(cronParts);
 
-    let processedValues = {
+    let processedValues: CronJobSpecInput = {
       ...values,
       schedule: {
         ...values.schedule,
@@ -190,6 +199,8 @@ function CronJobsPage() {
           };
         } catch (error) {
           console.error("❌ Failed to parse request.input JSON:", error);
+          message.error(t("cronJobs.invalidJsonFormat"));
+          return;
         }
       }
     }

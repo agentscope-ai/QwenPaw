@@ -62,14 +62,16 @@ export function JobDrawer({
         onFinish={onSubmit}
         initialValues={DEFAULT_FORM_VALUES}
       >
-        <Form.Item
-          name="id"
-          label={t("cronJobs.id")}
-          rules={[{ required: true, message: t("cronJobs.pleaseInputId") }]}
-          tooltip={t("cronJobs.idTooltip")}
-        >
-          <Input placeholder={t("cronJobs.jobIdPlaceholder")} />
-        </Form.Item>
+        {editingJob ? (
+          <Form.Item
+            name="id"
+            label={t("cronJobs.id")}
+            rules={[{ required: true, message: t("cronJobs.pleaseInputId") }]}
+            tooltip={t("cronJobs.idTooltip")}
+          >
+            <Input placeholder={t("cronJobs.jobIdPlaceholder")} disabled />
+          </Form.Item>
+        ) : null}
 
         <Form.Item
           name="name"

@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
-import type { CronJobSpecOutput } from "../../../api/types";
+import type { CronJobSpecInput, CronJobSpecOutput } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 
 type CronJob = CronJobSpecOutput;
+type CronJobDraft = CronJobSpecInput;
 
 export function useCronJobs() {
   const { selectedAgent } = useAgentStore();
@@ -43,7 +44,7 @@ export function useCronJobs() {
     };
   }, [selectedAgent]);
 
-  const createJob = async (values: CronJob) => {
+  const createJob = async (values: CronJobDraft) => {
     try {
       const created = await api.createCronJob(values);
       setJobs((prev) => [created as CronJob, ...prev]);
@@ -56,10 +57,14 @@ export function useCronJobs() {
     }
   };
 
-  const updateJob = async (jobId: string, values: CronJob) => {
+  const updateJob = async (jobId: string, values: CronJobDraft) => {
     const original = jobs.find((j) => j.id === jobId);
-    const optimisticUpdate = { ...original, ...values };
-    setJobs((prev) => prev.map((j) => (j.id === jobId ? optimisticUpdate : j)));
+    const optimisticUpdate = original
+      ? ({ ...original, ...values, id: jobId } as CronJob)
+      : null;
+    if (optimisticUpdate) {
+      setJobs((prev) => prev.map((j) => (j.id === jobId ? optimisticUpdate : j)));
+    }
 
     try {
       const updated = await api.replaceCronJob(jobId, values);
