@@ -35,7 +35,7 @@ def _load_chat_text(text: Optional[str], text_file: Optional[Path]) -> str:
         return text_file.read_text(encoding="utf-8")
     except OSError as exc:
         raise click.ClickException(
-            f"Failed to read --text-file '{text_file}': {exc}"
+            f"Failed to read --text-file '{text_file}': {exc}",
         ) from exc
 
 
@@ -117,7 +117,7 @@ def _submit_background_task(
         click.echo("💡 Don't wait - continue with other tasks!")
         click.echo("   Check status later (10-60s depending on complexity):")
         click.echo(
-            f"  copaw agents chat --background --task-id {submission.task_id}"
+            f"  copaw agents chat --background --task-id {submission.task_id}",
         )
 
     except (ValueError, httpx.HTTPError) as e:
@@ -379,15 +379,6 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
     ),
 )
 @click.option(
-    "--new-session",
-    is_flag=True,
-    default=False,
-    help=(
-        "Force create new session even if --session-id provided. "
-        "Generates unique session ID with timestamp."
-    ),
-)
-@click.option(
     "--mode",
     type=click.Choice(["stream", "final"], case_sensitive=False),
     default="final",
@@ -438,7 +429,6 @@ def chat_cmd(
     text: str,
     text_file: Optional[Path],
     session_id: Optional[str],
-    new_session: bool,
     mode: str,
     background: bool,
     task_id: Optional[str],
@@ -561,16 +551,8 @@ def chat_cmd(
             to_agent=to_agent,
             text=raw_text,
             session_id=session_id,
-            new_session=new_session,
-        )
+        ),
     )
-
-    if prepared_request.replaced_existing_session_id:
-        click.echo(
-            "INFO: --new-session flag used, generating new session: "
-            f"{prepared_request.session_id}",
-            err=True,
-        )
 
     click.echo(
         f"INFO: Using session_id: {prepared_request.session_id}",

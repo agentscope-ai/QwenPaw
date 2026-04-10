@@ -96,7 +96,7 @@ async def list_agents(
 
         if json_output:
             return _tool_response(
-                json.dumps({"agents": agents}, ensure_ascii=False, indent=2)
+                json.dumps({"agents": agents}, ensure_ascii=False, indent=2),
             )
         return _tool_response(_format_agents(agents, include_workspace))
     except ValueError as e:

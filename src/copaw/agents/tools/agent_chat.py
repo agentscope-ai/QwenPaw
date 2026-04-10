@@ -87,7 +87,7 @@ def _format_task_status(status_payload: AgentChatTaskStatus) -> str:
             [
                 "Task is still running...",
                 f"Started at: {created_at}",
-            ]
+            ],
         )
     elif status_payload.status == "pending":
         lines.append("Task is pending in queue...")
@@ -99,11 +99,10 @@ def _format_task_status(status_payload: AgentChatTaskStatus) -> str:
     return "\n".join(lines).strip()
 
 
-async def agent_chat(
+async def agent_chat(  # pylint: disable=too-many-return-statements
     to_agent: Optional[str] = None,
     text: Optional[str] = None,
     session_id: Optional[str] = None,
-    new_session: bool = False,
     background: bool = False,
     task_id: Optional[str] = None,
     timeout: float = 600.0,
@@ -139,7 +138,6 @@ async def agent_chat(
         text: Message text to send to the target agent. Required for new chat
             requests.
         session_id: Optional existing session ID for multi-turn continuation.
-        new_session: Force a fresh session even if ``session_id`` is provided.
         background: Submit as a background task or query a background task.
         task_id: Existing background task ID to query. Requires
             ``background=True``.
@@ -154,13 +152,13 @@ async def agent_chat(
 
     resolved_base_url = _resolve_base_url(base_url)
     current_agent_id = get_current_agent_id()
-    to_agent = to_agent.strip().strip("\"") if to_agent else None
+    to_agent = to_agent.strip().strip('"') if to_agent else None
 
     try:
         if task_id:
             if not background:
                 return _tool_response(
-                    "Error: task_id requires background=True."
+                    "Error: task_id requires background=True.",
                 )
 
             status_payload = await asyncio.to_thread(
@@ -176,7 +174,7 @@ async def agent_chat(
                         status_payload.response_data,
                         ensure_ascii=False,
                         indent=2,
-                    )
+                    ),
                 )
             return _tool_response(_format_task_status(status_payload))
 
@@ -187,7 +185,7 @@ async def agent_chat(
         if to_agent == current_agent_id:
             return _tool_response(
                 "Error: agent_chat does not allow sending to the current "
-                "agent."
+                "agent.",
             )
 
         prepared_request = prepare_agent_chat_request(
@@ -196,8 +194,7 @@ async def agent_chat(
                 to_agent=to_agent,
                 text=text,
                 session_id=session_id,
-                new_session=new_session,
-            )
+            ),
         )
 
         if background:
@@ -213,10 +210,10 @@ async def agent_chat(
                         submission.response_data,
                         ensure_ascii=False,
                         indent=2,
-                    )
+                    ),
                 )
             return _tool_response(
-                _format_submission(submission.task_id, submission.session_id)
+                _format_submission(submission.task_id, submission.session_id),
             )
 
         final_response = await asyncio.to_thread(
@@ -231,13 +228,13 @@ async def agent_chat(
                     final_response.response_data,
                     ensure_ascii=False,
                     indent=2,
-                )
+                ),
             )
         return _tool_response(
             _format_final_response(
                 final_response.session_id,
                 final_response.text,
-            )
+            ),
         )
 
     except ValueError as e:

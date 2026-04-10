@@ -31,16 +31,11 @@ def _resolve_session_id(
     from_agent: str,
     to_agent: str,
     session_id: Optional[str],
-    new_session: bool,
-) -> tuple[str, bool, bool]:
-    """Resolve final session_id and metadata about how it was chosen."""
-    if new_session or not session_id:
-        return (
-            _generate_unique_session_id(from_agent, to_agent),
-            True,
-            bool(new_session and session_id),
-        )
-    return session_id, False, False
+) -> str:
+    """Resolve final session_id, generating a new one when absent."""
+    if not session_id:
+        return _generate_unique_session_id(from_agent, to_agent)
+    return session_id
 
 
 def ensure_agent_identity_prefix(text: str, from_agent: str) -> str:
@@ -113,7 +108,6 @@ class AgentChatRequest:
     to_agent: str
     text: str
     session_id: Optional[str] = None
-    new_session: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,8 +121,6 @@ class AgentChatPreparedRequest:
     session_id: str
     request_payload: Dict[str, Any]
     headers: Dict[str, str]
-    generated_session_id: bool
-    replaced_existing_session_id: bool
     identity_prefix_added: bool
 
 
@@ -168,7 +160,7 @@ def _validate_agent_list_payload(
     agents = payload.get("agents", [])
     if not isinstance(agents, list):
         raise ValueError(
-            "Invalid agent list response: 'agents' must be a list."
+            "Invalid agent list response: 'agents' must be a list.",
         )
     return [agent for agent in agents if isinstance(agent, dict)]
 
@@ -219,11 +211,10 @@ def prepare_agent_chat_request(
     request: AgentChatRequest,
 ) -> AgentChatPreparedRequest:
     """Build request payload, headers, and metadata for agent chat."""
-    final_session_id, generated, replaced = _resolve_session_id(
+    final_session_id = _resolve_session_id(
         request.from_agent,
         request.to_agent,
         request.session_id,
-        request.new_session,
     )
     final_text = ensure_agent_identity_prefix(request.text, request.from_agent)
     request_payload = {
@@ -243,8 +234,6 @@ def prepare_agent_chat_request(
         session_id=final_session_id,
         request_payload=request_payload,
         headers={"X-Agent-Id": request.to_agent},
-        generated_session_id=generated,
-        replaced_existing_session_id=replaced,
         identity_prefix_added=final_text != request.text,
     )
 

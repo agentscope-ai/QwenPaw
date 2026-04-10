@@ -293,7 +293,6 @@ copaw agents chat \
 
 **可选参数**：
 - `--session-id`：复用会话上下文（从之前的输出中复制）
-- `--new-session`：强制创建新会话（即使传了session-id）
 - `--mode`：stream（流式）或 final（完整，默认）
 - `--timeout`：超时时间（秒，默认300）
 - `--json-output`：输出完整JSON而非纯文本
