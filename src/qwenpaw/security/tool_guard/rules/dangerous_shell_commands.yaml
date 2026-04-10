@@ -203,7 +203,7 @@
   category: code_execution
   severity: HIGH
   patterns:
-    - "\\$IFS"
+    - "\\$IFS(?![A-Za-z0-9_])"
     - "\\$\\{[^}]*IFS"
   exclude_patterns:
     - "^\\s*#"
@@ -251,7 +251,7 @@
   category: sensitive_file_access
   severity: HIGH
   patterns:
-    - "\\/proc\\/.*\\/environ"
+    - "\\/proc\\/(?:self|\\d+)\\/environ(?:\\b|$)"
   exclude_patterns:
     - "^\\s*#"
   description: "Command accesses /proc/*/environ which could expose sensitive environment variables"
@@ -300,7 +300,7 @@
   severity: HIGH
   patterns:
     - "\\bzmodload\\b"
-    - "\\bemulate\\b"
+    - "\\bemulate\\b(?:\\s+-\\S+)*\\s+-c\\b"
     - "\\b(sysopen|sysread|syswrite|sysseek)\\b"
     - "\\b(zpty|ztcp|zsocket)\\b"
     - "\\bzf_(rm|mv|ln|chmod|chown|mkdir|rmdir|chgrp)\\b"
