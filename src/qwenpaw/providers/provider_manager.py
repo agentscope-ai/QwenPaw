@@ -1225,6 +1225,83 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except Exception:
             return None
 
+    # Legacy model ID mapping for CoPaw -> QwenPaw migration
+    _COPAW_TO_QWENPAW_MODELS: dict[str, str] = {
+        "AgentScope/CoPaw-Flash-2B-Q4_K_M": (
+            "AgentScope/QwenPaw-Flash-2B-Q4_K_M"
+        ),
+        "AgentScope/CoPaw-Flash-2B-Q8_0": ("AgentScope/QwenPaw-Flash-2B-Q8_0"),
+        "AgentScope/CoPaw-Flash-4B-Q4_K_M": (
+            "AgentScope/QwenPaw-Flash-4B-Q4_K_M"
+        ),
+        "AgentScope/CoPaw-Flash-4B-Q8_0": ("AgentScope/QwenPaw-Flash-4B-Q8_0"),
+        "AgentScope/CoPaw-Flash-9B-Q4_K_M": (
+            "AgentScope/QwenPaw-Flash-9B-Q4_K_M"
+        ),
+        "AgentScope/CoPaw-Flash-9B-Q8_0": ("AgentScope/QwenPaw-Flash-9B-Q8_0"),
+    }
+
+    def _migrate_copaw_config(self) -> None:
+        """Migrate copaw-local provider config to qwenpaw-local."""
+        # 1. Migrate active model configuration
+        if (
+            self.active_model
+            and self.active_model.provider_id == "copaw-local"
+        ):
+            self.active_model.provider_id = "qwenpaw-local"
+            # Migrate model ID if it's a legacy CoPaw model
+            if self.active_model.model in self._COPAW_TO_QWENPAW_MODELS:
+                old_model = self.active_model.model
+                self.active_model.model = self._COPAW_TO_QWENPAW_MODELS[
+                    old_model
+                ]
+                logger.info(
+                    "Migrated active model from %s to %s",
+                    old_model,
+                    self.active_model.model,
+                )
+            self.save_active_model(self.active_model)
+            logger.info(
+                "Migrated active model provider from "
+                "'copaw-local' to 'qwenpaw-local'",
+            )
+
+        # 2. Migrate stored provider config file
+        copaw_config_path = self.builtin_path / "copaw-local.json"
+        if copaw_config_path.exists():
+            try:
+                with open(copaw_config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                # Update provider ID in config
+                if config.get("id") == "copaw-local":
+                    config["id"] = "qwenpaw-local"
+                    config["name"] = "QwenPaw Local"
+                # Migrate model IDs in extra_models
+                if "extra_models" in config:
+                    for model in config["extra_models"]:
+                        if model.get("id") in self._COPAW_TO_QWENPAW_MODELS:
+                            old_id = model["id"]
+                            model["id"] = self._COPAW_TO_QWENPAW_MODELS[old_id]
+                            model["name"] = model["id"].split("/")[-1]
+                            logger.info(
+                                "Migrated extra_model from %s to %s",
+                                old_id,
+                                model["id"],
+                            )
+                # Save as new provider config
+                qwenpaw_config_path = self.builtin_path / "qwenpaw-local.json"
+                with open(qwenpaw_config_path, "w", encoding="utf-8") as f:
+                    json.dump(config, f, ensure_ascii=False, indent=2)
+                # Remove old config file
+                copaw_config_path.unlink()
+                logger.info(
+                    "Migrated provider config from "
+                    "'copaw-local.json' to 'qwenpaw-local.json'",
+                )
+            except Exception as exc:
+                logger.warning("Failed to migrate copaw-local config: %s", exc)
+
+    # pylint: disable=too-many-branches
     def _migrate_legacy_providers(self):
         """Migrate from legacy providers.json format to the new structure."""
         legacy_path = SECRET_DIR / "providers.json"
@@ -1272,9 +1349,18 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "chat_model" in data:
                     custom_provider.chat_model = data["chat_model"]
                 self._save_provider(custom_provider, is_builtin=False)
-            # Migrate active model
+            # Migrate active model (also check for copaw-local here)
             if active_model:
                 try:
+                    # Convert legacy copaw-local provider_id
+                    if active_model.get("provider_id") == "copaw-local":
+                        active_model["provider_id"] = "qwenpaw-local"
+                    # Convert legacy model IDs
+                    old_model_id = active_model.get("model")
+                    if old_model_id in self._COPAW_TO_QWENPAW_MODELS:
+                        active_model["model"] = self._COPAW_TO_QWENPAW_MODELS[
+                            old_model_id
+                        ]
                     self.active_model = ModelSlotConfig.model_validate(
                         active_model,
                     )
@@ -1324,6 +1410,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         active_model = self.load_active_model()
         if active_model:
             self.active_model = active_model
+
+        # Migrate copaw-local to qwenpaw-local for backwards compatibility
+        self._migrate_copaw_config()
 
     def _apply_default_annotations(self):
         """Apply doc-based default annotations for unprobed models.

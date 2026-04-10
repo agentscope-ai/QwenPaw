@@ -41,6 +41,22 @@ class DownloadSource(str, Enum):
     AUTO = "auto"
 
 
+# Legacy model ID compatibility mapping (CoPaw -> QwenPaw)
+_LEGACY_MODEL_IDS: dict[str, str] = {
+    "AgentScope/QwenPaw-Flash-2B-Q4_K_M": "AgentScope/CoPaw-Flash-2B-Q4_K_M",
+    "AgentScope/QwenPaw-Flash-2B-Q8_0": "AgentScope/CoPaw-Flash-2B-Q8_0",
+    "AgentScope/QwenPaw-Flash-4B-Q4_K_M": "AgentScope/CoPaw-Flash-4B-Q4_K_M",
+    "AgentScope/QwenPaw-Flash-4B-Q8_0": "AgentScope/CoPaw-Flash-4B-Q8_0",
+    "AgentScope/QwenPaw-Flash-9B-Q4_K_M": "AgentScope/CoPaw-Flash-9B-Q4_K_M",
+    "AgentScope/QwenPaw-Flash-9B-Q8_0": "AgentScope/CoPaw-Flash-9B-Q8_0",
+}
+
+
+def _to_legacy_model_id(model_id: str) -> str | None:
+    """Return the legacy CoPaw model ID if the given ID has one."""
+    return _LEGACY_MODEL_IDS.get(model_id)
+
+
 class LocalModelInfo(ModelInfo):
     """Metadata for a local model"""
 
@@ -132,14 +148,37 @@ class ModelManager:
 
         return models
 
+    def _check_model_exists(self, model_id: str) -> bool:
+        """Check if a model directory contains .gguf files."""
+        local_path = self._model_dir.joinpath(*model_id.split("/"))
+        return local_path.exists() and any(local_path.glob("*.gguf"))
+
     def get_model_dir(self, model_id: str) -> Path:
-        """Get the expected local path for a given model id."""
+        """Get the expected local path for a given model id.
+
+        For backwards compatibility, if the model exists under a legacy
+        CoPaw directory name, return that path instead.
+        """
+        # Check legacy path first for compatibility
+        legacy_id = _to_legacy_model_id(model_id)
+        if legacy_id and self._check_model_exists(legacy_id):
+            return self._model_dir.joinpath(*legacy_id.split("/"))
         return self._model_dir.joinpath(*model_id.split("/"))
 
     def is_downloaded(self, model_id: str) -> bool:
-        """Check if a model id is already downloaded."""
-        local_path = self.get_model_dir(model_id)
-        return local_path.exists() and any(local_path.glob("*.gguf"))
+        """Check if a model id is already downloaded.
+
+        Supports both new QwenPaw names and legacy CoPaw names for
+        backwards compatibility.
+        """
+        # Check new path first
+        if self._check_model_exists(model_id):
+            return True
+        # Check legacy path for compatibility
+        legacy_id = _to_legacy_model_id(model_id)
+        if legacy_id and self._check_model_exists(legacy_id):
+            return True
+        return False
 
     def list_downloaded_models(self) -> list[LocalModelInfo]:
         """Return all downloaded local model repositories."""
