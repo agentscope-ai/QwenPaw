@@ -110,6 +110,8 @@ SECRET_DIR = (
     .resolve()
 )
 
+PROJECT_NAME = "QWENPAW"
+
 # Default media directory for channels (cross-platform)
 DEFAULT_MEDIA_DIR = WORKING_DIR / "media"
 

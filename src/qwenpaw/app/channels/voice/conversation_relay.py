@@ -29,13 +29,13 @@ _ERROR_MSG = "I'm having trouble right now. Please try again."
 class ConversationRelayHandler:
     """Handle one call's WebSocket session with Twilio ConversationRelay.
 
-    Twilio -> CoPaw messages:
+    Twilio -> Messages:
         ``{"type":"setup",  "callSid":"CA...", "from":"+1...", ...}``
         ``{"type":"prompt", "voicePrompt":"transcribed text"}``
         ``{"type":"interrupt", "utteranceUntilInterrupt":"...", ...}``
         ``{"type":"dtmf",   "digit":"5"}``
 
-    CoPaw -> Twilio messages:
+    Messages to Twilio messages:
         ``{"type":"text", "token":"chunk", "last":false}``
         ``{"type":"text", "token":"",      "last":true}``
         ``{"type":"end"}``
@@ -138,7 +138,7 @@ class ConversationRelayHandler:
 
         request = self._build_agent_request(user_text)
 
-        # Process through CoPaw agent and stream response to Twilio.
+        # Process through agent and stream response to Twilio.
         await self._process_and_stream(request)
 
     async def _handle_interrupt(self, msg: dict) -> None:

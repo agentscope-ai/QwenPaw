@@ -25,7 +25,7 @@ from .unified_queue_manager import UnifiedQueueManager
 from ...config import get_available_channels
 
 if TYPE_CHECKING:
-    from ....config.config import Config
+    from ...config.config import Config
 
 logger = logging.getLogger(__name__)
 

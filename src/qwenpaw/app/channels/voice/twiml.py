@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 def build_conversation_relay_twiml(
     ws_url: str,
     *,
-    welcome_greeting: str = "Hi! This is CoPaw. How can I help you?",
+    welcome_greeting: str = "Hi! How can I help you?",
     tts_provider: str = "google",
     tts_voice: str = "en-US-Journey-D",
     stt_provider: str = "deepgram",
@@ -38,7 +38,7 @@ def build_conversation_relay_twiml(
 
 
 def build_busy_twiml(
-    message: str = "CoPaw is on another call. Please try again later.",
+    message: str = "On another call. Please try again later.",
 ) -> str:
     """Build TwiML that speaks a busy message.
 

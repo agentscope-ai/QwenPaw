@@ -1991,7 +1991,6 @@ class FeishuChannel(BaseChannel):
         self._loop = asyncio.get_running_loop()
         self._http_client = httpx.AsyncClient(
             timeout=30.0,
-            headers={"User-Agent": "CoPaw/1.0"},
         )
         sdk_domain = (
             lark.LARK_DOMAIN if self.domain == "lark" else lark.FEISHU_DOMAIN
