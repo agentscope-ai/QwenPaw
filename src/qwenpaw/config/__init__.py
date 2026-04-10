@@ -20,6 +20,7 @@ from .utils import (
     is_running_in_container,
     load_config,
     save_config,
+    strict_validate_config_file,
     update_last_dispatch,
 )
 
@@ -42,5 +43,6 @@ __all__ = [
     "is_running_in_container",
     "load_config",
     "save_config",
+    "strict_validate_config_file",
     "update_last_dispatch",
 ]
