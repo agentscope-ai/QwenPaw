@@ -146,7 +146,7 @@ Each custom rule is a JSON object with the following fields:
 
 In the Console under **Settings → Security → Tool Guard** tab, you can:
 
-![tool guard](https://img.alicdn.com/imgextra/i3/O1CN01RI8YBr1JorIWpB4uI_!!6000000001076-2-tps-3822-2064.png)
+![tool guard](https://img.alicdn.com/imgextra/i3/O1CN015wiSQW1h8JHZb0CNX_!!6000000004232-2-tps-3822-2070.png)
 
 - **Enable/disable Tool Guard** — Master switch; when disabled, all tool calls bypass checks
 - **Select guard scope** — Leave empty to guard all tools, or specify a list of tools to guard
@@ -263,7 +263,7 @@ In `config.json`:
 
 In the Console under **Settings → Security → File Guard** tab, you can:
 
-![file guard](https://img.alicdn.com/imgextra/i1/O1CN01tOHz591o77Z0SsWXA_!!6000000005177-2-tps-3822-2064.png)
+![file guard](https://img.alicdn.com/imgextra/i2/O1CN01Qip9IY1tl29zT8s5L_!!6000000005941-2-tps-3822-2070.png)
 
 - **Enable/disable File Guard** — Independent toggle; controls file protection without affecting other Tool Guard features
 - **View protection list** — Table display of all protected paths:
@@ -357,7 +357,7 @@ The whitelist is useful for:
 
 In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
-![skill scanner](https://img.alicdn.com/imgextra/i2/O1CN01oZHdxC1M983gp03Ox_!!6000000001391-2-tps-3822-2064.png)
+![skill scanner](https://img.alicdn.com/imgextra/i2/O1CN01K1sySe1pqkdpHHCSB_!!6000000005412-2-tps-3822-2070.png)
 
 **Configuration area**:
 
@@ -366,7 +366,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
 **Scan Alerts tab** (shows badge count when alerts exist):
 
-![alarm](https://img.alicdn.com/imgextra/i4/O1CN01B3j7d21yhtWQ7b0NB_!!6000000006611-2-tps-3822-2064.png)
+![alarm](https://img.alicdn.com/imgextra/i4/O1CN01ykUkgG1gI68G7WUGP_!!6000000004118-2-tps-3822-2070.png)
 
 - View all blocked and warned records
 - Click eye icon to view detailed findings
@@ -376,7 +376,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
 **Whitelist tab** (shows badge count when entries exist):
 
-![white list](https://img.alicdn.com/imgextra/i1/O1CN01yZTkBE1EmVBHhaNwh_!!6000000000394-2-tps-3822-2064.png)
+![white list](https://img.alicdn.com/imgextra/i1/O1CN01MPqRpL1TKJ2KxhnDT_!!6000000002363-2-tps-3822-2070.png)
 
 - View all whitelisted skills
 - Shows skill name, content hash (first 16 chars), added time
@@ -536,7 +536,7 @@ Here's a complete `config.json` with all security features configured:
 
 QwenPaw supports optional web login authentication to protect the Console from unauthorized access. Authentication is **disabled by default** and must be explicitly enabled via the `QWENPAW_AUTH_ENABLED` environment variable.
 
-![login](https://img.alicdn.com/imgextra/i3/O1CN01SP7Ppd289g5e9kKO6_!!6000000007890-2-tps-3822-2064.png)
+![login](https://img.alicdn.com/imgextra/i1/O1CN01wh3Sv01SxPEXpb6Wj_!!6000000002313-2-tps-3822-2070.png)
 
 ### How it works
 

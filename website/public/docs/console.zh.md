@@ -34,7 +34,7 @@
 
 这是你和 QwenPaw 对话的地方。打开控制台后默认就是这个页面。
 
-![聊天](https://img.alicdn.com/imgextra/i4/O1CN01P5qSNm1q1HkOU2Cpz_!!6000000005435-2-tps-3822-2064.png)
+![聊天](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
 
 **选择模型：**
 聊天页面右上角可以为当前智能体选择需要使用的模型。
@@ -65,7 +65,7 @@
 
 在这里管理各消息频道（Console、钉钉、飞书、Discord、QQ、微信、iMessage等）的开关和凭据。
 
-![频道](https://img.alicdn.com/imgextra/i3/O1CN01VKgrYz1sywZS5dx1K_!!6000000005836-2-tps-3822-2064.png)
+![频道](https://img.alicdn.com/imgextra/i4/O1CN01i17DLe2559KSAMwpA_!!6000000007474-2-tps-3822-2070.png)
 
 **启用一个频道：**
 
@@ -90,7 +90,7 @@
 
 在这里查看、筛选和清理所有频道的聊天会话。
 
-![会话](https://img.alicdn.com/imgextra/i2/O1CN01QruflH1c6rxMyCPYv_!!6000000003552-2-tps-3822-2064.png)
+![会话](https://img.alicdn.com/imgextra/i4/O1CN01JTBZoq1KxOIIRuL6J_!!6000000001230-2-tps-3822-2070.png)
 
 **查找会话：**
 在搜索框中输入用户名过滤，或用下拉菜单按频道筛选，表格会即时更新。
@@ -112,7 +112,7 @@
 
 在这里创建和管理 QwenPaw 按时间自动执行的定时任务。
 
-![定时任务](https://img.alicdn.com/imgextra/i2/O1CN01126u2x1NnimFJgI4G_!!6000000001615-2-tps-3822-2064.png)
+![定时任务](https://img.alicdn.com/imgextra/i1/O1CN01UqMEHK1g2WfLs2wUQ_!!6000000004084-2-tps-3822-2070.png)
 
 **创建新任务：**
 
@@ -154,7 +154,7 @@
 
 > 侧边栏：**控制 → 心跳**
 
-![心跳](https://img.alicdn.com/imgextra/i4/O1CN01kVqOrm1iyoIWhg06k_!!6000000004482-2-tps-3822-2064.png)
+![心跳](https://img.alicdn.com/imgextra/i4/O1CN01jW2DeC1QIWeM4HHBM_!!6000000001953-2-tps-3822-2070.png)
 
 为**当前选中的智能体**配置定时「自检」：按间隔把 `HEARTBEAT.md` 里的内容当作用户消息发给 QwenPaw，并可把回复投递到指定目标。
 
@@ -181,7 +181,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 > 工作区、配置、记忆和对话历史。智能体之间还可以互相协作。在控制台顶部可以切换当前操作的智能体。
 > 详见 [多智能体](./multi-agent)。
 
-![文件](https://img.alicdn.com/imgextra/i4/O1CN01XwtFjq1KE356pkFrI_!!6000000001131-2-tps-3822-2064.png)
+![文件](https://img.alicdn.com/imgextra/i4/O1CN01Buqn3J1YJSNgrz9eY_!!6000000003038-2-tps-3822-2070.png)
 
 **编辑文件：**
 
@@ -208,7 +208,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 在这里管理扩展 QwenPaw 能力的技能（如读取 PDF、创建 Word 文档、获取新闻等），更详细的内容请看 [Skills](./skills)。
 
-![技能](https://img.alicdn.com/imgextra/i2/O1CN01Tu6LbS1YUuHSV3AB1_!!6000000003063-2-tps-3822-2064.png)
+![技能](https://img.alicdn.com/imgextra/i1/O1CN015rwm8V24Aoc48bGTp_!!6000000007351-2-tps-3822-2070.png)
 
 **启用技能：**
 点击技能卡片底部的 **启用** 链接，立即生效。
@@ -263,7 +263,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**工作区 → 工具**
 
-![工具](https://img.alicdn.com/imgextra/i1/O1CN013pnUTX1zaOebJyOFN_!!6000000006730-2-tps-3822-2064.png)
+![工具](https://img.alicdn.com/imgextra/i1/O1CN01Ofuk2I1pH1kRvkwcr_!!6000000005334-2-tps-3822-2070.png)
 
 按**内置工具名称**单独开启或关闭（如读文件、执行命令、浏览器等）。关闭后该 Agent 在对话中无法调用该工具。
 
@@ -277,7 +277,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 在这里启用/禁用/删除**MCP**，或者创建新的客户端。
 
-![MCP](https://img.alicdn.com/imgextra/i2/O1CN01JsatyY1rCZ7S6DAyL_!!6000000005595-2-tps-3822-2064.png)
+![MCP](https://img.alicdn.com/imgextra/i2/O1CN01J0qnP91bQH7nxR2ww_!!6000000003459-2-tps-3822-2070.png)
 
 **创建客户端**
 点击右上角的**创建客户端**，填写必要信息，点击**创建**，可以看到MCP客户端列表中新增内容。
@@ -286,7 +286,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**工作区 → 运行配置**
 
-![运行配置](https://img.alicdn.com/imgextra/i1/O1CN011iT12Z1WoTyfdIUm8_!!6000000002835-2-tps-3822-2064.png)
+![运行配置](https://img.alicdn.com/imgextra/i4/O1CN01A6WTtz1ukPEVOI53u_!!6000000006075-2-tps-3822-2070.png)
 
 本页集中配置**当前智能体**的运行参数，分多块卡片，改完后点底部 **保存**（**重置** 可重新拉取服务端数据）。
 
@@ -307,7 +307,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**设置 → 智能体管理**
 
-![智能体管理](https://img.alicdn.com/imgextra/i3/O1CN01dcKBSK1ruzXNjhJvU_!!6000000005692-2-tps-3822-2064.png)
+![智能体管理](https://img.alicdn.com/imgextra/i3/O1CN01mG2dkX1GHTaJLMjWo_!!6000000000597-2-tps-3822-2070.png)
 
 创建、编辑、启用/禁用或删除智能体；列表中的 **描述** 会用于多智能体协作时的分工判断，建议写清用途。
 
@@ -321,7 +321,7 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 在这里配置 LLM 提供商，并选择默认模型。详情请见 [Models](./models)。
 
-![模型](https://img.alicdn.com/imgextra/i2/O1CN015r2PfQ1i2BbMESsvQ_!!6000000004354-2-tps-3822-2064.png)
+![模型](https://img.alicdn.com/imgextra/i2/O1CN0122wKIo2AIUx3HZkdG_!!6000000008180-2-tps-3822-2070.png)
 
 在本页面，你可以：
 
@@ -338,7 +338,7 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 在这里对技能做全局管理，更详细的内容请看 [Skills](./skills)。
 
-![技能池](https://img.alicdn.com/imgextra/i2/O1CN01TVz5XK25TsiLTmrJf_!!6000000007528-2-tps-3822-2064.png)
+![技能池](https://img.alicdn.com/imgextra/i2/O1CN014Kpiia1OW9CKI06jN_!!6000000001712-2-tps-3822-2070.png)
 
 在当前页面，可对技能做以下操作：
 
@@ -358,7 +358,7 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 在这里管理 QwenPaw 的工具和技能在运行时需要的环境变量（如 `TAVILY_API_KEY`）。
 
-![环境变量](https://img.alicdn.com/imgextra/i2/O1CN01N6HGiU1bgIz7JRiXG_!!6000000003494-2-tps-3822-2064.png)
+![环境变量](https://img.alicdn.com/imgextra/i2/O1CN01EIfkyk1mR9epvvu5G_!!6000000004950-2-tps-3822-2070.png)
 
 **添加变量：**
 
@@ -386,7 +386,7 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 > 侧边栏：**设置 → 安全**
 
-![安全](https://img.alicdn.com/imgextra/i1/O1CN01aSWku01Kbrg29HLHS_!!6000000001183-2-tps-3822-2064.png)
+![安全](https://img.alicdn.com/imgextra/i4/O1CN01APDb151R02HB3zHet_!!6000000002048-2-tps-3822-2070.png)
 
 分 **工具防护**、**文件防护**、**技能扫描器** 等页签：分别控制危险工具参数拦截、敏感路径访问拦截、技能包安全扫描策略。
 
@@ -398,7 +398,7 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 > 侧边栏：**设置 → Token 消耗**
 
-![token消耗](https://img.alicdn.com/imgextra/i1/O1CN018h0gg41s3EfOTvjYl_!!6000000005710-2-tps-3822-2064.png)
+![token消耗](https://img.alicdn.com/imgextra/i1/O1CN01B5rBkM1fWSwLbTwzw_!!6000000004014-2-tps-3822-2070.png)
 
 在这里查看一段时间内的 LLM Token 消耗，按日期和模型统计。
 
@@ -420,7 +420,7 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 > 侧边栏：**设置 → 语音转写**
 
-![语音转写](https://img.alicdn.com/imgextra/i1/O1CN01Fnyz3d1EgY23ofj2f_!!6000000000381-2-tps-3822-2064.png)
+![语音转写](https://img.alicdn.com/imgextra/i2/O1CN01yddyyw1HwWhQnbqwR_!!6000000000822-2-tps-3822-2070.png)
 
 配置**各频道发来的语音/音频**在进入模型前的处理方式（与聊天里的语音输入、频道语音消息共用这套设置）。
 

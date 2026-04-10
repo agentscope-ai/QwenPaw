@@ -61,7 +61,7 @@ You can configure it either in the Console frontend or by editing the agent work
 
 Go to "Control→Channels", find **DingTalk**, click it, and enter the **Client ID** and **Client Secret** you just obtained.
 
-![console](https://img.alicdn.com/imgextra/i2/O1CN01TncUmE1TUNkR7e2ft_!!6000000002385-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i3/O1CN01h4fEUa244rSp3WR0T_!!6000000007338-2-tps-3822-2070.png)
 
 **Method 2**: Edit agent workspace `agent.json`
 
@@ -237,7 +237,7 @@ Find `channels.feishu` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspace
 If your environment uses a SOCKS proxy, also install `python-socks` (for example, `pip install python-socks`), otherwise you may see: `python-socks is required to use a SOCKS proxy`.
 
 > **Note:** You can also fill in **App ID** and **App Secret** in the Console UI, but you must restart the qwenpaw service before continuing with the long-connection configuration.
-> ![console](https://img.alicdn.com/imgextra/i2/O1CN01ybSbN01luB8jyt9BD_!!6000000004878-2-tps-3822-2064.png)
+> ![console](https://img.alicdn.com/imgextra/i4/O1CN01OXdwjN1KVS8Nsc1he_!!6000000001169-2-tps-3822-2070.png)
 
 ### Recommended bot permissions
 
@@ -308,7 +308,7 @@ The app polls the local iMessage database for new messages and sends replies on 
 
    - In **Console → Channels**, click the **iMessage** card, turn **Enable** on, enter the path in **DB Path**, and click **Save**.
 
-     ![save](https://img.alicdn.com/imgextra/i2/O1CN01i0Ilrp1eSyIl9ecy5_!!6000000003871-2-tps-3822-2064.png)
+     ![console](https://img.alicdn.com/imgextra/i3/O1CN01LXTm20287qVYjicfn_!!6000000007886-2-tps-3822-2070.png)
 
    - Or edit the agent workspace `agent.json` (usually at `~/.qwenpaw/workspaces/default/agent.json`):
 
@@ -380,7 +380,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 Go to **Control → Channels**, click **Discord**, and enter the **Bot Token** you obtained.
 
-![Console](https://img.alicdn.com/imgextra/i1/O1CN01ChQJNp1afYixv52rv_!!6000000003357-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i1/O1CN01VjFNXn1oUTlVH6Bmt_!!6000000005228-2-tps-3822-2070.png)
 
 **Method 2:** Edit agent workspace `agent.json`
 
@@ -470,7 +470,7 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
 
 You can also fill them in the Console UI.
 
-![1](https://img.alicdn.com/imgextra/i3/O1CN01l801uc1jPpfLTOsR5_!!6000000004541-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i1/O1CN01QPxQ9S1sxZNvpV4ZW_!!6000000005833-2-tps-3822-2070.png)
 
 ---
 
@@ -579,7 +579,7 @@ You can bind the bot by filling in the Bot ID and Secret in the Console or `agen
 
 **Method 1:** Fill in the Console
 
-![Bind robot](https://img.alicdn.com/imgextra/i3/O1CN01ZZeM111FXDa0GoZUN_!!6000000000496-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i1/O1CN01A4916J1RB1mXpeVqK_!!6000000002072-2-tps-3822-2070.png)
 
 **Method 2:** Fill in `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`)
 
@@ -691,7 +691,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 Go to **Control → Channels**, click **Telegram**, and enter the **Bot Token** you obtained.
 
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01Ps7Odl1a35SETdKna_!!6000000003273-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i2/O1CN01Ue1bBr1DxCp8WkyzP_!!6000000000282-2-tps-3822-2070.png)
 
 **Method 2:** Edit agent workspace `agent.json`
 

@@ -180,21 +180,21 @@ The workspace skill page supports importing from the following URL sources:
 
 1. In [Console](./console) → **Workspace → Skills**, click **Import from Skills Hub**.
 
-   ![skill](https://img.alicdn.com/imgextra/i1/O1CN01a1iK2K1mfoKagiCXr_!!6000000004982-2-tps-2910-1552.png)
+   ![skill](https://img.alicdn.com/imgextra/i2/O1CN018GbM8v1Iuyyp9Cuyp_!!6000000000954-2-tps-3822-2070.png)
 
 2. Paste a skill URL in the pop-up window (see **URL acquisition example**
    below).
 
-   ![url](https://img.alicdn.com/imgextra/i1/O1CN01PGa9Kl1pzuYoGENBi_!!6000000005432-2-tps-2940-1554.png)
+   ![url](https://img.alicdn.com/imgextra/i4/O1CN01ztz7ds28L7zh408Si_!!6000000007915-2-tps-3822-2070.png)
 
 3. Confirm and wait for import to finish.
 
-   ![click](https://img.alicdn.com/imgextra/i2/O1CN01Lsn0sR27p4GcJ1Ux0_!!6000000007845-2-tps-2940-1614.png)
+   ![click](https://img.alicdn.com/imgextra/i3/O1CN01FXICJa1fcsUDbQpiv_!!6000000004028-2-tps-3822-2070.png)
 
 4. After a successful import, the skill appears in the skill list and is
    **enabled by default**.
 
-   ![check](https://img.alicdn.com/imgextra/i1/O1CN01Dk2bKZ1kitllHcWDl_!!6000000004718-2-tps-2940-1556.png)
+   ![check](https://img.alicdn.com/imgextra/i1/O1CN01qamRgj1DHzB63zl9e_!!6000000000192-2-tps-3822-2070.png)
 
 #### URL acquisition example
 

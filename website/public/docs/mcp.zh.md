@@ -46,7 +46,7 @@ node --version  # 检查版本
 3. 粘贴 MCP 客户端的 JSON 配置
 4. 点击 **创建** 完成导入
 
-![MCP](https://img.alicdn.com/imgextra/i4/O1CN01NiPCUF1OwFlsmdAyq_!!6000000001769-2-tps-3822-2064.png)
+![MCP](https://img.alicdn.com/imgextra/i1/O1CN01HrYuzS24mpUDOgB6m_!!6000000007434-2-tps-3822-2070.png)
 
 ---
 
@@ -216,7 +216,7 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 
 ### 工具管理
 
-![tool](https://img.alicdn.com/imgextra/i1/O1CN018LkcN11uamugiJryg_!!6000000006054-2-tps-3822-2064.png)
+![tool](https://img.alicdn.com/imgextra/i1/O1CN018oZy751gxmArrsFbC_!!6000000004209-2-tps-3822-2070.png)
 
 #### 启用和禁用工具
 

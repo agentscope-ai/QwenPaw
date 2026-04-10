@@ -8,7 +8,7 @@
 
 QwenPaw 是一款**个人助理型产品**，部署在你自己的环境中。
 
-![控制台](https://img.alicdn.com/imgextra/i4/O1CN01P5qSNm1q1HkOU2Cpz_!!6000000005435-2-tps-3822-2064.png)
+![控制台](https://img.alicdn.com/imgextra/i1/O1CN01ikrU3k1TRdNESHtzV_!!6000000002379-2-tps-3822-2070.png)
 
 - **多通道对话** — 通过钉钉、飞书、Discord、Telegram 等与你对话。
 - **多智能体协作** — 支持创建多个独立智能体，每个智能体拥有独立配置、记忆和技能，

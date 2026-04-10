@@ -9,7 +9,7 @@ step by step with the documentation.
 
 QwenPaw is a **personal assistant** that runs in your own environment.
 
-![console fig](https://img.alicdn.com/imgextra/i1/O1CN01TZtpUC23sUlflQYuT_!!6000000007311-2-tps-3822-2064.png)
+![console fig](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 - **Multi-channel chat** — Talk through DingTalk, Feishu, Discord, Telegram,
   and more.
