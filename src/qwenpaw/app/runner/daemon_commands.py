@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Daemon command execution layer and DaemonCommandHandlerMixin.
 
-Shared by in-chat /daemon <sub> and CLI `copaw daemon <sub>`.
-Logs: tail WORKING_DIR / "copaw.log". Restart: in-process reload of channels,
+Shared by in-chat /daemon <sub> and CLI `qwenpaw daemon <sub>`.
+Logs: tail WORKING_DIR / "qwenpaw.log". Restart: in-process reload of channels,
 cron and MCP (no process exit); works on Mac/Windows without a process manager.
 """
 # pylint: disable=too-many-return-statements
@@ -145,7 +145,7 @@ async def run_daemon_restart(context: DaemonContext) -> str:
     return (
         "**Restart**\n\n"
         "- Not running inside app. "
-        "Run the app (e.g. `copaw app`) and use /daemon restart in chat, "
+        "Run the app (e.g. `qwenpaw app`) and use /daemon restart in chat, "
         "or restart the process with systemd/supervisor/docker."
     )
 
@@ -171,13 +171,13 @@ def run_daemon_version(context: DaemonContext) -> str:
         f"**Daemon version**\n\n"
         f"- Version: {ver}\n"
         f"- Working dir: {context.working_dir}\n"
-        f"- Log file: {WORKING_DIR / 'copaw.log'}"
+        f"- Log file: {WORKING_DIR / 'qwenpaw.log'}"
     )
 
 
 def run_daemon_logs(lines: int = 100) -> str:
-    """Tail last N lines from WORKING_DIR / copaw.log."""
-    log_path = WORKING_DIR / "copaw.log"
+    """Tail last N lines from WORKING_DIR / qwenpaw.log."""
+    log_path = WORKING_DIR / "qwenpaw.log"
     content = _get_last_lines(log_path, lines=lines)
     return f"**Console log (last {lines} lines)**\n\n```\n{content}\n```"
 

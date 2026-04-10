@@ -303,13 +303,13 @@ def test_start_multiprocessing_process_wraps_process() -> None:
 
     managed = start_multiprocessing_process(
         raw_process,
-        command=["copaw-model-download", "demo/repo", "modelscope"],
+        command=["qwenpaw-model-download", "demo/repo", "modelscope"],
     )
 
     assert isinstance(managed, ManagedProcess)
     assert managed.creation_mode == "multiprocessing"
     assert managed.command == [
-        "copaw-model-download",
+        "qwenpaw-model-download",
         "demo/repo",
         "modelscope",
     ]

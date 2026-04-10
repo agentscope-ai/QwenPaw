@@ -14,7 +14,9 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-TELEMETRY_ENDPOINT = "https://copaw-telemetry-xissagieap.cn-hangzhou.fcapp.run"
+TELEMETRY_ENDPOINT = (
+    "https://qwenpawelemetry-sukzkbfzhc.ap-southeast-1.fcapp.run"
+)
 TELEMETRY_MARKER_FILE = ".telemetry_collected"
 
 
@@ -27,7 +29,7 @@ def _safe_get(func: Callable[[], str], default: str = "unknown") -> str:
 
 
 def _detect_install_method() -> str:
-    """Detect how CoPaw was installed based on environment signals."""
+    """Detect how QwenPaw was installed based on environment signals."""
     from ..constant import EnvVarLoader
 
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
@@ -42,19 +44,19 @@ def get_system_info() -> dict[str, Any]:
 
     Returns anonymized system information including:
     - install_id: Random UUID (not tied to user)
-    - copaw_version: CoPaw version string
-    - install_method: How CoPaw was installed (docker/desktop/pip)
+    - qwenpaw_version: QwenPaw version string
+    - install_method: How QwenPaw was installed (docker/desktop/pip)
     - os: Operating system (Windows/Darwin/Linux)
     - os_version: OS version string
-    - python_version: Python version running copaw (major.minor)
+    - python_version: Python version running qwenpaw (major.minor)
     - architecture: CPU architecture (x86_64/arm64/etc)
     - has_gpu: GPU availability detection
     """
-    from ..__version__ import __version__ as copaw_ver
+    from ..__version__ import __version__ as qwenpaw_ver
 
     info = {
         "install_id": str(uuid.uuid4()),
-        "copaw_version": _safe_get(lambda: copaw_ver, "unknown"),
+        "qwenpaw_version": _safe_get(lambda: qwenpaw_ver, "unknown"),
         "install_method": _safe_get(_detect_install_method, "unknown"),
         "os": _safe_get(platform.system, "unknown"),
         "os_version": _safe_get(platform.release, "unknown"),
@@ -174,11 +176,11 @@ def _upload_telemetry_sync(data: dict[str, Any]) -> bool:
 
 
 def _get_current_version() -> str:
-    """Get the current CoPaw version string."""
+    """Get the current QwenPaw version string."""
     try:
-        from ..__version__ import __version__ as copaw_ver
+        from ..__version__ import __version__ as qwenpaw_ver
 
-        return copaw_ver
+        return qwenpaw_ver
     except Exception:
         return "unknown"
 
@@ -186,11 +188,11 @@ def _get_current_version() -> str:
 def has_telemetry_been_collected(working_dir: Path) -> bool:
     """Check if telemetry has already been collected for the current version.
 
-    Re-triggers collection when CoPaw is upgraded (or downgraded) to a version
-    that hasn't been collected before.
+    Re-triggers collection when QwenPaw is upgraded (or downgraded) to a
+    version that hasn't been collected before.
 
     Args:
-        working_dir: Path to CoPaw working directory
+        working_dir: Path to QwenPaw working directory
 
     Returns:
         True if already collected for this version, False otherwise
@@ -205,8 +207,8 @@ def has_telemetry_been_collected(working_dir: Path) -> bool:
         collected_versions = marker_data.get("collected_versions", [])
         if collected_versions:
             return current in collected_versions
-        # v1.1 compat: single copaw_version field
-        return marker_data.get("copaw_version", "") == current
+        # v1.1 compat: single qwenpaw_version field
+        return marker_data.get("qwenpaw_version", "") == current
     except Exception:
         return False
 
@@ -217,7 +219,7 @@ def is_telemetry_opted_out(working_dir: Path) -> bool:
     Once opted out, telemetry is never collected again regardless of version.
 
     Args:
-        working_dir: Path to CoPaw working directory
+        working_dir: Path to QwenPaw working directory
 
     Returns:
         True if user has opted out, False otherwise
@@ -243,7 +245,7 @@ def mark_telemetry_collected(
     between previously-collected versions won't re-trigger the prompt.
 
     Args:
-        working_dir: Path to CoPaw working directory
+        working_dir: Path to QwenPaw working directory
         opted_out: If True, marks the user as permanently opted out
     """
     marker_file = working_dir / TELEMETRY_MARKER_FILE
@@ -260,7 +262,7 @@ def mark_telemetry_collected(
                 prev_opted_out = old_data.get("opted_out", False) is True
                 # Migrate from v1.1 single-version format
                 if not collected_versions:
-                    old_ver = old_data.get("copaw_version", "")
+                    old_ver = old_data.get("qwenpaw_version", "")
                     if old_ver:
                         collected_versions = [old_ver]
             except Exception:
@@ -271,7 +273,7 @@ def mark_telemetry_collected(
 
         marker_data = {
             "collected_at": time.time(),
-            "copaw_version": current,
+            "qwenpaw_version": current,
             "collected_versions": collected_versions,
             "opted_out": opted_out or prev_opted_out,
             "version": "1.3",
@@ -285,7 +287,7 @@ def collect_and_upload_telemetry(working_dir: Path) -> bool:
     """Collect system info and upload telemetry.
 
     Args:
-        working_dir: Path to CoPaw working directory
+        working_dir: Path to QwenPaw working directory
 
     Returns:
         True if upload succeeded, False otherwise
