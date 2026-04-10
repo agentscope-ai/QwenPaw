@@ -310,20 +310,20 @@ copaw agent list  # 单数别名效果相同
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
-  --text "请帮我分析这些数据"
+  --text-file ./request.txt
 
 # 多轮对话（session 复用）
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
   --session-id collab_session_001 \
-  --text "继续上一个问题"
+  --text-file ./follow_up.txt
 
 # 复杂任务（后台模式）
 copaw agents chat --background \
   --agent-id my_bot \
   --to-agent data_analyst \
-  --text "分析 /data/logs/2026-03-26.log 并生成详细报告"
+  --text-file ./analysis_request.txt
 # 返回 [TASK_ID: xxx] [SESSION: xxx]
 
 # 查询后台任务状态（查询时 --to-agent 为可选）
@@ -336,7 +336,7 @@ copaw agents chat --background \
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
-  --text "长篇分析任务" \
+  --text-file ./stream_request.txt \
   --mode stream
 ```
 
@@ -344,7 +344,8 @@ copaw agents chat \
 
 - `--from-agent`（别名：`--agent-id`）：你的智能体 ID（发送方）
 - `--to-agent`：目标智能体 ID（接收方）
-- `--text`：消息内容
+- `--text-file`：从文件读取消息内容（推荐）
+- `--text`：内联消息内容（适合短消息）
 
 **后台任务参数（新增）：**
 
@@ -379,7 +380,7 @@ copaw agents chat \
 - `running`：正在执行
 - `finished`：已完成（结果为 `completed` 成功或 `failed` 失败）
 
-**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。查询任务状态时只需 `--task-id`（`--to-agent` 为可选）。
+**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。查询任务状态时只需 `--task-id`（`--to-agent` 为可选）。长消息、代码块、JSON、换行内容默认建议使用 `--text-file`，避免 shell 转义错误。
 
 **与 `copaw channels send` 的区别：**
 

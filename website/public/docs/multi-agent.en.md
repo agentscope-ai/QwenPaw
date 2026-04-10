@@ -507,20 +507,20 @@ Agents reference both **Description** and **Profile** when deciding which agent 
 copaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
-  --text "Request content"
+  --text-file ./request.txt
 
 # Multi-turn conversation (maintain context)
 copaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
   --session-id "<session_id>" \
-  --text "Follow-up request"
+  --text-file ./follow_up.txt
 
 # Complex task (background mode, for data analysis, report generation, etc.)
 copaw agents chat --background \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
-  --text "Complex task request"
+  --text-file ./complex_request.txt
 # Returns [TASK_ID: xxx] [SESSION: xxx]
 
 # Check background task status (--to-agent is optional when querying)
@@ -548,6 +548,8 @@ When tasks are complex (e.g., data analysis, batch processing, report generation
 - Generating detailed reports
 - Calling slow external APIs
 - Complex tasks with uncertain execution time
+
+> **Recommendation**: Prefer `--text-file` by default for longer prompts, especially when content includes quotes, newlines, JSON, or code blocks.
 
 > **Note**: These commands are executed automatically by agents; users typically don't need to call them manually. See [CLI - Agents](./cli#agents) for details.
 

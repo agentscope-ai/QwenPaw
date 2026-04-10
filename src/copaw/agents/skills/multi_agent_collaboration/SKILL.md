@@ -50,7 +50,7 @@ copaw agents list
 copaw agents chat \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
-  --text "[Agent <your_agent> requesting] ..."
+  --text-file ./agent_request.txt
 ```
 
 ### 3) 发起复杂任务（后台模式）
@@ -61,7 +61,7 @@ copaw agents chat \
 copaw agents chat --background \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
-  --text "[Agent <your_agent> requesting] ..."
+  --text-file ./agent_request.txt
 ```
 
 **输出**：
@@ -91,7 +91,7 @@ copaw agents chat \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
   --session-id "<session_id>" \
-  --text "[Agent <your_agent> requesting] ..."
+  --text-file ./follow_up.txt
 ```
 
 **重点**:
@@ -154,7 +154,7 @@ copaw agents chat \
 `copaw agents chat` 必须同时提供：
 - `--from-agent`
 - `--to-agent`
-- `--text`
+- `--text-file`（推荐）或 `--text`
 
 ### 身份前缀
 
@@ -186,7 +186,7 @@ copaw agents list
 copaw agents chat \
   --from-agent scheduler_bot \
   --to-agent finance_bot \
-  --text "[Agent scheduler_bot requesting] User explicitly asked to consult finance_bot. 请回答当前待处理的财务任务。"
+  --text-file ./finance_request.txt
 ```
 
 ### 新对话
@@ -195,7 +195,7 @@ copaw agents chat \
 copaw agents chat \
   --from-agent scheduler_bot \
   --to-agent finance_bot \
-  --text "[Agent scheduler_bot requesting] 今天有哪些待处理的财务任务？"
+  --text-file ./todo_request.txt
 ```
 
 ### 续聊
@@ -205,7 +205,7 @@ copaw agents chat \
   --from-agent scheduler_bot \
   --to-agent finance_bot \
   --session-id "scheduler_bot:to:finance_bot:1710912345:a1b2c3d4" \
-  --text "[Agent scheduler_bot requesting] 展开第2项"
+  --text-file ./follow_up.txt
 ```
 
 ---
@@ -245,7 +245,7 @@ copaw agents chat \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
   --mode stream \
-  --text "[Agent <your_agent> requesting] ..."
+  --text-file ./agent_request.txt
 ```
 
 ### JSON 输出
@@ -255,7 +255,7 @@ copaw agents chat \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
   --json-output \
-  --text "[Agent <your_agent> requesting] ..."
+  --text-file ./agent_request.txt
 ```
 
 ---
@@ -274,7 +274,8 @@ copaw agents chat \
 **必填参数**（实时模式）：
 - `--from-agent`：发起方agent ID
 - `--to-agent`：目标agent ID
-- `--text`：消息内容
+- `--text-file`：从文件读取消息内容（推荐）
+- `--text`：内联消息内容（适合短消息）
 
 **后台任务参数**（新增）：
 - `--background`：后台任务模式
@@ -315,7 +316,7 @@ copaw agents chat \
 copaw agents chat --background \
   --from-agent scheduler \
   --to-agent data_analyst \
-  --text "[Agent scheduler requesting] 分析 /data/logs/2026-03-26.log 中的用户行为，生成详细报告"
+  --text-file ./analysis_request.txt
 ```
 
 **输出**：

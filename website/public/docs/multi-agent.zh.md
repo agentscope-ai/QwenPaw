@@ -507,20 +507,20 @@ Profile: [自动生成的详细能力描述]
 copaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
-  --text "请求内容"
+  --text-file ./request.txt
 
 # 多轮对话（保持上下文）
 copaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
   --session-id "<session_id>" \
-  --text "继续请求"
+  --text-file ./follow_up.txt
 
 # 复杂任务（后台模式，适合数据分析、报告生成等）
 copaw agents chat --background \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
-  --text "复杂任务请求"
+  --text-file ./complex_request.txt
 # 返回 [TASK_ID: xxx] [SESSION: xxx]
 
 # 查询后台任务状态（查询时 --to-agent 为可选）
@@ -548,6 +548,8 @@ copaw agents chat --background \
 - 生成详细报告
 - 调用慢速外部API
 - 不确定执行时间的复杂任务
+
+> **推荐**：长内容默认优先使用 `--text-file`，尤其是包含引号、换行、JSON、代码块时，可避免 shell 转义问题。
 
 > **说明**：这些命令由智能体自动执行，通常无需用户手动调用。详见 [CLI - 智能体](./cli#智能体)。
 

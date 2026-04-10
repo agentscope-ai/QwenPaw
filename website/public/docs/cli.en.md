@@ -320,20 +320,20 @@ copaw agent list  # Same with singular alias
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
-  --text "Please analyze this data"
+  --text-file ./request.txt
 
 # Multi-turn conversation (session reuse)
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
   --session-id collab_session_001 \
-  --text "Follow-up question"
+  --text-file ./follow_up.txt
 
 # Complex task (background mode)
 copaw agents chat --background \
   --agent-id my_bot \
   --to-agent data_analyst \
-  --text "Analyze /data/logs/2026-03-26.log and generate detailed report"
+  --text-file ./analysis_request.txt
 # Returns [TASK_ID: xxx] [SESSION: xxx]
 
 # Check background task status (--to-agent is optional when querying)
@@ -346,7 +346,7 @@ copaw agents chat --background \
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
-  --text "Long analysis task" \
+  --text-file ./stream_request.txt \
   --mode stream
 ```
 
@@ -354,7 +354,8 @@ copaw agents chat \
 
 - `--from-agent` (alias: `--agent-id`): Your agent ID (sender)
 - `--to-agent`: Target agent ID (recipient)
-- `--text`: Message content
+- `--text-file`: Read message content from file (recommended)
+- `--text`: Inline message content (best for short prompts)
 
 **Background task parameters (new):**
 
@@ -389,7 +390,7 @@ When tasks are complex (e.g., data analysis, batch processing, report generation
 - `running`: Currently executing
 - `finished`: Completed (result shows `completed` for success or `failed` for error)
 
-**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent. When checking task status, only `--task-id` is required (`--to-agent` is optional).
+**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent. When checking task status, only `--task-id` is required (`--to-agent` is optional). Prefer `--text-file` for long prompts, code blocks, JSON, or content with embedded quotes/newlines to avoid shell escaping issues.
 
 **Key differences from `copaw channels send`:**
 
