@@ -54,10 +54,9 @@ class TokenRecordingModelWrapper(ChatModelBase):
     def _store_usage(self, usage: dict[str, Any] | None) -> None:
         from ..app.agent_context import get_current_session_id
 
-        cls = self.__class__
         session_id = get_current_session_id()
         if session_id and usage:
-            cls._usage_by_session[session_id] = usage
+            TokenRecordingModelWrapper._usage_by_session[session_id] = usage
 
     async def __call__(
         self,
