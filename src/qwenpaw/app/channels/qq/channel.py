@@ -1495,7 +1495,8 @@ class QQChannel(BaseChannel):
         except websocket.WebSocketConnectionClosedException:
             pass
         except OSError:
-            pass
+            if not self._stop_event.is_set():
+                raise
         except Exception as e:
             logger.exception("qq ws loop: %s", e)
         finally:
@@ -1568,9 +1569,10 @@ class QQChannel(BaseChannel):
         if not self.enabled:
             return
         self._stop_event.set()
-        if self._ws is not None:
+        ws = self._ws
+        if ws is not None:
             try:
-                self._ws.close()
+                ws.close()
             except Exception:
                 pass
         if self._ws_thread:
