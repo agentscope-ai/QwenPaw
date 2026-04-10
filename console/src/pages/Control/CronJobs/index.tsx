@@ -168,7 +168,9 @@ function CronJobsPage() {
         cron: cronExpression,
       },
       execution: {
+        ...values.execution,
         session: {
+          ...values.execution?.session,
           mode: values.sessionStrategy || "dispatch",
         },
       },
@@ -176,8 +178,8 @@ function CronJobsPage() {
 
     delete (processedValues as any).sessionStrategy;
     if (processedValues.request) {
-      delete (processedValues.request as any).session_id;
-      delete (processedValues.request as any).user_id;
+      const { session_id, user_id, ...requestRest } = processedValues.request as any;
+      processedValues.request = requestRest;
     }
 
     if (processedValues.task_type === "text") {
