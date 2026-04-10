@@ -123,7 +123,7 @@ export const compareVersions = (a: string, b: string): number => {
 // TODO
 export const UPDATE_MD: Record<string, string> = {
   zh: `### QwenPaw如何更新
-  
+
 要更新 QwenPaw 到最新版本，可根据你的安装方式选择对应方法：
 
 1. 如果你使用的是一键安装脚本，直接重新运行安装命令即可自动升级。
