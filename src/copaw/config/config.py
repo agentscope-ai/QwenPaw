@@ -22,6 +22,12 @@ from ..constant import (
     LLM_MAX_QPM,
     LLM_RATE_LIMIT_JITTER,
     LLM_RATE_LIMIT_PAUSE,
+    SKILL_LEARNING_DEFAULT_MAX_ITERS,
+    SKILL_LEARNING_DEFAULT_THRESHOLD,
+    SKILL_LEARNING_DEFAULT_TIMEOUT,
+    TASK_DISPATCHER_DEFAULT_INTERVAL,
+    TASK_DISPATCHER_DEFAULT_MAX_CONCURRENT,
+    TASK_DISPATCHER_DEFAULT_TIMEOUT_MINUTES,
     WORKING_DIR,
 )
 from ..providers.models import ModelSlotConfig
@@ -253,8 +259,138 @@ class HeartbeatConfig(BaseModel):
     )
 
 
+class SignalWeightsConfig(BaseModel):
+    """Weights for different learning signals."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    tool_call: int = Field(
+        default=1,
+        alias="toolCall",
+        description="Weight per tool call",
+    )
+    error_recovery: int = Field(
+        default=3,
+        alias="errorRecovery",
+        description="Weight when agent recovers from an error",
+    )
+    user_correction: int = Field(
+        default=5,
+        alias="userCorrection",
+        description="Weight when user corrects the agent",
+    )
+
+
+class SkillLearningConfig(BaseModel):
+    """Closed-loop skill learning from agent experience."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable automatic skill creation from experience",
+    )
+    threshold: int = Field(
+        default=SKILL_LEARNING_DEFAULT_THRESHOLD,
+        description="Trigger review when weighted score reaches this",
+    )
+    signal_weights: SignalWeightsConfig = Field(
+        default_factory=SignalWeightsConfig,
+        alias="signalWeights",
+    )
+    generator_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        alias="generatorModel",
+        description="Model for draft generation (None = main model)",
+    )
+    validator_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        alias="validatorModel",
+        description="Model for validation (None = skip validation)",
+    )
+    max_iterations: int = Field(
+        default=SKILL_LEARNING_DEFAULT_MAX_ITERS,
+        alias="maxIterations",
+        description="Max tool call iterations for generator",
+    )
+    timeout_seconds: int = Field(
+        default=SKILL_LEARNING_DEFAULT_TIMEOUT,
+        alias="timeoutSeconds",
+        description="Timeout for each review run",
+    )
+    target: Literal["workspace", "pool"] = Field(
+        default="workspace",
+        description="Where to save created skills",
+    )
+    notify: str = Field(
+        default="last",
+        description=(
+            "Notification target: 'main' (console),"
+            " 'last' (last channel), or channel ID"
+        ),
+    )
+    track_usage: bool = Field(
+        default=True,
+        alias="trackUsage",
+        description="Track skill usage in _meta.json",
+    )
+
+
+class TaskDispatcherConfig(BaseModel):
+    """Heartbeat-driven task dispatcher for multi-agent coordination."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable heartbeat task dispatcher",
+    )
+    check_interval: str = Field(
+        default=TASK_DISPATCHER_DEFAULT_INTERVAL,
+        alias="checkInterval",
+        description="How often to scan the task board",
+    )
+    task_board: Literal["markdown", "json"] = Field(
+        default="markdown",
+        alias="taskBoard",
+        description="Task board format",
+    )
+    dispatcher_model: Optional[ModelSlotConfig] = Field(
+        default=None,
+        alias="dispatcherModel",
+        description="Model for the dispatcher (None = default)",
+    )
+    max_concurrent_dispatches: int = Field(
+        default=TASK_DISPATCHER_DEFAULT_MAX_CONCURRENT,
+        alias="maxConcurrentDispatches",
+        description="Max sub-agents working simultaneously",
+    )
+    task_timeout_minutes: int = Field(
+        default=TASK_DISPATCHER_DEFAULT_TIMEOUT_MINUTES,
+        alias="taskTimeoutMinutes",
+        description="Mark task stuck after this many minutes",
+    )
+    notify: str = Field(
+        default="last",
+        description="Notification target for completions",
+    )
+    active_hours: Optional[ActiveHoursConfig] = Field(
+        default=None,
+        alias="activeHours",
+        description="Only dispatch during these hours",
+    )
+
+
 class AgentsDefaultsConfig(BaseModel):
     heartbeat: Optional[HeartbeatConfig] = None
+    skill_learning: Optional[SkillLearningConfig] = Field(
+        default=None,
+        alias="skillLearning",
+    )
+    task_dispatcher: Optional[TaskDispatcherConfig] = Field(
+        default=None,
+        alias="taskDispatcher",
+    )
 
 
 class EmbeddingConfig(BaseModel):
