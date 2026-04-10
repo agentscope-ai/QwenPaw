@@ -15,6 +15,8 @@ from .manager import get_token_usage_manager
 class TokenRecordingModelWrapper(ChatModelBase):
     """Wraps a ChatModelBase to record token usage on each call."""
 
+    _usage_by_session: dict[str, dict[str, Any]] = {}
+
     def __init__(self, provider_id: str, model: ChatModelBase) -> None:
         super().__init__(
             model_name=getattr(model, "model_name", "unknown"),
@@ -36,6 +38,26 @@ class TokenRecordingModelWrapper(ChatModelBase):
                 completion_tokens=ct,
                 at_date=date.today(),
             )
+            usage_data = {
+                "provider_id": self._provider_id,
+                "model_name": self.model_name,
+                "prompt_tokens": pt,
+                "completion_tokens": ct,
+                "total_tokens": pt + ct,
+            }
+            self._store_usage(usage_data)
+
+    @classmethod
+    def pop_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
+        return cls._usage_by_session.pop(session_id, None)
+
+    def _store_usage(self, usage: dict[str, Any] | None) -> None:
+        from ..app.agent_context import get_current_session_id
+
+        cls = self.__class__
+        session_id = get_current_session_id()
+        if session_id and usage:
+            cls._usage_by_session[session_id] = usage
 
     async def __call__(
         self,

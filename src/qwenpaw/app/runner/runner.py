@@ -389,9 +389,12 @@ class AgentRunner(Runner):
         )
 
         # Set agent context for model creation
-        from ..agent_context import set_current_agent_id
+        from ..agent_context import set_current_agent_id, set_current_session_id
 
         set_current_agent_id(self.agent_id)
+
+        # Set session_id in context for token usage tracking
+        set_current_session_id(session_id)
 
         agent = None
         chat = None
