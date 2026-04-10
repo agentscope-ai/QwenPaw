@@ -118,7 +118,7 @@ class PluginLoader:
         try:
             # Dynamic import of plugin module
             # Use unique module name to avoid conflicts
-            module_name = f"copaw_plugin_{plugin_id.replace('-', '_')}"
+            module_name = f"plugin_{plugin_id.replace('-', '_')}"
             plugin_dir_str = str(source_path)
 
             # submodule_search_locations enables relative imports within plugin
@@ -159,7 +159,7 @@ class PluginLoader:
                 "author": manifest.author,
                 "entry_point": manifest.entry_point,
                 "dependencies": manifest.dependencies,
-                "min_copaw_version": manifest.min_copaw_version,
+                "min_version": manifest.min_version,
                 "meta": manifest.meta,
             }
             api = PluginApi(plugin_id, config or {}, manifest_dict)

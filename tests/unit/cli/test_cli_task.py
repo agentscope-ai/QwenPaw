@@ -321,9 +321,9 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
         captured["request_context"] = dict(ctx)
         captured["skills_dir"] = kwargs.get("skills_dir")
         captured["env_tool_guard"] = os.environ.get(
-            "COPAW_TOOL_GUARD_ENABLED",
+            "QWENPAW_TOOL_GUARD_ENABLED",
         )
-        captured["env_skills_dir"] = os.environ.get("COPAW_SKILLS_DIR")
+        captured["env_skills_dir"] = os.environ.get("QWENPAW_SKILLS_DIR")
         captured["guard_bypassed"] = (
             ctx.get("_headless_tool_guard", "true").lower() == "false"
         )

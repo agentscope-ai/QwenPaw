@@ -3,7 +3,7 @@
     "docs": "Docs",
     "more": "More",
     "releaseNotes": "Release Notes",
-    "copaw": "Copaw",
+    "qwenpaw": "Qwenpaw",
     "download": "Download",
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
@@ -12,24 +12,23 @@
   },
   "hero": {
     "titleleft": "Your Personal",
-    "titleright": "AI assistant,",
+    "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v1.0.0: CoPaw custom LLMs, safety architecture, multi-agent collaboration,",
+    "sub": "v1.0.0: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
     "sub1": "and memory management — all upgraded, all yours.",
-    "releaseNote": "CoPaw v1.0.0 is released",
+    "releaseNote": "QwenPaw v1.0.0 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start"
   },
   "follow": {
     "title": "Follow us",
-    "sub": "Follow us for the latest CoPaw updates",
+    "sub": "Follow us for the latest QwenPaw updates",
     "xiaohongshu": "Rednote:",
     "x": "X:"
   },
   "channels": {
-    "titleWe": "We",
-    "titleOperateWith": "operate with",
-    "titleEverything": "Everything.",
+    "titleWe": "Connect everything with",
+    "titleEverything": "",
     "sub": "10+ built-in channels, with more coming soon"
   },
   "finalCta": {
@@ -39,14 +38,12 @@
     "titleLine2": "power your dev life.",
     "downloadFromGithub": "Download from GitHub"
   },
-  "whyCopaw": {
+  "whyQwenpaw": {
     "headingPrefix": "Why",
-    "headingEmphasis": "CoPaw?",
+    "headingEmphasis": "QwenPaw?",
     "sub": "Easy to install, deploy on your own machine & on the cloud;\nsupports multiple IM Apps; with easily extensible capabilities.",
-    "heroLine": "CoPaw represents both a Co Personal Agent Workstation\nand a \"co-paw\" —— a partner always by your side.",
-    "secondPrefix": "More than just a cold tool,\n(CoPaw always ready to lend a paw)\nIt is the ultimate teammate for your digital life.",
-    "secondEmphasis": "",
-    "secondSuffix": ""
+    "heroLine": "QwenPaw stands for Qwen Personal Agent Workstation, and also embodies the wisdom of Qwen and the warmth of a Paw. ",
+    "secondPrefix": "We hope it is not a cold tool, but an intelligent and warm \"little paw\" always ready to help—a most intuitive partner in your digital life."
   },
   "worksForYou": {
     "title": "Works for you, grows with you",
@@ -55,15 +52,15 @@
     "cards": {
       "skills": {
         "title": "Security Architecture",
-        "desc": "CoPaw 1.0 adopts a three-layer defense architecture—Tool Guard, File Guard, and Skill Scanner—to protect against runtime threats, unauthorized file access, and risky skill installations across all agent operations."
+        "desc": "QwenPaw 1.0 adopts a three-layer defense architecture—Tool Guard, File Guard, and Skill Scanner—to protect against runtime threats, unauthorized file access, and risky skill installations across all agent operations."
       },
       "control": {
         "title": "Multi-agent Workspaces",
-        "desc": "CoPaw 1.0 enables multiple isolated agent workspaces to run concurrently within a single instance, each with independent configurations and memory, supporting asynchronous collaboration for complex multi-role tasks."
+        "desc": "QwenPaw 1.0 enables multiple isolated agent workspaces to run concurrently within a single instance, each with independent configurations and memory, supporting asynchronous collaboration for complex multi-role tasks."
       },
       "apps": {
-        "title": "CoPaw Custom Models",
-        "desc": "CoPaw 1.0 introduces the CoPaw-Flash series—purpose-built small models for local deployment that require no cloud dependency, offer one-click setup, and are specifically optimized for high-frequency tasks such as document processing, memory update, and information retrieval.",
+        "title": "QwenPaw Custom Models",
+        "desc": "QwenPaw 1.0 introduces the QwenPaw-Flash series—purpose-built small models for local deployment that require no cloud dependency, offer one-click setup, and are specifically optimized for high-frequency tasks such as document processing, memory update, and information retrieval.",
         "learnMoreHref": "https://huggingface.co/agentscope-ai"
       },
       "memory": {
@@ -72,20 +69,20 @@
       },
       "toolkit": {
         "title": "Tools, Skills & MCP",
-        "desc": "20+ built-in tools and skills with hot reload; plug in MCP and add skills anytime—your toolkit grows with CoPaw."
+        "desc": "20+ built-in tools and skills with hot reload; plug in MCP and add skills anytime—your toolkit grows with QwenPaw."
       }
     }
   },
   "clientVoices": {
-    "title": "Listen to what the community says about CoPaw",
-    "sub": "See real feedback from CoPaw users",
+    "title": "Listen to what the community says about QwenPaw",
+    "sub": "See real feedback from QwenPaw users",
     "items": {
       "t1": {
-        "text": "CoPaw is a truly out-of-the-box, general-purpose AI agent framework. As CoPaw's underlying capabilities continue to iterate, our self-developed business agents can also achieve a leap in intelligence, significantly reducing long-term maintenance costs and technical liabilities.",
+        "text": "QwenPaw is a truly out-of-the-box, general-purpose AI agent framework. As QwenPaw's underlying capabilities continue to iterate, our self-developed business agents can also achieve a leap in intelligence, significantly reducing long-term maintenance costs and technical liabilities.",
         "role": "Alibaba Cloud Development Engineer"
       },
       "t2": {
-        "text": "Alibaba Tongyi’s move this time is very solid. CoPaw strengthens the “local + cloud” dual-deployment model, which is highly practical in today’s environment where privacy sensitivity and computing demands coexist. The open-source strategy also reflects Alibaba’s openness in building its AI ecosystem.",
+        "text": "Alibaba Tongyi’s move this time is very solid. QwenPaw strengthens the “local + cloud” dual-deployment model, which is highly practical in today’s environment where privacy sensitivity and computing demands coexist. The open-source strategy also reflects Alibaba’s openness in building its AI ecosystem.",
         "role": "Developer"
       },
       "t3": {
@@ -97,19 +94,19 @@
         "role": "Developer"
       },
       "t5": {
-        "text": "MCP hot-swapping without restarting is the standout feature for agent workflows. That means you can extend CoPaw's toolset mid-session, no context break, no restart penalty. Skill Hub + Claw Hub integration means the ecosystem compounds fast.",
+        "text": "MCP hot-swapping without restarting is the standout feature for agent workflows. That means you can extend QwenPaw's toolset mid-session, no context break, no restart penalty. Skill Hub + Claw Hub integration means the ecosystem compounds fast.",
         "role": "Developer"
       },
       "t6": {
-        "text": "The CoPaw open-source project from Tongyi Lab is truly impressive! It’s great to see that people are not only enjoying successful experiences while using it, but also sharing amusing mishaps—like trying to tidy up the desktop and accidentally deleting files. Open-source AI agent frameworks are extremely important for advancing the entire industry, and I look forward to seeing more innovative applications built on CoPaw.",
+        "text": "The QwenPaw open-source project from Tongyi Lab is truly impressive! It’s great to see that people are not only enjoying successful experiences while using it, but also sharing amusing mishaps—like trying to tidy up the desktop and accidentally deleting files. Open-source AI agent frameworks are extremely important for advancing the entire industry, and I look forward to seeing more innovative applications built on QwenPaw.",
         "role": "Developer"
       }
     }
   },
   "brandstory": {
-    "title": "Why CoPaw?",
-    "para1": "CoPaw represents both a Co Personal Agent Workstation and a \"co-paw\"—a partner always by your side.",
-    "para2": "More than just a cold tool, CoPaw is a warm \"little paw\" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life."
+    "title": "Why QwenPaw?",
+    "para1": "QwenPaw represents both a Co Personal Agent Workstation and a \"qwen-paw\"—a partner always by your side.",
+    "para2": "More than just a cold tool, QwenPaw is a warm \"little paw\" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life."
   },
   "features": {
     "title": "Key capabilities",
@@ -134,24 +131,24 @@
     "3": "Teams who want full control love it."
   },
   "usecases": {
-    "title": "What you can do with CoPaw",
+    "title": "What you can do with QwenPaw",
     "sub": "Memory and personalization under your control.",
     "categories": {
       "social": {
         "title": "Social Media",
-        "description": "CoPaw helps you stay on top of social content by summarizing trending posts, new videos, and account patterns based on your interests."
+        "description": "QwenPaw helps you stay on top of social content by summarizing trending posts, new videos, and account patterns based on your interests."
       },
       "creative": {
         "title": "Creative & building",
-        "description": "CoPaw can run overnight on your goals and support the entire content creation process from idea to draft."
+        "description": "QwenPaw can run overnight on your goals and support the entire content creation process from idea to draft."
       },
       "productivity": {
         "title": "Productivity",
-        "description": "CoPaw boosts productivity by summarizing updates, organizing contacts, and analyzing personal logs for useful patterns."
+        "description": "QwenPaw boosts productivity by summarizing updates, organizing contacts, and analyzing personal logs for useful patterns."
       },
       "research": {
         "title": "Research & learning",
-        "description": "CoPaw tracks important company updates and builds your personal knowledge base for easy retrieval and reuse."
+        "description": "QwenPaw tracks important company updates and builds your personal knowledge base for easy retrieval and reuse."
       }
     }
   },
@@ -160,7 +157,7 @@
     "heroTitle": "Do it yourself, done easily.",
     "heroSub": "Your personal AI assistant in minutes. One command, or double-click the app",
     "serviceNotice": "Your personal AI assistant in minutes. One command, or double-click the app—do it yourself, done easily.",
-    "hintBefore": "Install → init → start. Configure channels to use CoPaw on DingTalk, Feishu, QQ, etc. See ",
+    "hintBefore": "Install → init → start. Configure channels to use QwenPaw on DingTalk, Feishu, QQ, etc. See ",
     "hintLink": "docs",
     "hintAfter": ".",
     "method": {
@@ -207,7 +204,7 @@
   "contributors": {
     "titlePrefix": "Thank you to every",
     "titleHighlight": "contributor",
-    "sub": "Every line of code and every pull request in CoPaw embodies the hard work and passion of the community members.",
+    "sub": "Every line of code and every pull request in QwenPaw embodies the hard work and passion of the community members.",
     "prev": "Previous contributors page",
     "next": "Next contributors page",
     "noteLine1Prefix": "The list of contributors is arranged alphabetically by their GitHub IDs. Please feel free to",
@@ -216,7 +213,7 @@
     "noteLine2Prefix": "The data comes from all pull requests from"
   },
   "footer": {
-    "text": "CoPaw — Works for you, grows with you",
+    "text": "QwenPaw — Works for you, grows with you",
     "sections": {
       "builtBy": "Built by",
       "resources": "Resources",
@@ -235,7 +232,7 @@
       "discord": "Discord",
       "youtube": "YouTube"
     },
-    "copyright": "© 2026 COPAW PRIVATE LIMITED, All rights reserved.",
+    "copyright": "© 2026 Qwenpaw PRIVATE LIMITED, All rights reserved.",
     "poweredBy": {
       "p1": "Built by ",
       "p2": " with ",
@@ -310,8 +307,8 @@
     },
     "quickStart": {
       "install": {
-        "q": "How to install CoPaw",
-        "p1": "CoPaw supports multiple installation methods, including:",
+        "q": "How to install QwenPaw",
+        "p1": "QwenPaw supports multiple installation methods, including:",
         "li1": "Desktop Application (Beta): download and run the desktop app with no command line required, suitable for users unfamiliar with terminals.",
         "li2": "Script install: run on your machine with no Python setup required.",
         "li3": "pip install: if you prefer managing Python yourself.",
@@ -323,21 +320,21 @@
         "ctaSuffix": "for details."
       },
       "update": {
-        "q": "How to update CoPaw",
-        "p1": "To update CoPaw, use the method matching your installation type:",
+        "q": "How to update QwenPaw",
+        "p1": "To update QwenPaw, use the method matching your installation type:",
         "li1": "If installed via one-line script, re-run the installer to upgrade.",
         "li2Prefix": "If installed via pip, run:",
         "li3": "If installed from source, pull the latest code and reinstall.",
         "li4": "If using Docker, pull the latest image and restart the container.",
         "li5Prefix": "If using the Windows Desktop App (exe), currently you need to uninstall and reinstall:",
-        "li5a": "Uninstall CoPaw from your PC.",
+        "li5a": "Uninstall QwenPaw from your PC.",
         "li5bPrefix": "Download the latest version from:",
         "li5bLink": "GitHub Releases",
         "li5bSuffix": ".",
         "li5c": "Reinstall."
       },
       "initialize": {
-        "q": "How to initialize and start CoPaw service",
+        "q": "How to initialize and start QwenPaw service",
         "p1": "Recommended quick initialization:",
         "p2": "Start service:",
         "p3Prefix": "The default Console URL is",
@@ -345,7 +342,7 @@
       },
       "upgrade": {
         "q": "Where to check latest version upgrade details",
-        "p1": "You can check version changes in the Change Log section of Console, or on the CoPaw",
+        "p1": "You can check version changes in the Change Log section of Console, or on the QwenPaw",
         "link": "GitHub Releases",
         "p2": "page."
       }
@@ -353,7 +350,7 @@
     "features": {
       "jobs": {
         "q": "How to manage cron jobs",
-        "a": "The easiest way to create a cron job is to ask CoPaw directly in your target channel. For example: Create a scheduled task that reminds me to drink water every five minutes.\" You can also create and manage cron jobs manually in Console → Control → Cron Jobs."
+        "a": "The easiest way to create a cron job is to ask QwenPaw directly in your target channel. For example: Create a scheduled task that reminds me to drink water every five minutes.\" You can also create and manage cron jobs manually in Console → Control → Cron Jobs."
       },
       "models": {
         "q": "How to configure models",
@@ -369,7 +366,7 @@
         "p3": "To use a different model per agent, switch the agent with the selector at the top-left of Console, then pick a model in the top-right of the Chat page for that agent.",
         "p4Prefix": "You can also use",
         "p4Mid": "for setup, downloads, and switching. See",
-        "cliLink": "CLI → Models and environment variables → copaw models",
+        "cliLink": "CLI → Models and environment variables → qwenpaw models",
         "p4Suffix": "."
       },
       "skills": {
@@ -403,26 +400,26 @@
       },
       "localModels": {
         "q": "Troubleshooting local models",
-        "p1": "In most cases, this is not a CoPaw bug. The root cause is usually that the model's context length is configured too small.",
-        "p2": "When you deploy a local model with Ollama or LM Studio, if the model's context length is too low, CoPaw may show problems such as:",
+        "p1": "In most cases, this is not a QwenPaw bug. The root cause is usually that the model's context length is configured too small.",
+        "p2": "When you deploy a local model with Ollama or LM Studio, if the model's context length is too low, QwenPaw may show problems such as:",
         "li1": "failing to sustain multi-turn conversations reliably",
         "li2": "losing context during complex tool calls",
         "li3": "forgetting instructions given in earlier turns",
         "li4": "drifting away from the task during long-running interactions",
         "fixTitle": "How to fix it:",
-        "fix1": "Before running CoPaw, set the model's context length to at least 32K.",
+        "fix1": "Before running QwenPaw, set the model's context length to at least 32K.",
         "fix2": "For more complex tasks, frequent tool calls, or longer conversations, you may need a value higher than 32K."
       },
       "cron": {
         "q": "Troubleshooting cron jobs",
         "p1": "If a scheduled task doesn't run as expected, try the following steps:",
-        "s1": "Confirm that the CoPaw service is running.",
+        "s1": "Confirm that the QwenPaw service is running.",
         "s2": "In Console, go to Control → Cron Jobs and ensure the task Status is set to Enabled.",
         "s3": "On the same page, confirm that Dispatch Channel is set to your intended channel (e.g., Console, DingTalk, Feishu, Discord, iMessage).",
         "s4": "Also confirm that Dispatch Target User ID and Dispatch Target Session ID are correctly configured.",
         "s5": "In Console, go to Control → Sessions and locate the session used when creating the task. The User ID and Session ID there must match the task's Dispatch Target User ID and Dispatch Target Session ID for replies to appear in that session.",
         "s6": "If the task runs at the wrong time, go back to Control → Cron Jobs and verify the Schedule (Cron) expression.",
-        "s7": "To manually test the task, click Execute Now on the Cron Jobs page. If successful, the reply will appear in the target channel. Alternatively, you can ask CoPaw directly: \"Trigger the 'drink water reminder' task I just created.\""
+        "s7": "To manually test the task, click Execute Now on the Cron Jobs page. If successful, the reply will appear in the target channel. Alternatively, you can ask QwenPaw directly: \"Trigger the 'drink water reminder' task I just created.\""
       },
       "help": {
         "q": "Here's the polished version",
@@ -433,15 +430,15 @@
         "dingtalk": "DingTalk",
         "discord": "Discord",
         "s2Prefix": "Open an issue on",
-        "githubIssues": "CoPaw GitHub",
+        "githubIssues": "QwenPaw GitHub",
         "s2Mid": "with the full error message, the error detail file (e.g.",
-        "s2Suffix": "), your model provider, model name, and CoPaw version."
+        "s2Suffix": "), your model provider, model name, and QwenPaw version."
       }
     }
   },
   "downloads": {
     "title": "Downloads",
-    "subtitle": "Get CoPaw installers, tools, and resources",
+    "subtitle": "Get QwenPaw installers, tools, and resources",
     "loading": "Loading...",
     "emptyTitle": "No downloads available yet",
     "emptyDesc": "Desktop builds are in progress. Please check back later.",

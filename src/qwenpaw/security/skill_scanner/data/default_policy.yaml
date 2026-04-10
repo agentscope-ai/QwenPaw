@@ -1,4 +1,4 @@
-# CoPaw Skill Scanner – Default Scan Policy
+# QwenPaw Skill Scanner – Default Scan Policy
 # ============================================
 # This file defines the built-in security policy.  Every setting here can be
 # overridden in an organisation-specific policy file passed via --policy.

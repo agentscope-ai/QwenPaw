@@ -209,8 +209,8 @@ def _execute_subprocess_sync(
         cmd = _sanitize_win_cmd(cmd)
         wrapped = f'cmd /D /S /C "{cmd}"'
 
-        stdout_fd, stdout_path = tempfile.mkstemp(prefix="copaw_out_")
-        stderr_fd, stderr_path = tempfile.mkstemp(prefix="copaw_err_")
+        stdout_fd, stdout_path = tempfile.mkstemp(prefix="qwenpaw_out_")
+        stderr_fd, stderr_path = tempfile.mkstemp(prefix="qwenpaw_err_")
         stdout_file = os.fdopen(stdout_fd, "wb")
         stderr_file = os.fdopen(stderr_fd, "wb")
 

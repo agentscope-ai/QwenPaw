@@ -11,7 +11,7 @@ class PluginApi:
     """Plugin API - Interface for plugin developers.
 
     This class provides the API that plugins use to register their
-    capabilities with CoPaw.
+    capabilities.
     """
 
     def __init__(

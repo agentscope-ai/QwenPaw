@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class VoiceChannel(BaseChannel):
-    """CoPaw Voice channel backed by Twilio ConversationRelay.
+    """Voice channel backed by Twilio ConversationRelay.
 
     ``uses_manager_queue = False`` because voice calls are long-lived
     WebSocket sessions -- the ConversationRelay handler runs its own

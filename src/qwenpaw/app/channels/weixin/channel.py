@@ -37,7 +37,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....exceptions import ChannelError
-from ....constant import DEFAULT_MEDIA_DIR
+from ....constant import DEFAULT_MEDIA_DIR, WORKING_DIR
 from ..base import (
     BaseChannel,
     ContentType,
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 _WEIXIN_PROCESSED_IDS_MAX = 2000
 
 # Default token file path
-_DEFAULT_TOKEN_FILE = Path("~/.copaw/weixin_bot_token").expanduser()
+_DEFAULT_TOKEN_FILE = WORKING_DIR / "weixin_bot_token"
 
 
 class WeixinChannel(BaseChannel):

@@ -685,7 +685,7 @@ def _initialize_agent_workspace(
     skill_names: list[str] | None = None,
     builtin_qa_md_seed: bool = False,
 ) -> None:
-    """Initialize agent workspace (similar to copaw init --defaults)."""
+    """Initialize agent workspace (similar to qwenpaw init --defaults)."""
     from ...config import load_config as load_global_config
 
     (workspace_dir / "sessions").mkdir(exist_ok=True)

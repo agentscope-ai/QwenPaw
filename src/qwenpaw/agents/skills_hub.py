@@ -232,7 +232,7 @@ def _build_request(full_url: str, accept: str) -> Request:
         full_url,
         headers={
             "Accept": accept,
-            "User-Agent": "copaw-skills-hub/1.0",
+            "User-Agent": "qwenpaw-skills-hub/1.0",
         },
     )
     parsed = urlparse(full_url)

@@ -342,7 +342,7 @@ def get_system_default_browser() -> Tuple[Optional[str], Optional[str]]:
 
 def get_available_channels() -> Tuple[str, ...]:
     """Return channel keys enabled for this run (built-in + entry point
-    copaw.channels), filtered by QWENPAW_ENABLED_CHANNELS or
+    qwenpaw.channels), filtered by QWENPAW_ENABLED_CHANNELS or
     QWENPAW_DISABLED_CHANNELS when set.
 
     * QWENPAW_ENABLED_CHANNELS — whitelist (only these channels are active).

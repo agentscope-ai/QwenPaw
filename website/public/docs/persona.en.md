@@ -1,15 +1,15 @@
 # Agent Persona
 
-CoPaw defines an agent's "persona" through a set of Markdown files that are loaded into the system prompt. These files determine the agent's behavioral style, working approach, and personality traits. By editing these files, you can shape the agent into your ideal assistant—whether that's a meticulous work aide, a warm life companion, or a technical expert.
+QwenPaw defines an agent's "persona" through a set of Markdown files that are loaded into the system prompt. These files determine the agent's behavioral style, working approach, and personality traits. By editing these files, you can shape the agent into your ideal assistant—whether that's a meticulous work aide, a warm life companion, or a technical expert.
 
 ---
 
 ## Persona Files
 
-Agent persona files are Markdown documents stored in the agent's workspace directory. The workspace location is determined by the `COPAW_WORKING_DIR` environment variable (defaults to `~/.copaw`), with the full path being:
+Agent persona files are Markdown documents stored in the agent's workspace directory. The workspace location is determined by the `QWENPAW_WORKING_DIR` environment variable (defaults to `~/.qwenpaw`), with the full path being:
 
 ```
-$COPAW_WORKING_DIR/workspaces/{agent_id}/
+$QWENPAW_WORKING_DIR/workspaces/{agent_id}/
 ```
 
 **Persona files are flexible and extensible.** The files shown below represent the default configuration, but you can freely add new Markdown files or remove existing ones. Any Markdown file enabled in the Console's **Agent → Workspace** page will be loaded into the system prompt.
@@ -61,7 +61,7 @@ MEMORY.md stores distilled long-term memories (important decisions, lessons lear
 
 #### **BOOTSTRAP.md** - Initial Setup Guide
 
-When running `copaw init` for the first time, BOOTSTRAP.md is automatically created to guide the initial "conversation" between user and agent, establishing identity, preferences, and style. Once complete, the agent writes the configuration to PROFILE.md and SOUL.md, then deletes BOOTSTRAP.md.
+When running `qwenpaw init` for the first time, BOOTSTRAP.md is automatically created to guide the initial "conversation" between user and agent, establishing identity, preferences, and style. Once complete, the agent writes the configuration to PROFILE.md and SOUL.md, then deletes BOOTSTRAP.md.
 
 **Setup flow:**
 
@@ -105,7 +105,7 @@ See [Multi-Agent](./multi-agent) for details.
 
 ### Configuration File Management
 
-You can also directly edit the `system_prompt_files` field in the agent configuration file (`~/.copaw/workspaces/{agent_id}/agent.json`) to manage persona file loading:
+You can also directly edit the `system_prompt_files` field in the agent configuration file (`~/.qwenpaw/workspaces/{agent_id}/agent.json`) to manage persona file loading:
 
 ```json
 {
@@ -119,14 +119,14 @@ You can also directly edit the `system_prompt_files` field in the agent configur
 
 ### Initial Setup
 
-Running `copaw init` automatically creates template files based on your chosen language (`zh` / `en` / `ru`):
+Running `qwenpaw init` automatically creates template files based on your chosen language (`zh` / `en` / `ru`):
 
 - AGENTS.md
 - SOUL.md
 - PROFILE.md
 - BOOTSTRAP.md (initial setup guide)
 
-If using `copaw init --defaults`, the default language is `zh` (Chinese).
+If using `qwenpaw init --defaults`, the default language is `zh` (Chinese).
 
 ### Switching Agent Language
 
@@ -197,20 +197,20 @@ The system prompt also includes tool and Skill descriptions:
 
 ## Built-in QA Agent
 
-CoPaw automatically creates a built-in agent named **"QA Agent"** (ID: `CoPaw_QA_Agent_0.1beta1`) when you first run `copaw init`.
+QwenPaw automatically creates a built-in agent named **"QA Agent"** (ID: `QwenPaw_QA_Agent_0.1beta1`) when you first run `qwenpaw init`.
 
 ### QA Agent Features
 
-This is an agent **specifically designed to answer CoPaw-related questions**:
+This is an agent **specifically designed to answer QwenPaw-related questions**:
 
 - **Dedicated persona**: Uses persona files optimized for Q&A (different from regular agents)
-- **Pre-installed skills**: Auto-enables `guidance` and `copaw_source_index` skills for querying CoPaw documentation and source code
+- **Pre-installed skills**: Auto-enables `guidance` and `QA_source_index` skills for querying QwenPaw documentation and source code
 - **Tool configuration**: Only core tools enabled by default (execute_shell_command, read_file, write_file, edit_file, view_image); other built-in tools are disabled
-- **Auto-maintained**: Running `copaw init` ensures this agent exists
+- **Auto-maintained**: Running `qwenpaw init` ensures this agent exists
 
 ### How to Use?
 
-You can select "QA Agent" in the agent switcher at the top-right of the Console, then ask it any questions about CoPaw.
+You can select "QA Agent" in the agent switcher at the top-right of the Console, then ask it any questions about QwenPaw.
 
 **Good questions:**
 
@@ -225,5 +225,5 @@ You can select "QA Agent" in the agent switcher at the top-right of the Console,
 ### Can I modify or delete it?
 
 - **Can modify**: You can manage it like any other agent—edit persona files in "Agent → Workspace" or adjust skills and tools in "Agent → Skills"
-- **Can delete**: Delete it in "Settings → Agent Management" (doesn't affect other agents; will be recreated on next `copaw init`)
-- **Workspace location**: `$COPAW_WORKING_DIR/workspaces/CoPaw_QA_Agent_0.1beta1/` (defaults to `~/.copaw/workspaces/CoPaw_QA_Agent_0.1beta1/`)
+- **Can delete**: Delete it in "Settings → Agent Management" (doesn't affect other agents; will be recreated on next `qwenpaw init`)
+- **Workspace location**: `$QWENPAW_WORKING_DIR/workspaces/QwenPaw_QA_Agent_0.1beta1/` (defaults to `~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.1beta1/`)

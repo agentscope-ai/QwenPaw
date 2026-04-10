@@ -18,9 +18,15 @@ from agentscope_runtime.engine.schemas.exception import (
 
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path
-from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
+from ..constant import (
+    DOCS_ENABLED,
+    LOG_LEVEL_ENV,
+    CORS_ORIGINS,
+    WORKING_DIR,
+    PROJECT_NAME,
+)
 from ..__version__ import __version__
-from ..utils.logging import setup_logger, add_copaw_file_handler
+from ..utils.logging import setup_logger, add_project_file_handler
 from .auth import AuthMiddleware
 from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
@@ -39,7 +45,7 @@ from .channels.registry import register_custom_channel_routes
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
-
+LOG_NAMESPACE = PROJECT_NAME.lower()
 
 # Ensure static assets are served with browser-compatible MIME types across
 # platforms (notably Windows may miss .js/.mjs mappings).
@@ -162,7 +168,7 @@ async def lifespan(
     app: FastAPI,
 ):  # pylint: disable=too-many-statements,too-many-branches
     startup_start_time = time.time()
-    add_copaw_file_handler(WORKING_DIR / "copaw.log")
+    add_project_file_handler(WORKING_DIR / f"{LOG_NAMESPACE}.log")
 
     # Auto-register admin from env vars (for automated deployments)
     from .auth import auto_register_from_env
@@ -449,7 +455,7 @@ def _resolve_console_static_dir() -> str:
     static_dir = EnvVarLoader.get_str(_CONSOLE_STATIC_ENV)
     if static_dir:
         return static_dir
-    # Shipped dist lives in copaw package as static data
+    # Shipped dist lives in the package as static data
     pkg_dir = Path(__file__).resolve().parent.parent
     candidate = pkg_dir / "console"
     if candidate.is_dir() and (candidate / "index.html").exists():
@@ -488,10 +494,10 @@ def read_root():
         return FileResponse(_CONSOLE_INDEX)
     return {
         "message": (
-            "CoPaw Web Console is not available. "
-            "If you installed CoPaw from source code, please run "
-            "`npm ci && npm run build` in CoPaw's `console/` "
-            "directory, and restart CoPaw to enable the "
+            f"{PROJECT_NAME} web console is not available. "
+            "If you installed the project from source code, please run "
+            "`npm ci && npm run build` in the `console/` "
+            f"directory, and restart {PROJECT_NAME} to enable the "
             "web console."
         ),
     }
@@ -499,7 +505,7 @@ def read_root():
 
 @app.get("/api/version")
 def get_version():
-    """Return the current CoPaw version."""
+    """Return the current application version."""
     return {"version": __version__}
 
 
@@ -548,16 +554,16 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
             return FileResponse(f, media_type="image/png")
         raise HTTPException(status_code=404, detail="Not Found")
 
-    @app.get("/copaw-symbol.svg")
+    @app.get("/qwenpaw-symbol.svg")
     def _console_icon():
-        f = _console_path / "copaw-symbol.svg"
+        f = _console_path / "qwenpaw-symbol.svg"
         if f.is_file():
             return FileResponse(f, media_type="image/svg+xml")
         raise HTTPException(status_code=404, detail="Not Found")
 
-    @app.get("/copaw-dark.png")
+    @app.get("/qwenpaw-dark.png")
     def _console_dark_icon():
-        f = _console_path / "copaw-dark.png"
+        f = _console_path / "qwenpaw-dark.png"
         if f.is_file():
             return FileResponse(f, media_type="image/png")
         raise HTTPException(status_code=404, detail="Not Found")

@@ -110,6 +110,8 @@ SECRET_DIR = (
     .resolve()
 )
 
+PROJECT_NAME = "QwenPaw"
+
 # Default media directory for channels (cross-platform)
 DEFAULT_MEDIA_DIR = WORKING_DIR / "media"
 
@@ -120,13 +122,14 @@ JOBS_FILE = EnvVarLoader.get_str("QWENPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("QWENPAW_CHATS_FILE", "chats.json")
 
-# Builtin multi-agent profile: CoPaw Q&A helper.
+# Builtin Q&A helper profile.  agent_id keeps "CoPaw" prefix for existing
+# workspaces and agent.json; do not rename.
 BUILTIN_QA_AGENT_ID = "CoPaw_QA_Agent_0.1beta1"
 BUILTIN_QA_AGENT_NAME = "QA Agent"
 # Default skills when the builtin QA workspace is first created only.
 BUILTIN_QA_AGENT_SKILL_NAMES: tuple[str, ...] = (
     "guidance",
-    "copaw_source_index",
+    "QA_source_index",
 )
 
 TOKEN_USAGE_FILE = EnvVarLoader.get_str(
@@ -175,11 +178,11 @@ DOCS_ENABLED = EnvVarLoader.get_bool("QWENPAW_OPENAPI_DOCS", False)
 # Memory directory
 MEMORY_DIR = WORKING_DIR / "memory"
 
-# Custom channel modules (installed via `copaw channels install`); manager
+# Custom channel modules (installed via `qwenpaw channels install`); manager
 # loads BaseChannel subclasses from here.
 CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 
-# Plugin directory (installed via `copaw plugin install`)
+# Plugin directory (installed via `qwenpaw plugin install`)
 PLUGINS_DIR = WORKING_DIR / "plugins"
 
 # Local models directory

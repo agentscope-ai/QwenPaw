@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Daemon command execution layer and DaemonCommandHandlerMixin.
 
-Shared by in-chat /daemon <sub> and CLI `copaw daemon <sub>`.
-Logs: tail WORKING_DIR / "copaw.log". Restart: in-process reload of channels,
+Shared by in-chat /daemon <sub> and the CLI daemon command.
+Logs: tail the project log file. Restart: in-process reload of channels,
 cron and MCP (no process exit); works on Mac/Windows without a process manager.
 """
 # pylint: disable=too-many-return-statements
@@ -15,7 +15,7 @@ from typing import Any, Callable, Optional, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
-from ...constant import WORKING_DIR
+from ...constant import WORKING_DIR, PROJECT_NAME
 from ...config import load_config
 
 if TYPE_CHECKING:
@@ -43,6 +43,9 @@ DAEMON_SHORT_ALIASES = {
     "logs": "logs",
     "approve": "approve",
 }
+
+LOG_NAMESPACE = PROJECT_NAME.lower()
+LOG_PATH = WORKING_DIR / f"{LOG_NAMESPACE}.log"
 
 
 @dataclass
@@ -145,7 +148,8 @@ async def run_daemon_restart(context: DaemonContext) -> str:
     return (
         "**Restart**\n\n"
         "- Not running inside app. "
-        "Run the app (e.g. `copaw app`) and use /daemon restart in chat, "
+        f"Run the app (e.g. `{LOG_NAMESPACE} app`) "
+        "and use /daemon restart in chat, "
         "or restart the process with systemd/supervisor/docker."
     )
 
@@ -171,13 +175,13 @@ def run_daemon_version(context: DaemonContext) -> str:
         f"**Daemon version**\n\n"
         f"- Version: {ver}\n"
         f"- Working dir: {context.working_dir}\n"
-        f"- Log file: {WORKING_DIR / 'copaw.log'}"
+        f"- Log file: {LOG_PATH}"
     )
 
 
 def run_daemon_logs(lines: int = 100) -> str:
-    """Tail last N lines from WORKING_DIR / copaw.log."""
-    log_path = WORKING_DIR / "copaw.log"
+    """Tail last N lines from the project log file."""
+    log_path = LOG_PATH
     content = _get_last_lines(log_path, lines=lines)
     return f"**Console log (last {lines} lines)**\n\n```\n{content}\n```"
 

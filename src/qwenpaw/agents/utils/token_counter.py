@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Token counting utilities for CoPaw using HuggingFace tokenizers.
+"""Token counting utilities using HuggingFace tokenizers.
 
 This module provides a configurable token counter that supports dynamic
 switching between different tokenizer models based on runtime configuration.
@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CopawTokenCounter(HuggingFaceTokenCounter):
-    """Token counter for CoPaw with configurable tokenizer support.
+class TokenCounter(HuggingFaceTokenCounter):
+    """Token counter with configurable tokenizer support.
 
     This class extends HuggingFaceTokenCounter to provide token counting
     functionality with support for both local and remote tokenizers,
@@ -153,7 +153,7 @@ class CopawTokenCounter(HuggingFaceTokenCounter):
         )
 
 
-class CopawEstimateTokenCounter(HuggingFaceTokenCounter):
+class EstimateTokenCounter(HuggingFaceTokenCounter):
     """Lightweight token counter using only character-based estimation.
 
     This class extends HuggingFaceTokenCounter but skips tokenizer
@@ -238,14 +238,14 @@ class CopawEstimateTokenCounter(HuggingFaceTokenCounter):
 # Global token counter instance cache (keyed by configuration tuple)
 _token_counter_cache: dict[
     tuple,
-    CopawTokenCounter | CopawEstimateTokenCounter,
+    TokenCounter | EstimateTokenCounter,
 ] = {}
 
 
-def get_copaw_token_counter(
+def get_token_counter(
     agent_config: "AgentProfileConfig",
     use_estimate: bool = True,
-) -> CopawTokenCounter | CopawEstimateTokenCounter:
+) -> TokenCounter | EstimateTokenCounter:
     """Get or create a token counter instance for the given agent conf.
 
     This function implements a cache based on token counter configuration.
@@ -256,9 +256,9 @@ def get_copaw_token_counter(
         agent_config: Agent profile configuration containing running
             settings including token_count_model, token_count_use_mirror,
             and token_count_estimate_divisor.
-        use_estimate: If True (default), returns a CopawEstimateTokenCounter
+        use_estimate: If True (default), returns an EstimateTokenCounter
             that uses only character-based estimation without loading a
-            tokenizer. If False, returns a full CopawTokenCounter backed
+            tokenizer. If False, returns a full TokenCounter backed
             by a HuggingFace tokenizer.
 
     Returns:
@@ -271,7 +271,7 @@ def get_copaw_token_counter(
     cc = agent_config.running.context_compact
 
     if use_estimate:
-        return CopawEstimateTokenCounter(
+        return EstimateTokenCounter(
             token_count_estimate_divisor=cc.token_count_estimate_divisor,
         )
     else:
@@ -281,7 +281,7 @@ def get_copaw_token_counter(
             cc.token_count_use_mirror,
         )
         if config_key not in _token_counter_cache:
-            _token_counter_cache[config_key] = CopawTokenCounter(
+            _token_counter_cache[config_key] = TokenCounter(
                 token_count_model=cc.token_count_model,
                 token_count_use_mirror=cc.token_count_use_mirror,
                 token_count_estimate_divisor=cc.token_count_estimate_divisor,

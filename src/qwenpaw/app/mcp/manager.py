@@ -249,7 +249,7 @@ class MCPClientManager:
                 env=client_config.env,
                 cwd=client_config.cwd or None,
             )
-            setattr(client, "_copaw_rebuild_info", rebuild_info)
+            setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
             return client
 
         headers = client_config.headers
@@ -262,5 +262,5 @@ class MCPClientManager:
             url=client_config.url,
             headers=headers or None,
         )
-        setattr(client, "_copaw_rebuild_info", rebuild_info)
+        setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
         return client

@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { CopawMascot } from "@/components/CopawMascot";
+import { QwenpawMascot } from "@/components/QwenpawMascot";
 import { GitHubIcon, XIcon, DiscordIcon } from "./Icon";
 
 const AGENTSCOPE_ORG = "https://github.com/agentscope-ai";
@@ -27,7 +27,7 @@ export function Footer() {
         <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-16">
           <section className="min-w-0 max-w-xl">
             <Link to="/" className="inline-flex items-center mb-4">
-              <CopawMascot size={80} />
+              <QwenpawMascot size={100} />
             </Link>
             <p className="mb-2 text-[15px] leading-7 text-(--text)">
               {t("brandstory.para1")}
@@ -45,7 +45,7 @@ export function Footer() {
                 <XIcon className="block" />
               </a>
               <a
-                href="https://github.com/agentscope-ai/CoPaw"
+                href="https://github.com/agentscope-ai/QwenPaw"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t("footer.social.github")}

@@ -12,7 +12,7 @@ All existing single-agent components are reused without modification.
 """
 import logging
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
 from .service_manager import ServiceDescriptor, ServiceManager
@@ -29,9 +29,6 @@ from ..mcp import MCPClientManager
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
-
-if TYPE_CHECKING:
-    from ..channels.base import BaseChannel
 
 logger = logging.getLogger(__name__)
 

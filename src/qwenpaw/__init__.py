@@ -23,7 +23,7 @@ _t0 = time.perf_counter()
 setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
 if _bootstrap_err is not None:
     logging.getLogger(__name__).warning(
-        "copaw: failed to load persisted envs on init: %s",
+        "qwenpaw: failed to load persisted envs on init: %s",
         _bootstrap_err,
     )
 logging.getLogger(__name__).debug(

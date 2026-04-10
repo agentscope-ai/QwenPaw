@@ -4,6 +4,7 @@ read_when:
   - 手动引导工作区
 ---
 
+<!-- memory:start -->
 ## 记忆
 
 每次会话都是全新的。工作目录下的文件是你的记忆延续：
@@ -48,6 +49,7 @@ read_when:
 回答关于过往工作、决策、日期、人员、偏好或待办的问题前：
 1. 对 MEMORY.md 和 memory/*.md 运行 `memory_search`
 2. 如需阅读每日笔记 `memory/YYYY-MM-DD.md`，直接用 `read_file`
+<!-- memory:end -->
 
 ## 安全
 

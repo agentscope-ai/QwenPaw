@@ -47,11 +47,18 @@ class PromptBuilder:
         re.DOTALL,
     )
 
+    # Regex pattern to match memory section markers
+    MEMORY_PATTERN = re.compile(
+        r"<!-- memory:start -->.*?<!-- memory:end -->",
+        re.DOTALL,
+    )
+
     def __init__(
         self,
         working_dir: Path,
         enabled_files: list[str] | None = None,
         heartbeat_enabled: bool = False,
+        memory_prompt_enabled: bool = True,
     ):
         """Initialize prompt builder.
 
@@ -59,10 +66,12 @@ class PromptBuilder:
             working_dir: Directory containing markdown configuration files
             enabled_files: List of filenames to load (if None, uses default order)
             heartbeat_enabled: Whether heartbeat is enabled, affects AGENTS.md content
+            memory_prompt_enabled: Whether to include the memory guidance section
         """
         self.working_dir = working_dir
         self.enabled_files = enabled_files
         self.heartbeat_enabled = heartbeat_enabled
+        self.memory_prompt_enabled = memory_prompt_enabled
         self.prompt_parts = []
         self.loaded_count = 0
 
@@ -90,13 +99,19 @@ class PromptBuilder:
                 if len(parts) >= 3:
                     content = parts[2].strip()
 
-            # Filter heartbeat section from AGENTS.md if heartbeat is disabled
+            # Filter heartbeat / memory sections from AGENTS.md based on config
             if filename == "AGENTS.md":
                 try:
                     content = self._process_heartbeat_section(content)
                 except Exception as e:
                     logger.warning(
                         f"Failed to process heartbeat with {e}",
+                    )
+                try:
+                    content = self._process_memory_section(content)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to process memory section with {e}",
                     )
 
             if content:
@@ -145,6 +160,30 @@ class PromptBuilder:
             filtered = self.HEARTBEAT_PATTERN.sub("", content)
             return filtered.strip()
 
+    def _process_memory_section(self, content: str) -> str:
+        """Process memory section in AGENTS.md content.
+
+        - If memory markers not found: keep content unchanged (backward compatibility)
+        - If memory_prompt_enabled is True: keep the content but remove the markers
+        - If memory_prompt_enabled is False: remove the entire section
+
+        Args:
+            content: Original AGENTS.md content
+
+        Returns:
+            Processed content
+        """
+        if "<!-- memory:start -->" not in content:
+            return content
+
+        if self.memory_prompt_enabled:
+            content = content.replace("<!-- memory:start -->", "")
+            content = content.replace("<!-- memory:end -->", "")
+            return content.strip()
+        else:
+            filtered = self.MEMORY_PATTERN.sub("", content)
+            return filtered.strip()
+
     def build(self) -> str:
         """Build the system prompt from markdown files.
 
@@ -185,6 +224,7 @@ def build_system_prompt_from_working_dir(
     enabled_files: list[str] | None = None,
     agent_id: str | None = None,
     heartbeat_enabled: bool = False,
+    memory_prompt_enabled: bool = True,
 ) -> str:
     """
     Build system prompt by reading markdown files from working directory.
@@ -210,6 +250,9 @@ def build_system_prompt_from_working_dir(
         agent_id: Agent identifier to include in system prompt (optional)
         heartbeat_enabled: Whether heartbeat is enabled. When False, filters
             heartbeat section from AGENTS.md to avoid confusing instructions.
+        memory_prompt_enabled: Whether to include the memory guidance section.
+            When False, removes the <!-- memory:start/end --> block from
+            AGENTS.md to save tokens.
 
     Returns:
         str: Constructed system prompt from markdown files.
@@ -248,6 +291,7 @@ def build_system_prompt_from_working_dir(
         working_dir=working_dir,
         enabled_files=enabled_files,
         heartbeat_enabled=heartbeat_enabled,
+        memory_prompt_enabled=memory_prompt_enabled,
     )
     prompt = builder.build()
 

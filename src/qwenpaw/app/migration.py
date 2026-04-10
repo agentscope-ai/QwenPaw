@@ -122,7 +122,7 @@ def _do_migrate_legacy_workspace() -> bool:
     default_agent_config = AgentProfileConfig(
         id="default",
         name="Default Agent",
-        description="Default CoPaw agent (migrated from legacy config)",
+        description="Default QwenPaw agent (migrated from legacy config)",
         workspace_dir=str(default_workspace),
         channels=config.channels if hasattr(config, "channels") else None,
         mcp=config.mcp if hasattr(config, "mcp") else None,
@@ -267,7 +267,7 @@ def _migrate_workspace_items_from_source(
     """Migrate all workspace items from a single source directory.
 
     Args:
-        source_dir: Source directory (e.g., ~/.copaw or WORKING_DIR)
+        source_dir: Source directory (e.g., ~/.qwenpaw or WORKING_DIR)
         target_dir: Target directory (e.g., workspaces/default/)
         migrated_items: List to append migrated item names
     """
@@ -711,7 +711,7 @@ def ensure_qa_agent_exists() -> None:
 
     On **first creation** only, ``skills/`` is seeded from
     ``BUILTIN_QA_AGENT_SKILL_NAMES`` (e.g. ``guidance``,
-    ``copaw_source_index``), and built-in tools are restricted (see
+    ``qwenpaw_source_index``), and built-in tools are restricted (see
     ``build_qa_agent_tools_config``).
     After that, the user may change skills and tools freely; we do not
     overwrite their choices on later startups.
@@ -783,7 +783,7 @@ def _do_ensure_qa_agent() -> None:
         id=qa_id,
         name=BUILTIN_QA_AGENT_NAME,
         description=(
-            "Builtin Q&A helper for CoPaw setup, local config under "
+            "Builtin Q&A helper for QwenPaw setup, local config under "
             "QWENPAW_WORKING_DIR, and documentation. Prefer reading files "
             "before answering; use absolute paths for code outside this "
             "workspace."

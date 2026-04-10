@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tool-guard mixin for CoPawAgent.
+"""Tool-guard mixin for QwenPawAgent.
 
 Provides ``_acting`` and ``_reasoning`` overrides that intercept
 sensitive tool calls before execution, implementing the deny /

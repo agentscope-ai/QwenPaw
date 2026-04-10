@@ -17,7 +17,7 @@ class PluginManifest:
     author: str = ""
     entry_point: str = "plugin.py"
     dependencies: List[str] = field(default_factory=list)
-    min_copaw_version: str = "0.1.0"
+    min_version: str = "0.1.0"
     meta: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -38,7 +38,7 @@ class PluginManifest:
             author=data.get("author", ""),
             entry_point=data.get("entry_point", "plugin.py"),
             dependencies=data.get("dependencies", []),
-            min_copaw_version=data.get("min_copaw_version", "0.1.0"),
+            min_version=data.get("min_version", "0.1.0"),
             meta=data.get("meta", {}),
         )
 

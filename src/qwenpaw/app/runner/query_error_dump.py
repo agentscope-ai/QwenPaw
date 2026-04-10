@@ -85,7 +85,7 @@ def write_query_error_dump(
             ),
         }
         fd, path = tempfile.mkstemp(
-            prefix="copaw_query_error_",
+            prefix="qwenpaw_query_error_",
             suffix=".json",
             dir=tempfile.gettempdir(),
             text=True,

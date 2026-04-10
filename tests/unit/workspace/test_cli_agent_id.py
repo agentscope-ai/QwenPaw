@@ -37,7 +37,7 @@ def temp_config_dir():
 def test_channels_list_default_agent(
     temp_config_dir,
 ):  # pylint: disable=W0621,W0613
-    """Test copaw channels list uses default agent by default."""
+    """Test qwenpaw channels list uses default agent by default."""
     _, default_ws, _ = temp_config_dir
 
     # Create agent config for default
@@ -65,7 +65,7 @@ def test_channels_list_default_agent(
 def test_channels_list_custom_agent(
     temp_config_dir,
 ):  # pylint: disable=W0621,W0613
-    """Test copaw channels list with custom agent_id."""
+    """Test qwenpaw channels list with custom agent_id."""
     _, _, test_ws = temp_config_dir
 
     # Create agent config for test agent
@@ -94,7 +94,7 @@ def test_channels_list_custom_agent(
 
 
 def test_cron_list_with_agent_id():
-    """Test copaw cron list with --agent-id."""
+    """Test qwenpaw cron list with --agent-id."""
     runner = CliRunner()
 
     with patch("qwenpaw.cli.cron_cmd.client") as mock_client:
@@ -120,7 +120,7 @@ def test_cron_list_with_agent_id():
 
 
 def test_daemon_status_default_agent():
-    """Test copaw daemon status defaults to 'default' agent."""
+    """Test qwenpaw daemon status defaults to 'default' agent."""
     runner = CliRunner()
 
     with patch("qwenpaw.cli.daemon_cmd.run_daemon_status") as mock_status:
@@ -135,7 +135,7 @@ def test_daemon_status_default_agent():
 
 
 def test_daemon_status_custom_agent():
-    """Test copaw daemon status with custom agent."""
+    """Test qwenpaw daemon status with custom agent."""
     runner = CliRunner()
 
     with patch("qwenpaw.cli.daemon_cmd.run_daemon_status") as mock_status:
@@ -153,7 +153,7 @@ def test_daemon_status_custom_agent():
 
 
 def test_skills_list_default_agent():
-    """Test copaw skills list defaults to 'default' agent."""
+    """Test qwenpaw skills list defaults to 'default' agent."""
     runner = CliRunner()
 
     with patch(
@@ -172,7 +172,7 @@ def test_skills_list_default_agent():
 
 
 def test_skills_list_custom_agent():
-    """Test copaw skills list with custom agent."""
+    """Test qwenpaw skills list with custom agent."""
     runner = CliRunner()
 
     with patch(
@@ -194,7 +194,7 @@ def test_skills_list_custom_agent():
 
 
 def test_chats_list_with_agent_id():
-    """Test copaw chats list with --agent-id."""
+    """Test qwenpaw chats list with --agent-id."""
     runner = CliRunner()
 
     with patch("qwenpaw.cli.chats_cmd.client") as mock_client:

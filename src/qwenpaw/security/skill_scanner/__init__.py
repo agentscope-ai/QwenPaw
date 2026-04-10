@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Skill security scanner for CoPaw.
+Skill security scanner for QwenPaw.
 
 Scans skills for security threats before they are activated or installed.
 
@@ -182,7 +182,11 @@ def _get_blocked_history_path() -> Path:
 
         return WORKING_DIR / _BLOCKED_HISTORY_FILE
     except Exception:
-        return Path.home() / ".copaw" / _BLOCKED_HISTORY_FILE
+        legacy_dir = Path.home() / ".copaw"
+        base_dir = (
+            legacy_dir if legacy_dir.exists() else Path.home() / ".qwenpaw"
+        )
+        return base_dir / _BLOCKED_HISTORY_FILE
 
 
 @dataclass

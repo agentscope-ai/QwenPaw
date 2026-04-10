@@ -27,18 +27,16 @@ const item = {
 
 const PAW_ANIMATION_DURATION = 10;
 
-export function CopawWhy() {
+export function Why() {
   const { t } = useTranslation();
   const [progress, setProgress] = useState(0);
   const [animationsStarted, setAnimationsStarted] = useState(false);
   const sectionRef = useRef<HTMLElement | null>(null);
   const [isInView, setIsInView] = useState(false);
 
-  const heroLine = t("whyCopaw.heroLine");
-  const secondPrefix = t("whyCopaw.secondPrefix");
-  const secondEmphasis = t("whyCopaw.secondEmphasis");
-  const secondSuffix = t("whyCopaw.secondSuffix");
-  const secondLine = `${secondPrefix}${secondEmphasis}${secondSuffix}`;
+  const heroLine = t("whyQwenpaw.heroLine");
+  const secondPrefix = t("whyQwenpaw.secondPrefix");
+  const secondLine = secondPrefix;
   const heroLineLength = heroLine.length;
   const secondLineLength = secondLine.length;
 
@@ -118,26 +116,13 @@ export function CopawWhy() {
     const baseClass = highlighted
       ? "text-[#ffffff]"
       : "text-[rgba(255,255,255,0.45)]";
-
-    // Calculate which line the 'from' position is in (0, 1, or 2)
-    const textBeforeFrom = secondLine.slice(0, from);
-    const startLineIndex = textBeforeFrom.split("\n").length - 1;
-
     const lines = text.split("\n");
     return (
       <>
         {lines.map((line, idx) => {
-          // Original line index in the full text
-          const originalLineIndex = startLineIndex + idx;
           return (
             <span key={idx}>
-              <span
-                className={`${baseClass} ${
-                  originalLineIndex === 1 ? "italic" : ""
-                }`}
-              >
-                {line}
-              </span>
+              <span className={baseClass}>{line}</span>
               {idx < lines.length - 1 && <br />}
             </span>
           );
@@ -174,14 +159,14 @@ export function CopawWhy() {
               className="pointer-events-none absolute -top-2 left-0 z-20 h-11 w-11 object-contain md:-top-6 md:h-20 md:w-20"
             />
             <h2 className="font-newsreader font-semibold relative z-10 text-3xl leading-[0.98] text-[#ffffff] sm:text-[42px] md:text-[52px]">
-              <span>{t("whyCopaw.headingPrefix")} </span>
+              <span>{t("whyQwenpaw.headingPrefix")} </span>
               <span className="inline-block italic whitespace-nowrap">
-                {t("whyCopaw.headingEmphasis")}
+                {t("whyQwenpaw.headingEmphasis")}
               </span>
               <svg
                 aria-hidden
                 viewBox="0 0 360 120"
-                className="pointer-events-none absolute left-[4.5em] top-[0.3em] h-[3em] w-[4.65em] -translate-x-1/2 -translate-y-1/2 rotate-[-7deg]"
+                className="pointer-events-none absolute left-[5em] top-[0.3em] h-[3em] w-[5.65em] -translate-x-1/2 -translate-y-1/2 rotate-[-7deg]"
               >
                 <motion.ellipse
                   cx="180"
@@ -200,7 +185,7 @@ export function CopawWhy() {
             </h2>
           </div>
           <p className="font-inter text-center text-[13px] leading-5 text-[rgba(255,255,255,0.7)] sm:text-sm sm:leading-6 md:text-right md:text-base md:pt-8">
-            {t("whyCopaw.sub")
+            {t("whyQwenpaw.sub")
               .split("\n")
               .map((line, idx) => (
                 <span key={idx}>
@@ -239,7 +224,7 @@ export function CopawWhy() {
             <span className="text-[rgba(255,255,255,0.45)]">{rightText}</span>
           </p>
           <p
-            className="mt-4 whitespace-pre-line text-[rgba(220,210,201,0.9)] sm:mt-5 md:mt-8"
+            className="mt-4 whitespace-pre-line text-[rgba(220,210,201,0.9)] sm:mt-1 md:mt-2"
             style={{ lineHeight: "1.6em" }}
           >
             {renderSecondText(0, secondSplit, true)}
