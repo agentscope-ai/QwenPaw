@@ -14,17 +14,17 @@ from typing import Any, cast
 import httpx
 import pytest
 
-import copaw.local_models.llamacpp as downloader_module
-from copaw.local_models.download_manager import (
+import qwenpaw.local_models.llamacpp as downloader_module
+from qwenpaw.local_models.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
-from copaw.utils.command_runner import (
+from qwenpaw.utils.command_runner import (
     CommandExecutionError,
     CommandResult,
     ShutdownResult,
 )
-from copaw.local_models.llamacpp import LlamaCppBackend
+from qwenpaw.local_models.llamacpp import LlamaCppBackend
 
 
 class _FakeServerProcess:

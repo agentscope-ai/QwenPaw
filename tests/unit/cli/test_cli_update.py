@@ -9,9 +9,9 @@ import httpx
 import pytest
 from click.testing import CliRunner
 
-from copaw.__version__ import __version__
-from copaw.cli.main import cli
-from copaw.cli.update_cmd import (
+from qwenpaw.__version__ import __version__
+from qwenpaw.cli.main import cli
+from qwenpaw.cli.update_cmd import (
     InstallInfo,
     RunningServiceInfo,
     _detect_running_service,
@@ -81,12 +81,12 @@ def test_is_newer_version(
             ("vcs", "https://github.com/agentscope-ai/CoPaw.git"),
         ),
         (
-            {"url": "file:///tmp/copaw.whl"},
-            ("local", "file:///tmp/copaw.whl"),
+            {"url": "file:///tmp/qwenpaw.whl"},
+            ("local", "file:///tmp/qwenpaw.whl"),
         ),
         (
-            {"url": "https://example.com/copaw.whl"},
-            ("direct-url", "https://example.com/copaw.whl"),
+            {"url": "https://example.com/qwenpaw.whl"},
+            ("direct-url", "https://example.com/qwenpaw.whl"),
         ),
     ],
 )
@@ -129,7 +129,7 @@ def test_detect_installation(
     expected_source_type: str,
     expected_source_url: str | None,
 ) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     class _FakeDistribution:
         def read_text(self, name: str) -> str | None:
@@ -170,7 +170,7 @@ def test_detect_installation(
 
 
 def test_update_reports_up_to_date(monkeypatch) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info()
 
@@ -212,7 +212,7 @@ def test_probe_service_ignores_proxy_env(monkeypatch) -> None:
         captured.update(kwargs)
         return _Response()
 
-    monkeypatch.setattr("copaw.cli.update_cmd.httpx.get", _fake_get)
+    monkeypatch.setattr("qwenpaw.cli.update_cmd.httpx.get", _fake_get)
 
     result = _probe_service("http://127.0.0.1:8088")
 
@@ -226,7 +226,7 @@ def test_probe_service_returns_not_running_on_http_error(monkeypatch) -> None:
     def _fake_get(_url: str, **_kwargs):
         raise httpx.HTTPError("bad gateway")
 
-    monkeypatch.setattr("copaw.cli.update_cmd.httpx.get", _fake_get)
+    monkeypatch.setattr("qwenpaw.cli.update_cmd.httpx.get", _fake_get)
 
     result = _probe_service("http://127.0.0.1:8088")
 
@@ -234,7 +234,7 @@ def test_probe_service_returns_not_running_on_http_error(monkeypatch) -> None:
 
 
 def test_detect_running_service_handles_wildcard_host(monkeypatch) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     monkeypatch.setattr(update_cmd_module, "read_last_api", lambda: None)
     monkeypatch.setattr(
@@ -260,7 +260,7 @@ def test_detect_running_service_handles_wildcard_host(monkeypatch) -> None:
 def test_detect_running_service_falls_back_to_process_ports(
     monkeypatch,
 ) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     monkeypatch.setattr(update_cmd_module, "read_last_api", lambda: None)
     monkeypatch.setattr(
@@ -284,7 +284,7 @@ def test_detect_running_service_falls_back_to_process_ports(
 
 
 def test_update_blocks_running_service(monkeypatch) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info()
 
@@ -324,7 +324,7 @@ def test_update_blocks_running_service(monkeypatch) -> None:
 
 
 def test_update_can_cancel_forced_shutdown(monkeypatch) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info()
 
@@ -366,7 +366,7 @@ def test_update_can_force_shutdown_running_service(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info()
     spawned: dict[str, object] = {}
@@ -446,7 +446,7 @@ def test_update_can_force_shutdown_running_service(
 
 
 def test_update_can_cancel_non_pypi_override(monkeypatch) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info(source_type="editable")
 
@@ -479,7 +479,7 @@ def test_update_can_override_non_pypi_install_with_yes(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     spawned: dict[str, object] = {}
     install_info = _install_info(source_type="editable")
@@ -535,7 +535,7 @@ def test_update_can_override_non_pypi_install_with_yes(
 
 
 def test_update_spawns_worker(monkeypatch, tmp_path: Path) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     spawned: dict[str, object] = {}
     install_info = _install_info()
@@ -602,7 +602,7 @@ def test_update_spawns_worker(monkeypatch, tmp_path: Path) -> None:
 def test_update_prompts_when_version_is_not_comparable(
     monkeypatch,
 ) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info()
 
@@ -634,7 +634,7 @@ def test_update_can_continue_when_version_is_not_comparable(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     spawned: dict[str, object] = {}
     install_info = _install_info()
@@ -689,7 +689,7 @@ def test_update_can_continue_when_version_is_not_comparable(
 
 
 def test_update_returns_worker_exit_code(monkeypatch, tmp_path: Path) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info()
 
@@ -726,7 +726,7 @@ def test_update_detaches_worker_on_windows(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from copaw.cli import update_cmd as update_cmd_module
+    from qwenpaw.cli import update_cmd as update_cmd_module
 
     install_info = _install_info()
     spawned: dict[str, object] = {}
@@ -794,7 +794,7 @@ def test_update_worker_waits_for_launcher_exit(
 
     waited: list[tuple[int | None, float]] = []
     monkeypatch.setattr(
-        "copaw.cli.update_cmd._wait_for_process_exit",
+        "qwenpaw.cli.update_cmd._wait_for_process_exit",
         lambda pid, timeout=15.0: waited.append((pid, timeout)),
     )
 
@@ -818,7 +818,7 @@ def test_run_update_worker_detached_spawns_without_capture(
         return object()
 
     monkeypatch.setattr(
-        "copaw.cli.update_cmd._spawn_update_worker",
+        "qwenpaw.cli.update_cmd._spawn_update_worker",
         _fake_spawn,
     )
 

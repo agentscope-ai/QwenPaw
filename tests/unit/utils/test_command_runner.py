@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from copaw.utils import command_runner
-from copaw.utils.command_runner import (
+from qwenpaw.utils import command_runner
+from qwenpaw.utils.command_runner import (
     CommandExecutionError,
     ManagedProcess,
     ProcessLaunchError,

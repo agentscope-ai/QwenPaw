@@ -2,7 +2,7 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
-from copaw.local_models.download_manager import (
+from qwenpaw.local_models.download_manager import (
     DownloadProgressUpdate,
     DownloadProgressTracker,
     ProcessDownloadController,
