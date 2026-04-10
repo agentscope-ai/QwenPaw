@@ -18,6 +18,7 @@ import MCPPage from "../../pages/Agent/MCP";
 import ModelsPage from "../../pages/Settings/Models";
 import EnvironmentsPage from "../../pages/Settings/Environments";
 import SecurityPage from "../../pages/Settings/Security";
+import BackupPage from "../../pages/Settings/Backup";
 import TokenUsagePage from "../../pages/Settings/TokenUsage";
 import VoiceTranscriptionPage from "../../pages/Settings/VoiceTranscription";
 import AgentsPage from "../../pages/Settings/Agents";
@@ -40,6 +41,7 @@ const pathToKey: Record<string, string> = {
   "/environments": "environments",
   "/agent-config": "agent-config",
   "/security": "security",
+  "/backup": "backup",
   "/token-usage": "token-usage",
   "/voice-transcription": "voice-transcription",
 };
@@ -74,6 +76,7 @@ export default function MainLayout() {
               <Route path="/environments" element={<EnvironmentsPage />} />
               <Route path="/agent-config" element={<AgentConfigPage />} />
               <Route path="/security" element={<SecurityPage />} />
+              <Route path="/backup" element={<BackupPage />} />
               <Route path="/token-usage" element={<TokenUsagePage />} />
               <Route
                 path="/voice-transcription"

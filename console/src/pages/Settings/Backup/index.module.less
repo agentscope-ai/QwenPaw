@@ -1,0 +1,397 @@
+.backupPage {
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* ---- Tab Bar ---- */
+.tabBar {
+  display: flex;
+  gap: 0;
+  padding: 0 20px;
+  border-bottom: 1px solid #eae9e7;
+  flex-shrink: 0;
+}
+
+.tabItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #888;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    color: #ff7f16;
+  }
+}
+
+.tabItemActive {
+  color: #ff7f16;
+  border-bottom-color: #ff7f16;
+  font-weight: 600;
+}
+
+:global(.dark-mode) {
+  .tabBar {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .tabItem {
+    color: rgba(255, 255, 255, 0.5);
+
+    &:hover {
+      color: #ff7f16;
+    }
+  }
+
+  .tabItemActive {
+    color: #ff7f16;
+  }
+}
+
+/* ---- Content ---- */
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 20px;
+}
+
+.section {
+  max-width: 800px;
+}
+
+/* ---- Card ---- */
+.card {
+  border-radius: 12px;
+  border: 1px solid #e8e8e8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+:global(.dark-mode) .card {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
+/* ---- Config Section ---- */
+.switchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+:global(.dark-mode) .switchRow {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.switchInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.switchLabel {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.switchDesc {
+  font-size: 13px;
+  color: #999;
+}
+
+:global(.dark-mode) {
+  .switchLabel {
+    color: rgba(255, 255, 255, 0.9);
+  }
+  .switchDesc {
+    color: rgba(255, 255, 255, 0.4);
+  }
+}
+
+.configGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .configGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.form {
+  :global {
+    .ant-form-item-label > label,
+    .copaw-form-item-label > label {
+      font-weight: 500;
+    }
+  }
+}
+
+/* ---- Footer ---- */
+.footerButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ---- History Section ---- */
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.sectionHint {
+  font-size: 13px;
+  color: #999;
+}
+
+:global(.dark-mode) .sectionHint {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.monoText {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 13px;
+}
+
+.fileName {
+  font-size: 13px;
+  color: #666;
+  word-break: break-all;
+}
+
+:global(.dark-mode) .fileName {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ---- Transfer Section ---- */
+.transferGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 720px) {
+  .transferGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.transferCard {
+  border-radius: 12px;
+  border: 1px solid #e8e8e8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+:global(.dark-mode) .transferCard {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
+.transferHeader {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.transferIcon {
+  font-size: 24px;
+  color: #ff7f16;
+  margin-top: 2px;
+}
+
+.transferTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: #1a1a1a;
+}
+
+.transferDesc {
+  font-size: 13px;
+  color: #999;
+  margin: 0;
+  line-height: 1.5;
+}
+
+:global(.dark-mode) {
+  .transferTitle {
+    color: rgba(255, 255, 255, 0.9);
+  }
+  .transferDesc {
+    color: rgba(255, 255, 255, 0.4);
+  }
+}
+
+/* ---- Asset Picker ---- */
+.agentTip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f6f3ee;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+:global(.dark-mode) .agentTip {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.tipIcon {
+  color: #ff7f16;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.assetPicker {
+  margin-bottom: 20px;
+}
+
+.pickerLabel {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+:global(.dark-mode) .pickerLabel {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.assetCheckboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assetCheckbox {
+  :global(.ant-checkbox + span),
+  :global(.copaw-checkbox + span) {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+}
+
+/* ---- Upload Area ---- */
+.uploadArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  border: 2px dashed #d9d9d9;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 16px;
+  background: #fafafa;
+
+  &:hover {
+    border-color: #ff7f16;
+    background: #fff8f0;
+  }
+}
+
+:global(.dark-mode) .uploadArea {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+
+  &:hover {
+    border-color: #ff7f16;
+    background: rgba(255, 127, 22, 0.06);
+  }
+}
+
+.uploadIcon {
+  font-size: 28px;
+  color: #bbb;
+}
+
+.uploadText {
+  font-size: 13px;
+  color: #999;
+}
+
+/* ---- Import Options ---- */
+.importOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.optionRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.optionLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  white-space: nowrap;
+}
+
+:global(.dark-mode) .optionLabel {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.inlineCheckboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ---- Action Button ---- */
+.actionBtn {
+  margin-top: 4px;
+}
+
+/* ---- States ---- */
+.centerState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  gap: 16px;
+}
+
+.stateText {
+  font-size: 14px;
+  color: #999;
+}
+
+.stateTextError {
+  font-size: 14px;
+  color: #ff4d4f;
+}
