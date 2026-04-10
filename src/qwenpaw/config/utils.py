@@ -642,7 +642,7 @@ def get_plugins_dir() -> Path:
     return PLUGINS_DIR
 
 
-def is_copaw_running() -> bool:
+def is_qwenpaw_running() -> bool:
     """Check if CoPaw is currently running by checking API availability.
 
     Returns:

@@ -478,13 +478,11 @@ class FileGuardUpdateBody(BaseModel):
 async def get_file_guard() -> FileGuardResponse:
     config = load_config()
     fg = config.security.file_guard
-    paths = fg.sensitive_files
-    if not paths:
-        from ...security.tool_guard.guardians.file_guardian import (
-            _DEFAULT_DENY_DIRS,
-        )
+    from ...security.tool_guard.guardians.file_guardian import (
+        ensure_file_guard_paths,
+    )
 
-        paths = list(_DEFAULT_DENY_DIRS)
+    paths = ensure_file_guard_paths(fg.sensitive_files or [])
     return FileGuardResponse(enabled=fg.enabled, paths=paths)
 
 
@@ -502,7 +500,11 @@ async def put_file_guard(
     if body.enabled is not None:
         fg.enabled = body.enabled
     if body.paths is not None:
-        fg.sensitive_files = body.paths
+        from ...security.tool_guard.guardians.file_guardian import (
+            ensure_file_guard_paths,
+        )
+
+        fg.sensitive_files = ensure_file_guard_paths(body.paths)
 
     save_config(config)
 

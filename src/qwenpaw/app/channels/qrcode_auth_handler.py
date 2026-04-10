@@ -28,6 +28,8 @@ from typing import Any, Dict
 import segno
 from fastapi import HTTPException, Request
 
+from ...constant import PROJECT_NAME
+
 
 @dataclass
 class QRCodeResult:
@@ -165,7 +167,7 @@ class WeixinQRCodeAuthHandler(QRCodeAuthHandler):
 # ---------------------------------------------------------------------------
 
 _WECOM_AUTH_ORIGIN = "https://work.weixin.qq.com"
-_WECOM_SOURCE = "copaw"
+_WECOM_SOURCE = PROJECT_NAME.lower()
 
 
 class WecomQRCodeAuthHandler(QRCodeAuthHandler):

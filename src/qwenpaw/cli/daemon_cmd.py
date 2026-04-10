@@ -111,6 +111,6 @@ def version_cmd(agent_id: str) -> None:
     help="Number of last lines to show (default 100).",
 )
 def logs_cmd(lines: int) -> None:
-    """Tail last N lines of WORKING_DIR/copaw.log."""
+    """Tail last N lines of WORKING_DIR/qwenpaw.log."""
     lines = min(max(1, lines), 2000)
     click.echo(run_daemon_logs(lines=lines))

@@ -18,18 +18,18 @@ import click
 logger = logging.getLogger(__name__)
 
 
-def _check_copaw_not_running():
-    """Check if CoPaw is not running, exit if it is."""
-    from ..config.utils import is_copaw_running
+def _check_qwenpaw_not_running():
+    """Check if QwenPaw is not running, exit if it is."""
+    from ..config.utils import is_qwenpaw_running
 
-    if is_copaw_running():
+    if is_qwenpaw_running():
         click.echo(
-            "❌ CoPaw is currently running. Please stop it first:",
+            "❌ QwenPaw is currently running. Please stop it first:",
             err=True,
         )
-        click.echo("   copaw shutdown", err=True)
+        click.echo("   qwenpaw shutdown", err=True)
         click.echo(
-            "\n💡 Plugin operations are only allowed when CoPaw is stopped.",
+            "\n💡 Plugin operations are only allowed when QwenPaw is stopped.",
         )
         raise click.Abort()
 
@@ -112,14 +112,14 @@ def install(source: str, force: bool):
     """Install a plugin from local path or URL.
 
     Examples:
-        copaw plugin install examples/plugins/idealab-provider
-        copaw plugin install /path/to/plugin
-        copaw plugin install https://example.com/plugin.zip
+        qwenpaw plugin install examples/plugins/idealab-provider
+        qwenpaw plugin install /path/to/plugin
+        qwenpaw plugin install https://example.com/plugin.zip
     """
     from ..config.utils import get_plugins_dir
 
-    # Check if CoPaw is running
-    _check_copaw_not_running()
+    # Check if QwenPaw is running
+    _check_qwenpaw_not_running()
 
     # Check if source is a URL
     is_url = source.startswith(("http://", "https://"))
@@ -242,7 +242,7 @@ def install(source: str, force: bool):
             pass  # Ignore cleanup errors
 
     click.echo("\n💡 Next steps:")
-    click.echo("   1. Restart CoPaw to load the plugin")
+    click.echo("   1. Restart QwenPaw to load the plugin")
     click.echo("   2. Configure the plugin in the web UI")
 
 
@@ -338,8 +338,8 @@ def uninstall(plugin_id: str):
     """Uninstall a plugin."""
     from ..config.utils import get_plugins_dir
 
-    # Check if CoPaw is running
-    _check_copaw_not_running()
+    # Check if QwenPaw is running
+    _check_qwenpaw_not_running()
 
     plugin_dir = get_plugins_dir() / plugin_id
 
@@ -359,7 +359,7 @@ def uninstall(plugin_id: str):
         shutil.rmtree(plugin_dir)
 
         click.echo(f"✅ Plugin '{plugin_id}' uninstalled successfully")
-        click.echo("💡 Restart CoPaw to apply changes")
+        click.echo("💡 Restart QwenPaw to apply changes")
     except Exception as e:
         click.echo(f"❌ Failed to uninstall plugin: {e}", err=True)
 

@@ -25,11 +25,11 @@ from .process_utils import (
     _base_url,
     _candidate_hosts,
     _extract_port_from_command,
-    _is_copaw_service_command,
+    _is_qwenpaw_service_command,
     _process_table,
 )
 
-_PYPI_JSON_URL = "https://pypi.org/pypi/copaw/json"
+_PYPI_JSON_URL = "https://pypi.org/pypi/qwenpaw/json"
 
 
 def _subprocess_text_kwargs() -> dict[str, Any]:
@@ -48,7 +48,7 @@ def _subprocess_text_kwargs() -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class InstallInfo:
-    """Information about the current CoPaw installation."""
+    """Information about the current QwenPaw installation."""
 
     package_dir: str
     python_executable: str
@@ -61,7 +61,7 @@ class InstallInfo:
 
 @dataclass(frozen=True)
 class RunningServiceInfo:
-    """Detected CoPaw service endpoint state."""
+    """Detected QwenPaw service endpoint state."""
 
     is_running: bool
     base_url: str | None = None
@@ -91,7 +91,7 @@ def _is_newer_version(latest: str, current: str) -> bool | None:
 
 
 def _fetch_latest_version() -> str:
-    """Fetch the latest published CoPaw version from PyPI."""
+    """Fetch the latest published QwenPaw version from PyPI."""
     try:
         resp = httpx.get(
             _PYPI_JSON_URL,
@@ -102,17 +102,17 @@ def _fetch_latest_version() -> str:
         data = resp.json()
     except httpx.HTTPError as exc:
         raise click.ClickException(
-            f"Failed to fetch the latest CoPaw version from PyPI: {exc}",
+            f"Failed to fetch the latest QwenPaw version from PyPI: {exc}",
         ) from exc
     except json.JSONDecodeError as exc:
         raise click.ClickException(
             "Received an invalid response from PyPI when checking for the "
-            f"latest CoPaw version: {exc}",
+            f"latest QwenPaw version: {exc}",
         ) from exc
     version = str(data.get("info", {}).get("version", "")).strip()
     if not version:
         raise click.ClickException(
-            "Unable to determine the latest CoPaw version.",
+            "Unable to determine the latest QwenPaw version.",
         )
     return version
 
@@ -137,7 +137,7 @@ def _detect_source_type(
 
 def _detect_installation() -> InstallInfo:
     """Inspect the current Python environment and installation style."""
-    dist = metadata.distribution("copaw")
+    dist = metadata.distribution("qwenpaw")
     # if installed through uv, installer will be `uv`
     installer = (dist.read_text("INSTALLER") or "pip").strip() or "pip"
 
@@ -169,7 +169,7 @@ def _detect_installation() -> InstallInfo:
 
 
 def _probe_service(base_url: str) -> RunningServiceInfo:
-    """Probe a possible running CoPaw HTTP service."""
+    """Probe a possible running QwenPaw HTTP service."""
     try:
         resp = httpx.get(
             f"{base_url.rstrip('/')}/api/version",
@@ -191,10 +191,10 @@ def _probe_service(base_url: str) -> RunningServiceInfo:
 
 
 def _process_candidate_ports() -> list[int]:
-    """Infer candidate local CoPaw service ports from running processes."""
+    """Infer candidate local QwenPaw service ports from running processes."""
     ports: list[int] = []
     for _pid, command in _process_table():
-        if not _is_copaw_service_command(command):
+        if not _is_qwenpaw_service_command(command):
             continue
 
         port = _extract_port_from_command(command)
@@ -227,7 +227,7 @@ def _detect_running_service(
     host: str | None,
     port: int | None,
 ) -> RunningServiceInfo:
-    """Detect whether a CoPaw HTTP service is currently running."""
+    """Detect whether a QwenPaw HTTP service is currently running."""
     candidates: list[str] = []
     seen: set[str] = set()
     preferred_hosts: list[str] = []
@@ -268,13 +268,13 @@ def _detect_running_service(
 def _running_service_display(running: RunningServiceInfo) -> str:
     """Build a concise running-service description for user prompts."""
     if not running.base_url:
-        return "a running CoPaw service"
+        return "a running QwenPaw service"
     version_suffix = f" (version {running.version})" if running.version else ""
-    return f"CoPaw service at {running.base_url}{version_suffix}"
+    return f"QwenPaw service at {running.base_url}{version_suffix}"
 
 
 def _confirm_force_shutdown(running: RunningServiceInfo) -> bool:
-    """Ask whether `copaw shutdown` should be used before updating."""
+    """Ask whether `qwenpaw shutdown` should be used before updating."""
     click.echo("")
     click.secho("!" * 72, fg="yellow", bold=True)
     click.secho(
@@ -289,8 +289,8 @@ def _confirm_force_shutdown(running: RunningServiceInfo) -> bool:
         bold=True,
     )
     click.secho(
-        "Running `copaw shutdown` will forcibly terminate the current "
-        "CoPaw backend/frontend processes.",
+        "Running `qwenpaw shutdown` will forcibly terminate the current "
+        "QwenPaw backend/frontend processes.",
         fg="red",
         bold=True,
     )
@@ -302,7 +302,7 @@ def _confirm_force_shutdown(running: RunningServiceInfo) -> bool:
     )
     click.echo("")
     return click.confirm(
-        "Run `copaw shutdown` now and continue with the update?",
+        "Run `qwenpaw shutdown` now and continue with the update?",
         default=False,
     )
 
@@ -311,15 +311,15 @@ def _run_shutdown_for_update(
     info: InstallInfo,
     running: RunningServiceInfo,
 ) -> None:
-    """Run `copaw shutdown` in the current environment before updating."""
-    command = [info.python_executable, "-m", "copaw"]
+    """Run `qwenpaw shutdown` in the current environment before updating."""
+    command = [info.python_executable, "-m", "qwenpaw"]
     parsed = urlparse(running.base_url or "")
     if parsed.port is not None:
         command.extend(["--port", str(parsed.port)])
     command.append("shutdown")
 
     click.echo("")
-    click.echo("Running `copaw shutdown` before updating...")
+    click.echo("Running `qwenpaw shutdown` before updating...")
 
     try:
         result = subprocess.run(
@@ -331,7 +331,7 @@ def _run_shutdown_for_update(
         )
     except OSError as exc:
         raise click.ClickException(
-            "Failed to run `copaw shutdown`: " f"{exc}",
+            "Failed to run `qwenpaw shutdown`: " f"{exc}",
         ) from exc
 
     output = (result.stdout or "").strip()
@@ -340,8 +340,8 @@ def _run_shutdown_for_update(
 
     if result.returncode != 0:
         raise click.ClickException(
-            "`copaw shutdown` failed. Please stop the running CoPaw "
-            "service manually before running `copaw update`.",
+            "`qwenpaw shutdown` failed. Please stop the running QwenPaw "
+            "service manually before running `qwenpaw update`.",
         )
 
 
@@ -350,7 +350,7 @@ def _build_upgrade_command(
     latest_version: str,
 ) -> tuple[list[str], str]:
     """Build the installer command used by the detached update worker."""
-    package_spec = f"copaw=={latest_version}"
+    package_spec = f"qwenpaw=={latest_version}"
     installer = info.installer.lower()
     if installer.startswith("uv") and shutil.which("uv"):
         return (
@@ -517,7 +517,7 @@ def _run_update_worker_foreground(plan_path: Path) -> int:
             return proc.wait()
     except KeyboardInterrupt:
         click.echo("")
-        click.echo("[copaw] Update interrupted. Stopping installer...")
+        click.echo("[qwenpaw] Update interrupted. Stopping installer...")
         _terminate_update_worker(proc)
         return 130
 
@@ -547,10 +547,10 @@ def run_update_worker(plan_path: str | Path) -> int:
 
     click.echo("")
     click.echo(
-        "[copaw] Updating CoPaw "
+        "[qwenpaw] Updating QwenPaw "
         f"{plan['current_version']} -> {plan['latest_version']}...",
     )
-    click.echo(f"[copaw] Using installer: {plan['installer_label']}")
+    click.echo(f"[qwenpaw] Using installer: {plan['installer_label']}")
 
     try:
         with subprocess.Popen(
@@ -565,7 +565,7 @@ def run_update_worker(plan_path: str | Path) -> int:
                     click.echo(line.rstrip())
             return_code = proc.wait()
     except FileNotFoundError as exc:
-        click.echo(f"[copaw] Update failed: {exc}")
+        click.echo(f"[qwenpaw] Update failed: {exc}")
         return_code = 1
     finally:
         try:
@@ -574,16 +574,16 @@ def run_update_worker(plan_path: str | Path) -> int:
             pass
 
     if return_code == 0:
-        click.echo("[copaw] Update completed successfully.")
+        click.echo("[qwenpaw] Update completed successfully.")
         click.echo(
-            "[copaw] Please restart any running CoPaw service "
+            "[qwenpaw] Please restart any running QwenPaw service "
             "to use the new version.",
         )
     else:
-        click.echo(f"[copaw] Update failed with exit code {return_code}.")
+        click.echo(f"[qwenpaw] Update failed with exit code {return_code}.")
         click.echo(
-            "[copaw] Please fix the error above and run "
-            "`copaw update` again.",
+            "[qwenpaw] Please fix the error above and run "
+            "`qwenpaw update` again.",
         )
 
     return return_code
@@ -637,7 +637,7 @@ def _confirm_source_override(info: InstallInfo, yes: bool) -> bool:
 )
 @click.pass_context
 def update_cmd(ctx: click.Context, yes: bool) -> None:
-    """Upgrade CoPaw in the current Python environment."""
+    """Upgrade QwenPaw in the current Python environment."""
     info = _detect_installation()
     latest_version = _fetch_latest_version()
 
@@ -645,7 +645,7 @@ def update_cmd(ctx: click.Context, yes: bool) -> None:
 
     version_check = _is_newer_version(latest_version, __version__)
     if version_check is False:
-        click.echo("CoPaw is already up to date.")
+        click.echo("QwenPaw is already up to date.")
         return
 
     if not _confirm_source_override(info, yes):
@@ -677,8 +677,8 @@ def update_cmd(ctx: click.Context, yes: bool) -> None:
             raise click.ClickException(
                 "Detected "
                 f"{_running_service_display(running)}. "
-                "Please stop it before running `copaw update`, or rerun "
-                "without `--yes` to confirm a forced `copaw shutdown`.",
+                "Please stop it before running `qwenpaw update`, or rerun "
+                "without `--yes` to confirm a forced `qwenpaw shutdown`.",
             )
         if not _confirm_force_shutdown(running):
             click.echo("Cancelled.")
@@ -690,13 +690,13 @@ def update_cmd(ctx: click.Context, yes: bool) -> None:
         )
         if running.is_running:
             raise click.ClickException(
-                "Detected "
-                f"{_running_service_display(running)} after `copaw shutdown`. "
-                "Please stop it manually before running `copaw update`.",
+                f"Detected {_running_service_display(running)} "
+                "after `qwenpaw shutdown`. "
+                "Please stop it manually before running `qwenpaw update`.",
             )
 
     if not yes and not click.confirm(
-        f"Update CoPaw to {latest_version} in the current environment?",
+        f"Update QwenPaw to {latest_version} in the current environment?",
         default=True,
     ):
         click.echo("Cancelled.")
@@ -713,13 +713,13 @@ def update_cmd(ctx: click.Context, yes: bool) -> None:
     }
     plan_path = _write_worker_plan(plan)
     click.echo("")
-    click.echo("Starting CoPaw update...")
+    click.echo("Starting QwenPaw update...")
 
     if sys.platform == "win32":
         _run_update_worker_detached(plan_path)
         click.echo(
             "On Windows, the update will continue after this command exits "
-            "to avoid locking `copaw.exe`.",
+            "to avoid locking `qwenpaw.exe`.",
         )
         click.echo("Keep this terminal open until the update completes.")
         return

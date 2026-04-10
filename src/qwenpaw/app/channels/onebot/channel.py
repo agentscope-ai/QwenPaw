@@ -3,7 +3,7 @@
 """OneBot v11 Channel.
 
 Reverse WebSocket server for NapCat, go-cqhttp, Lagrange, or any
-OneBot v11 implementation.  CoPaw listens on a configurable port;
+OneBot v11 implementation.  Listens on a configurable port;
 the OneBot client connects as a WebSocket client.
 
 Message flow:
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 class OneBotChannel(BaseChannel):
     """OneBot v11 channel via reverse WebSocket.
 
-    CoPaw acts as a WebSocket server; NapCat (or compatible) connects
+    Acts as a WebSocket server; NapCat (or compatible) connects
     as a client to ``ws://<host>:<port>/ws``.
     """
 
@@ -383,7 +383,7 @@ class OneBotChannel(BaseChannel):
         self,
         segments: List[Dict[str, Any]],
     ) -> tuple[list, bool]:
-        """Parse OneBot v11 message segments to CoPaw content_parts.
+        """Parse OneBot v11 message segments to content_parts.
 
         Returns:
             (content_parts, bot_mentioned)
@@ -593,7 +593,7 @@ class OneBotChannel(BaseChannel):
         )
 
     # ------------------------------------------------------------------
-    # Sending messages (CoPaw → NapCat)
+    # Sending messages (To NapCat)
     # ------------------------------------------------------------------
 
     async def send(

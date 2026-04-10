@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CLI command: run CoPaw app on a free port in a native webview window."""
+"""CLI command: run QwenPaw app on a free port in a native webview window."""
 # pylint:disable=too-many-branches,too-many-statements,consider-using-with
 from __future__ import annotations
 
@@ -100,18 +100,18 @@ def desktop_cmd(
     host: str,
     log_level: str,
 ) -> None:
-    """Run CoPaw app on an auto-selected free port in a webview window.
+    """Run QwenPaw app on an auto-selected free port in a webview window.
 
     Starts the FastAPI app in a subprocess on a free port, then opens a
     native webview window loading that URL. Use for a dedicated desktop
-    window without conflicting with an existing CoPaw app instance.
+    window without conflicting with an existing QwenPaw app instance.
     """
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
-    click.echo(f"Starting CoPaw app on {url} (port {port})")
+    click.echo(f"Starting QwenPaw app on {url} (port {port})")
     logger.info("Server subprocess starting...")
 
     env = os.environ.copy()
@@ -138,7 +138,7 @@ def desktop_cmd(
             [
                 sys.executable,
                 "-m",
-                "copaw",
+                "qwenpaw",
                 "app",
                 "--host",
                 host,
@@ -173,7 +173,7 @@ def desktop_cmd(
                 logger.info("HTTP ready, creating webview window...")
                 api = WebViewAPI()
                 webview.create_window(
-                    "CoPaw Desktop",
+                    "QwenPaw Desktop",
                     url,
                     width=1280,
                     height=800,

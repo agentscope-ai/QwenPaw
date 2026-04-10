@@ -36,7 +36,7 @@ def _isolated_skills_workspace(
         yield base_workspace
         return
 
-    with tempfile.TemporaryDirectory(prefix="copaw_headless_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="qwenpaw_headless_") as tmp:
         tmp_path = Path(tmp)
         resolved = Path(skills_dir).resolve()
         (tmp_path / "skills").symlink_to(resolved)
@@ -94,7 +94,7 @@ async def _run_task(
     skills_dir: str | None = None,
 ) -> dict:
     from agentscope.message import Msg
-    from ..agents.react_agent import CoPawAgent
+    from ..agents.react_agent import QwenPawAgent
 
     agent_config.running.max_iters = max_iters
 
@@ -103,7 +103,7 @@ async def _run_task(
         base_workspace = Path(agent_config.workspace_dir).expanduser()
 
     with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
-        agent = CoPawAgent(
+        agent = QwenPawAgent(
             agent_config=agent_config,
             enable_memory_manager=False,
             request_context=request_context,

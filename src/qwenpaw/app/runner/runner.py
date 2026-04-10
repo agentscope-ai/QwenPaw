@@ -29,7 +29,7 @@ from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
-from ...agents.react_agent import CoPawAgent
+from ...agents.react_agent import QwenPawAgent
 from ...exceptions import convert_model_exception
 from ...agents.utils.file_handling import (
     read_text_file_with_encoding_fallback,
@@ -437,7 +437,7 @@ class AgentRunner(Runner):
 
             logger.debug(f"Enabled MCP: {mcp_clients}")
 
-            agent = CoPawAgent(
+            agent = QwenPawAgent(
                 agent_config=agent_config,
                 env_context=env_context,
                 mcp_clients=mcp_clients,

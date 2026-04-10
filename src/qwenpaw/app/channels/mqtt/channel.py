@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 import logging
 import threading
 from typing import Any, Optional, Union
@@ -295,9 +296,8 @@ class MQTTChannel(BaseChannel):
             return
 
         logger.info("Starting MQTT channel...")
-        import uuid
 
-        client_id = f"copaw-mqtt-{uuid.uuid4()}"
+        client_id = f"mqtt-{uuid.uuid4()}"
         self.client = mqtt.Client(
             client_id=client_id,
             protocol=mqtt.MQTTv311,

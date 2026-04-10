@@ -20,6 +20,8 @@ dist/
 src/copaw/console/dist/
 src/copaw/console/
 console/.cursor/
+src/qwenpaw/console/dist/
+src/qwenpaw/console/
 
 # frontend (website)
 website/node_modules/

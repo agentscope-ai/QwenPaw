@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Pre-tool-call guard framework for CoPaw.
+Pre-tool-call guard framework for QwenPaw.
 
 Scans tool execution parameters **before** the agent invokes a tool,
 looking for dangerous patterns such as command injection, data

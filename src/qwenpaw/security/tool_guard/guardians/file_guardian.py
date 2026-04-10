@@ -27,7 +27,27 @@ _TOOL_FILE_PARAMS: dict[str, tuple[str, ...]] = {
     "write_text_file": ("file_path", "path"),
 }
 
-_DEFAULT_DENY_DIRS: list[str] = [str(SECRET_DIR) + "/"]
+_COMPAT_SECRET_DIRS: tuple[str, ...] = (
+    str(SECRET_DIR) + "/",
+    str(Path.home() / ".copaw.secret") + "/",
+    str(Path.home() / ".qwenpaw.secret") + "/",
+)
+
+
+def ensure_file_guard_paths(paths: Iterable[str]) -> list[str]:
+    """Return *paths* plus compatibility secret dirs, de-duplicated."""
+    merged = [p for p in paths if p]
+    merged.extend(_COMPAT_SECRET_DIRS)
+    # Keep order stable while removing duplicates.
+    return list(dict.fromkeys(merged))
+
+
+def _default_deny_dirs() -> list[str]:
+    """Default sensitive dirs with legacy/current compatibility."""
+    return ensure_file_guard_paths([])
+
+
+_DEFAULT_DENY_DIRS: list[str] = _default_deny_dirs()
 
 _SHELL_REDIRECT_OPERATORS = frozenset(
     {">", ">>", "1>", "1>>", "2>", "2>>", "&>", "&>>", "<", "<<", "<<<"},
@@ -74,7 +94,7 @@ def _load_sensitive_files_from_config() -> list[str]:
         configured = list(
             load_config().security.file_guard.sensitive_files or [],
         )
-        return configured if configured else list(_DEFAULT_DENY_DIRS)
+        return ensure_file_guard_paths(configured)
     except Exception:
         return list(_DEFAULT_DENY_DIRS)
 
