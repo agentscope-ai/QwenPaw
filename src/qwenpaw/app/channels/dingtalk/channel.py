@@ -2846,23 +2846,36 @@ class DingTalkChannel(BaseChannel):
 
         deliver_body = deliver_response.body if deliver_response else None
         if deliver_body:
-            result = getattr(deliver_body, "result", None)
-            if isinstance(result, list):
+            result = getattr(
+                deliver_body,
+                "result",
+                None,
+            )
+            deliver_results = (
+                getattr(result, "deliver_results", None) if result else None
+            )
+            if isinstance(deliver_results, list):
                 failed = [
                     item
-                    for item in result
-                    if isinstance(item, dict)
-                    and not item.get("success", False)
+                    for item in deliver_results
+                    if not getattr(
+                        item,
+                        "success",
+                        False,
+                    )
                 ]
                 if failed:
                     err = failed[0]
                     raise ChannelError(
                         channel_name="dingtalk",
                         message=(
-                            f"deliver ai card failed: "
-                            f"spaceId={err.get('spaceId')} "
-                            f"spaceType={err.get('spaceType')} "
-                            f"errorMsg={err.get('errorMsg')}"
+                            "deliver ai card failed:"
+                            f" spaceId="
+                            f"{getattr(err, 'space_id', None)}"
+                            f" spaceType="
+                            f"{getattr(err, 'space_type', None)}"
+                            f" errorMsg="
+                            f"{getattr(err, 'error_msg', None)}"
                         ),
                     )
 
