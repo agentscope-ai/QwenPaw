@@ -1201,6 +1201,27 @@ class QQChannel(BaseChannel):
             )
         return None
 
+    def _apply_no_text_debounce(
+        self,
+        session_id: str,
+        content_parts: list[Any],
+    ) -> tuple[bool, list[Any]]:
+        """Process media-only QQ messages without waiting for text.
+
+        Same approach as TelegramChannel / OneBotChannel: if the message
+        contains any media (image, audio, video, file), process it
+        immediately instead of buffering until a text message arrives.
+        """
+        has_media = any(
+            getattr(part, "type", None)
+            not in (ContentType.TEXT, ContentType.REFUSAL)
+            for part in content_parts
+        )
+        if has_media:
+            pending = self._pending_content_by_session.pop(session_id, [])
+            return True, pending + list(content_parts)
+        return super()._apply_no_text_debounce(session_id, content_parts)
+
     def _parse_qq_attachments(
         self,
         attachments: List[Dict[str, Any]],
