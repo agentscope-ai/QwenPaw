@@ -39,7 +39,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         # Mirror of "https://github.com/ggml-org/llama.cpp/releases/download"
         "https://download.qwenpaw.agentscope.io/files/models/llama_cpp"
     )
-    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8635"
+    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8744"
     CONFIG_FILE_NAME = "config.json"
 
     def __init__(
