@@ -34,6 +34,7 @@ except ImportError:  # pragma: no cover - compatibility fallback
     GeminiChatModel = None
 
 from .utils.tool_message_utils import _sanitize_tool_messages
+from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import (
     RetryChatModel,
@@ -89,7 +90,7 @@ def _format_anthropic_media_block(block: dict) -> dict:
         `dict`: Formatted block for the Anthropic API.
 
     Raises:
-        `ValueError`:
+        `ModelFormatterError`:
             If the source type or media format is not supported.
     """
     typ = block["type"]
@@ -134,9 +135,11 @@ def _format_anthropic_media_block(block: dict) -> dict:
             },
         }
 
-    raise ValueError(
-        f'Invalid {typ} URL: "{url}". '
-        "It should be a local file or a web URL.",
+    raise ModelFormatterError(
+        message=(
+            f'Invalid {typ} URL: "{url}". '
+            "It should be a local file or a web URL."
+        ),
     )
 
 
@@ -168,7 +171,7 @@ def _format_openai_video_block(video_block: dict) -> dict:
             ext = os.path.splitext(raw_url)[1].lower()
             media_type = _SUPPORTED_VIDEO_EXTENSIONS.get(ext)
             if not media_type:
-                raise ValueError(
+                raise ModelFormatterError(
                     f"Unsupported video extension: {ext}",
                 )
             with open(raw_url, "rb") as f:
@@ -181,15 +184,15 @@ def _format_openai_video_block(video_block: dict) -> dict:
             if parsed.scheme not in ("", "file"):
                 url = source["url"]
             else:
-                raise ValueError(
-                    f"Invalid video URL: "
-                    f'"{source["url"]}". '
-                    "It should be a local file "
-                    "or a web URL.",
+                raise ModelFormatterError(
+                    message=(
+                        f"Invalid video URL: {source['url']}. "
+                        "It should be a local file or a web URL."
+                    ),
                 )
     else:
-        raise ValueError(
-            "Unsupported video source type: " f"{source['type']}",
+        raise ModelFormatterError(
+            message=f"Unsupported video source type: {source['type']}",
         )
 
     return {
@@ -622,7 +625,9 @@ def _create_file_block_support_formatter(
                 )
             except ValueError as e:
                 if "Unsupported block type: file" not in str(e):
-                    raise
+                    raise ModelFormatterError(
+                        message=str(e),
+                    ) from e
 
                 # Handle output containing file blocks
                 textual_output = []
@@ -630,9 +635,11 @@ def _create_file_block_support_formatter(
 
                 for block in output:
                     if not isinstance(block, dict) or "type" not in block:
-                        raise ValueError(
-                            f"Invalid block: {block}, "
-                            "expected a dict with 'type' key",
+                        raise ModelFormatterError(
+                            message=(
+                                f"Invalid block: {block}, "
+                                "expected a dict with 'type' key"
+                            ),
                         ) from e
 
                     if block["type"] == "file":
@@ -746,8 +753,8 @@ def create_model_and_formatter(
         manager = ProviderManager.get_instance()
         provider = manager.get_provider(model_slot.provider_id)
         if provider is None:
-            raise ValueError(
-                f"Provider '{model_slot.provider_id}' not found.",
+            raise ProviderError(
+                message=f"Provider '{model_slot.provider_id}' not found.",
             )
 
         model = provider.get_chat_model_instance(model_slot.model)
@@ -757,10 +764,12 @@ def create_model_and_formatter(
         model = ProviderManager.get_active_chat_model()
         global_model = ProviderManager.get_instance().get_active_model()
         if not global_model:
-            raise ValueError(
-                "No active model configured. "
-                "Please configure a model using 'copaw models config' "
-                "or set an agent-specific model.",
+            raise ProviderError(
+                message=(
+                    "No active model configured. "
+                    "Please configure a model using 'copaw models config' "
+                    "or set an agent-specific model."
+                ),
             )
         provider_id = global_model.provider_id
 

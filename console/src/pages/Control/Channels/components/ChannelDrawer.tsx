@@ -27,6 +27,8 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "mattermost",
   "matrix",
   "weixin",
+  "imessage",
+  "onebot",
 ];
 
 // Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
@@ -47,6 +49,8 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
     "https://copaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+  onebot:
+    "https://copaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
 };
 
 // Doc ZH URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
@@ -65,6 +69,8 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   weixin: "https://copaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
+  onebot:
+    "https://copaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";
@@ -820,6 +826,50 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
               <Input placeholder="~/.copaw/media" />
+            </Form.Item>
+          </>
+        );
+
+      case "onebot":
+        return (
+          <>
+            <Form.Item
+              name="ws_host"
+              label="WebSocket Host"
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="0.0.0.0" />
+            </Form.Item>
+            <Form.Item
+              name="ws_port"
+              label="WebSocket Port"
+              rules={[
+                { required: true },
+                {
+                  type: "number",
+                  min: 1,
+                  max: 65535,
+                  message: "Port must be between 1 and 65535",
+                },
+              ]}
+            >
+              <InputNumber
+                min={1}
+                max={65535}
+                style={{ width: "100%" }}
+                placeholder="6199"
+              />
+            </Form.Item>
+            <Form.Item name="access_token" label="Access Token">
+              <Input.Password placeholder="Access token for authentication" />
+            </Form.Item>
+            <Form.Item
+              name="share_session_in_group"
+              label={t("channels.onebotShareSessionInGroup")}
+              valuePropName="checked"
+              tooltip={t("channels.onebotShareSessionInGroupTooltip")}
+            >
+              <Switch />
             </Form.Item>
           </>
         );

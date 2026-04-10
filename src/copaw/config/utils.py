@@ -6,6 +6,7 @@ import logging
 import os
 import plistlib
 import shutil
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -628,3 +629,40 @@ def get_jobs_path() -> Path:
 def get_chats_path() -> Path:
     """Return chats.json path."""
     return (WORKING_DIR / CHATS_FILE).expanduser()
+
+
+def get_plugins_dir() -> Path:
+    """Return plugins directory path."""
+    from ..constant import PLUGINS_DIR
+
+    return PLUGINS_DIR
+
+
+def is_copaw_running() -> bool:
+    """Check if CoPaw is currently running by checking API availability.
+
+    Returns:
+        True if CoPaw is running, False otherwise
+    """
+    try:
+        # Read last API host/port
+        api_info = read_last_api()
+        if not api_info:
+            return False
+
+        host, port = api_info
+
+        # Try to connect to the API
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)  # 1 second timeout
+
+        try:
+            result = sock.connect_ex((host, port))
+            sock.close()
+            return result == 0  # 0 means connection successful
+        except Exception:
+            sock.close()
+            return False
+
+    except Exception:
+        return False

@@ -1,10 +1,10 @@
 import { useTranslation } from "react-i18next";
+import { SKILL_TAG_FILTER_PREFIX } from "@/constants/skill";
 
-export const CATEGORY_PREFIX = "category:";
-export const TAG_PREFIX = "tag:";
+/** @deprecated Import SKILL_TAG_FILTER_PREFIX from "@/constants/skill" instead */
+export const TAG_PREFIX = SKILL_TAG_FILTER_PREFIX;
 
 interface SkillFilterDropdownProps {
-  allCategories: string[];
   allTags: string[];
   searchTags: string[];
   setSearchTags: React.Dispatch<React.SetStateAction<string[]>>;
@@ -12,7 +12,6 @@ interface SkillFilterDropdownProps {
 }
 
 export function SkillFilterDropdown({
-  allCategories,
   allTags,
   searchTags,
   setSearchTags,
@@ -28,30 +27,6 @@ export function SkillFilterDropdown({
 
   return (
     <div>
-      {allCategories.length > 0 && (
-        <div className={styles.filterGroup}>
-          <div className={styles.filterGroupTitle}>
-            {t("skillPool.categories")}
-          </div>
-          <div className={styles.filterOptions}>
-            {allCategories.map((cat) => {
-              const value = `${CATEGORY_PREFIX}${cat}`;
-              const active = searchTags.includes(value);
-              return (
-                <div
-                  key={cat}
-                  className={`${styles.filterOption} ${
-                    active ? styles.filterOptionActive : ""
-                  }`}
-                  onClick={() => toggle(value)}
-                >
-                  {cat}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
       {allTags.length > 0 && (
         <div className={styles.filterGroup}>
           <div className={styles.filterGroupTitle}>{t("skillPool.tags")}</div>

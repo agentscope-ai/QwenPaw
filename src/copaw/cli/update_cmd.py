@@ -631,6 +631,7 @@ def _confirm_source_override(info: InstallInfo, yes: bool) -> bool:
 @click.command("update")
 @click.option(
     "--yes",
+    "-y",
     is_flag=True,
     help="Do not prompt before starting the update",
 )

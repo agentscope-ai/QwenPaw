@@ -18,6 +18,10 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+from agentscope_runtime.engine.schemas.exception import (
+    AgentRuntimeErrorException,
+)
+
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 
@@ -114,13 +118,21 @@ def _resolve_local_path(
         if not local_path.exists():
             raise FileNotFoundError(f"Local file not found: {local_path}")
         if local_path.is_file() and local_path.stat().st_size == 0:
-            raise ValueError(f"Local file is empty: {local_path}")
+            raise AgentRuntimeErrorException(
+                code="FILE_EMPTY",
+                message=f"Local file is empty: {local_path}",
+                details={"path": str(local_path)},
+            )
         return str(local_path.resolve())
     if parsed.scheme == "" and parsed.netloc == "":
         p = Path(url).expanduser()
         if p.exists():
             if p.is_file() and p.stat().st_size == 0:
-                raise ValueError(f"Local file is empty: {p}")
+                raise AgentRuntimeErrorException(
+                    code="FILE_EMPTY",
+                    message=f"Local file is empty: {p}",
+                    details={"path": str(p)},
+                )
             return str(p.resolve())
     # Windows absolute path: urlparse("C:\\path") -> scheme="c", path="\\path"
     if (
@@ -132,7 +144,11 @@ def _resolve_local_path(
         p = Path(url.strip()).resolve()
         if p.exists() and p.is_file():
             if p.stat().st_size == 0:
-                raise ValueError(f"Local file is empty: {p}")
+                raise AgentRuntimeErrorException(
+                    code="FILE_EMPTY",
+                    message=f"Local file is empty: {p}",
+                    details={"path": str(p)},
+                )
             return str(p)
     return None
 
@@ -312,7 +328,10 @@ async def download_file_from_url(
         if not local_file_path.exists():
             raise FileNotFoundError("Downloaded file does not exist")
         if local_file_path.stat().st_size == 0:
-            raise ValueError("Downloaded file is empty")
+            raise AgentRuntimeErrorException(
+                code="FILE_EMPTY",
+                message="Downloaded file is empty",
+            )
         # DingTalk (and similar) return URLs that save as .file; replace with
         # real extension. Try HEAD first; if that fails (e.g. OSS), use magic.
         if local_file_path.suffix == ".file":

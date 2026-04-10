@@ -9,6 +9,10 @@ import logging
 import re
 from pathlib import Path
 
+from agentscope_runtime.engine.schemas.exception import (
+    ConfigurationException,
+)
+
 from .utils.file_handling import read_text_file_with_encoding_fallback
 
 logger = logging.getLogger(__name__)
@@ -231,7 +235,7 @@ def build_system_prompt_from_working_dir(
             try:
                 agent_config = load_agent_config(agent_id)
                 enabled_files = agent_config.system_prompt_files
-            except (ValueError, FileNotFoundError):
+            except (ValueError, FileNotFoundError, ConfigurationException):
                 # Agent not found in config, fallback to global config
                 config = load_config()
                 enabled_files = config.agents.system_prompt_files

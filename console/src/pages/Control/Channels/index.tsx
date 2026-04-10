@@ -22,7 +22,6 @@ function ChannelsPage() {
     useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
-  const [hoverKey, setHoverKey] = useState<ChannelKey | null>(null);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -140,10 +139,7 @@ function ChannelsPage() {
                 key={key}
                 channelKey={key}
                 config={config}
-                isHover={hoverKey === key}
                 onClick={() => handleCardClick(key)}
-                onMouseEnter={() => setHoverKey(key)}
-                onMouseLeave={() => setHoverKey(null)}
               />
             ))}
           </div>

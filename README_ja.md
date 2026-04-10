@@ -58,6 +58,13 @@
 
 ## ニュース
 
+[2026-04-09] v1.0.2 をリリースしました。詳細は [v1.0.2 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)をご覧ください。
+
+- **[v1.0.2] 追加:** プラグイン対応; Web UI なしで `copaw task` を実行; チャットで `/model` によりモデル切り替え; SiliconFlow プロバイダー; CoPaw Local のマルチモーダル対応とコンソール設定の拡充; 機微な認証情報の暗号化; `/skills` と `/<スキル名>` でスキル一覧と実行指定; スキルプールのタグ。
+- **[v1.0.2] 変更:** タイムゾーン名が UI 言語に追随; 設定画面のオンデマンド読み込み; 大規模スキルリストの操作がより滑らかに; プロバイダー接続テストの文言をローカライズ; 各チャットチャネル・HTTP API・CLI でエラーコードをより統一。
+- **[v1.0.2] 修正:** MCP クライアント切断・再接続後の CPU 異常; 重複要素がある DOM でのブラウザ自動化とドキュメント; シェルツールで引用符内の改行を保持。
+- **[v1.0.2] 貢献者:** 新規貢献者のみなさまに感謝します: [@energyd](https://github.com/energyd)、[@fengrui-z](https://github.com/fengrui-z)、[@alostbear](https://github.com/alostbear)、[@chr6192](https://github.com/chr6192)、[@yyyzl](https://github.com/yyyzl)。
+
 [2026-04-04] v1.0.1をリリースしました！詳細は [v1.0.1 リリースノート](https://agentscope-ai.github.io/CoPaw/release-notes)でご確認ください。
 
 - **[v1.0.1] 追加:** Zhipu AI モデルサポート; マルチモーダルモデルの動画分析; モデルごとの生成パラメータ設定; CoPaw Local 自動更新; OneBot v11 チャネル（NapCat/QQ）; エージェントドラッグ&ドロップ並び替え; スキル一括操作; WeChat ファイルアップロードと入力中表示改善; 手動コンパクトの追加指示。

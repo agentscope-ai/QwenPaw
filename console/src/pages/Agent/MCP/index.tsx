@@ -62,7 +62,6 @@ function MCPPage() {
     createClient,
     updateClient,
   } = useMCP();
-  const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newClientJson, setNewClientJson] = useState(`{
   "mcpServers": {
@@ -191,9 +190,6 @@ function MCPPage() {
               onToggle={handleToggleEnabled}
               onDelete={handleDelete}
               onUpdate={updateClient}
-              isHovered={hoverKey === client.key}
-              onMouseEnter={() => setHoverKey(client.key)}
-              onMouseLeave={() => setHoverKey(null)}
             />
           ))}
         </div>

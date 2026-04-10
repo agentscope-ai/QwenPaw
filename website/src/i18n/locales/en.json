@@ -274,6 +274,7 @@
     "config": "Config & working dir",
     "security": "Security",
     "cli": "CLI",
+    "plugins": "Plugin System",
     "faq": "FAQ",
     "community": "Bug reports & community",
     "contributing": "Open source & contribution",

@@ -36,6 +36,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import QQConfig as QQChannelConfig
 from ....constant import WORKING_DIR
+from ....exceptions import ChannelError
 
 from ..base import (
     BaseChannel,
@@ -300,12 +301,21 @@ def _get_channel_url_sync(access_token: str) -> str:
         msg = f"HTTP {e.code}: {e.reason}"
         if body:
             msg += f" | body: {body[:500]}"
-        raise RuntimeError(f"Failed to get channel url: {msg}") from e
+        raise ChannelError(
+            channel_name="qq",
+            message=f"Failed to get channel url: {msg}",
+        ) from e
     except Exception as e:
-        raise RuntimeError(f"Failed to get channel url: {e}") from e
+        raise ChannelError(
+            channel_name="qq",
+            message=f"Failed to get channel url: {e}",
+        ) from e
     channel_url = data.get("url")
     if not channel_url:
-        raise RuntimeError(f"No url in channel response: {data}")
+        raise ChannelError(
+            channel_name="qq",
+            message=f"No url in channel response: {data}",
+        )
     return channel_url
 
 
@@ -683,10 +693,16 @@ class QQChannel(BaseChannel):
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
         except Exception as e:
-            raise RuntimeError(f"Failed to get access_token: {e}") from e
+            raise ChannelError(
+                channel_name="qq",
+                message=f"Failed to get access_token: {e}",
+            ) from e
         token = data.get("access_token")
         if not token:
-            raise RuntimeError(f"No access_token in response: {data}")
+            raise ChannelError(
+                channel_name="qq",
+                message=f"No access_token in response: {data}",
+            )
         expires_in = data.get("expires_in", 7200)
         if isinstance(expires_in, str):
             expires_in = int(expires_in)
@@ -712,13 +728,17 @@ class QQChannel(BaseChannel):
         ) as resp:
             if resp.status >= 400:
                 text = await resp.text()
-                raise RuntimeError(
-                    f"Token request failed {resp.status}: {text}",
+                raise ChannelError(
+                    channel_name="qq",
+                    message=f"Token request failed {resp.status}: {text}",
                 )
             data = await resp.json()
         token = data.get("access_token")
         if not token:
-            raise RuntimeError(f"No access_token: {data}")
+            raise ChannelError(
+                channel_name="qq",
+                message=f"No access_token: {data}",
+            )
         expires_in = data.get("expires_in", 7200)
         if isinstance(expires_in, str):
             expires_in = int(expires_in)
@@ -1522,9 +1542,12 @@ class QQChannel(BaseChannel):
             logger.debug("qq channel disabled by QQ_CHANNEL_ENABLED=0")
             return
         if not self.app_id or not self.client_secret:
-            raise RuntimeError(
-                "QQ_APP_ID and QQ_CLIENT_SECRET are required when "
-                "channel is enabled.",
+            raise ChannelError(
+                channel_name="qq",
+                message=(
+                    "QQ_APP_ID and QQ_CLIENT_SECRET "
+                    "are required when channel is enabled"
+                ),
             )
         self._loop = asyncio.get_running_loop()
         self._stop_event.clear()

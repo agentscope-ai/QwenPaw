@@ -26,6 +26,13 @@
     "actions": "Actions",
     "total": "Total {{count}}"
   },
+  "chunkError": {
+    "title": "Failed to load page",
+    "subTitle": "This may be caused by a network issue or an application update.",
+    "genericTitle": "Something went wrong",
+    "genericSubTitle": "An unexpected error occurred while rendering this page.",
+    "reload": "Reload"
+  },
   "nav": {
     "chat": "Chat",
     "control": "Control",
@@ -223,6 +230,7 @@
     "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/, or https://modelscope.cn/skills/",
     "type": "Type",
     "skillDescription": "Description",
+    "tags": "Tags",
     "builtin": "Built-in",
     "custom": "Custom",
     "createSkill": "Create Skill",
@@ -344,12 +352,9 @@
     "edit": "Edit",
     "delete": "Delete",
     "descriptionLabel": "Description",
-    "categories": "Categories",
     "tags": "Tags",
-    "categoriesPlaceholder": "Select or type to add categories",
     "tagsPlaceholder": "Select or type to add tags",
     "tagTooLong": "Tag must be at most {{max}} characters",
-    "filterByCategory": "Filter by category",
     "filterByTag": "Filter by tag",
     "version": "Version",
     "createTitle": "Create Skill Pool Item",
@@ -417,7 +422,12 @@
     "deleteConfirm": "Are you sure you want to delete this MCP client?",
     "deleteSuccess": "MCP client deleted successfully",
     "deleteError": "Failed to delete MCP client",
-    "maskedFieldHint": "Sensitive fields are masked with ***. In-place edits on masked values are not supported — replace with the full new value to modify."
+    "maskedFieldHint": "Sensitive fields are masked with ***. In-place edits on masked values are not supported — replace with the full new value to modify.",
+    "tools": "Tools",
+    "noTools": "No tools available from this MCP server",
+    "toolsLoadError": "Failed to load tools from MCP server",
+    "toolsConnecting": "MCP server is still connecting, please try again in a moment",
+    "toolSchema": "Input Schema"
   },
   "heartbeat": {
     "title": "Heartbeat",
@@ -612,7 +622,9 @@
     "weixinScanHint": "Scan the QR code with WeChat, then click Save",
     "weixinQrcodeFailed": "Failed to fetch QR code, please try again",
     "weixinLoginSuccess": "WeChat login successful, token has been filled in",
-    "weixinQrcodeExpired": "QR code expired, please get a new one"
+    "weixinQrcodeExpired": "QR code expired, please get a new one",
+    "onebotShareSessionInGroup": "Share Session in Group",
+    "onebotShareSessionInGroupTooltip": "When enabled, all group members share the same conversation session. When disabled, each member has their own session."
   },
   "sessions": {
     "title": "Sessions",
@@ -803,7 +815,7 @@
     "local": "Local",
     "localType": "Type",
     "localEmbedded": "Embedded (in-process)",
-    "localDownloadFirst": "Download a model first",
+    "localDownloadFirst": "Model service not started",
     "localDownloadModel": "Download Model",
     "localModelsTitle": "{{provider}} — Local Models",
     "localNoModels": "No downloaded models yet",
@@ -876,6 +888,16 @@
     "localAlternativeRuntimeHint": "Please try Ollama or LM Studio",
     "localModelsCount": "Downloaded {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "Current download",
+    "localAdvancedConfigTitle": "Advanced Local Settings",
+    "localAdvancedConfigDescription": "These settings apply to the embedded local inference runtime. Max context length changes take effect the next time the local server starts.",
+    "localAdvancedConfigSaved": "Advanced local settings saved",
+    "localAdvancedConfigSaveFailed": "Failed to save advanced local settings",
+    "localMaxContextLengthLabel": "Max Context Length",
+    "localMaxContextLengthHint": "Maximum token count for the model context window, determining how much history fits in each request. Changes take effect the next time the local server starts.",
+    "localMaxContextLengthRequired": "Please enter max context length",
+    "localMaxContextLengthMin": "Max context length must be at least {{min}}",
+    "localMaxContextLengthPlaceholder": "Enter max context length",
+    "localGenerateConfigHint": "Configure local model generation parameters as a JSON object. These fields will be expanded into subsequent generation requests.",
     "localCustomModelTitle": "Custom model download",
     "localCustomModelHint": "Enter a model repository ID. GGUF format only.",
     "localSourceHuggingFace": "Hugging Face",
@@ -1151,7 +1173,7 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
-    "inputPlaceholder": "Type / to see commands; use /approve or /deny during approval...",
+    "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"

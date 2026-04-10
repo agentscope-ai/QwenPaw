@@ -7,7 +7,7 @@ import type {
   WorkspaceSkillSummary,
 } from "../../../../api/types";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
-import styles from "../../Skills/index.module.less";
+import styles from "../../../Agent/Skills/index.module.less";
 
 interface BroadcastModalProps {
   open: boolean;

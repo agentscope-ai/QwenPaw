@@ -207,3 +207,53 @@ def test_handle_message_stops_after_terminal_result() -> None:
     assert controller._handle_message(queue, spec) is True
     assert queue.calls == 1
     assert len(finished) == 1
+
+
+def test_handle_message_marks_finalize_exceptions_as_failed() -> None:
+    progress = DownloadProgressTracker()
+    progress.begin(total_bytes=5, source="example")
+    controller = ProcessDownloadController(
+        context=object(),
+        progress=progress,
+    )
+    finished: list[dict[str, object]] = []
+    spec = ProcessDownloadTaskSpec(
+        process_name="demo-process",
+        command=["demo"],
+        task=ProcessDownloadTask(
+            target=lambda payload, queue: None,
+            payload={},
+            finalize_result=lambda result: (_ for _ in ()).throw(
+                PermissionError("file is in use"),
+            ),
+        ),
+    )
+
+    def _fake_finish_task(**kwargs):
+        finished.append(kwargs)
+
+    controller._finish_task = _fake_finish_task  # type: ignore[method-assign]
+
+    terminal_message = DownloadTaskResult(
+        status=DownloadTaskStatus.COMPLETED,
+        local_path="/tmp/bin",
+    ).to_message()
+
+    class _Queue:
+        def __init__(self) -> None:
+            self._messages = [terminal_message]
+
+        def get_nowait(self):
+            if self._messages:
+                return self._messages.pop(0)
+            raise AssertionError("queue should not be polled again")
+
+    assert controller._handle_message(_Queue(), spec) is True
+    assert len(finished) == 1
+    finished_result = finished[0]["result"]
+    assert isinstance(finished_result, DownloadTaskResult)
+    assert finished_result.status == DownloadTaskStatus.FAILED
+    assert finished_result.error == (
+        "Download finalize step failed: file is in use"
+    )
+    assert finished[0]["cleanup_spec"] is True

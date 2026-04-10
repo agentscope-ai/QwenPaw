@@ -12,7 +12,7 @@ import logging
 import os
 from typing import Any, Dict, List, TYPE_CHECKING
 
-from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
+from .stateful_client import HttpStatefulClient, StdIOStatefulClient
 
 if TYPE_CHECKING:
     from ...config.config import MCPClientConfig, MCPConfig
@@ -74,6 +74,18 @@ class MCPClientManager:
                 for client in self._clients.values()
                 if client is not None
             ]
+
+    async def get_client(self, key: str) -> Any | None:
+        """Get a specific active MCP client by key.
+
+        Args:
+            key: Client identifier (from config)
+
+        Returns:
+            Connected MCP client instance, or None if not found
+        """
+        async with self._lock:
+            return self._clients.get(key)
 
     async def replace_client(
         self,
