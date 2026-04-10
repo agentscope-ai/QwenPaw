@@ -132,7 +132,7 @@ class OpenAIProvider(Provider):
             client_kwargs["default_headers"] = {
                 "x-dashscope-agentapp": json.dumps(
                     {
-                        "agentType": "CoPaw",
+                        "agentType": "QwenPaw",
                         "deployType": "UnKnown",
                         "moduleCode": "model",
                         "agentCode": "UnKnown",
@@ -144,7 +144,7 @@ class OpenAIProvider(Provider):
             client_kwargs["default_headers"] = {
                 "X-DashScope-Cdpl": json.dumps(
                     {
-                        "agentType": "CoPaw",
+                        "agentType": "QwenPaw",
                         "deployType": "UnKnown",
                         "moduleCode": "model",
                         "agentCode": "UnKnown",

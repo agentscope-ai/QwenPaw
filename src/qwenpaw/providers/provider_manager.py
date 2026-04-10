@@ -527,9 +527,9 @@ PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
     support_connection_check=False,
 )
 
-PROVIDER_COPAW = OpenAIProvider(
-    id="copaw-local",
-    name="CoPaw Local",
+PROVIDER_QWENPAW = OpenAIProvider(
+    id="qwenpaw-local",
+    name="QwenPaw Local",
     is_local=True,
     require_api_key=False,
 )
@@ -708,7 +708,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 pass
 
     def _init_builtins(self):
-        self._add_builtin(PROVIDER_COPAW)
+        self._add_builtin(PROVIDER_QWENPAW)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_MODELSCOPE)
@@ -811,7 +811,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """Schedule background restore of the active local model server."""
         task = asyncio.create_task(
             self._resume_local_model(local_manager),
-            name="copaw-local-model-resume",
+            name="qwenpaw-local-model-resume",
         )
         task.add_done_callback(self._on_local_model_resume_done)
 
@@ -1364,7 +1364,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
     async def _resume_local_model(self, local_manager) -> None:
         """Resume the active local model server from the previous run."""
-        local_models = self.get_provider("copaw-local").extra_models
+        local_models = self.get_provider("qwenpaw-local").extra_models
         model_id = local_models[0].id if local_models else None
         if model_id is None:
             return
@@ -1396,7 +1396,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return
 
         self.update_provider(
-            "copaw-local",
+            "qwenpaw-local",
             {
                 "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
                 "extra_models": [setup_result.model_info],

@@ -50,7 +50,7 @@ class LlamaCppServerSetupResult(BaseModel):
 
 class LlamaCppBackend:
     """
-    CoPaw local model backend for managing llama.cpp server installation
+    QwenPaw local model backend for managing llama.cpp server installation
     and setup.
     """
 
@@ -189,8 +189,8 @@ class LlamaCppBackend:
         filename = self._build_filename(tag)
         download_url = f"{base_url}/{tag}/{filename}"
         spec = ProcessDownloadTaskSpec(
-            process_name=f"copaw-llamacpp-download-{staging_dir.name}",
-            command=["copaw-llamacpp-download", download_url],
+            process_name=f"qwenpaw-llamacpp-download-{staging_dir.name}",
+            command=["qwenpaw-llamacpp-download", download_url],
             task=ProcessDownloadTask(
                 target=type(self)._download_worker,
                 payload={
