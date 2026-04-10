@@ -197,7 +197,7 @@ Your agent id is `{agent_id}`. This is your unique identifier in the multi-agent
 
 ## 内置 QA 智能体
 
-QwenPaw 在首次运行 `qwenpaw init` 时会自动创建一个名为 **"QA Agent"** 的内置智能体（ID：`QwenPaw_QA_Agent_0.2beta1`）。
+QwenPaw 在首次运行 `qwenpaw init` 时会自动创建一个名为 **"QA Agent"** 的内置智能体（ID：`QwenPaw_QA_Agent_0.2`）。
 
 ### QA 智能体的特点
 
@@ -226,4 +226,4 @@ QwenPaw 在首次运行 `qwenpaw init` 时会自动创建一个名为 **"QA Agen
 
 - **可以修改**：您可以像管理其他智能体一样，在"智能体 → 工作区"中编辑它的人设文件，或在"智能体 → 技能"中调整技能和工具
 - **可以删除**：在"设置 → 智能体管理"页面删除（删除后不影响其他智能体，下次 `qwenpaw init` 会重新创建）
-- **工作区位置**：`$QWENPAW_WORKING_DIR/workspaces/QwenPaw_QA_Agent_0.2beta1/`（默认为 `~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.2beta1/`）
+- **工作区位置**：`$QWENPAW_WORKING_DIR/workspaces/QwenPaw_QA_Agent_0.2/`（默认为 `~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.2/`）

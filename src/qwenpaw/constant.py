@@ -124,7 +124,7 @@ CHATS_FILE = EnvVarLoader.get_str("QWENPAW_CHATS_FILE", "chats.json")
 
 # Builtin Q&A helper profile.  agent_id keeps "QwenPaw" prefix for existing
 # workspaces and agent.json; do not rename.
-BUILTIN_QA_AGENT_ID = "QwenPaw_QA_Agent_0.2beta1"
+BUILTIN_QA_AGENT_ID = "QwenPaw_QA_Agent_0.2"
 BUILTIN_QA_AGENT_NAME = "QA Agent"
 # Default skills when the builtin QA workspace is first created only.
 BUILTIN_QA_AGENT_SKILL_NAMES: tuple[str, ...] = (
