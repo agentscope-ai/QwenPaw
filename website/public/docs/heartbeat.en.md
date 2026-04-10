@@ -1,9 +1,9 @@
 # Heartbeat
 
-In CoPaw, **heartbeat** means: on a fixed interval, ask CoPaw the
-“questions” you wrote in a file, and optionally send the CoPaw’s reply to
+In QwenPaw, **heartbeat** means: on a fixed interval, ask QwenPaw the
+“questions” you wrote in a file, and optionally send the QwenPaw’s reply to
 **the channel where you last chatted**. Good for “regular check-ins, daily
-digests, scheduled reminders” — CoPaw runs without you sending a
+digests, scheduled reminders” — QwenPaw runs without you sending a
 message.
 
 With **multiple agents**, each agent has its own **HEARTBEAT.md** and
@@ -19,17 +19,17 @@ heartbeat and channels.
 ## How heartbeat works
 
 1. In the current agent’s workspace there is a **heartbeat query file** (default
-   name **HEARTBEAT.md**; rename with env **`COPAW_HEARTBEAT_FILE`**). Its
-   content is **what to ask CoPaw on each run** (one or more paragraphs; CoPaw
+   name **HEARTBEAT.md**; rename with env **`QWENPAW_HEARTBEAT_FILE`**). Its
+   content is **what to ask QwenPaw on each run** (one or more paragraphs; QwenPaw
    treats it as one user message).
 2. When **`enabled` is true** in config, the system runs on your **every**
    value (**interval string** or **five-field cron**): read that file → send as
-   the user message → CoPaw replies.
+   the user message → QwenPaw replies.
 3. **Whether the reply goes to a channel** is set by **target**:
-   - **main** — Run CoPaw only; don’t send the reply to any channel (e.g. local
+   - **main** — Run QwenPaw only; don’t send the reply to any channel (e.g. local
      self-check, logs).
    - **last** — Send the reply to the **channel/session where you last talked
-     to CoPaw** (e.g. if you last used DingTalk, the heartbeat reply goes to
+     to QwenPaw** (e.g. if you last used DingTalk, the heartbeat reply goes to
      DingTalk).
 
 You can also set **active hours**: heartbeat only runs in that daily window
@@ -40,11 +40,11 @@ You can also set **active hours**: heartbeat only runs in that daily window
 ## Step 1: Write HEARTBEAT.md
 
 **Path (multi-agent, usual case):**
-`<COPAW_WORKING_DIR>/workspaces/<agent_id>/HEARTBEAT.md`.
-Default `COPAW_WORKING_DIR` is `~/.copaw` (override with **`COPAW_WORKING_DIR`**);
+`<QWENPAW_WORKING_DIR>/workspaces/<agent_id>/HEARTBEAT.md`.
+Default `QWENPAW_WORKING_DIR` is `~/.qwenpaw` (override with **`QWENPAW_WORKING_DIR`**);
 `<agent_id>` is the current agent id (e.g. `default`).
 
-The default filename is `HEARTBEAT.md`; use **`COPAW_HEARTBEAT_FILE`** to change
+The default filename is `HEARTBEAT.md`; use **`QWENPAW_HEARTBEAT_FILE`** to change
 it. The full path is always **that agent’s workspace root + that filename**.
 
 The file is simply “what to ask each time.” Plain text or Markdown; the whole
@@ -61,7 +61,7 @@ Example (customize as you like):
 - Light check-in if quiet for 8h
 ```
 
-If you ran `copaw init` without `--defaults`, you may be prompted to edit
+If you ran `qwenpaw init` without `--defaults`, you may be prompted to edit
 HEARTBEAT.md; choosing yes opens it in your default editor. You can edit the
 file anytime; after save, the **next** heartbeat uses the new content.
 
@@ -91,7 +91,7 @@ source of truth for new changes.
 If **every** is omitted, the built-in default applies (currently about **6
 hours** — confirm in your installed version).
 
-Example (heartbeat on, CoPaw only, no channel, every 30m) — in that agent’s
+Example (heartbeat on, QwenPaw only, no channel, every 30m) — in that agent’s
 **`agent.json`**:
 
 ```json
@@ -132,7 +132,7 @@ as implemented (some setups may need a restart — see what you actually run).
 | **Best for** | One fixed checklist / digest  | Many tasks, times, and contents |
 
 > Want “good morning at 9” or “every 2h ask todos and send to DingTalk”? Use
-> [CLI](./cli) `copaw cron create` for cron jobs, not heartbeat.
+> [CLI](./cli) `qwenpaw cron create` for cron jobs, not heartbeat.
 
 ---
 

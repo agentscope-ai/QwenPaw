@@ -1,20 +1,20 @@
 # 开源与贡献
 
-CoPaw 已开源，项目仓库托管于 GitHub：
+QwenPaw 已开源，项目仓库托管于 GitHub：
 
-**https://github.com/agentscope-ai/CoPaw**
+**https://github.com/agentscope-ai/QwenPaw**
 
 ---
 
 ## 🎯 如何参与贡献
 
-感谢你对 CoPaw 的关注，我们热烈欢迎各种贡献！为了保持协作顺畅并维护质量，请遵循以下指南。
+感谢你对 QwenPaw 的关注，我们热烈欢迎各种贡献！为了保持协作顺畅并维护质量，请遵循以下指南。
 
 ### 1. 查看现有计划和 Issues
 
 开始之前：
 
-- **查看 [Open Issues](https://github.com/agentscope-ai/CoPaw/issues)** 和 [路线图](/docs/roadmap)
+- **查看 [Open Issues](https://github.com/agentscope-ai/QwenPaw/issues)** 和 [路线图](/docs/roadmap)
 - **如果相关 Issue 已存在**且开放或未分配：在评论中说明你想要处理它，避免重复工作
 - **如果没有相关 Issue**：开一个新 Issue 描述你的提案。维护者会回复并帮助与项目方向对齐
 
@@ -89,8 +89,8 @@ docs(skills): 记录 Skills Hub 导入
 
 ## 💬 获取帮助
 
-- **Discussions：** [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions)
-- **Bugs 和功能：** [GitHub Issues](https://github.com/agentscope-ai/CoPaw/issues)
+- **Discussions：** [GitHub Discussions](https://github.com/agentscope-ai/QwenPaw/discussions)
+- **Bugs 和功能：** [GitHub Issues](https://github.com/agentscope-ai/QwenPaw/issues)
 - **社区和开发者群：** 见[社区页面](/docs/community)
 
 ---
@@ -101,4 +101,4 @@ docs(skills): 记录 Skills Hub 导入
 
 ---
 
-感谢你为 CoPaw 做出贡献。你的工作帮助它成为每个人更好的助手。🐾
+感谢你为 QwenPaw 做出贡献。你的工作帮助它成为每个人更好的助手。🐾

@@ -1,7 +1,7 @@
 [project]
-name = "copaw"
+name = "qwenpaw"
 dynamic = ["version"]
-description = "CoPaw is a **personal assistant** that runs in your own environment. It talks to you over multiple channels (DingTalk, Feishu, QQ, Discord, iMessage, etc.) and runs scheduled tasks according to your configuration. **What it can do is driven by Skills — the possibilities are open-ended.** Built-in skills include cron, PDF/Office handling, news digest, file reading, and more; you can add custom skills. All data and tasks run on your machine; no third-party hosting."
+description = "QwenPaw is a **personal assistant** that runs in your own environment. It talks to you over multiple channels (DingTalk, Feishu, QQ, Discord, iMessage, etc.) and runs scheduled tasks according to your configuration. **What it can do is driven by Skills — the possibilities are open-ended.** Built-in skills include cron, PDF/Office handling, news digest, file reading, and more; you can add custom skills. All data and tasks run on your machine; no third-party hosting."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
@@ -40,20 +40,20 @@ dependencies = [
     "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
-    # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (CoPaw#2632)
+    # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)
     "anyio>=4.0.0,<4.13.0",
 ]
 
 [tool.setuptools.dynamic]
-version = {attr = "copaw.__version__.__version__"}
+version = {attr = "qwenpaw.__version__.__version__"}
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
 include-package-data = true
 
 [tool.setuptools.package-data]
-# Dockerfile copies console build output to src/copaw/console/ (no dist subdir).
-"copaw" = [
+# Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
+"qwenpaw" = [
     "console/**",
     "agents/md_files/**",
     "agents/skills/**",
@@ -68,7 +68,7 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-copaw = "copaw.cli.main:cli"
+qwenpaw = "qwenpaw.cli.main:cli"
 
 [project.optional-dependencies]
 dev = [
@@ -82,11 +82,11 @@ local = [
     "huggingface_hub>=0.20.0",
 ]
 llamacpp = [
-    "copaw[local]",
+    "qwenpaw[local]",
     "llama-cpp-python>=0.3.0",
 ]
 mlx = [
-    "copaw[local]",
+    "qwenpaw[local]",
     "mlx-lm>=0.10.0; sys_platform == 'darwin'",
 ]
 ollama = [
@@ -96,7 +96,7 @@ whisper = [
     "openai-whisper>=20231117",
 ]
 full = [
-    "copaw[local,ollama,llamacpp,whisper]",
+    "qwenpaw[local,ollama,llamacpp,whisper]",
     "mlx-lm>=0.10.0; sys_platform == 'darwin'",
 ]
 

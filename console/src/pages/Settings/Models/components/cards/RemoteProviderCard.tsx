@@ -54,7 +54,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
 
   let isConfigured = false;
 
-  if (provider.id === "copaw-local") {
+  if (provider.id === "qwenpaw-local") {
     isConfigured = true;
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;

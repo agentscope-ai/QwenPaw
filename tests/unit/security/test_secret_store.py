@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from copaw.security.secret_store import (
+from qwenpaw.security.secret_store import (
     AUTH_SECRET_FIELDS,
     PROVIDER_SECRET_FIELDS,
     decrypt,
@@ -22,7 +22,7 @@ from copaw.security.secret_store import (
 @pytest.fixture(autouse=True)
 def _isolate_master_key(tmp_path: Path, monkeypatch):
     """Provide a deterministic master key and isolated secret dir."""
-    import copaw.security.secret_store as mod
+    import qwenpaw.security.secret_store as mod
 
     # 32-byte hex key → 32-byte raw
     test_key = bytes.fromhex(
@@ -120,7 +120,7 @@ class TestDecryptFailureGraceful:
         assert result == bad
 
     def test_wrong_key_ciphertext_returns_raw(self, monkeypatch):
-        import copaw.security.secret_store as mod
+        import qwenpaw.security.secret_store as mod
 
         ct = encrypt("secret-value")
 
@@ -140,7 +140,7 @@ class TestDecryptFailureGraceful:
 
 class TestMasterKeyGeneration:
     def test_generates_key_when_missing(self, tmp_path: Path, monkeypatch):
-        import copaw.security.secret_store as mod
+        import qwenpaw.security.secret_store as mod
 
         monkeypatch.setattr(mod, "_cached_master_key", None)
         monkeypatch.setattr(mod, "_get_secret_dir", lambda: tmp_path)
@@ -157,7 +157,7 @@ class TestMasterKeyGeneration:
         assert (tmp_path / ".master_key").exists()
 
     def test_reads_from_file(self, tmp_path: Path, monkeypatch):
-        import copaw.security.secret_store as mod
+        import qwenpaw.security.secret_store as mod
 
         key_hex = "aa" * 32
         (tmp_path / ".master_key").write_text(key_hex)

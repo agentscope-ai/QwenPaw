@@ -15,7 +15,7 @@ const CATEGORY_CONFIG: Array<{
     background:
       "https://img.alicdn.com/imgextra/i4/O1CN01tdSfuK1X2DrN462ga_!!6000000002865-2-tps-1578-946.png",
     preview:
-      "https://img.alicdn.com/imgextra/i2/O1CN01EfhcLH1zgoCNkLp8g_!!6000000006744-2-tps-1362-894.png",
+      "https://img.alicdn.com/imgextra/i1/O1CN013g8G931yNk65n8mZX_!!6000000006567-2-tps-1362-852.png",
   },
   {
     key: "creative",
@@ -29,14 +29,14 @@ const CATEGORY_CONFIG: Array<{
     background:
       "https://img.alicdn.com/imgextra/i3/O1CN01SVXYZd1a2Af7uEY94_!!6000000003271-2-tps-1874-1046.png",
     preview:
-      "https://img.alicdn.com/imgextra/i2/O1CN01uCK9RI1ciQQtihtsi_!!6000000003634-2-tps-1362-894.png",
+      "https://img.alicdn.com/imgextra/i3/O1CN01iuV2s61WutWawD5l9_!!6000000002849-2-tps-1362-852.png",
   },
   {
     key: "research",
     background:
       "https://img.alicdn.com/imgextra/i3/O1CN01oybwPf1vKaWII7bmm_!!6000000006154-2-tps-1962-1096.png",
     preview:
-      "https://img.alicdn.com/imgextra/i1/O1CN018Vqtpf1PvARqdLsr7_!!6000000001902-2-tps-1362-894.png",
+      "https://img.alicdn.com/imgextra/i2/O1CN01fOt59G233eo5KBepG_!!6000000007200-2-tps-1362-852.png",
   },
 ];
 
@@ -63,7 +63,7 @@ const item = {
   },
 };
 
-export function CopawWhatYouCanDo() {
+export function WhatYouCanDo() {
   const { t } = useTranslation();
   const [activeKey, setActiveKey] = useState<UseCaseKey>("social");
 
@@ -141,11 +141,11 @@ export function CopawWhatYouCanDo() {
       initial="hidden"
       whileInView="show"
       viewport={{ once: true, amount: 0.2 }}
-      aria-labelledby="copaw-usecase-heading"
+      aria-labelledby="qwenpaw-usecase-heading"
     >
       <div className="mx-auto max-w-7xl">
         <motion.div className="text-center" variants={item}>
-          <h2 id="copaw-usecase-heading" className={sectionStyles.title}>
+          <h2 id="qwenpaw-usecase-heading" className={sectionStyles.title}>
             {t("usecases.title")}
           </h2>
           <p
@@ -183,7 +183,7 @@ export function CopawWhatYouCanDo() {
                       <div className="mt-1 h-6 w-6 shrink-0 md:mt-0.5 md:h-7 md:w-7">
                         {active && (
                           <motion.img
-                            layoutId="copaw-usecase-active-logo"
+                            layoutId="qwenpaw-usecase-active-logo"
                             src="https://img.alicdn.com/imgextra/i4/O1CN01vcAthP1tSFv3dB8Bd_!!6000000005900-55-tps-29-29.svg"
                             alt=""
                             aria-hidden
