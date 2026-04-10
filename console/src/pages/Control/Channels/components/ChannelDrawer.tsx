@@ -932,11 +932,11 @@ export function ChannelDrawer({
               const url =
                 CHANNEL_DOC_EN_URLS[activeKey]! ||
                 CHANNEL_DOC_ZH_URLS[activeKey]!;
-              const isQwenpawDoc = url.includes(
+              const isQwenPawDoc = url.includes(
                 "qwenpaw.agentscope.io/docs/channels/",
               );
               const finalUrl =
-                isQwenpawDoc && currentLang === "zh"
+                isQwenPawDoc && currentLang === "zh"
                   ? CHANNEL_DOC_ZH_URLS[activeKey]!
                   : CHANNEL_DOC_EN_URLS[activeKey]!;
               window.open(finalUrl, "_blank");
