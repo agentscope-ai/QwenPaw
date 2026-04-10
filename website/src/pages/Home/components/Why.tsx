@@ -122,11 +122,7 @@ export function Why() {
         {lines.map((line, idx) => {
           return (
             <span key={idx}>
-              <span
-                className={baseClass}
-              >
-                {line}
-              </span>
+              <span className={baseClass}>{line}</span>
               {idx < lines.length - 1 && <br />}
             </span>
           );

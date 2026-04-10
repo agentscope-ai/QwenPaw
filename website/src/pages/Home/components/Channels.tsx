@@ -150,9 +150,7 @@ export function Channels() {
                 aria-hidden
               />
             </span>
-            <em
-              className="italic text-[#301601] font-semibold"
-            >
+            <em className="italic text-[#301601] font-semibold">
               {t("channels.titleEverything")}
             </em>
           </span>

@@ -8,6 +8,9 @@ interface QwenpawMascotProps {
   className?: string;
 }
 
-export function QwenpawMascot({ size = 80, className = "" }: QwenpawMascotProps) {
+export function QwenpawMascot({
+  size = 80,
+  className = "",
+}: QwenpawMascotProps) {
   return <CatPawIcon size={size} className={className} />;
 }
