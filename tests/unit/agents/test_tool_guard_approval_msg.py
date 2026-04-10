@@ -1,5 +1,4 @@
 """Test that tool guard approval messages use the approval_request block format."""
-import pytest
 
 
 def test_approval_msg_contains_approval_request_block():

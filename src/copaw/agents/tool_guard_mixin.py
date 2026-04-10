@@ -46,7 +46,10 @@ def build_approval_blocks(
             f"`{guard_result.max_severity.value}`\n"
             f"- Findings / \u53d1\u73b0: "
             f"`{guard_result.findings_count}`\n\n"
-            f"{findings_text}"
+            f"{findings_text}\n\n"
+            f"Type `/approve` to approve, "
+            f"or send any message to deny.\n"
+            f"\u8f93\u5165 `/approve` \u6279\u51c6\u6267\u884c\uff0c\u6216\u53d1\u9001\u4efb\u610f\u6d88\u606f\u62d2\u7edd\u3002"
         ),
     }
 
@@ -57,7 +60,7 @@ def build_approval_blocks(
 
     approval_block = {
         "type": "approval_request",
-        "id": tool_call.get("id", ""),
+        "id": tool_call["id"],
         "name": tool_name,
         "arguments": arguments,
         "server_label": "",
