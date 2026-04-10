@@ -336,8 +336,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """Load and register skills from workspace directory.
 
         Uses the registry-backed skill resolver to determine effective
-        skills for the current channel.  When semantic routing is enabled,
-        only the top-k most relevant skills are registered.
+        skills for the current channel.  All enabled skills are always
+        registered to keep the tool list stable for KV cache friendliness.
 
         Args:
             toolkit: Toolkit to register skills to
@@ -356,12 +356,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
 
-        # --- Semantic routing filter (optional) ---
-        effective_skills = self._apply_semantic_routing(
-            effective_skills,
-            working_skills_dir,
-            request_context,
-        )
+        # Store skill metadata for hint injection (used in reply())
+        self._effective_skill_names = list(effective_skills)
+        self._working_skills_dir = working_skills_dir
 
         for skill_name in effective_skills:
             skill_dir = working_skills_dir / skill_name
@@ -376,79 +373,37 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                         e,
                     )
 
-    # Session-sticky routing cache: {session_id: routed_skill_names}
-    # Keeps skill list stable within a session for KV cache friendliness.
-    _routing_cache: dict[str, list[str]] = {}
-    # Skill metadata cache: {skill_name: {"name": ..., "description": ...}}
-    _skill_meta_cache: dict[str, dict[str, str]] = {}
-    _skill_meta_cache_key: str = ""  # hash of skill_names list
+    def _build_skill_hint(self, query: str) -> str:
+        """Build a skill routing hint for the given user query.
 
-    def _apply_semantic_routing(
-        self,
-        skill_names: list[str],
-        skills_dir: Path,
-        request_context: dict,
-    ) -> list[str]:
-        """Filter skills using semantic routing if enabled.
+        Uses semantic routing to identify the most relevant skills and
+        returns a hint string to prepend to the user message.  This
+        keeps the tool list unchanged (KV cache friendly) while guiding
+        the LLM toward the right skills.
 
-        Uses session-sticky caching: within the same session, the first
-        message triggers semantic routing and subsequent messages reuse
-        the cached result.  This keeps the system prompt (and therefore
-        the LLM KV cache) stable across turns.
-
-        Returns the original list unchanged when semantic routing is
-        disabled, unavailable, or encounters any error.
+        Returns an empty string when semantic routing is disabled,
+        unavailable, or encounters any error.
         """
         try:
             from ..routing import is_routing_available
 
             if not is_routing_available():
-                return skill_names
+                return ""
 
             from ..config.utils import load_config
 
             config = load_config()
             sr_config = getattr(config, "semantic_routing", None)
             if sr_config is None or not sr_config.enabled:
-                return skill_names
+                return ""
 
-            # --- Session-sticky cache check ---
-            session_id = request_context.get("session_id", "")
-            if session_id and session_id in CoPawAgent._routing_cache:
-                cached = CoPawAgent._routing_cache[session_id]
-                # Verify cached skills are still valid (subset of current)
-                valid = [s for s in cached if s in skill_names]
-                if valid:
-                    logger.debug(
-                        "Semantic routing: reusing cached result for "
-                        "session %s (%d skills)",
-                        session_id,
-                        len(valid),
-                    )
-                    return valid
+            skill_names = getattr(self, "_effective_skill_names", [])
+            skills_dir = getattr(self, "_working_skills_dir", None)
+            if not skill_names or skills_dir is None:
+                return ""
 
-            # Extract user query from request context
-            query = ""
-            content_parts = request_context.get("content_parts", [])
-            if content_parts:
-                for part in content_parts:
-                    text = getattr(part, "text", None) or (
-                        part.get("text") if isinstance(part, dict) else (
-                            part if isinstance(part, str) else ""
-                        )
-                    )
-                    if text:
-                        query = str(text)
-                        break
-            if not query:
-                query = request_context.get("text", "")
-            if not query:
-                return skill_names
-
-            # --- Skill metadata cache ---
-            skill_metas = self._get_cached_skill_metas(
-                skill_names, skills_dir,
-            )
+            # Read skill metadata from disk
+            skill_metas = self._read_skill_metas(skill_names, skills_dir)
 
             from ..routing.router import SkillRouter
 
@@ -459,67 +414,64 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             result = router.route(query, skill_metas)
 
             if result.bypassed:
-                return skill_names
+                return ""
 
-            routed_names = [h.item.name for h in result.hits]
-            logger.info(
-                "Semantic routing: %d/%d skills selected for query: %.60s...",
-                len(routed_names),
-                len(skill_names),
-                query,
+            # Format hint from routing results
+            hints = []
+            for hit in result.hits:
+                desc = hit.item.description
+                # Truncate long descriptions
+                if len(desc) > 80:
+                    desc = desc[:77] + "..."
+                hints.append(f"• {hit.item.name} — {desc}")
+
+            if not hints:
+                return ""
+
+            hint_text = (
+                "[Skill Hint] Relevant skills for this query:\n"
+                + "\n".join(hints)
+                + "\nPrioritize these. Other tools remain available "
+                "if needed.\n\n"
             )
 
-            # Cache result for this session
-            if session_id:
-                CoPawAgent._routing_cache[session_id] = routed_names
-                # Limit cache size to prevent memory leak
-                if len(CoPawAgent._routing_cache) > 100:
-                    oldest = next(iter(CoPawAgent._routing_cache))
-                    del CoPawAgent._routing_cache[oldest]
-
-            return routed_names
+            logger.info(
+                "Skill hint: %d skills suggested for query: %.60s...",
+                len(hints),
+                query,
+            )
+            return hint_text
 
         except Exception as exc:
             logger.warning(
-                "Semantic routing error, using full skill list: %s",
+                "Skill hint generation error, skipping hint: %s",
                 exc,
             )
-            return skill_names
+            return ""
 
-    @classmethod
-    def _get_cached_skill_metas(
-        cls,
+    @staticmethod
+    def _read_skill_metas(
         skill_names: list[str],
         skills_dir: Path,
     ) -> list[dict[str, str]]:
-        """Return skill metadata, using cache when skill list is unchanged.
+        """Read skill metadata directly from disk.
 
-        Only calls ``_read_frontmatter_safe()`` when the skill list
-        changes, avoiding repeated disk I/O on every query.
+        Returns a list of dicts with 'name' and 'description' keys.
         """
-        cache_key = ",".join(sorted(skill_names))
-        if cache_key != cls._skill_meta_cache_key:
-            # Skill list changed — rebuild cache
-            from ..agents.skills_manager import _read_frontmatter_safe
+        from ..agents.skills_manager import _read_frontmatter_safe
 
-            cls._skill_meta_cache.clear()
-            for name in skill_names:
-                skill_dir = skills_dir / name
-                if skill_dir.exists():
-                    post = _read_frontmatter_safe(skill_dir, name)
-                    cls._skill_meta_cache[name] = {
-                        "name": name,
-                        "description": str(
-                            post.get("description", "") or ""
-                        ),
-                    }
-            cls._skill_meta_cache_key = cache_key
-
-        return [
-            cls._skill_meta_cache[n]
-            for n in skill_names
-            if n in cls._skill_meta_cache
-        ]
+        metas = []
+        for name in skill_names:
+            skill_dir = skills_dir / name
+            if skill_dir.exists():
+                post = _read_frontmatter_safe(skill_dir, name)
+                metas.append({
+                    "name": name,
+                    "description": str(
+                        post.get("description", "") or ""
+                    ),
+                })
+        return metas
 
     def _build_sys_prompt(self) -> str:
         """Build system prompt from working dir files and env context.
@@ -1412,6 +1364,26 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         request_context = getattr(self, "_request_context", {}) or {}
         channel_name = request_context.get("channel", "console")
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
+
+        # --- Skill hint injection (KV cache friendly) ---
+        # Prepend semantic routing hint to user message without
+        # changing the tool list or system prompt.
+        if query and msg is not None:
+            hint = self._build_skill_hint(query)
+            if hint:
+                target = msg[-1] if isinstance(msg, list) else msg
+                if isinstance(target, Msg):
+                    content = target.content
+                    if isinstance(content, str):
+                        target.content = hint + content
+                    elif isinstance(content, list):
+                        # Prepend hint as a TextBlock
+                        from agentscope.message import TextBlock
+
+                        target.content = [
+                            TextBlock(type="text", text=hint),
+                        ] + list(content)
+
         with apply_skill_config_env_overrides(workspace_dir, channel_name):
             return await super().reply(
                 msg=msg,
