@@ -55,41 +55,23 @@
   },
   "debug": {
     "title": "Отладка",
-    "desc": "Эта страница собирает frontend console-логи, необработанные ошибки выполнения и логи backend-демона, чтобы помочь в диагностике. Frontend-логи хранятся локально в браузере и синхронизируются между вкладками.",
-    "href": "URL",
-    "searchPlaceholder": "Поиск по логам...",
+    "desc": "Просмотр файла логов backend-демона CoPaw для диагностики. Пока открыта эта страница, логи обновляются автоматически.",
     "level": { "all": "Все" },
-    "frontend": {
-      "title": "Frontend-логи",
-      "total": "Показано записей: {{count}}"
-    },
     "backend": {
       "title": "Backend-логи",
       "autoRefresh": "Автообновление",
+      "newestFirst": "Сначала новые",
       "updatedAt": "Обновлено",
       "path": "Файл лога",
       "notFound": "Файл backend-логов пока не найден.",
       "placeholder": "Здесь появится вывод backend-логов.",
-      "loadFailed": "Не удалось загрузить backend-логи"
+      "loadFailed": "Не удалось загрузить backend-логи",
+      "searchPlaceholder": "Поиск по backend-логам..."
     },
     "actions": {
-      "copyJson": "Копировать JSON",
-      "downloadJson": "Скачать JSON",
-      "clear": "Очистить",
-      "log": "Записать тестовый лог",
-      "debug": "Записать тестовый debug-лог",
-      "info": "Записать тестовый info-лог",
-      "warn": "Записать тестовый warn-лог",
-      "throw": "Бросить тестовую ошибку",
-      "reject": "Сгенерировать reject промиса",
       "refreshBackend": "Обновить backend-логи",
+      "refreshSuccess": "Логи обновлены",
       "copyBackend": "Копировать backend-логи"
-    },
-    "columns": {
-      "time": "Время",
-      "level": "Уровень",
-      "source": "Источник",
-      "message": "Сообщение"
     }
   },
   "agent": {

@@ -1,46 +1,30 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Alert,
   Button,
   Card,
   Input,
+  message,
   Select,
   Space,
+  Spin,
   Switch,
-  Table,
   Tag,
   Typography,
 } from "antd";
-import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import {
   debugApi,
   type BackendDebugLogsResponse,
 } from "../../api/modules/debug";
-import {
-  clearDebugLogs,
-  getDebugLogs,
-  subscribeDebugLogs,
-  type DebugLogEntry,
-  type DebugLogLevel,
-} from "../../utils/debugLog";
 
 const { Text } = Typography;
 const BACKEND_LOG_LINES = 200;
 const BACKEND_REFRESH_MS = 3000;
 
-type LevelFilter = DebugLogLevel | "all";
-
 type BackendLevelFilter = "all" | "debug" | "info" | "warning" | "error";
-
-function levelColor(level: DebugLogLevel): string {
-  if (level === "error") return "red";
-  if (level === "warn") return "gold";
-  if (level === "info") return "blue";
-  if (level === "debug") return "geekblue";
-  return "default";
-}
 
 function backendLevelColor(level: BackendLevelFilter): string {
   if (level === "error") return "red";
@@ -54,11 +38,11 @@ function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function highlightLine(line: string, needle: string): React.ReactNode {
+function highlightLine(line: string, needle: string): ReactNode {
   const q = needle.trim();
   if (!q) return line;
   const re = new RegExp(escapeRegExp(q), "ig");
-  const parts: React.ReactNode[] = [];
+  const parts: ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = re.exec(line))) {
@@ -86,38 +70,50 @@ function highlightLine(line: string, needle: string): React.ReactNode {
 
 export default function DebugPage() {
   const { t } = useTranslation();
-  const [entries, setEntries] = useState<DebugLogEntry[]>(() => getDebugLogs());
-  const [level, setLevel] = useState<LevelFilter>("all");
-  const [query, setQuery] = useState("");
-  const [frontendPage, setFrontendPage] = useState(1);
-  const [frontendPageSize, setFrontendPageSize] = useState(20);
   const [backendLogs, setBackendLogs] =
     useState<BackendDebugLogsResponse | null>(null);
-  const [backendLoading, setBackendLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const firstFetchDone = useRef(false);
   const [backendError, setBackendError] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [backendNewestFirst, setBackendNewestFirst] = useState(true);
   const [backendLevel, setBackendLevel] = useState<BackendLevelFilter>("all");
   const [backendQuery, setBackendQuery] = useState("");
 
-  useEffect(() => subscribeDebugLogs(setEntries), []);
-
-  const loadBackendLogs = useCallback(async () => {
-    setBackendLoading(true);
-    try {
-      const res = await debugApi.getBackendLogs(BACKEND_LOG_LINES);
-      setBackendLogs(res);
-      setBackendError("");
-    } catch (error) {
-      setBackendError(
-        error instanceof Error
-          ? error.message
-          : t("debug.backend.loadFailed", "Failed to load backend logs"),
-      );
-    } finally {
-      setBackendLoading(false);
-    }
-  }, [t]);
+  const loadBackendLogs = useCallback(
+    async (opts?: { successToast?: boolean }) => {
+      const isFirstFetch = !firstFetchDone.current;
+      try {
+        const res = await debugApi.getBackendLogs(BACKEND_LOG_LINES);
+        setBackendLogs(res);
+        setBackendError("");
+        if (opts?.successToast) {
+          message.success(
+            t("debug.actions.refreshSuccess", "Logs refreshed"),
+          );
+        }
+      } catch (error) {
+        setBackendError(
+          error instanceof Error
+            ? error.message
+            : t("debug.backend.loadFailed", "Failed to load backend logs"),
+        );
+        if (opts?.successToast) {
+          message.error(
+            error instanceof Error
+              ? error.message
+              : t("debug.backend.loadFailed", "Failed to load backend logs"),
+          );
+        }
+      } finally {
+        if (isFirstFetch) {
+          firstFetchDone.current = true;
+          setInitialLoading(false);
+        }
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     void loadBackendLogs();
@@ -148,139 +144,13 @@ export default function DebugPage() {
     };
   }, [autoRefresh, loadBackendLogs]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return entries.filter((e) => {
-      if (level !== "all" && e.level !== level) return false;
-      if (!q) return true;
-      const hay = `${e.message}\n${e.detail ?? ""}\n${e.stack ?? ""}\n${
-        e.source
-      }`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [entries, level, query]);
-
-  useEffect(() => {
-    setFrontendPage(1);
-  }, [level, query]);
-
-  useEffect(() => {
-    const totalPages = Math.max(
-      1,
-      Math.ceil(filtered.length / frontendPageSize),
-    );
-    if (frontendPage > totalPages) {
-      setFrontendPage(totalPages);
-    }
-  }, [filtered.length, frontendPage, frontendPageSize]);
-
-  const columns: ColumnsType<DebugLogEntry> = useMemo(
-    () => [
-      {
-        title: t("debug.columns.time", "Time"),
-        dataIndex: "ts",
-        width: 170,
-        render: (ts: number) => (
-          <Text type="secondary">
-            {dayjs(ts).format("YYYY-MM-DD HH:mm:ss")}
-          </Text>
-        ),
-      },
-      {
-        title: t("debug.columns.level", "Level"),
-        dataIndex: "level",
-        width: 90,
-        render: (v: DebugLogLevel) => <Tag color={levelColor(v)}>{v}</Tag>,
-      },
-      {
-        title: t("debug.columns.source", "Source"),
-        dataIndex: "source",
-        width: 190,
-        render: (v: string) => <Text code>{v}</Text>,
-      },
-      {
-        title: t("debug.columns.message", "Message"),
-        dataIndex: "message",
-        ellipsis: true,
-        render: (_: unknown, r) => (
-          <Space direction="vertical" size={2} style={{ width: "100%" }}>
-            <Text>{r.message || "-"}</Text>
-            {r.detail && (
-              <Text type="secondary" style={{ whiteSpace: "pre-wrap" }}>
-                {r.detail}
-              </Text>
-            )}
-            {r.stack && (
-              <Text type="secondary" style={{ whiteSpace: "pre-wrap" }}>
-                {r.stack}
-              </Text>
-            )}
-            {r.href && (
-              <Text type="secondary">
-                <Text strong>{t("debug.href", "URL")}:</Text> {r.href}
-              </Text>
-            )}
-          </Space>
-        ),
-      },
-    ],
-    [t],
-  );
-
-  const handleCopy = async () => {
-    const payload = JSON.stringify(filtered, null, 2);
-    await navigator.clipboard.writeText(payload);
-  };
-
-  const handleDownload = () => {
-    const payload = JSON.stringify(filtered, null, 2);
-    const blob = new Blob([payload], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `copaw-debug-${dayjs().format("YYYYMMDD-HHmmss")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleThrow = () => {
-    throw new Error("DebugPage: manual throw()");
-  };
-
-  const handleReject = () => {
-    void Promise.reject(new Error("DebugPage: manual reject()"));
-  };
-
-  const handleLog = () => {
-    console.log("DebugPage: manual log()", {
-      route: window.location.pathname,
-      ts: new Date().toISOString(),
-    });
-  };
-
-  const handleDebug = () => {
-    console.debug("DebugPage: manual debug()", {
-      route: window.location.pathname,
-      ts: new Date().toISOString(),
-    });
-  };
-
-  const handleInfo = () => {
-    console.info("DebugPage: manual info()", {
-      route: window.location.pathname,
-      ts: new Date().toISOString(),
-    });
-  };
-
-  const handleWarn = () => {
-    console.warn("DebugPage: manual warn()", {
-      route: window.location.pathname,
-      ts: new Date().toISOString(),
-    });
-  };
-
   const handleCopyBackend = async () => {
-    await navigator.clipboard.writeText(filteredBackendText);
+    try {
+      await navigator.clipboard.writeText(filteredBackendText);
+      message.success(t("common.copied"));
+    } catch {
+      message.error(t("common.copyFailed"));
+    }
   };
 
   const backendLines = useMemo(() => {
@@ -295,7 +165,6 @@ export default function DebugPage() {
     return backendLines.filter((line) => {
       if (backendLevel !== "all") {
         const lvl = backendLevel.toUpperCase();
-        // Accept both "INFO " and "INFO|" styles.
         const levelHit =
           line.includes(` ${lvl} `) ||
           line.includes(`| ${lvl} `) ||
@@ -320,90 +189,9 @@ export default function DebugPage() {
         message={t("debug.title", "Debug")}
         description={t(
           "debug.desc",
-          "This page collects frontend console logs, uncaught runtime errors, and backend daemon logs to help you track issues. Frontend logs are stored locally in your browser and sync across tabs.",
+          "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
         )}
       />
-
-      <Card
-        title={t("debug.frontend.title", "Frontend logs")}
-        extra={
-          <Text type="secondary">
-            {t("debug.frontend.total", "Showing {{count}} entries", {
-              count: filtered.length,
-            })}
-          </Text>
-        }
-      >
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-          <Space wrap>
-            <Select
-              style={{ width: 160 }}
-              value={level}
-              onChange={(v) => setLevel(v)}
-              options={[
-                { value: "all", label: t("debug.level.all", "All") },
-                { value: "error", label: "error" },
-                { value: "warn", label: "warn" },
-                { value: "info", label: "info" },
-                { value: "debug", label: "debug" },
-                { value: "log", label: "log" },
-              ]}
-            />
-            <Input
-              style={{ width: 320 }}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("debug.searchPlaceholder", "Search logs...")}
-              allowClear
-            />
-            <Button onClick={handleCopy}>
-              {t("debug.actions.copyJson", "Copy JSON")}
-            </Button>
-            <Button onClick={handleDownload}>
-              {t("debug.actions.downloadJson", "Download JSON")}
-            </Button>
-            <Button danger onClick={() => clearDebugLogs()}>
-              {t("debug.actions.clear", "Clear")}
-            </Button>
-          </Space>
-
-          <Space wrap>
-            <Button onClick={handleLog}>
-              {t("debug.actions.log", "Log test message")}
-            </Button>
-            <Button onClick={handleDebug}>
-              {t("debug.actions.debug", "Debug test message")}
-            </Button>
-            <Button onClick={handleInfo}>
-              {t("debug.actions.info", "Info test message")}
-            </Button>
-            <Button onClick={handleWarn}>
-              {t("debug.actions.warn", "Warn test message")}
-            </Button>
-            <Button onClick={handleThrow}>
-              {t("debug.actions.throw", "Throw test error")}
-            </Button>
-            <Button onClick={handleReject}>
-              {t("debug.actions.reject", "Reject test promise")}
-            </Button>
-          </Space>
-
-          <Table
-            rowKey="id"
-            columns={columns}
-            dataSource={filtered}
-            pagination={{
-              current: frontendPage,
-              pageSize: frontendPageSize,
-              showSizeChanger: true,
-              onChange: (page, pageSize) => {
-                setFrontendPage(page);
-                setFrontendPageSize(pageSize);
-              },
-            }}
-          />
-        </Space>
-      </Card>
 
       <Card
         title={t("debug.backend.title", "Backend logs")}
@@ -426,8 +214,7 @@ export default function DebugPage() {
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
           <Space wrap>
             <Button
-              loading={backendLoading}
-              onClick={() => void loadBackendLogs()}
+              onClick={() => void loadBackendLogs({ successToast: true })}
             >
               {t("debug.actions.refreshBackend", "Refresh backend logs")}
             </Button>
@@ -500,35 +287,38 @@ export default function DebugPage() {
             />
           ) : null}
 
-          <div
-            style={{
-              border: "1px solid rgba(0,0,0,0.06)",
-              borderRadius: 8,
-              padding: 12,
-              background: "rgba(0,0,0,0.02)",
-              fontFamily:
-                'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-              fontSize: 12,
-              lineHeight: 1.5,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              maxHeight: 480,
-              overflow: "auto",
-            }}
-          >
-            {filteredBackendLines.length ? (
-              filteredBackendLines.map((line, idx) => (
-                <div key={idx}>{highlightLine(line, backendQuery)}</div>
-              ))
-            ) : (
-              <Text type="secondary">
-                {t(
-                  "debug.backend.placeholder",
-                  "Backend log output will appear here.",
-                )}
-              </Text>
-            )}
-          </div>
+          <Spin spinning={initialLoading} tip={t("common.loading", "Loading")}>
+            <div
+              style={{
+                border: "1px solid rgba(0,0,0,0.06)",
+                borderRadius: 8,
+                padding: 12,
+                minHeight: 120,
+                background: "rgba(0,0,0,0.02)",
+                fontFamily:
+                  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                fontSize: 12,
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                maxHeight: 480,
+                overflow: "auto",
+              }}
+            >
+              {filteredBackendLines.length ? (
+                filteredBackendLines.map((line, idx) => (
+                  <div key={idx}>{highlightLine(line, backendQuery)}</div>
+                ))
+              ) : (
+                <Text type="secondary">
+                  {t(
+                    "debug.backend.placeholder",
+                    "Backend log output will appear here.",
+                  )}
+                </Text>
+              )}
+            </div>
+          </Spin>
         </Space>
       </Card>
     </Space>

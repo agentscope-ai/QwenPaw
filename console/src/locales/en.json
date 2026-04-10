@@ -58,14 +58,8 @@
   },
   "debug": {
     "title": "Debug",
-    "desc": "This page collects frontend console logs, uncaught runtime errors, and backend daemon logs to help you track issues. Frontend logs are stored locally in your browser and sync across tabs.",
-    "href": "URL",
-    "searchPlaceholder": "Search logs...",
+    "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
     "level": { "all": "All" },
-    "frontend": {
-      "title": "Frontend logs",
-      "total": "Showing {{count}} entries"
-    },
     "backend": {
       "title": "Backend logs",
       "autoRefresh": "Auto refresh",
@@ -78,23 +72,9 @@
       "searchPlaceholder": "Search backend logs..."
     },
     "actions": {
-      "copyJson": "Copy JSON",
-      "downloadJson": "Download JSON",
-      "clear": "Clear",
-      "log": "Log test message",
-      "debug": "Debug test message",
-      "info": "Info test message",
-      "warn": "Warn test message",
-      "throw": "Throw test error",
-      "reject": "Reject test promise",
       "refreshBackend": "Refresh backend logs",
+      "refreshSuccess": "Logs refreshed",
       "copyBackend": "Copy backend logs"
-    },
-    "columns": {
-      "time": "Time",
-      "level": "Level",
-      "source": "Source",
-      "message": "Message"
     }
   },
   "voiceTranscription": {
