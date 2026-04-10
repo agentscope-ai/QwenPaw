@@ -109,9 +109,23 @@ class MessageRenderer:
                 data = getattr(c, "data", None) or {}
                 name = data.get("name") or "tool"
                 if s.show_tool_details:
-                    args = data.get("arguments") or "{}"
+                    args = data.get("arguments")
+                    if isinstance(args, str):
+                        args_str = args
+                    else:
+                        try:
+                            args_str = json.dumps(
+                                args if args is not None else {},
+                                ensure_ascii=False,
+                            )
+                        except (TypeError, ValueError):
+                            args_str = str(args if args is not None else {})
+                    # Prevent code fence breakout in markdown renderers.
+                    args_str = args_str.replace("```", "``\\`")
                     args_preview = (
-                        args[:200] + "..." if len(args) > 200 else args
+                        args_str[:200] + "..."
+                        if len(args_str) > 200
+                        else args_str
                     )
                 else:
                     args_preview = "..."
