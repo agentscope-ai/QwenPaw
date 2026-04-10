@@ -19,7 +19,7 @@
 [[文档](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN014TIqyO1U5wDiSbFfA_!!6000000002467-2-tps-816-192.png" alt="QwenPaw Logo" width="120">
+  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="QwenPaw Logo" width="120">
 </p>
 
 <p align="center"><b>懂你所需，伴你左右。</b></p>
