@@ -849,6 +849,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id: str,
     ) -> List[ModelInfo]:
         """Fetch the list of available models from a provider and update."""
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return []
@@ -970,6 +971,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id: str,
         model_info: ModelInfo,
     ) -> ProviderInfo:
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             raise ProviderError(
@@ -989,6 +991,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         config: Dict,
     ) -> ProviderInfo:
         """Update per-model configuration and persist to disk."""
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             raise ProviderError(
@@ -1010,6 +1013,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id: str,
         model_id: str,
     ) -> ProviderInfo:
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             raise ProviderError(
@@ -1028,6 +1032,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         model_id: str,
     ) -> dict:
         """Probe a model's multimodal capabilities and persist the result."""
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return {"error": f"Provider '{provider_id}' not found"}
