@@ -59,7 +59,7 @@ echo "Detected QwenPaw Root: $QWENPAW_ROOT"
 
 ```bash
 # 组合标准文档路径
-="$QWENPAW_ROOT/website/public/docs/"
+DOC_DIR="$QWENPAW_ROOT/website/public/docs/"
 
 # 检查路径是否存在并列出文件
 if [ -d "$DOC_DIR" ]; then
