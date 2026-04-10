@@ -67,6 +67,37 @@ def _is_approval(text: str) -> bool:
     return normalized in _APPROVE_EXACT
 
 
+def _extract_approval_response(msgs) -> dict | None:
+    """Extract an mcp_approval_response payload from the last message.
+
+    The frontend Approval component sends a message with content containing
+    a data block with ``approve``, ``id``, ``approval_request_id``, and
+    optional ``reason`` fields.
+
+    Returns the data dict if found, None otherwise.
+    """
+    if not msgs:
+        return None
+    last = msgs[-1] if isinstance(msgs, list) else msgs
+    content = None
+    if isinstance(last, dict):
+        content = last.get("content")
+    elif hasattr(last, "content"):
+        content = getattr(last, "content", None)
+    if not isinstance(content, list):
+        return None
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "data":
+            data = block.get("data")
+            if isinstance(data, dict) and "approve" in data:
+                return data
+        elif hasattr(block, "type") and getattr(block, "type", None) == "data":
+            data = getattr(block, "data", None)
+            if isinstance(data, dict) and "approve" in data:
+                return data
+    return None
+
+
 def _convert_approval_request_block(
     element: dict,
     message,
@@ -404,6 +435,11 @@ class AgentRunner(Runner):
             f"msgs={msgs}, request={request}",
         )
         query = _get_last_user_text(msgs)
+        # Check for button-based approval response from frontend
+        approval_data = _extract_approval_response(msgs)
+        if approval_data is not None:
+            is_approved = approval_data.get("approve", False)
+            query = "/approve" if is_approved else "/deny"
         session_id = getattr(request, "session_id", "") or ""
 
         (
