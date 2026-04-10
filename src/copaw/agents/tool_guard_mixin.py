@@ -64,7 +64,7 @@ def build_approval_blocks(
 
     approval_block = {
         "type": "approval_request",
-        "id": tool_call["id"],
+        "id": tool_call.get("id", ""),
         "name": tool_name,
         "arguments": arguments,
         "server_label": "",
