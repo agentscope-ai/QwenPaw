@@ -23,6 +23,49 @@ from ..security.tool_guard.models import TOOL_GUARD_DENIED_MARK
 logger = logging.getLogger(__name__)
 
 
+def build_approval_blocks(
+    tool_call: dict,
+    tool_name: str,
+    guard_result,
+) -> list[dict]:
+    """Build content blocks for a tool-guard approval message.
+
+    Returns a list of two blocks:
+    - A text block with risk details (for display context)
+    - An approval_request block (triggers button UI in web console)
+    """
+    from copaw.security.tool_guard.approval import format_findings_summary
+
+    findings_text = format_findings_summary(guard_result)
+    text_block = {
+        "type": "text",
+        "text": (
+            f"\u26a0\ufe0f **Risk Detected / \u68c0\u6d4b\u5230\u98ce\u9669**\n\n"
+            f"- Tool / \u5de5\u5177: `{tool_name}`\n"
+            f"- Severity / \u4e25\u91cd\u6027: "
+            f"`{guard_result.max_severity.value}`\n"
+            f"- Findings / \u53d1\u73b0: "
+            f"`{guard_result.findings_count}`\n\n"
+            f"{findings_text}"
+        ),
+    }
+
+    arguments = tool_call.get("input", {})
+    if isinstance(arguments, (dict, list)):
+        import json as _json_mod
+        arguments = _json_mod.dumps(arguments, ensure_ascii=False)
+
+    approval_block = {
+        "type": "approval_request",
+        "id": tool_call.get("id", ""),
+        "name": tool_name,
+        "arguments": arguments,
+        "server_label": "",
+    }
+
+    return [text_block, approval_block]
+
+
 class _GuardAction:
     """Lightweight container for a guard decision made under lock."""
 
@@ -501,10 +544,6 @@ class ToolGuardMixin:
         guard_result,
     ) -> dict | None:
         """Deny the tool call and record a pending approval."""
-        from agentscope.message import ToolResultBlock
-        from copaw.security.tool_guard.approval import (
-            format_findings_summary,
-        )
 
         channel = str(self._request_context.get("channel") or "")
 
@@ -578,32 +617,11 @@ class ToolGuardMixin:
             "guard_result": guard_result,
         }
 
-        findings_text = format_findings_summary(guard_result)
-        denied_text = (
-            f"⚠️ **Risk Detected / 检测到风险**\n\n"
-            f"- Tool / 工具: `{tool_name}`\n"
-            f"- Severity / 严重性: "
-            f"`{guard_result.max_severity.value}`\n"
-            f"- Findings / 发现: "
-            f"`{guard_result.findings_count}`\n\n"
-            f"{findings_text}\n\n"
-            f"Type `/approve` to approve, "
-            f"or send any message to deny.\n"
-            f"输入 `/approve` 批准执行，或发送任意消息拒绝。"
-        )
+        blocks = build_approval_blocks(tool_call, tool_name, guard_result)
 
         tool_res_msg = Msg(
             "system",
-            [
-                ToolResultBlock(
-                    type="tool_result",
-                    id=tool_call["id"],
-                    name=tool_name,
-                    output=[
-                        {"type": "text", "text": denied_text},
-                    ],
-                ),
-            ],
+            blocks,
             "system",
         )
 
