@@ -1,7 +1,7 @@
 ---
 name: Systematic Debugging
 version: 1.0.0
-description: 包含根因分析的四阶段调试方法论。在调查 Bug、修复测试失败或排除异常行为时使用。强调：在找到根因之前绝不动手修复。
+description: 包含根因分析的四阶段调试方法论。在调查Bug、修复测试失败或排除异常行为时使用。在找到根因之前绝不动手修复。
 ---
 
 # 系统化调试 (Systematic Debugging)
