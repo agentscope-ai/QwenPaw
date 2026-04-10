@@ -236,6 +236,7 @@ list_agents()
 
 ```bash
 qwenpaw chats list --agent-id <your_agent>
+```
 
 ### 人工调试时查看 agent 列表
 

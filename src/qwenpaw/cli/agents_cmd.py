@@ -425,9 +425,9 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
 @click.pass_context
 def chat_cmd(
     ctx: click.Context,
-    from_agent: str,
-    to_agent: str,
-    text: str,
+    from_agent: Optional[str],
+    to_agent: Optional[str],
+    text: Optional[str],
     text_file: Optional[Path],
     session_id: Optional[str],
     mode: str,
@@ -545,11 +545,19 @@ def chat_cmd(
         _check_task_status(resolved_base_url, task_id, json_output, to_agent)
         return
 
+    if from_agent is None or to_agent is None:
+        click.echo(
+            "ERROR: --from-agent and --to-agent are required "
+            "(unless checking task with --task-id)",
+            err=True,
+        )
+        ctx.exit(1)
+
     raw_text = _load_chat_text(text, text_file)
     prepared_request = prepare_agent_chat_request(
         AgentChatRequest(
-            from_agent=from_agent,
-            to_agent=to_agent,
+            from_agent=from_agent,  # type: ignore[arg-type]
+            to_agent=to_agent,  # type: ignore[arg-type]
             text=raw_text,
             session_id=session_id,
         ),
