@@ -117,7 +117,8 @@ def _submit_background_task(
         click.echo("💡 Don't wait - continue with other tasks!")
         click.echo("   Check status later (10-60s depending on complexity):")
         click.echo(
-            f"    qwenpaw agents chat --background --task-id {submission.task_id}",
+            "    qwenpaw agents chat --background --task-id "
+            f"{submission.task_id}",
         )
 
     except (ValueError, httpx.HTTPError) as e:

@@ -135,9 +135,14 @@ class LlamaCppBackend:
         if not self.check_llamacpp_installation()[0]:
             return False
         try:
-            return int(latest_version[1:]) > int(
-                (await self.get_version()),
+            current_version = int(await self.get_version())
+            # strip leading 'b' in version tag
+            target_version = int(latest_version[1:])
+            logger.info(
+                f"Current version: {current_version}, "
+                f"Target version: {target_version}",
             )
+            return target_version > current_version
         except Exception:
             logger.warning("Failed to check for llama.cpp updates")
             return True
