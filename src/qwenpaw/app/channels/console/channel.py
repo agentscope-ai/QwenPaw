@@ -317,10 +317,11 @@ class ConsoleChannel(BaseChannel):
         return media_message
 
     def _extract_token_usage(
-            self,
-            session_id: Optional[str] = None,
+        self,
+        session_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         from ....token_usage import TokenRecordingModelWrapper
+
         if not session_id:
             return None
 

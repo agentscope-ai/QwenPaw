@@ -24,6 +24,7 @@ _current_session_id: ContextVar[Optional[str]] = ContextVar(
     default=None,
 )
 
+
 async def get_agent_for_request(
     request: Request,
     agent_id: Optional[str] = None,
@@ -144,8 +145,10 @@ def get_current_agent_id() -> str:
         return agent_id
     return get_active_agent_id()
 
+
 def set_current_session_id(session_id: str) -> None:
     _current_session_id.set(session_id)
+
 
 def get_current_session_id() -> Optional[str]:
     return _current_session_id.get()
