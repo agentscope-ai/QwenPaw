@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import copaw.providers.anthropic_provider as anthropic_provider_module
 from copaw.providers.anthropic_provider import AnthropicProvider
+from copaw.providers.provider import ModelInfo
 
 
 def _make_provider(is_custom: bool = False) -> AnthropicProvider:
@@ -58,6 +59,48 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
     assert msg == "Anthropic API error"
 
 
+async def test_check_connection_falls_back_when_disabled() -> None:
+    captured: dict[str, object] = {}
+
+    class _FallbackProvider(AnthropicProvider):
+        async def check_model_connection(
+            self,
+            model_id: str,
+            timeout: float = 5,
+        ) -> tuple[bool, str]:
+            captured["model_id"] = model_id
+            captured["timeout"] = timeout
+            return True, ""
+
+    provider = _FallbackProvider(
+        id="anthropic",
+        name="Anthropic",
+        base_url="https://mock-anthropic.local",
+        api_key="ant-test",
+        chat_model="AnthropicChatModel",
+        support_connection_check=False,
+        models=[ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5")],
+    )
+
+    ok, msg = await provider.check_connection(timeout=2.5)
+
+    assert ok is True
+    assert msg == ""
+    assert captured == {"model_id": "MiniMax-M2.5", "timeout": 2.5}
+
+
+async def test_check_connection_without_direct_support_needs_model() -> None:
+    provider = _make_provider()
+    provider.support_connection_check = False
+    provider.models = []
+    provider.extra_models = []
+
+    ok, msg = await provider.check_connection(timeout=2.5)
+
+    assert ok is False
+    assert msg == "Connection check requires at least one configured model"
+
+
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
     provider = _make_provider()
     rows = [
@@ -84,7 +127,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
         "Claude Haiku",
         "claude-3-5-sonnet",
     ]
-    assert provider.models == []
+    assert not provider.models
 
 
 async def test_check_model_connection_success(monkeypatch) -> None:

@@ -65,6 +65,24 @@ class AnthropicProvider(Provider):
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if Anthropic provider is reachable."""
+        if not self.support_connection_check:
+            probe_model = next(
+                (
+                    model.id
+                    for model in [*self.models, *self.extra_models]
+                    if getattr(model, "id", "")
+                ),
+                "",
+            )
+            if not probe_model:
+                return (
+                    False,
+                    "Connection check requires at least one configured model",
+                )
+            return await self.check_model_connection(
+                probe_model,
+                timeout=timeout,
+            )
         try:
             client = self._client(timeout=timeout)
             await client.models.list()
