@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""CoPaw Agent - Main agent implementation.
+"""QwenPaw Agent - Main agent implementation.
 
-This module provides the main CoPawAgent class built on ReActAgent,
+This module provides the main QwenPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
 """
 
@@ -66,8 +66,8 @@ logger = logging.getLogger(__name__)
 NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
 
 
-class CoPawAgent(ToolGuardMixin, ReActAgent):
-    """CoPaw Agent with integrated tools, skills, and memory management.
+class QwenPawAgent(ToolGuardMixin, ReActAgent):
+    """QwenPaw Agent with integrated tools, skills, and memory management.
 
     This agent extends ReActAgent with:
     - Built-in tools (shell, file operations, browser, etc.)
@@ -80,7 +80,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     MRO note
     ~~~~~~~~
     ``ToolGuardMixin`` overrides ``_acting`` and ``_reasoning`` via
-    Python's MRO: CoPawAgent → ToolGuardMixin → ReActAgent.  If you
+    Python's MRO: QwenPawAgent → ToolGuardMixin → ReActAgent.  If you
     add a ``_acting`` or ``_reasoning`` override in this class, you
     **must** call ``super()._acting(...)`` / ``super()._reasoning(...)``
     so the guard interception remains active.
@@ -98,7 +98,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
     ):
-        """Initialize CoPawAgent.
+        """Initialize QwenPawAgent.
 
         Args:
             agent_config: Agent profile configuration containing all settings
@@ -611,7 +611,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     @staticmethod
     def _rebuild_mcp_client(client: Any) -> Any | None:
         """Rebuild a fresh MCP client instance from stored config metadata."""
-        rebuild_info = getattr(client, "_copaw_rebuild_info", None)
+        rebuild_info = getattr(client, "_qwenpaw_rebuild_info", None)
         if not isinstance(rebuild_info, dict):
             return None
 
@@ -627,7 +627,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                     env=rebuild_info.get("env", {}),
                     cwd=rebuild_info.get("cwd"),
                 )
-                setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+                setattr(rebuilt_client, "_qwenpaw_rebuild_info", rebuild_info)
                 return rebuilt_client
 
             raw_headers = rebuild_info.get("headers") or {}
@@ -642,7 +642,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 url=rebuild_info.get("url"),
                 headers=headers,
             )
-            setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+            setattr(rebuilt_client, "_qwenpaw_rebuild_info", rebuild_info)
             return rebuilt_client
         except Exception:  # pylint: disable=broad-except
             return None
@@ -837,7 +837,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         round of calls has ended.
         """
         if isinstance(msg.content, str):
-            msg.content += CoPawAgent._ROUND_END_NOTICE
+            msg.content += QwenPawAgent._ROUND_END_NOTICE
             return msg
 
         filtered = [
@@ -855,7 +855,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 n_removed,
             )
 
-        filtered.append({"type": "text", "text": CoPawAgent._ROUND_END_NOTICE})
+        filtered.append(
+            {"type": "text", "text": QwenPawAgent._ROUND_END_NOTICE},
+        )
         msg.content = filtered
         return msg
 
@@ -986,7 +988,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             return msg
 
         # Normal message processing
-        logger.info("CoPawAgent.reply: max_iters=%s", self.max_iters)
+        logger.info("QwenPawAgent.reply: max_iters=%s", self.max_iters)
 
         if hasattr(self.memory, "_long_term_memory"):
             running = self._agent_config.running

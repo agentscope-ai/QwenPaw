@@ -357,7 +357,7 @@ def _substitute_video_blocks(
             continue
         for i, blk in enumerate(msg.content):
             if isinstance(blk, dict) and blk.get("type") == "video":
-                ph = f"__COPAW_VID_{id(blk)}__"
+                ph = f"__QWENPAW_VID_{id(blk)}__"
                 video_subs[ph] = blk
                 msg.content[i] = {
                     "type": "text",
@@ -767,7 +767,7 @@ def create_model_and_formatter(
             raise ProviderError(
                 message=(
                     "No active model configured. "
-                    "Please configure a model using 'copaw models config' "
+                    "Please configure a model using 'qwenpaw models config' "
                     "or set an agent-specific model."
                 ),
             )
