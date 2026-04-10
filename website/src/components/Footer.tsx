@@ -30,9 +30,9 @@ export function Footer() {
               <QwenpawMascot size={100} />
             </Link>
             <p className="mb-2 text-[15px] leading-7 text-(--text)">
-              {t("brandstory.para1")}
+              {t("whyQwenpaw.heroLine")}
               <br />
-              {t("brandstory.para2")}
+              {t("whyQwenpaw.secondPrefix")}
             </p>
             <div className="mt-5 flex items-center gap-4 text-[#f2a25b]">
               <a

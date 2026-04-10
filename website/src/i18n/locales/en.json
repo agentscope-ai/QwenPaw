@@ -14,9 +14,9 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v1.0.0: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
+    "sub": "v1.1.0: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
     "sub1": "and memory management — all upgraded, all yours.",
-    "releaseNote": "QwenPaw v1.0.0 is released",
+    "releaseNote": "QwenPaw v1.1.0 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start"
   },
@@ -102,11 +102,6 @@
         "role": "Developer"
       }
     }
-  },
-  "brandstory": {
-    "title": "Why QwenPaw?",
-    "para1": "QwenPaw represents both a Co Personal Agent Workstation and a \"qwen-paw\"—a partner always by your side.",
-    "para2": "More than just a cold tool, QwenPaw is a warm \"little paw\" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life."
   },
   "features": {
     "title": "Key capabilities",
