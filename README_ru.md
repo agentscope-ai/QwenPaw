@@ -217,7 +217,7 @@ qwenpaw app
 
 ```bash
 # Установить конкретную версию
-curl -fsSL ... | bash -s -- --version 0.0.2
+curl -fsSL ... | bash -s -- --version 1.1.0
 
 # Установить из исходников (для разработки/тестирования)
 curl -fsSL ... | bash -s -- --from-source

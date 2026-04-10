@@ -200,7 +200,7 @@ qwenpaw app
 
 ```bash
 # Install a specific version
-curl -fsSL ... | bash -s -- --version 0.0.2
+curl -fsSL ... | bash -s -- --version 1.1.0
 
 # Install from source (dev/testing)
 curl -fsSL ... | bash -s -- --from-source

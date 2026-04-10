@@ -216,7 +216,7 @@ qwenpaw app
 
 ```bash
 # 特定のバージョンをインストール
-curl -fsSL ... | bash -s -- --version 0.0.2
+curl -fsSL ... | bash -s -- --version 1.1.0
 
 # ソースからインストール（開発/テスト用）
 curl -fsSL ... | bash -s -- --from-source

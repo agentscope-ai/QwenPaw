@@ -214,7 +214,7 @@ qwenpaw app
 
 ```bash
 # 安装指定版本
-curl -fsSL ... | bash -s -- --version 0.0.2
+curl -fsSL ... | bash -s -- --version 1.1.0
 
 # 从源码安装（开发/测试用）
 curl -fsSL ... | bash -s -- --from-source
