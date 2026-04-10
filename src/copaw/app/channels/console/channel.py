@@ -375,12 +375,25 @@ class ConsoleChannel(BaseChannel):
                     event.output = []
                     if event_output is not None:
                         for message in event_output:
+                            if (
+                                self._filter_thinking
+                                and getattr(message, "type", None)
+                                == MessageType.REASONING
+                            ):
+                                continue
                             event.output.append(message)
                             media_message = await self._extract_media_message(
                                 message,
                             )
                             if media_message:
                                 event.output.append(media_message)
+
+                if (
+                    self._filter_thinking
+                    and obj == "message"
+                    and ev_type == MessageType.REASONING
+                ):
+                    continue
 
                 if hasattr(event, "model_dump_json"):
                     data = event.model_dump_json()
