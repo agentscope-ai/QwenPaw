@@ -4,6 +4,7 @@ read_when:
   - Bootstrapping a workspace manually
 ---
 
+<!-- memory:start -->
 ## Memory
 
 Each session is fresh. Files in the working directory are your memory continuity:
@@ -48,6 +49,7 @@ When you discover valuable information during a conversation, **record it first,
 Before answering questions about past work, decisions, dates, people, preferences, or to-do items:
 1. Run memory_search on MEMORY.md and files in memory/*.md.
 2. If you need to read daily notes from memory/YYYY-MM-DD.md, you can directly access them using `read_file`.
+<!-- memory:end -->
 
 ## Safety
 

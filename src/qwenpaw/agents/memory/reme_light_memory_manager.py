@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-branches
 # mypy: ignore-errors
-"""ReMeLight-backed memory manager for CoPaw agents."""
+"""ReMeLight-backed memory manager for agents."""
 import importlib.metadata
 import json
 import logging
@@ -17,7 +17,7 @@ from agentscope.tool import Toolkit, ToolResponse
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
 from qwenpaw.agents.model_factory import create_model_and_formatter
 from qwenpaw.agents.tools import read_file, write_file, edit_file
-from qwenpaw.agents.utils import get_copaw_token_counter
+from qwenpaw.agents.utils import get_token_counter
 from qwenpaw.config import load_config
 from qwenpaw.config.config import load_agent_config
 from qwenpaw.config.context import (
@@ -35,7 +35,7 @@ _EXPECTED_REME_VERSION = "0.3.1.8"
 
 
 class ReMeLightMemoryManager(BaseMemoryManager):
-    """Memory manager that wraps ReMeLight for CoPaw agents via composition.
+    """Memory manager that wraps ReMeLight for agents via composition.
 
     Holds a ``ReMeLight`` instance (``self._reme``) and delegates all
     lifecycle / search / compaction calls to it.
@@ -112,17 +112,27 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             agent_config.running.memory_summary.rebuild_memory_index_on_start
         )
 
+        store_name = "memory"
+        effective_rebuild = self._resolve_rebuild_on_start(
+            working_dir=working_dir,
+            expected_state={
+                "store_name": store_name,
+                "reme_version": _EXPECTED_REME_VERSION,
+            },
+            rebuild_on_start=rebuild_on_start,
+        )
+
         self._reme = ReMeLight(
             working_dir=working_dir,
             default_embedding_model_config=emb_config,
             default_file_store_config={
                 "backend": memory_backend,
-                "store_name": "copaw",
+                "store_name": store_name,
                 "vector_enabled": vector_enabled,
                 "fts_enabled": fts_enabled,
             },
             default_file_watcher_config={
-                "rebuild_index_on_start": rebuild_on_start,
+                "rebuild_index_on_start": effective_rebuild,
             },
         )
 
@@ -139,6 +149,53 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
     def _mask_key(key: str) -> str:
         """Mask API key, showing first 5 chars only."""
         return key[:5] + "*" * (len(key) - 5) if len(key) > 5 else key
+
+    @staticmethod
+    def _resolve_rebuild_on_start(
+        working_dir: str,
+        expected_state: dict,
+        rebuild_on_start: bool,
+    ) -> bool:
+        """Return effective rebuild_index_on_start value.
+
+        Forces a one-time rebuild whenever any field in *expected_state*
+        differs from the persisted ``.reme_store_state.json``.  On any
+        subsequent start the stored values match and the caller-supplied
+        *rebuild_on_start* is used as-is.
+
+        Add fields to *expected_state* to trigger one-time rebuilds on
+        future changes (e.g. store_name rename, reme_version upgrade).
+        """
+        state_path = Path(working_dir) / ".reme_store_state.json"
+        try:
+            raw = (
+                json.loads(state_path.read_text(encoding="utf-8"))
+                if state_path.exists()
+                else {}
+            )
+            stored: dict = raw if isinstance(raw, dict) else {}
+        except Exception as e:
+            logger.warning(f"Failed to read reme store state: {e}")
+            stored = {}
+
+        mismatched = {
+            k for k, v in expected_state.items() if stored.get(k) != v
+        }
+        if mismatched:
+            logger.info(
+                f"State fields changed {mismatched}, forcing rebuild. "
+                f"stored={stored}, expected={expected_state}",
+            )
+            try:
+                state_path.write_text(
+                    json.dumps(expected_state),
+                    encoding="utf-8",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to write reme store state: {e}")
+            return True
+
+        return rebuild_on_start
 
     @staticmethod
     def _check_reme_version() -> bool:
@@ -273,7 +330,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
                 messages=messages,
                 as_llm=self.chat_model,
                 as_llm_formatter=self.formatter,
-                as_token_counter=get_copaw_token_counter(agent_config),
+                as_token_counter=get_token_counter(agent_config),
                 language=agent_config.language,
                 max_input_length=agent_config.running.max_input_length,
                 compact_ratio=cc.memory_compact_ratio,
@@ -288,7 +345,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
                 messages=messages,
                 as_llm=self.chat_model,
                 as_llm_formatter=self.formatter,
-                as_token_counter=get_copaw_token_counter(agent_config),
+                as_token_counter=get_token_counter(agent_config),
                 language=agent_config.language,
                 max_input_length=agent_config.running.max_input_length,
                 compact_ratio=cc.memory_compact_ratio,
@@ -321,8 +378,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
                     f"{result.get('history_compact', '')[:200]}...",
                 )
                 logger.error(
-                    "Please upload the log: "
-                    "https://github.com/agentscope-ai/CoPaw/issues",
+                    "Please upload the log to github issues",
                 )
             except Exception as _e:
                 logger.error(f"Failed to save invalid compact result: {_e}")
@@ -347,7 +403,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             messages=messages,
             as_llm=self.chat_model,
             as_llm_formatter=self.formatter,
-            as_token_counter=get_copaw_token_counter(agent_config),
+            as_token_counter=get_token_counter(agent_config),
             toolkit=self.summary_toolkit,
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
@@ -386,5 +442,5 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             return None
         agent_config = load_agent_config(self.agent_id)
         return self._reme.get_in_memory_memory(
-            as_token_counter=get_copaw_token_counter(agent_config),
+            as_token_counter=get_token_counter(agent_config),
         )

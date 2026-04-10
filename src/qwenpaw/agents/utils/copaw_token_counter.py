@@ -242,7 +242,7 @@ _token_counter_cache: dict[
 ] = {}
 
 
-def get_copaw_token_counter(
+def get_token_counter(
     agent_config: "AgentProfileConfig",
     use_estimate: bool = True,
 ) -> CopawTokenCounter | CopawEstimateTokenCounter:

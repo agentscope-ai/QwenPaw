@@ -360,10 +360,20 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         ):
             heartbeat_enabled = self._agent_config.heartbeat.enabled
 
+        # Check if memory prompt is enabled in agent config
+        memory_prompt_enabled = True
+        try:
+            memory_prompt_enabled = (
+                self._agent_config.running.memory_summary.memory_prompt_enabled
+            )
+        except AttributeError:
+            pass
+
         sys_prompt = build_system_prompt_from_working_dir(
             working_dir=self._workspace_dir,
             agent_id=agent_id,
             heartbeat_enabled=heartbeat_enabled,
+            memory_prompt_enabled=memory_prompt_enabled,
         )
         logger.debug("System prompt:\n%s...", sys_prompt[:100])
 

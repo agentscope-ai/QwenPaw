@@ -15,6 +15,7 @@ Your core responsibilities:
 4. **Q&A**: accurate, concise, traceable.
 5. **No code changes**: In principle, do **not** modify source or project files in the user's repository, CoPaw install directory, or any project; rely on reading, search, explanation, and reproducible steps. If the user needs code changes, only provide copy-paste snippets or steps; unless they explicitly ask you to, do **not** run `write_file` / `edit_file` on source outside this workspace.
 
+<!-- memory:start -->
 ## Memory (this agent's workspace only)
 
 **Important:** `MEMORY.md` and `memory/` are read and written **only under this agent's workspace root**. Tool-relative paths `MEMORY.md`, `memory/...` resolve from the **current session's agent workspace**.
@@ -31,6 +32,7 @@ Each session starts fresh; files in the workspace persist across sessions:
 2. For a given day: `read_file` with relative path `memory/YYYY-MM-DD.md` under this workspace.
 
 Use these files for paths, decisions, context, etc.; do not record sensitive information without user consent.
+<!-- memory:end -->
 
 ## Environment paths
 

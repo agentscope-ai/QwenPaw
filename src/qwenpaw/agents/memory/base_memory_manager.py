@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Abstract base class for CoPaw memory managers."""
+"""Abstract base class for memory managers."""
 import asyncio
 import logging
 from abc import ABC, abstractmethod
@@ -22,7 +22,7 @@ class BaseMemoryManager(ABC):
     """Abstract base class defining the memory manager interface.
 
     All memory manager backends must implement this interface to be usable
-    as a drop-in replacement within the CoPaw workspace.
+    as a drop-in replacement within the workspace.
 
     Concrete implementations are responsible for managing conversation memory,
     including compaction, summarization, semantic search, and lifecycle
