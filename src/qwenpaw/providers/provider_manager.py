@@ -757,9 +757,21 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """Helper to return plugin provider info as async task."""
         return provider_info
 
+    @staticmethod
+    def _normalize_provider_id(provider_id: str) -> str:
+        """Normalize provider ID for backward compatibility.
+
+        Maps legacy 'copaw-local' to 'qwenpaw-local'.
+        """
+        if provider_id == "copaw-local":
+            return "qwenpaw-local"
+        return provider_id
+
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
+        # Normalize provider ID for backward compatibility
+        provider_id = self._normalize_provider_id(provider_id)
         # Check plugin providers first
         if provider_id in self.plugin_providers:
             plugin_provider = self.plugin_providers[provider_id]
@@ -786,6 +798,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # This will be called when the user edits a provider's settings in the
         # UI. It should update the in-memory provider instance and persist the
         # changes to providers.json.
+        # Normalize provider ID for backward compatibility
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return False
@@ -902,6 +916,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # Set the active provider and model for the agent. This will update
         # providers.json and determine which provider/model is used when the
         # agent creates chat model instances.
+        # Normalize provider ID for backward compatibility
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             raise ProviderError(
@@ -1199,6 +1215,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """
         if self.active_model is None:
             return False
+        # Normalize provider ID for backward compatibility
+        if provider_id is not None:
+            provider_id = self._normalize_provider_id(provider_id)
         if (
             provider_id is not None
             and self.active_model.provider_id != provider_id
