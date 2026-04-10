@@ -37,10 +37,15 @@ def build_approval_blocks(
     from copaw.security.tool_guard.approval import format_findings_summary
 
     findings_text = format_findings_summary(guard_result)
+    deny_zh = (
+        "\u8f93\u5165 `/approve` \u6279\u51c6\u6267\u884c\uff0c"
+        "\u6216\u53d1\u9001\u4efb\u610f\u6d88\u606f\u62d2\u7edd\u3002"
+    )
     text_block = {
         "type": "text",
         "text": (
-            f"\u26a0\ufe0f **Risk Detected / \u68c0\u6d4b\u5230\u98ce\u9669**\n\n"
+            f"\u26a0\ufe0f **Risk Detected / "
+            f"\u68c0\u6d4b\u5230\u98ce\u9669**\n\n"
             f"- Tool / \u5de5\u5177: `{tool_name}`\n"
             f"- Severity / \u4e25\u91cd\u6027: "
             f"`{guard_result.max_severity.value}`\n"
@@ -49,14 +54,13 @@ def build_approval_blocks(
             f"{findings_text}\n\n"
             f"Type `/approve` to approve, "
             f"or send any message to deny.\n"
-            f"\u8f93\u5165 `/approve` \u6279\u51c6\u6267\u884c\uff0c\u6216\u53d1\u9001\u4efb\u610f\u6d88\u606f\u62d2\u7edd\u3002"
+            f"{deny_zh}"
         ),
     }
 
     arguments = tool_call.get("input", {})
     if isinstance(arguments, (dict, list)):
-        import json as _json_mod
-        arguments = _json_mod.dumps(arguments, ensure_ascii=False)
+        arguments = _json.dumps(arguments, ensure_ascii=False)
 
     approval_block = {
         "type": "approval_request",

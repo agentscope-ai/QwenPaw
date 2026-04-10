@@ -1,4 +1,5 @@
-"""Test that tool guard approval messages use the approval_request block format."""
+# -*- coding: utf-8 -*-
+"""Tests for tool guard approval_request block format."""
 
 
 def test_approval_msg_contains_approval_request_block():

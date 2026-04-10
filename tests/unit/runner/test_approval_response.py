@@ -1,4 +1,5 @@
-"""Test that query_handler handles mcp_approval_response from frontend buttons."""
+# -*- coding: utf-8 -*-
+"""Tests for _extract_approval_response from frontend buttons."""
 from copaw.app.runner.runner import _extract_approval_response
 
 
@@ -16,9 +17,9 @@ def test_extract_approval_response_from_data_content():
                         "approval_request_id": "call_789",
                         "reason": None,
                     },
-                }
+                },
             ],
-        }
+        },
     ]
     result = _extract_approval_response(msgs)
     assert result is not None
@@ -40,9 +41,9 @@ def test_extract_approval_response_denied():
                         "approval_request_id": "call_999",
                         "reason": "too dangerous",
                     },
-                }
+                },
             ],
-        }
+        },
     ]
     result = _extract_approval_response(msgs)
     assert result is not None
@@ -59,9 +60,9 @@ def test_extract_approval_response_normal_text():
                 {
                     "type": "text",
                     "text": "Hello world",
-                }
+                },
             ],
-        }
+        },
     ]
     result = _extract_approval_response(msgs)
     assert result is None
