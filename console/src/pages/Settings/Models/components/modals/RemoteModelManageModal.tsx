@@ -6,6 +6,7 @@ import {
   Modal,
   Tag,
   Checkbox,
+  Tooltip,
 } from "@agentscope-ai/design";
 import { AutoComplete } from "antd";
 import {
@@ -16,6 +17,14 @@ import {
   FilterOutlined,
   SettingOutlined,
   DownOutlined,
+  SearchOutlined,
+  ExperimentOutlined,
+  AppstoreOutlined,
+  VideoCameraOutlined,
+  FileTextOutlined,
+  QuestionCircleOutlined,
+  DatabaseOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import {
   SparkTextLine,
@@ -158,11 +167,98 @@ function ModelConfigEditor({
   );
 }
 
+const tagColors = (isDark: boolean) => ({
+  multimodal: {
+    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
+    color: "#1890ff",
+    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
+  },
+  vision: {
+    backgroundColor: isDark ? "rgba(19,194,194,0.15)" : "#e6fffb",
+    color: "#13c2c2",
+    borderColor: isDark ? "rgba(19,194,194,0.3)" : "#87e8de",
+  },
+  video: {
+    backgroundColor: isDark ? "rgba(114,46,211,0.15)" : "#f9f0ff",
+    color: "#722ed1",
+    borderColor: isDark ? "rgba(114,46,211,0.3)" : "#d3adf7",
+  },
+  text: {
+    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
+    color: isDark ? "rgba(255,255,255,0.65)" : "#595959",
+    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
+  },
+  notProbed: {
+    backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#f5f5f5",
+    color: isDark ? "rgba(255,255,255,0.65)" : "#8c8c8c",
+    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
+  },
+  builtin: {
+    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
+    color: "#52c41a",
+    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
+  },
+  userAdded: {
+    backgroundColor: isDark ? "rgba(24,144,255,0.15)" : "#e6f7ff",
+    color: "#1890ff",
+    borderColor: isDark ? "rgba(24,144,255,0.3)" : "#91d5ff",
+  },
+});
+
 interface RemoteModelManageModalProps {
   provider: ProviderInfo;
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+}
+
+function CapabilityTags({
+  model,
+  isDark,
+}: {
+  model: ModelInfo;
+  isDark: boolean;
+}) {
+  const { t } = useTranslation();
+  const c = tagColors(isDark);
+  if (model.supports_image && model.supports_video) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
+        <AppstoreOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagMultimodal", "多模态")}
+      </Tag>
+    );
+  }
+  if (model.supports_image) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.vision }}>
+        <EyeOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagVision", "视觉")}
+      </Tag>
+    );
+  }
+  if (model.supports_video) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.video }}>
+        <VideoCameraOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagVideo", "视频")}
+      </Tag>
+    );
+  }
+  if (model.supports_multimodal === false) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
+        <FileTextOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagText", "文本")}
+      </Tag>
+    );
+  }
+  return (
+    <Tag style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}>
+      <QuestionCircleOutlined style={{ fontSize: 10, marginRight: 3 }} />
+      {t("models.tagNotProbed", "未检测")}
+    </Tag>
+  );
 }
 
 export function RemoteModelManageModal({
@@ -173,6 +269,7 @@ export function RemoteModelManageModal({
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.65)" } : undefined;
   const { message } = useAppMessage();
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -181,6 +278,7 @@ export function RemoteModelManageModal({
   const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
     null,
   );
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [form] = Form.useForm();
   // OpenRouter filter state
   const isOpenRouter = provider.id === "openrouter";
@@ -345,6 +443,7 @@ export function RemoteModelManageModal({
   const handleClose = () => {
     setAdding(false);
     setConfigOpenModelId(null);
+    setModelSearchQuery("");
     form.resetFields();
     onClose();
   };
@@ -407,224 +506,126 @@ export function RemoteModelManageModal({
     }
   };
 
-  useEffect(() => {
-    if (!adding) {
-      setDiscoveredModels([]);
-      return;
-    }
-    // Fetch available models without saving them.
-    // User should explicitly click "Discover Models" button to
-    // fetch and save remote models.
-    setLoadingDiscoveredModels(true);
-    api
-      .discoverModels(provider.id, undefined, false)
-      .then((result) => {
-        const sorted = result.models
-          .slice()
-          .sort((a, b) => a.id.localeCompare(b.id));
-        setDiscoveredModels(sorted);
-      })
-      .catch(() => setDiscoveredModels([]))
-      .finally(() => setLoadingDiscoveredModels(false));
-  }, [adding, provider.id]);
-
-  useEffect(() => {
-    if (!isOpenRouter || !adding) return;
-    setAdding(false);
-    form.resetFields();
-  }, [adding, form, isOpenRouter]);
-
   const all_models = [
     ...(provider.models ?? []),
     ...(provider.extra_models ?? []),
   ];
+
+  const filteredModels = useMemo(() => {
+    const q = modelSearchQuery.trim().toLowerCase();
+    if (!q) return all_models;
+    return all_models.filter(
+      (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
+    );
+  }, [all_models, modelSearchQuery]);
 
   return (
     <Modal
       title={t("models.manageModelsTitle", { provider: provider.name })}
       open={open}
       onCancel={handleClose}
-      footer={
-        <div className={styles.modalFooter}>
-          <div className={styles.modalFooterRight}>
-            <Button onClick={handleClose}>{t("models.cancel")}</Button>
-          </div>
-        </div>
-      }
-      width={800}
+      footer={null}
+      width={720}
       destroyOnHidden
     >
-      {/* Model list - collapsible */}
+      <Input
+        placeholder={t("models.searchModelPlaceholder", "搜索模型...")}
+        value={modelSearchQuery}
+        onChange={(e) => setModelSearchQuery(e.target.value)}
+        prefix={<SearchOutlined />}
+        allowClear
+      />
+
+      {/* Model list */}
       <div className={styles.modelList}>
-        {all_models.length === 0 ? (
+        {filteredModels.length === 0 ? (
           <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
         ) : (
-          all_models.map((m) => {
-            const isDeletable = extraModelIds.has(m.id);
+          filteredModels.map((m) => {
+            const isDeletable = provider.is_custom || extraModelIds.has(m.id);
             const isConfigOpen = configOpenModelId === m.id;
             return (
               <div key={m.id}>
                 <div className={styles.modelListItem}>
                   <div className={styles.modelListItemInfo}>
-                    <span className={styles.modelListItemName}>
-                      {m.name}
-                      {m.supports_image === true && (
-                        <Tag
-                          color="blue"
-                          style={{ fontSize: 11, marginLeft: 6 }}
-                        >
-                          {t("models.tagImage", "图片")}
-                        </Tag>
-                      )}
-                      {m.supports_video === true && (
-                        <Tag
-                          color="purple"
-                          style={{ fontSize: 11, marginLeft: 4 }}
-                        >
-                          {t("models.tagVideo", "视频")}
-                        </Tag>
-                      )}
-                      {m.supports_multimodal === false && (
-                        <Tag style={{ fontSize: 11, marginLeft: 6 }}>
-                          {t("models.tagTextOnly", "纯文本")}
-                        </Tag>
-                      )}
-                      {m.supports_multimodal === null && (
-                        <Tag
-                          color="default"
-                          style={{ fontSize: 11, marginLeft: 6 }}
-                        >
-                          {t("models.tagNotProbed", "未检测")}
-                        </Tag>
-                      )}
-                    </span>
+                    <span className={styles.modelListItemName}>{m.name}</span>
                     <span className={styles.modelListItemId}>{m.id}</span>
                   </div>
                   <div className={styles.modelListItemActions}>
-                    {isDeletable ? (
-                      <>
-                        <Tag
-                          color="blue"
-                          style={{ fontSize: 11, marginRight: 4 }}
-                        >
-                          {t("models.userAdded")}
-                        </Tag>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={() => handleProbeMultimodal(m.id)}
-                          loading={probingModelId === m.id}
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        >
-                          {t("models.probeMultimodal", "测试多模态")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ApiOutlined />}
-                          onClick={() => handleTestModel(m.id)}
-                          loading={testingModelId === m.id}
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        >
-                          {t("models.testConnection")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={
-                            isConfigOpen ? (
-                              <DownOutlined />
-                            ) : (
-                              <SettingOutlined />
-                            )
-                          }
-                          onClick={() =>
-                            setConfigOpenModelId(isConfigOpen ? null : m.id)
-                          }
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
+                    <CapabilityTags model={m} isDark={isDark} />
+                    <Tag
+                      style={{
+                        fontSize: 11,
+                        marginRight: 4,
+                        ...(isDeletable
+                          ? tagColors(isDark).userAdded
+                          : tagColors(isDark).builtin),
+                      }}
+                    >
+                      {isDeletable ? (
+                        <UserOutlined
+                          style={{ fontSize: 10, marginRight: 3 }}
                         />
-                        <Button
-                          type="text"
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => handleRemoveModel(m.id, m.name)}
+                      ) : (
+                        <DatabaseOutlined
+                          style={{ fontSize: 10, marginRight: 3 }}
                         />
-                      </>
-                    ) : (
-                      <>
-                        <Tag
-                          color="green"
-                          style={{ fontSize: 11, marginRight: 4 }}
-                        >
-                          {t("models.builtin")}
-                        </Tag>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={() => handleProbeMultimodal(m.id)}
-                          loading={probingModelId === m.id}
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        >
-                          {t("models.probeMultimodal", "测试多模态")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ApiOutlined />}
-                          onClick={() => handleTestModel(m.id)}
-                          loading={testingModelId === m.id}
-                          style={{
-                            marginRight: 4,
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        >
-                          {t("models.testConnection")}
-                        </Button>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={
-                            isConfigOpen ? (
-                              <DownOutlined />
-                            ) : (
-                              <SettingOutlined />
-                            )
-                          }
-                          onClick={() =>
-                            setConfigOpenModelId(isConfigOpen ? null : m.id)
-                          }
-                          style={{
-                            color: isDark
-                              ? "rgba(255,255,255,0.65)"
-                              : undefined,
-                          }}
-                        />
-                      </>
+                      )}
+                      {t(isDeletable ? "models.userAdded" : "models.builtin")}
+                    </Tag>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 1,
+                        height: 16,
+                        background: isDark
+                          ? "rgba(255,255,255,0.15)"
+                          : "#e5e7eb",
+                        margin: "0 8px",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Tooltip title={t("models.probeMultimodal", "测试多模态")}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<ExperimentOutlined />}
+                        onClick={() => handleProbeMultimodal(m.id)}
+                        loading={probingModelId === m.id}
+                        style={darkBtnStyle}
+                      />
+                    </Tooltip>
+                    <Tooltip title={t("models.testConnection")}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<ApiOutlined />}
+                        onClick={() => handleTestModel(m.id)}
+                        loading={testingModelId === m.id}
+                        style={darkBtnStyle}
+                      />
+                    </Tooltip>
+                    <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={
+                          isConfigOpen ? <DownOutlined /> : <SettingOutlined />
+                        }
+                        onClick={() =>
+                          setConfigOpenModelId(isConfigOpen ? null : m.id)
+                        }
+                        style={darkBtnStyle}
+                      />
+                    </Tooltip>
+                    {isDeletable && (
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleRemoveModel(m.id, m.name)}
+                      />
                     )}
                   </div>
                 </div>
