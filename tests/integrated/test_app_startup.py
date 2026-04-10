@@ -40,7 +40,7 @@ def test_app_startup_and_console() -> None:
         [
             sys.executable,
             "-m",
-            "copaw",
+            "qwenpaw",
             "app",
             "--host",
             host,

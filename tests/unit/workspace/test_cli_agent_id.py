@@ -7,12 +7,12 @@ from unittest.mock import patch, MagicMock
 import pytest
 from click.testing import CliRunner
 
-from copaw.cli.channels_cmd import channels_group
-from copaw.cli.cron_cmd import cron_group
-from copaw.cli.daemon_cmd import daemon_group
-from copaw.cli.chats_cmd import chats_group
-from copaw.cli.skills_cmd import skills_group
-from copaw.config.config import AgentProfileConfig
+from qwenpaw.cli.channels_cmd import channels_group
+from qwenpaw.cli.cron_cmd import cron_group
+from qwenpaw.cli.daemon_cmd import daemon_group
+from qwenpaw.cli.chats_cmd import chats_group
+from qwenpaw.cli.skills_cmd import skills_group
+from qwenpaw.config.config import AgentProfileConfig
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_channels_list_default_agent(
 
     runner = CliRunner()
 
-    with patch("copaw.cli.channels_cmd.load_agent_config") as mock_load:
+    with patch("qwenpaw.cli.channels_cmd.load_agent_config") as mock_load:
         mock_load.return_value = agent_config
         runner.invoke(channels_group, ["list"])
 
@@ -82,7 +82,7 @@ def test_channels_list_custom_agent(
 
     runner = CliRunner()
 
-    with patch("copaw.cli.channels_cmd.load_agent_config") as mock_load:
+    with patch("qwenpaw.cli.channels_cmd.load_agent_config") as mock_load:
         mock_load.return_value = agent_config
         runner.invoke(
             channels_group,
@@ -97,7 +97,7 @@ def test_cron_list_with_agent_id():
     """Test copaw cron list with --agent-id."""
     runner = CliRunner()
 
-    with patch("copaw.cli.cron_cmd.client") as mock_client:
+    with patch("qwenpaw.cli.cron_cmd.client") as mock_client:
         mock_response = MagicMock()
         mock_response.json.return_value = {"jobs": []}
         mock_response.raise_for_status = MagicMock()
@@ -123,8 +123,8 @@ def test_daemon_status_default_agent():
     """Test copaw daemon status defaults to 'default' agent."""
     runner = CliRunner()
 
-    with patch("copaw.cli.daemon_cmd.run_daemon_status") as mock_status:
-        with patch("copaw.cli.daemon_cmd._get_agent_workspace") as mock_ws:
+    with patch("qwenpaw.cli.daemon_cmd.run_daemon_status") as mock_status:
+        with patch("qwenpaw.cli.daemon_cmd._get_agent_workspace") as mock_ws:
             mock_ws.return_value = "/tmp/default"
             mock_status.return_value = "Status: OK"
 
@@ -138,8 +138,8 @@ def test_daemon_status_custom_agent():
     """Test copaw daemon status with custom agent."""
     runner = CliRunner()
 
-    with patch("copaw.cli.daemon_cmd.run_daemon_status") as mock_status:
-        with patch("copaw.cli.daemon_cmd._get_agent_workspace") as mock_ws:
+    with patch("qwenpaw.cli.daemon_cmd.run_daemon_status") as mock_status:
+        with patch("qwenpaw.cli.daemon_cmd._get_agent_workspace") as mock_ws:
             mock_ws.return_value = "/tmp/xyz789"
             mock_status.return_value = "Status: OK"
 
@@ -157,9 +157,9 @@ def test_skills_list_default_agent():
     runner = CliRunner()
 
     with patch(
-        "copaw.cli.skills_cmd._get_agent_workspace",
+        "qwenpaw.cli.skills_cmd._get_agent_workspace",
     ) as mock_ws:
-        with patch("copaw.cli.skills_cmd.SkillService") as mock_service:
+        with patch("qwenpaw.cli.skills_cmd.SkillService") as mock_service:
             mock_ws.return_value = "/tmp/default"
             mock_service_instance = MagicMock()
             mock_service_instance.list_all_skills.return_value = []
@@ -176,9 +176,9 @@ def test_skills_list_custom_agent():
     runner = CliRunner()
 
     with patch(
-        "copaw.cli.skills_cmd._get_agent_workspace",
+        "qwenpaw.cli.skills_cmd._get_agent_workspace",
     ) as mock_ws:
-        with patch("copaw.cli.skills_cmd.SkillService") as mock_service:
+        with patch("qwenpaw.cli.skills_cmd.SkillService") as mock_service:
             mock_ws.return_value = "/tmp/abc123"
             mock_service_instance = MagicMock()
             mock_service_instance.list_all_skills.return_value = []
@@ -197,7 +197,7 @@ def test_chats_list_with_agent_id():
     """Test copaw chats list with --agent-id."""
     runner = CliRunner()
 
-    with patch("copaw.cli.chats_cmd.client") as mock_client:
+    with patch("qwenpaw.cli.chats_cmd.client") as mock_client:
         mock_response = MagicMock()
         mock_response.json.return_value = []
         mock_response.raise_for_status = MagicMock()
@@ -223,7 +223,7 @@ def test_chats_update_uses_minimal_payload():
     """Chat rename should send only the intended patch fields."""
     runner = CliRunner()
 
-    with patch("copaw.cli.chats_cmd.client") as mock_client:
+    with patch("qwenpaw.cli.chats_cmd.client") as mock_client:
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_response.json.return_value = {"id": "chat-1", "name": "Renamed"}
