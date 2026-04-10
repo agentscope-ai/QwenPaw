@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _EXPECTED_REME_VERSION = "0.3.1.8"
+_REME_STORE_VERSION = "v1"
 
 
 class ReMeLightMemoryManager(BaseMemoryManager):
@@ -115,10 +116,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         store_name = "memory"
         effective_rebuild = self._resolve_rebuild_on_start(
             working_dir=working_dir,
-            expected_state={
-                "store_name": store_name,
-                "reme_version": _EXPECTED_REME_VERSION,
-            },
+            store_version=_REME_STORE_VERSION,
             rebuild_on_start=rebuild_on_start,
         )
 
@@ -153,49 +151,42 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
     @staticmethod
     def _resolve_rebuild_on_start(
         working_dir: str,
-        expected_state: dict,
+        store_version: str,
         rebuild_on_start: bool,
     ) -> bool:
         """Return effective rebuild_index_on_start value.
 
-        Forces a one-time rebuild whenever any field in *expected_state*
-        differs from the persisted ``.reme_store_state.json``.  On any
-        subsequent start the stored values match and the caller-supplied
-        *rebuild_on_start* is used as-is.
+        Uses a sentinel file ``.reme_store_{store_version}`` to track whether
+        the current store version has already been initialized.  If the
+        sentinel is absent a one-time rebuild is forced and the sentinel is
+        created.  On subsequent starts the sentinel exists and the
+        caller-supplied *rebuild_on_start* is used as-is.
 
-        Add fields to *expected_state* to trigger one-time rebuilds on
-        future changes (e.g. store_name rename, reme_version upgrade).
+        To trigger a future one-time rebuild, bump *_REME_STORE_VERSION*.
         """
-        state_path = Path(working_dir) / ".reme_store_state.json"
+        sentinel_name = f".reme_store_{store_version}"
+        sentinel_path = Path(working_dir) / sentinel_name
+
+        if sentinel_path.exists():
+            return rebuild_on_start
+
+        logger.info(
+            f"Sentinel '{sentinel_name}' not found, forcing rebuild.",
+        )
+
+        # Remove stale sentinels left by previous versions.
         try:
-            raw = (
-                json.loads(state_path.read_text(encoding="utf-8"))
-                if state_path.exists()
-                else {}
-            )
-            stored: dict = raw if isinstance(raw, dict) else {}
+            for old in Path(working_dir).glob(".reme_store_*"):
+                old.unlink(missing_ok=True)
         except Exception as e:
-            logger.warning(f"Failed to read reme store state: {e}")
-            stored = {}
+            logger.warning(f"Failed to remove old sentinels: {e}")
 
-        mismatched = {
-            k for k, v in expected_state.items() if stored.get(k) != v
-        }
-        if mismatched:
-            logger.info(
-                f"State fields changed {mismatched}, forcing rebuild. "
-                f"stored={stored}, expected={expected_state}",
-            )
-            try:
-                state_path.write_text(
-                    json.dumps(expected_state),
-                    encoding="utf-8",
-                )
-            except Exception as e:
-                logger.warning(f"Failed to write reme store state: {e}")
-            return True
+        try:
+            sentinel_path.touch()
+        except Exception as e:
+            logger.warning(f"Failed to create sentinel '{sentinel_name}': {e}")
 
-        return rebuild_on_start
+        return True
 
     @staticmethod
     def _check_reme_version() -> bool:
