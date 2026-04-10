@@ -1,4 +1,11 @@
-import { Form, InputNumber, Select, Card, Alert, Switch } from "@agentscope-ai/design";
+import {
+  Form,
+  InputNumber,
+  Select,
+  Card,
+  Alert,
+  Switch,
+} from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
