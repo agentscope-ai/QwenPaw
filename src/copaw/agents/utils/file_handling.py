@@ -5,6 +5,7 @@ This module provides utilities for:
 - Downloading files from base64 encoded data
 - Downloading files from URLs
 - Managing download directories
+- Reading text files with encoding fallback for cross-platform compatibility
 """
 import os
 import mimetypes
@@ -17,7 +18,90 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+from ...config.context import get_current_workspace_dir
+from ...constant import WORKING_DIR
+
 logger = logging.getLogger(__name__)
+
+
+def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
+    """Read text file with multiple encoding attempts for cross-platform
+    compatibility.
+
+    This function handles files created with different text editors on
+    different platforms, especially addressing the common issue where Windows
+    Notepad saves files in GBK encoding while most editors use UTF-8.
+
+    Tries common encodings in order:
+    1. UTF-8 with BOM (Windows Notepad with "UTF-8" option) - tried first
+       to handle BOM correctly
+    2. UTF-8 (default, most common on macOS/Linux)
+    3. GBK/CP936 (Windows Notepad default for Chinese)
+    4. CP1252/Latin-1 (Windows Notepad default for Western languages)
+    5. UTF-8 with errors='replace' as final fallback
+
+    Args:
+        file_path: Path to the file to read (Path object or string)
+
+    Returns:
+        File content as string (with original whitespace preserved)
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        IOError: If file cannot be read even with fallback encodings
+    """
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    encodings_to_try = [
+        "utf-8-sig",  # UTF-8 with BOM - try first
+        "utf-8",
+        "gbk",  # Windows Chinese default
+        "cp936",  # Alias for GBK
+        "cp1252",  # Windows Western default
+        "latin-1",  # Fallback for Western text
+    ]
+
+    for encoding in encodings_to_try:
+        try:
+            with open(file_path, "r", encoding=encoding) as f:
+                content = f.read()
+                if encoding not in ("utf-8", "utf-8-sig"):
+                    logger.debug(
+                        "File %s read with encoding: %s",
+                        file_path.name,
+                        encoding,
+                    )
+                return content
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    # Final fallback: UTF-8 with error replacement
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+            logger.warning(
+                "File %s read with UTF-8 errors='replace' fallback, "
+                "some characters may be corrupted",
+                file_path.name,
+            )
+            return content
+    except Exception as e:
+        logger.error(
+            "File %s cannot be read even with fallback: %s",
+            file_path.name,
+            e,
+        )
+        raise IOError(
+            f"File {file_path.name} cannot be read even with fallback: {e}",
+        ) from e
+
+
+def _default_download_dir() -> str:
+    """Return the default download directory under the current workspace."""
+    base_dir = get_current_workspace_dir() or WORKING_DIR
+    return str(base_dir / "downloads")
 
 
 def _resolve_local_path(
@@ -146,7 +230,7 @@ def _guess_suffix_from_file_content(path: Path) -> Optional[str]:
 async def download_file_from_base64(
     base64_data: str,
     filename: Optional[str] = None,
-    download_dir: str = "downloads",
+    download_dir: str = "",
 ) -> str:
     """
     Save base64-encoded file data to local download directory.
@@ -154,7 +238,8 @@ async def download_file_from_base64(
     Args:
         base64_data: Base64-encoded file content.
         filename: The filename to save. If not provided, will generate one.
-        download_dir: The directory to save files. Defaults to "downloads".
+        download_dir: The directory to save files. Defaults to
+            workspace_dir/downloads.
 
     Returns:
         The local file path.
@@ -162,7 +247,9 @@ async def download_file_from_base64(
     try:
         file_content = base64.b64decode(base64_data)
 
-        download_path = Path(download_dir)
+        download_path = Path(
+            download_dir if download_dir else _default_download_dir(),
+        )
         download_path.mkdir(parents=True, exist_ok=True)
 
         if not filename:
@@ -184,7 +271,7 @@ async def download_file_from_base64(
 async def download_file_from_url(
     url: str,
     filename: Optional[str] = None,
-    download_dir: str = "downloads",
+    download_dir: str = "",
 ) -> str:
     """
     Download a file from URL to local download directory using wget or curl.
@@ -196,7 +283,8 @@ async def download_file_from_url(
             The filename to save. If not provided, will extract from URL or
             generate a hash-based name.
         download_dir (`str`):
-            The directory to save files. Defaults to "downloads".
+            The directory to save files. Defaults to
+            workspace_dir/downloads.
 
     Returns:
         `str`:
@@ -208,7 +296,9 @@ async def download_file_from_url(
         if local is not None:
             return local
 
-        download_path = Path(download_dir)
+        download_path = Path(
+            download_dir if download_dir else _default_download_dir(),
+        )
         download_path.mkdir(parents=True, exist_ok=True)
         if not filename:
             url_filename = os.path.basename(parsed.path)

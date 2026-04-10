@@ -99,6 +99,11 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/copaw:latest
 ```
 
+5. 如果你使用的是 Windows 桌面版（exe），目前需要卸载后重新安装：
+   - 在电脑中卸载 CoPaw
+   - 下载最新版本：https://github.com/agentscope-ai/CoPaw/releases
+   - 重新安装
+
 升级后重启服务 copaw app。
 
 ### CoPaw服务如何启动及初始化
@@ -117,6 +122,66 @@ copaw app
 
 控制台默认地址为 `http://127.0.0.1:8088/`，使用默认配置快速初始化后，可以进入控制台快捷自定义相关内容。详情请见[快速开始](https://copaw.agentscope.io/docs/quickstart)。
 
+### Windows 端口 8088 冲突问题
+
+在 Windows 上，Hyper-V 和 WSL2 可能会保留某些端口范围，这可能与 CoPaw 的默认端口 **8088** 冲突。此问题影响所有安装方式（pip 安装、脚本安装、Docker、桌面应用）。
+
+**症状：**
+
+- 报错：`Address already in use` 或 `OSError: [Errno 98] Address already in use`
+- 报错：`An attempt was made to access a socket in a way forbidden by its access permissions`
+- CoPaw 无法启动，或浏览器无法访问 `http://127.0.0.1:8088/`
+
+**检查端口 8088 是否被 Windows 保留：**
+
+在 PowerShell 或 CMD 中运行：
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+如果 8088 出现在排除范围内，说明已被系统保留。
+
+**解决方案：使用其他端口**
+
+**pip 安装 / 脚本安装：**
+
+```bash
+copaw app --port 8090
+```
+
+然后在浏览器中打开 `http://127.0.0.1:8090/`。
+
+**Docker 安装：**
+
+```bash
+docker run -p 127.0.0.1:8090:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
+```
+
+然后在浏览器中打开 `http://127.0.0.1:8090/`。
+
+**Windows 桌面应用：**
+
+目前桌面应用默认使用 8088 端口。如果遇到此问题，可以：
+
+1. 改用终端运行 `copaw app --port 8090`
+2. 或从 Windows 保留端口范围中排除 8088（需要管理员权限，可能影响其他服务）
+
+**进阶：防止 Windows 保留 8088 端口**
+
+在管理员权限的 PowerShell 中运行：
+
+```powershell
+# 从动态端口范围中排除 8088
+netsh int ipv4 set dynamicport tcp start=49152 num=16384
+# 重启 Windows 使更改生效
+```
+
+> ⚠️ **警告**：这会更改系统级端口配置，请确保了解相关影响后再操作。
+
 ### 开源地址
 
 CoPaw 已开源，官方仓库地址：
@@ -124,14 +189,18 @@ CoPaw 已开源，官方仓库地址：
 
 ### 最新版本升级内容如何查看
 
-具体版本变更可在 CoPaw GitHub 仓库 [Releases](https://github.com/agentscope-ai/CoPaw/releases) 中查看。
+具体版本变更可在官网 [更新日志](https://copaw.agentscope.io/release-notes/?lang=zh) 或 CoPaw GitHub 仓库 [Releases](https://github.com/agentscope-ai/CoPaw/releases) 中查看。
 
 ### 如何配置模型
 
 在控制台进入 **设置 → 模型** 中进行配置，详情请见文档 [模型](https://copaw.agentscope.io/docs/models)：
 
-- 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商），再选择活跃模型。
-- 本地模型：支持 `llama.cpp`、`MLX` 和 Ollama。下载后可在同页选择活跃模型。
+- 云端模型：填写提供商 API Key（如 ModelScope、DashScope 或自定义提供商）。
+- 本地模型：支持 `llama.cpp`、`MLX` 和 Ollama。
+
+配置好模型后，可在模型页面最上方的 **默认 LLM** 中选择目标提供商和目标模型，保存后即为全局默认模型。
+
+如果想为不同智能体配置单独的模型，可以在 console 页面最上方切换智能体，并在 **聊天** 页面左上角为当前智能体选择单独的模型。
 
 命令行也可使用 `copaw models` 系列命令完成配置、下载和切换，详情请见文档 [CLI → 模型与环境变量 → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models)。
 

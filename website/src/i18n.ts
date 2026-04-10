@@ -18,6 +18,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "follow.sub": "第一时间获取 CoPaw 最新动态",
     "follow.xiaohongshu": "小红书：",
     "follow.x": "X：",
+    "follow.community.title": "加入社区",
+    "follow.community.discord": "Discord",
+    "follow.community.dingtalk": "钉钉群",
     "brandstory.title": "Why CoPaw？",
     "brandstory.para1":
       "CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 Co Personal Agent Workstation（协同个人智能体工作台）。",
@@ -30,6 +33,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "features.private.title": "由你掌控",
     "features.private.desc":
       "记忆与个性化由你掌控，本地或云端均可；定时与协作发往指定频道。",
+    "features.multiagent.title": "多智能体",
+    "features.multiagent.desc":
+      "创建多个独立智能体，各司其职；启用协作技能，智能体间可互相通信协作。",
     "features.skills.title": "Skills 扩展",
     "features.skills.desc": "内置定时任务，自定义技能目录，CoPaw 自动加载。",
     "testimonials.title": "社区怎么说",
@@ -147,6 +153,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "follow.sub": "Follow us for the latest CoPaw updates",
     "follow.xiaohongshu": "Rednote:",
     "follow.x": "X:",
+    "follow.community.title": "Join the community",
+    "follow.community.discord": "Discord",
+    "follow.community.dingtalk": "DingTalk",
     "brandstory.title": "Why CoPaw?",
     "brandstory.para1":
       'CoPaw represents both a Co Personal Agent Workstation and a "co-paw"—a partner always by your side.',
@@ -159,6 +168,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "features.private.title": "Under your control",
     "features.private.desc":
       "Memory and personalization under your control. Deploy locally or in the cloud; scheduled reminders and collaboration to any channel.",
+    "features.multiagent.title": "Multi-Agent",
+    "features.multiagent.desc":
+      "Create multiple independent agents, each with their own specialty; enable collaboration skill for inter-agent communication.",
     "features.skills.title": "Skills",
     "features.skills.desc":
       "Built-in Cron; custom skills in your workspace, auto-loaded.",

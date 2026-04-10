@@ -102,6 +102,11 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/copaw:latest
 ```
 
+5. If using the Windows Desktop App (exe), currently you need to uninstall and reinstall:
+   - Uninstall CoPaw from your PC
+   - Download the latest version from: https://github.com/agentscope-ai/CoPaw/releases
+   - Reinstall
+
 After upgrading, restart the service with `copaw app`.
 
 ### How to initialize and start CoPaw service
@@ -122,6 +127,71 @@ The default Console URL is `http://127.0.0.1:8088/`. After quick init, you can
 open Console and customize settings. See
 [Quick Start](https://copaw.agentscope.io/docs/quickstart).
 
+### Port 8088 conflict on Windows
+
+On Windows, Hyper-V and WSL2 may reserve certain port ranges, which can conflict
+with CoPaw's default port **8088**. This affects all installation methods
+(pip, script, Docker, desktop app).
+
+**Symptoms:**
+
+- Error: `Address already in use` or `OSError: [Errno 98] Address already in use`
+- Error: `An attempt was made to access a socket in a way forbidden by its access permissions`
+- CoPaw fails to start, or browser cannot connect to `http://127.0.0.1:8088/`
+
+**Check if port 8088 is reserved on Windows:**
+
+Open PowerShell or CMD and run:
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+If 8088 appears in the excluded ranges, it's reserved by the system.
+
+**Solution: Use a different port**
+
+**For pip / script installation:**
+
+```bash
+copaw app --port 8090
+```
+
+Then open `http://127.0.0.1:8090/` in your browser.
+
+**For Docker:**
+
+```bash
+docker run -p 127.0.0.1:8090:8088 \
+  -v copaw-data:/app/working \
+  -v copaw-secrets:/app/working.secret \
+  agentscope/copaw:latest
+```
+
+Then open `http://127.0.0.1:8090/` in your browser.
+
+**For Windows Desktop App:**
+
+Currently, the desktop app uses port 8088 by default. If you encounter this
+issue, you can:
+
+1. Run `copaw app --port 8090` from a terminal instead
+2. Or exclude port 8088 from Windows reserved ranges (requires administrator
+   privileges and may affect other services)
+
+**Advanced: Prevent Windows from reserving port 8088**
+
+Run the following in an elevated PowerShell (run as Administrator):
+
+```powershell
+# Exclude port 8088 from the dynamic port range
+netsh int ipv4 set dynamicport tcp start=49152 num=16384
+# Restart Windows for changes to take effect
+```
+
+> ⚠️ **Warning**: This changes system-wide port configuration. Only do this if
+> you understand the implications.
+
 ### Open-source repository
 
 CoPaw is open source. Official repository:
@@ -129,22 +199,27 @@ CoPaw is open source. Official repository:
 
 ### Where to check latest version upgrade details
 
-You can check version changes in CoPaw GitHub
-[Releases](https://github.com/agentscope-ai/CoPaw/releases).
+See the site [Release notes](https://copaw.agentscope.io/release-notes/?lang=en)
+or CoPaw GitHub [Releases](https://github.com/agentscope-ai/CoPaw/releases).
 
 ### How to configure models
 
-In Console, go to **Settings -> Models** to configure. See the
+In Console, go to **Settings → Models** to configure. See the
 [Models](https://copaw.agentscope.io/docs/models) doc for details:
 
-- Cloud models: fill provider API key (e.g. ModelScope, DashScope, or custom),
-  then select the active model.
-- Local models: supports `llama.cpp`, `MLX`, and Ollama. After download, select
-  the active model on the same page.
+- Cloud models: enter the provider API key (e.g. ModelScope, DashScope, or a
+  custom provider).
+- Local models: supports `llama.cpp`, `MLX`, and Ollama.
 
-You can also use `copaw models` CLI commands for configuration, download, and
-switching. See
-[CLI -> Models and environment variables -> copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
+After configuration, choose the target provider and model under **Default LLM**
+at the top of the Models page and **Save** — that becomes the global default.
+
+To use a different model per agent, switch the agent with the selector at the
+top of Console, then pick a model in the top-left of the **Chat** page for that
+agent.
+
+You can also use `copaw models` for setup, downloads, and switching. See
+[CLI → Models and environment variables → copaw models](https://copaw.agentscope.io/docs/cli#copaw-models).
 
 ### When using models deployed with Ollama / LM Studio, why can't CoPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?
 
@@ -230,7 +305,7 @@ custom Skills, and import Skills from Skills Hub. See
 Go to **Agent -> MCP** in Console. You can enable/disable/delete/create MCP
 clients there. See [MCP](https://copaw.agentscope.io/docs/mcp).
 
-### Common error
+### Common errors
 
 1. Error pattern: `You didn't provide an API key`
 

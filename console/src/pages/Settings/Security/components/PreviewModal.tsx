@@ -1,6 +1,7 @@
 import { Modal, Button, Tag } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { ToolGuardRule } from "../../../../api/modules/security";
+import { useTheme } from "../../../../contexts/ThemeContext";
 
 const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: "red",
@@ -17,8 +18,18 @@ interface PreviewModalProps {
 
 export function PreviewModal({ rule, onClose }: PreviewModalProps) {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
 
   if (!rule) return null;
+
+  const preStyle: React.CSSProperties = {
+    background: isDark ? "#1a1a1a" : "#f5f5f5",
+    color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+    padding: 12,
+    borderRadius: 6,
+    fontSize: 13,
+    border: isDark ? "1px solid rgba(255,255,255,0.12)" : "1px solid #e8e8e8",
+  };
 
   return (
     <Modal
@@ -63,31 +74,13 @@ export function PreviewModal({ rule, onClose }: PreviewModalProps) {
         <p>
           <strong>{t("security.rules.patterns")}:</strong>
         </p>
-        <pre
-          style={{
-            background: "#f5f5f5",
-            padding: 12,
-            borderRadius: 6,
-            fontSize: 13,
-          }}
-        >
-          {rule.patterns.join("\n")}
-        </pre>
+        <pre style={preStyle}>{rule.patterns.join("\n")}</pre>
         {rule.exclude_patterns.length > 0 && (
           <>
             <p>
               <strong>{t("security.rules.excludePatterns")}:</strong>
             </p>
-            <pre
-              style={{
-                background: "#f5f5f5",
-                padding: 12,
-                borderRadius: 6,
-                fontSize: 13,
-              }}
-            >
-              {rule.exclude_patterns.join("\n")}
-            </pre>
+            <pre style={preStyle}>{rule.exclude_patterns.join("\n")}</pre>
           </>
         )}
       </div>

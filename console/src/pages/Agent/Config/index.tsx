@@ -1,10 +1,15 @@
-import { useState } from "react";
 import { Button, Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
 import {
   PageHeader,
   ReactAgentCard,
+  LlmRetryCard,
+  LlmRateLimiterCard,
+  ContextCompactCard,
+  ToolResultCompactCard,
+  MemorySummaryCard,
+  EmbeddingConfigCard,
   ContextManagementCard,
 } from "./components";
 import styles from "./index.module.less";
@@ -18,34 +23,16 @@ function AgentConfigPage() {
     error,
     language,
     savingLang,
+    timezone,
+    savingTimezone,
     fetchConfig,
     handleSave,
     handleLanguageChange,
+    handleTimezoneChange,
   } = useAgentConfig();
 
-  // Force re-render when form values change to refresh derived threshold values
-  const [, forceUpdate] = useState({});
-  const handleValuesChange = () => forceUpdate({});
-
-  const getCalculatedValues = () => {
-    const values = form.getFieldsValue([
-      "max_input_length",
-      "memory_compact_ratio",
-      "memory_reserve_ratio",
-    ]);
-    const maxInputLength = values.max_input_length ?? 0;
-    const memoryCompactRatio = values.memory_compact_ratio ?? 0;
-    const memoryReserveRatio = values.memory_reserve_ratio ?? 0;
-    return {
-      contextCompactThreshold: Math.floor(maxInputLength * memoryCompactRatio),
-      contextCompactReserveThreshold: Math.floor(
-        maxInputLength * memoryReserveRatio,
-      ),
-    };
-  };
-
-  const { contextCompactThreshold, contextCompactReserveThreshold } =
-    getCalculatedValues();
+  const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
+  const maxInputLength = Form.useWatch("max_input_length", form) ?? 0;
 
   if (loading) {
     return (
@@ -73,24 +60,34 @@ function AgentConfigPage() {
   return (
     <div className={styles.configPage}>
       <PageHeader />
+      <div className={styles.pageContent}>
+        <div className={styles.formContainer}>
+          <Form form={form} layout="vertical" className={styles.form}>
+            <ReactAgentCard
+              language={language}
+              savingLang={savingLang}
+              onLanguageChange={handleLanguageChange}
+              timezone={timezone}
+              savingTimezone={savingTimezone}
+              onTimezoneChange={handleTimezoneChange}
+            />
 
-      <Form
-        form={form}
-        layout="vertical"
-        className={styles.form}
-        onValuesChange={handleValuesChange}
-      >
-        <ReactAgentCard
-          language={language}
-          savingLang={savingLang}
-          onLanguageChange={handleLanguageChange}
-        />
+            <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
 
-        <ContextManagementCard
-          contextCompactThreshold={contextCompactThreshold}
-          contextCompactReserveThreshold={contextCompactReserveThreshold}
-        />
-      </Form>
+            <LlmRateLimiterCard />
+
+            <ContextManagementCard />
+
+            <ContextCompactCard maxInputLength={maxInputLength} />
+
+            <ToolResultCompactCard />
+
+            <MemorySummaryCard />
+
+            <EmbeddingConfigCard />
+          </Form>
+        </div>
+      </div>
 
       <div className={styles.footerActions}>
         <Button

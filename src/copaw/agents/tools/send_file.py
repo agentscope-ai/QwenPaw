@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long,too-many-return-statements
 import os
 import mimetypes
+import unicodedata
 
 from agentscope.tool import ToolResponse
 from agentscope.message import (
@@ -38,6 +39,11 @@ async def send_file_to_user(
         `ToolResponse`:
             The tool response containing the file or an error message.
     """
+
+    # Normalize the path: expand ~ and fix Unicode normalization differences
+    # (e.g. macOS stores filenames as NFD but paths from the LLM arrive as NFC,
+    # causing os.path.exists to return False for files that do exist).
+    file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
 
     if not os.path.exists(file_path):
         return ToolResponse(
@@ -76,21 +82,21 @@ async def send_file_to_user(
             return ToolResponse(
                 content=[
                     ImageBlock(type="image", source=source),
-                    TextBlock(type="text", text="已成功发送文件"),
+                    TextBlock(type="text", text="File sent successfully."),
                 ],
             )
         if as_type == "audio":
             return ToolResponse(
                 content=[
                     AudioBlock(type="audio", source=source),
-                    TextBlock(type="text", text="已成功发送文件"),
+                    TextBlock(type="text", text="File sent successfully."),
                 ],
             )
         if as_type == "video":
             return ToolResponse(
                 content=[
                     VideoBlock(type="video", source=source),
-                    TextBlock(type="text", text="已成功发送文件"),
+                    TextBlock(type="text", text="File sent successfully."),
                 ],
             )
 
@@ -101,7 +107,7 @@ async def send_file_to_user(
                     source=source,
                     filename=os.path.basename(file_path),
                 ),
-                TextBlock(type="text", text="已成功发送文件"),
+                TextBlock(type="text", text="File sent successfully."),
             ],
         )
 

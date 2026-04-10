@@ -7,12 +7,13 @@ import copaw.providers.openai_provider as openai_provider_module
 from copaw.providers.openai_provider import OpenAIProvider
 
 
-def _make_provider() -> OpenAIProvider:
+def _make_provider(is_custom: bool = False) -> OpenAIProvider:
     return OpenAIProvider(
         id="openai",
         name="OpenAI",
         base_url="https://mock-openai.local/v1",
         api_key="sk-test",
+        is_custom=is_custom,
         chat_model="OpenAIChatModel",
     )
 
@@ -148,7 +149,7 @@ async def test_check_model_connection_api_error_returns_false(
 
 
 async def test_update_config_updates_non_none_values_and_get_info() -> None:
-    provider = _make_provider()
+    provider = _make_provider(is_custom=True)
 
     provider.update_config(
         {
@@ -175,6 +176,8 @@ async def test_update_config_updates_non_none_values_and_get_info() -> None:
     assert info.chat_model == "OpenAIChatModel"
     assert info.api_key_prefix == "sk-"
     assert info.generate_kwargs == {"temperature": 0.2, "top_p": 0.9}
+    assert info.is_custom
+    assert not info.support_connection_check
 
 
 async def test_update_config_skips_none_values() -> None:  # noqa: E501

@@ -24,7 +24,7 @@ interface FileListPanelProps {
   selectedFile: MarkdownFile | null;
   dailyMemories: DailyMemoryFile[];
   expandedMemory: boolean;
-  workspacePath: string;
+  workspacePath: string | null;
   enabledFiles: string[];
   onRefresh: () => void;
   onFileClick: (file: MarkdownFile) => void;
@@ -81,9 +81,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
       >
         <div className={styles.headerRow}>
           <h3 className={styles.sectionTitle}>{t("workspace.coreFiles")}</h3>
-          <Button size="small" onClick={onRefresh} icon={<ReloadOutlined />}>
-            {t("common.refresh")}
-          </Button>
+          <Button size="small" onClick={onRefresh} icon={<ReloadOutlined />} />
         </div>
 
         <p className={styles.infoText}>{t("workspace.coreFilesDesc")}</p>

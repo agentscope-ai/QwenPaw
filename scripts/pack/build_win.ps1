@@ -125,6 +125,33 @@ if (Test-Path $CondaUnpack) {
   Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
 }
 
+Write-Host "== Pre-compiling Python bytecode for faster startup =="
+$pythonExe = Join-Path $EnvRoot "python.exe"
+if (Test-Path $pythonExe) {
+  Write-Host "[build_win] Compiling all .py files to .pyc..."
+  $compileStart = Get-Date
+  
+  # Compile all Python files to bytecode
+  # -q: quiet mode (only show errors)
+  # -j 0: use all CPU cores for parallel compilation
+  & $pythonExe -m compileall -q -j 0 $EnvRoot
+  
+  if ($LASTEXITCODE -eq 0) {
+    $compileEnd = Get-Date
+    $compileTime = ($compileEnd - $compileStart).TotalSeconds
+    Write-Host "[build_win] ✓ Bytecode compilation completed in $($compileTime.ToString('F1')) seconds"
+    
+    # Count compiled files for reporting
+    $pycCount = (Get-ChildItem -Path $EnvRoot -Recurse -Filter "*.pyc" -ErrorAction SilentlyContinue | Measure-Object).Count
+    Write-Host "[build_win] Generated $pycCount .pyc files (these will be included in installer)"
+  } else {
+    Write-Host "[build_win] WARN: Bytecode compilation had some errors (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
+    Write-Host "[build_win] This is usually not critical - app will compile on first run" -ForegroundColor Yellow
+  }
+} else {
+  Write-Host "[build_win] WARN: python.exe not found at $pythonExe, skipping bytecode compilation" -ForegroundColor Yellow
+}
+
 # Main launcher .bat (will be hidden by VBS)
 $LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
 @"

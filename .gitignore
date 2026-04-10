@@ -19,6 +19,7 @@ dist/
 # Console frontend build (generated in Docker/CI, do not commit)
 src/copaw/console/dist/
 src/copaw/console/
+console/.cursor/
 
 # frontend (website)
 website/node_modules/
@@ -89,3 +90,10 @@ CLAUDE.md
 
 # Build cache
 .cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround
+
+# Hypothesis test cache
+.hypothesis/
+src/.hypothesis/
+
+# Kiro IDE
+.kiro/

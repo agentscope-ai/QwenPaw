@@ -1,11 +1,74 @@
 .tokenUsagePage {
-  padding: 24px;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :global {
+    .copaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+
+    .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+      background: #f9f8f4 !important;
+    }
+  }
 }
 
-/* ---- Section (same as Models / Environments) ---- */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px;
+
+  :global {
+    .copaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+    .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+      background: #f9f8f4 !important;
+    }
+  }
+}
+
+/* ---- Page Header (breadcrumb style) ---- */
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+/* ---- Deprecated Section styles (kept for backward compatibility) ---- */
 
 .section {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
 }
 
 .section:last-child {
@@ -56,7 +119,8 @@
   display: flex;
   gap: 12px;
   align-items: center;
-  margin-bottom: 24px;
+  margin: 20px 0;
+  padding: 0 16px;
 }
 
 .datePicker {
@@ -68,6 +132,7 @@
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 24px;
+  padding: 0 16px;
 }
 
 .card {
@@ -91,9 +156,29 @@
 
 .tableCard {
   margin-bottom: 24px;
+  border: none !important;
 
   &:last-child {
     margin-bottom: 0;
+  }
+
+  :global {
+    .copaw-card .copaw-card-bordered .copaw-spark-card {
+      border: none !important;
+    }
+    .copaw-card-body {
+      padding: 0;
+    }
+
+    .copaw-spark-title {
+      font-family: Inter !important;
+      font-size: 20px !important;
+      font-weight: 500 !important;
+      line-height: 24px !important;
+      letter-spacing: normal;
+      color: rgba(20, 20, 19, 0.88);
+      padding: 16px;
+    }
   }
 }
 
@@ -131,4 +216,73 @@
 .modelCell {
   font-family: "SF Mono", "Menlo", monospace;
   font-size: 13px;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .tokenUsagePage {
+    :global {
+      .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+        background: rgba(255, 255, 255, 0.04) !important;
+      }
+    }
+  }
+
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .sectionDesc {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .loadingText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .emptyState {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  /* Summary cards */
+  .cardValue {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .cardLabel {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Data table */
+  .table {
+    th,
+    td {
+      border-bottom-color: rgba(255, 255, 255, 0.06);
+    }
+
+    th {
+      color: rgba(255, 255, 255, 0.4);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    td {
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    tbody tr:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+  }
 }

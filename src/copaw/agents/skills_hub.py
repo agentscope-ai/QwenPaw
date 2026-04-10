@@ -7,21 +7,49 @@ import logging
 import os
 import re
 import time
+import contextvars
 import base64
 import io
 import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlparse, unquote
+from urllib.parse import quote, urlencode, urlparse, unquote
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from contextlib import contextmanager
 
 import frontmatter
 import yaml
 
-from .skills_manager import SkillService
+from .skills_manager import (
+    SkillConflictError,
+    SkillPoolService,
+    SkillService,
+    suggest_conflict_name,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _build_hub_conflict(name: str) -> dict[str, Any]:
+    conflict = {
+        "reason": "conflict",
+        "skill_name": name,
+        "suggested_name": suggest_conflict_name(name),
+    }
+    return {
+        **conflict,
+        "conflicts": [conflict],
+        "message": (
+            f"Failed to create skill '{name}'. " "This skill already exists."
+        ),
+    }
+
+
+_cancel_checker_ctx: contextvars.ContextVar[
+    Any | None
+] = contextvars.ContextVar("skills_hub_cancel_checker", default=None)
 
 
 @dataclass
@@ -40,6 +68,10 @@ class HubInstallResult:
     source_url: str
 
 
+class SkillImportCancelled(RuntimeError):
+    """Raised when a skill import task is cancelled by user."""
+
+
 RETRYABLE_HTTP_STATUS = {
     408,
     409,
@@ -54,6 +86,42 @@ RETRYABLE_HTTP_STATUS = {
 LOBEHUB_MAX_ZIP_ENTRIES = 256
 LOBEHUB_MAX_ZIP_BYTES = 5 * 1024 * 1024
 HTTP_READ_CHUNK_BYTES = 64 * 1024
+
+_GITHUB_CACHE_DEFAULT_TTL = 300  # 5 minutes
+_github_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _github_cache_ttl() -> float:
+    raw = os.environ.get("COPAW_GITHUB_CACHE_TTL", "")
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    return float(_GITHUB_CACHE_DEFAULT_TTL)
+
+
+def _github_cache_get(key: str) -> Any:
+    entry = _github_cache.get(key)
+    if entry is None:
+        return None
+    ts, value = entry
+    if time.monotonic() - ts > _github_cache_ttl():
+        del _github_cache[key]
+        return None
+    return value
+
+
+_GITHUB_CACHE_MISS = object()
+
+
+def _github_cached(key: str) -> Any:
+    val = _github_cache_get(key)
+    return _GITHUB_CACHE_MISS if val is None else val
+
+
+def _github_cache_set(key: str, value: Any) -> None:
+    _github_cache[key] = (time.monotonic(), value)
 
 
 def _hub_http_timeout() -> float:
@@ -92,6 +160,29 @@ def _compute_backoff_seconds(attempt: int) -> float:
     base = _hub_http_backoff_base()
     cap = _hub_http_backoff_cap()
     return min(cap, base * (2 ** max(0, attempt - 1)))
+
+
+def _ensure_not_cancelled() -> None:
+    checker = _cancel_checker_ctx.get()
+    if checker is None:
+        return
+    try:
+        if bool(checker()):
+            raise SkillImportCancelled("Skill import cancelled by user")
+    except SkillImportCancelled:
+        raise
+    except Exception:
+        # Ignore checker failures and continue.
+        return
+
+
+@contextmanager
+def _with_cancel_checker(checker: Any | None):
+    token = _cancel_checker_ctx.set(checker)
+    try:
+        yield
+    finally:
+        _cancel_checker_ctx.reset(token)
 
 
 def _hub_base_url() -> str:
@@ -152,6 +243,7 @@ def _read_response_bytes(
     full_url: str,
     max_bytes: int | None = None,
 ) -> bytes:
+    _ensure_not_cancelled()
     if max_bytes is not None and max_bytes <= 0:
         raise ValueError("max_bytes must be greater than 0")
 
@@ -175,6 +267,7 @@ def _read_response_bytes(
 
     body = bytearray()
     while True:
+        _ensure_not_cancelled()
         chunk = resp.read(HTTP_READ_CHUNK_BYTES)
         if not chunk:
             return bytes(body)
@@ -193,6 +286,7 @@ def _http_fetch(
     accept: str = "application/json",
     max_bytes: int | None = None,
 ) -> bytes:
+    _ensure_not_cancelled()
     full_url = url
     if params:
         full_url = f"{url}?{urlencode(params)}"
@@ -203,6 +297,7 @@ def _http_fetch(
     attempts = retries + 1
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        _ensure_not_cancelled()
         try:
             with urlopen(req, timeout=timeout) as resp:
                 return _read_response_bytes(
@@ -224,9 +319,9 @@ def _http_fetch(
                     or "rate limit" in str(e).lower()
                 ):
                     raise RuntimeError(
-                        "GitHub API rate limit exceeded while fetching "
-                        "skills.sh skill files. Set GITHUB_TOKEN "
-                        "(or GH_TOKEN) to increase the limit, then retry.",
+                        "GitHub API rate limit exceeded"
+                        ". Set GITHUB_TOKEN "
+                        "to increase the limit, then retry.",
                     ) from e
             # Retry only temporary/rate-limit server failures.
             if attempt < attempts and status in RETRYABLE_HTTP_STATUS:
@@ -239,8 +334,27 @@ def _http_fetch(
                     attempts,
                     delay,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
+            # User-facing message when retries exhausted (429, 5xx).
+            retries = attempts - 1
+            if status == 429:
+                hint = ""
+                if "api.github.com" in host or "github" in full_url.lower():
+                    hint = (
+                        " For GitHub sources, set GITHUB_TOKEN to avoid "
+                        "rate limits."
+                    )
+                raise RuntimeError(
+                    f"Hub returned 429 (Too Many Requests) after {retries} "
+                    f"retries. Try again later.{hint}",
+                ) from e
+            if status >= 500:
+                raise RuntimeError(
+                    f"Hub returned {status} after {retries} retries. "
+                    "Try again later.",
+                ) from e
             raise
         except URLError as e:
             last_error = e
@@ -255,6 +369,7 @@ def _http_fetch(
                     delay,
                     e,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
             raise
@@ -269,6 +384,7 @@ def _http_fetch(
                     attempts,
                     delay,
                 )
+                _ensure_not_cancelled()
                 time.sleep(delay)
                 continue
             raise
@@ -483,6 +599,7 @@ def _hydrate_clawhub_payload(
     base = _hub_base_url()
     file_url = _join_url(base, _hub_file_path().format(slug=skill_slug))
     files: dict[str, str] = {}
+    last_fetch_error: Exception | None = None
     for item in files_meta:
         if not isinstance(item, dict):
             continue
@@ -495,9 +612,14 @@ def _hydrate_clawhub_payload(
         try:
             files[path] = _http_text_get(file_url, params=params)
         except Exception as e:
+            last_fetch_error = e
             logger.warning("Failed to fetch hub file %s: %s", path, e)
 
     if not files.get("SKILL.md"):
+        if last_fetch_error is not None:
+            raise RuntimeError(
+                "Failed to fetch SKILL.md from hub: " + str(last_fetch_error),
+            ) from last_fetch_error
         return data
 
     return {
@@ -705,6 +827,38 @@ def _extract_lobehub_identifier(url: str) -> str:
     return ""
 
 
+def _extract_modelscope_skill_spec(
+    url: str,
+) -> tuple[str, str, str] | None:
+    """
+    Parse ModelScope skills URL into (owner, skill_name, version_hint).
+    """
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    if host not in {"modelscope.cn", "www.modelscope.cn"}:
+        return None
+    parts = [unquote(p) for p in parsed.path.split("/") if p]
+    if len(parts) < 3 or parts[0] != "skills":
+        return None
+
+    owner_part = parts[1].strip()
+    skill_name = parts[2].strip()
+    if not owner_part or not skill_name:
+        return None
+    owner = owner_part[1:] if owner_part.startswith("@") else owner_part
+    owner = owner.strip()
+    if not owner:
+        return None
+
+    version_hint = ""
+    if len(parts) >= 6 and parts[3] == "archive" and parts[4] == "zip":
+        archive_name = parts[5].strip()
+        if archive_name.endswith(".zip"):
+            archive_name = archive_name[: -len(".zip")]
+        version_hint = archive_name
+    return owner, skill_name, version_hint
+
+
 def _extract_github_spec(
     url: str,
 ) -> tuple[str, str, str, str] | None:
@@ -735,11 +889,17 @@ def _extract_github_spec(
 def _github_repo_exists(owner: str, repo: str) -> bool:
     if not owner or not repo:
         return False
+    cache_key = f"repo_exists:{owner}/{repo}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     try:
         data = _http_json_get(_github_api_url(owner, repo, ""))
-        return isinstance(data, dict) and data.get("full_name") is not None
+        result = isinstance(data, dict) and data.get("full_name") is not None
     except Exception:
-        return False
+        result = False
+    _github_cache_set(cache_key, result)
+    return result
 
 
 # pylint: disable-next=too-many-return-statements,too-many-branches
@@ -796,13 +956,26 @@ def _github_api_url(owner: str, repo: str, suffix: str) -> str:
     return f"{base}/{cleaned}" if cleaned else base
 
 
+def _github_encode_path(path: str) -> str:
+    cleaned = path.strip("/")
+    if not cleaned:
+        return ""
+    return quote(cleaned, safe="/")
+
+
 def _github_get_default_branch(owner: str, repo: str) -> str:
+    cache_key = f"default_branch:{owner}/{repo}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     repo_meta = _http_json_get(_github_api_url(owner, repo, ""))
+    branch = "main"
     if isinstance(repo_meta, dict):
-        branch = repo_meta.get("default_branch")
-        if isinstance(branch, str) and branch.strip():
-            return branch.strip()
-    return "main"
+        raw = repo_meta.get("default_branch")
+        if isinstance(raw, str) and raw.strip():
+            branch = raw.strip()
+    _github_cache_set(cache_key, branch)
+    return branch
 
 
 def _normalize_skill_key(text: str) -> str:
@@ -814,6 +987,10 @@ def _github_list_skill_md_roots(
     repo: str,
     ref: str,
 ) -> list[str]:
+    cache_key = f"skill_md_roots:{owner}/{repo}/{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
     tree_url = _github_api_url(owner, repo, f"git/trees/{ref}")
     try:
         data = _http_json_get(tree_url, {"recursive": "1"})
@@ -846,6 +1023,7 @@ def _github_list_skill_md_roots(
             continue
         seen.add(root)
         unique.append(root)
+    _github_cache_set(cache_key, unique)
     return unique
 
 
@@ -855,10 +1033,16 @@ def _github_get_content_entry(
     path: str,
     ref: str,
 ) -> dict[str, Any]:
-    content_url = _github_api_url(owner, repo, f"contents/{path}")
+    cache_key = f"content:{owner}/{repo}/{path}@{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
+    encoded_path = _github_encode_path(path)
+    content_url = _github_api_url(owner, repo, f"contents/{encoded_path}")
     data = _http_json_get(content_url, {"ref": ref})
     if not isinstance(data, dict):
         raise ValueError(f"Unexpected GitHub response for path: {path}")
+    _github_cache_set(cache_key, data)
     return data
 
 
@@ -868,11 +1052,19 @@ def _github_get_dir_entries(
     path: str,
     ref: str,
 ) -> list[dict[str, Any]]:
-    content_url = _github_api_url(owner, repo, f"contents/{path}")
+    cache_key = f"dir:{owner}/{repo}/{path}@{ref}"
+    cached = _github_cached(cache_key)
+    if cached is not _GITHUB_CACHE_MISS:
+        return cached
+    encoded_path = _github_encode_path(path)
+    suffix = "contents" if not encoded_path else f"contents/{encoded_path}"
+    content_url = _github_api_url(owner, repo, suffix)
     data = _http_json_get(content_url, {"ref": ref})
+    result: list[dict[str, Any]] = []
     if isinstance(data, list):
-        return [x for x in data if isinstance(x, dict)]
-    return []
+        result = [x for x in data if isinstance(x, dict)]
+    _github_cache_set(cache_key, result)
+    return result
 
 
 def _github_read_file(entry: dict[str, Any]) -> str:
@@ -914,16 +1106,18 @@ def _github_collect_tree_files(
     repo: str,
     ref: str,
     root: str,
-    subdir: str,
     max_files: int = 200,
 ) -> dict[str, str]:
     files: dict[str, str] = {}
-    pending = [_join_repo_path(root, subdir)]
+    pending = [root] if root else [""]
     visited = 0
     while pending:
+        _ensure_not_cancelled()
         current_dir = pending.pop()
-        entries = _github_get_dir_entries(owner, repo, current_dir, ref)
+        target_dir = current_dir or ""
+        entries = _github_get_dir_entries(owner, repo, target_dir, ref)
         for entry in entries:
+            _ensure_not_cancelled()
             entry_type = str(entry.get("type") or "")
             entry_path = str(entry.get("path") or "")
             if not entry_path:
@@ -934,10 +1128,6 @@ def _github_collect_tree_files(
             if entry_type != "file":
                 continue
             rel = _relative_from_root(entry_path, root)
-            if not (
-                rel.startswith("references/") or rel.startswith("scripts/")
-            ):
-                continue
             files[rel] = _github_read_file(entry)
             visited += 1
             if visited >= max_files:
@@ -949,7 +1139,6 @@ def _github_collect_tree_files(
     return files
 
 
-# pylint: disable-next=too-many-branches,too-many-statements
 def _fetch_bundle_from_skills_sh_url(
     bundle_url: str,
     requested_version: str,
@@ -958,103 +1147,16 @@ def _fetch_bundle_from_skills_sh_url(
     if spec is None:
         raise ValueError("Invalid skills.sh URL format")
     owner, repo, skill = spec
-    if requested_version.strip():
-        branch_candidates = [requested_version.strip()]
-    else:
-        # Prefer repo default branch (e.g. master).
-        default_branch = _github_get_default_branch(owner, repo)
-        branch_candidates = [default_branch] if default_branch else []
-        for b in ("main", "master"):
-            if b and b not in branch_candidates:
-                branch_candidates.append(b)
-
-    selected_root = ""
-    skill_md_entry: dict[str, Any] | None = None
-    branch = branch_candidates[0]
-    for candidate_branch in branch_candidates:
-        branch = candidate_branch
-        roots = [
-            _join_repo_path("skills", skill),
-            skill,
-            "",
-        ]
-        for root in roots:
-            skill_md_path = _join_repo_path(root, "SKILL.md")
-            try:
-                entry = _github_get_content_entry(
-                    owner,
-                    repo,
-                    skill_md_path,
-                    branch,
-                )
-            except HTTPError as e:
-                if getattr(e, "code", 0) == 404:
-                    continue
-                raise
-            if str(entry.get("type") or "") == "file":
-                selected_root = root
-                skill_md_entry = entry
-                break
-        if skill_md_entry is not None:
-            break
-
-    if skill_md_entry is None:
-        # Fallback: discover skill roots from repo tree and fuzzy-match.
-        skill_norm = _normalize_skill_key(skill)
-        for candidate_branch in branch_candidates:
-            branch = candidate_branch
-            for root in _github_list_skill_md_roots(owner, repo, branch):
-                leaf = root.split("/")[-1] if root else root
-                leaf_norm = _normalize_skill_key(leaf)
-                if not leaf_norm:
-                    continue
-                if (
-                    leaf_norm == skill_norm
-                    or leaf_norm in skill_norm
-                    or skill_norm in leaf_norm
-                    or skill_norm.endswith(f"-{leaf_norm}")
-                ):
-                    selected_root = root
-                    skill_md_path = _join_repo_path(root, "SKILL.md")
-                    try:
-                        entry = _github_get_content_entry(
-                            owner,
-                            repo,
-                            skill_md_path,
-                            branch,
-                        )
-                    except HTTPError:
-                        continue
-                    if str(entry.get("type") or "") == "file":
-                        skill_md_entry = entry
-                        break
-            if skill_md_entry is not None:
-                break
-
-    if skill_md_entry is None:
-        raise ValueError(
-            "Could not find SKILL.md from skills.sh source. "
-            "This skill may not expose SKILL.md in the repository.",
-        )
-
-    files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
-    for subdir in ("references", "scripts"):
-        try:
-            files.update(
-                _github_collect_tree_files(
-                    owner=owner,
-                    repo=repo,
-                    ref=branch,
-                    root=selected_root,
-                    subdir=subdir,
-                ),
-            )
-        except HTTPError as e:
-            if getattr(e, "code", 0) != 404:
-                raise
-
-    source_url = f"https://github.com/{owner}/{repo}"
-    return {"name": skill, "files": files}, source_url
+    default_branch = _github_get_default_branch(owner, repo) or "main"
+    bundle, source_url = _fetch_bundle_from_repo_and_skill_hint(
+        owner=owner,
+        repo=repo,
+        skill_hint=skill,
+        requested_version=requested_version,
+        default_branch=default_branch,
+    )
+    bundle["name"] = skill
+    return bundle, source_url
 
 
 # pylint: disable-next=too-many-branches,too-many-statements
@@ -1066,13 +1168,15 @@ def _fetch_bundle_from_repo_and_skill_hint(
     requested_version: str,
     default_branch: str = "main",
 ) -> tuple[Any, str]:
-    branch_candidates = (
-        [requested_version.strip()]
-        if requested_version.strip()
-        else ["main", "master"]
-    )
-    if default_branch and default_branch not in branch_candidates:
-        branch_candidates.append(default_branch)
+    if requested_version.strip():
+        branch_candidates = [requested_version.strip()]
+    else:
+        branch_candidates = []
+        if default_branch:
+            branch_candidates.append(default_branch)
+        for b in ("main", "master"):
+            if b not in branch_candidates:
+                branch_candidates.append(b)
     skill = skill_hint.strip()
 
     selected_root = ""
@@ -1148,20 +1252,14 @@ def _fetch_bundle_from_repo_and_skill_hint(
         )
 
     files: dict[str, str] = {"SKILL.md": _github_read_file(skill_md_entry)}
-    for subdir in ("references", "scripts"):
-        try:
-            files.update(
-                _github_collect_tree_files(
-                    owner=owner,
-                    repo=repo,
-                    ref=branch,
-                    root=selected_root,
-                    subdir=subdir,
-                ),
-            )
-        except HTTPError as e:
-            if getattr(e, "code", 0) != 404:
-                raise
+    files.update(
+        _github_collect_tree_files(
+            owner=owner,
+            repo=repo,
+            ref=branch,
+            root=selected_root,
+        ),
+    )
     source_url = f"https://github.com/{owner}/{repo}"
     skill_name = skill.split("/")[-1].strip() if skill else repo
     return {"name": skill_name or repo, "files": files}, source_url
@@ -1275,6 +1373,86 @@ def _lobehub_zip_to_bundle(identifier: str, payload: bytes) -> dict[str, Any]:
     return {"name": skill_name.strip(), "files": files}
 
 
+def _fetch_bundle_from_modelscope_url(
+    bundle_url: str,
+    requested_version: str,
+) -> tuple[Any, str]:
+    spec = _extract_modelscope_skill_spec(bundle_url)
+    if spec is None:
+        raise ValueError(
+            "Invalid ModelScope URL format. Use URL like "
+            "https://modelscope.cn/skills/@owner/skill-name",
+        )
+    owner, skill_name, version_hint = spec
+    detail_url = f"https://modelscope.cn/api/v1/skills/@{owner}/{skill_name}"
+    try:
+        detail = _http_json_get(detail_url)
+    except HTTPError as e:
+        raise ValueError(
+            "ModelScope skill lookup failed: "
+            f"{_lobehub_http_error_message(e)}",
+        ) from e
+
+    payload = detail.get("Data") if isinstance(detail, dict) else None
+    if not isinstance(payload, dict):
+        payload = {}
+    source_url = payload.get("SourceURL")
+    source_url = source_url.strip() if isinstance(source_url, str) else ""
+    source_lower = source_url.lower()
+    preferred_version = requested_version.strip() or version_hint
+
+    if source_url and _is_http_url(source_url):
+        if "github.com" in source_lower:
+            bundle, _ = _fetch_bundle_from_github_url(
+                source_url,
+                preferred_version,
+            )
+            return bundle, bundle_url
+        if "clawhub.ai" in source_lower:
+            clawhub_slug = _resolve_clawhub_slug(source_url)
+            if clawhub_slug:
+                try:
+                    bundle, _ = _fetch_bundle_from_clawhub_slug(
+                        clawhub_slug,
+                        preferred_version,
+                    )
+                    return bundle, bundle_url
+                except Exception as e:
+                    inner = str(e).strip()
+                    # Drop ClawHub prefix from inner to avoid showing two URLs.
+                    if inner.startswith("When importing from ClawHub: "):
+                        inner = (
+                            re.sub(
+                                r"^When importing from ClawHub:\s*https?://\S+"
+                                r"(?:\s*:\s*)?",
+                                "",
+                                inner,
+                                count=1,
+                            ).strip()
+                            or inner
+                        )
+                    msg = (
+                        f"When importing from ModelScope ({bundle_url}): "
+                        f"{inner}"
+                    )
+                    raise RuntimeError(msg) from e
+
+    readme_content = payload.get("ReadMeContent")
+    if isinstance(readme_content, str) and readme_content.strip():
+        fallback_name = (
+            str(payload.get("Name") or skill_name).strip() or skill_name
+        )
+        return {
+            "name": fallback_name,
+            "files": {"SKILL.md": readme_content},
+        }, bundle_url
+
+    raise ValueError(
+        "ModelScope skill source is unsupported and ReadMeContent is empty. "
+        "Please import from the original source URL directly.",
+    )
+
+
 def _fetch_bundle_from_lobehub_url(
     bundle_url: str,
     requested_version: str,
@@ -1326,7 +1504,7 @@ def _fetch_bundle_from_clawhub_slug(
             errors.append(f"{candidate}: {e}")
     if data is None:
         raise RuntimeError(
-            "Unable to fetch skill from hub endpoints: " + "; ".join(errors),
+            "When importing from ClawHub: " + "; ".join(errors),
         )
     return (
         _hydrate_clawhub_payload(
@@ -1364,88 +1542,130 @@ def search_hub_skills(query: str, limit: int = 20) -> list[HubSkillResult]:
     return results
 
 
+def _resolve_bundle_from_url(
+    bundle_url: str,
+    version: str,
+) -> tuple[Any, str]:
+    fetcher: Any | None = None
+    clawhub_slug = ""
+    if _extract_skills_sh_spec(bundle_url) is not None:
+        fetcher = _fetch_bundle_from_skills_sh_url
+    elif _extract_github_spec(bundle_url) is not None:
+        fetcher = _fetch_bundle_from_github_url
+    elif _extract_lobehub_identifier(bundle_url):
+        fetcher = _fetch_bundle_from_lobehub_url
+    elif _extract_modelscope_skill_spec(bundle_url) is not None:
+        fetcher = _fetch_bundle_from_modelscope_url
+    elif _extract_skillsmp_slug(bundle_url):
+        fetcher = _fetch_bundle_from_skillsmp_url
+    else:
+        clawhub_slug = _resolve_clawhub_slug(bundle_url)
+
+    if fetcher is not None:
+        return fetcher(bundle_url, requested_version=version)
+    if clawhub_slug:
+        return _fetch_bundle_from_clawhub_slug(clawhub_slug, version)
+    # Backward-compatible fallback for direct bundle JSON URLs.
+    return _http_json_get(bundle_url), bundle_url
+
+
 # pylint: disable-next=too-many-branches
 def install_skill_from_hub(
     *,
+    workspace_dir: Path,
     bundle_url: str,
     version: str = "",
-    enable: bool = True,
+    enable: bool = False,
     overwrite: bool = False,
+    target_name: str | None = None,
+    cancel_checker: Any | None = None,
 ) -> HubInstallResult:
-    source_url = bundle_url
-    data: Any
+    if not bundle_url or not _is_http_url(bundle_url):
+        raise ValueError("bundle_url must be a valid http(s) URL")
+    with _with_cancel_checker(cancel_checker):
+        _ensure_not_cancelled()
+        data, source_url = _resolve_bundle_from_url(bundle_url, version)
 
+        name, content, references, scripts, extra_files = _normalize_bundle(
+            data,
+        )
+        if not name:
+            fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
+            name = _safe_fallback_name(fallback)
+        # Sanitize: "Excel / XLSX" etc. must not be used as dir name
+        name = _sanitize_skill_dir_name(name)
+
+        normalized_target = str(target_name or "").strip()
+        if normalized_target:
+            name = _sanitize_skill_dir_name(normalized_target)
+
+        _ensure_not_cancelled()
+        skill_service = SkillService(workspace_dir)
+        created = skill_service.create_skill(
+            name=name,
+            content=content,
+            overwrite=overwrite,
+            references=references,
+            scripts=scripts,
+            extra_files=extra_files,
+        )
+        if not created:
+            raise SkillConflictError(
+                _build_hub_conflict(name),
+            )
+
+        _ensure_not_cancelled()
+        enabled = False
+        if enable:
+            enable_result = skill_service.enable_skill(created)
+            enabled = bool(enable_result.get("success", False))
+            if not enabled:
+                logger.warning(
+                    "Skill '%s' imported but enable failed",
+                    created,
+                )
+
+        return HubInstallResult(
+            name=created,
+            enabled=enabled,
+            source_url=source_url,
+        )
+
+
+def import_pool_skill_from_hub(
+    *,
+    bundle_url: str,
+    version: str = "",
+    target_name: str | None = None,
+) -> HubInstallResult:
     if not bundle_url or not _is_http_url(bundle_url):
         raise ValueError("bundle_url must be a valid http(s) URL")
 
-    skills_spec = _extract_skills_sh_spec(bundle_url)
-    if skills_spec is not None:
-        data, source_url = _fetch_bundle_from_skills_sh_url(
-            bundle_url,
-            requested_version=version,
-        )
-    else:
-        github_spec = _extract_github_spec(bundle_url)
-        if github_spec is not None:
-            data, source_url = _fetch_bundle_from_github_url(
-                bundle_url,
-                requested_version=version,
-            )
-        else:
-            lobehub_identifier = _extract_lobehub_identifier(bundle_url)
-            if lobehub_identifier:
-                data, source_url = _fetch_bundle_from_lobehub_url(
-                    bundle_url,
-                    requested_version=version,
-                )
-            else:
-                skillsmp_slug = _extract_skillsmp_slug(bundle_url)
-                if skillsmp_slug:
-                    data, source_url = _fetch_bundle_from_skillsmp_url(
-                        bundle_url,
-                        requested_version=version,
-                    )
-                else:
-                    clawhub_slug = _resolve_clawhub_slug(bundle_url)
-                    if clawhub_slug:
-                        data, source_url = _fetch_bundle_from_clawhub_slug(
-                            clawhub_slug,
-                            version,
-                        )
-                    else:
-                        # Backward-compatible fallback for direct bundle
-                        # JSON URLs.
-                        data = _http_json_get(bundle_url)
-
+    data, source_url = _resolve_bundle_from_url(bundle_url, version)
     name, content, references, scripts, extra_files = _normalize_bundle(data)
     if not name:
         fallback = urlparse(bundle_url).path.strip("/").split("/")[-1]
         name = _safe_fallback_name(fallback)
-    # Sanitize: "Excel / XLSX" etc. must not be used as dir name
     name = _sanitize_skill_dir_name(name)
+    normalized_target = str(target_name or "").strip()
+    if normalized_target:
+        name = _sanitize_skill_dir_name(normalized_target)
 
-    created = SkillService.create_skill(
+    pool_service = SkillPoolService()
+    created = pool_service.create_skill(
         name=name,
         content=content,
-        overwrite=overwrite,
         references=references,
         scripts=scripts,
         extra_files=extra_files,
     )
     if not created:
-        raise RuntimeError(
-            f"Failed to create skill '{name}'. "
-            "Try overwrite=true if it already exists.",
+        raise SkillConflictError(
+            _build_hub_conflict(name),
         )
 
-    enabled = False
-    if enable:
-        enabled = SkillService.enable_skill(name, force=True)
-        if not enabled:
-            logger.warning("Skill '%s' imported but enable failed", name)
-
     return HubInstallResult(
-        name=name,
-        enabled=enabled,
+        name=created,
+        enabled=False,
         source_url=source_url,
     )

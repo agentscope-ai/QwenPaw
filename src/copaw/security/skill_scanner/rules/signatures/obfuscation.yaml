@@ -1,0 +1,46 @@
+# Obfuscation & Malware Indicator Signatures
+# Detects base64 decode/exec chains, hex blobs, XOR encoding, and binary files
+
+- id: OBFUSCATION_BASE64_LARGE
+  category: obfuscation
+  severity: MEDIUM
+  patterns:
+    # Prioritize decode/execute chains instead of generic long base64 blobs
+    - "(?:base64\\.(?:b64decode|decodebytes)|atob\\s*\\()[^\\n]{0,140}(?:eval|exec|os\\.system|subprocess)"
+    - "(?:eval|exec|os\\.system|subprocess)[^\\n]{0,140}(?:base64\\.(?:b64decode|decodebytes)|atob\\s*\\()"
+  file_types: [python, bash, markdown, javascript, typescript]
+  description: "Base64 decode and execution chain (possible obfuscation)"
+  remediation: "Avoid encoded execution paths; decode and inspect content explicitly"
+
+- id: OBFUSCATION_HEX_BLOB
+  category: obfuscation
+  severity: MEDIUM
+  patterns:
+    - "(?:\\\\x[0-9a-fA-F]{2}){20,}"
+    - "(?:0x[0-9a-fA-F]{2},?\\s*){20,}"
+  exclude_patterns:
+    # iconv-lite / encoding library character map tables in bundled JS
+    - "\"chars\"\\s*:"
+    - "'chars'\\s*:"
+  file_types: [python, javascript, typescript]
+  description: "Large hex-encoded blob (possible obfuscation)"
+  remediation: "Use clear code instead of hex encoding"
+
+- id: OBFUSCATION_XOR_ENCODING
+  category: obfuscation
+  severity: MEDIUM
+  patterns:
+    - "\\^\\s*0x[0-9a-fA-F]{2,}"
+    - "\\bxor\\b[^\\n]{0,80}(?:decode|decrypt|obfuscat|payload|shellcode|exec|eval)"
+  file_types: [python, javascript, typescript]
+  description: "XOR used in decode/execute context (possible obfuscation)"
+  remediation: "Use transparent transformations and document any required XOR logic"
+
+- id: OBFUSCATION_BINARY_FILE
+  category: obfuscation
+  severity: CRITICAL
+  patterns:
+    - ".*"  # Special handling in analyzer
+  file_types: [binary]
+  description: "Binary executable included in skill package"
+  remediation: "Remove binary files. Use Python/Bash scripts only"

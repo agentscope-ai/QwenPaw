@@ -1,3 +1,5 @@
+import type { TFunction } from "i18next";
+
 // Channel key type - now accepts any string for custom channels
 export type ChannelKey = string;
 
@@ -14,16 +16,23 @@ export const CHANNEL_LABELS: Record<string, string> = {
   matrix: "Matrix",
   console: "Console",
   voice: "Twilio",
+  wecom: "WeCom",
+  xiaoyi: "XiaoYi",
+  weixin: "WeChat",
 };
 
-// Get channel label - returns built-in label or formatted custom name
-export function getChannelLabel(key: string): string {
-  if (CHANNEL_LABELS[key]) {
-    return CHANNEL_LABELS[key];
-  }
-  // Format custom channel name: my_channel -> My Channel
+function formatCustomChannelKey(key: string): string {
   return key
     .split(/[_-]/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+// Per-locale strings under `channels.channelNames.*`; missing keys use `defaultValue` (English labels).
+export function getChannelLabel(key: string, t?: TFunction): string {
+  const english = CHANNEL_LABELS[key] ?? formatCustomChannelKey(key);
+  if (t) {
+    return t(`channels.channelNames.${key}`, { defaultValue: english });
+  }
+  return english;
 }

@@ -5,6 +5,7 @@ import {
   useRef,
   createContext,
   useContext,
+  isValidElement,
 } from "react";
 import {
   Link,
@@ -30,6 +31,7 @@ import {
   Command,
   Activity,
   Settings,
+  Shield,
   CircleHelp,
   Users,
   GitBranch,
@@ -41,6 +43,7 @@ import {
   ArrowUp,
   Copy,
   Check,
+  User,
   type LucideIcon,
 } from "lucide-react";
 import { Nav } from "../components/Nav";
@@ -130,6 +133,21 @@ function headingText(children: React.ReactNode): string {
   return "";
 }
 
+function isMermaidBlockNode(children: React.ReactNode): boolean {
+  if (Array.isArray(children)) return children.some(isMermaidBlockNode);
+  if (!isValidElement(children)) return false;
+  if (children.type === MermaidBlock) return true;
+
+  const props = children.props as {
+    className?: string;
+    children?: React.ReactNode;
+  };
+  const className = props.className ?? "";
+  if (className.split(/\s+/).includes("language-mermaid")) return true;
+
+  return isMermaidBlockNode(props.children);
+}
+
 interface DocEntry {
   slug: string;
   titleKey: string;
@@ -180,8 +198,10 @@ const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
   intro: Rocket,
   quickstart: Zap,
   console: Terminal,
+  "multi-agent": Users,
   models: Cpu,
   channels: MessageSquare,
+  persona: User,
   skills: Wrench,
   mcp: Plug,
   memory: Brain,
@@ -189,6 +209,7 @@ const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
   commands: Command,
   heartbeat: Activity,
   config: Settings,
+  security: Shield,
   cli: Terminal,
   faq: CircleHelp,
   community: Users,
@@ -206,13 +227,16 @@ const DOC_SLUGS: DocEntry[] = [
   { slug: "console", titleKey: "docs.console" },
   { slug: "models", titleKey: "docs.models" },
   { slug: "channels", titleKey: "docs.channels" },
+  { slug: "persona", titleKey: "docs.persona" },
   { slug: "skills", titleKey: "docs.skills" },
   { slug: "mcp", titleKey: "docs.mcp" },
   { slug: "memory", titleKey: "docs.memory" },
   { slug: "context", titleKey: "docs.context" },
   { slug: "commands", titleKey: "docs.commands" },
   { slug: "heartbeat", titleKey: "docs.heartbeat" },
+  { slug: "multi-agent", titleKey: "docs.multiAgent" },
   { slug: "config", titleKey: "docs.config" },
+  { slug: "security", titleKey: "docs.security" },
   { slug: "cli", titleKey: "docs.cli" },
   { slug: "faq", titleKey: "docs.faq" },
   { slug: "community", titleKey: "docs.community" },
@@ -235,12 +259,15 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
     "docs.quickstart": "快速开始",
     "docs.desktop": "桌面应用",
     "docs.console": "控制台",
+    "docs.multiAgent": "多智能体",
     "docs.models": "模型",
     "docs.channels": "频道配置",
+    "docs.persona": "智能体的人设",
     "docs.heartbeat": "心跳",
     "docs.cli": "CLI",
     "docs.skills": "Skills",
-    "docs.mcp": "MCP",
+    "docs.security": "安全",
+    "docs.mcp": "MCP 与内置工具",
     "docs.memory": "记忆",
     "docs.context": "上下文",
     "docs.config": "配置与工作目录",
@@ -255,12 +282,15 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
     "docs.quickstart": "Quick start",
     "docs.desktop": "Desktop App",
     "docs.console": "Console",
+    "docs.multiAgent": "Multi-Agent",
     "docs.models": "Models",
     "docs.channels": "Channels",
+    "docs.persona": "Agent Persona",
     "docs.heartbeat": "Heartbeat",
     "docs.cli": "CLI",
     "docs.skills": "Skills",
-    "docs.mcp": "MCP",
+    "docs.security": "Security",
+    "docs.mcp": "MCP & Built-in Tools",
     "docs.memory": "Memory",
     "docs.context": "Context",
     "docs.config": "Config & working dir",
@@ -293,7 +323,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
   const [activeTocId, setActiveTocId] = useState<string | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const articleRef = useRef<HTMLDivElement | null>(null);
-  const [openFaqSet, setOpenFaqSet] = useState<Set<number>>(() => new Set([0]));
+  const [openFaqSet, setOpenFaqSet] = useState<Set<number>>(() => new Set());
   const faqData = useMemo(() => parseFaqContent(content), [content]);
 
   useEffect(() => {
@@ -635,6 +665,9 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                         components={{
                           pre: ({ children, ...props }) => {
                             const langCtx = useContext(LangContext);
+                            if (isMermaidBlockNode(children)) {
+                              return <>{children}</>;
+                            }
                             return (
                               <CodeBlockWithCopy lang={langCtx}>
                                 <pre {...props}>{children}</pre>
@@ -686,7 +719,7 @@ export function Docs({ config, lang, onLangClick }: DocsProps) {
                             const langCode = match?.[1];
                             if (langCode === "mermaid") {
                               const chart = String(children).replace(/\n$/, "");
-                              return <MermaidBlock chart={chart} />;
+                              return <MermaidBlock key={chart} chart={chart} />;
                             }
                             // inline code vs block code
                             const isInline = !className;

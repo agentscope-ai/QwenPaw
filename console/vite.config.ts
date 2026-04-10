@@ -5,11 +5,12 @@ import path from "path";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
-  const apiBaseUrl = env.BASE_URL ?? "";
+  // Use a dedicated Vite-prefixed key so unrelated shell BASE_URL values don't leak into the build.
+  const apiBaseUrl = env.VITE_API_BASE_URL ?? "";
 
   return {
     define: {
-      BASE_URL: JSON.stringify(apiBaseUrl),
+      VITE_API_BASE_URL: JSON.stringify(apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },

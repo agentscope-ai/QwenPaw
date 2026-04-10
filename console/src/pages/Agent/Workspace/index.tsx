@@ -32,11 +32,11 @@ export default function WorkspacePage() {
 
   const handleDownload = async () => {
     try {
-      const blob = await workspaceApi.downloadWorkspace();
+      const { blob, filename } = await workspaceApi.downloadWorkspace();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `workspace-${new Date().toISOString().split("T")[0]}.zip`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -65,10 +65,12 @@ export default function WorkspacePage() {
       return;
     }
 
-    const maxSize = 100 * 1024 * 1024;
+    const maxSizeMb = 100;
+    const maxSize = maxSizeMb * 1024 * 1024;
     if (file.size > maxSize) {
       message.error(
         t("workspace.fileSizeExceeded", {
+          limit: maxSizeMb,
           size: (file.size / (1024 * 1024)).toFixed(2),
         }),
       );
@@ -103,18 +105,31 @@ export default function WorkspacePage() {
   };
 
   return (
-    <div className={styles.agentsPage}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>{t("workspace.title")}</h1>
-        <div className={styles.workspaceInfo}>
+    <div className={styles.workspacePage}>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Agent</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>
+            {t("workspace.title")}
+          </span>
           <p className={styles.workspacePath}>
             {t("workspace.workspacePath")}{" "}
-            {workspacePath ||
-              (files.length === 0
-                ? t("workspace.noFiles")
-                : t("common.loading"))}
+            {workspacePath === null
+              ? t("common.loading")
+              : workspacePath || t("workspace.noFiles")}
           </p>
+        </div>
+        <div className={styles.workspaceInfo}>
           <div className={styles.actionButtons}>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              style={{ display: "none" }}
+              accept=".zip"
+              title="Select a ZIP file (max 100MB)"
+            />
             <Tooltip
               title={t("workspace.uploadTooltip")}
               placement="top"
@@ -164,18 +179,6 @@ export default function WorkspacePage() {
           onReset={handleReset}
         />
       </div>
-
-      <p className={styles.attribution}>{t("workspace.attribution")}</p>
-
-      {/* Hidden file input - only accepts .zip files up to 100MB */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileUpload}
-        style={{ display: "none" }}
-        accept=".zip"
-        title="Select a ZIP file (max 100MB)"
-      />
     </div>
   );
 }

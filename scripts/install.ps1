@@ -315,7 +315,7 @@ if ($FromSource) {
     if ($Version) { $package = "copaw==$Version" }
 
     Write-Info "Installing ${package}${ExtrasSuffix} from PyPI..."
-    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --prerelease=allow --quiet
+    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --prerelease=allow --quiet --refresh-package copaw
     if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation failed" }
 }
 
@@ -400,7 +400,7 @@ if (-not $isAlreadyAdded) {
         $newUserPath = $targetPath
     }
 
-    # 3. 核心修复：使用 SetItemProperty 代替 [Environment]::SetEnvironmentVariable
+    # 3. 核心修复：使用 Set-ItemProperty 代替 [Environment]::SetEnvironmentVariable
     #    这是原生 cmdlet，在 Constrained Language Mode 下通常可用
     try {
         # 确保注册表路径存在 (HKCU:\Environment 通常默认存在，但为了健壮性检查一下)
@@ -410,7 +410,7 @@ if (-not $isAlreadyAdded) {
         }
 
         # 写入注册表
-        SetItemProperty -Path $registryPath -Name $registryName -Value $newUserPath
+        Set-ItemProperty -Path $registryPath -Name $registryName -Value $newUserPath
 
         # 更新当前进程的环境变量，使当前终端立即生效
         $env:Path = "$targetPath;$env:Path"
@@ -418,7 +418,7 @@ if (-not $isAlreadyAdded) {
         Write-Info "Successfully added $targetPath to User PATH (via Registry)"
 
     } catch {
-        # 如果连 SetItemProperty 都失败（例如注册表被组策略完全锁定）
+        # 如果连 Set-ItemProperty 都失败（例如注册表被组策略完全锁定）
         $errorMsg = $_.Exception.Message
 
         Write-Host ""

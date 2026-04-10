@@ -2,10 +2,12 @@ import { useState, useEffect } from "react";
 import { message } from "@agentscope-ai/design";
 import api from "../../../api";
 import type { Session } from "./components/constants";
+import { useAgentStore } from "../../../stores/agentStore";
 
 export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const { selectedAgent } = useAgentStore();
 
   const fetchSessions = async () => {
     setLoading(true);
@@ -35,7 +37,7 @@ export function useSessions() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [selectedAgent]);
 
   const updateSession = async (sessionId: string, values: Session) => {
     try {

@@ -72,4 +72,18 @@ class CronExecutor:
                     meta=dispatch_meta,
                 )
 
-        await asyncio.wait_for(_run(), timeout=job.runtime.timeout_seconds)
+        try:
+            await asyncio.wait_for(
+                _run(),
+                timeout=job.runtime.timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "cron execute: job_id=%s timed out after %ss",
+                job.id,
+                job.runtime.timeout_seconds,
+            )
+            raise
+        except asyncio.CancelledError:
+            logger.info("cron execute: job_id=%s cancelled", job.id)
+            raise

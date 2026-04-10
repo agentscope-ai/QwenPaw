@@ -4,10 +4,10 @@
 # Example: bash scripts/docker_build.sh copaw:latest
 #          bash scripts/docker_build.sh myreg/copaw:v1 --no-cache
 #
-# By default the Docker image excludes imessage.
+# By default the Docker image excludes imessage (macOS-only).
 # Override via:
-#   COPAW_ENABLED_CHANNELS=imessage,discord,telegram,dingtalk,feishu,qq,console \
-#       bash scripts/docker_build.sh
+#   COPAW_DISABLED_CHANNELS=imessage,voice bash scripts/docker_build.sh
+#   COPAW_ENABLED_CHANNELS=discord,telegram  bash scripts/docker_build.sh
 set -e
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,12 +17,13 @@ DOCKERFILE="${DOCKERFILE:-$REPO_ROOT/deploy/Dockerfile}"
 TAG="${1:-copaw:latest}"
 shift || true
 
-# Channels to include in the image (default: exclude imessage).
-ENABLED_CHANNELS="${COPAW_ENABLED_CHANNELS:-discord,telegram,dingtalk,feishu,qq,console}"
+# Channels to exclude from the image (default: imessage).
+DISABLED_CHANNELS="${COPAW_DISABLED_CHANNELS:-imessage}"
 
 echo "[docker_build] Building image: $TAG (Dockerfile: $DOCKERFILE)"
 docker build -f "$DOCKERFILE" \
-    --build-arg COPAW_ENABLED_CHANNELS="$ENABLED_CHANNELS" \
+    --build-arg COPAW_DISABLED_CHANNELS="$DISABLED_CHANNELS" \
+    ${COPAW_ENABLED_CHANNELS:+--build-arg COPAW_ENABLED_CHANNELS="$COPAW_ENABLED_CHANNELS"} \
     -t "$TAG" "$@" .
 echo "[docker_build] Done."
 echo "[docker_build] CoPaw app port: 8088 (default). Override with -e COPAW_PORT=<port>."

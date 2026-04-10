@@ -1,17 +1,28 @@
-import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
 interface PageHeaderProps {
+  parent?: string;
+  current?: string;
   className?: string;
+  action?: React.ReactNode;
 }
 
-export function PageHeader({ className }: PageHeaderProps) {
-  const { t } = useTranslation();
-
+export function PageHeader({
+  parent,
+  current,
+  className,
+  action,
+}: PageHeaderProps) {
   return (
-    <section className={`${styles.section} ${className || ""}`}>
-      <h2 className={styles.sectionTitle}>{t("environments.title")}</h2>
-      <p className={styles.sectionDesc}>{t("environments.description")}</p>
-    </section>
+    <div className={`${styles.pageHeader} ${className || ""}`}>
+      <div className={styles.breadcrumbHeader}>
+        {parent && <span className={styles.breadcrumbParent}>{parent}</span>}
+        {parent && current && (
+          <span className={styles.breadcrumbSeparator}>/</span>
+        )}
+        {current && <span className={styles.breadcrumbCurrent}>{current}</span>}
+      </div>
+      {action && <div className={styles.headerRight}>{action}</div>}
+    </div>
   );
 }

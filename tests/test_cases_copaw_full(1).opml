@@ -1,0 +1,848 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>CoPaw 全量测试用例（含深层场景）</title>
+  </head>
+  <body>
+    <outline text="CoPaw 全量测试用例">
+
+      <outline text="Chat 对话模块">
+        <outline text="基础功能">
+          <outline text="CHAT-001：新建对话">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Chat 页面，显示欢迎界面" />
+            <outline text="操作步骤：点击左上角 New Chat 按钮" />
+            <outline text="预期结果：创建新会话，聊天区域清空并显示欢迎语&quot;Hello, how can I help you today?&quot;，底部出现输入框" />
+          </outline>
+          <outline text="CHAT-002：基础文本问答">
+            <outline text="前置条件：用户已进入 Chat 页面，已创建新会话" />
+            <outline text="操作步骤：在输入框中输入普通问题（如&quot;你好&quot;），点击发送按钮" />
+            <outline text="预期结果：系统正常返回文本回复，消息气泡正确展示用户消息和 AI 回复，支持 Markdown 渲染" />
+          </outline>
+          <outline text="CHAT-003：快捷操作按钮">
+            <outline text="前置条件：用户已进入 Chat 页面，显示欢迎界面带快捷按钮" />
+            <outline text="操作步骤：点击&quot;Let's start a new journey!&quot;或&quot;Can you tell me what skills you have?&quot;快捷按钮" />
+            <outline text="预期结果：系统根据快捷按钮内容自动发送对应消息并返回回复" />
+          </outline>
+          <outline text="CHAT-004：多轮连续对话">
+            <outline text="前置条件：用户已进入 Chat 页面，已有一轮对话记录" />
+            <outline text="操作步骤：连续发送多条相关消息（如先问&quot;什么是 CoPaw&quot;，再追问&quot;它有哪些功能&quot;）" />
+            <outline text="预期结果：系统能理解上下文语境，后续回复与前文关联，对话历史完整展示" />
+          </outline>
+          <outline text="CHAT-005：模型选择">
+            <outline text="前置条件：用户已进入 Chat 页面，至少有一个 LLM 提供商状态为 Ready" />
+            <outline text="操作步骤：点击右上角 Select model 下拉框，选择不同模型（如 Qwen3 Max），发送一条消息" />
+            <outline text="预期结果：模型切换成功，系统使用所选模型进行回复" />
+          </outline>
+          <outline text="CHAT-006：Agent 切换">
+            <outline text="前置条件：用户已进入 Chat 页面，系统中存在多个 Agent" />
+            <outline text="操作步骤：点击顶部 Current Agent 下拉框，切换到其他 Agent" />
+            <outline text="预期结果：Agent 切换成功，页面标题更新为所选 Agent 名称，对话上下文切换" />
+          </outline>
+          <outline text="CHAT-007：附件上传">
+            <outline text="前置条件：用户已进入 Chat 页面，本地准备好测试文件" />
+            <outline text="操作步骤：点击输入框附件按钮，选择本地文件上传，输入相关指令后发送" />
+            <outline text="预期结果：文件成功上传，系统能识别文件类型并结合对应 skill 处理" />
+          </outline>
+          <outline text="CHAT-008：消息复制">
+            <outline text="前置条件：用户已进入 Chat 页面，对话区域已有 AI 回复消息" />
+            <outline text="操作步骤：点击 AI 回复消息上的复制按钮" />
+            <outline text="预期结果：消息内容成功复制到剪贴板" />
+          </outline>
+          <outline text="CHAT-009：工具调用详情展开/收起">
+            <outline text="前置条件：用户已进入 Chat 页面，AI 回复中包含工具调用信息" />
+            <outline text="操作步骤：点击工具调用区域的展开/收起按钮" />
+            <outline text="预期结果：工具调用详情正常展开显示参数和结果，再次点击可收起" />
+          </outline>
+          <outline text="CHAT-010：输入字符限制">
+            <outline text="前置条件：用户已进入 Chat 页面" />
+            <outline text="操作步骤：在输入框中输入超长文本，观察字符计数器（上限 10000）" />
+            <outline text="预期结果：字符计数器实时更新，超过 10000 字符时给出限制提示" />
+          </outline>
+        </outline>
+        <outline text="Skill 调用">
+          <outline text="CHAT-011：skill 调用 - pdf">
+            <outline text="前置条件：用户已进入 Chat 页面，pdf skill 已启用，本地准备好 PDF 文件" />
+            <outline text="操作步骤：上传 PDF 文件并输入&quot;帮我总结这个 PDF 的内容&quot;，发送" />
+            <outline text="预期结果：系统调用 pdf skill 解析文件并返回内容摘要" />
+          </outline>
+          <outline text="CHAT-012：skill 调用 - docx">
+            <outline text="前置条件：用户已进入 Chat 页面，docx skill 已启用" />
+            <outline text="操作步骤：输入&quot;帮我创建一个项目周报的 Word 文档&quot;，发送" />
+            <outline text="预期结果：系统调用 docx skill 生成 Word 文档并提供下载" />
+          </outline>
+          <outline text="CHAT-013：skill 调用 - xlsx">
+            <outline text="前置条件：用户已进入 Chat 页面，xlsx skill 已启用" />
+            <outline text="操作步骤：输入&quot;帮我创建一个包含姓名、年龄、城市三列的 Excel 表格，填入 5 条示例数据&quot;，发送" />
+            <outline text="预期结果：系统调用 xlsx skill 生成 Excel 文件并提供下载，包含正确表头和数据" />
+          </outline>
+          <outline text="CHAT-014：skill 调用 - pptx">
+            <outline text="前置条件：用户已进入 Chat 页面，pptx skill 已启用" />
+            <outline text="操作步骤：输入&quot;帮我制作一个 3 页的产品介绍 PPT&quot;，发送" />
+            <outline text="预期结果：系统调用 pptx skill 生成 PPT 文件并提供下载" />
+          </outline>
+          <outline text="CHAT-015：skill 调用 - news">
+            <outline text="前置条件：用户已进入 Chat 页面，news skill 已启用" />
+            <outline text="操作步骤：输入&quot;帮我查一下今天科技领域的最新新闻&quot;，发送" />
+            <outline text="预期结果：系统调用 news skill 返回新闻列表，包含标题和来源" />
+          </outline>
+          <outline text="CHAT-016：skill 调用 - cron">
+            <outline text="前置条件：用户已进入 Chat 页面，cron skill 已启用" />
+            <outline text="操作步骤：输入&quot;帮我创建一个每天早上 9 点的定时提醒任务&quot;，发送" />
+            <outline text="预期结果：系统调用 cron skill 创建定时任务并返回配置信息" />
+          </outline>
+          <outline text="CHAT-017：skill 调用 - file_reader">
+            <outline text="前置条件：用户已进入 Chat 页面，file_reader skill 已启用，本地准备好文本文件" />
+            <outline text="操作步骤：上传文本文件并输入&quot;帮我读取这个文件的内容&quot;，发送" />
+            <outline text="预期结果：系统调用 file_reader skill 正确解析并展示文件内容" />
+          </outline>
+          <outline text="CHAT-018：skill 调用 - browser_visible">
+            <outline text="前置条件：用户已进入 Chat 页面，browser_visible skill 已启用" />
+            <outline text="操作步骤：输入&quot;帮我打开百度首页并截图&quot;，发送" />
+            <outline text="预期结果：系统调用 browser_visible skill 执行浏览器操作并返回截图" />
+          </outline>
+          <outline text="CHAT-019：skill 调用 - himalaya">
+            <outline text="前置条件：用户已进入 Chat 页面，himalaya skill 已启用，已配置有效邮箱（IMAP/SMTP）" />
+            <outline text="操作步骤：输入&quot;帮我查看最近 5 封邮件的标题&quot;，发送" />
+            <outline text="预期结果：系统调用 himalaya skill 返回邮件标题列表" />
+          </outline>
+          <outline text="CHAT-020：skill 调用 - dingtalk_channel">
+            <outline text="前置条件：用户已进入 Chat 页面，dingtalk_channel skill 已启用，已配置有效钉钉 webhook" />
+            <outline text="操作步骤：输入&quot;帮我通过钉钉发送一条测试消息&quot;，发送" />
+            <outline text="预期结果：系统调用 dingtalk_channel skill 发送消息成功并返回确认信息" />
+          </outline>
+          <outline text="CHAT-021：skill 调用 - guidance">
+            <outline text="前置条件：用户已进入 Chat 页面，guidance skill 已启用" />
+            <outline text="操作步骤：输入&quot;CoPaw 怎么使用&quot;，发送" />
+            <outline text="预期结果：系统调用 guidance skill 返回使用指引内容" />
+          </outline>
+          <outline text="CHAT-022：skill 禁用后对话不触发">
+            <outline text="前置条件：用户在 Agent → Skills 页面将 pdf skill 设置为 Disabled，然后进入 Chat 页面" />
+            <outline text="操作步骤：上传 PDF 文件并输入&quot;帮我总结这个 PDF&quot;，发送" />
+            <outline text="预期结果：系统不调用 pdf skill，返回无法处理的提示或普通文本回复" />
+          </outline>
+        </outline>
+        <outline text="深层场景（基于 Issues Bug 模式）">
+          <outline text="CHAT-D01：对话进行中切换页面再切回 - 数据丢失验证（#2107）">
+            <outline text="前置条件：用户已进入 Chat 页面，AI 正在生成回复（流式输出中）" />
+            <outline text="操作步骤：在 AI 回复过程中，切换到其他 Tab 页面（如 Token Usage），等待 5 秒后切回 Chat 页面" />
+            <outline text="预期结果：切回后用户发送的消息和 AI 已生成的部分回复仍然保留，不出现数据丢失。AI 继续输出或已完成输出完整显示" />
+          </outline>
+          <outline text="CHAT-D02：页面刷新后聊天历史保留（#2034）">
+            <outline text="前置条件：用户已进入 Chat 页面，已有完整的多轮对话记录" />
+            <outline text="操作步骤：按 F5 刷新浏览器页面，或关闭标签页重新打开" />
+            <outline text="预期结果：刷新后聊天历史完整保留，可查看之前所有对话内容，不出现空白或丢失" />
+          </outline>
+          <outline text="CHAT-D03：New Chat 无法创建新会话回归（#2117）">
+            <outline text="前置条件：用户已进入 Chat 页面，已有多个历史会话" />
+            <outline text="操作步骤：反复点击 New Chat 按钮（连续点击 5 次以上），每次创建后发送一条消息" />
+            <outline text="预期结果：每次点击 New Chat 都能成功创建独立新会话，会话列表正确递增，不出现创建失败或会话重叠" />
+          </outline>
+          <outline text="CHAT-D04：AI 输出包含代码块时界面渲染稳定性（#2037）">
+            <outline text="前置条件：用户已进入 Chat 页面" />
+            <outline text="操作步骤：输入&quot;用 Python 写一个快速排序算法&quot;等触发代码输出的指令，等待 AI 返回包含多个代码块的长回复" />
+            <outline text="预期结果：代码块正确高亮渲染，界面不出现错乱、溢出或布局破坏，滚动正常" />
+          </outline>
+          <outline text="CHAT-D05：工具审批超时处理（#2193）">
+            <outline text="前置条件：用户已进入 Chat 页面，Tool Guard 已启用，execute_shell_command 在 Guarded Tools 列表中" />
+            <outline text="操作步骤：发送触发 shell 命令执行的指令，不进行审批操作，等待审批超时" />
+            <outline text="预期结果：审批超时后系统自动拒绝执行，返回明确的超时提示信息，对话不卡在等待状态，可继续正常对话" />
+          </outline>
+          <outline text="CHAT-D06：无法停止正在运行的任务（#2190）">
+            <outline text="前置条件：用户已进入 Chat 页面，AI 正在执行一个耗时的多工具调用链" />
+            <outline text="操作步骤：尝试停止/中断当前正在执行的任务（点击停止按钮或发送中断指令）" />
+            <outline text="预期结果：任务被成功中断，系统返回停止确认，可以开始新的对话，不出现卡死或无响应" />
+          </outline>
+          <outline text="CHAT-D07：图片和文件在对话中的展示（#2197）">
+            <outline text="前置条件：用户已进入 Chat 页面，AI 通过工具生成了图片或文件" />
+            <outline text="操作步骤：触发 AI 生成图片或文件（如截图、生成文档），查看对话中的展示" />
+            <outline text="预期结果：图片可在对话区域内直接预览显示（非仅显示文件路径），文件提供可点击的下载链接" />
+          </outline>
+          <outline text="CHAT-D08：上下文压缩后不产生幻觉内容（#2092）">
+            <outline text="前置条件：用户已进入 Chat 页面，Configuration 中 Context Compact 已配置" />
+            <outline text="操作步骤：持续对话直到触发上下文自动压缩（发送 30+ 轮对话或大量工具调用），压缩后继续提问之前对话中涉及的具体事实" />
+            <outline text="预期结果：压缩后 AI 回复不出现虚构/幻觉内容，上下文核心信息保留完整，回复与压缩前的事实一致" />
+          </outline>
+          <outline text="CHAT-D09：模型返回大量 tool_call 时工具调用不失控（#2055）">
+            <outline text="前置条件：用户已进入 Chat 页面，使用支持多工具调用的模型" />
+            <outline text="操作步骤：发送一个可能触发多个工具调用的复杂指令（如&quot;帮我查天气、写文件、搜索新闻&quot;）" />
+            <outline text="预期结果：工具调用有合理上限控制（由 Max Iterations 限制），不出现无限循环调用，每轮工具调用结果正确展示" />
+          </outline>
+          <outline text="CHAT-D10：工具调用错误不自动消耗额外 token 重试（#2201）">
+            <outline text="前置条件：用户已进入 Chat 页面" />
+            <outline text="操作步骤：触发一个会产生工具执行错误的操作（如读取不存在的文件），观察系统行为" />
+            <outline text="预期结果：工具执行失败后向用户报告错误，不擅自重复调用工具消耗大量 token，用户可选择是否重试" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Channels 频道管理">
+        <outline text="基础功能">
+          <outline text="CHAN-001：频道列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Control → Channels 页面" />
+            <outline text="操作步骤：查看频道列表，分别点击 All、Built-in、Custom 过滤按钮" />
+            <outline text="预期结果：展示所有 13 个内置频道卡片（Console/DingTalk/Feishu/Discord/Telegram/QQ 等），过滤按钮正常筛选" />
+          </outline>
+          <outline text="CHAN-002：编辑频道配置">
+            <outline text="前置条件：用户已进入 Channels 页面" />
+            <outline text="操作步骤：点击任意频道卡片（如 DingTalk），在弹窗中修改 Bot Prefix，切换 Enable/Disable 状态，点击 Save" />
+            <outline text="预期结果：弹窗正常打开显示频道名称和配置项，修改后点击 Save 成功保存，卡片状态实时更新" />
+          </outline>
+          <outline text="CHAN-003：启用/禁用频道">
+            <outline text="前置条件：用户已进入 Channels 页面，存在已禁用的频道" />
+            <outline text="操作步骤：点击禁用的频道卡片，在弹窗中打开 Enable Toggle，保存后刷新页面" />
+            <outline text="预期结果：频道状态变为 Enabled，刷新后状态保持" />
+          </outline>
+          <outline text="CHAN-004：取消编辑">
+            <outline text="前置条件：用户已进入 Channels 页面" />
+            <outline text="操作步骤：点击频道卡片打开编辑弹窗，修改配置后点击 Cancel" />
+            <outline text="预期结果：弹窗关闭，频道配置未发生变化" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="CHAN-D01：多 Agent 启用同一频道消息分发正确性（#2222）">
+            <outline text="前置条件：系统存在 Agent A 和 Agent B，均启用了飞书频道" />
+            <outline text="操作步骤：通过飞书向 Agent A 的机器人发送消息" />
+            <outline text="预期结果：消息仅被 Agent A 接收处理，不会被分发到 Agent B，回复内容来自 Agent A 的工作空间" />
+          </outline>
+          <outline text="CHAN-D02：钉钉 sessionWebhook 过期后定时推送（#2221 #2153）">
+            <outline text="前置条件：已配置钉钉频道并启用，已通过钉钉创建定时任务" />
+            <outline text="操作步骤：等待定时任务触发时间到达（特别是超过钉钉 webhook 有效期后）" />
+            <outline text="预期结果：定时任务仍能成功通过钉钉发送消息，系统自动刷新/重新获取有效的 sessionWebhook" />
+          </outline>
+          <outline text="CHAN-D03：WebSocket 重连后消息不重复处理（#2213）">
+            <outline text="前置条件：已配置 Discord/Telegram 等基于 WebSocket 的频道" />
+            <outline text="操作步骤：发送消息后模拟网络波动（如断网 5 秒后恢复），观察 WebSocket 重连后的消息处理" />
+            <outline text="预期结果：WebSocket 重连后不重复处理已处理过的消息，不出现重复回复" />
+          </outline>
+          <outline text="CHAN-D04：频道接收文件消息（#2028）">
+            <outline text="前置条件：已配置钉钉/飞书频道并启用" />
+            <outline text="操作步骤：通过钉钉/飞书向 Agent 发送文件（如 PDF、图片）" />
+            <outline text="预期结果：Agent 能正常接收到文件消息并处理，不出现文件丢失" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Sessions 会话管理">
+        <outline text="基础功能">
+          <outline text="SESS-001：会话列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Control → Sessions 页面，存在至少一条会话记录" />
+            <outline text="操作步骤：查看会话列表表格" />
+            <outline text="预期结果：表格展示 ID、Name、SessionID、UserID、Channel、CreatedAt、UpdatedAt、Action 列，数据正确" />
+          </outline>
+          <outline text="SESS-002：按 UserID 过滤">
+            <outline text="前置条件：用户已进入 Sessions 页面，存在多条会话" />
+            <outline text="操作步骤：在&quot;Filter by User ID&quot;输入框中输入用户 ID 进行过滤" />
+            <outline text="预期结果：表格只展示匹配 UserID 的会话记录" />
+          </outline>
+          <outline text="SESS-003：按 Channel 过滤">
+            <outline text="前置条件：用户已进入 Sessions 页面" />
+            <outline text="操作步骤：在&quot;Filter by Channel&quot;下拉框中选择特定频道" />
+            <outline text="预期结果：表格只展示对应频道的会话记录" />
+          </outline>
+          <outline text="SESS-004：表格排序">
+            <outline text="前置条件：用户已进入 Sessions 页面，存在多条会话" />
+            <outline text="操作步骤：点击 CreatedAt 或 UpdatedAt 列标题进行排序" />
+            <outline text="预期结果：会话按所选列升序/降序排列" />
+          </outline>
+          <outline text="SESS-005：编辑会话">
+            <outline text="前置条件：用户已进入 Sessions 页面，存在会话记录" />
+            <outline text="操作步骤：点击目标会话行的 Edit 按钮，修改会话信息后保存" />
+            <outline text="预期结果：编辑弹窗正常打开，保存后会话信息更新" />
+          </outline>
+          <outline text="SESS-006：删除会话">
+            <outline text="前置条件：用户已进入 Sessions 页面，存在会话记录" />
+            <outline text="操作步骤：点击目标会话行的 Delete 按钮，确认删除" />
+            <outline text="预期结果：会话被删除，列表中不再显示该记录" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="SESS-D01：群聊多用户共享 SessionID 导致会话合并（#2175）">
+            <outline text="前置条件：通过钉钉群聊，同一群的多个用户分别与 Agent 对话" />
+            <outline text="操作步骤：在 Sessions 页面查看该群聊下的会话记录，切换不同页面后再切回" />
+            <outline text="预期结果：不同用户的会话内容独立显示，不出现多个会话合并为同一条的情况" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Cron Jobs 定时任务">
+        <outline text="基础功能">
+          <outline text="CRON-001：创建定时任务">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Control → Cron Jobs 页面" />
+            <outline text="操作步骤：点击&quot;+ Create Job&quot;按钮，填写任务名称、Schedule Type、Cron 表达式、Timezone、TaskType、Description 等必填项，点击保存" />
+            <outline text="预期结果：创建成功，任务出现在列表中，各字段信息正确" />
+          </outline>
+          <outline text="CRON-002：定时任务列表展示">
+            <outline text="前置条件：用户已进入 Cron Jobs 页面，存在至少一个定时任务" />
+            <outline text="操作步骤：查看任务列表表格" />
+            <outline text="预期结果：表格展示 Job ID、Job Name、Status、Schedule Type、Schedule (Cron)、Timezone 等所有列" />
+          </outline>
+          <outline text="CRON-003：编辑定时任务">
+            <outline text="前置条件：用户已进入 Cron Jobs 页面，存在定时任务" />
+            <outline text="操作步骤：点击任务行的编辑按钮，修改任务配置后保存" />
+            <outline text="预期结果：任务配置更新成功" />
+          </outline>
+          <outline text="CRON-004：删除定时任务">
+            <outline text="前置条件：用户已进入 Cron Jobs 页面，存在定时任务" />
+            <outline text="操作步骤：点击任务行的删除按钮，确认删除" />
+            <outline text="预期结果：任务被删除，列表中不再显示" />
+          </outline>
+          <outline text="CRON-005：空状态展示">
+            <outline text="前置条件：用户已进入 Cron Jobs 页面，无任何定时任务" />
+            <outline text="操作步骤：查看页面" />
+            <outline text="预期结果：表格显示&quot;No data&quot;空状态提示" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="CRON-D01：定时任务按时准确触发（#2151）">
+            <outline text="前置条件：已创建一个 1 分钟后触发的定时任务，Reply target 指向 console 频道" />
+            <outline text="操作步骤：等待触发时间到达，观察任务执行" />
+            <outline text="预期结果：任务在指定时间准确触发，不出现延迟超过 1 分钟的情况，输出内容为任务定义的内容（非大段过程日志）" />
+          </outline>
+          <outline text="CRON-D02：多 Agent 场景下定时任务隔离（#2115）">
+            <outline text="前置条件：系统存在 Agent A 和 Agent B，分别在各自工作空间下创建了定时任务" />
+            <outline text="操作步骤：在 Cron Jobs 页面切换不同 Agent 查看定时任务列表" />
+            <outline text="预期结果：每个 Agent 只显示属于自己的定时任务，不出现跨 Agent 显示或仅显示 default Agent 任务的情况" />
+          </outline>
+          <outline text="CRON-D03：定时任务通过频道推送消息（#2221 #2153）">
+            <outline text="前置条件：创建定时任务，Dispatch Channel 设为钉钉频道" />
+            <outline text="操作步骤：等待定时任务触发" />
+            <outline text="预期结果：任务触发后消息成功通过钉钉推送，不因 webhook 过期而失败" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Heartbeat 心跳检测">
+        <outline text="基础功能">
+          <outline text="HB-001：启用心跳">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Control → Heartbeat 页面，心跳状态为 OFF" />
+            <outline text="操作步骤：打开&quot;Enable heartbeat&quot;Toggle，设置 Interval 为 6 Hours，选择 Reply target，点击 Save" />
+            <outline text="预期结果：心跳启用成功，配置保存，刷新页面后状态保持" />
+          </outline>
+          <outline text="HB-002：修改心跳间隔">
+            <outline text="前置条件：用户已进入 Heartbeat 页面，心跳已启用" />
+            <outline text="操作步骤：修改 Interval 数值和单位（如改为 30 Minutes），点击 Save" />
+            <outline text="预期结果：间隔修改成功，刷新后保持新值" />
+          </outline>
+          <outline text="HB-003：配置活跃时段">
+            <outline text="前置条件：用户已进入 Heartbeat 页面" />
+            <outline text="操作步骤：打开&quot;Active hours&quot;Toggle，设置活跃时间段，点击 Save" />
+            <outline text="预期结果：活跃时段配置保存成功，心跳仅在指定时段执行" />
+          </outline>
+          <outline text="HB-004：禁用心跳">
+            <outline text="前置条件：用户已进入 Heartbeat 页面，心跳已启用" />
+            <outline text="操作步骤：关闭&quot;Enable heartbeat&quot;Toggle，点击 Save" />
+            <outline text="预期结果：心跳禁用成功，刷新页面后状态为 OFF" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="HB-D01：Cron 表达式格式不被误判无效（#2207）">
+            <outline text="前置条件：用户已进入 Heartbeat 页面" />
+            <outline text="操作步骤：在 Interval 中配置标准 cron 表达式（如&quot;0 6 * * *&quot;表示每天早上 6 点），保存并查看日志" />
+            <outline text="预期结果：cron 表达式被正确解析，心跳按 cron 定义的时间执行，不出现&quot;invalid, using 30m&quot;降级行为" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Workspace 工作空间">
+        <outline text="基础功能">
+          <outline text="WS-001：核心文件列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Agent → Workspace 页面" />
+            <outline text="操作步骤：查看 Core Files 区域" />
+            <outline text="预期结果：展示 AGENTS.md、SOUL.md、PROFILE.md、BOOTSTRAP.md、HEARTBEAT.md、MEMORY.md 文件列表，显示文件大小和启用状态" />
+          </outline>
+          <outline text="WS-002：编辑工作空间文件">
+            <outline text="前置条件：用户已进入 Workspace 页面" />
+            <outline text="操作步骤：点击左侧文件列表中的 AGENTS.md，在右侧编辑区修改内容，保存" />
+            <outline text="预期结果：右侧显示文件内容，修改后保存成功，再次打开内容为最新版本" />
+          </outline>
+          <outline text="WS-003：文件启用/禁用切换">
+            <outline text="前置条件：用户已进入 Workspace 页面" />
+            <outline text="操作步骤：点击文件行的 Toggle 开关切换启用/禁用状态" />
+            <outline text="预期结果：文件状态切换成功，刷新后保持" />
+          </outline>
+          <outline text="WS-004：文件拖拽排序">
+            <outline text="前置条件：用户已进入 Workspace 页面，文件列表有多个文件" />
+            <outline text="操作步骤：拖拽文件行的 Drag handle 调整文件顺序" />
+            <outline text="预期结果：文件顺序变更成功，刷新后保持新顺序" />
+          </outline>
+          <outline text="WS-005：上传文件到工作空间">
+            <outline text="前置条件：用户已进入 Workspace 页面，本地准备好一个 .md 文件" />
+            <outline text="操作步骤：点击 Upload 按钮，选择本地文件上传" />
+            <outline text="预期结果：文件上传成功，出现在文件列表中" />
+          </outline>
+          <outline text="WS-006：下载工作空间">
+            <outline text="前置条件：用户已进入 Workspace 页面" />
+            <outline text="操作步骤：点击 Download 按钮" />
+            <outline text="预期结果：浏览器下载工作空间文件，内容完整" />
+          </outline>
+          <outline text="WS-007：刷新文件列表">
+            <outline text="前置条件：用户已进入 Workspace 页面" />
+            <outline text="操作步骤：点击 Refresh 按钮" />
+            <outline text="预期结果：文件列表刷新，显示最新状态" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="WS-D01：版本升级后文件不丢失（#2097）">
+            <outline text="前置条件：使用旧版本 CoPaw，workspace 中已配置多个文件和 skills" />
+            <outline text="操作步骤：升级到新版本后启动，进入 Workspace 页面" />
+            <outline text="预期结果：所有文件完整保留并正常显示，不出现升级后文件全部不显示的情况" />
+          </outline>
+          <outline text="WS-D02：重启后配置不被重置（#2139）">
+            <outline text="前置条件：用户在 Workspace 中修改了 AGENTS.md 等文件内容，添加了多智能体配置" />
+            <outline text="操作步骤：完全退出 CoPaw 并重新启动，进入 Workspace 页面" />
+            <outline text="预期结果：所有修改过的文件内容保持不变，不被默认配置覆盖" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Skills 技能管理">
+        <outline text="基础功能">
+          <outline text="SKILL-001：技能列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Agent → Skills 页面" />
+            <outline text="操作步骤：查看技能列表" />
+            <outline text="预期结果：展示所有预置技能卡片（browser_visible/cron/dingtalk_channel/docx/file_reader/guidance/himalaya/news/pdf/pptx/xlsx 等），每个卡片显示名称、描述、来源、路径和启用状态" />
+          </outline>
+          <outline text="SKILL-002：技能上传（ZIP 包解析）">
+            <outline text="前置条件：用户已进入 Skills 页面，本地准备好包含有效 SKILL.md 的 ZIP 包" />
+            <outline text="操作步骤：点击 Upload Skill 按钮，选择 ZIP 文件上传" />
+            <outline text="预期结果：ZIP 包成功解析，新技能卡片出现在列表中，名称和描述正确" />
+          </outline>
+          <outline text="SKILL-003：导入技能">
+            <outline text="前置条件：用户已进入 Skills 页面" />
+            <outline text="操作步骤：点击 Import Skill 按钮，按提示导入技能" />
+            <outline text="预期结果：技能导入成功，出现在列表中" />
+          </outline>
+          <outline text="SKILL-004：创建技能（手工写入 Markdown）">
+            <outline text="前置条件：用户已进入 Skills 页面" />
+            <outline text="操作步骤：点击 Create Skill 按钮，在弹窗中填写 Name（如 weather_query）和 Content（Markdown 格式），点击 Create" />
+            <outline text="预期结果：弹窗打开，Name 和 Content 为必填项，提交后技能创建成功，列表中显示新卡片" />
+          </outline>
+          <outline text="SKILL-005：技能启用/禁用">
+            <outline text="前置条件：用户已进入 Skills 页面，存在可操作的技能" />
+            <outline text="操作步骤：点击技能卡片上的 Disable/Enable 按钮，刷新页面" />
+            <outline text="预期结果：状态切换成功，刷新后保持" />
+          </outline>
+          <outline text="SKILL-006：删除自定义技能">
+            <outline text="前置条件：用户已进入 Skills 页面，存在自定义技能（customized 来源）" />
+            <outline text="操作步骤：点击自定义技能卡片上的 Delete 按钮，确认删除" />
+            <outline text="预期结果：技能被删除，列表中不再显示" />
+          </outline>
+          <outline text="SKILL-007：ZIP 包解析失败（异常）">
+            <outline text="前置条件：用户已进入 Skills 页面，准备好格式错误的 ZIP 包（缺少 SKILL.md）" />
+            <outline text="操作步骤：点击 Upload Skill 上传错误 ZIP 包" />
+            <outline text="预期结果：页面显示错误提示，列表不出现无效技能" />
+          </outline>
+          <outline text="SKILL-008：技能名称重复校验（异常）">
+            <outline text="前置条件：用户已进入 Skills 页面，已存在同名技能" />
+            <outline text="操作步骤：点击 Create Skill 填写已存在的名称后提交" />
+            <outline text="预期结果：提示名称重复，不允许创建" />
+          </outline>
+          <outline text="SKILL-009：技能名称格式校验（异常）">
+            <outline text="前置条件：用户已进入 Skills 页面" />
+            <outline text="操作步骤：点击 Create Skill 填写非法名称（含空格/大写/特殊字符）后提交" />
+            <outline text="预期结果：提示格式错误，不允许创建" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="SKILL-D01：上传 skill 后列表实时刷新（#2119）">
+            <outline text="前置条件：用户已进入 Skills 页面" />
+            <outline text="操作步骤：上传一个有效的 skill ZIP 包，上传完成后不重启服务" />
+            <outline text="预期结果：上传成功后列表立即刷新显示新技能，无需重启 copaw app 即可看到" />
+          </outline>
+          <outline text="SKILL-D02：skill 禁用再启用后内容不丢失（#2109）">
+            <outline text="前置条件：用户已进入 Skills 页面，存在一个已修改过内容的自定义 skill" />
+            <outline text="操作步骤：将该 skill Disable，然后再 Enable" />
+            <outline text="预期结果：启用后 skill 内容与禁用前一致，更新内容不丢失（active_skills 和 customized_skills 保持同步）" />
+          </outline>
+          <outline text="SKILL-D03：active_skills 与 customized_skills 目录同步（#2106 #2015）">
+            <outline text="前置条件：用户已进入 Chat 页面，让 AI 通过对话修改某个 skill 的内容" />
+            <outline text="操作步骤：AI 修改 skill 后，进入 Skills 页面查看该 skill 内容" />
+            <outline text="预期结果：Skills 页面显示的内容与实际生效的 active_skills 一致，customized_skills 自动同步更新" />
+          </outline>
+          <outline text="SKILL-D04：创建技能接口可用性回归（#2077）">
+            <outline text="前置条件：用户已进入 Skills 页面" />
+            <outline text="操作步骤：点击 Create Skill，填写有效 Name 和完整 Markdown Content，点击 Create" />
+            <outline text="预期结果：技能创建成功，不出现接口报错或创建失败" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Tools 工具管理">
+        <outline text="基础功能">
+          <outline text="TOOL-001：工具列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Agent → Tools 页面" />
+            <outline text="操作步骤：查看工具列表" />
+            <outline text="预期结果：展示所有内置工具卡片（execute_shell_command/read_file/write_file 等 13 个），每个卡片显示名称、描述和启用状态" />
+          </outline>
+          <outline text="TOOL-002：单个工具启用/禁用">
+            <outline text="前置条件：用户已进入 Tools 页面" />
+            <outline text="操作步骤：点击某个工具卡片的 Toggle 开关切换状态，刷新页面" />
+            <outline text="预期结果：工具状态切换成功，刷新后保持" />
+          </outline>
+          <outline text="TOOL-003：批量启用所有工具">
+            <outline text="前置条件：用户已进入 Tools 页面，存在已禁用的工具" />
+            <outline text="操作步骤：点击 Enable All 按钮" />
+            <outline text="预期结果：所有工具状态变为 Enabled" />
+          </outline>
+          <outline text="TOOL-004：批量禁用所有工具">
+            <outline text="前置条件：用户已进入 Tools 页面，存在已启用的工具" />
+            <outline text="操作步骤：点击 Disable All 按钮" />
+            <outline text="预期结果：所有工具状态变为 Disabled" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="TOOL-D01：禁用工具后对话中不可调用">
+            <outline text="前置条件：在 Tools 页面将 execute_shell_command 设为 Disabled" />
+            <outline text="操作步骤：进入 Chat 发送&quot;帮我执行 ls 命令&quot;" />
+            <outline text="预期结果：Agent 不调用 execute_shell_command，提示该工具不可用或换用其他方式回答" />
+          </outline>
+          <outline text="TOOL-D02：shell 命令双引号转义正确性（#2066）">
+            <outline text="前置条件：execute_shell_command 已启用" />
+            <outline text="操作步骤：在对话中要求执行包含双引号的命令（如 echo &quot;hello world&quot;）" />
+            <outline text="预期结果：命令中的双引号被正确传递，输出结果正确，不出现转义错误" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="MCP 客户端管理">
+        <outline text="基础功能">
+          <outline text="MCP-001：MCP 客户端列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Agent → MCP 页面" />
+            <outline text="操作步骤：查看 MCP 客户端列表" />
+            <outline text="预期结果：展示已配置的 MCP 客户端（如 tavily_mcp），显示类型（Local）、状态和操作按钮" />
+          </outline>
+          <outline text="MCP-002：创建 MCP 客户端">
+            <outline text="前置条件：用户已进入 MCP 页面" />
+            <outline text="操作步骤：点击 Create Client 按钮，填写客户端配置信息后保存" />
+            <outline text="预期结果：客户端创建成功，出现在列表中" />
+          </outline>
+          <outline text="MCP-003：启用/禁用 MCP 客户端">
+            <outline text="前置条件：用户已进入 MCP 页面，存在已配置的 MCP 客户端" />
+            <outline text="操作步骤：点击 Enable/Disable 按钮切换状态" />
+            <outline text="预期结果：客户端状态切换成功" />
+          </outline>
+          <outline text="MCP-004：删除 MCP 客户端">
+            <outline text="前置条件：用户已进入 MCP 页面，存在已配置的 MCP 客户端" />
+            <outline text="操作步骤：点击 Delete 按钮，确认删除" />
+            <outline text="预期结果：客户端被删除，列表中不再显示" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="MCP-D01：Disabled 的 MCP 不阻塞服务启动（#2100）">
+            <outline text="前置条件：MCP 列表中存在一个 Disabled 状态的 MCP 客户端（如 tavily_mcp）" />
+            <outline text="操作步骤：重启 CoPaw 服务，观察启动日志" />
+            <outline text="预期结果：服务正常启动，Disabled 的 MCP 不被初始化安装，不占用端口，不卡死启动进程" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Configuration Agent 配置">
+        <outline text="基础功能">
+          <outline text="CONF-001：查看默认配置">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Agent → Configuration 页面" />
+            <outline text="操作步骤：查看各配置项的默认值" />
+            <outline text="预期结果：Agent Language（中文）、User Timezone（Etc/UTC）、Max Iterations（50）、Max Input Length（131072）等默认值正确展示" />
+          </outline>
+          <outline text="CONF-002：修改 Agent 基础配置">
+            <outline text="前置条件：用户已进入 Configuration 页面" />
+            <outline text="操作步骤：修改 Agent Language、User Timezone、Max Iterations 等字段，点击 Save" />
+            <outline text="预期结果：配置保存成功，刷新页面后显示新值" />
+          </outline>
+          <outline text="CONF-003：修改 Context Management 配置">
+            <outline text="前置条件：用户已进入 Configuration 页面" />
+            <outline text="操作步骤：调整 Context Compact Ratio 滑块（0.3-0.9）、Context Reserve Ratio 滑块（0.05-0.3），观察自动计算的 Threshold 值" />
+            <outline text="预期结果：滑块正常拖动，Threshold 值自动实时计算更新，点击 Save 后保存成功" />
+          </outline>
+          <outline text="CONF-004：修改 Tool Result 配置">
+            <outline text="前置条件：用户已进入 Configuration 页面" />
+            <outline text="操作步骤：修改 Tool Result recent_n 滑块（1-10）、Max Characters 数值输入、File Retention Days 滑块（1-30），点击 Save" />
+            <outline text="预期结果：配置保存成功" />
+          </outline>
+          <outline text="CONF-005：重置配置">
+            <outline text="前置条件：用户已进入 Configuration 页面，修改了部分配置但未保存" />
+            <outline text="操作步骤：点击 Reset 按钮" />
+            <outline text="预期结果：所有配置项恢复为上次保存的值" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Agent Management 多 Agent 管理">
+        <outline text="基础功能">
+          <outline text="AM-001：Agent 列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Settings → Agent Management 页面" />
+            <outline text="操作步骤：查看 Agent 列表表格" />
+            <outline text="预期结果：表格展示 Name、ID、Description、Workspace Path、Actions 列，Default Agent 行的 Edit/Delete 按钮为禁用状态" />
+          </outline>
+          <outline text="AM-002：创建新 Agent">
+            <outline text="前置条件：用户已进入 Agent Management 页面" />
+            <outline text="操作步骤：点击&quot;+ Create Agent&quot;按钮，填写 Agent 名称、描述等信息后保存" />
+            <outline text="预期结果：新 Agent 创建成功，出现在列表中，自动分配独立工作空间" />
+          </outline>
+          <outline text="AM-003：编辑自定义 Agent">
+            <outline text="前置条件：用户已进入 Agent Management 页面，存在自定义 Agent" />
+            <outline text="操作步骤：点击自定义 Agent 行的 Edit 按钮，修改信息后保存" />
+            <outline text="预期结果：Agent 信息更新成功" />
+          </outline>
+          <outline text="AM-004：删除自定义 Agent">
+            <outline text="前置条件：用户已进入 Agent Management 页面，存在自定义 Agent" />
+            <outline text="操作步骤：点击自定义 Agent 行的 Delete 按钮，确认删除" />
+            <outline text="预期结果：Agent 被删除，列表中不再显示" />
+          </outline>
+          <outline text="AM-005：Default Agent 不可编辑/删除">
+            <outline text="前置条件：用户已进入 Agent Management 页面" />
+            <outline text="操作步骤：查看 Default Agent 行的 Edit 和 Delete 按钮状态" />
+            <outline text="预期结果：两个按钮均为禁用状态，无法操作" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="AM-D01：非默认 Agent 对话功能正常（#2174 #2146）">
+            <outline text="前置条件：已创建自定义 Agent（如 coder），并配置了模型" />
+            <outline text="操作步骤：在 Chat 页面切换到 coder Agent，发送对话消息" />
+            <outline text="预期结果：自定义 Agent 正常回复，不出现模型加载失败或只有默认 Agent 可用的情况" />
+          </outline>
+          <outline text="AM-D02：多 Agent 并发任务请求不串台（#2116）">
+            <outline text="前置条件：浏览器打开两个 Tab 分别使用 Agent A 和 Agent B" />
+            <outline text="操作步骤：在两个 Tab 中同时发送消息，观察各 Agent 的回复" />
+            <outline text="预期结果：每个 Tab 的回复来自对应的 Agent，不出现请求串台或 Agent 身份错乱。刷新页面后 Agent 身份保持正确" />
+          </outline>
+          <outline text="AM-D03：多 Agent 配置重启后不丢失（#2139）">
+            <outline text="前置条件：已通过 Agent Management 创建多个自定义 Agent" />
+            <outline text="操作步骤：完全退出并重启 CoPaw" />
+            <outline text="预期结果：重启后所有自定义 Agent 仍然存在，配置不被重置为只有 default Agent" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Models 模型提供商">
+        <outline text="基础功能">
+          <outline text="MOD-001：提供商列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Settings → Models 页面" />
+            <outline text="操作步骤：查看提供商列表" />
+            <outline text="预期结果：展示所有内置提供商卡片（ModelScope/DashScope/OpenAI/Azure/Kimi/DeepSeek/Anthropic/Gemini/MiniMax/Ollama/LM Studio 等），显示状态（Ready/Not Ready）、Base URL、API Key、模型数量" />
+          </outline>
+          <outline text="MOD-002：配置提供商 API Key">
+            <outline text="前置条件：用户已进入 Models 页面" />
+            <outline text="操作步骤：点击目标提供商卡片的 Settings 按钮，填写 API Key 和 Base URL，保存" />
+            <outline text="预期结果：配置保存成功，提供商状态变为&quot;Ready&quot;" />
+          </outline>
+          <outline text="MOD-003：查看提供商模型列表">
+            <outline text="前置条件：用户已进入 Models 页面" />
+            <outline text="操作步骤：点击提供商卡片的 Models 按钮" />
+            <outline text="预期结果：显示该提供商下所有可用模型列表" />
+          </outline>
+          <outline text="MOD-004：添加自定义提供商">
+            <outline text="前置条件：用户已进入 Models 页面" />
+            <outline text="操作步骤：点击&quot;+ Add Provider&quot;按钮，填写提供商名称、Base URL、API Key 等信息后保存" />
+            <outline text="预期结果：自定义提供商创建成功，出现在列表中" />
+          </outline>
+          <outline text="MOD-005：无效 API Key 校验">
+            <outline text="前置条件：用户已进入 Models 页面" />
+            <outline text="操作步骤：配置提供商时填写无效的 API Key，保存后尝试使用对应模型对话" />
+            <outline text="预期结果：提供商状态为&quot;Not Ready&quot;或对话时返回认证失败错误提示" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="MOD-D01：GUI 模型选择下拉框可用性（#2084）">
+            <outline text="前置条件：已配置好至少一个提供商（如 DashScope），状态为 Ready" />
+            <outline text="操作步骤：在 Chat 页面点击 Select model 下拉框" />
+            <outline text="预期结果：下拉框正常展开，显示所有 Ready 提供商的可用模型列表，可正常选择" />
+          </outline>
+          <outline text="MOD-D02：MiniMax 等特殊提供商连接验证（#2195）">
+            <outline text="前置条件：已配置 MiniMax（国内版）提供商" />
+            <outline text="操作步骤：填写 Token Plan API Key 并保存，尝试对话" />
+            <outline text="预期结果：连接成功，不出现&quot;Unknown exception when connecting&quot;错误" />
+          </outline>
+          <outline text="MOD-D03：环境变量 BASE_URL 不污染前端构建（#2171）">
+            <outline text="前置条件：系统 shell 中存在 BASE_URL 环境变量（如 BASE_URL=http://xxx:3000/v1）" />
+            <outline text="操作步骤：启动 CoPaw，进入 Models 页面" />
+            <outline text="预期结果：页面正常加载，API 请求发往正确地址，不被 shell 环境变量污染导致 Loading 卡住" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Environments 环境变量">
+        <outline text="ENV-001：空状态展示">
+          <outline text="前置条件：用户已登录 CoPaw，进入 Settings → Environments 页面，无任何环境变量" />
+          <outline text="操作步骤：查看页面" />
+          <outline text="预期结果：显示&quot;0 variables&quot;和&quot;No environment variables configured yet.&quot;空状态提示" />
+        </outline>
+        <outline text="ENV-002：添加环境变量">
+          <outline text="前置条件：用户已进入 Environments 页面" />
+          <outline text="操作步骤：点击&quot;Add Variable&quot;按钮，填写 Key 和 Value，保存" />
+          <outline text="预期结果：环境变量添加成功，列表中显示新变量" />
+        </outline>
+        <outline text="ENV-003：编辑环境变量">
+          <outline text="前置条件：用户已进入 Environments 页面，存在环境变量" />
+          <outline text="操作步骤：修改已有变量的 Value，保存" />
+          <outline text="预期结果：变量值更新成功" />
+        </outline>
+        <outline text="ENV-004：删除环境变量">
+          <outline text="前置条件：用户已进入 Environments 页面，存在环境变量" />
+          <outline text="操作步骤：点击变量行的删除按钮，确认" />
+          <outline text="预期结果：变量被删除" />
+        </outline>
+      </outline>
+
+      <outline text="Security 安全管理">
+        <outline text="基础功能">
+          <outline text="SEC-001：Tool Guard 规则列表展示">
+            <outline text="前置条件：用户已登录 CoPaw，进入 Settings → Security 页面，选择 Tool Guard 标签" />
+            <outline text="操作步骤：查看 Detection Rules 列表" />
+            <outline text="预期结果：展示 9 条内置规则，显示 Rule ID、Severity（HIGH/CRITICAL）、Description" />
+          </outline>
+          <outline text="SEC-002：启用/禁用 Tool Guard">
+            <outline text="前置条件：用户已进入 Security 页面 Tool Guard 标签" />
+            <outline text="操作步骤：切换&quot;Enable Tool Guard&quot;Toggle 状态，点击 Save" />
+            <outline text="预期结果：Tool Guard 状态切换成功，刷新后保持" />
+          </outline>
+          <outline text="SEC-003：配置 Guarded/Denied Tools">
+            <outline text="前置条件：用户已进入 Security 页面 Tool Guard 标签" />
+            <outline text="操作步骤：在 Guarded Tools 下拉中选择工具，在 Denied Tools 下拉中选择始终拒绝的工具，点击 Save" />
+            <outline text="预期结果：配置保存成功" />
+          </outline>
+          <outline text="SEC-004：启用/禁用单条检测规则">
+            <outline text="前置条件：用户已进入 Security 页面 Tool Guard 标签" />
+            <outline text="操作步骤：点击规则行的 Toggle 开关切换启用/禁用，点击 Save" />
+            <outline text="预期结果：规则状态切换成功" />
+          </outline>
+          <outline text="SEC-005：添加自定义检测规则">
+            <outline text="前置条件：用户已进入 Security 页面 Tool Guard 标签" />
+            <outline text="操作步骤：点击&quot;+ Add Rule&quot;按钮，填写规则信息后保存" />
+            <outline text="预期结果：自定义规则添加成功，出现在规则列表中" />
+          </outline>
+          <outline text="SEC-006：预览检测规则">
+            <outline text="前置条件：用户已进入 Security 页面 Tool Guard 标签" />
+            <outline text="操作步骤：点击规则行的 Preview 按钮" />
+            <outline text="预期结果：弹窗显示规则详细配置信息" />
+          </outline>
+          <outline text="SEC-007：重置安全配置">
+            <outline text="前置条件：用户已进入 Security 页面，修改了部分配置" />
+            <outline text="操作步骤：点击 Reset 按钮" />
+            <outline text="预期结果：所有配置恢复为上次保存的值" />
+          </outline>
+          <outline text="SEC-008：Skill Scanner 模式配置">
+            <outline text="前置条件：用户已进入 Security 页面，切换到 Skill Scanner 标签" />
+            <outline text="操作步骤：修改 Scanner Mode 下拉值（Warn Only 等），修改 Scan Timeout 数值（5-300），保存" />
+            <outline text="预期结果：配置保存成功" />
+          </outline>
+          <outline text="SEC-009：Skill Scanner 告警查看">
+            <outline text="前置条件：用户已进入 Security 页面 Skill Scanner 标签" />
+            <outline text="操作步骤：查看 Scan Alerts 子标签" />
+            <outline text="预期结果：如无告警显示&quot;No security alerts&quot;，如有告警则展示告警详情" />
+          </outline>
+          <outline text="SEC-010：Skill Scanner 白名单管理">
+            <outline text="前置条件：用户已进入 Security 页面 Skill Scanner 标签" />
+            <outline text="操作步骤：切换到 Whitelist 子标签，添加技能到白名单" />
+            <outline text="预期结果：白名单操作成功，如无白名单显示&quot;No skills are whitelisted&quot;" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="SEC-D01：Tool Guard 实际拦截危险命令">
+            <outline text="前置条件：Tool Guard 已启用，所有内置规则均开启" />
+            <outline text="操作步骤：在对话中让 Agent 执行 rm -rf / 命令" />
+            <outline text="预期结果：Tool Guard 拦截该命令，触发 TOOL_CMD_DANGEROUS_RM 规则，命令不被执行，返回安全警告" />
+          </outline>
+          <outline text="SEC-D02：Denied Tools 中的工具完全不可调用">
+            <outline text="前置条件：将 execute_shell_command 加入 Denied Tools 列表" />
+            <outline text="操作步骤：在对话中要求执行 shell 命令" />
+            <outline text="预期结果：工具被直接拒绝，无需审批流程，返回工具被禁止的提示" />
+          </outline>
+        </outline>
+      </outline>
+
+      <outline text="Token Usage 令牌消耗">
+        <outline text="TU-001：令牌消耗统计展示">
+          <outline text="前置条件：用户已登录 CoPaw，进入 Settings → Token Usage 页面，已有对话产生 token 消耗" />
+          <outline text="操作步骤：查看页面统计信息" />
+          <outline text="预期结果：顶部显示 Prompt Tokens 和 Completion Tokens 总量，By Model 和 By Date 表格展示明细" />
+        </outline>
+        <outline text="TU-002：日期范围筛选">
+          <outline text="前置条件：用户已进入 Token Usage 页面" />
+          <outline text="操作步骤：修改开始日期和结束日期，点击 Refresh" />
+          <outline text="预期结果：统计数据按所选日期范围更新" />
+        </outline>
+        <outline text="TU-003：清除日期筛选">
+          <outline text="前置条件：用户已进入 Token Usage 页面，已设置日期范围" />
+          <outline text="操作步骤：点击清除按钮" />
+          <outline text="预期结果：日期范围恢复默认，统计数据更新" />
+        </outline>
+      </outline>
+
+      <outline text="Voice Transcription 语音转录">
+        <outline text="VT-001：Audio Mode 配置">
+          <outline text="前置条件：用户已登录 CoPaw，进入 Settings → Voice Transcription 页面" />
+          <outline text="操作步骤：分别选择&quot;Auto (Recommended)&quot;和&quot;Native Audio&quot;模式，点击 Save" />
+          <outline text="预期结果：模式切换成功，默认为 Auto，保存后刷新保持所选模式" />
+        </outline>
+        <outline text="VT-002：Transcription Provider 配置">
+          <outline text="前置条件：用户已进入 Voice Transcription 页面" />
+          <outline text="操作步骤：分别选择 Disabled、Whisper API、Local Whisper 选项，点击 Save" />
+          <outline text="预期结果：Provider 切换成功，选择 Whisper API 时显示相关配置项，选择 Local Whisper 时提示需安装 ffmpeg 和 openai-whisper" />
+        </outline>
+        <outline text="VT-003：重置语音配置">
+          <outline text="前置条件：用户已进入 Voice Transcription 页面，修改了配置" />
+          <outline text="操作步骤：点击 Reset 按钮" />
+          <outline text="预期结果：配置恢复为上次保存的值" />
+        </outline>
+      </outline>
+
+      <outline text="全局/通用功能">
+        <outline text="基础功能">
+          <outline text="GLB-001：深色模式切换">
+            <outline text="前置条件：用户已登录 CoPaw，当前为浅色模式" />
+            <outline text="操作步骤：点击顶部导航栏的 Dark 模式切换按钮" />
+            <outline text="预期结果：页面切换为深色模式，所有页面样式正常，刷新后保持深色模式" />
+          </outline>
+          <outline text="GLB-002：语言切换">
+            <outline text="前置条件：用户已登录 CoPaw，当前为 English" />
+            <outline text="操作步骤：点击顶部导航栏的语言切换按钮" />
+            <outline text="预期结果：页面语言切换成功，所有文案显示为目标语言" />
+          </outline>
+          <outline text="GLB-003：侧边栏导航">
+            <outline text="前置条件：用户已登录 CoPaw" />
+            <outline text="操作步骤：依次点击侧边栏所有菜单项" />
+            <outline text="预期结果：每个菜单项点击后正确跳转到对应页面，页面标题与菜单一致" />
+          </outline>
+          <outline text="GLB-004：顶部导航链接">
+            <outline text="前置条件：用户已登录 CoPaw" />
+            <outline text="操作步骤：依次点击顶部 Changelog、Doc、FAQ、GitHub 链接" />
+            <outline text="预期结果：各链接正常跳转到对应页面，无 404 错误" />
+          </outline>
+          <outline text="GLB-005：页面刷新数据持久化">
+            <outline text="前置条件：用户在任意配置页面修改并保存了配置" />
+            <outline text="操作步骤：按 F5 刷新浏览器页面" />
+            <outline text="预期结果：所有已保存的配置在刷新后保持不变" />
+          </outline>
+        </outline>
+        <outline text="深层场景">
+          <outline text="GLB-D01：深色模式聊天区配色（#2200）">
+            <outline text="前置条件：用户已切换到深色模式" />
+            <outline text="操作步骤：进入 Chat 页面，查看聊天内容区的背景色" />
+            <outline text="预期结果：背景色不是纯黑（#000000），应为柔和的深灰色（如 #2C2C2E），视觉舒适不刺眼" />
+          </outline>
+          <outline text="GLB-D02：移动端响应式布局（#2121）">
+            <outline text="前置条件：使用手机浏览器或将桌面浏览器窗口缩小到 375px 宽度" />
+            <outline text="操作步骤：访问 CoPaw 各页面" />
+            <outline text="预期结果：侧边栏不遮挡聊天区域，页面元素正常排列，可正常操作" />
+          </outline>
+          <outline text="GLB-D03：长时间运行稳定性（#2118 #2156 #2218）">
+            <outline text="前置条件：CoPaw 服务已持续运行超过 24 小时" />
+            <outline text="操作步骤：在运行 24 小时后尝试正常对话和页面操作" />
+            <outline text="预期结果：服务响应正常，不出现假死、QueueFull 错误、CPU 100% 或线程无限增长" />
+          </outline>
+          <outline text="GLB-D04：服务启动线程资源控制（#2204）">
+            <outline text="前置条件：首次启动 CoPaw" />
+            <outline text="操作步骤：启动服务后观察系统资源占用（线程数、CPU、内存）" />
+            <outline text="预期结果：启动后线程数稳定在合理范围，不出现线程无限增长导致系统冻结" />
+          </outline>
+          <outline text="GLB-D05：RTL 文本（阿拉伯语/希伯来语混排）渲染（#2120）">
+            <outline text="前置条件：用户已进入 Chat 页面" />
+            <outline text="操作步骤：输入阿拉伯语和英语混排的文本（如&quot;مرحبا Hello World&quot;），发送并查看渲染" />
+            <outline text="预期结果：文本渲染方向正确，不出现乱序或重叠" />
+          </outline>
+        </outline>
+      </outline>
+
+    </outline>
+  </body>
+</opml>

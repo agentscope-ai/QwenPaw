@@ -6,6 +6,7 @@ import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
 import { message } from "antd";
 import { TFunction } from "i18next";
 import { parseCron } from "./parseCron";
+import styles from "../index.module.less";
 
 type CronJob = CronJobSpecOutput;
 
@@ -66,21 +67,11 @@ export const createColumns = (
       key: "enabled",
       width: 100,
       render: (enabled: boolean) => (
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-          }}
-        >
+        <span className={styles.statusIndicator}>
           <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              backgroundColor: enabled ? "#52c41a" : "#d9d9d9",
-            }}
+            className={`${styles.statusDot} ${
+              enabled ? styles.enabled : styles.disabled
+            }`}
           />
           {enabled
             ? handlers.t("common.enabled")
@@ -145,14 +136,17 @@ export const createColumns = (
           <Tooltip
             title={
               <div>
-                <div>Cron 表达式: {cron}</div>
-                <div style={{ fontSize: 11, opacity: 0.8, marginTop: 4 }}>
-                  格式: 分钟 小时 日 月 星期
+                <div>Cron 表达式：{cron}</div>
+                <div
+                  className={styles.tableText}
+                  style={{ opacity: 0.8, marginTop: 4 }}
+                >
+                  格式：分钟 小时 日 月 星期
                 </div>
               </div>
             }
           >
-            <span style={{ fontSize: 12, cursor: "help" }}>{displayText}</span>
+            <span className={styles.cronText}>{displayText}</span>
           </Tooltip>
         );
       },
@@ -170,7 +164,7 @@ export const createColumns = (
       width: 140,
     },
     {
-      title: handlers.t("cronJobs.taskText"),
+      title: handlers.t("cronJobs.text"),
       dataIndex: "text",
       key: "text",
       width: 200,
@@ -181,13 +175,13 @@ export const createColumns = (
         if (!text) return "-";
         return (
           <Tooltip title={text}>
-            <span style={{ fontSize: 12 }}>{text}</span>
+            <span className={styles.tableText}>{text}</span>
           </Tooltip>
         );
       },
     },
     {
-      title: "RequestInput",
+      title: handlers.t("cronJobs.requestInput"),
       dataIndex: ["request", "input"],
       key: "request_input",
       width: 350,
@@ -207,7 +201,7 @@ export const createColumns = (
         }
 
         if (displayText.length <= 50) {
-          return <code style={{ fontSize: 12 }}>{displayText}</code>;
+          return <code className={styles.codeText}>{displayText}</code>;
         }
 
         const truncatedText =
@@ -218,20 +212,8 @@ export const createColumns = (
         return (
           <Tooltip
             title={
-              <div style={{ position: "relative" }}>
-                <div
-                  style={{
-                    maxWidth: 400,
-                    maxHeight: 300,
-                    overflow: "auto",
-                    whiteSpace: "pre-wrap",
-                    fontSize: 12,
-                    fontFamily: "monospace",
-                    paddingRight: 30,
-                  }}
-                >
-                  {fullText}
-                </div>
+              <div className={styles.tooltipContent}>
+                <div className={styles.tooltipJsonContent}>{fullText}</div>
                 <Button
                   type="text"
                   icon={<CopyOutlined />}
@@ -240,28 +222,14 @@ export const createColumns = (
                     e.stopPropagation();
                     copyToClipboard(fullText);
                   }}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    right: 0,
-                    color: "#1890ff",
-                    zIndex: 10,
-                  }}
+                  className={styles.copyButton}
                 />
               </div>
             }
             placement="topLeft"
             overlayInnerStyle={{ maxWidth: 400 }}
           >
-            <code
-              style={{
-                fontSize: 12,
-                cursor: "help",
-                textDecoration: "underline dotted",
-              }}
-            >
-              {truncatedText}
-            </code>
+            <code className={styles.codeLink}>{truncatedText}</code>
           </Tooltip>
         );
       },
@@ -349,7 +317,7 @@ export const createColumns = (
         ];
 
         return (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div className={styles.actionColumn}>
             <Button
               type="link"
               size="small"

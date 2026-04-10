@@ -41,4 +41,45 @@ export const agentApi = {
       method: "PUT",
       body: JSON.stringify({ language }),
     }),
+
+  getAudioMode: () => request<{ audio_mode: string }>("/agent/audio-mode"),
+
+  updateAudioMode: (audio_mode: string) =>
+    request<{ audio_mode: string }>("/agent/audio-mode", {
+      method: "PUT",
+      body: JSON.stringify({ audio_mode }),
+    }),
+
+  getTranscriptionProviders: () =>
+    request<{
+      providers: { id: string; name: string; available: boolean }[];
+      configured_provider_id: string;
+    }>("/agent/transcription-providers"),
+
+  updateTranscriptionProvider: (provider_id: string) =>
+    request<{ provider_id: string }>("/agent/transcription-provider", {
+      method: "PUT",
+      body: JSON.stringify({ provider_id }),
+    }),
+
+  getTranscriptionProviderType: () =>
+    request<{ transcription_provider_type: string }>(
+      "/agent/transcription-provider-type",
+    ),
+
+  updateTranscriptionProviderType: (transcription_provider_type: string) =>
+    request<{ transcription_provider_type: string }>(
+      "/agent/transcription-provider-type",
+      {
+        method: "PUT",
+        body: JSON.stringify({ transcription_provider_type }),
+      },
+    ),
+
+  getLocalWhisperStatus: () =>
+    request<{
+      available: boolean;
+      ffmpeg_installed: boolean;
+      whisper_installed: boolean;
+    }>("/agent/local-whisper-status"),
 };

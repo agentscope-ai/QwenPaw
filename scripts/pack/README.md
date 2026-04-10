@@ -39,6 +39,7 @@ CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # also create .zip
 # Creates two launchers:
 #   - CoPaw Desktop.vbs (silent, no console window)
 #   - CoPaw Desktop (Debug).bat (shows console for troubleshooting)
+# Note: Pre-compiles all Python files to .pyc for faster startup
 ```
 
 ## Run from terminal and see logs (macOS)

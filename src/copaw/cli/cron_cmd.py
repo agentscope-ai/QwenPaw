@@ -42,12 +42,22 @@ def cron_group() -> None:
         "If omitted, uses global --host and --port from config."
     ),
 )
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
 @click.pass_context
-def list_jobs(ctx: click.Context, base_url: Optional[str]) -> None:
+def list_jobs(
+    ctx: click.Context,
+    base_url: Optional[str],
+    agent_id: str,
+) -> None:
     """List all cron jobs. Output is JSON from GET /cron/jobs."""
     base_url = _base_url(ctx, base_url)
     with client(base_url) as c:
-        r = c.get("/cron/jobs")
+        headers = {"X-Agent-Id": agent_id}
+        r = c.get("/cron/jobs", headers=headers)
         r.raise_for_status()
         print_json(r.json())
 
@@ -59,12 +69,23 @@ def list_jobs(ctx: click.Context, base_url: Optional[str]) -> None:
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
 )
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
 @click.pass_context
-def get_job(ctx: click.Context, job_id: str, base_url: Optional[str]) -> None:
+def get_job(
+    ctx: click.Context,
+    job_id: str,
+    base_url: Optional[str],
+    agent_id: str,
+) -> None:
     """Fetch a cron job by ID. Returns JSON from GET /cron/jobs/<id>."""
     base_url = _base_url(ctx, base_url)
     with client(base_url) as c:
-        r = c.get(f"/cron/jobs/{job_id}")
+        headers = {"X-Agent-Id": agent_id}
+        r = c.get(f"/cron/jobs/{job_id}", headers=headers)
         if r.status_code == 404:
             raise click.ClickException("Job not found.")
         r.raise_for_status()
@@ -78,16 +99,23 @@ def get_job(ctx: click.Context, job_id: str, base_url: Optional[str]) -> None:
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
 )
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
 @click.pass_context
 def job_state(
     ctx: click.Context,
     job_id: str,
     base_url: Optional[str],
+    agent_id: str,
 ) -> None:
     """Get the runtime state of a cron job (e.g. next run time, paused)."""
     base_url = _base_url(ctx, base_url)
     with client(base_url) as c:
-        r = c.get(f"/cron/jobs/{job_id}/state")
+        headers = {"X-Agent-Id": agent_id}
+        r = c.get(f"/cron/jobs/{job_id}/state", headers=headers)
         if r.status_code == 404:
             raise click.ClickException("Job not found.")
         r.raise_for_status()
@@ -237,8 +265,11 @@ def _build_spec_from_cli(
 )
 @click.option(
     "--timezone",
-    default="UTC",
-    help="Timezone for the cron schedule (e.g. UTC, America/New_York).",
+    default=None,
+    help=(
+        "Timezone for the cron schedule (e.g. UTC, America/New_York). "
+        "Defaults to the user timezone from config."
+    ),
 )
 @click.option(
     "--enabled/--no-enabled",
@@ -259,6 +290,11 @@ def _build_spec_from_cli(
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
 )
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
 @click.pass_context
 def create_job(
     ctx: click.Context,
@@ -270,10 +306,11 @@ def create_job(
     target_user: Optional[str],
     target_session: Optional[str],
     text: Optional[str],
-    timezone: str,
+    timezone: Optional[str],
     enabled: bool,
     mode: str,
     base_url: Optional[str],
+    agent_id: str,
 ) -> None:
     """Create a cron job.
 
@@ -281,6 +318,10 @@ def create_job(
     --channel, --target-user, --target-session and --text to define the job
     inline.
     """
+    if timezone is None:
+        from ..config import load_config
+
+        timezone = load_config().user_timezone or "UTC"
     base_url = _base_url(ctx, base_url)
     if file_ is not None:
         payload = json.loads(file_.read_text(encoding="utf-8"))
@@ -310,7 +351,8 @@ def create_job(
             mode=mode,
         )
     with client(base_url) as c:
-        r = c.post("/cron/jobs", json=payload)
+        headers = {"X-Agent-Id": agent_id}
+        r = c.post("/cron/jobs", json=payload, headers=headers)
         r.raise_for_status()
         print_json(r.json())
 
@@ -322,16 +364,23 @@ def create_job(
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
 )
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
 @click.pass_context
 def delete_job(
     ctx: click.Context,
     job_id: str,
     base_url: Optional[str],
+    agent_id: str,
 ) -> None:
     """Permanently delete a cron job. The job is removed from the server."""
     base_url = _base_url(ctx, base_url)
     with client(base_url) as c:
-        r = c.delete(f"/cron/jobs/{job_id}")
+        headers = {"X-Agent-Id": agent_id}
+        r = c.delete(f"/cron/jobs/{job_id}", headers=headers)
         if r.status_code == 404:
             raise click.ClickException("Job not found.")
         r.raise_for_status()
@@ -345,18 +394,25 @@ def delete_job(
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
 )
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
 @click.pass_context
 def pause_job(
     ctx: click.Context,
     job_id: str,
     base_url: Optional[str],
+    agent_id: str,
 ) -> None:
     """Pause a cron job so it no longer runs on schedule.
     Use 'resume' to re-enable.
     """
     base_url = _base_url(ctx, base_url)
     with client(base_url) as c:
-        r = c.post(f"/cron/jobs/{job_id}/pause")
+        headers = {"X-Agent-Id": agent_id}
+        r = c.post(f"/cron/jobs/{job_id}/pause", headers=headers)
         if r.status_code == 404:
             raise click.ClickException("Job not found.")
         r.raise_for_status()
@@ -370,16 +426,23 @@ def pause_job(
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
 )
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
 @click.pass_context
 def resume_job(
     ctx: click.Context,
     job_id: str,
     base_url: Optional[str],
+    agent_id: str,
 ) -> None:
     """Resume a paused cron job so it runs again on its schedule."""
     base_url = _base_url(ctx, base_url)
     with client(base_url) as c:
-        r = c.post(f"/cron/jobs/{job_id}/resume")
+        headers = {"X-Agent-Id": agent_id}
+        r = c.post(f"/cron/jobs/{job_id}/resume", headers=headers)
         if r.status_code == 404:
             raise click.ClickException("Job not found.")
         r.raise_for_status()
@@ -393,12 +456,23 @@ def resume_job(
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
 )
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
 @click.pass_context
-def run_job(ctx: click.Context, job_id: str, base_url: Optional[str]) -> None:
+def run_job(
+    ctx: click.Context,
+    job_id: str,
+    base_url: Optional[str],
+    agent_id: str,
+) -> None:
     """Trigger a one-off run of a cron job immediately (ignores schedule)."""
     base_url = _base_url(ctx, base_url)
     with client(base_url) as c:
-        r = c.post(f"/cron/jobs/{job_id}/run")
+        headers = {"X-Agent-Id": agent_id}
+        r = c.post(f"/cron/jobs/{job_id}/run", headers=headers)
         if r.status_code == 404:
             raise click.ClickException("Job not found.")
         r.raise_for_status()

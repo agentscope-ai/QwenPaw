@@ -44,6 +44,7 @@ class RenderStyle:
     use_emoji: bool = True
     filter_tool_messages: bool = False
     filter_thinking: bool = False
+    internal_tools: frozenset = frozenset()
 
 
 def _fmt_tool_call(
@@ -192,11 +193,17 @@ class MessageRenderer:
                             ContentType.VIDEO,
                             ContentType.FILE,
                         )
-                        media_parts = [
-                            p
-                            for p in block_parts
-                            if getattr(p, "type", None) in media_types
-                        ]
+                        # Internal tools (e.g. view_image) produce
+                        # media for the LLM, not the user — skip.
+                        media_parts = (
+                            []
+                            if name in s.internal_tools
+                            else [
+                                p
+                                for p in block_parts
+                                if getattr(p, "type", None) in media_types
+                            ]
+                        )
                         out.extend(media_parts)
                         if not media_parts:
                             out.append(
@@ -265,6 +272,9 @@ class MessageRenderer:
                     if getattr(c, "type", None) != ContentType.DATA:
                         continue
                     data = getattr(c, "data", None) or {}
+                    name = data.get("name") or "tool"
+                    if name in s.internal_tools:
+                        continue
                     output = data.get("output", "")
                     try:
                         output = json.loads(output)
@@ -354,7 +364,7 @@ class MessageRenderer:
                 text_parts.append(p.refusal or "")
         body = "\n".join(text_parts) if text_parts else ""
         if prefix and body:
-            body = prefix + body
+            body = prefix + "  " + body
         for p in parts:
             t = getattr(p, "type", None)
             if t == ContentType.IMAGE and getattr(p, "image_url", None):

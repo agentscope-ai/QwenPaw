@@ -70,7 +70,7 @@ def test_app_startup_and_console() -> None:
         backend_ready = False
         last_error = None
 
-        with httpx.Client(timeout=5.0) as client:
+        with httpx.Client(timeout=5.0, trust_env=False) as client:
             while time.time() - start_time < max_wait:
                 if process.poll() is not None:
                     logs = "".join(log_lines)[-4000:]

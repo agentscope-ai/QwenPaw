@@ -19,11 +19,13 @@ class MockAiohttpResponse:
         status: int = 200,
         json_data: Optional[Dict] = None,
         text_data: str = "",
+        response_data: Optional[bytes] = None,
         headers: Optional[Dict] = None,
     ):
         self.status = status
         self._json_data = json_data or {}
         self._text_data = text_data
+        self._response_data = response_data
         self.headers = headers or {}
 
     async def json(self, **_kwargs) -> Dict:
@@ -36,6 +38,8 @@ class MockAiohttpResponse:
 
     async def read(self) -> bytes:
         """Return bytes data."""
+        if self._response_data is not None:
+            return self._response_data
         return self._text_data.encode()
 
 
@@ -97,11 +101,33 @@ class MockAiohttpSession:
         response_status: int = 200,
         response_json: Optional[Dict] = None,
         response_text: str = "",
+        response_data: Optional[bytes] = None,
+        headers: Optional[Dict] = None,
     ) -> None:
         """Set up expected GET request."""
         self._expectations.append(
             {
                 "method": "GET",
+                "url": url,
+                "response_status": response_status,
+                "response_json": response_json,
+                "response_text": response_text,
+                "response_data": response_data,
+                "headers": headers or {},
+            },
+        )
+
+    def expect_put(
+        self,
+        url: Optional[str] = None,
+        response_status: int = 200,
+        response_json: Optional[Dict] = None,
+        response_text: str = "",
+    ) -> None:
+        """Set up expected PUT request."""
+        self._expectations.append(
+            {
+                "method": "PUT",
                 "url": url,
                 "response_status": response_status,
                 "response_json": response_json,
@@ -117,12 +143,14 @@ class MockAiohttpSession:
 
         # Find matching expectation
         expectation = None
-        for exp in self._expectations:
+        exp_idx = None
+        for idx, exp in enumerate(self._expectations):
             if exp["method"] != "POST":
                 continue
             if exp["url"] and exp["url"] not in url:
                 continue
             expectation = exp
+            exp_idx = idx
             break
 
         if expectation is None:
@@ -133,6 +161,9 @@ class MockAiohttpSession:
                 json_data=expectation.get("response_json"),
                 text_data=expectation.get("response_text", ""),
             )
+            # Consume this expectation
+            if exp_idx is not None:
+                self._expectations.pop(exp_idx)
 
         yield response
 
@@ -158,7 +189,40 @@ class MockAiohttpSession:
                 status=expectation["response_status"],
                 json_data=expectation.get("response_json"),
                 text_data=expectation.get("response_text", ""),
+                response_data=expectation.get("response_data"),
+                headers=expectation.get("headers", {}),
             )
+
+        yield response
+
+    @asynccontextmanager
+    async def put(self, url: str, **kwargs):
+        """Mock PUT request."""
+        self._requests.append({"method": "PUT", "url": url, "kwargs": kwargs})
+        self.call_count += 1
+
+        expectation = None
+        exp_idx = None
+        for idx, exp in enumerate(self._expectations):
+            if exp["method"] != "PUT":
+                continue
+            if exp["url"] and exp["url"] not in url:
+                continue
+            expectation = exp
+            exp_idx = idx
+            break
+
+        if expectation is None:
+            response = MockAiohttpResponse(status=404, text_data="Not Found")
+        else:
+            response = MockAiohttpResponse(
+                status=expectation["response_status"],
+                json_data=expectation.get("response_json"),
+                text_data=expectation.get("response_text", ""),
+            )
+            # Consume this expectation
+            if exp_idx is not None:
+                self._expectations.pop(exp_idx)
 
         yield response
 

@@ -1,0 +1,11 @@
+# Supply Chain & Multimodal Threat Signatures
+# Detects hidden code files and concealed functionality
+
+- id: HIDDEN_FILE_WITH_CODE
+  category: supply_chain_attack
+  severity: HIGH
+  patterns:
+    - "(?:^|/)\\.[^/]+\\.(?:py|sh|bash|rb|pl|js|ts)$"
+  file_types: [python, bash]
+  description: "Hidden file (dotfile) containing executable code may conceal malicious functionality"
+  remediation: "Remove hidden code files or rename them to be visible. All executable code should be transparent"

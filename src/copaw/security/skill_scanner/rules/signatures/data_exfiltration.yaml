@@ -1,0 +1,141 @@
+# Data Exfiltration & Privacy Violation Signatures
+# Detects outbound network requests, sensitive file access, and data staging
+
+- id: DATA_EXFIL_NETWORK_REQUESTS
+  category: data_exfiltration
+  severity: MEDIUM
+  patterns:
+    # Actual network operations (imports alone are too noisy)
+    - "requests\\.(?:get|post|put|delete|patch|request)\\s*\\("
+    - "httpx\\.(?:get|post|put|delete|patch|request)\\s*\\("
+    - "aiohttp\\.(?:ClientSession|request)\\s*\\("
+    - "urllib\\.request\\.(?:urlopen|Request)\\s*\\("
+    - "http\\.client\\.(?:HTTPConnection|HTTPSConnection)"
+  file_types: [python]
+  description: "Outbound network request primitives that can transmit data externally"
+  remediation: "Ensure network operations are necessary and document allowed destinations"
+
+# Socket is commonly used for legitimate local purposes (port checking, IPC)
+# Don't flag socket usage by default - it's usually for local port checking
+# Only flag actual external connections with explicit IP addresses or domains
+
+- id: DATA_EXFIL_HTTP_POST
+  category: data_exfiltration
+  severity: CRITICAL
+  patterns:
+    # Keep this rule focused on high-confidence exfiltration indicators.
+    # Generic POST usage is covered by DATA_EXFIL_NETWORK_REQUESTS (MEDIUM).
+    - "(?i)requests\\.post\\s*\\([^\\n)]{0,240}(?:attacker|evil|webhook|exfil|steal|leak|collect|backup_endpoint|analytics_endpoint|discord\\.com/api/webhooks|pastebin|telegram)"
+    - "(?i)requests\\.post\\s*\\([^\\n)]{0,240}(?:data|json)\\s*=\\s*(?:\\{[^\\n\\}]{0,240}(?:password|passwd|secret|token|api[_-]?key|credential|auth|cookie|session|private[_-]?key)|[A-Za-z_][A-Za-z0-9_]*(?:secret|token|credential|passwd|password|api[_-]?key))"
+    - "(?i)urllib\\.request\\.urlopen\\s*\\([^\\n)]{0,240}(?:attacker|evil|webhook|exfil|steal|leak|collect)"
+    - "(?i)http\\.client\\.(?:HTTPConnection|HTTPSConnection).*\\.request\\s*\\(['\"]POST['\"][^\\n)]{0,200}(?:attacker|evil|webhook|exfil|steal|leak|collect)"
+  file_types: [python]
+  description: "HTTP POST request that may send data externally"
+  remediation: "Review all POST requests. Ensure they don't send sensitive data"
+
+- id: DATA_EXFIL_SOCKET_CONNECT
+  category: data_exfiltration
+  severity: CRITICAL
+  patterns:
+    - "socket\\.socket\\s*\\([^)]*\\)\\.connect"
+    - "socket\\.create_connection"
+  exclude_patterns:
+    - "localhost"
+    - "127\\.0\\.0\\.1"
+    - "0\\.0\\.0\\.0"
+    - "::1"
+    - "def\\s+(is_)?.*ready"
+    - "def\\s+.*health.*check"
+    - "def\\s+.*wait.*server"
+  file_types: [python]
+  description: "Direct socket connection to external server"
+  remediation: "Remove socket connections unless absolutely necessary and documented"
+
+- id: DATA_EXFIL_SENSITIVE_FILES
+  category: data_exfiltration
+  severity: HIGH
+  patterns:
+    # Opening/reading sensitive files with explicit paths
+    - "(?:open|read)\\s*\\([^)]*[\\\"/](?:etc/passwd|etc/shadow|etc/sudoers)"
+    - "(?:open|read)\\s*\\([^)]*['\\\"]/etc/[^'\\\")]{1,120}['\\\"]"
+    - "(?:open|read)\\s*\\([^)]*\\.aws/credentials"
+    - "(?:open|read)\\s*\\([^)]*\\.ssh/(?:id_rsa|id_dsa|id_ed25519|authorized_keys)"
+    - "(?:open|read)\\s*\\([^)]*\\.(?:gnupg|netrc|pgpass)"
+    # .env file actually being opened (not just Path reference)
+    - "open\\s*\\([^)]*\\.env(?:\\.[A-Za-z0-9_-]+)?['\"]\\s*[,)]"
+    # Variable names with clear sensitive-file intent being opened
+    - "(?:open|read)\\s*\\([^)]*\\b(?:cred(?:ential)?s?_path|secret(?:s)?_path|key(?:s)?_path|token(?:s)?_path)\\b"
+  exclude_patterns:
+    # Path references (not actual file access)
+    - "Path\\s*\\([^)]*\\.env"
+    - "DEFAULT_"
+    - "env_path\\s*="
+    - "env_file\\s*="
+    # Generic/open-ended variable paths (benign file I/O)
+    - "\\b(?:image|img|icon|logo|pdf|doc|markdown|md|schema|config|manifest|plugin|asset|template)_path\\b"
+    # Writing files (not exfiltration)
+    - "'w'"
+    - "\"w\""
+    - "mode.*w"
+  file_types: [python]
+  description: "Opening sensitive system or credential files"
+  remediation: "Do not read credential files or sensitive system files"
+
+# DATA_EXFIL_ENV_VARS - REMOVED
+# This rule was generating excessive false positives because:
+# - Reading secrets from environment variables is GOOD PRACTICE (not exfiltration)
+# - The pattern os.environ.get("API_KEY") is the recommended secure way to handle secrets
+# - This was flagging ~95% false positives in production
+# If you need to detect actual credential exfiltration, use the behavioral analyzer
+# which tracks data flow from env vars to network calls
+
+- id: DATA_EXFIL_BASE64_AND_NETWORK
+  category: data_exfiltration
+  severity: HIGH
+  patterns:
+    # Require both encoding and network context on the same line to avoid broad base64 FPs
+    - "base64\\.(?:b64encode|encodebytes)[^\\n]{0,160}(?:requests\\.|urllib\\.request|httpx\\.|socket\\.)"
+    - "(?:requests\\.|urllib\\.request|httpx\\.|socket\\.)[^\\n]{0,160}base64\\.(?:b64encode|encodebytes)"
+  file_types: [python]
+  description: "Base64 encoding combined with network operations (potential exfiltration staging)"
+  remediation: "Review data flow from encoding to network sinks and remove unnecessary transfers"
+
+- id: DATA_EXFIL_JS_NETWORK
+  category: data_exfiltration
+  severity: MEDIUM
+  patterns:
+    - "\\bfetch\\s*\\("
+    - "\\baxios\\.(?:get|post|put|delete|patch|request)\\s*\\("
+    - "(?:https?)\\.request\\s*\\("
+    - "(?:https?)\\.get\\s*\\("
+    - "new\\s+XMLHttpRequest\\s*\\("
+    # Removed: require('axios'|'node-fetch'|...) import-only pattern.
+    # Actual API call patterns above already catch real usage;
+    # bare imports without calls are FPs.
+  exclude_patterns:
+    - "(?i)example"
+    - "(?i)mock"
+    - "(?i)test"
+    - "//.*fetch"
+    # Method definitions (e.g. service worker fetch handler)
+    - "fetch\\s*\\([^)]*\\)\\s*\\{"
+  file_types: [javascript, typescript]
+  description: "Outbound network request primitives in JavaScript/TypeScript"
+  remediation: "Ensure network operations are necessary and document allowed destinations"
+
+- id: DATA_EXFIL_JS_FS_ACCESS
+  category: data_exfiltration
+  severity: HIGH
+  patterns:
+    # Focus on actual file content read/write; exclude readdir/readdirSync
+    # (directory listing is very common in Node.js and rarely exfiltrates data)
+    - "fs\\.(?:readFile|readFileSync|createReadStream)\\s*\\("
+    - "fs\\.(?:writeFile|writeFileSync|createWriteStream|appendFile|appendFileSync)\\s*\\("
+  exclude_patterns:
+    - "(?i)example"
+    - "(?i)mock"
+    - "(?i)test"
+    - "//.*fs\\."
+  file_types: [javascript, typescript]
+  description: "Node.js filesystem access that could read or write sensitive data"
+  remediation: "Review filesystem operations. Ensure they don't access sensitive system files or credential stores"

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Token usage manager"""
 
+import asyncio
 import json
 import logging
 import threading
@@ -67,7 +68,7 @@ class TokenUsageManager:
 
     def __init__(self) -> None:
         self._path: Path = (WORKING_DIR / TOKEN_USAGE_FILE).expanduser()
-        self._file_lock = threading.Lock()
+        self._file_lock = asyncio.Lock()
 
     async def _load_data(self) -> dict:
         """Load full token usage data from disk."""
@@ -93,12 +94,12 @@ class TokenUsageManager:
         """Persist token usage data to disk."""
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(
+            with open(
                 self._path,
                 mode="w",
                 encoding="utf-8",
             ) as f:
-                await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                f.write(json.dumps(data, ensure_ascii=False, indent=2))
         except OSError as e:
             logger.warning(
                 "Failed to write token usage to %s: %s",
@@ -129,7 +130,7 @@ class TokenUsageManager:
         date_str = at_date.isoformat()
         composite_key = f"{provider_id}:{model_name}"
 
-        with self._file_lock:
+        async with self._file_lock:
             data = await self._load_data()
             if date_str not in data:
                 data[date_str] = {}

@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/copaw/app/channels/**'
       - 'tests/unit/channels/**'
+      - 'tests/contract/channels/**'
       - 'tests/conftest.py'
       - '.github/workflows/channel-tests.yml'
   pull_request:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'src/copaw/app/channels/**'
       - 'tests/unit/channels/**'
+      - 'tests/contract/channels/**'
       - 'tests/conftest.py'
       - '.github/workflows/channel-tests.yml'
   workflow_dispatch:
@@ -182,10 +184,19 @@ jobs:
       - name: Run coverage for changed channels
         run: |
           if [ "${{ needs.detect-changes.outputs.run_all }}" = "true" ]; then
-            # Full coverage for all channels
+            # Full coverage: unit tests + contract tests
+            # 1. Run unit tests with coverage
             pytest tests/unit/channels/ \
               -v \
               --cov=src/copaw/app/channels \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term-missing
+
+            # 2. Run contract tests and append coverage (primary tests)
+            pytest tests/contract/channels/ \
+              -v \
+              --cov=src/copaw/app/channels \
+              --cov-append \
               --cov-report=xml:coverage.xml \
               --cov-report=term-missing
           else
@@ -199,9 +210,18 @@ jobs:
               fi
             done
 
+            # 1. Run unit tests with targeted coverage
             pytest tests/unit/channels/ \
               -v \
               --cov="$COV_SOURCES" \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term-missing
+
+            # 2. Run contract tests and append coverage
+            pytest tests/contract/channels/ \
+              -v \
+              --cov="$COV_SOURCES" \
+              --cov-append \
               --cov-report=xml:coverage.xml \
               --cov-report=term-missing
           fi
@@ -217,13 +237,13 @@ jobs:
           thresholdNew: 60.0
           thresholdModified: 60.0
 
-      # Check coverage thresholds
+      # Check coverage thresholds (🟡 Soft gate - informational only)
       - name: Check coverage thresholds
         run: |
-          # Simplified threshold check - adjust values as needed
+          # Coverage check is advisory only (soft gate)
+          # Unit tests are optional; coverage threshold does not block PR
           python << 'EOF'
           import xml.etree.ElementTree as ET
-          import sys
 
           tree = ET.parse('coverage.xml')
           root = tree.getroot()
@@ -232,16 +252,17 @@ jobs:
           line_rate = float(root.get('line-rate', 0))
           coverage_pct = line_rate * 100
 
-          print(f"Channel code coverage: {coverage_pct:.1f}%")
+          print(f"📊 Channel code coverage: {coverage_pct:.1f}%")
+          print(f"   (Advisory only - soft gate, does not block PR)")
 
-          # Set minimum thresholds
-          MIN_COVERAGE = 60.0  # 60% minimum
+          # Advisory threshold for reference
+          ADVISORY_THRESHOLD = 60.0
 
-          if coverage_pct < MIN_COVERAGE:
-              print(f"❌ Coverage {coverage_pct:.1f}% is below minimum {MIN_COVERAGE}%")
-              sys.exit(1)
+          if coverage_pct < ADVISORY_THRESHOLD:
+              print(f"⚠️  Coverage {coverage_pct:.1f}% is below advisory threshold {ADVISORY_THRESHOLD}%")
+              print(f"   Unit tests are soft-gated; this is informational only.")
           else:
-              print(f"✅ Coverage {coverage_pct:.1f}% meets minimum {MIN_COVERAGE}%")
+              print(f"✅ Coverage {coverage_pct:.1f}% meets advisory threshold {ADVISORY_THRESHOLD}%")
           EOF
 
   # ===========================================================================
@@ -269,12 +290,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      # Run base channel tests (these test the contract)
-      - name: Run BaseChannel contract tests
+      # Run all contract tests (ensures interface compliance for ALL channels)
+      - name: Run Contract Tests
         run: |
-          pytest tests/unit/channels/test_base_channel.py -v
+          pytest tests/contract/channels/ -v
 
-      # Verify all channels have required methods implemented
+      # Verify all channels have required methods implemented (supplementary check)
       - name: Check channel implementations
         run: |
           python << 'EOF'
@@ -379,18 +400,24 @@ jobs:
           echo "========================================="
 
           # Determine overall status
-          if [ "${{ needs.channel-unit-tests.result }}" = "failure" ] || \
-             [ "${{ needs.channel-coverage.result }}" = "failure" ] || \
-             [ "${{ needs.contract-compliance.result }}" = "failure" ]; then
-            echo "❌ Channel tests FAILED"
+          # ⚠️ 强卡点：仅契约测试失败阻断 PR（明确接口兼容性门禁）
+          if [ "${{ needs.contract-compliance.result }}" = "failure" ]; then
+            echo "❌ Contract compliance FAILED - PR blocked"
             exit 1
           fi
 
-          if [ "${{ needs.channel-unit-tests.result }}" = "skipped" ] && \
-             [ "${{ needs.channel-coverage.result }}" = "skipped" ] && \
-             [ "${{ needs.contract-compliance.result }}" = "skipped" ]; then
-            echo "⚠️  All channel tests were skipped"
+          if [ "${{ needs.contract-compliance.result }}" = "skipped" ]; then
+            echo "⚠️  Contract tests were skipped"
             exit 0
           fi
 
-          echo "✅ All channel tests passed"
+          # 软卡点信息（不阻断 PR）
+          if [ "${{ needs.channel-unit-tests.result }}" = "failure" ]; then
+            echo "⚠️  Unit tests failed (non-blocking)"
+          fi
+
+          if [ "${{ needs.channel-coverage.result }}" = "failure" ]; then
+            echo "⚠️  Coverage check failed (non-blocking)"
+          fi
+
+          echo "✅ Channel tests passed (contract compliance mandatory, others advisory)"

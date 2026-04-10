@@ -7,6 +7,7 @@ import logging
 import asyncio
 import re
 import tempfile
+from collections import deque
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Optional
@@ -23,6 +24,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
+from ..utils import file_url_to_local_path
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -40,6 +42,7 @@ class DiscordChannel(BaseChannel):
     channel = "discord"
     uses_manager_queue = True
     _DISCORD_MAX_LEN: int = 2000
+    _MAX_CACHED_MESSAGE_IDS: int = 500
 
     def __init__(
         self,
@@ -58,6 +61,7 @@ class DiscordChannel(BaseChannel):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        accept_bot_messages: bool = False,
     ):
         super().__init__(
             process,
@@ -76,8 +80,11 @@ class DiscordChannel(BaseChannel):
         self.http_proxy = http_proxy
         self.http_proxy_auth = http_proxy_auth
         self.bot_prefix = bot_prefix
+        self.accept_bot_messages = accept_bot_messages
         self._task: Optional[asyncio.Task] = None
         self._client = None
+        self._processed_message_ids: set[str] = set()
+        self._processed_message_id_queue: deque[str] = deque()
 
         if self.enabled:
             import discord  # type: ignore
@@ -101,8 +108,28 @@ class DiscordChannel(BaseChannel):
 
             @self._client.event
             async def on_message(message):
-                if message.author.bot:
+                # Always ignore messages from the bot itself
+                if message.author == self._client.user:
                     return
+                # Filter other bot messages unless
+                # accept_bot_messages is enabled
+                if message.author.bot and not self.accept_bot_messages:
+                    return
+                msg_id = str(message.id)
+                if msg_id in self._processed_message_ids:
+                    logger.debug(
+                        "discord: duplicate message %s skipped",
+                        msg_id,
+                    )
+                    return
+                if (
+                    len(self._processed_message_ids)
+                    >= self._MAX_CACHED_MESSAGE_IDS
+                ):
+                    oldest = self._processed_message_id_queue.popleft()
+                    self._processed_message_ids.discard(oldest)
+                self._processed_message_ids.add(msg_id)
+                self._processed_message_id_queue.append(msg_id)
                 text = (message.content or "").strip()
                 attachments = message.attachments
 
@@ -117,6 +144,25 @@ class DiscordChannel(BaseChannel):
                         "",
                         text,
                     ).strip()
+                # Check role mentions:
+                # if any mentioned role is one the bot has
+                if not is_bot_mentioned and message.guild and bot_user:
+                    bot_member = message.guild.get_member(bot_user.id)
+                    if bot_member:
+                        mentioned_role_ids = {
+                            r.id for r in getattr(message, "role_mentions", [])
+                        }
+                        bot_role_ids = {r.id for r in bot_member.roles}
+                        matched_role_ids = mentioned_role_ids & bot_role_ids
+                        if matched_role_ids:
+                            is_bot_mentioned = True
+                            # Remove role mention tags from text
+                            for role_id in matched_role_ids:
+                                text = re.sub(
+                                    rf"<@&{role_id}>",
+                                    "",
+                                    text,
+                                ).strip()
 
                 content_parts = []
                 if text:
@@ -186,9 +232,9 @@ class DiscordChannel(BaseChannel):
                 meta = {
                     "user_id": str(message.author.id),
                     "channel_id": str(message.channel.id),
-                    "guild_id": str(message.guild.id)
-                    if message.guild
-                    else None,
+                    "guild_id": (
+                        str(message.guild.id) if message.guild else None
+                    ),
                     "message_id": str(message.id),
                     "is_dm": not is_group,
                     "is_group": is_group,
@@ -246,13 +292,18 @@ class DiscordChannel(BaseChannel):
                 "",
             ),
             http_proxy_auth=os.getenv("DISCORD_HTTP_PROXY_AUTH", ""),
-            bot_prefix=os.getenv("DISCORD_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("DISCORD_BOT_PREFIX", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("DISCORD_DM_POLICY", "open"),
             group_policy=os.getenv("DISCORD_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("DISCORD_DENY_MESSAGE", ""),
             require_mention=os.getenv("DISCORD_REQUIRE_MENTION", "0") == "1",
+            accept_bot_messages=os.getenv(
+                "DISCORD_ACCEPT_BOT_MESSAGES",
+                "0",
+            )
+            == "1",
         )
 
     @classmethod
@@ -271,7 +322,7 @@ class DiscordChannel(BaseChannel):
             token=config.bot_token or "",
             http_proxy=config.http_proxy,
             http_proxy_auth=config.http_proxy_auth or "",
-            bot_prefix=config.bot_prefix or "[BOT] ",
+            bot_prefix=config.bot_prefix or "",
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -281,28 +332,25 @@ class DiscordChannel(BaseChannel):
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
             require_mention=config.require_mention,
+            accept_bot_messages=config.accept_bot_messages,
         )
 
-    async def _resolve_target(self, to_handle, meta):
+    async def _resolve_target(self, to_handle, _meta):
         """Resolve a Discord Messageable from meta or to_handle."""
-        meta = meta or {}
-        if not meta.get("channel_id") and not meta.get("user_id"):
-            meta.update(self._route_from_handle(to_handle))
-        channel_id = meta.get("channel_id")
-        user_id = meta.get("user_id")
+        route = self._route_from_handle(to_handle)
+        channel_id = route.get("channel_id")
+        user_id = route.get("user_id")
         if channel_id:
-            ch = self._client.get_channel(int(channel_id))
+            cid = int(channel_id)
+            ch = self._client.get_channel(cid)
             if ch is None:
-                ch = await self._client.fetch_channel(
-                    int(channel_id),
-                )
+                ch = await self._client.fetch_channel(cid)
             return ch
         if user_id:
-            user = self._client.get_user(int(user_id))
+            uid = int(user_id)
+            user = self._client.get_user(uid)
             if user is None:
-                user = await self._client.fetch_user(
-                    int(user_id),
-                )
+                user = await self._client.fetch_user(uid)
             return user.dm_channel or await user.create_dm()
         return None
 
@@ -440,9 +488,7 @@ class DiscordChannel(BaseChannel):
         meta: Optional[dict] = None,
     ) -> None:
         """Send a media part as a Discord file attachment."""
-        if not self.enabled or not self._client:
-            return
-        if not self._client.is_ready():
+        if not self.enabled or not self._client or not self._client.is_ready():
             return
         import discord
 
@@ -464,7 +510,14 @@ class DiscordChannel(BaseChannel):
 
         temp_path = None
         if url.startswith("file://"):
-            file = discord.File(url[7:])
+            local_path = file_url_to_local_path(url)
+            if not local_path:
+                logger.warning(
+                    "discord send_media: invalid file URL %s",
+                    url,
+                )
+                return
+            file = discord.File(local_path)
         elif url.startswith(("http://", "https://")):
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:

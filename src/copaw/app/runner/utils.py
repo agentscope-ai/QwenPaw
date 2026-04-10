@@ -1,16 +1,29 @@
 # -*- coding: utf-8 -*-
 import json
+import logging
+import platform
 from datetime import datetime, timezone
-from typing import Optional, Union, List
+from typing import List, Optional, Union
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from agentscope.message import Msg
 from agentscope_runtime.engine.schemas.agent_schemas import (
     Message,
+    TextContent,
+    ImageContent,
+    AudioContent,
+    VideoContent,
+    FileContent,
+    DataContent,
     FunctionCall,
     FunctionCallOutput,
     MessageType,
 )
-from agentscope_runtime.engine.helpers.agent_api_builder import ResponseBuilder
+
+from ...config import load_config
+
+logger = logging.getLogger(__name__)
 
 
 def build_env_context(
@@ -33,27 +46,42 @@ def build_env_context(
         Formatted environment context string
     """
     parts = []
-    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC (%A)")
-    parts.append(f"- 当前 UTC 时间: {now_utc}")
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
+
     if session_id is not None:
-        parts.append(f"- 当前的session_id: {session_id}")
+        parts.append(f"- Session ID: {session_id}")
     if user_id is not None:
-        parts.append(f"- 当前的user_id: {user_id}")
+        parts.append(f"- User ID: {user_id}")
     if channel is not None:
-        parts.append(f"- 当前的channel: {channel}")
+        parts.append(f"- Channel: {channel}")
+
+    parts.append(
+        f"- OS: {platform.system()} {platform.release()} "
+        f"({platform.machine()})",
+    )
 
     if working_dir is not None:
-        parts.append(f"- 工作目录: {working_dir}")
+        parts.append(f"- Working directory: {working_dir}")
+    parts.append(
+        f"- Current date: {now.strftime('%Y-%m-%d')} "
+        f"{user_tz} ({now.strftime('%A')})",
+    )
 
     if add_hint:
         parts.append(
-            "- 重要提示:\n"
-            "  1. 完成任务时，优先考虑使用 skills"
-            "（例如定时任务，优先使用 cron skill）。"
-            "对于不清楚的 skills，请先查阅相关对应文档。\n"
-            "  2. 使用 write_file 写文件时，如果担心覆盖原有内容，"
-            "可以先用 read_file 查看文件内容，"
-            "再使用 edit_file 工具进行局部内容更新或追加内容。",
+            "- Important:\n"
+            "  1. Prefer using skills when completing tasks "
+            "(e.g. use the cron skill for scheduled tasks). "
+            "Consult the relevant skill documentation if unsure.\n"
+            "  2. When using write_file, if you want to avoid overwriting "
+            "existing content, use read_file first to inspect the file, "
+            "then use edit_file for partial updates or appending.",
         )
 
     return (
@@ -61,12 +89,213 @@ def build_env_context(
     )
 
 
-# pylint: disable=too-many-branches,too-many-statements
+def _is_local_file_url(url: str) -> bool:
+    """True if url is a local file reference (file:// or absolute path)."""
+    if not url or not isinstance(url, str):
+        return False
+    s = url.strip()
+    if not s:
+        return False
+    lower = s.lower()
+
+    # Check for remote URLs
+    if lower.startswith(("http://", "https://", "data:")):
+        return False
+
+    # Check for local file patterns: file://, Unix paths, or Windows drives
+    return (
+        lower.startswith("file:")
+        or (s.startswith("/") and not s.startswith("//"))
+        or (len(s) >= 2 and s[1] == ":" and s[0].isalpha())
+    )
+
+
+def _abspath_from_url(url: str) -> str:
+    """Extract absolute path from file:// URL."""
+    s = url.strip()
+    if s.lower().startswith("file:"):
+        s = s[5:]
+    s = "/" + s.lstrip("/")
+    return s
+
+
+def _resolve_content_url(url: str) -> str:
+    """If url is local, return filename only; frontend builds URL."""
+    if not isinstance(url, str):
+        return url
+    if not _is_local_file_url(url):
+        return url
+    return _abspath_from_url(url)
+
+
+# pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
+def _build_media_message_from_block(
+    block: dict,
+    role: str,
+    metadata: dict,
+) -> Message:
+    output = block.get("output")
+    media_message = None
+    if isinstance(output, list):
+        media_items = [
+            item
+            for item in output
+            if isinstance(item, dict)
+            and item.get("type") in ("image", "audio", "video", "file")
+        ]
+        if media_items:
+            media_message = Message(
+                type=MessageType.MESSAGE,
+                role=role,
+            )
+            media_message.metadata = metadata
+
+            for item in media_items:
+                itype = item.get("type")
+
+                if itype == "image":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["image_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "image/jpeg",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "image_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    media_message.add_content(
+                        new_content=ImageContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "audio":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        url = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                        kwargs["data"] = url
+                        try:
+                            kwargs["format"] = urlparse(
+                                url,
+                            ).path.split(
+                                ".",
+                            )[-1]
+                        except (
+                            AttributeError,
+                            IndexError,
+                            ValueError,
+                        ):
+                            kwargs["format"] = None
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get("media_type")
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "data"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                        kwargs["format"] = media_type
+                    media_message.add_content(
+                        new_content=AudioContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "video":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["video_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "video/mp4",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "video_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    media_message.add_content(
+                        new_content=VideoContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "file":
+                    kwargs = {"filename": item.get("filename", "")}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["file_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "application/octet-stream",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "file_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    elif isinstance(source, str):
+                        kwargs["file_url"] = _resolve_content_url(
+                            source,
+                        )
+                    media_message.add_content(
+                        new_content=FileContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+    return media_message
+
+
+# pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
 ) -> List[Message]:
     """
-    Convert AgentScope Msg(s) into one or more runtime Message objects
+    Convert AgentScope Msg(s) into one or more runtime Message objects.
 
     Args:
         messages: AgentScope message(s) from streaming.
@@ -85,30 +314,25 @@ def agentscope_msg_to_message(
 
     for msg in msgs:
         role = msg.role or "assistant"
+        metadata = {
+            "original_id": msg.id,
+            "original_name": msg.name,
+            "metadata": msg.metadata,
+        }
 
         if isinstance(msg.content, str):
-            # Only text
-            rb = ResponseBuilder()
-            mb = rb.create_message_builder(
-                role=role,
-                message_type=MessageType.MESSAGE,
+            message = Message(type=MessageType.MESSAGE, role=role)
+            message.metadata = metadata
+            text_content = TextContent(
+                delta=False,
+                index=None,
+                text=msg.content,
             )
-            # add meta field to store old id and name
-            mb.message.metadata = {
-                "original_id": msg.id,
-                "original_name": msg.name,
-                "metadata": msg.metadata,
-            }
-            cb = mb.create_content_builder(content_type="text")
-            cb.set_text(msg.content)
-            cb.complete()
-            mb.complete()
-            results.append(mb.get_message_data())
+            message.add_content(new_content=text_content)
+            results.append(message)
             continue
 
-        # msg.content is a list of blocks
-        # We group blocks by high-level message type
-        current_mb = None
+        current_message = None
         current_type = None
 
         for block in msg.content:
@@ -118,67 +342,51 @@ def agentscope_msg_to_message(
                 continue
 
             if btype == "text":
-                # Create/continue MESSAGE type
                 if current_type != MessageType.MESSAGE:
-                    if current_mb:
-                        current_mb.complete()
-                        results.append(current_mb.get_message_data())
-                    rb = ResponseBuilder()
-                    current_mb = rb.create_message_builder(
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
                         role=role,
-                        message_type=MessageType.MESSAGE,
                     )
-                    # add meta field to store old id and name
-                    current_mb.message.metadata = {
-                        "original_id": msg.id,
-                        "original_name": msg.name,
-                        "metadata": msg.metadata,
-                    }
+                    current_message.metadata = metadata
                     current_type = MessageType.MESSAGE
-                cb = current_mb.create_content_builder(content_type="text")
-                cb.set_text(block.get("text", ""))
-                cb.complete()
+
+                text_content = TextContent(
+                    delta=False,
+                    index=None,
+                    text=block.get("text", ""),
+                )
+                current_message.add_content(new_content=text_content)
 
             elif btype == "thinking":
-                # Create/continue REASONING type
                 if current_type != MessageType.REASONING:
-                    if current_mb:
-                        current_mb.complete()
-                        results.append(current_mb.get_message_data())
-                    rb = ResponseBuilder()
-                    current_mb = rb.create_message_builder(
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.REASONING,
                         role=role,
-                        message_type=MessageType.REASONING,
                     )
-                    # add meta field to store old id and name
-                    current_mb.message.metadata = {
-                        "original_id": msg.id,
-                        "original_name": msg.name,
-                        "metadata": msg.metadata,
-                    }
+                    current_message.metadata = metadata
                     current_type = MessageType.REASONING
-                cb = current_mb.create_content_builder(content_type="text")
-                cb.set_text(block.get("thinking", ""))
-                cb.complete()
+
+                text_content = TextContent(
+                    delta=False,
+                    index=None,
+                    text=block.get("thinking", ""),
+                )
+                current_message.add_content(new_content=text_content)
 
             elif btype == "tool_use":
-                # Always start a new PLUGIN_CALL message
-                if current_mb:
-                    current_mb.complete()
-                    results.append(current_mb.get_message_data())
-                rb = ResponseBuilder()
-                current_mb = rb.create_message_builder(
+                if current_message:
+                    results.append(current_message.completed())
+
+                current_message = Message(
+                    type=MessageType.PLUGIN_CALL,
                     role=role,
-                    message_type=MessageType.PLUGIN_CALL,
                 )
-                # add meta field to store old id and name
-                current_mb.message.metadata = {
-                    "original_id": msg.id,
-                    "original_name": msg.name,
-                    "metadata": msg.metadata,
-                }
+                current_message.metadata = metadata
                 current_type = MessageType.PLUGIN_CALL
-                cb = current_mb.create_content_builder(content_type="data")
 
                 if isinstance(block.get("input"), (dict, list)):
                     arguments = json.dumps(
@@ -193,27 +401,24 @@ def agentscope_msg_to_message(
                     name=block.get("name"),
                     arguments=arguments,
                 ).model_dump()
-                cb.set_data(call_data)
-                cb.complete()
+
+                data_content = DataContent(
+                    delta=False,
+                    index=None,
+                    data=call_data,
+                )
+                current_message.add_content(new_content=data_content)
 
             elif btype == "tool_result":
-                # Always start a new PLUGIN_CALL_OUTPUT message
-                if current_mb:
-                    current_mb.complete()
-                    results.append(current_mb.get_message_data())
-                rb = ResponseBuilder()
-                current_mb = rb.create_message_builder(
+                if current_message:
+                    results.append(current_message.completed())
+
+                current_message = Message(
+                    type=MessageType.PLUGIN_CALL_OUTPUT,
                     role=role,
-                    message_type=MessageType.PLUGIN_CALL_OUTPUT,
                 )
-                # add meta field to store old id and name
-                current_mb.message.metadata = {
-                    "original_id": msg.id,
-                    "original_name": msg.name,
-                    "metadata": msg.metadata,
-                }
+                current_message.metadata = metadata
                 current_type = MessageType.PLUGIN_CALL_OUTPUT
-                cb = current_mb.create_content_builder(content_type="data")
 
                 if isinstance(block.get("output"), (dict, list)):
                     output = json.dumps(
@@ -228,41 +433,45 @@ def agentscope_msg_to_message(
                     name=block.get("name"),
                     output=output,
                 ).model_dump(exclude_none=True)
-                cb.set_data(output_data)
-                cb.complete()
+
+                data_content = DataContent(
+                    delta=False,
+                    index=None,
+                    data=output_data,
+                )
+                current_message.add_content(new_content=data_content)
+
+                media_message = _build_media_message_from_block(
+                    block,
+                    role,
+                    metadata,
+                )
+                if media_message:
+                    results.append(media_message)
 
             elif btype == "image":
-                # Create/continue MESSAGE type with image
                 if current_type != MessageType.MESSAGE:
-                    if current_mb:
-                        current_mb.complete()
-                        results.append(current_mb.get_message_data())
-                    rb = ResponseBuilder()
-                    current_mb = rb.create_message_builder(
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
                         role=role,
-                        message_type=MessageType.MESSAGE,
                     )
-                    # add meta field to store old id and name
-                    current_mb.message.metadata = {
-                        "original_id": msg.id,
-                        "original_name": msg.name,
-                        "metadata": msg.metadata,
-                    }
+                    current_message.metadata = metadata
                     current_type = MessageType.MESSAGE
-                cb = current_mb.create_content_builder(content_type="image")
 
+                kwargs = {}
                 if (
                     isinstance(block.get("source"), dict)
                     and block.get("source", {}).get("type") == "url"
                 ):
-                    cb.set_image_url(block.get("source", {}).get("url"))
+                    url = block.get("source", {}).get("url")
+                    url = _resolve_content_url(url)
+                    kwargs["image_url"] = url
 
                 elif (
                     isinstance(block.get("source"), dict)
-                    and block.get("source").get(
-                        "type",
-                    )
-                    == "base64"
+                    and block.get("source").get("type") == "base64"
                 ):
                     media_type = block.get("source", {}).get(
                         "media_type",
@@ -270,88 +479,158 @@ def agentscope_msg_to_message(
                     )
                     base64_data = block.get("source", {}).get("data", "")
                     url = f"data:{media_type};base64,{base64_data}"
-                    cb.set_image_url(url)
+                    kwargs["image_url"] = url
 
-                cb.complete()
+                image_content = ImageContent(
+                    delta=False,
+                    index=None,
+                    **kwargs,
+                )
+                current_message.add_content(new_content=image_content)
 
             elif btype == "audio":
-                # Create/continue MESSAGE type with audio
                 if current_type != MessageType.MESSAGE:
-                    if current_mb:
-                        current_mb.complete()
-                        results.append(current_mb.get_message_data())
-                    rb = ResponseBuilder()
-                    current_mb = rb.create_message_builder(
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
                         role=role,
-                        message_type=MessageType.MESSAGE,
                     )
-                    # add meta field to store old id and name
-                    current_mb.message.metadata = {
-                        "original_id": msg.id,
-                        "original_name": msg.name,
-                        "metadata": msg.metadata,
-                    }
+                    current_message.metadata = metadata
                     current_type = MessageType.MESSAGE
-                cb = current_mb.create_content_builder(content_type="audio")
-                # URLSource runtime check (dict with type == "url")
+
+                kwargs = {}
                 if (
                     isinstance(block.get("source"), dict)
-                    and block.get("source", {}).get(
-                        "type",
-                    )
-                    == "url"
+                    and block.get("source", {}).get("type") == "url"
                 ):
                     url = block.get("source", {}).get("url")
-                    cb.content.data = url
+                    url = _resolve_content_url(url)
+                    kwargs["data"] = url
                     try:
-                        cb.content.format = urlparse(url).path.split(".")[-1]
+                        kwargs["format"] = urlparse(url).path.split(".")[-1]
                     except (AttributeError, IndexError, ValueError):
-                        cb.content.format = None
+                        kwargs["format"] = None
 
-                # Base64Source runtime check (dict with type == "base64")
                 elif (
                     isinstance(block.get("source"), dict)
-                    and block.get("source").get(
-                        "type",
+                    and block.get("source").get("type") == "base64"
+                ):
+                    media_type = block.get("source", {}).get("media_type")
+                    base64_data = block.get("source", {}).get("data", "")
+                    url = f"data:{media_type};base64,{base64_data}"
+                    kwargs["data"] = url
+                    kwargs["format"] = media_type
+
+                audio_content = AudioContent(
+                    delta=False,
+                    index=None,
+                    **kwargs,
+                )
+                current_message.add_content(new_content=audio_content)
+
+            elif btype == "video":
+                if current_type != MessageType.MESSAGE:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
+                        role=role,
                     )
-                    == "base64"
+                    current_message.metadata = metadata
+                    current_type = MessageType.MESSAGE
+
+                kwargs = {}
+                if (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source", {}).get("type") == "url"
+                ):
+                    url = block.get("source", {}).get("url")
+                    url = _resolve_content_url(url)
+                    kwargs["video_url"] = url
+
+                elif (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source").get("type") == "base64"
                 ):
                     media_type = block.get("source", {}).get(
                         "media_type",
+                        "video/mp4",
                     )
                     base64_data = block.get("source", {}).get("data", "")
                     url = f"data:{media_type};base64,{base64_data}"
+                    kwargs["video_url"] = url
 
-                    cb.content.data = url
-                    cb.content.format = media_type
+                video_content = VideoContent(
+                    delta=False,
+                    index=None,
+                    **kwargs,
+                )
+                current_message.add_content(new_content=video_content)
 
-                cb.complete()
+            elif btype == "file":
+                if current_type != MessageType.MESSAGE:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
+                        role=role,
+                    )
+                    current_message.metadata = metadata
+                    current_type = MessageType.MESSAGE
+
+                kwargs = {
+                    "filename": block.get("filename"),
+                }
+                if (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source", {}).get("type") == "url"
+                ):
+                    url = block.get("source", {}).get("url")
+                    url = _resolve_content_url(url)
+                    kwargs["file_url"] = url
+
+                elif (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source").get("type") == "base64"
+                ):
+                    media_type = block.get("source", {}).get(
+                        "media_type",
+                        "application/octet-stream",
+                    )
+                    base64_data = block.get("source", {}).get("data", "")
+                    url = f"data:{media_type};base64,{base64_data}"
+                    kwargs["file_url"] = url
+                elif isinstance(block.get("source"), str):
+                    url = _resolve_content_url(block.get("source", ""))
+                    kwargs["file_url"] = url
+
+                file_content = FileContent(
+                    delta=False,
+                    index=None,
+                    **kwargs,
+                )
+                current_message.add_content(new_content=file_content)
 
             else:
-                # Fallback to MESSAGE type
                 if current_type != MessageType.MESSAGE:
-                    if current_mb:
-                        current_mb.complete()
-                        results.append(current_mb.get_message_data())
-                    rb = ResponseBuilder()
-                    current_mb = rb.create_message_builder(
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
                         role=role,
-                        message_type=MessageType.MESSAGE,
                     )
-                    # add meta field to store old id and name
-                    current_mb.message.metadata = {
-                        "original_id": msg.id,
-                        "original_name": msg.name,
-                        "metadata": msg.metadata,
-                    }
+                    current_message.metadata = metadata
                     current_type = MessageType.MESSAGE
-                cb = current_mb.create_content_builder(content_type="text")
-                cb.set_text(str(block))
-                cb.complete()
 
-        # finalize last open message builder
-        if current_mb:
-            current_mb.complete()
-            results.append(current_mb.get_message_data())
+                text_content = TextContent(
+                    delta=False,
+                    index=None,
+                    text=str(block),
+                )
+                current_message.add_content(new_content=text_content)
+
+        if current_message:
+            results.append(current_message.completed())
 
     return results

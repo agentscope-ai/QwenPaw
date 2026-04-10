@@ -8,7 +8,7 @@ def create_memory_search_tool(memory_manager):
     """Create a memory_search tool function with bound memory_manager.
 
     Args:
-        memory_manager: MemoryManager instance to use for searching
+        memory_manager: BaseMemoryManager instance to use for searching
 
     Returns:
         An async function that can be registered as a tool

@@ -7,11 +7,13 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+from agentscope_runtime.engine.schemas.exception import AgentException
 from dotenv import load_dotenv
 
 from .command_dispatch import (
@@ -23,26 +25,58 @@ from .query_error_dump import write_query_error_dump
 from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
-from ...agents.memory import MemoryManager
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
-from ...config import load_config
+from ...config.config import load_agent_config
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
 )
 from ...security.tool_guard.approval import ApprovalDecision
 
+if TYPE_CHECKING:
+    from ...agents.memory import BaseMemoryManager
+
 logger = logging.getLogger(__name__)
+
+_APPROVE_EXACT = frozenset(
+    {
+        "approve",
+        "/approve",
+        "/daemon approve",
+    },
+)
+
+
+def _is_approval(text: str) -> bool:
+    """Return True only when *text* is exactly ``approve``,
+    ``/approve``, or ``/daemon approve`` (case-insensitive).
+
+    Leading/trailing whitespace and blank lines are stripped before
+    comparison.  Everything else is treated as denial.
+    """
+    normalized = " ".join(text.split()).lower()
+    return normalized in _APPROVE_EXACT
 
 
 class AgentRunner(Runner):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        agent_id: str = "default",
+        workspace_dir: Path | None = None,
+        task_tracker: Any | None = None,
+    ) -> None:
         super().__init__()
         self.framework_type = "agentscope"
+        self.agent_id = agent_id  # Store agent_id for config loading
+        self.workspace_dir = (
+            workspace_dir  # Store workspace_dir for prompt building
+        )
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
-        self.memory_manager: MemoryManager | None = None
+        self._workspace: Any = None  # Workspace instance for control commands
+        self.memory_manager: BaseMemoryManager | None = None
+        self._task_tracker = task_tracker  # Task tracker for background tasks
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -60,31 +94,40 @@ class AgentRunner(Runner):
         """
         self._mcp_manager = mcp_manager
 
+    def set_workspace(self, workspace):
+        """Set workspace for control command handlers.
+
+        Args:
+            workspace: Workspace instance
+        """
+        self._workspace = workspace
+
     _APPROVAL_TIMEOUT_SECONDS = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 
     async def _resolve_pending_approval(
         self,
         session_id: str,
         query: str | None,
-    ) -> tuple[Msg | None, bool]:
+    ) -> tuple[Msg | None, bool, dict[str, Any] | None]:
         """Check for a pending tool-guard approval for *session_id*.
 
-        Returns ``(response_msg, was_consumed)``:
+        Returns ``(response_msg, was_consumed, approved_tool_call)``:
 
-        - ``(None, False)`` — no pending approval, continue normally.
-        - ``(Msg, True)``   — denied; yield the Msg and stop.
-        - ``(None, True)``  — approved; skip the command path and let
-          the message reach the agent so the LLM can re-call the tool.
+        - ``(None, False, None)`` — no pending approval, continue normally.
+        - ``(Msg, True, None)``   — denied; yield the Msg and stop.
+        - ``(None, True, dict)``  — approved with stored tool call.
+
+        Approvals are resolved FIFO per session (oldest pending first).
         """
         if not session_id:
-            return None, False
+            return None, False, None
 
         from ..approvals import get_approval_service
 
         svc = get_approval_service()
         pending = await svc.get_pending_by_session(session_id)
         if pending is None:
-            return None, False
+            return None, False, None
 
         elapsed = time.time() - pending.created_at
         if elapsed > self._APPROVAL_TIMEOUT_SECONDS:
@@ -109,15 +152,28 @@ class AgentRunner(Runner):
                     ],
                 ),
                 True,
+                None,
             )
 
         normalized = (query or "").strip().lower()
-        if normalized in ("/daemon approve", "/approve"):
-            await svc.resolve_request(
+        if _is_approval(normalized):
+            resolved = await svc.resolve_request(
                 pending.request_id,
                 ApprovalDecision.APPROVED,
             )
-            return None, True
+            approved_tool_call: dict[str, Any] | None = None
+            record = resolved or pending
+            if isinstance(record.extra, dict):
+                candidate = record.extra.get("tool_call")
+                if isinstance(candidate, dict):
+                    approved_tool_call = dict(candidate)
+                    siblings = record.extra.get("sibling_tool_calls")
+                    if isinstance(siblings, list):
+                        approved_tool_call["_sibling_tool_calls"] = siblings
+                    remaining = record.extra.get("remaining_queue")
+                    if isinstance(remaining, list):
+                        approved_tool_call["_remaining_queue"] = remaining
+            return None, True, approved_tool_call
 
         await svc.resolve_request(
             pending.request_id,
@@ -138,6 +194,7 @@ class AgentRunner(Runner):
                 ],
             ),
             True,
+            None,
         )
 
     async def query_handler(
@@ -149,12 +206,17 @@ class AgentRunner(Runner):
         """
         Handle agent query.
         """
+        logger.debug(
+            f"AgentRunner.query_handler called: agent_id={self.agent_id}, "
+            f"msgs={msgs}, request={request}",
+        )
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
 
         (
             approval_response,
             approval_consumed,
+            approved_tool_call,
         ) = await self._resolve_pending_approval(session_id, query)
         if approval_response is not None:
             yield approval_response, True
@@ -171,6 +233,16 @@ class AgentRunner(Runner):
             async for msg, last in run_command_path(request, msgs, self):
                 yield msg, last
             return
+
+        logger.debug(
+            f"AgentRunner.stream_query: request={request}, "
+            f"agent_id={self.agent_id}",
+        )
+
+        # Set agent context for model creation
+        from ..agent_context import set_current_agent_id
+
+        set_current_agent_id(self.agent_id)
 
         agent = None
         chat = None
@@ -199,7 +271,11 @@ class AgentRunner(Runner):
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
-                working_dir=str(WORKING_DIR),
+                working_dir=(
+                    str(self.workspace_dir)
+                    if self.workspace_dir
+                    else str(WORKING_DIR)
+                ),
             )
 
             # Get MCP clients from manager (hot-reloadable)
@@ -207,11 +283,11 @@ class AgentRunner(Runner):
             if self._mcp_manager is not None:
                 mcp_clients = await self._mcp_manager.get_clients()
 
-            config = load_config()
-            max_iters = config.agents.running.max_iters
-            max_input_length = config.agents.running.max_input_length
+            # Load agent-specific configuration
+            agent_config = load_agent_config(self.agent_id)
 
             agent = CoPawAgent(
+                agent_config=agent_config,
                 env_context=env_context,
                 mcp_clients=mcp_clients,
                 memory_manager=self.memory_manager,
@@ -219,9 +295,20 @@ class AgentRunner(Runner):
                     "session_id": session_id,
                     "user_id": user_id,
                     "channel": channel,
+                    "agent_id": self.agent_id,
+                    **(
+                        {
+                            "forced_tool_call_json": json.dumps(
+                                approved_tool_call,
+                                ensure_ascii=False,
+                            ),
+                        }
+                        if approved_tool_call
+                        else {}
+                    ),
                 },
-                max_iters=max_iters,
-                max_input_length=max_input_length,
+                workspace_dir=self.workspace_dir,
+                task_tracker=self._task_tracker,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
@@ -238,12 +325,30 @@ class AgentRunner(Runner):
                 else:
                     name = "Media Message"
 
+            logger.debug(
+                f"DEBUG chat_manager status: "
+                f"_chat_manager={self._chat_manager}, "
+                f"is_none={self._chat_manager is None}, "
+                f"agent_id={self.agent_id}",
+            )
+
             if self._chat_manager is not None:
+                logger.debug(
+                    f"Runner: Calling get_or_create_chat for "
+                    f"session_id={session_id}, user_id={user_id}, "
+                    f"channel={channel}, name={name}",
+                )
                 chat = await self._chat_manager.get_or_create_chat(
                     session_id,
                     user_id,
                     channel,
                     name=name,
+                )
+                logger.debug(f"Runner: Got chat: {chat.id}")
+            else:
+                logger.warning(
+                    f"ChatManager is None! Cannot auto-register chat for "
+                    f"session_id={session_id}",
                 )
 
             try:
@@ -275,7 +380,7 @@ class AgentRunner(Runner):
             logger.info(f"query_handler: {session_id} cancelled!")
             if agent is not None:
                 await agent.interrupt()
-            raise RuntimeError("Task has been cancelled!") from exc
+            raise AgentException("Task has been cancelled!") from exc
         except Exception as e:
             debug_dump_path = write_query_error_dump(
                 request=request,
@@ -423,7 +528,8 @@ class AgentRunner(Runner):
         Init handler.
         """
         # Load environment variables from .env file
-        env_path = Path(__file__).resolve().parents[4] / ".env"
+        # env_path = Path(__file__).resolve().parents[4] / ".env"
+        env_path = Path("./") / ".env"
         if env_path.exists():
             load_dotenv(env_path)
             logger.debug(f"Loaded environment variables from {env_path}")
@@ -433,24 +539,13 @@ class AgentRunner(Runner):
                 "using existing environment variables",
             )
 
-        session_dir = str(WORKING_DIR / "sessions")
+        session_dir = str(
+            (self.workspace_dir if self.workspace_dir else WORKING_DIR)
+            / "sessions",
+        )
         self.session = SafeJSONSession(save_dir=session_dir)
-
-        try:
-            if self.memory_manager is None:
-                self.memory_manager = MemoryManager(
-                    working_dir=str(WORKING_DIR),
-                )
-            await self.memory_manager.start()
-        except Exception as e:
-            logger.exception(f"MemoryManager start failed: {e}")
 
     async def shutdown_handler(self, *args, **kwargs):
         """
         Shutdown handler.
         """
-        try:
-            if self.memory_manager is not None:
-                await self.memory_manager.close()
-        except Exception as e:
-            logger.warning(f"MemoryManager stop failed: {e}")

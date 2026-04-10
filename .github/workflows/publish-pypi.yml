@@ -1,5 +1,7 @@
 # Publish Python package to PyPI when a release is created.
 # Build includes console frontend (see scripts/wheel_build.sh).
+# Manual trigger: uploads whl to GitHub artifacts for download.
+# Release trigger: publishes to PyPI.
 
 name: Publish Python Package to PyPI
 
@@ -47,7 +49,16 @@ jobs:
       - name: Build package
         run: python -m build
 
-      - name: Publish package to PyPI
+      - name: Upload wheel to artifacts (manual trigger only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: copaw-wheel
+          path: dist/*.whl
+          retention-days: 30
+
+      - name: Publish package to PyPI (release trigger only)
+        if: github.event_name == 'release'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__

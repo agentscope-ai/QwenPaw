@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button, Card, Form, Modal, Table } from "@agentscope-ai/design";
 import dayjs from "dayjs";
 import type { CronJobSpecOutput } from "../../../api/types";
 import { useTranslation } from "react-i18next";
+import api from "../../../api";
 import {
   createColumns,
   JobDrawer,
@@ -27,12 +28,29 @@ function CronJobsPage() {
   } = useCronJobs();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<CronJob>();
+  const userTimezoneRef = useRef("UTC");
+
+  useEffect(() => {
+    api
+      .getUserTimezone()
+      .then((res) => {
+        if (res.timezone) userTimezoneRef.current = res.timezone;
+      })
+      .catch((err) => console.error("Failed to fetch user timezone:", err));
+  }, []);
 
   const handleCreate = () => {
     setEditingJob(null);
     form.resetFields();
-    form.setFieldsValue(DEFAULT_FORM_VALUES);
+    form.setFieldsValue({
+      ...DEFAULT_FORM_VALUES,
+      schedule: {
+        ...DEFAULT_FORM_VALUES.schedule,
+        timezone: userTimezoneRef.current,
+      },
+    });
     setDrawerOpen(true);
   };
 
@@ -156,10 +174,15 @@ function CronJobsPage() {
     }
 
     let success = false;
-    if (editingJob) {
-      success = await updateJob(editingJob.id, processedValues);
-    } else {
-      success = await createJob(processedValues);
+    setSaving(true);
+    try {
+      if (editingJob) {
+        success = await updateJob(editingJob.id, processedValues);
+      } else {
+        success = await createJob(processedValues);
+      }
+    } finally {
+      setSaving(false);
     }
     if (success) {
       setDrawerOpen(false);
@@ -176,10 +199,13 @@ function CronJobsPage() {
 
   return (
     <div className={styles.cronJobsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("cronJobs.title")}</h1>
-          <p className={styles.description}>{t("cronJobs.description")}</p>
+      <div className={styles.pageHeader}>
+        <div className={styles.breadcrumbHeader}>
+          <span className={styles.breadcrumbParent}>Control</span>
+          <span className={styles.breadcrumbSeparator}>/</span>
+          <span className={styles.breadcrumbCurrent}>
+            {t("cronJobs.title")}
+          </span>
         </div>
         <Button type="primary" onClick={handleCreate}>
           + {t("cronJobs.createJob")}
@@ -205,6 +231,7 @@ function CronJobsPage() {
         open={drawerOpen}
         editingJob={editingJob}
         form={form}
+        saving={saving}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />

@@ -1,10 +1,13 @@
 # Dangerous Shell Command Detection Rules
-# These rules detect potentially dangerous shell commands (rm, mv) that
-# may cause data loss or unintended file mutations.
+# =========================================================================
+# Regex-signature rules for RuleBasedToolGuardian.
+# Scans execute_shell_command parameters for destructive, evasive,
+# or privilege-escalating patterns before the agent executes them.
 #
-# Unlike the existing TOOL_CMD_DESTRUCTIVE_RM rule (which only catches
-# ``rm -rf /system_path``), these rules catch *any* use of ``rm`` or
-# ``mv`` so the user is always prompted before execution.
+# Severity tiers: MEDIUM = broad catch-all (typically requires user review/confirmation),
+#                 HIGH / CRITICAL = targeted destructive patterns (mark result as unsafe; blocking/approval is
+#                                   enforced by the surrounding ToolGuard/approval workflow when available).
+# See GuardThreatCategory for the full threat taxonomy.
 
 # ── rm: file / directory removal ──────────────────────────────────────
 - id: TOOL_CMD_DANGEROUS_RM
@@ -27,3 +30,154 @@
     - "\\bmv\\b"
   description: "Shell command contains 'mv' which may move or overwrite files unexpectedly"
   remediation: "Confirm with the user before moving or renaming files"
+
+# ── Filesystem & Block Device Destruction ─────────────────────────────
+- id: TOOL_CMD_FS_DESTRUCTION
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: CRITICAL
+  patterns:
+    - "\\bmkfs(\\.[a-zA-Z0-9_]+)?\\b"
+    - "\\bmke2fs\\b"
+    - "\\bdd\\s+.*of=\\/dev\\/"
+    - ">\\s*\\/dev\\/(sd[a-z][0-9]*|vd[a-z][0-9]*|nvme\\d+n\\d+(p\\d+)?)"
+  description: "Detects low-level disk formatting or wiping commands"
+  remediation: "Block operation. Agents should not format or overwrite raw block devices."
+
+# ── Denial of Service & Fork Bombs ────────────────────────────────────
+- id: TOOL_CMD_DOS_FORK_BOMB
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: CRITICAL
+  patterns:
+    - ":\\s*\\(\\s*\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:"
+    - "\\bkill\\s+-9\\s+(-1\\b|1\\b)"
+  description: "Detects classic Bash fork bombs and mass process termination"
+  remediation: "Block immediately. These commands will crash the host system."
+
+# ── Network Loaders (Pipe to Shell) ───────────────────────────────────
+- id: TOOL_CMD_PIPE_TO_SHELL
+  tools: [execute_shell_command]
+  params: [command]
+  category: code_execution
+  severity: CRITICAL
+  patterns:
+    - "\\b(curl|wget)\\b\\s+.*\\|.*\\b(bash|sh|zsh|ash|dash)\\b"
+  description: "Detects 'curl | bash' patterns used to download and immediately execute remote payloads"
+  remediation: "Confirm with user. Agents should inspect scripts before executing them."
+
+# ── Reverse Shell & Network Tunnels ───────────────────────────────────
+- id: TOOL_CMD_REVERSE_SHELL
+  tools: [execute_shell_command]
+  params: [command]
+  category: network_abuse
+  severity: CRITICAL
+  patterns:
+    - "\\/dev\\/(tcp|udp)\\/"
+    - "\\bnc\\s+.*-e\\s*\\S+"
+    - "\\bncat\\s+.*-e\\s*\\S+"
+    - "\\bsocat\\s+.*EXEC:"
+  description: "Detects attempts to establish reverse shells or unauthorized network tunnels"
+  remediation: "Block operation. Agents do not need to bind interactive shells to network sockets."
+
+# ── Persistence & Privilege Escalation ────────────────────────────────
+- id: TOOL_CMD_SYSTEM_TAMPERING
+  tools: [execute_shell_command]
+  params: [command]
+  category: sensitive_file_access
+  severity: HIGH
+  patterns:
+    - "\\bcrontab\\b"
+    - "\\bauthorized_keys\\b"
+    - "\\/etc\\/sudoers"
+    - "\\/etc\\/crontab"
+  description: "Detects access to cron jobs, SSH keys, or sudo permissions (including reads and modifications)"
+  remediation: "Confirm with user. Treat any access to credential and scheduling files as sensitive and restrict when possible."
+
+# ── Dangerous Permission Changes ──────────────────────────────────────
+- id: TOOL_CMD_UNSAFE_PERMISSIONS
+  tools: [execute_shell_command]
+  params: [command]
+  category: privilege_escalation
+  severity: HIGH
+  patterns:
+    - "\\bchmod\\s+-[a-zA-Z]*R[a-zA-Z]*\\s+(777|a\\+rwx)\\s+\\/"
+    - "\\bchattr\\s+\\+i"
+  description: "Detects global permission downgrades (chmod 777) or setting immutable flags"
+  remediation: "Prompt for confirmation. Suggest least-privilege permission models."
+
+# ── Obfuscation & Defense Evasion ─────────────────────────────────────
+- id: TOOL_CMD_OBFUSCATED_EXEC
+  tools: [execute_shell_command]
+  params: [command]
+  category: code_execution
+  severity: HIGH
+  patterns:
+    - "\\bbase64\\s+(-d|--decode)\\s*\\|\\s*\\b(bash|sh|zsh)\\b"
+  description: "Detects execution of base64 encoded strings passed directly to a shell interpreter"
+  remediation: "Block execution. Agents should use plain text commands."
+
+# ── System Reboot & Shutdown ──────────────────────────────────────────
+- id: TOOL_CMD_SYSTEM_REBOOT
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: CRITICAL
+  patterns:
+    - "\\b(reboot|shutdown|halt|poweroff)\\b"
+    - "\\binit\\s+(0|6)\\b"
+    - "\\btelinit\\s+(0|6)\\b"
+    - "\\bShutdown-Computer\\b"
+    - "\\bRestart-Computer\\b"
+  description: "Detects system reboot or shutdown commands that will terminate the host system"
+  remediation: "Block operation. Agents should not restart or shutdown the system."
+
+# ── Service Management & Restart ──────────────────────────────────────
+- id: TOOL_CMD_SERVICE_RESTART
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: HIGH
+  patterns:
+    - "\\bsystemctl\\s+(restart|stop|start|reload|kill)\\b"
+    - "\\bservice\\s+\\S+\\s+(restart|stop|start|reload)\\b"
+    - "\\b(sc|net)\\s+(start|stop|restart)\\b"
+    - "\\blaunchctl\\s+(load|unload|stop|start|kickstart|kill)\\b"
+    - "\\brc-service\\s+(restart|stop|start)\\b"
+  description: "Detects service management commands that can disrupt system services"
+  remediation: "Confirm with user. Restarting services may cause downtime or data loss."
+
+# ── Process Termination ───────────────────────────────────────────────
+- id: TOOL_CMD_PROCESS_KILL
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: HIGH
+  patterns:
+    - "\\b(pkill|killall)\\b"
+    - "\\bkill\\s+(-(9|KILL|15|TERM|1|HUP|2|INT)\\s+)?[^-\\s]"
+    - "\\btaskkill\\s+\\/F\\b"
+    - "\\bStop-Process\\b.*-Force\\b"
+  exclude_patterns:
+    - "kill\\s+\\$\\$"
+  description: "Detects process termination commands that may kill critical processes"
+  remediation: "Confirm with user. Killing processes may cause data loss or system instability."
+
+# ── Privilege Escalation ──────────────────────────────────────────────
+- id: TOOL_CMD_PRIVILEGE_ESCALATION
+  tools: [execute_shell_command]
+  params: [command]
+  category: privilege_escalation
+  severity: CRITICAL
+  patterns:
+    - "\\bsudo\\s+"
+    - "\\bsu\\b"
+    - "\\bdoas\\s+"
+    - "\\bpkexec\\b"
+    - "\\brunas\\s+\\/user:"
+  exclude_patterns:
+    - "^\\s*#"
+  description: "Detects privilege escalation attempts using sudo, su, doas, pkexec, or runas"
+  remediation: "Block operation. Agents should not execute commands with elevated privileges."

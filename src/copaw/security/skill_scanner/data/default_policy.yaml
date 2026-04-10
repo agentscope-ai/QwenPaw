@@ -1,0 +1,244 @@
+# CoPaw Skill Scanner – Default Scan Policy
+# ============================================
+# This file defines the built-in security policy.  Every setting here can be
+# overridden in an organisation-specific policy file passed via --policy.
+#
+# To use a custom policy:
+#   scanner = SkillScanner(policy=ScanPolicy.from_yaml("my_org_policy.yaml"))
+
+policy_name: default
+policy_version: "1.0"
+preset_base: balanced
+
+# ---------------------------------------------------------------------------
+# Hidden files – which dotfiles and dotdirs are considered benign
+# ---------------------------------------------------------------------------
+hidden_files:
+  benign_dotfiles:
+    - ".gitignore"
+    - ".gitattributes"
+    - ".gitmodules"
+    - ".gitkeep"
+    - ".editorconfig"
+    - ".prettierrc"
+    - ".prettierignore"
+    - ".eslintrc"
+    - ".eslintignore"
+    - ".eslintrc.json"
+    - ".eslintrc.js"
+    - ".eslintrc.yml"
+    - ".npmrc"
+    - ".npmignore"
+    - ".nvmrc"
+    - ".node-version"
+    - ".python-version"
+    - ".ruby-version"
+    - ".tool-versions"
+    - ".flake8"
+    - ".pylintrc"
+    - ".isort.cfg"
+    - ".mypy.ini"
+    - ".babelrc"
+    - ".browserslistrc"
+    - ".dockerignore"
+    - ".env.example"
+    - ".env.sample"
+    - ".env.template"
+    - ".markdownlint.json"
+    - ".markdownlintignore"
+    - ".yamllint"
+    - ".yamllint.yml"
+    - ".cursorrules"
+    - ".cursorignore"
+    - ".clang-format"
+    - ".clang-tidy"
+    - ".mcp.json"
+    - ".envrc"
+    - ".version"
+
+  benign_dotdirs:
+    - ".github"
+    - ".vscode"
+    - ".idea"
+    - ".cursor"
+    - ".husky"
+    - ".circleci"
+    - ".gitlab"
+    - ".cache"
+    - ".tmp"
+    - ".data"
+    - ".next"
+    - ".nuxt"
+    - ".claude"
+    - ".devcontainer"
+    - ".vitepress"
+    - ".docusaurus"
+    - ".storybook"
+
+# ---------------------------------------------------------------------------
+# Rule scoping – which rules fire where
+# ---------------------------------------------------------------------------
+rule_scoping:
+  skip_in_docs:
+    - "COMMAND_INJECTION_EVAL"
+    - "COMMAND_INJECTION_OS_SYSTEM"
+    - "COMMAND_INJECTION_SHELL_TRUE"
+    - "RESOURCE_ABUSE_INFINITE_LOOP"
+
+  code_only:
+    - "COMMAND_INJECTION_EVAL"
+    - "COMMAND_INJECTION_OS_SYSTEM"
+    - "COMMAND_INJECTION_SHELL_TRUE"
+    - "RESOURCE_ABUSE_INFINITE_LOOP"
+
+  doc_path_indicators:
+    - "docs"
+    - "doc"
+    - "examples"
+    - "example"
+    - "tutorials"
+    - "tutorial"
+    - "guides"
+    - "guide"
+    - "samples"
+    - "sample"
+    - "demo"
+    - "demos"
+    - "tests"
+    - "test"
+
+  doc_filename_patterns:
+    - "readme"
+    - "example"
+    - "tutorial"
+    - "sample"
+    - "demo"
+    - "howto"
+    - "guide"
+
+  dedupe_duplicate_findings: true
+
+# ---------------------------------------------------------------------------
+# Credentials – known test/placeholder values to auto-suppress
+# ---------------------------------------------------------------------------
+credentials:
+  known_test_values:
+    - "test"
+    - "test123"
+    - "password"
+    - "changeme"
+    - "example"
+    - "dummy"
+    - "placeholder"
+    - "your-api-key"
+    - "your_api_key"
+    - "sk-test"
+    - "pk-test"
+    - "xxx"
+    - "abc123"
+    - "secret"
+    - "foobar"
+
+  placeholder_markers:
+    - "your-"
+    - "your_"
+    - "your "
+    - "example"
+    - "sample"
+    - "dummy"
+    - "placeholder"
+    - "replace"
+    - "changeme"
+    - "change_me"
+    - "<your"
+    - "<insert"
+
+# ---------------------------------------------------------------------------
+# File classification – how file extensions are routed
+# ---------------------------------------------------------------------------
+file_classification:
+  inert_extensions:
+    - ".png"
+    - ".jpg"
+    - ".jpeg"
+    - ".gif"
+    - ".bmp"
+    - ".ico"
+    - ".svg"
+    - ".webp"
+    - ".woff"
+    - ".woff2"
+    - ".eot"
+    - ".ttf"
+    - ".otf"
+    - ".mp3"
+    - ".mp4"
+    - ".wav"
+    - ".avi"
+    - ".mov"
+    - ".webm"
+    - ".flac"
+
+  structured_extensions:
+    - ".pdf"
+    - ".docx"
+    - ".xlsx"
+    - ".pptx"
+    - ".odt"
+
+  archive_extensions:
+    - ".zip"
+    - ".tar"
+    - ".gz"
+    - ".bz2"
+    - ".xz"
+    - ".7z"
+    - ".rar"
+    - ".tar.gz"
+    - ".tgz"
+
+  code_extensions:
+    - ".py"
+    - ".sh"
+    - ".bash"
+    - ".zsh"
+    - ".js"
+    - ".ts"
+    - ".jsx"
+    - ".tsx"
+    - ".rb"
+    - ".go"
+    - ".rs"
+    - ".java"
+    - ".c"
+    - ".cpp"
+    - ".h"
+    - ".hpp"
+
+# ---------------------------------------------------------------------------
+# File limits – numeric thresholds
+# ---------------------------------------------------------------------------
+file_limits:
+  max_file_count: 100
+  max_file_size_bytes: 5242880  # 5 MB
+  max_reference_depth: 5
+  max_name_length: 64
+  max_description_length: 1024
+  min_description_length: 20
+
+# ---------------------------------------------------------------------------
+# Analysis thresholds
+# ---------------------------------------------------------------------------
+analysis_thresholds:
+  min_confidence_pct: 80
+  max_regex_pattern_length: 1000
+
+# ---------------------------------------------------------------------------
+# Severity overrides – per-rule adjustments (empty by default)
+# ---------------------------------------------------------------------------
+severity_overrides: []
+
+# ---------------------------------------------------------------------------
+# Disabled rules – rule IDs that should never fire (empty by default)
+# ---------------------------------------------------------------------------
+disabled_rules: []

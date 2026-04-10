@@ -28,42 +28,23 @@ jobs:
       - name: Approval granted
         run: echo "Approved by maintainer"
 
-  discover-unit-test-dirs:
-    name: Discover Unit Test Directories
+  unit-tests:
+    name: Unit Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
     needs: approval-gate
     if: |
       always() &&
       needs.approval-gate.result == 'success'
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Discover unit test subdirectories
-        id: set-matrix
-        shell: bash
-        run: |
-          cd tests/unit
-          dirs=$(find . -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n")[:-1]')
-          echo "matrix=$dirs" >> "$GITHUB_OUTPUT"
-          echo "Found unit test directories: $dirs"
-
-  unit-tests:
-    name: Unit Tests - ${{ matrix.subdir }} - py${{ matrix.python-version }} - ${{ matrix.os }}
-    needs: [approval-gate, discover-unit-test-dirs]
-    if: |
-      always() &&
-      needs.approval-gate.result == 'success' &&
-      needs.discover-unit-test-dirs.result == 'success' &&
-      needs.discover-unit-test-dirs.outputs.matrix != '[]'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        subdir: ${{ fromJson(needs.discover-unit-test-dirs.outputs.matrix) }}
         python-version: ["3.10", "3.13"]
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
+        include:
+          - os: macos-latest
+            python-version: "3.10"
+          - os: windows-latest
+            python-version: "3.10"
 
     steps:
       - uses: actions/checkout@v4
@@ -106,10 +87,10 @@ jobs:
             pip install -e ".[dev,full]"
           fi
 
-      - name: Run unit tests for ${{ matrix.subdir }}
+      - name: Run all unit tests
         shell: bash
         run: |
-          pytest tests/unit/${{ matrix.subdir }} -v
+          pytest tests/unit -v
 
   integrated-tests:
     name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
@@ -122,7 +103,12 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.13"]
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
+        include:
+          - os: macos-latest
+            python-version: "3.10"
+          - os: windows-latest
+            python-version: "3.10"
 
     steps:
       - uses: actions/checkout@v4

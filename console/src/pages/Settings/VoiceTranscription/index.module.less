@@ -1,0 +1,116 @@
+.voiceTranscriptionPage {
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* ---- Page Header (breadcrumb style) ---- */
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  flex-shrink: 0;
+}
+
+.content {
+  padding: 20px;
+  flex: 1;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.card {
+  width: 100%;
+  margin-bottom: 16px;
+
+  &:hover {
+    border: 1px solid #ff7f16;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.optionLabel {
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.optionDescription {
+  font-size: 13px;
+  color: #888;
+}
+
+.centerState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+}
+
+.footerButtons {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 16px 24px;
+  border-top: 1px solid #eae9e7;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+:global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .cardDescription {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .optionLabel {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .footerButtons {
+    background: #1f1f1f;
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+}

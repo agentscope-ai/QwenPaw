@@ -1,85 +1,162 @@
 .sessionsPage {
-  padding: 24px;
-  height: calc(100vh - 128px);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :global {
+    .copaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+    .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+      background: #f9f8f4 !important;
+    }
+  }
 }
 
-.selectedRow > td {
-  background-color: #e6f7ff !important;
-}
-
-.selectedRow:hover > td {
-  background-color: #bae7ff !important;
-}
-
-.header {
+.pageHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  flex-shrink: 0;
 }
 
-.headerInfo {
+.breadcrumbHeader {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .title {
-  margin-bottom: 4px;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
+  color: #333;
 }
 
 .description {
-  margin: 0;
   color: #999;
   font-size: 14px;
+  margin: 0;
+  display: none;
 }
 
-.filterBar {
-  margin-bottom: 16px;
+.headerRight {
   display: flex;
-  gap: 12px;
   align-items: center;
-}
-
-/* Input and Select styling */
-:global(.sessions-filter-input) {
-  .ant-input {
-    border-radius: 8px !important;
-    border: 1px solid #d9d9d9 !important;
-    transition: all 0.2s ease-in-out !important;
-
-    &:hover {
-      border-color: #615ced !important;
-    }
-
-    &:focus {
-      border-color: #615ced !important;
-      box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.2) !important;
-    }
-  }
-}
-
-:global(.sessions-filter-select) {
-  .ant-select-selector {
-    border-radius: 8px !important;
-    border: 1px solid #d9d9d9 !important;
-    transition: all 0.2s ease-in-out !important;
-
-    &:hover {
-      border-color: #615ced !important;
-    }
-
-    &:focus,
-    &:focus-within {
-      border-color: #615ced !important;
-      box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.2) !important;
-    }
-  }
+  gap: 12px;
 }
 
 .tableCard {
   :global(.ant-card-body) {
     padding: 0;
+  }
+  overflow-y: auto;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .sessionsPage {
+    :global {
+      .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+        background: rgba(255, 255, 255, 0.04) !important;
+      }
+    }
+  }
+
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .title {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Selected row styling */
+  .selectedRow > td {
+    background-color: rgba(97, 92, 237, 0.12) !important;
+  }
+
+  .selectedRow:hover > td {
+    background-color: rgba(97, 92, 237, 0.2) !important;
+  }
+  :global(.sessions-filter-input) {
+    :global(.copaw-input),
+    :global(.ant-input) {
+      background: #2a2a2a !important;
+      border-color: rgba(255, 255, 255, 0.15) !important;
+      color: rgba(255, 255, 255, 0.85) !important;
+
+      &::placeholder {
+        color: rgba(255, 255, 255, 0.25) !important;
+      }
+    }
+  }
+
+  :global(.sessions-filter-select) {
+    :global(.copaw-select-selector),
+    :global(.ant-select-selector) {
+      background: #2a2a2a !important;
+      border-color: rgba(255, 255, 255, 0.15) !important;
+      color: rgba(255, 255, 255, 0.85) !important;
+    }
+
+    :global(.copaw-select-selection-placeholder),
+    :global(.ant-select-selection-placeholder) {
+      color: rgba(255, 255, 255, 0.25) !important;
+    }
+
+    :global(.copaw-select-arrow),
+    :global(.ant-select-arrow) {
+      color: rgba(255, 255, 255, 0.3) !important;
+    }
   }
 }

@@ -2,12 +2,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import plistlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
+import uuid
+
+from json_repair import repair_json
+
+from pydantic import ValidationError
 
 from ..constant import (
     HEARTBEAT_FILE,
@@ -17,7 +24,52 @@ from ..constant import (
     RUNNING_IN_CONTAINER,
     WORKING_DIR,
 )
-from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
+from .config import (
+    Config,
+    HeartbeatConfig,
+    LastApiConfig,
+    LastDispatchConfig,
+    load_agent_config,
+    save_agent_config,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_working_dir_bound_paths(data: object) -> object:
+    """Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+
+    This keeps COPAW_WORKING_DIR effective even if user config files contain
+    older hard-coded paths like "~/.copaw/media" or
+    "/Users/x/.copaw/workspaces/...".
+    Only rewrites known working-dir-bound keys.
+    """
+    legacy_root_tilde = "~/.copaw"
+    legacy_root_abs = str(Path(legacy_root_tilde).expanduser().resolve())
+    new_root_abs = str(WORKING_DIR)
+
+    def _rewrite_path_value(v: object) -> object:
+        if not isinstance(v, str) or not v:
+            return v
+        if v.startswith(legacy_root_tilde):
+            return new_root_abs + v[len(legacy_root_tilde) :]
+        if v.startswith(legacy_root_abs):
+            return new_root_abs + v[len(legacy_root_abs) :]
+        return v
+
+    def _walk(obj: object, key: str | None = None) -> object:
+        if isinstance(obj, dict):
+            out: dict = {}
+            for k, v in obj.items():
+                out[k] = _walk(v, str(k))
+            return out
+        if isinstance(obj, list):
+            return [_walk(x, key) for x in obj]
+        if key in {"workspace_dir", "media_dir"}:
+            return _rewrite_path_value(obj)
+        return obj
+
+    return _walk(data, None)
 
 
 def _discover_system_chromium_path() -> Optional[str]:
@@ -288,17 +340,30 @@ def get_system_default_browser() -> Tuple[Optional[str], Optional[str]]:
 
 def get_available_channels() -> Tuple[str, ...]:
     """Return channel keys enabled for this run (built-in + entry point
-    copaw.channels), filtered by COPAW_ENABLED_CHANNELS when set.
+    copaw.channels), filtered by COPAW_ENABLED_CHANNELS or
+    COPAW_DISABLED_CHANNELS when set.
+
+    * COPAW_ENABLED_CHANNELS — whitelist (only these channels are active).
+    * COPAW_DISABLED_CHANNELS — blacklist (all channels *except* these).
+    * If both are set, COPAW_ENABLED_CHANNELS takes precedence.
+    * If neither is set, all discovered channels are returned.
     """
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
     all_keys = tuple(registry.keys())
-    raw = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
-    if not raw:
-        return all_keys
-    enabled = tuple(ch.strip() for ch in raw.split(",") if ch.strip())
-    return tuple(k for k in all_keys if k in enabled) or all_keys
+
+    raw_enabled = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
+    if raw_enabled:
+        enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
+        return tuple(k for k in all_keys if k in enabled) or all_keys
+
+    raw_disabled = os.environ.get("COPAW_DISABLED_CHANNELS", "").strip()
+    if raw_disabled:
+        disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
+        return tuple(k for k in all_keys if k not in disabled) or all_keys
+
+    return all_keys
 
 
 def is_running_in_container() -> bool:
@@ -328,14 +393,108 @@ def get_heartbeat_query_path() -> Path:
     return get_config_path().parent.joinpath(HEARTBEAT_FILE)
 
 
+def _remove_nested_key(data: dict, path: list) -> bool:
+    """Remove a nested key from *data* given a path list.
+
+    Returns True if the key was found and removed.
+    """
+    obj = data
+    for segment in path[:-1]:
+        if isinstance(segment, str) and isinstance(obj, dict):
+            obj = obj.get(segment)
+        elif isinstance(segment, int) and isinstance(obj, list):
+            try:
+                obj = obj[segment]
+            except IndexError:
+                return False
+        else:
+            return False
+        if obj is None:
+            return False
+    last = path[-1]
+    if isinstance(last, str) and isinstance(obj, dict) and last in obj:
+        del obj[last]
+        return True
+    return False
+
+
+def _remove_bad_field(data: dict, loc: list) -> bool:
+    """Try to remove the field at *loc*; fall back to ancestor keys."""
+    if _remove_nested_key(data, loc):
+        return True
+    for end in range(len(loc) - 1, 0, -1):
+        if _remove_nested_key(data, loc[:end]):
+            return True
+    return False
+
+
+def _backup_config_file(config_path: Path, reason: str) -> Optional[Path]:
+    """Backup *config_path* before falling back to defaults."""
+    try:
+        short_id = uuid.uuid4().hex[:8]
+        backup_path = config_path.with_suffix(f".{short_id}.bak")
+        shutil.copy2(config_path, backup_path)
+        logger.error(
+            "Config file %s is unusable (%s). "
+            "Original backed up to: %s. "
+            "Falling back to default configuration.",
+            config_path,
+            reason,
+            backup_path,
+        )
+        return backup_path
+    except OSError as exc:
+        logger.error("Failed to backup config file %s: %s", config_path, exc)
+        return None
+
+
+def _read_config_data(config_path: Path) -> Optional[dict]:
+    """Read *config_path* and return parsed dict.
+
+    Uses ``json_repair`` to handle common syntax issues (trailing
+    commas, missing quotes, comments, BOM, etc.).  Creates a backup and
+    returns ``None`` when the file is unrecoverable.
+    """
+    try:
+        with open(config_path, "r", encoding="utf-8") as file:
+            raw = file.read()
+    except UnicodeDecodeError:
+        _backup_config_file(config_path, "encoding error")
+        return None
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = repair_json(raw, return_objects=True)
+        if not isinstance(data, dict):
+            _backup_config_file(
+                config_path,
+                "JSON syntax error, repair failed",
+            )
+            return None
+        logger.warning(
+            "Config %s had JSON syntax issues that were auto-repaired.",
+            config_path,
+        )
+
+    if not isinstance(data, dict):
+        _backup_config_file(config_path, "root value is not a JSON object")
+        return None
+    return data
+
+
 def load_config(config_path: Optional[Path] = None) -> Config:
     """Load config from file. Returns default Config if file is missing."""
     if config_path is None:
         config_path = get_config_path()
     if not config_path.is_file():
         return Config()
-    with open(config_path, "r", encoding="utf-8") as file:
-        data = json.load(file)
+
+    data = _read_config_data(config_path)
+    if data is None:
+        return Config()
+
+    data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
@@ -343,7 +502,27 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             la["host"] = data.get("last_api_host")
         if "port" not in la and "last_api_port" in data:
             la["port"] = data.get("last_api_port")
-    return Config.model_validate(data)
+
+    try:
+        return Config.model_validate(data)
+    except ValidationError as exc:
+        fixed_any = False
+        for err in exc.errors():
+            loc = list(err.get("loc", []))
+            if loc and _remove_bad_field(data, loc):
+                fixed_any = True
+        if not fixed_any:
+            _backup_config_file(config_path, "validation error")
+            return Config()
+
+    try:
+        return Config.model_validate(data)
+    except ValidationError:
+        _backup_config_file(
+            config_path,
+            "validation error after field removal",
+        )
+        return Config()
 
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
@@ -360,15 +539,60 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
         )
 
 
-def get_heartbeat_config() -> HeartbeatConfig:
-    """Return effective heartbeat config (from file or default 30m/main)."""
+def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
+    """Return effective heartbeat config (from agent config or default).
+
+    Args:
+        agent_id: Agent ID to load config from. If None, tries to load from
+                  root config.agents.defaults (legacy behavior).
+
+    Returns:
+        HeartbeatConfig: Heartbeat configuration or default.
+    """
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            hb = agent_config.heartbeat
+            return hb if hb is not None else HeartbeatConfig()
+        except Exception:
+            return HeartbeatConfig()
+
+    # Legacy: try to load from root config
     config = load_config()
+    if config.agents.defaults is None:
+        return HeartbeatConfig()
     hb = config.agents.defaults.heartbeat
     return hb if hb is not None else HeartbeatConfig()
 
 
-def update_last_dispatch(channel: str, user_id: str, session_id: str) -> None:
-    """Persist last user-reply dispatch target (user send+reply only)."""
+def update_last_dispatch(
+    channel: str,
+    user_id: str,
+    session_id: str,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Persist last user-reply dispatch target (user send+reply only).
+
+    Args:
+        channel: Channel name
+        user_id: User ID
+        session_id: Session ID
+        agent_id: Agent ID to update. If None, updates root config (legacy).
+    """
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            agent_config.last_dispatch = LastDispatchConfig(
+                channel=channel,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            save_agent_config(agent_id, agent_config)
+            return
+        except Exception:
+            pass
+
+    # Legacy: update root config
     config = load_config()
     config.last_dispatch = LastDispatchConfig(
         channel=channel,

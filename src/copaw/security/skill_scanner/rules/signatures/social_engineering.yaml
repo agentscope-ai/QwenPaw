@@ -1,0 +1,27 @@
+# Social Engineering & Misleading Metadata Signatures
+# Detects vague descriptions and brand impersonation
+
+- id: SOCIAL_ENG_VAGUE_DESCRIPTION
+  category: social_engineering
+  severity: LOW
+  patterns:
+    - "^(?:A|An|The)?\\s*(?:skill|tool|utility)\\s*$"
+    - "^.{0,20}$"
+  file_types: [manifest]
+  description: "Skill description is too vague or missing"
+  remediation: "Provide clear, detailed description of skill functionality"
+
+- id: SOCIAL_ENG_ANTHROPIC_IMPERSONATION
+  category: social_engineering
+  severity: MEDIUM
+  patterns:
+    - "(?i)\\banthropic\\b"
+    - "(?i)\\bclaude official\\b"
+  exclude_patterns:
+    - "(?i)apply.*anthropic.*brand"
+    - "(?i)anthropic.*guidelines"
+    - "(?i)anthropic.*colors"
+    - "(?i)anthropic.*typography"
+  file_types: [manifest]
+  description: "Skill name/description may impersonate official skills"
+  remediation: "Do not impersonate official skills or use Anthropic branding"

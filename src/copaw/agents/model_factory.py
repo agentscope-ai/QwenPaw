@@ -11,13 +11,10 @@ Example:
 
 
 import logging
-from typing import Sequence, Tuple, Type, Any
-from functools import wraps
+from typing import List, Sequence, Tuple, Type, Any, Union, Optional
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
 from agentscope.model import ChatModelBase, OpenAIChatModel
-from agentscope.message import Msg
-import agentscope
 
 try:
     from agentscope.formatter import AnthropicChatFormatter
@@ -26,9 +23,20 @@ except ImportError:  # pragma: no cover - compatibility fallback
     AnthropicChatFormatter = None
     AnthropicChatModel = None
 
+try:
+    from agentscope.formatter import GeminiChatFormatter
+    from agentscope.model import GeminiChatModel
+except ImportError:  # pragma: no cover - compatibility fallback
+    GeminiChatFormatter = None
+    GeminiChatModel = None
+
 from .utils.tool_message_utils import _sanitize_tool_messages
 from ..providers import ProviderManager
-from ..providers.retry_chat_model import RetryChatModel
+from ..providers.retry_chat_model import (
+    RetryChatModel,
+    RetryConfig,
+    RateLimitConfig,
+)
 from ..token_usage import TokenRecordingModelWrapper
 
 
@@ -43,36 +51,6 @@ def _file_url_to_path(url: str) -> str:
     return s
 
 
-def _monkey_patch(func):
-    """A monkey patch wrapper for agentscope <= 1.0.16dev"""
-
-    @wraps(func)
-    async def wrapper(
-        self,
-        msgs: list[Msg],
-        **kwargs: Any,
-    ) -> list[dict[str, Any]]:
-        for msg in msgs:
-            if isinstance(msg.content, str):
-                continue
-            if isinstance(msg.content, list):
-                for block in msg.content:
-                    if (
-                        block["type"] in ["audio", "image", "video"]
-                        and block.get("source", {}).get("type") == "url"
-                    ):
-                        url = block["source"]["url"]
-                        if url.startswith("file://"):
-                            block["source"]["url"] = _file_url_to_path(url)
-        return await func(self, msgs, **kwargs)
-
-    return wrapper
-
-
-if agentscope.__version__ in ["1.0.16dev", "1.0.16"]:
-    OpenAIChatFormatter.format = _monkey_patch(OpenAIChatFormatter.format)
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -82,6 +60,8 @@ _CHAT_MODEL_FORMATTER_MAP: dict[Type[ChatModelBase], Type[FormatterBase]] = {
 }
 if AnthropicChatModel is not None and AnthropicChatFormatter is not None:
     _CHAT_MODEL_FORMATTER_MAP[AnthropicChatModel] = AnthropicChatFormatter
+if GeminiChatModel is not None and GeminiChatFormatter is not None:
+    _CHAT_MODEL_FORMATTER_MAP[GeminiChatModel] = GeminiChatFormatter
 
 
 def _get_formatter_for_chat_model(
@@ -101,6 +81,7 @@ def _get_formatter_for_chat_model(
     )
 
 
+# pylint: disable-next=too-many-statements
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
 ) -> Type[FormatterBase]:
@@ -150,6 +131,20 @@ def _create_file_block_support_formatter(
                     ):
                         extra_contents[block["id"]] = block["extra_content"]
 
+            # Convert file:// URLs to paths,
+            # TODO: remove this after AgentScope updated
+            for msg in msgs:
+                for block in msg.get_content_blocks():
+                    if block.get("type") == "audio":
+                        source = block.get("source")
+                        if (
+                            isinstance(source, dict)
+                            and source.get("type") == "url"
+                            and isinstance(source.get("url"), str)
+                            and source["url"].startswith("file://")
+                        ):
+                            source["url"] = _file_url_to_path(source["url"])
+
             messages = await super()._format(msgs)
 
             if extra_contents:
@@ -160,32 +155,44 @@ def _create_file_block_support_formatter(
                             tc["extra_content"] = ec
 
             if reasoning_contents:
-                in_assistant = [m for m in msgs if m.role == "assistant"]
+                # Build a list of reasoning values aligned with surviving
+                # assistant messages.  The parent formatter drops
+                # thinking-only messages (no content/tool_calls), so we
+                # predict survivors and collect reasoning only for those.
+                aligned_reasoning = []
+                for m in (msg for msg in msgs if msg.role == "assistant"):
+                    is_thinking_only = (
+                        isinstance(m.content, list)
+                        and m.content
+                        and all(b.get("type") == "thinking" for b in m.content)
+                    )
+                    if not is_thinking_only:
+                        aligned_reasoning.append(
+                            reasoning_contents.get(id(m)),
+                        )
+
                 out_assistant = [
                     m for m in messages if m.get("role") == "assistant"
                 ]
-                if len(in_assistant) != len(out_assistant):
+
+                if len(aligned_reasoning) != len(out_assistant):
                     logger.warning(
                         "Assistant message count mismatch after formatting "
-                        "(%d before, %d after). "
+                        "(%d expected survivors, %d actual). "
                         "Skipping reasoning_content injection.",
-                        len(in_assistant),
+                        len(aligned_reasoning),
                         len(out_assistant),
                     )
                 else:
-                    for in_msg, out_msg in zip(
-                        in_assistant,
-                        out_assistant,
-                    ):
-                        reasoning = reasoning_contents.get(id(in_msg))
-                        if reasoning:
-                            out_msg["reasoning_content"] = reasoning
+                    for i, out_msg in enumerate(out_assistant):
+                        if aligned_reasoning[i]:
+                            out_msg["reasoning_content"] = aligned_reasoning[i]
 
             return _strip_top_level_message_name(messages)
 
         @staticmethod
         def convert_tool_result_to_string(
-            output: str | list[dict],
+            output: Union[str, List[dict]],
         ) -> tuple[str, Sequence[Tuple[str, dict]]]:
             """Extend parent class to support file blocks.
 
@@ -273,15 +280,17 @@ def _strip_top_level_message_name(
     return messages
 
 
-def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
+def create_model_and_formatter(
+    agent_id: Optional[str] = None,
+) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
     This method handles both local and remote models, selecting the
     appropriate chat model class and formatter based on configuration.
 
     Args:
-        llm_cfg: Resolved model configuration. If None, will call
-            get_active_llm_config() to fetch the active configuration.
+        agent_id: Optional agent ID to load agent-specific model config.
+            If None, tries to get from context, then falls back to global.
 
     Returns:
         Tuple of (model_instance, formatter_instance)
@@ -289,16 +298,73 @@ def create_model_and_formatter() -> Tuple[ChatModelBase, FormatterBase]:
     Example:
         >>> model, formatter = create_model_and_formatter()
     """
-    # Fetch config if not provided
-    model = ProviderManager.get_active_chat_model()
+    from ..app.agent_context import get_current_agent_id
+    from ..config.config import load_agent_config
+
+    # Determine agent_id (parameter > context > None)
+    if agent_id is None:
+        try:
+            agent_id = get_current_agent_id()
+        except Exception:
+            pass
+
+    # Try to get agent-specific model first
+    model_slot = None
+    retry_config = None
+    rate_limit_config = None
+    if agent_id:
+        try:
+            agent_config = load_agent_config(agent_id)
+            model_slot = agent_config.active_model
+            retry_config = RetryConfig(
+                enabled=agent_config.running.llm_retry_enabled,
+                max_retries=agent_config.running.llm_max_retries,
+                backoff_base=agent_config.running.llm_backoff_base,
+                backoff_cap=agent_config.running.llm_backoff_cap,
+            )
+            rate_limit_config = RateLimitConfig(
+                max_concurrent=agent_config.running.llm_max_concurrent,
+                pause_seconds=agent_config.running.llm_rate_limit_pause,
+                jitter_range=agent_config.running.llm_rate_limit_jitter,
+                acquire_timeout=agent_config.running.llm_acquire_timeout,
+            )
+        except Exception:
+            pass
+
+    # Create chat model from agent-specific or global config
+    if model_slot and model_slot.provider_id and model_slot.model:
+        # Use agent-specific model
+        manager = ProviderManager.get_instance()
+        provider = manager.get_provider(model_slot.provider_id)
+        if provider is None:
+            raise ValueError(
+                f"Provider '{model_slot.provider_id}' not found.",
+            )
+
+        model = provider.get_chat_model_instance(model_slot.model)
+        provider_id = model_slot.provider_id
+    else:
+        # Fallback to global active model
+        model = ProviderManager.get_active_chat_model()
+        global_model = ProviderManager.get_instance().get_active_model()
+        if not global_model:
+            raise ValueError(
+                "No active model configured. "
+                "Please configure a model using 'copaw models config' "
+                "or set an agent-specific model.",
+            )
+        provider_id = global_model.provider_id
 
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
 
     # Wrap with retry logic for transient LLM API errors
-    provider_id = ProviderManager.get_instance().get_active_model().provider_id
     wrapped_model = TokenRecordingModelWrapper(provider_id, model)
-    wrapped_model = RetryChatModel(wrapped_model)
+    wrapped_model = RetryChatModel(
+        wrapped_model,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+    )
 
     return wrapped_model, formatter
 
@@ -321,7 +387,13 @@ def _create_formatter_instance(
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
-    return formatter_class()
+    kwargs: dict[str, Any] = {}
+    if issubclass(
+        base_formatter_class,
+        (OpenAIChatFormatter, GeminiChatFormatter),
+    ):
+        kwargs["promote_tool_result_images"] = True
+    return formatter_class(**kwargs)
 
 
 __all__ = [

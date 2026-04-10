@@ -60,14 +60,28 @@ class BaseChatRepository(ABC):
         Returns:
             ChatSpec or None if not found
         """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         cf = await self.load()
+
+        logger.debug(
+            f"get_chat_by_id: Searching in {len(cf.chats)} chats for "
+            f"session_id={session_id}, user_id={user_id}, "
+            f"channel={channel}",
+        )
+
         for chat in cf.chats:
             if (
                 chat.session_id == session_id
                 and chat.user_id == user_id
                 and chat.channel == channel
             ):
+                logger.debug(f"get_chat_by_id: Found match: {chat.id}")
                 return chat
+
+        logger.debug("get_chat_by_id: No match found")
         return None
 
     async def upsert_chat(self, spec: ChatSpec) -> None:

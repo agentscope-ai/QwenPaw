@@ -1,5 +1,6 @@
-import { Card, Tooltip } from "@agentscope-ai/design";
+import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { getChannelIconUrl } from "./channelIcons";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
 
@@ -23,11 +24,19 @@ export function ChannelCard({
   const { t } = useTranslation();
   const enabled = Boolean(config.enabled);
   const isBuiltin = Boolean(config.isBuiltin);
-  const label = getChannelLabel(channelKey);
+  const label = getChannelLabel(channelKey, t);
   const getConfigString = (key: string) =>
     typeof config[key] === "string" ? config[key] : "";
-  const phoneNumber = getConfigString("phone_number");
   const botPrefix = getConfigString("bot_prefix");
+
+  const getChannelIcon = () => (
+    <img
+      src={getChannelIconUrl(channelKey)}
+      alt={channelKey}
+      width={32}
+      height={32}
+    />
+  );
 
   const getCardClassNames = () => {
     if (isHover) return `${styles.channelCard} ${styles.hover}`;
@@ -42,43 +51,43 @@ export function ChannelCard({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={getCardClassNames()}
-      bodyStyle={{ padding: 20 }}
+      bodyStyle={{ padding: 24 }}
     >
-      <div className={styles.cardHeader}>
-        <Tooltip title={label} placement="top">
-          <div className={styles.cardTitleRow}>
-            <div className={styles.cardTitle}>{label}</div>
-            {isBuiltin ? (
-              <span className={styles.builtinTag}>{t("channels.builtin")}</span>
-            ) : (
-              <span className={styles.customTag}>{t("channels.custom")}</span>
-            )}
-          </div>
-        </Tooltip>
-
-        <div className={styles.statusContainer}>
+      {/* Top section: Icon and Status */}
+      <div className={styles.cardTopSection}>
+        <div className={styles.channelIcon}>{getChannelIcon()}</div>
+        <div className={styles.statusIndicator}>
           <div
             className={`${styles.statusDot} ${
               enabled ? styles.enabled : styles.disabled
             }`}
           />
-          <div>{enabled ? t("common.enabled") : t("common.disabled")}</div>
+          <span
+            className={`${styles.statusText} ${
+              enabled ? styles.enabled : styles.disabled
+            }`}
+          >
+            {enabled ? t("common.enabled") : t("common.disabled")}
+          </span>
         </div>
       </div>
 
-      <div className={styles.cardDescription}>
-        {channelKey === "voice" ? (
-          <>
-            {t("channels.phoneNumber")}: {phoneNumber || t("channels.notSet")}
-          </>
+      {/* Middle section: Name and Tag */}
+      <div className={styles.cardMiddleSection}>
+        <div className={styles.cardTitle}>{label}</div>
+        {isBuiltin ? (
+          <span className={styles.builtinTag}>{t("channels.builtin")}</span>
         ) : (
-          <>
-            {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
-          </>
+          <span className={styles.customTag}>{t("channels.custom")}</span>
         )}
       </div>
 
-      <div className={styles.cardHint}>{t("channels.clickCardToEdit")}</div>
+      {/* Bottom section: Bot Prefix */}
+      <div className={styles.cardBottomSection}>
+        <div className={styles.cardDescription}>
+          {t("channels.botPrefix")}: {botPrefix || t("channels.notSet")}
+        </div>
+      </div>
     </Card>
   );
 }

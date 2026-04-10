@@ -1,258 +1,449 @@
 # 配置与工作目录
 
-本页涵盖以下内容：
+CoPaw 的所有配置和数据都存储在**工作目录**中。本页说明：
 
-- **工作目录** — 文件都放在哪
-- **config.json** — 每个字段的含义与默认值
-- **环境变量** — 如何用环境变量自定义路径
+- **目录结构** — 文件都在哪里，各目录的作用
+- **环境变量** — 如何用环境变量自定义路径和行为
+- **配置文件** — `config.json` 和 `agent.json` 的完整字段说明
 
-> 不需要读代码，照着改就行。
+从 **v0.1.0** 开始，CoPaw 支持**多智能体**，配置分为两层：
 
----
-
-## 工作目录是啥？
-
-CoPaw 所有配置和数据默认都在一个目录里，叫**工作目录**，默认是：
-
-- **`~/.copaw`**（即你当前用户下的 `.copaw` 文件夹）
-
-运行 `copaw init` 后会自动创建这个目录，里面大致是这样的：
-
-| 文件/目录            | 作用                                          |
-| -------------------- | --------------------------------------------- |
-| `config.json`        | 频道开关与鉴权、心跳设置、语言等              |
-| `HEARTBEAT.md`       | 心跳每次要问 CoPaw 的内容                     |
-| `jobs.json`          | 定时任务列表（通过 `copaw cron` 或 API 管理） |
-| `chats.json`         | 会话列表（文件存储模式）                      |
-| `token_usage.json`   | LLM Token 消耗记录（按日期、模型统计）        |
-| `active_skills/`     | 当前激活的技能（Agent 实际使用的）            |
-| `customized_skills/` | 用户自定义的技能                              |
-| `memory/`            | Agent 记忆文件（自动管理）                    |
-| `SOUL.md`            | _（必需）_ 核心身份与行为原则                 |
-| `AGENTS.md`          | _（必需）_ 详细的工作流程、规则和指南         |
-
-> **提示：** `SOUL.md` 和 `AGENTS.md` 是 Agent 系统提示词的最低要求。如果它们不存在，Agent
-> 会退回到通用的 "You are a helpful assistant" 提示。运行 `copaw init` 时会根据你选择的
-> 语言（`zh` / `en` / `ru`）自动复制这些文件。你也可以之后在控制台
-> （Agent → 运行配置）中切换语言。
+1. **全局配置**（`config.json`）— 模型提供商、智能体列表、全局设置
+2. **智能体配置**（`agent.json`）— 每个智能体的独立配置（频道、心跳、工具等）
 
 ---
 
-## 用环境变量改路径（可选）
+## 目录结构
 
-如果你不想用 `~/.copaw`，可以通过环境变量改工作目录或某些文件的路径：
+默认工作目录是 `~/.copaw`。运行 `copaw init` 后的完整结构：
 
-| 变量                     | 默认值             | 说明                                                                                                                                            |
-| ------------------------ | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COPAW_WORKING_DIR`      | `~/.copaw`         | 工作目录；config、心跳、jobs、chats、skills、memory 都在这下面                                                                                  |
-| `COPAW_SECRET_DIR`       | `~/.copaw.secret`  | 敏感数据目录（工作目录的同级目录）；存放 `providers.json`（模型配置、API Key）和 `envs.json`（环境变量）。Docker 中默认为 `/app/working.secret` |
-| `COPAW_CONFIG_FILE`      | `config.json`      | 配置文件名（相对工作目录）                                                                                                                      |
-| `COPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`     | 心跳问题文件名（相对工作目录）                                                                                                                  |
-| `COPAW_JOBS_FILE`        | `jobs.json`        | 定时任务文件名（相对工作目录）                                                                                                                  |
-| `COPAW_CHATS_FILE`       | `chats.json`       | 会话列表文件名（相对工作目录）                                                                                                                  |
-| `COPAW_TOKEN_USAGE_FILE` | `token_usage.json` | Token 消耗记录文件名（相对工作目录）                                                                                                            |
+```
+$COPAW_WORKING_DIR/                      # 默认 ~/.copaw
+├── config.json                          # 全局配置
+├── workspaces/
+│   ├── default/                         # 默认智能体工作区
+│   │   ├── agent.json                   # 智能体配置
+│   │   ├── chats.json                   # 对话历史
+│   │   ├── jobs.json                    # 定时任务
+│   │   ├── token_usage.json             # Token 消耗记录
+│   │   ├── AGENTS.md                    # 人设文件
+│   │   ├── SOUL.md                      # 人设文件
+│   │   ├── PROFILE.md                   # 人设文件
+│   │   ├── BOOTSTRAP.md                 # 首次引导文件（完成后自动删除）
+│   │   ├── MEMORY.md                    # 长期记忆
+│   │   ├── skills/                      # 本地技能目录
+│   │   ├── skill.json                   # 技能启用状态与配置
+│   │   ├── memory/                      # 每日记忆文件
+│   │   └── browser/                     # 浏览器数据（cookies、缓存等）
+│   └── abc123/                          # 其他智能体工作区
+│       └── ...
+└── skill_pool/                          # 本地共享技能池
+    ├── skill.json                       # 池元数据
+    └── ...
 
-| `COPAW_LOG_LEVEL` | `info` | 日志级别（`debug`、`info`、`warning`、`error`、`critical`） |
-| `COPAW_MEMORY_COMPACT_THRESHOLD` | `100000` | 触发记忆压缩的字符阈值 |
-| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3` | 压缩后保留的最近消息数 |
-| `COPAW_MEMORY_COMPACT_RATIO` | `0.7` | 触发压缩的阈值比例（相对于上下文窗口大小） |
-| `COPAW_CONSOLE_STATIC_DIR` | _（自动检测）_ | 控制台前端静态文件路径 |
-
-例如在 Linux/macOS 里临时换工作目录：
-
-```bash
-export COPAW_WORKING_DIR=/home/me/my_copaw
-copaw app
+$COPAW_SECRET_DIR/                       # 默认 ~/.copaw.secret
+├── providers.json                       # 模型提供商配置与 API Key
+└── envs.json                            # 环境变量
 ```
 
-这样 config、HEARTBEAT、jobs、memory 等都会在 `/home/me/my_copaw` 下读写。
+> **路径说明：** `$COPAW_WORKING_DIR` 和 `$COPAW_SECRET_DIR` 是环境变量，默认值分别为 `~/.copaw` 和 `~/.copaw.secret`。可通过环境变量自定义，详见下方"环境变量"章节。
 
 ---
 
-## config.json 完整结构
+## 环境变量
 
-下面是 **config.json 的完整字段说明**，包括类型、默认值和用途。你不需要填满所有字段——缺失的字段会自动用默认值。
+可通过环境变量自定义路径和行为：
 
-### 完整示例
+**路径相关：**
+
+| 变量                     | 默认值             | 说明                                                                                        |
+| ------------------------ | ------------------ | ------------------------------------------------------------------------------------------- |
+| `COPAW_WORKING_DIR`      | `~/.copaw`         | 工作目录根路径                                                                              |
+| `COPAW_SECRET_DIR`       | `~/.copaw.secret`  | 敏感数据目录（存放 `providers.json` 和 `envs.json`）。Docker 中默认为 `/app/working.secret` |
+| `COPAW_CONFIG_FILE`      | `config.json`      | 配置文件名（相对于 `COPAW_WORKING_DIR`）                                                    |
+| `COPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`     | 心跳文件名（相对于智能体工作区）                                                            |
+| `COPAW_JOBS_FILE`        | `jobs.json`        | 定时任务文件名（相对于智能体工作区）                                                        |
+| `COPAW_CHATS_FILE`       | `chats.json`       | 对话历史文件名（相对于智能体工作区）                                                        |
+| `COPAW_TOKEN_USAGE_FILE` | `token_usage.json` | Token 消耗记录文件名（相对于智能体工作区）                                                  |
+
+**其他配置：**
+
+| 变量                               | 默认值         | 说明                                                            |
+| ---------------------------------- | -------------- | --------------------------------------------------------------- |
+| `COPAW_LOG_LEVEL`                  | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`） |
+| `COPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`       | 触发记忆压缩的字符阈值                                          |
+| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`            | 压缩后保留的最近消息数                                          |
+| `COPAW_MEMORY_COMPACT_RATIO`       | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                      |
+| `COPAW_CONSOLE_STATIC_DIR`         | _（自动检测）_ | 控制台前端静态文件路径                                          |
+
+**安全与认证：**
+
+| 变量                       | 默认值  | 说明                                     |
+| -------------------------- | ------- | ---------------------------------------- |
+| `COPAW_AUTH_ENABLED`       | `false` | 是否启用 Web 控制台登录认证              |
+| `COPAW_AUTH_USERNAME`      | -       | 自动注册时的管理员用户名（可选）         |
+| `COPAW_AUTH_PASSWORD`      | -       | 自动注册时的管理员密码（可选）           |
+| `COPAW_TOOL_GUARD_ENABLED` | `true`  | 是否启用工具守卫                         |
+| `COPAW_SKILL_SCAN_MODE`    | `warn`  | 技能扫描模式（`block` / `warn` / `off`） |
+
+**记忆与检索：**
+
+| 变量                   | 默认值 | 说明                                                   |
+| ---------------------- | ------ | ------------------------------------------------------ |
+| `FTS_ENABLED`          | `true` | 是否启用 BM25 全文检索                                 |
+| `MEMORY_STORE_BACKEND` | `auto` | 记忆存储后端（`auto` / `local` / `chroma` / `sqlite`） |
+
+---
+
+## 配置文件结构
+
+从 **v0.1.0** 开始，配置文件分为两层：
+
+1. **全局配置** - `~/.copaw/config.json`（提供商、环境变量、智能体列表）
+2. **智能体配置** - `~/.copaw/workspaces/{agent_id}/agent.json`（每个智能体的独立配置）
+
+### 全局 config.json
+
+存放全局共享的配置：
 
 ```json
 {
+  "agents": {
+    "active_agent": "default",
+    "profiles": {
+      "default": {
+        "id": "default",
+        "name": "默认智能体",
+        "description": "默认工作区智能体",
+        "enabled": true,
+        "workspace_dir": "~/.copaw/workspaces/default"
+      }
+    }
+  },
+  "last_api": {
+    "host": "127.0.0.1",
+    "port": 8088
+  },
+  "show_tool_details": true,
+  "user_timezone": "Asia/Shanghai",
+  "last_dispatch": {
+    "channel": "console",
+    "user_id": "user1",
+    "session_id": "session123"
+  }
+}
+```
+
+**全局 config.json 字段说明：**
+
+| 字段                  | 类型           | 默认值         | 说明                                             |
+| --------------------- | -------------- | -------------- | ------------------------------------------------ |
+| `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                              |
+| `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id）            |
+| `last_api.host`       | string \| null | `null`         | 上次 `copaw app` 启动的主机地址                  |
+| `last_api.port`       | int \| null    | `null`         | 上次 `copaw app` 启动的端口                      |
+| `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情            |
+| `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`）            |
+| `last_dispatch`       | object \| null | `null`         | 最近一次消息分发目标（用于心跳 `target="last"`） |
+
+**`agents.profiles[agent_id]`** 引用字段：
+
+| 字段            | 类型   | 必填 | 说明                                                            |
+| --------------- | ------ | ---- | --------------------------------------------------------------- |
+| `id`            | string | 是   | 智能体唯一标识                                                  |
+| `name`          | string | 是   | 智能体显示名称                                                  |
+| `description`   | string | 否   | 智能体描述（用于多智能体协作时的分工判断）                      |
+| `enabled`       | bool   | 是   | 是否启用该智能体                                                |
+| `workspace_dir` | string | 否   | 工作区路径（可选，默认为 `$COPAW_WORKING_DIR/workspaces/{id}`） |
+
+> **向后兼容：** 全局 config.json 中还保留了 `channels`、`mcp`、`tools`、`security` 等字段，用于向后兼容旧版本。在多智能体模式下，这些配置应该在各智能体的 `agent.json` 中设置。
+>
+> **配置优先级：** 智能体的 `agent.json` 优先级高于全局 `config.json`。如果两处都配置了相同字段，系统会使用 `agent.json` 中的值。建议在多智能体模式下，将所有配置都写在各智能体的 `agent.json` 中。
+
+> **模型提供商配置** 存储在 `$COPAW_SECRET_DIR/providers.json`（默认 `~/.copaw.secret/providers.json`）。
+> **环境变量配置** 存储在 `$COPAW_SECRET_DIR/envs.json`（默认 `~/.copaw.secret/envs.json`）。
+
+### 智能体配置 agent.json
+
+每个智能体在其工作区目录（`$COPAW_WORKING_DIR/workspaces/{agent_id}/`）下有独立的 `agent.json`，用于存储该智能体的所有配置（频道、工具、心跳、MCP、安全等）。这样不同智能体可以有完全不同的配置，互不干扰。
+
+```json
+{
+  "id": "default",
+  "name": "默认智能体",
+  "description": "默认工作区智能体",
+  "workspace_dir": "",
   "channels": {
-    "imessage": {
-      "enabled": false,
-      "bot_prefix": "",
-      "db_path": "~/Library/Messages/chat.db",
-      "poll_sec": 1.0
-    },
-    "discord": {
-      "enabled": false,
-      "bot_prefix": "",
-      "bot_token": "",
-      "http_proxy": "",
-      "http_proxy_auth": ""
+    "console": {
+      "enabled": true,
+      "bot_prefix": ""
     },
     "dingtalk": {
       "enabled": false,
       "bot_prefix": "",
       "client_id": "",
       "client_secret": ""
-    },
-    "feishu": {
-      "enabled": false,
-      "bot_prefix": "",
-      "app_id": "",
-      "app_secret": "",
-      "encrypt_key": "",
-      "verification_token": "",
-      "media_dir": "~/.copaw/media"
-    },
-    "qq": {
-      "enabled": false,
-      "bot_prefix": "",
-      "app_id": "",
-      "client_secret": ""
-    },
-    "console": {
-      "enabled": true,
-      "bot_prefix": ""
     }
   },
-  "agents": {
-    "defaults": {
-      "heartbeat": {
-        "every": "30m",
-        "target": "main",
-        "activeHours": null
+  "mcp": {
+    "clients": {
+      "filesystem": {
+        "name": "文件系统访问",
+        "enabled": true,
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          "/path/to/folder"
+        ]
       }
-    },
-    "running": {
-      "max_iters": 50,
-      "max_input_length": 131072
-    },
-    "language": "zh",
-    "installed_md_files_language": "zh"
+    }
   },
-  "last_api": {
-    "host": "127.0.0.1",
-    "port": 8088
+  "heartbeat": {
+    "enabled": false,
+    "every": "30m",
+    "target": "main",
+    "activeHours": null
   },
-  "last_dispatch": null,
-  "show_tool_details": true
+  "running": {
+    "max_iters": 50,
+    "llm_retry_enabled": true,
+    "llm_max_retries": 3,
+    "llm_backoff_base": 1.0,
+    "llm_backoff_cap": 10.0,
+    "max_input_length": 131072
+  },
+  "active_model": null,
+  "language": "zh",
+  "system_prompt_files": ["AGENTS.md", "SOUL.md", "PROFILE.md"],
+  "tools": {
+    "builtin_tools": {}
+  },
+  "security": {
+    "tool_guard": {
+      "enabled": true
+    },
+    "file_guard": {
+      "enabled": true
+    },
+    "skill_scanner": {
+      "mode": "warn"
+    }
+  },
+  "last_dispatch": null
 }
 ```
 
-### 逐字段说明
+> **说明：** 完整的字段列表和说明见下方各小节。智能体配置可以在控制台中管理，也可以直接编辑 `agent.json` 文件。
+
+---
+
+### agent.json 字段详解
 
 #### `channels` — 消息频道配置
 
-每个频道都有通用字段和频道专属字段。
+每个频道都有通用字段（如 `enabled`、`bot_prefix`、访问控制策略等）和频道专属字段（如钉钉的 `client_id`、`client_secret`）。
 
-**通用字段（所有频道都有）：**
+**支持的频道：**
 
-| 字段                   | 类型   | 默认值  | 说明                            |
-| ---------------------- | ------ | ------- | ------------------------------- |
-| `enabled`              | bool   | `false` | 是否启用该频道                  |
-| `bot_prefix`           | string | `""`    | 可选命令前缀（如 `/paw`）       |
-| `filter_tool_messages` | bool   | `false` | 过滤工具调用/输出消息（默认关） |
-| `filter_thinking`      | bool   | `false` | 过滤思考/推理内容（默认关）     |
+- **console** — 控制台（默认启用）
+- **dingtalk** — 钉钉
+- **feishu** — 飞书/Lark
+- **discord** — Discord
+- **telegram** — Telegram
+- **qq** — QQ 机器人
+- **imessage** — iMessage（仅 macOS）
+- **mattermost** — Mattermost
+- **matrix** — Matrix
+- **wecom** — 企业微信
+- **weixin** — 微信个人（iLink）
+- **xiaoyi** — 华为小艺
+- **mqtt** — MQTT
+- **voice** — Voice
 
-**`channels.imessage`** — macOS iMessage
+> **完整配置说明：** 每个频道的通用字段、专属字段（如钉钉的 `client_id`、飞书的 `app_id`）和详细配置步骤请参见 [频道配置](./channels)。
 
-| 字段       | 类型   | 默认值                       | 说明                |
-| ---------- | ------ | ---------------------------- | ------------------- |
-| `db_path`  | string | `~/Library/Messages/chat.db` | iMessage 数据库路径 |
-| `poll_sec` | float  | `1.0`                        | 轮询间隔（秒）      |
+管理方式：控制台（智能体 → 频道）或直接编辑 `agent.json`。
 
-**`channels.discord`** — Discord 机器人
-
-| 字段              | 类型   | 默认值 | 说明                            |
-| ----------------- | ------ | ------ | ------------------------------- |
-| `bot_token`       | string | `""`   | Discord Bot Token               |
-| `http_proxy`      | string | `""`   | HTTP 代理地址（国内用户常需要） |
-| `http_proxy_auth` | string | `""`   | 代理认证字符串                  |
-
-**`channels.dingtalk`** — 钉钉
-
-| 字段            | 类型   | 默认值 | 说明                     |
-| --------------- | ------ | ------ | ------------------------ |
-| `client_id`     | string | `""`   | 钉钉应用的 Client ID     |
-| `client_secret` | string | `""`   | 钉钉应用的 Client Secret |
-
-**`channels.feishu`** — 飞书 / Lark
-
-| 字段                 | 类型   | 默认值           | 说明                     |
-| -------------------- | ------ | ---------------- | ------------------------ |
-| `app_id`             | string | `""`             | 飞书 App ID              |
-| `app_secret`         | string | `""`             | 飞书 App Secret          |
-| `encrypt_key`        | string | `""`             | 事件加密密钥（可选）     |
-| `verification_token` | string | `""`             | 事件验证令牌（可选）     |
-| `media_dir`          | string | `~/.copaw/media` | 接收到的媒体文件存放目录 |
-
-**`channels.qq`** — QQ 机器人
-
-| 字段            | 类型   | 默认值 | 说明                    |
-| --------------- | ------ | ------ | ----------------------- |
-| `app_id`        | string | `""`   | QQ 机器人 App ID        |
-| `client_secret` | string | `""`   | QQ 机器人 Client Secret |
-
-**`channels.console`** — 控制台（终端输入输出）
-
-| 字段      | 类型 | 默认值 | 说明                            |
-| --------- | ---- | ------ | ------------------------------- |
-| `enabled` | bool | `true` | 默认开启；在终端打印 Agent 回复 |
-
-> **提示：** 系统会每 2 秒自动检测 `config.json` 的变化。如果你在应用运行时修改了某个
-> 频道的配置，系统会自动重载该频道——不需要重启。
+> **热加载：** 系统每 2 秒自动检测 `agent.json` 变化，修改频道配置后会自动重载，无需重启。
 
 ---
 
-#### `agents` — Agent 行为设置
+#### `mcp` — MCP 客户端配置
 
-| 字段                                 | 类型           | 默认值 | 说明                                                   |
-| ------------------------------------ | -------------- | ------ | ------------------------------------------------------ |
-| `agents.defaults.heartbeat`          | object \| null | 见下方 | 心跳配置                                               |
-| `agents.running`                     | object         | 见下方 | Agent 运行时行为配置                                   |
-| `agents.language`                    | string         | `"zh"` | Agent 提示词 MD 文件的语言（`"zh"` / `"en"` / `"ru"`） |
-| `agents.installed_md_files_language` | string \| null | `null` | 记录当前已安装的 MD 文件语言；由 `copaw init` 自动管理 |
+MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem、Git、SQLite 等 MCP 服务器）。
 
-**`agents.running`** — Agent 运行时行为配置
+每个 MCP 客户端包含名称、启用状态、传输方式（stdio/HTTP/SSE）、启动命令或 URL 等字段。
 
-| 字段               | 类型 | 默认值          | 说明                                                                                       |
-| ------------------ | ---- | --------------- | ------------------------------------------------------------------------------------------ |
-| `max_iters`        | int  | `50`            | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                            |
-| `max_input_length` | int  | `131072` (128K) | 模型上下文窗口的最大输入长度（token 数）。记忆压缩将在达到此值的 80% 时触发（必须 ≥ 1000） |
+> **完整配置说明：** MCP 客户端的完整字段说明、配置格式、示例和使用方式请参见 [MCP](./mcp)。
 
-**`agents.defaults.heartbeat`** — 心跳定时任务
+管理方式：控制台（智能体 → MCP）或直接编辑 `agent.json`。
+
+---
+
+#### `heartbeat` — 心跳配置
+
+心跳是定时自检功能，按固定间隔执行 `HEARTBEAT.md` 中的任务。
 
 | 字段          | 类型           | 默认值   | 说明                                                                         |
 | ------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
+| `enabled`     | bool           | `false`  | 是否启用心跳功能                                                             |
 | `every`       | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
 | `target`      | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
-| `activeHours` | object \| null | `null`   | 可选活跃时段，设置后心跳只在该时段内运行                                     |
+| `activeHours` | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
 
-**`agents.defaults.heartbeat.activeHours`**（不为 null 时）：
-
-| 字段    | 类型   | 默认值    | 说明                         |
-| ------- | ------ | --------- | ---------------------------- |
-| `start` | string | `"08:00"` | 开始时间（HH:MM，24 小时制） |
-| `end`   | string | `"22:00"` | 结束时间（HH:MM，24 小时制） |
-
-> 详细指南请看 [心跳](./heartbeat)。
+详细说明请看 [心跳](./heartbeat)。
 
 ---
 
-#### `last_api` — 上次使用的 API 地址
+#### `running` — 运行时配置
 
-| 字段   | 类型           | 默认值 | 说明                        |
-| ------ | -------------- | ------ | --------------------------- |
-| `host` | string \| null | `null` | 上次 `copaw app` 绑定的主机 |
-| `port` | int \| null    | `null` | 上次 `copaw app` 绑定的端口 |
+控制智能体的运行行为、重试策略、上下文管理和记忆配置。
 
-每次运行 `copaw app` 时会自动保存。其他 CLI 子命令（如 `copaw cron`）会读取这个地址来发送请求。
+**基础运行参数：**
+
+| 字段        | 类型 | 默认值 | 说明                                            |
+| ----------- | ---- | ------ | ----------------------------------------------- |
+| `max_iters` | int  | `100`  | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1） |
+
+**LLM 重试与限流：**
+
+| 字段                    | 类型  | 默认值  | 说明                                                        |
+| ----------------------- | ----- | ------- | ----------------------------------------------------------- |
+| `llm_retry_enabled`     | bool  | `true`  | 是否对限流、超时、连接中断等瞬时 LLM API 错误自动重试       |
+| `llm_max_retries`       | int   | `3`     | 瞬时 LLM API 错误的最大重试次数（必须 ≥ 1）                 |
+| `llm_backoff_base`      | float | `1.0`   | 指数退避的基础等待时间（秒，必须 ≥ 0.1）                    |
+| `llm_backoff_cap`       | float | `10.0`  | 退避等待时间上限（秒，必须 ≥ 0.5，且 ≥ `llm_backoff_base`） |
+| `llm_max_concurrent`    | int   | `10`    | 最大并发 LLM 调用数（跨所有智能体共享）                     |
+| `llm_max_qpm`           | int   | `600`   | 每分钟最大请求数限制（QPM）。0 = 不限制                     |
+| `llm_rate_limit_pause`  | float | `5.0`   | 收到 429 限流响应时的全局暂停时间（秒）                     |
+| `llm_rate_limit_jitter` | float | `1.0`   | 限流暂停的随机抖动范围（秒），避免并发请求同时恢复          |
+| `llm_acquire_timeout`   | float | `300.0` | 等待获取限流槽的最大超时时间（秒）                          |
+
+**上下文管理：**
+
+| 字段                 | 类型   | 默认值          | 说明                                                  |
+| -------------------- | ------ | --------------- | ----------------------------------------------------- |
+| `max_input_length`   | int    | `131072` (128K) | 模型上下文窗口的最大输入长度（token 数，必须 ≥ 1000） |
+| `history_max_length` | int    | `10000`         | `/history` 命令输出的最大长度（字符数）               |
+| `context_compact`    | object | _（见下方）_    | 上下文压缩配置对象                                    |
+
+**上下文压缩配置（`context_compact` 对象）：**
+
+| 字段                           | 类型   | 默认值      | 说明                                                                              |
+| ------------------------------ | ------ | ----------- | --------------------------------------------------------------------------------- |
+| `context_compact_enabled`      | bool   | `true`      | 是否启用自动上下文压缩                                                            |
+| `memory_compact_ratio`         | float  | `0.75`      | 触发压缩的阈值比例（相对于 `max_input_length`）。当上下文长度达到此比例时触发压缩 |
+| `memory_reserve_ratio`         | float  | `0.1`       | 压缩后保留的最近上下文比例，确保连续性                                            |
+| `compact_with_thinking_block`  | bool   | `true`      | 压缩时是否包含思考块                                                              |
+| `token_count_model`            | string | `"default"` | 用于 token 计数的模型                                                             |
+| `token_count_use_mirror`       | bool   | `false`     | token 计数时是否使用 HuggingFace 镜像                                             |
+| `token_count_estimate_divisor` | float  | `4.0`       | 基于字节的 token 估算除数（byte_len / divisor）                                   |
+
+**工具结果压缩配置（`tool_result_compact` 对象）：**
+
+| 字段               | 类型 | 默认值  | 说明                                      |
+| ------------------ | ---- | ------- | ----------------------------------------- |
+| `enabled`          | bool | `true`  | 是否启用工具结果压缩                      |
+| `recent_n`         | int  | `2`     | 最近 N 条消息使用 `recent_max_bytes` 阈值 |
+| `old_max_bytes`    | int  | `3000`  | 旧消息的工具结果字节阈值                  |
+| `recent_max_bytes` | int  | `50000` | 最近消息的工具结果字节阈值                |
+| `retention_days`   | int  | `5`     | 工具结果文件保留天数                      |
+
+**记忆配置：**
+
+| 字段                     | 类型   | 默认值        | 说明                                           |
+| ------------------------ | ------ | ------------- | ---------------------------------------------- |
+| `memory_summary`         | object | _（见下方）_  | 记忆总结与搜索配置对象                         |
+| `embedding_config`       | object | _（见下方）_  | Embedding 模型配置对象（用于语义检索）         |
+| `memory_manager_backend` | string | `"remelight"` | 记忆管理器后端类型（当前仅支持 `"remelight"`） |
+
+**记忆总结配置（`memory_summary` 对象）：**
+
+| 字段                            | 类型  | 默认值  | 说明                                                       |
+| ------------------------------- | ----- | ------- | ---------------------------------------------------------- |
+| `memory_summary_enabled`        | bool  | `true`  | 是否在压缩时启用记忆总结                                   |
+| `force_memory_search`           | bool  | `false` | 是否在每轮对话时强制搜索记忆                               |
+| `force_max_results`             | int   | `1`     | 强制记忆搜索时返回的最大结果数                             |
+| `force_min_score`               | float | `0.3`   | 强制记忆搜索时的最低相关度分数（0.0 - 1.0）                |
+| `rebuild_memory_index_on_start` | bool  | `false` | 启动时是否清空并重建记忆搜索索引。false 时仅监控新文件变化 |
+
+**Embedding 配置（`embedding_config` 对象）：**
+
+| 字段               | 类型   | 默认值     | 说明                                                |
+| ------------------ | ------ | ---------- | --------------------------------------------------- |
+| `backend`          | string | `"openai"` | Embedding 后端类型（如 `"openai"`）                 |
+| `api_key`          | string | `""`       | Embedding 提供商的 API Key                          |
+| `base_url`         | string | `""`       | 自定义 API 地址（可选）                             |
+| `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`） |
+| `dimensions`       | int    | `1024`     | Embedding 向量维度                                  |
+| `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                             |
+| `use_dimensions`   | bool   | `false`    | 是否使用自定义维度                                  |
+| `max_cache_size`   | int    | `3000`     | 最大缓存大小                                        |
+| `max_input_length` | int    | `8192`     | Embedding 的最大输入长度                            |
+| `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                |
+
+这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。保存后会对新的 LLM 请求生效，不需要重启服务。
+
+---
+
+#### `language` & `system_prompt_files` — 人设文件配置
+
+| 字段                  | 类型          | 默认值                                   | 说明                             |
+| --------------------- | ------------- | ---------------------------------------- | -------------------------------- |
+| `language`            | string        | `"zh"`                                   | 智能体语言（`zh` / `en` / `ru`） |
+| `system_prompt_files` | array[string] | `["AGENTS.md", "SOUL.md", "PROFILE.md"]` | 加载到系统提示词的人设文件列表   |
+
+**人设文件** 定义智能体的行为和个性，存放在工作区目录下。你可以：
+
+- 在控制台的 **智能体 → 工作区** 页面管理人设文件（编辑、启用/禁用、调整顺序）
+- 直接编辑 `system_prompt_files` 数组来控制加载哪些文件
+- 在控制台的 **智能体 → 运行配置** 页面切换语言（会覆盖现有人设文件）
+
+**详细说明：** 参见 [智能体人设](./persona) 文档。
+
+---
+
+#### `active_model` — 当前使用的模型
+
+指定该智能体使用的模型。
+
+| 字段          | 类型   | 默认值 | 说明                                          |
+| ------------- | ------ | ------ | --------------------------------------------- |
+| `provider_id` | string | `""`   | 模型提供商 ID（如 `"dashscope"`、`"openai"`） |
+| `model`       | string | `""`   | 模型名称（如 `"qwen-max"`、`"gpt-4"`）        |
+
+为 `null` 时使用全局默认模型。可在控制台（智能体 → 模型设置）中配置。
+
+---
+
+#### `tools` — 工具配置
+
+控制智能体可用的内置工具。每个工具可以单独启用/禁用，配置是否显示给用户，以及是否异步执行。
+
+> **完整配置说明：** 工具的详细字段结构、配置示例等请参见 [MCP 与内置工具](./mcp)。
+
+管理方式：控制台（智能体 → 工具配置）或直接编辑 `agent.json`。
+
+---
+
+#### `security` — 安全配置
+
+包含三个防护模块：
+
+- **`tool_guard`** — 工具守卫（运行时检测危险命令和注入攻击）
+- **`file_guard`** — 文件守卫（保护敏感文件访问）
+- **`skill_scanner`** — 技能扫描器（技能启用前扫描恶意代码）
+
+> **完整配置说明：** 每个模块的详细字段说明、安全规则、自定义规则配置等请参见 [安全](./security)。
+
+管理方式：控制台（设置 → 安全配置）或直接编辑 `agent.json`。
 
 ---
 
 #### `last_dispatch` — 最近一次消息分发目标
+
+记录最近用户消息来源，用于心跳 `target = "last"` 时的消息发送。
 
 | 字段         | 类型   | 默认值 | 说明                                     |
 | ------------ | ------ | ------ | ---------------------------------------- |
@@ -260,63 +451,46 @@ copaw app
 | `user_id`    | string | `""`   | 该频道中的用户 ID                        |
 | `session_id` | string | `""`   | 会话/对话 ID                             |
 
-当用户发消息时会自动更新。心跳 `target = "last"` 时，心跳结果会发到这里记录的频道/用户/会话。
-
----
-
-#### `show_tool_details` — 工具输出可见性
-
-| 字段                | 类型 | 默认值 | 说明                                                                                       |
-| ------------------- | ---- | ------ | ------------------------------------------------------------------------------------------ |
-| `show_tool_details` | bool | `true` | 为 `true` 时，频道消息里显示完整的工具调用/返回详情。为 `false` 时隐藏详情（显示 "..."）。 |
+自动更新，无需手动配置。
 
 ---
 
 ## 模型提供商
 
-CoPaw 需要 LLM 提供商才能运行。有三种设置方式：
+CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/providers.json`（默认 `~/.copaw.secret/providers.json`）。
+
+有三种设置方式：
 
 - **`copaw init`** — 交互式向导，最简单
-- **控制台 UI** — 在设置页面点选
+- **控制台 UI** — 在设置 → 模型页面配置
 - **API** — `PUT /providers/{id}` 和 `PUT /providers/active_llm`
 
-### 内置提供商
+**内置提供商列表：**
 
-| 提供商                 | ID                  | 默认 Base URL                                       | API Key 前缀 |
-| ---------------------- | ------------------- | --------------------------------------------------- | ------------ |
-| ModelScope（魔搭）     | `modelscope`        | `https://api-inference.modelscope.cn/v1`            | `ms`         |
-| DashScope（灵积）      | `dashscope`         | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `sk`         |
-| 阿里云百炼 Coding Plan | `aliyun-codingplan` | `https://coding.dashscope.aliyuncs.com/v1`          | `sk-sp`      |
-| OpenAI                 | `openai`            | `https://api.openai.com/v1`                         | _（任意）_   |
-| Azure OpenAI           | `azure-openai`      | _（你自己填）_                                      | _（任意）_   |
-| Anthropic              | `anthropic`         | `https://api.anthropic.com`                         | _（任意）_   |
-| Ollama                 | `ollama`            | `http://localhost:11434`                            | _（无需）_   |
-| LM Studio              | `lmstudio`          | `http://localhost:1234/v1`                          | _（无需）_   |
-| 自定义                 | `custom`            | _（你自己填）_                                      | _（任意）_   |
+| 提供商                 | ID                  | 说明                           |
+| ---------------------- | ------------------- | ------------------------------ |
+| ModelScope（魔搭）     | `modelscope`        | 魔搭社区模型服务               |
+| DashScope（灵积）      | `dashscope`         | 阿里云灵积模型服务             |
+| 阿里云百炼 Coding Plan | `aliyun-codingplan` | 阿里云百炼 Coding Plan         |
+| OpenAI                 | `openai`            | OpenAI API                     |
+| Azure OpenAI           | `azure-openai`      | Azure OpenAI Service           |
+| Anthropic              | `anthropic`         | Anthropic Claude API           |
+| Google Gemini          | `gemini`            | Google Gemini API              |
+| Ollama                 | `ollama`            | 本地 Ollama 服务               |
+| LM Studio              | `lmstudio`          | 本地 LM Studio 服务            |
+| llama.cpp              | `llamacpp`          | 本地 llama.cpp 后端            |
+| MLX                    | `mlx`               | 本地 MLX 后端（Apple Silicon） |
+| 自定义                 | `custom`            | 自定义 OpenAI 兼容服务         |
 
-每个提供商需要设置：
-
-| 设置项     | 说明                             |
-| ---------- | -------------------------------- |
-| `base_url` | API 地址（内置提供商已自动填好） |
-| `api_key`  | 你的 API Key                     |
-
-然后选择激活哪个提供商和模型：
-
-| 设置项        | 说明                             |
-| ------------- | -------------------------------- |
-| `provider_id` | 使用哪个提供商（如 `dashscope`） |
-| `model`       | 使用哪个模型（如 `qwen3-max`）   |
+> **完整配置说明：** 每个提供商的详细配置方式、`providers.json` 字段结构、模型发现等请参见 [模型](./models)。
 
 > **提示：** 运行 `copaw init` 跟着提示走就行——它会列出每个提供商的可用模型让你直接选。
->
-> **注意：** API Key 和 Base URL 的有效性需要用户自行保证。CoPaw 不会验证你填入的密钥是否正确或是否有余额，请确保所选提供商和模型可正常访问。
 
 ---
 
-## 环境变量
+## 工具环境变量
 
-部分工具需要额外的 API Key（如网络搜索用的 `TAVILY_API_KEY`）。有三种管理方式：
+部分工具和 MCP 服务需要额外的 API Key（如网络搜索用的 `TAVILY_API_KEY`）。有三种管理方式：
 
 - **`copaw init`** — 初始化时会问 "Configure environment variables?"
 - **控制台 UI** — 在设置页面编辑
@@ -330,103 +504,55 @@ CoPaw 需要 LLM 提供商才能运行。有三种设置方式：
 
 ## 技能（Skills）
 
-技能扩展了 Agent 的能力。它们分布在三个目录中：
+技能通过两级目录管理：
 
-| 目录                          | 说明                                                           |
-| ----------------------------- | -------------------------------------------------------------- |
-| 内置（源码中）                | 随 CoPaw 一起发布——docx、pdf、pptx、xlsx、news、email、cron 等 |
-| `~/.copaw/customized_skills/` | 用户自己创建的技能                                             |
-| `~/.copaw/active_skills/`     | 当前激活的技能（从内置 + 自定义同步过来的）                    |
+- **`$COPAW_WORKING_DIR/skill_pool/`** — 本地共享技能池
+- **`$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`** — 智能体工作区中的本地技能
 
-每个技能是一个目录，里面有 `SKILL.md` 文件（YAML front matter 中需包含 `name` 和
-`description`），以及可选的 `references/` 和 `scripts/` 子目录。
+每个技能是一个包含 `SKILL.md` 文件的子目录。技能的启用状态和配置存储在 `skill.json` 文件中（如 `~/.copaw/workspaces/default/skill.json`）。
 
-管理技能的方式：
+> **完整配置说明：** `skill.json` 的详细字段结构、技能池管理、广播、上传、Config 运行时注入等请参见 [技能](./skills)。
 
-- `copaw init`（初始化时选择 all / none / custom）
-- `copaw skills config`（交互式开关）
-- API 接口（`/skills/...`）
+管理方式：
+
+- **控制台**（智能体 → 技能）— 可视化管理、导入、启用/禁用
+- **`copaw skills config`** — CLI 交互式切换
+- **直接编辑** `skill.json` — 手动添加或修改技能
 
 ---
 
 ## 记忆（Memory）
 
-CoPaw 拥有跨对话的持久记忆能力：自动压缩上下文，并将关键信息写入 Markdown 文件长期保存。详细说明请看 [记忆](./memory.zh.md)。
+记忆系统为智能体提供长期记忆和每日记忆，存储在智能体工作区：
 
-记忆文件存储在两个位置：
+- **`MEMORY.md`** — 长期记忆（重要信息、用户偏好、项目上下文）
+- **`memory/YYYY-MM-DD.md`** — 每日记忆（当天对话的关键信息）
 
-| 文件/目录                       | 说明                                       |
-| ------------------------------- | ------------------------------------------ |
-| `~/.copaw/MEMORY.md`            | 长期有效的关键信息（决策、偏好、持久事实） |
-| `~/.copaw/memory/YYYY-MM-DD.md` | 每日日志（日常笔记、运行上下文、自动摘要） |
+记忆的写入和读取由智能体自动完成，用户通常无需手动干预。
 
-### Embedding（向量嵌入）配置
-
-记忆搜索依赖向量嵌入进行语义检索，通过以下环境变量配置：
-
-| 环境变量                     | 说明                        | 默认值                                              |
-| ---------------------------- | --------------------------- | --------------------------------------------------- |
-| `EMBEDDING_API_KEY`          | Embedding 服务的 API Key    | ``                                                  |
-| `EMBEDDING_BASE_URL`         | Embedding 服务的 URL        | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `EMBEDDING_MODEL_NAME`       | Embedding 模型名称          | `text-embedding-v4`                                 |
-| `EMBEDDING_DIMENSIONS`       | 向量维度                    | `1024`                                              |
-| `EMBEDDING_CACHE_ENABLED`    | 是否启用 Embedding 缓存     | `true`                                              |
-| `EMBEDDING_MAX_CACHE_SIZE`   | Embedding 缓存最大条目数    | `2000`                                              |
-| `EMBEDDING_MAX_INPUT_LENGTH` | 单次 Embedding 最大输入长度 | `8192`                                              |
-| `EMBEDDING_MAX_BATCH_SIZE`   | Embedding 批处理最大数量    | `10`                                                |
-
-> `EMBEDDING_API_KEY` 和 `EMBEDDING_MODEL_NAME` 都非空才能开启多路检索中的向量检索
+> **完整配置说明：** Embedding 配置、全文检索配置、记忆压缩参数等请参见 [记忆](./memory)。
 
 ---
 
 ## 小结
 
-- 默认一切都在 **`~/.copaw`**；想改就设 **`COPAW_WORKING_DIR`** 等环境变量。
-- 日常主要改 **config.json**（频道、心跳、语言）和 **HEARTBEAT.md**（心跳问什么）；定时
-  任务用 CLI/API 管理即可。
-- Agent 的人设由工作目录中的 Markdown 文件定义：**SOUL.md** + **AGENTS.md**（必需）。
-- LLM 提供商通过 `copaw init` 或控制台 UI 配置。
-- 频道配置的修改会**自动热加载**（每 2 秒检测一次），不需要重启。
-- 直接调 Agent 接口：**POST** `/agent/process`，JSON 请求体、SSE 流式；具体示例见
-  [快速开始 — 验证安装](./quickstart#验证安装可选)。
+- 默认一切都在 **`$COPAW_WORKING_DIR`**（默认 `~/.copaw`）；可通过环境变量自定义。
+- 从 **v0.1.0** 开始，配置分为两层：
+  - **全局配置**（`config.json`）— 模型提供商、智能体列表、全局设置
+  - **智能体配置**（`workspaces/{agent_id}/agent.json`）— 每个智能体的独立配置
+- 主要通过 **控制台** 管理配置，也可直接编辑 JSON 文件。
+- 智能体的人设由工作区中的 Markdown 文件定义，详见 [智能体人设](./persona)。
+- 配置修改会**自动热加载**（每 2 秒检测一次），不需要重启。
 
 ---
 
 ## 相关页面
 
 - [项目介绍](./intro) — 这个项目可以做什么
-- [频道配置](./channels) — config 里 channels 怎么填
-- [心跳](./heartbeat) — config 里 heartbeat 怎么填
-
----
-
-## Agent Prompt 文件一览
-
-> 以下内容浓缩自 [Agent Prompt 文件](./agent_md_intro.zh.md)，完整说明请查阅原文。
->
-> 本部分 Prompt 设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发。
-
-| 文件             | 核心职责                            | 读写属性                                           | 关键内容                                                                  |
-| ---------------- | ----------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------- |
-| **SOUL.md**      | 定义 Agent 的**价值观与行为准则**   | 只读（由开发者/用户预先定义）                      | 真心帮忙不敷衍；有自己的观点不盲从；先自己想办法再问人；尊重隐私不越权    |
-| **PROFILE.md**   | 记录 Agent 的**身份**和**用户画像** | 读写（BOOTSTRAP 自动生成，之后可手动或控制台修改） | Agent 侧：名字、定位、风格、能力范围；用户侧：名字、时区、偏好、背景      |
-| **BOOTSTRAP.md** | 新 Agent 的**首次运行引导流程**     | 一次性（引导完成后自我删除 ✂️）                    | ① 自我介绍 → ② 了解用户 → ③ 写入 PROFILE.md → ④ 阅读 SOUL.md → ⑤ 自我删除 |
-| **AGENTS.md**    | Agent 的**完整工作规范**            | 只读（日常运行核心参考）                           | 记忆系统读写规则；安全与权限；工具调用规范；Heartbeat 触发逻辑；操作边界  |
-| **MEMORY.md**    | 存储 Agent 的**工具设置与经验教训** | 读写（Agent 自行维护，也可手动编辑）               | SSH 配置与连接信息；本地环境路径/版本；用户个性化设置与偏好               |
-| **HEARTBEAT.md** | 定义 Agent 的**后台巡检任务**       | 读写（空文件 = 跳过心跳）                          | 空文件 → 不巡检；写入任务 → 按配置间隔自动执行清单                        |
-
-**文件协作关系：**
-
-```
-BOOTSTRAP.md (🐣 一次性)
-    ├── 生成 → PROFILE.md (🪪 我是谁)
-    ├── 引导阅读 → SOUL.md (🫀 我的灵魂)
-    └── 完成后自我删除 ✂️
-
-AGENTS.md (📋 日常规范)
-    ├── 读写 → MEMORY.md (🧠 长期记忆)
-    ├── 参考 → HEARTBEAT.md (💓 定期巡检)
-    └── 参考 → PROFILE.md (🪪 了解用户)
-```
-
-> **一句话总结：** SOUL 决定性格，PROFILE 记住关系，BOOTSTRAP 完成出生，AGENTS 规定行为，MEMORY 积累经验，HEARTBEAT 保持警觉。
+- [智能体人设](./persona) — 人设文件的详细说明和管理
+- [频道配置](./channels) — 如何配置各个消息频道
+- [心跳](./heartbeat) — 定时自检配置
+- [多智能体](./multi-agent) — 多智能体配置、管理与协作
+- [记忆](./memory) — 记忆系统详解
+- [技能](./skills) — 技能系统详解
+- [MCP](./mcp) — MCP 客户端配置

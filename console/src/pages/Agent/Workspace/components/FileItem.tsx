@@ -1,6 +1,10 @@
 import React from "react";
 import { Switch, Tooltip } from "@agentscope-ai/design";
-import { HolderOutlined } from "@ant-design/icons";
+import {
+  CaretDownOutlined,
+  CaretRightOutlined,
+  HolderOutlined,
+} from "@ant-design/icons";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
@@ -101,7 +105,11 @@ export const FileItem: React.FC<FileItemProps> = ({
             </Tooltip>
             {isMemoryFile && (
               <span className={styles.expandIcon}>
-                {expandedMemory ? "▼" : "▶"}
+                {expandedMemory ? (
+                  <CaretDownOutlined />
+                ) : (
+                  <CaretRightOutlined />
+                )}
               </span>
             )}
           </div>

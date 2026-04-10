@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Agent markdown manager for reading and writing markdown files in working
+"""Agent Markdown manager for reading and writing markdown files in working
 and memory directories."""
 from datetime import datetime
 from pathlib import Path
 
-from ...constant import WORKING_DIR
+from ..utils.file_handling import read_text_file_with_encoding_fallback
 
 
 class AgentMdManager:
@@ -61,7 +61,7 @@ class AgentMdManager:
         if not file_path.exists():
             raise FileNotFoundError(f"Working md file not found: {md_name}")
 
-        return file_path.read_text(encoding="utf-8")
+        return read_text_file_with_encoding_fallback(file_path).strip()
 
     def write_working_md(self, md_name: str, content: str):
         """Write markdown content to a file in the working directory."""
@@ -114,7 +114,7 @@ class AgentMdManager:
         if not file_path.exists():
             raise FileNotFoundError(f"Memory md file not found: {md_name}")
 
-        return file_path.read_text(encoding="utf-8")
+        return read_text_file_with_encoding_fallback(file_path).strip()
 
     def write_memory_md(self, md_name: str, content: str):
         """Write markdown content to a file in the memory directory."""
@@ -123,6 +123,3 @@ class AgentMdManager:
             md_name += ".md"
         file_path = self.memory_dir / md_name
         file_path.write_text(content, encoding="utf-8")
-
-
-AGENT_MD_MANAGER = AgentMdManager(working_dir=WORKING_DIR)

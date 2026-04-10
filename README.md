@@ -16,7 +16,7 @@
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
 
-[[Documentation](https://copaw.agentscope.io/)] [[中文 README](README_zh.md)] [[日本語](README_ja.md)]
+[[Documentation](https://copaw.agentscope.io/)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i2/O1CN014TIqyO1U5wDiSbFfA_!!6000000002467-2-tps-816-192.png" alt="CoPaw Logo" width="120">
@@ -26,27 +26,31 @@
 
 </div>
 
-Your Personal AI Assistant; easy to install, deploy on your own machine or on the cloud; supports multiple chat apps with easily extensible capabilities.
+Your personal AI assistant — easy to install, deploy locally or in the cloud, connect across channels, extend with ease.
 
 > **Core capabilities:**
 >
-> **Every channel** — DingTalk, Feishu, QQ, Discord, iMessage, and more. One assistant, connect as you need.
+> **Under your control** — Memory and personalization fully under your control. Deploy locally (data stays on your machine) or in the cloud (your chosen server). No third-party hosting, no data upload.
 >
-> **Under your control** — Memory and personalization under your control. Deploy locally or in the cloud; scheduled reminders to any channel.
+> **Skills extension** — Built-in scheduling, PDF/Office processing, news digest, and more; custom skills auto-loaded, no lock-in. Skills determine what CoPaw can do.
 >
-> **Skills** — Built-in cron; custom skills in your workspace, auto-loaded. No lock-in.
+> **Multi-agent collaboration** — Create multiple independent agents, each with their own role; enable collaboration skills for inter-agent communication to tackle complex tasks together.
+>
+> **Multi-layer security** — Tool guard, file access control, skill security scanning to ensure safe operation.
+>
+> **Every channel** — DingTalk, Feishu, WeChat, Discord, Telegram, and more. One CoPaw, connect as needed.
 >
 > <details>
-> <summary><b>What you can do</b></summary>
+> <summary><b>What you can do with CoPaw</b></summary>
 >
 > <br>
 >
-> - **Social**: daily digest of hot posts (Xiaohongshu, Zhihu, Reddit), Bilibili/YouTube summaries.
-> - **Productivity**: newsletter digests to DingTalk/Feishu/QQ, contacts from email/calendar.
-> - **Creative**: describe your goal, run overnight, get a draft next day.
-> - **Research**: track tech/AI news, personal knowledge base.
-> - **Desktop**: organize files, read/summarize docs, request files in chat.
-> - **Explore**: combine Skills and cron into your own agentic app.
+> - **Social media**: Daily hot post digests (Xiaohongshu, Zhihu, Reddit), Bilibili/YouTube video summaries.
+> - **Productivity**: Email & newsletter highlights pushed to DingTalk/Feishu/QQ; email & calendar contact organization.
+> - **Creative & building**: Describe your goal before sleep, auto-execute, wake up to a prototype; full workflow from topic selection to final video.
+> - **Research & learning**: Track tech & AI news, personal knowledge base search and reuse.
+> - **Desktop & files**: Organize and search local files, read & summarize documents, request files in chat.
+> - **Explore more**: Combine Skills with scheduled tasks into your own agentic app.
 >
 > </details>
 
@@ -54,12 +58,16 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 
 ## News
 
-[2026-03-12] We released v0.0.7! See the [v0.0.7 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
+[2026-03-24] We released v0.2.0! See the [v0.2.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
-- **[v0.0.7] Added:** Tool Guard security layer — blocks risky tool calls until user approval; Mattermost and Matrix channel integrations; @mention-only group filtering for Discord/DingTalk/Feishu/Telegram; Telegram Markdown rendering; Feishu emoji reactions and rich text media; QQ image sending; LLM call auto-retry with exponential backoff; LM Studio provider; token usage tracking with dashboard; provider `generate_kwargs` editor; workspace file drag-and-drop; chat model switching; agent language selector; context management UI; chat state preservation across navigation; AI skill optimization with streaming; skill card description display; auto PyPI mirror for China.
-- **[v0.0.7] Improved:** Provider connection test messages; async workspace zip and session load; provider ID conflict auto-resolution; on-demand model discovery; token recording centralization; built-in skill docs and shell `PATH` handling; Himalaya email skill; memory docs reorganization; Config & Security page refactor.
-- **[v0.0.7] Fixed:** DingTalk auth failure cleanup; Discord 2000-char message splitting; channel config type alignment for Matrix/Mattermost/MQTT; Windows shell encoding and process tree cleanup; desktop SSL certificates, IME input, and external URL navigation; magic command session state protection; Ollama modal re-renders; chat request deduplication.
-- **[v0.0.7] Contributors:** Thanks to new contributors: [@2catycm](https://github.com/2catycm), [@2niuhe](https://github.com/2niuhe), [@yingdachen](https://github.com/yingdachen), [@Atletico1999](https://github.com/Atletico1999), [@buecker](https://github.com/buecker), [@Cirilla-zmh](https://github.com/Cirilla-zmh), [@gnipping](https://github.com/gnipping), [@Nufe-muzi](https://github.com/Nufe-muzi), [@FuKunZ](https://github.com/FuKunZ), [@JasonBuildAI](https://github.com/JasonBuildAI), [@StarMoonCity](https://github.com/StarMoonCity), [@walker83](https://github.com/walker83), [@lllcy](https://github.com/lllcy).
+- **[v0.2.0] Added:** Inter-agent communication; built-in QA agent; LLM auto-retry settings; file access guard for sensitive paths; audio, video & speech input in console chat; stream reconnection on page refresh; model provider search; multimodal capability probing with UI tags; enhanced grep & glob search; config auto-repair; summarization improvements.
+- **[v0.2.0] Changed:** Stable prompts for better KV cache hit rates; faster CLI startup; QQ channel refactor; smart text chunking for QQ & WeCom; QQ WebSocket reconnect config; dark mode polish across console UI.
+- **[v0.2.0] Fixed:** Shell command hang on Windows; Windows file path handling; macOS desktop build; channel message processing lock leak; agent list crash and refresh; console reconnect overflow; cron job cancellation.
+- **[v0.2.0] Contributors:** Thanks to new contributors: [@ixiadao](https://github.com/ixiadao), [@leoleils](https://github.com/leoleils), [@ltzu929](https://github.com/ltzu929), [@emoubarak](https://github.com/emoubarak), [@f3125472](https://github.com/f3125472), [@shiweijiezero](https://github.com/shiweijiezero), [@Yaohua-Leo](https://github.com/Yaohua-Leo), [@finenter-molei](https://github.com/finenter-molei), [@lizeruicq](https://github.com/lizeruicq), [@hbsjmsjwj](https://github.com/hbsjmsjwj), [@aquamarine-bot](https://github.com/aquamarine-bot), [@sanfran1068](https://github.com/sanfran1068), [@x1n95c](https://github.com/x1n95c), [@saschabuehrle](https://github.com/saschabuehrle).
+
+[2026-03-18] We released v0.1.0! See the [v0.1.0 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
+
+[2026-03-12] We released v0.0.7! See the [v0.0.7 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
 [2026-03-09] We released v0.0.6! See the [v0.0.6 Release Notes](https://agentscope-ai.github.io/CoPaw/release-notes) for the full changelog.
 
@@ -73,19 +81,22 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 
 > **Recommended reading:**
 >
-> - **I want to run CoPaw in 3 commands**: [Quick Start](#quick-start) → open Console in browser.
-> - **I want to chat in DingTalk / Feishu / QQ**: Configure [channels](https://copaw.agentscope.io/docs/channels) in the Console.
-> - **I don’t want to install Python**: [Script install](#script-install) handles Python automatically, or use [ModelScope one-click](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) for cloud deployment.
-
+> - **🚀 I'm new and want to try quickly**: [Quick Start](#quick-start) → three commands to run → [Configure model](#api-key) → chat in Console
+> - **💬 I want to use in DingTalk/Feishu/WeChat**: Complete Quick Start → [Configure model](#api-key) → [Channel setup](https://copaw.agentscope.io/docs/channels)
+> - **🐍 I don't want to install Python**: [Desktop app](#desktop-application-beta) or [Script install](#script-install) or [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw)
+> - **💻 I want to use local models (no API key needed)**: [Local Models](#local-models) → download model → start using
+> - **🛠️ I want to contribute code or develop new features**: [Install from source](#install-from-source) → [Contributing](#contributing)
 - [News](#news)
 - [Quick Start](#quick-start)
 - [API Key](#api-key)
 - [Local Models](#local-models)
 - [Documentation](#documentation)
+- [Security Features](#security-features)
 - [FAQ](#faq)
+- [Staying ahead](#staying-ahead)
 - [Roadmap](#roadmap)
-- [Contributing](#get-involved)
 - [Install from source](#install-from-source)
+- [Contributing](#contributing)
 - [Why CoPaw?](#why-copaw)
 - [Built by](#built-by)
 - [License](#license)
@@ -93,20 +104,6 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 ---
 
 ## Quick Start
-
-### pip install
-
-If you prefer managing Python yourself:
-
-```bash
-pip install copaw
-copaw init --defaults
-copaw app
-```
-
-Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with CoPaw, configure the agent). To talk in DingTalk, Feishu, QQ, etc., add a channel in the [docs](https://copaw.agentscope.io/docs/channels).
-
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01z9VY6z1uMad7pgrCj_!!6000000006023-2-tps-3822-2064.png)
 
 ### Script install
 
@@ -186,11 +183,6 @@ curl -fsSL ... | bash -s -- --version 0.0.2
 # Install from source (dev/testing)
 curl -fsSL ... | bash -s -- --from-source
 
-# With local model support
-bash install.sh --extras llamacpp    # llama.cpp (cross-platform)
-bash install.sh --extras mlx         # MLX (Apple Silicon)
-bash install.sh --extras llamacpp,mlx
-
 # Upgrade — just re-run the installer
 curl -fsSL ... | bash
 
@@ -208,11 +200,6 @@ irm ... | iex; .\install.ps1 -Version 0.0.2
 # Install from source (dev/testing)
 .\install.ps1 -FromSource
 
-# With local model support
-.\install.ps1 -Extras llamacpp      # llama.cpp (cross-platform)
-.\install.ps1 -Extras mlx           # MLX
-.\install.ps1 -Extras llamacpp,mlx
-
 # Upgrade — just re-run the installer
 irm ... | iex
 
@@ -222,6 +209,25 @@ copaw uninstall --purge  # removes everything
 ```
 
 </details>
+
+
+---
+
+### pip install
+
+If you prefer managing Python yourself:
+
+```bash
+pip install copaw
+copaw init --defaults
+copaw app
+```
+
+Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Feishu, WeChat, etc., see the [Channel setup](https://copaw.agentscope.io/docs/channels) documentation.
+
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01N6TeJ41Y2y7O4gppz_!!6000000003002-2-tps-3328-1860.png)
+
+---
 
 ### Desktop Application (Beta)
 
@@ -266,6 +272,13 @@ When you download the CoPaw macOS app from Releases, macOS may show: *"Apple can
 
 For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://copaw.agentscope.io/docs/desktop).
 
+### Using ModelScope
+
+**No local install?** [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) one-click cloud setup. Set your Studio to **non-public** so others cannot control your CoPaw.
+
+
+---
+
 ### Using Docker
 
 Images are on **Docker Hub** (`agentscope/copaw`). Image tags: `latest` (stable); `pre` (PyPI pre-release).
@@ -309,9 +322,8 @@ Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills
 
 The image is built from scratch. To build the image yourself, please refer to the [Build Docker image](scripts/README.md#build-docker-image) section in `scripts/README.md`, and then push to your registry.
 
-### Using ModelScope
 
-**No local install?** [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) one-click cloud setup. Set your Studio to **non-public** so others cannot control your CoPaw.
+---
 
 ### Deploy on Alibaba Cloud ECS
 
@@ -321,7 +333,7 @@ To run CoPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [CoP
 
 ## API Key
 
-If you use a **cloud LLM** (e.g. DashScope, ModelScope), you must configure an API key before chatting. CoPaw will not work until a valid key is set. See the [official docs](https://copaw.agentscope.io/docs/models#configure-cloud-providers) for details.
+If you use a **cloud LLM API** (e.g., Qianwen, Gemini, OpenAI), you must configure an API key before chatting. CoPaw will not work until a valid key is set. See the [official docs](https://copaw.agentscope.io/docs/models#configure-cloud-providers) for details.
 
 **How to configure:**
 
@@ -329,7 +341,7 @@ If you use a **cloud LLM** (e.g. DashScope, ModelScope), you must configure an A
 2. **`copaw init`** — When you run `copaw init`, it will guide you through configuring the LLM provider and API key. Follow the prompts to choose a provider and enter your key.
 3. **Environment variable** — For DashScope you can set `DASHSCOPE_API_KEY` in your shell or in a `.env` file in the working directory.
 
-Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in Console **Settings → Environment variables**, or see [Config](https://copaw.agentscope.io/docs/config) for details.
+Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in Console **Settings → Environment variables**, see [Config](https://copaw.agentscope.io/docs/config) for details.
 
 > **Using local models only?** If you use [Local Models](#local-models) (llama.cpp or MLX), you do **not** need any API key.
 
@@ -368,6 +380,7 @@ copaw app # start the server
 | [Context](https://copaw.agentscope.io/docs/context)                   | Context management mechanism                     |
 | [Magic commands](https://copaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://copaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
+| [Multi-Agent](https://copaw.agentscope.io/docs/multi-agent)           | Create multiple agents and enable collaboration  |
 | [Config & working dir](https://copaw.agentscope.io/docs/config) | Working directory and config file                |
 | [CLI](https://copaw.agentscope.io/docs/cli)                            | Init, cron jobs, skills, clean                   |
 | [FAQ](https://copaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
@@ -376,9 +389,32 @@ Full docs in this repo: [website/public/docs/](website/public/docs/).
 
 ---
 
+## Security Features
+
+CoPaw includes multi-layer security mechanisms to protect your data and system:
+
+- **Tool guard** — Automatically intercepts dangerous shell commands (e.g., `rm -rf /`, fork bombs, reverse shells, etc.)
+- **File access guard** — Restricts agent access to sensitive paths (e.g., `~/.ssh`, key files, system directories, etc.)
+- **Skill security scanning** — Automatically scans before installing skills, detecting risks like prompt injection, command injection, hardcoded keys, data exfiltration, etc.
+- **Local deployment** — All data and memory stored locally, no third-party upload (when using cloud LLM APIs, conversation content is sent to the corresponding API provider)
+
+See [Security documentation](https://copaw.agentscope.io/docs/security) for details.
+
+---
+
 ## FAQ
 
 For common questions, troubleshooting tips, and known issues, please visit the **[FAQ page](https://copaw.agentscope.io/docs/faq)**.
+
+---
+
+## Staying ahead
+
+<a href="https://github.com/agentscope-ai/CoPaw">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />
+</a>
+
+Star CoPaw on GitHub and be instantly notified of new releases.
 
 ---
 
@@ -389,39 +425,23 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 | **Horizontal Expansion**              | More channels, models, skills, MCPs — **community contributions welcome**                                                                        | Seeking Contributors |
 | **Existing Feature Extension**        | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome**                                     | Seeking Contributors |
 | **Console Web UI**                    | Expose more info/config in the Console                                                                                                           | In Progress          |
-| **Self-healing**                      | Magic commands and daemon capabilities (CLI, status, restart, logs)                                                                              | In Progress          |
-|                                       | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | Planned              |
+| **Self-healing**                      | DaemonAgent: autonomous diagnostics, self-healing, and recovery                                                                                  | In Progress          |
 | **Multi-agent**                       | Background task support                                                                                                                          | In Progress          |
-|                                       | Multi-agent isolation                                                                                                                            | Planned              |
+|                                       | Async tasks                                                                                                                                      | Planned              |
 |                                       | Inter-agent contention resolution                                                                                                                | Planned              |
-|                                       | Multi-agent communication                                                                                                                        | Planned              |
 | **Multimodal**                        | Voice/video calls and real-time interaction                                                                                                      | In Progress          |
-| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows and sensitive-data use cases                                                                | In Progress          |
-|                                       | Multi-model routing. Local LLMs for sensitive data; cloud LLMs for planning and coding; balance of privacy, performance, and capability          | Planned              |
+| **Small + Large Model Collaboration** | Train/fine-tune local small LLMs for CoPaw workflows                                                                                               | In Progress          |
+|                                       | Multi-model routing; different models for different tasks                                                                                          | In Progress          |
 | **Memory System**                     | Experience distillation & skill extraction                                                                                                       | In Progress          |
+|                                       | Memory mechanism switching                                                                                                                       | Planned              |
 |                                       | Multimodal memory fusion                                                                                                                         | Planned              |
 |                                       | Context-aware proactive delivery                                                                                                                 | Planned              |
-| **Security**                          | Shell execution confirmation                                                                                                                     | Planned              |
-|                                       | Tool/skills security                                                                                                                             | Planned              |
-|                                       | Configurable security levels (user-configurable)                                                                                                 | Planned              |
-| **Release & Contributing**            | Contributing guidance for vibe coding agents                                                                                                     | Planned              |
-| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | Long-term Planned    |
-| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Long-term Planned    |
-| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Long-term Planned    |
+| **Sandbox**                           | Deeper integration with AgentScope Runtime sandboxes                                                                                             | In Progress          |
+| **Cloud-native**                      | Deeper integration with AgentScope Runtime; leverage cloud compute, storage, and tooling                                                         | Planned              |
+| **Skills Hub**                        | Enrich the [AgentScope Skills](https://github.com/agentscope-ai/agentscope-skills) repository and improve discoverability of high-quality skills | Planned              |
 
 
-*Status:* *In Progress* — actively being worked on; *Planned* — queued or under design, also **welcome contributions**; *Seeking Contributors* — we **strongly encourage community contributions**; *Long-term Planned* — longer-horizon roadmap.
-
-### Get involved
-
-We are building CoPaw in the open and welcome contributions of all kinds! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
-
-- **Horizontal expansion** — new channels, model providers, skills, MCPs.
-- **Existing feature extension** — display and UX improvements, download hints, Windows path compatibility, and the like.
-
-Join the conversation on [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions) to suggest or pick up work.
-
----
+_Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
 
 ## Install from source
 
@@ -443,6 +463,19 @@ pip install -e .
 
 - **Dev** (tests, formatting): `pip install -e ".[dev,full]"`
 - **Then**: Run `copaw init --defaults`, then `copaw app`.
+
+> **Note for updates:** When updating to a new major version after `git pull`, please also rebuild the frontend, reinstall the package (`pip install -e .`), restart `copaw app`, and clear your browser cache with `Ctrl+Shift+R` (or `Cmd+Shift+R` on macOS).
+
+---
+
+## Contributing
+
+CoPaw evolves through open collaboration, and we welcome all forms of contribution! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
+
+- **Horizontal expansion** — new channels, model providers, skills, MCPs.
+- **Existing feature extension & refinement** — display and interaction improvements, download hints, Windows path compatibility, etc.
+
+Join [GitHub Discussions](https://github.com/agentscope-ai/CoPaw/discussions) to discuss ideas or pick up tasks.
 
 ---
 

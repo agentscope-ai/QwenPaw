@@ -1,4 +1,5 @@
-import { getApiUrl, getApiToken } from "./config";
+import { getApiUrl, clearAuthToken } from "./config";
+import { buildAuthHeaders } from "./authHeaders";
 
 function buildHeaders(method?: string, extra?: HeadersInit): Headers {
   // Normalize extra to a Headers instance for consistent handling
@@ -12,10 +13,10 @@ function buildHeaders(method?: string, extra?: HeadersInit): Headers {
     }
   }
 
-  // Add authorization token if available
-  const token = getApiToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  for (const [key, value] of Object.entries(buildAuthHeaders())) {
+    if (!headers.has(key)) {
+      headers.set(key, value);
+    }
   }
 
   return headers;
@@ -35,6 +36,15 @@ export async function request<T = unknown>(
   });
 
   if (!response.ok) {
+    // Handle 401: clear token and redirect to login
+    if (response.status === 401) {
+      clearAuthToken();
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+      throw new Error("Not authenticated");
+    }
+
     const text = await response.text().catch(() => "");
     throw new Error(
       `Request failed: ${response.status} ${response.statusText}${

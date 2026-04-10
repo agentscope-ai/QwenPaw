@@ -2,10 +2,12 @@ import { useState, useEffect } from "react";
 import { message } from "@agentscope-ai/design";
 import api from "../../../api";
 import type { CronJobSpecOutput } from "../../../api/types";
+import { useAgentStore } from "../../../stores/agentStore";
 
 type CronJob = CronJobSpecOutput;
 
 export function useCronJobs() {
+  const { selectedAgent } = useAgentStore();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -38,7 +40,7 @@ export function useCronJobs() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [selectedAgent]);
 
   const createJob = async (values: CronJob) => {
     try {

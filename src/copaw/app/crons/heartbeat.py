@@ -9,15 +9,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import datetime, time
-from typing import Any, Dict
+from datetime import datetime, time, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from typing import Any, Dict, Optional
 
+from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ...config import (
     get_heartbeat_config,
     get_heartbeat_query_path,
     load_config,
 )
-from ...constant import HEARTBEAT_TARGET_LAST
+from ...constant import HEARTBEAT_FILE, HEARTBEAT_TARGET_LAST
+from ..crons.models import _crontab_dow_to_name
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +31,37 @@ _EVERY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# 5-field cron: minute hour day month day_of_week
+_CRON_FIELD_PATTERN = re.compile(
+    r"^[\d\*\-/,]+$",
+)
+
+
+def is_cron_expression(every: str) -> bool:
+    """Return True if *every* looks like a 5-field cron expression."""
+    parts = (every or "").strip().split()
+    if len(parts) != 5:
+        return False
+    return all(_CRON_FIELD_PATTERN.match(p) for p in parts)
+
+
+def parse_heartbeat_cron(every: str) -> tuple:
+    """Parse and normalize a 5-field cron string.
+
+    Returns (minute, hour, day, month, dow).
+    """
+    parts = every.strip().split()
+    if len(parts) == 5:
+        parts[4] = _crontab_dow_to_name(parts[4])
+    return tuple(parts)
+
 
 def parse_heartbeat_every(every: str) -> int:
-    """Parse interval string (e.g. '30m', '1h') to total seconds."""
+    """Parse interval string (e.g. '30m', '1h') to total seconds.
+
+    Note: cron expressions should be detected via ``is_cron_expression``
+    *before* calling this function.
+    """
     every = (every or "").strip()
     if not every:
         return 30 * 60  # default 30 min
@@ -47,7 +79,9 @@ def parse_heartbeat_every(every: str) -> int:
 
 
 def _in_active_hours(active_hours: Any) -> bool:
-    """Return True if current local time is within [start, end]."""
+    """Return True if the current time in user timezone is within
+    [start, end].
+    """
     if (
         not active_hours
         or not hasattr(active_hours, "start")
@@ -67,7 +101,16 @@ def _in_active_hours(active_hours: Any) -> bool:
         )
     except (ValueError, IndexError, AttributeError):
         return True
-    now = datetime.now().time()
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz)).time()
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning(
+            "Invalid timezone %r in config, falling back to UTC"
+            " for heartbeat active hours check.",
+            user_tz,
+        )
+        now = datetime.now(timezone.utc).time()
     if start_t <= end_t:
         return start_t <= now <= end_t
     return now >= start_t or now <= end_t
@@ -77,23 +120,37 @@ async def run_heartbeat_once(
     *,
     runner: Any,
     channel_manager: Any,
+    agent_id: Optional[str] = None,
+    workspace_dir: Optional[Path] = None,
 ) -> None:
     """
-    Run one heartbeat: read HEARTBEAT.md via config path, run agent,
+    Run one heartbeat: read HEARTBEAT.md from workspace, run agent,
     optionally dispatch to last channel (target=last).
+
+    Args:
+        runner: Agent runner instance
+        channel_manager: Channel manager instance
+        agent_id: Agent ID for loading config
+        workspace_dir: Workspace directory for reading HEARTBEAT.md
     """
-    config = load_config()
-    hb = get_heartbeat_config()
+    from ...config.config import load_agent_config
+
+    hb = get_heartbeat_config(agent_id)
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return
 
-    path = get_heartbeat_query_path()
+    # Use workspace_dir if provided, otherwise fall back to global path
+    if workspace_dir:
+        path = Path(workspace_dir) / HEARTBEAT_FILE
+    else:
+        path = get_heartbeat_query_path()
+
     if not path.is_file():
         logger.debug("heartbeat skipped: no file at %s", path)
         return
 
-    query_text = path.read_text(encoding="utf-8").strip()
+    query_text = read_text_file_with_encoding_fallback(path).strip()
     if not query_text:
         logger.debug("heartbeat skipped: empty query file")
         return
@@ -110,9 +167,22 @@ async def run_heartbeat_once(
         "user_id": "main",
     }
 
+    # Get last_dispatch from agent config if agent_id provided
+    last_dispatch = None
+    if agent_id:
+        try:
+            agent_config = load_agent_config(agent_id)
+            last_dispatch = agent_config.last_dispatch
+        except Exception:
+            pass
+    else:
+        # Legacy: try root config
+        config = load_config()
+        last_dispatch = config.last_dispatch
+
     target = (hb.target or "").strip().lower()
-    if target == HEARTBEAT_TARGET_LAST and config.last_dispatch:
-        ld = config.last_dispatch
+    if target == HEARTBEAT_TARGET_LAST and last_dispatch:
+        ld = last_dispatch
         if ld.channel and (ld.user_id or ld.session_id):
 
             async def _run_and_dispatch() -> None:

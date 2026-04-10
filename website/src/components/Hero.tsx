@@ -56,14 +56,19 @@ export function Hero({
       >
         <span />
         <div
+          className="hero-brand-main"
           style={{
             display: "flex",
             flexWrap: "nowrap",
             alignItems: "center",
-            gap: "var(--space-3)",
           }}
           aria-label={projectName}
         >
+          <img
+            src="/copaw_ip.svg"
+            alt={`${projectName} IP`}
+            className="hero-brand-ip"
+          />
           <span className="hero-brand-logo">
             <CopawMascot size={200} />
           </span>

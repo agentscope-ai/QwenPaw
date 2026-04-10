@@ -9,21 +9,22 @@ from typing import Dict, List
 import logging
 import json
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from agentscope.model import ChatModelBase
 
 from copaw.providers.provider import (
     ModelInfo,
-    DefaultProvider,
     Provider,
     ProviderInfo,
 )
+from copaw.providers.models import ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
 from copaw.providers.anthropic_provider import AnthropicProvider
+from copaw.providers.gemini_provider import GeminiProvider
 from copaw.providers.ollama_provider import OllamaProvider
 from copaw.constant import SECRET_DIR
-from copaw.local_models import create_local_chat_model
+
 
 logger = logging.getLogger(__name__)
 
@@ -36,61 +37,387 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="Qwen/Qwen3.5-122B-A10B",
         name="Qwen3.5-122B-A10B",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
     ),
-    ModelInfo(id="ZhipuAI/GLM-5", name="GLM-5"),
+    ModelInfo(
+        id="ZhipuAI/GLM-5",
+        name="GLM-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
-    ModelInfo(id="qwen3-max", name="Qwen3 Max"),
+    ModelInfo(
+        id="qwen3-max",
+        name="Qwen3 Max",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
     ModelInfo(
         id="qwen3-235b-a22b-thinking-2507",
         name="Qwen3 235B A22B Thinking",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
     ),
-    ModelInfo(id="deepseek-v3.2", name="DeepSeek-V3.2"),
+    ModelInfo(
+        id="deepseek-v3.2",
+        name="DeepSeek-V3.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(id="qwen3.5-plus", name="Qwen3.5 Plus"),
-    ModelInfo(id="glm-5", name="GLM-5"),
-    ModelInfo(id="glm-4.7", name="GLM-4.7"),
-    ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
-    ModelInfo(id="kimi-k2.5", name="Kimi K2.5"),
-    ModelInfo(id="qwen3-max-2026-01-23", name="Qwen3 Max 2026-01-23"),
-    ModelInfo(id="qwen3-coder-next", name="Qwen3 Coder Next"),
-    ModelInfo(id="qwen3-coder-plus", name="Qwen3 Coder Plus"),
+    ModelInfo(
+        id="qwen3.5-plus",
+        name="Qwen3.5 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5",
+        name="GLM-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-4.7",
+        name="GLM-4.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5",
+        name="MiniMax M2.5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi K2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3-max-2026-01-23",
+        name="Qwen3 Max 2026-01-23",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3-coder-next",
+        name="Qwen3 Coder Next",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3-coder-plus",
+        name="Qwen3 Coder Plus",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(id="gpt-5.2", name="GPT-5.2"),
-    ModelInfo(id="gpt-5", name="GPT-5"),
-    ModelInfo(id="gpt-5-mini", name="GPT-5 Mini"),
-    ModelInfo(id="gpt-5-nano", name="GPT-5 Nano"),
-    ModelInfo(id="gpt-4.1", name="GPT-4.1"),
-    ModelInfo(id="gpt-4.1-mini", name="GPT-4.1 Mini"),
-    ModelInfo(id="gpt-4.1-nano", name="GPT-4.1 Nano"),
-    ModelInfo(id="o3", name="o3"),
-    ModelInfo(id="o4-mini", name="o4-mini"),
-    ModelInfo(id="gpt-4o", name="GPT-4o"),
-    ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
+    ModelInfo(
+        id="gpt-5.2",
+        name="GPT-5.2",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5",
+        name="GPT-5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5-mini",
+        name="GPT-5 Mini",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5-nano",
+        name="GPT-5 Nano",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1",
+        name="GPT-4.1",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1-mini",
+        name="GPT-4.1 Mini",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1-nano",
+        name="GPT-4.1 Nano",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="o3",
+        name="o3",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="o4-mini",
+        name="o4-mini",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4o",
+        name="GPT-4o",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4o-mini",
+        name="GPT-4o Mini",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
 ]
 
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(id="gpt-5-chat", name="GPT-5 Chat"),
-    ModelInfo(id="gpt-5-mini", name="GPT-5 Mini"),
-    ModelInfo(id="gpt-5-nano", name="GPT-5 Nano"),
-    ModelInfo(id="gpt-4.1", name="GPT-4.1"),
-    ModelInfo(id="gpt-4.1-mini", name="GPT-4.1 Mini"),
-    ModelInfo(id="gpt-4.1-nano", name="GPT-4.1 Nano"),
-    ModelInfo(id="gpt-4o", name="GPT-4o"),
-    ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini"),
+    ModelInfo(
+        id="gpt-5-chat",
+        name="GPT-5 Chat",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5-mini",
+        name="GPT-5 Mini",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-5-nano",
+        name="GPT-5 Nano",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1",
+        name="GPT-4.1",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1-mini",
+        name="GPT-4.1 Mini",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4.1-nano",
+        name="GPT-4.1 Nano",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4o",
+        name="GPT-4o",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gpt-4o-mini",
+        name="GPT-4o Mini",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
 ]
 
 MINIMAX_MODELS: List[ModelInfo] = [
-    ModelInfo(id="MiniMax-M2.5", name="MiniMax M2.5"),
-    ModelInfo(id="MiniMax-M2.5-highspeed", name="MiniMax M2.5 Highspeed"),
+    ModelInfo(
+        id="MiniMax-M2.5",
+        name="MiniMax M2.5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.5-highspeed",
+        name="MiniMax M2.5 Highspeed",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.7",
+        name="MiniMax M2.7",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="MiniMax-M2.7-highspeed",
+        name="MiniMax M2.7 Highspeed",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+KIMI_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="kimi-k2.5",
+        name="Kimi K2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2-0905-preview",
+        name="Kimi K2 0905 Preview",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2-0711-preview",
+        name="Kimi K2 0711 Preview",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2-turbo-preview",
+        name="Kimi K2 Turbo Preview",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2-thinking",
+        name="Kimi K2 Thinking",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="kimi-k2-thinking-turbo",
+        name="Kimi K2 Thinking Turbo",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+DEEPSEEK_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="deepseek-chat",
+        name="DeepSeek Chat",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-reasoner",
+        name="DeepSeek Reasoner",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 ANTHROPIC_MODELS: List[ModelInfo] = []
+
+GEMINI_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="gemini-3.1-pro-preview",
+        name="Gemini 3.1 Pro Preview",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-3-flash-preview",
+        name="Gemini 3 Flash Preview",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-3.1-flash-lite-preview",
+        name="Gemini 3.1 Flash Lite Preview",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-2.5-pro",
+        name="Gemini 2.5 Pro",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-2.5-flash",
+        name="Gemini 2.5 Flash",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-2.5-flash-lite",
+        name="Gemini 2.5 Flash Lite",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="gemini-2.0-flash",
+        name="Gemini 2.0 Flash",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+]
 
 PROVIDER_MODELSCOPE = OpenAIProvider(
     id="modelscope",
@@ -116,19 +443,14 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     base_url="https://coding.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
     freeze_url=True,
 )
 
-PROVIDER_LLAMACPP = DefaultProvider(
-    id="llamacpp",
-    name="llama.cpp (Local)",
-    is_local=True,
-    require_api_key=False,
-)
-
-PROVIDER_MLX = DefaultProvider(
-    id="mlx",
-    name="MLX (Local, Apple Silicon)",
+PROVIDER_COPAW = OpenAIProvider(
+    id="copaw-local",
+    name="CoPaw Local",
     is_local=True,
     require_api_key=False,
 )
@@ -149,14 +471,51 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
     models=AZURE_OPENAI_MODELS,
 )
 
-PROVIDER_MINIMAX = OpenAIProvider(
+PROVIDER_MINIMAX = AnthropicProvider(
     id="minimax",
-    name="MiniMax",
-    base_url="https://api.minimax.io/v1",
-    api_key_prefix="eyJ",
+    name="MiniMax (International)",
+    base_url="https://api.minimax.io/anthropic",
     models=MINIMAX_MODELS,
+    chat_model="AnthropicChatModel",
     freeze_url=True,
-    generate_kwargs={"temperature": 1.0},
+)
+
+PROVIDER_MINIMAX_CN = AnthropicProvider(
+    id="minimax-cn",
+    name="MiniMax (China)",
+    base_url="https://api.minimaxi.com/anthropic",
+    models=MINIMAX_MODELS,
+    chat_model="AnthropicChatModel",
+    freeze_url=True,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
+)
+
+PROVIDER_KIMI_CN = OpenAIProvider(
+    id="kimi-cn",
+    name="Kimi (China)",
+    base_url="https://api.moonshot.cn/v1",
+    api_key_prefix="",
+    models=KIMI_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_KIMI_INTL = OpenAIProvider(
+    id="kimi-intl",
+    name="Kimi (International)",
+    base_url="https://api.moonshot.ai/v1",
+    api_key_prefix="",
+    models=KIMI_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_DEEPSEEK = OpenAIProvider(
+    id="deepseek",
+    name="DeepSeek",
+    base_url="https://api.deepseek.com",
+    api_key_prefix="sk-",
+    models=DEEPSEEK_MODELS,
+    freeze_url=True,
 )
 
 PROVIDER_ANTHROPIC = AnthropicProvider(
@@ -167,6 +526,17 @@ PROVIDER_ANTHROPIC = AnthropicProvider(
     models=ANTHROPIC_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
+)
+
+PROVIDER_GEMINI = GeminiProvider(
+    id="gemini",
+    name="Google Gemini",
+    base_url="https://generativelanguage.googleapis.com",
+    api_key_prefix="",
+    models=GEMINI_MODELS,
+    chat_model="GeminiChatModel",
+    freeze_url=True,
+    support_model_discovery=True,
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -186,17 +556,6 @@ PROVIDER_LMSTUDIO = OpenAIProvider(
     support_model_discovery=True,
     generate_kwargs={"max_tokens": None},
 )
-
-
-class ModelSlotConfig(BaseModel):
-    provider_id: str = Field(
-        ...,
-        description="ID of the provider to use for this model slot",
-    )
-    model: str = Field(
-        ...,
-        description="ID of the model to use for this model slot",
-    )
 
 
 class ActiveModelsInfo(BaseModel):
@@ -225,7 +584,7 @@ class ProviderManager:
         except Exception as e:
             logger.warning("Failed to migrate legacy providers: %s", e)
         self._init_from_storage()
-        self.update_local_models()
+        self._apply_default_annotations()
 
     def _prepare_disk_storage(self):
         """Prepare directory structure"""
@@ -237,17 +596,21 @@ class ProviderManager:
                 pass
 
     def _init_builtins(self):
+        self._add_builtin(PROVIDER_COPAW)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
-        self._add_builtin(PROVIDER_MINIMAX)
+        self._add_builtin(PROVIDER_KIMI_CN)
+        self._add_builtin(PROVIDER_KIMI_INTL)
+        self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_ANTHROPIC)
+        self._add_builtin(PROVIDER_GEMINI)
+        self._add_builtin(PROVIDER_MINIMAX_CN)
+        self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
-        self._add_builtin(PROVIDER_LLAMACPP)
-        self._add_builtin(PROVIDER_MLX)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
@@ -293,6 +656,29 @@ class ProviderManager:
             is_builtin=provider_id in self.builtin_providers,
         )
         return True
+
+    def start_local_model_resume(self, local_manager) -> None:
+        """Schedule background restore of the active local model server."""
+        task = asyncio.create_task(
+            self._resume_local_model(local_manager),
+            name="copaw-local-model-resume",
+        )
+        task.add_done_callback(self._on_local_model_resume_done)
+
+    @staticmethod
+    def _on_local_model_resume_done(task: asyncio.Task[None]) -> None:
+        """Log unexpected failures from background local model restore."""
+        if task.cancelled():
+            return
+
+        exc = task.exception()
+        if exc is not None:
+            logger.warning(
+                "Background local model restore failed: %s",
+                exc,
+                exc_info=exc,
+            )
+        logger.info("Background local model restore completed")
 
     async def fetch_provider_models(
         self,
@@ -344,6 +730,9 @@ class ProviderManager:
         provider = self._provider_from_data(
             provider_payload,
         )  # Validate provider data
+        # For custom providers, we assume they don't support connection check
+        # without model config, to avoid false negatives in the UI.
+        provider.support_connection_check = False
         self.custom_providers[provider.id] = provider
         self._save_provider(provider, is_builtin=False)
         return await provider.get_info()
@@ -376,6 +765,37 @@ class ProviderManager:
         )
         self.save_active_model(self.active_model)
 
+        self.maybe_probe_multimodal(provider_id, model_id)
+
+    def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:
+        """Schedule multimodal probing for a model if capability is unknown."""
+        provider = self.get_provider(provider_id)
+        # Auto-probe multimodal if not yet probed
+        for model in provider.models + provider.extra_models:
+            if model.id == model_id and model.supports_multimodal is None:
+                asyncio.create_task(
+                    self._auto_probe_multimodal(provider_id, model_id),
+                )
+                break
+
+    async def _auto_probe_multimodal(
+        self,
+        provider_id: str,
+        model_id: str,
+    ) -> None:
+        """Background probe that doesn't block model activation."""
+        try:
+            result = await self.probe_model_multimodal(provider_id, model_id)
+            logger.info(
+                "Auto-probe for %s/%s: image=%s, video=%s",
+                provider_id,
+                model_id,
+                result.get("supports_image"),
+                result.get("supports_video"),
+            )
+        except Exception as e:
+            logger.warning("Auto-probe multimodal failed: %s", e)
+
     async def add_model_to_provider(
         self,
         provider_id: str,
@@ -405,6 +825,65 @@ class ProviderManager:
             is_builtin=provider_id in self.builtin_providers,
         )
         return await provider.get_info()
+
+    async def probe_model_multimodal(
+        self,
+        provider_id: str,
+        model_id: str,
+    ) -> dict:
+        """Probe a model's multimodal capabilities and persist the result."""
+        provider = self.get_provider(provider_id)
+        if not provider:
+            return {"error": f"Provider '{provider_id}' not found"}
+
+        result = await provider.probe_model_multimodal(model_id)
+
+        # Update the model's capability flags
+        for model in provider.models + provider.extra_models:
+            if model.id == model_id:
+                model.supports_image = result.supports_image
+                model.supports_video = result.supports_video
+                model.supports_multimodal = result.supports_multimodal
+                model.probe_source = "probed"
+                break
+
+        # Compare probe result against expected baseline
+        from .capability_baseline import (
+            ExpectedCapabilityRegistry,
+            compare_probe_result,
+        )
+
+        registry = ExpectedCapabilityRegistry()
+        expected = registry.get_expected(provider_id, model_id)
+        if expected:
+            discrepancies = compare_probe_result(
+                expected,
+                result.supports_image,
+                result.supports_video,
+            )
+            for d in discrepancies:
+                logger.warning(
+                    "Probe discrepancy: %s/%s %s expected=%s actual=%s (%s)",
+                    d.provider_id,
+                    d.model_id,
+                    d.field,
+                    d.expected,
+                    d.actual,
+                    d.discrepancy_type,
+                )
+
+        # Persist to disk
+        self._save_provider(
+            provider,
+            is_builtin=provider_id in self.builtin_providers,
+        )
+        return {
+            "supports_image": result.supports_image,
+            "supports_video": result.supports_video,
+            "supports_multimodal": result.supports_multimodal,
+            "image_message": result.image_message,
+            "video_message": result.video_message,
+        }
 
     def _save_provider(
         self,
@@ -454,10 +933,10 @@ class ProviderManager:
 
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
+        if provider_id == "gemini" or chat_model == "GeminiChatModel":
+            return GeminiProvider.model_validate(data)
         if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
-        if data.get("is_local", False):
-            return DefaultProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
 
     def save_active_model(self, active_model: ModelSlotConfig):
@@ -559,7 +1038,9 @@ class ProviderManager:
         for builtin in self.builtin_providers.values():
             provider = self.load_provider(builtin.id, is_builtin=True)
             if provider:
-                builtin.base_url = provider.base_url
+                # inherit user-configured base_url only when freeze_url=False
+                if not builtin.freeze_url:
+                    builtin.base_url = provider.base_url
                 builtin.api_key = provider.api_key
                 builtin.extra_models = provider.extra_models
                 builtin.generate_kwargs.update(provider.generate_kwargs)
@@ -573,26 +1054,82 @@ class ProviderManager:
         if active_model:
             self.active_model = active_model
 
-    def update_local_models(self):
-        """Update the model list of a local provider."""
+    def _apply_default_annotations(self):
+        """Apply doc-based default annotations for unprobed models.
+
+        Models that already carry static annotations (supports_image /
+        supports_video set at definition time) only need the derived
+        supports_multimodal flag computed.  Models with no annotations
+        at all fall back to the ExpectedCapabilityRegistry.
+        """
+        from .capability_baseline import ExpectedCapabilityRegistry
+
+        registry = ExpectedCapabilityRegistry()
+        for provider in self.builtin_providers.values():
+            for model in provider.models:
+                # Already fully annotated (e.g. by a prior probe) → skip
+                if model.supports_multimodal is not None:
+                    continue
+
+                # Static annotations present → compute derived flag only
+                if (
+                    model.supports_image is not None
+                    or model.supports_video is not None
+                ):
+                    model.supports_multimodal = bool(
+                        model.supports_image or model.supports_video,
+                    )
+                    continue
+
+                # No annotations at all → fall back to registry
+                expected = registry.get_expected(provider.id, model.id)
+                if expected:
+                    model.supports_image = expected.expected_image
+                    model.supports_video = expected.expected_video
+                    model.supports_multimodal = bool(
+                        expected.expected_image or expected.expected_video,
+                    )
+                    model.probe_source = "documentation"
+
+    async def _resume_local_model(self, local_manager) -> None:
+        """Resume the active local model server from the previous run."""
+        local_models = self.get_provider("copaw-local").extra_models
+        model_id = local_models[0].id if local_models else None
+        if model_id is None:
+            return
+
+        if not local_manager.check_llamacpp_installation():
+            logger.info(
+                "Skipping local model restore because llama.cpp is not "
+                "installed.",
+            )
+            return
+
+        if not local_manager.is_model_downloaded(model_id):
+            logger.warning(
+                "Skipping local model restore because model is not "
+                "downloaded: %s",
+                model_id,
+            )
+            return
+
         try:
-            from ..local_models.manager import list_local_models
-            from ..local_models.schema import BackendType
+            port = await local_manager.setup_server(model_id)
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            logger.warning(
+                "Failed to restore local model server for %s: %s",
+                model_id,
+                exc,
+            )
+            return
 
-            llamacpp_models: list[ModelInfo] = []
-            mlx_models: list[ModelInfo] = []
-
-            for model in list_local_models():
-                info = ModelInfo(id=model.id, name=model.display_name)
-                if model.backend == BackendType.LLAMACPP:
-                    llamacpp_models.append(info)
-                elif model.backend == BackendType.MLX:
-                    mlx_models.append(info)
-            PROVIDER_LLAMACPP.models = llamacpp_models
-            PROVIDER_MLX.models = mlx_models
-        except ImportError:
-            # local_models dependencies not installed; leave model lists empty
-            pass
+        self.update_provider(
+            "copaw-local",
+            {
+                "base_url": f"http://127.0.0.1:{port}/v1",
+                "extra_models": [ModelInfo(id=model_id, name=model_id)],
+            },
+        )
 
     @staticmethod
     def get_instance() -> "ProviderManager":
@@ -612,11 +1149,5 @@ class ProviderManager:
         if provider is None:
             raise ValueError(
                 f"Active provider '{model.provider_id}' not found.",
-            )
-        if provider.is_local:
-            return create_local_chat_model(
-                model_id=model.model,
-                stream=True,
-                generate_kwargs={"max_tokens": None},
             )
         return provider.get_chat_model_instance(model.model)

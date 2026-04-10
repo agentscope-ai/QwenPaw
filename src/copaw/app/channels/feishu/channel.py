@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-statements,too-many-branches
+# pylint: disable=too-many-statements,too-many-branches,protected-access
 # pylint: disable=too-many-return-statements,unused-argument
 """Feishu (Lark) Channel.
 
@@ -16,19 +16,19 @@ import base64
 import asyncio
 import json
 import logging
-import mimetypes
 import re
 import sys
 import threading
 import time
+from email.utils import parsedate_to_datetime
 import types
 from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-import aiohttp
+import httpx
 from agentscope_runtime.engine.schemas.agent_schemas import (
-    # AudioContent,
+    AudioContent,
     FileContent,
     ImageContent,
     RunStatus,
@@ -37,6 +37,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import FeishuConfig as FeishuChannelConfig
 from ....config.utils import get_config_path
+from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
     BaseChannel,
     ContentType,
@@ -49,11 +50,14 @@ from .constants import (
     FEISHU_FILE_MAX_BYTES,
     FEISHU_NICKNAME_CACHE_MAX,
     FEISHU_PROCESSED_IDS_MAX,
-    FEISHU_TOKEN_REFRESH_BEFORE_SECONDS,
-    FEISHU_USER_NAME_FETCH_TIMEOUT,
+    FEISHU_STALE_MSG_THRESHOLD_MS,
+    FEISHU_WS_BACKOFF_FACTOR,
+    FEISHU_WS_INITIAL_RETRY_DELAY,
+    FEISHU_WS_MAX_RETRY_DELAY,
 )
 from .utils import (
-    build_interactive_content,
+    build_interactive_content_chunks,
+    detect_file_ext,
     extract_json_key,
     extract_post_image_keys,
     extract_post_media_file_keys,
@@ -99,7 +103,10 @@ else:
 
 try:
     import lark_oapi as lark
+    from lark_oapi.api.contact.v3 import GetUserRequest
     from lark_oapi.api.im.v1 import (
+        CreateFileRequest,
+        CreateFileRequestBody,
         CreateImageRequest,
         CreateImageRequestBody,
         CreateMessageRequest,
@@ -107,10 +114,14 @@ try:
         CreateMessageReactionRequest,
         CreateMessageReactionRequestBody,
         Emoji,
+        GetMessageResourceRequest,
         P2ImMessageReceiveV1,
     )
 except ImportError:  # pragma: no cover - optional dependency may be missing
     lark = None  # type: ignore[assignment]
+    GetUserRequest = None  # type: ignore[assignment]
+    CreateFileRequest = None  # type: ignore[assignment]
+    CreateFileRequestBody = None  # type: ignore[assignment]
     CreateImageRequest = None  # type: ignore[assignment]
     CreateImageRequestBody = None  # type: ignore[assignment]
     CreateMessageRequest = None  # type: ignore[assignment]
@@ -118,6 +129,7 @@ except ImportError:  # pragma: no cover - optional dependency may be missing
     CreateMessageReactionRequest = None  # type: ignore[assignment]
     CreateMessageReactionRequestBody = None  # type: ignore[assignment]
     Emoji = None  # type: ignore[assignment]
+    GetMessageResourceRequest = None  # type: ignore[assignment]
     P2ImMessageReceiveV1 = None  # type: ignore[assignment]
 finally:
     if (
@@ -140,6 +152,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Serialise multi-instance WebSocket start-up: lark_oapi.ws.client.loop is a
+# module-level variable that concurrent start() calls would overwrite.
+_WS_START_LOCK: threading.Lock = threading.Lock()
+
 
 class FeishuChannel(BaseChannel):
     """Feishu/Lark channel: WebSocket receive, Open API send.
@@ -161,7 +177,8 @@ class FeishuChannel(BaseChannel):
         bot_prefix: str,
         encrypt_key: str = "",
         verification_token: str = "",
-        media_dir: str = "~/.copaw/media",
+        media_dir: str = "",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -171,6 +188,7 @@ class FeishuChannel(BaseChannel):
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        domain: str = "feishu",
     ):
         super().__init__(
             process,
@@ -190,18 +208,30 @@ class FeishuChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
-        self._media_dir = Path(media_dir).expanduser()
+        self.domain = domain if domain in ("feishu", "lark") else "feishu"
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
+        self._media_dir.mkdir(parents=True, exist_ok=True)
 
         self._client: Any = None
         self._ws_client: Any = None
         self._ws_thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ws_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._closed = False
         self._stop_event = threading.Event()
+        self._http_client: Any = None
+        # Clock offset (ms) = server_time - local_time
+        self._clock_offset: int = 0
 
-        self._tenant_access_token: Optional[str] = None
-        self._tenant_access_token_expire_at: float = 0.0
-        self._token_lock = asyncio.Lock()
-        self._http: Optional[aiohttp.ClientSession] = None
         self._bot_open_id: Optional[str] = None
 
         # message_id dedup (ordered, trim when over limit)
@@ -232,16 +262,17 @@ class FeishuChannel(BaseChannel):
             enabled=os.getenv("FEISHU_CHANNEL_ENABLED", "0") == "1",
             app_id=os.getenv("FEISHU_APP_ID", ""),
             app_secret=os.getenv("FEISHU_APP_SECRET", ""),
-            bot_prefix=os.getenv("FEISHU_BOT_PREFIX", "[BOT] "),
+            bot_prefix=os.getenv("FEISHU_BOT_PREFIX", ""),
             encrypt_key=os.getenv("FEISHU_ENCRYPT_KEY", ""),
             verification_token=os.getenv("FEISHU_VERIFICATION_TOKEN", ""),
-            media_dir=os.getenv("FEISHU_MEDIA_DIR", "~/.copaw/media"),
+            media_dir=os.getenv("FEISHU_MEDIA_DIR", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("FEISHU_DM_POLICY", "open"),
             group_policy=os.getenv("FEISHU_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("FEISHU_DENY_MESSAGE", ""),
             require_mention=os.getenv("FEISHU_REQUIRE_MENTION", "0") == "1",
+            domain=os.getenv("FEISHU_DOMAIN", "feishu"),
         )
 
     @classmethod
@@ -253,16 +284,18 @@ class FeishuChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "FeishuChannel":
         return cls(
             process=process,
             enabled=config.enabled,
             app_id=config.app_id or "",
             app_secret=config.app_secret or "",
-            bot_prefix=config.bot_prefix or "[BOT] ",
+            bot_prefix=config.bot_prefix or "",
             encrypt_key=config.encrypt_key or "",
             verification_token=config.verification_token or "",
-            media_dir=config.media_dir or "~/.copaw/media",
+            media_dir=config.media_dir or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -272,6 +305,7 @@ class FeishuChannel(BaseChannel):
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
             require_mention=config.require_mention,
+            domain=config.domain or "feishu",
         )
 
     def resolve_session_id(
@@ -284,7 +318,11 @@ class FeishuChannel(BaseChannel):
         chat_id = (meta.get("feishu_chat_id") or "").strip()
         chat_type = (meta.get("feishu_chat_type") or "p2p").strip()
         if chat_type == "group" and chat_id:
-            return short_session_id_from_full_id(chat_id)
+            # Include app_id suffix to distinguish multiple bots in same group
+            app_suffix = (
+                self.app_id[-4:] if len(self.app_id) >= 4 else self.app_id
+            )
+            return f"{app_suffix}_{short_session_id_from_full_id(chat_id)}"
         if sender_id:
             return short_session_id_from_full_id(sender_id)
         if chat_id:
@@ -379,79 +417,67 @@ class FeishuChannel(BaseChannel):
             return {"receive_id_type": "open_id", "receive_id": s}
         return {"receive_id_type": "open_id", "receive_id": s}
 
-    async def _get_tenant_access_token(self) -> str:
-        """Fetch and cache tenant_access_token."""
-        now = time.time()
-        if (
-            self._tenant_access_token
-            and now
-            < self._tenant_access_token_expire_at
-            - FEISHU_TOKEN_REFRESH_BEFORE_SECONDS
-        ):
-            return self._tenant_access_token
-
-        async with self._token_lock:
-            now = time.time()
-            if (
-                self._tenant_access_token
-                and now
-                < self._tenant_access_token_expire_at
-                - FEISHU_TOKEN_REFRESH_BEFORE_SECONDS
-            ):
-                return self._tenant_access_token
-
-            url = (
-                "https://open.feishu.cn/open-apis/auth/v3/"
-                "tenant_access_token/internal"
-            )
-            payload = {
-                "app_id": self.app_id,
-                "app_secret": self.app_secret,
-            }
-            async with self._http.post(url, json=payload) as resp:
-                data = await resp.json(content_type=None)
-                if resp.status >= 400:
-                    raise RuntimeError(
-                        f"Feishu token failed status={resp.status} "
-                        f"body={data}",
-                    )
-            if data.get("code") != 0:
-                raise RuntimeError(
-                    f"Feishu token error code={data.get('code')} msg"
-                    f"={data.get('msg')}",
-                )
-            token = data.get("tenant_access_token")
-            if not token:
-                raise RuntimeError("Feishu token missing in response")
-            expire = int(data.get("expire", 3600))
-            self._tenant_access_token = token
-            self._tenant_access_token_expire_at = now + expire
-            return token
-
     async def _fetch_bot_open_id(self) -> Optional[str]:
-        """GET /open-apis/bot/v3/info to get this bot's open_id."""
-        token = await self._get_tenant_access_token()
-        url = "https://open.feishu.cn/open-apis/bot/v3/info"
-        headers = {"Authorization": f"Bearer {token}"}
-        async with self._http.get(url, headers=headers) as resp:
-            data = await resp.json(content_type=None)
-        data = data or {}
-        if data.get("code", -1) != 0:
-            logger.warning(
-                "feishu bot/v3/info error: code=%s msg=%s",
-                data.get("code"),
-                data.get("msg"),
-            )
+        """Get this bot's open_id via raw HTTP request.
+
+        No SDK API available for bot info.
+        """
+        if not self._http_client:
+            logger.warning("feishu: http client not initialized")
             return None
-        return (data.get("bot") or {}).get("open_id")
+        try:
+            # Get access token via SDK TokenManager
+            from lark_oapi.core.token import TokenManager
+
+            token = TokenManager.get_self_tenant_token(self._client._config)
+            if not token:
+                logger.warning("feishu: failed to get access token")
+                return None
+            base_url = (
+                "https://open.larksuite.com"
+                if self.domain == "lark"
+                else "https://open.feishu.cn"
+            )
+            url = f"{base_url}/open-apis/bot/v3/info"
+            response = await self._http_client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=10.0,
+            )
+            # Compute clock offset from server Date header
+            date_str = response.headers.get("Date")
+            if date_str:
+                try:
+                    server_ms = int(
+                        parsedate_to_datetime(date_str).timestamp() * 1000,
+                    )
+                    self._clock_offset = server_ms - int(time.time() * 1000)
+                    logger.debug(
+                        "feishu clock offset: %dms",
+                        self._clock_offset,
+                    )
+                except (ValueError, TypeError) as e:
+                    logger.debug("feishu failed to parse Date header: %s", e)
+            data = response.json()
+            if data.get("code", -1) != 0:
+                logger.warning(
+                    "feishu bot/v3/info error: code=%s msg=%s",
+                    data.get("code"),
+                    data.get("msg"),
+                )
+                return None
+            return (data.get("bot") or {}).get("open_id")
+        except Exception as e:
+            logger.warning("feishu bot info failed: %s", e)
+            return None
 
     async def _get_user_name_by_open_id(self, open_id: str) -> Optional[str]:
         """Fetch user name (nickname) from Feishu Contact API by open_id.
 
-        Uses Contact v3 GET /open-apis/contact/v3/users/{user_id} with
-        user_id_type=open_id (see Feishu user identity doc:
-        https://open.feishu.cn/document/platform-overveiw/basic-concepts/
-        user-identity-introduction/open-id).
+        Uses SDK contact.v3.user.get with user_id_type=open_id.
         Result is cached. Returns None on failure or missing permission.
         """
         if not open_id or open_id.startswith("unknown_"):
@@ -459,89 +485,38 @@ class FeishuChannel(BaseChannel):
         async with self._nickname_cache_lock:
             if open_id in self._nickname_cache:
                 return self._nickname_cache[open_id]
-        url = (
-            "https://open.feishu.cn/open-apis/contact/v3/users/"
-            f"{open_id}?user_id_type=open_id"
-        )
         try:
-            token = await self._get_tenant_access_token()
-            timeout = aiohttp.ClientTimeout(
-                total=FEISHU_USER_NAME_FETCH_TIMEOUT,
+            req = (
+                GetUserRequest.builder()
+                .user_id(open_id)
+                .user_id_type("open_id")
+                .build()
             )
-            async with self._http.get(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=timeout,
-            ) as resp:
-                body = await resp.text()
-                if resp.status >= 400:
-                    logger.info(
-                        "feishu get user name failed: open_id=%s status=%s",
-                        open_id[:20],
-                        resp.status,
-                    )
-                    return None
-                try:
-                    data = json.loads(body) if body else {}
-                except json.JSONDecodeError:
-                    data = {}
-            if data.get("code") != 0:
+            resp = self._client.contact.v3.user.get(req)
+            if not resp.success():
                 logger.info(
                     "feishu get user name api error: open_id=%s code=%s "
                     "msg=%s",
                     open_id[:20],
-                    data.get("code"),
-                    data.get("msg", ""),
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
                 )
                 return None
-            # Response per Feishu doc: GET contact/v3/users/{user_id}
-            # https://open.feishu.cn/document/server-docs/contact-v3/user/get
-            # Body: { "code": 0, "data": { "user": { "name": ... } } }
-            # "name" can be string or i18n object { "zh_cn": "中文", "en": "en" }
-            user = data.get("data") or {}
-            inner = user.get("user") or {}
+            # Extract name from SDK response
+            user = getattr(resp.data, "user", None) if resp.data else None
             name = None
-            for obj in (inner, user):
-                if not isinstance(obj, dict):
-                    continue
-                raw_name = (
-                    obj.get("name")
-                    or obj.get("real_name")
-                    or obj.get(
-                        "nickname",
-                    )
-                    or obj.get("name_cn")
-                    or obj.get("name_en")
-                    or obj.get(
-                        "en_name",
-                    )
-                )
-                if isinstance(raw_name, str) and raw_name.strip():
-                    name = raw_name.strip()
-                    break
-                if isinstance(raw_name, dict):
-                    name = (
-                        raw_name.get("zh_cn")
-                        or raw_name.get("zh_CN")
-                        or raw_name.get("zh-Cn")
-                        or raw_name.get("zh-CN")
-                        or raw_name.get("en")
-                        or (list(raw_name.values()) or [None])[0]
-                    )
-                    if name and isinstance(name, str):
-                        name = name.strip()
-                        break
-                    first_val = (list(raw_name.values()) or [None])[0]
-                    if isinstance(first_val, str) and first_val.strip():
-                        name = first_val.strip()
+            if user:
+                # Try different name fields
+                for attr in ("name", "en_name", "nickname"):
+                    raw_name = getattr(user, attr, None)
+                    if isinstance(raw_name, str) and raw_name.strip():
+                        name = raw_name.strip()
                         break
             if not name:
                 logger.info(
-                    f"feishu get user name: no name in response (open_id"
-                    f"={(open_id or '')[:20]}). inner_keys"
-                    f"={list(inner.keys()) if inner else []} - app likely "
-                    f"missing contact name permission. Add scope e.g. "
-                    f"contact:user.base:readonly in Feishu console.",
+                    "feishu get user name: no name in response (open_id"
+                    "=%s). app likely missing contact name permission.",
+                    (open_id or "")[:20],
                 )
 
             if name:
@@ -573,6 +548,38 @@ class FeishuChannel(BaseChannel):
 
     def _on_message_sync(self, data: "P2ImMessageReceiveV1") -> None:
         """Sync handler (called from WebSocket thread)."""
+        if self._closed:
+            return
+        # Guard against cross-instance dispatch: lark_oapi ws.Client uses a
+        # module-level event loop variable that can be overwritten by another
+        # FeishuChannel instance in the same process.  Verify the event's
+        # app_id matches this instance before dispatching to avoid handling
+        # messages intended for a different workspace.
+        header = getattr(data, "header", None)
+        event_app_id = getattr(header, "app_id", None)
+        if event_app_id and event_app_id != self.app_id:
+            logger.debug(
+                "feishu: drop misrouted event app_id=%s (expected %s)",
+                event_app_id,
+                self.app_id,
+            )
+            return
+
+        # Drop stale messages from Feishu retry mechanism.
+        # Feishu retries failed deliveries at 5s, 5min, 1h, 6h intervals.
+        # Messages older than 20 seconds are likely stale retries.
+        # Use clock_offset to correct local clock skew against server time.
+        create_time = getattr(header, "create_time", None)
+        if create_time:
+            now_ms = int(time.time() * 1000) + self._clock_offset
+            age_ms = now_ms - int(create_time)
+            if age_ms > FEISHU_STALE_MSG_THRESHOLD_MS:
+                logger.debug(
+                    "feishu: drop stale message age=%.1fs (retry)",
+                    age_ms / 1000,
+                )
+                return
+
         if not self._loop:
             logger.warning("feishu: main loop not set, drop message")
             return
@@ -725,10 +732,16 @@ class FeishuChannel(BaseChannel):
                     "file_key",
                     "fileKey",
                 )
+                file_name = extract_json_key(
+                    content_raw,
+                    "file_name",
+                    "fileName",
+                )
                 if file_key:
                     url_or_path = await self._download_file_resource(
                         message_id,
                         file_key,
+                        filename_hint=file_name or "file.bin",
                     )
                     if url_or_path:
                         content_parts.append(
@@ -741,6 +754,35 @@ class FeishuChannel(BaseChannel):
                         text_parts.append("[file: download failed]")
                 else:
                     text_parts.append("[file: missing key]")
+            elif msg_type == "media":
+                # Video message type
+                file_key = extract_json_key(
+                    content_raw,
+                    "file_key",
+                    "fileKey",
+                )
+                file_name = extract_json_key(
+                    content_raw,
+                    "file_name",
+                    "fileName",
+                )
+                if file_key:
+                    url_or_path = await self._download_file_resource(
+                        message_id,
+                        file_key,
+                        filename_hint=file_name or "video.mp4",
+                    )
+                    if url_or_path:
+                        content_parts.append(
+                            FileContent(
+                                type=ContentType.FILE,
+                                file_url=url_or_path,
+                            ),
+                        )
+                    else:
+                        text_parts.append("[video: download failed]")
+                else:
+                    text_parts.append("[video: missing key]")
             elif msg_type == "audio":
                 file_key = extract_json_key(
                     content_raw,
@@ -754,11 +796,10 @@ class FeishuChannel(BaseChannel):
                         filename_hint="audio.opus",
                     )
                     if url_or_path:
-                        # TODO: change to audio block when as support opus
                         content_parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=url_or_path,
+                            AudioContent(
+                                type=ContentType.AUDIO,
+                                data=url_or_path,
                             ),
                         )
                     else:
@@ -845,26 +886,9 @@ class FeishuChannel(BaseChannel):
         if not self._client:
             return
         try:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                self._add_reaction_sync,
-                message_id,
-                emoji_type,
-            )
-        except Exception:
-            logger.debug(
-                "feishu add_reaction failed message_id=%s",
-                message_id[:16],
-            )
-
-    def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
-        try:
             req = (
                 CreateMessageReactionRequest.builder()
-                .message_id(
-                    message_id,
-                )
+                .message_id(message_id)
                 .request_body(
                     CreateMessageReactionRequestBody.builder()
                     .reaction_type(
@@ -874,7 +898,7 @@ class FeishuChannel(BaseChannel):
                 )
                 .build()
             )
-            resp = self._client.im.v1.message_reaction.create(req)
+            resp = await self._client.im.v1.message_reaction.acreate(req)
             if not resp.success():
                 logger.debug(
                     "feishu reaction failed code=%s msg=%s",
@@ -889,39 +913,36 @@ class FeishuChannel(BaseChannel):
         message_id: str,
         image_key: str,
     ) -> Optional[str]:
-        """Download image to media_dir; return local path or None."""
-        token = await self._get_tenant_access_token()
-        url = (
-            f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}"
-            f"/resources/{image_key}"
-        )
-        headers = {"Authorization": f"Bearer {token}"}
+        """Download image to media_dir using SDK; return local path or None."""
         try:
-            async with self._http.get(
-                url,
-                params={"type": "image"},
-                headers=headers,
-            ) as resp:
-                if resp.status >= 400:
-                    logger.warning(
-                        "feishu image download failed status=%s",
-                        resp.status,
-                    )
-                    return None
-                data = await resp.read()
-                content_type = (
-                    resp.headers.get("Content-Type", "").split(";")[0].strip()
-                )
-            ext = (mimetypes.guess_extension(content_type) or ".jpg").lstrip(
-                ".",
+            req = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(image_key)
+                .type("image")
+                .build()
             )
+            resp = await self._client.im.v1.message_resource.aget(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu image download failed code=%s msg=%s",
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
+                )
+                return None
+            # resp.file is a file-like object
+            data = resp.file.read() if resp.file else b""
+            if not data:
+                logger.warning("feishu image download: empty response")
+                return None
+            ext = detect_file_ext(data, default="jpg")
             safe_key = (
                 "".join(c for c in image_key if c.isalnum() or c in "-_.")
                 or "img"
             )
             self._media_dir.mkdir(parents=True, exist_ok=True)
             path = self._media_dir / f"{message_id}_{safe_key}.{ext}"
-            path.write_bytes(data)
+            await asyncio.to_thread(path.write_bytes, data)
             return str(path)
         except Exception:
             logger.exception("feishu _download_image_resource failed")
@@ -933,63 +954,36 @@ class FeishuChannel(BaseChannel):
         file_key: str,
         filename_hint: str = "file.bin",
     ) -> Optional[str]:
-        """Download file to media_dir; return local path or None.
-        Uses message resources API (user-sent files); /im/v1/files only
-        allows app-sent files.
-        """
-        token = await self._get_tenant_access_token()
-        url = (
-            f"https://open.feishu.cn/open-apis/im/v1/messages/"
-            f"{message_id}/resources/{file_key}?type=file"
-        )
-        headers = {"Authorization": f"Bearer {token}"}
+        """Download file to media_dir using SDK; return local path or None."""
         try:
-            async with self._http.get(url, headers=headers) as resp:
-                if resp.status >= 400:
-                    logger.warning(
-                        "feishu file download failed status=%s",
-                        resp.status,
-                    )
-                    return None
-                data = await resp.read()
-                disposition = resp.headers.get(
-                    "Content-Disposition",
-                    "",
-                )
-                content_type = (
-                    resp.headers.get("Content-Type", "").split(";")[0].strip()
-                )
-            filename = filename_hint
-            if "filename=" in disposition:
-                part = (
-                    disposition.split("filename=", 1)[-1].strip().strip("'\"")
-                )
-                if part:
-                    part = Path(part).name
-                    if part.strip():
-                        filename = part
-            # Prevent path traversal: keep only the base name.
-            filename = Path(filename).name
-            if not filename.strip():
-                filename = filename_hint
-            # If hint has an extension but chosen filename has none or
-            # .bin/.file, force the hint extension so e.g. audio.opus is kept.
-            hint_ext = Path(filename_hint).suffix
-            if hint_ext and Path(filename).suffix in ("", ".bin", ".file"):
-                filename = (Path(filename).stem or "file") + hint_ext
-            safe_key = (
-                "".join(c for c in file_key if c.isalnum() or c in "-_.")
-                or "file"
+            req = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(file_key)
+                .type("file")
+                .build()
             )
+            resp = await self._client.im.v1.message_resource.aget(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu file download failed code=%s msg=%s",
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
+                )
+                return None
+            data = resp.file.read() if resp.file else b""
+            if not data:
+                logger.warning("feishu file download: empty response")
+                return None
+
+            # Use original filename if provided, otherwise detect from content
+            filename = Path(filename_hint).name
+            if not filename.strip() or filename in ("file.bin", "video.mp4"):
+                ext = detect_file_ext(data, default="bin")
+                filename = f"file.{ext}"
             self._media_dir.mkdir(parents=True, exist_ok=True)
-            path = self._media_dir / f"{message_id}_{safe_key}_{filename}"
-            path.write_bytes(data)
-            if path.suffix in (".bin", ".file") and content_type:
-                ext = mimetypes.guess_extension(content_type)
-                if ext:
-                    new_path = path.with_suffix(ext)
-                    path.rename(new_path)
-                    path = new_path
+            path = self._media_dir / f"{message_id}_{filename}"
+            await asyncio.to_thread(path.write_bytes, data)
             return str(path)
         except Exception:
             logger.exception("feishu _download_file_resource failed")
@@ -998,7 +992,12 @@ class FeishuChannel(BaseChannel):
     def _receive_id_store_path(self) -> Path:
         """
         Path to persist receive_id mapping (for cron to resolve after restart).
+
+        Uses agent workspace directory if available, otherwise falls back
+        to global config directory for backward compatibility.
         """
+        if self._workspace_dir:
+            return self._workspace_dir / "feishu_receive_ids.json"
         return get_config_path().parent / "feishu_receive_ids.json"
 
     def _load_receive_id_store_from_disk(self) -> None:
@@ -1110,12 +1109,16 @@ class FeishuChannel(BaseChannel):
             },
         }
 
-    def _upload_image_sync(self, data: bytes, filename: str) -> Optional[str]:
+    async def _upload_image(
+        self,
+        data: bytes,
+        filename: str,
+    ) -> Optional[str]:
         """Upload image via lark client; return image_key."""
         if not self._client:
             return None
         logger.info(
-            "feishu _upload_image_sync: size=%s filename=%s",
+            "feishu _upload_image: size=%s filename=%s",
             len(data),
             filename,
         )
@@ -1132,7 +1135,7 @@ class FeishuChannel(BaseChannel):
                 )
                 .build()
             )
-            resp = self._client.im.v1.image.create(req)
+            resp = await self._client.im.v1.image.acreate(req)
             if not resp.success():
                 logger.warning(
                     "feishu image upload failed code=%s msg=%s",
@@ -1142,17 +1145,16 @@ class FeishuChannel(BaseChannel):
                 return None
             key = getattr(resp.data, "image_key", None) if resp.data else None
             logger.info(
-                "feishu _upload_image_sync ok: image_key=%s",
+                "feishu _upload_image ok: image_key=%s",
                 key[:24] if key else "None",
             )
             return key
         except Exception:
-            logger.exception("feishu _upload_image_sync failed")
+            logger.exception("feishu _upload_image failed")
             return None
 
     async def _upload_file(self, path_or_url: str) -> Optional[str]:
-        """Upload file to Feishu; return file_key. path_or_url can be path."""
-        token = await self._get_tenant_access_token()
+        """Upload file to Feishu using SDK; return file_key."""
         path = Path(path_or_url)
         if not path.exists():
             if path_or_url.startswith(("http://", "https://")):
@@ -1161,10 +1163,10 @@ class FeishuChannel(BaseChannel):
                     return None
                 path = self._media_dir / "upload_temp"
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(data)
+                await asyncio.to_thread(path.write_bytes, data)
             else:
                 return None
-        size = path.stat().st_size
+        size = await asyncio.to_thread(lambda: path.stat().st_size)
         if size > FEISHU_FILE_MAX_BYTES:
             logger.warning("feishu file too large size=%s", size)
             return None
@@ -1178,70 +1180,68 @@ class FeishuChannel(BaseChannel):
             "xlsx",
             "ppt",
             "pptx",
-            "mp4",
         ):
             file_type = "doc" if ext == "docx" else ext
             file_type = "xls" if ext == "xlsx" else file_type
             file_type = "ppt" if ext == "pptx" else file_type
-        mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-        url = "https://open.feishu.cn/open-apis/im/v1/files"
-        form = aiohttp.FormData()
-        form.add_field("file_type", file_type)
-        form.add_field("file_name", path.name)
-        form.add_field(
-            "file",
-            path.read_bytes(),
-            filename=path.name,
-            content_type=mime,
-        )
+        file_obj = None
         try:
-            async with self._http.post(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-                data=form,
-            ) as resp:
-                data = await resp.json(content_type=None)
-                if resp.status >= 400:
-                    logger.warning(
-                        "feishu file upload failed status=%s body=%s",
-                        resp.status,
-                        data,
-                    )
-                    return None
-                if data.get("code") != 0:
-                    logger.info(
-                        "feishu _upload_file api code=%s msg=%s",
-                        data.get("code"),
-                        data.get("msg"),
-                    )
-                    return None
-                fk = (data.get("data") or {}).get("file_key")
-                logger.info(
-                    "feishu _upload_file ok: file_key=%s",
-                    fk[:24] if fk else "None",
+            file_obj = await asyncio.to_thread(path.open, "rb")
+            req = (
+                CreateFileRequest.builder()
+                .request_body(
+                    CreateFileRequestBody.builder()
+                    .file_type(file_type)
+                    .file_name(path.name)
+                    .file(file_obj)
+                    .build(),
                 )
-                return fk
+                .build()
+            )
+            resp = await self._client.im.v1.file.acreate(req)
+            if not resp.success():
+                logger.warning(
+                    "feishu file upload failed code=%s msg=%s",
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
+                )
+                return None
+            fk = getattr(resp.data, "file_key", None) if resp.data else None
+            logger.info(
+                "feishu _upload_file ok: file_key=%s",
+                fk[:24] if fk else "None",
+            )
+            return fk
         except Exception:
             logger.exception("feishu _upload_file failed")
             return None
+        finally:
+            if file_obj is not None:
+                try:
+                    await asyncio.to_thread(file_obj.close)
+                except Exception:
+                    logger.debug("feishu _upload_file: file close failed")
 
     async def _fetch_bytes_from_url(self, url: str) -> Optional[bytes]:
         """Download binary from URL. Supports http(s):// and file://."""
+        if not self._http_client:
+            logger.warning("feishu: http client not initialized")
+            return None
         try:
             path = file_url_to_local_path(url)
             if path is not None:
                 return await asyncio.to_thread(Path(path).read_bytes)
             if url.strip().lower().startswith("file:"):
                 return None
-            async with self._http.get(url) as resp:
-                if resp.status >= 400:
-                    return None
-                return await resp.read()
+            response = await self._http_client.get(url)
+            if response.status_code >= 400:
+                return None
+            return response.content
         except Exception:
             logger.exception("feishu _fetch_bytes_from_url failed")
             return None
 
-    def _send_message_sync(
+    async def _send_message(
         self,
         receive_id_type: str,
         receive_id: str,
@@ -1255,7 +1255,7 @@ class FeishuChannel(BaseChannel):
         if not self._client:
             return None
         logger.info(
-            "feishu _send_message_sync: msg_type=%s receive_id_type=%s "
+            "feishu _send_message: msg_type=%s receive_id_type=%s "
             "content_len=%s",
             msg_type,
             receive_id_type,
@@ -1264,9 +1264,7 @@ class FeishuChannel(BaseChannel):
         try:
             req = (
                 CreateMessageRequest.builder()
-                .receive_id_type(
-                    receive_id_type,
-                )
+                .receive_id_type(receive_id_type)
                 .request_body(
                     CreateMessageRequestBody.builder()
                     .receive_id(receive_id)
@@ -1276,7 +1274,7 @@ class FeishuChannel(BaseChannel):
                 )
                 .build()
             )
-            resp = self._client.im.v1.message.create(req)
+            resp = await self._client.im.v1.message.acreate(req)
             if not resp.success():
                 logger.warning(
                     "feishu send failed code=%s msg=%s",
@@ -1288,13 +1286,13 @@ class FeishuChannel(BaseChannel):
                 getattr(resp.data, "message_id", None) if resp.data else None
             )
             logger.info(
-                "feishu _send_message_sync ok: msg_type=%s msg_id=%s",
+                "feishu _send_message ok: msg_type=%s msg_id=%s",
                 msg_type,
                 (msg_id or "")[:24],
             )
             return msg_id
         except Exception:
-            logger.exception("feishu _send_message_sync failed")
+            logger.exception("feishu _send_message failed")
             return None
 
     async def _send_text(
@@ -1307,30 +1305,30 @@ class FeishuChannel(BaseChannel):
 
         Returns the message_id on success, None on failure.
         Body already has bot_prefix if needed.
+        When the body contains more than _MAX_TABLES_PER_CARD tables, it
+        is split into multiple cards sent sequentially.
         """
         has_table = bool(re.search(r"^\s*\|", body, re.MULTILINE))
-        loop = asyncio.get_running_loop()
         if has_table:
-            content = build_interactive_content(body)
-            return await loop.run_in_executor(
-                None,
-                lambda: self._send_message_sync(
+            chunks = build_interactive_content_chunks(body)
+            last_msg_id: Optional[str] = None
+            for chunk in chunks:
+                msg_id = await self._send_message(
                     receive_id_type,
                     receive_id,
                     "interactive",
-                    content,
-                ),
-            )
+                    chunk,
+                )
+                if msg_id is not None:
+                    last_msg_id = msg_id
+            return last_msg_id
         post = self._build_post_content(body, [])
         content = json.dumps(post, ensure_ascii=False)
-        return await loop.run_in_executor(
-            None,
-            lambda: self._send_message_sync(
-                receive_id_type,
-                receive_id,
-                "post",
-                content,
-            ),
+        return await self._send_message(
+            receive_id_type,
+            receive_id,
+            "post",
+            content,
         )
 
     async def _part_to_image_bytes(
@@ -1400,11 +1398,7 @@ class FeishuChannel(BaseChannel):
                 "feishu _send_image: no image data, skip (url/base64/path)",
             )
             return None
-        loop = asyncio.get_running_loop()
-        image_key = await loop.run_in_executor(
-            None,
-            lambda: self._upload_image_sync(data, filename),
-        )
+        image_key = await self._upload_image(data, filename)
         if not image_key:
             logger.info(
                 "feishu _send_image: upload failed, no image_key",
@@ -1415,14 +1409,11 @@ class FeishuChannel(BaseChannel):
             image_key[:24] if image_key else "",
         )
         content = json.dumps({"image_key": image_key}, ensure_ascii=False)
-        return await loop.run_in_executor(
-            None,
-            lambda: self._send_message_sync(
-                receive_id_type,
-                receive_id,
-                "image",
-                content,
-            ),
+        return await self._send_message(
+            receive_id_type,
+            receive_id,
+            "image",
+            content,
         )
 
     async def _part_to_file_path_or_url(
@@ -1514,15 +1505,11 @@ class FeishuChannel(BaseChannel):
             file_key[:24] if file_key else "",
         )
         content = json.dumps({"file_key": file_key}, ensure_ascii=False)
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None,
-            lambda: self._send_message_sync(
-                receive_id_type,
-                receive_id,
-                "file",
-                content,
-            ),
+        return await self._send_message(
+            receive_id_type,
+            receive_id,
+            "file",
+            content,
         )
 
     async def _get_receive_for_send(
@@ -1663,7 +1650,7 @@ class FeishuChannel(BaseChannel):
             [getattr(m, "type", None) for m in media_parts],
         )
         if prefix and body:
-            body = prefix + body
+            body = prefix + "  " + body
         last_message_id: Optional[str] = None
         if body:
             last_message_id = await self._send_text(
@@ -1810,29 +1797,211 @@ class FeishuChannel(BaseChannel):
             )
 
     def _run_ws_forever(self) -> None:
-        # lark-oapi ws.Client uses a module-level event loop; when start() runs
-        # in this thread it must use this thread's loop, not the main thread's.
-        ws_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(ws_loop)
-        try:
-            import lark_oapi.ws.client as ws_client
+        """Run WebSocket with automatic reconnection.
 
-            ws_client.loop = ws_loop
-        except ImportError:
-            pass
-        try:
-            if self._ws_client:
-                logger.info("feishu WebSocket connecting (long connection)...")
-                self._ws_client.start()
-        except Exception:
-            logger.exception("feishu WebSocket thread failed")
-        finally:
-            self._stop_event.set()
+        Implements exponential backoff reconnection:
+        - Initial delay: 1 second
+        - Max delay: 60 seconds
+        - Backoff factor: 2x
+
+        Reconnection stops when:
+        - _stop_event is set (explicit stop)
+        - _closed is True (channel closed)
+        """
+        # Reconnection settings
+        retry_delay = FEISHU_WS_INITIAL_RETRY_DELAY
+
+        while not self._stop_event.is_set() and not self._closed:
+            self._ws_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._ws_loop)
+            old_ws_client_loop = None
+            _ws_mod: types.ModuleType = types.ModuleType("_ws_mod_placeholder")
+            _orig_select = None
+            # Hold the lock until _connect() finishes so concurrent instances
+            # don't overwrite each other's ws_client.loop.
+            _WS_START_LOCK.acquire()  # pylint: disable=consider-using-with
+            lock_released = False
+            connection_started = False
+            try:
+                try:
+                    import lark_oapi.ws.client as _lark_ws_mod
+
+                    _ws_mod = _lark_ws_mod
+                    old_ws_client_loop = getattr(_ws_mod, "loop", None)
+                    _ws_mod.loop = self._ws_loop
+                    # Patch _select to release lock after _connect().
+                    _orig_select = _ws_mod._select
+                except ImportError:
+                    pass
+
+                async def _patched_select() -> None:
+                    nonlocal lock_released, connection_started
+                    if not lock_released:
+                        _WS_START_LOCK.release()
+                        lock_released = True
+                        connection_started = True
+                    if _orig_select is not None:
+                        await _orig_select()
+
+                async def _monitor_connection_health() -> None:
+                    """Force reconnect if SDK's internal reconnect gives up."""
+                    while not self._stop_event.is_set() and not self._closed:
+                        await asyncio.sleep(30)
+                        if self._stop_event.is_set() or self._closed:
+                            break
+                        if not connection_started:
+                            continue
+                        ws = self._ws_client
+                        if (
+                            ws is not None
+                            and getattr(ws, "_conn", True) is None
+                        ):
+                            logger.warning(
+                                "feishu WebSocket conn lost, "
+                                "forcing reconnect...",
+                            )
+                            if self._ws_loop and not self._ws_loop.is_closed():
+                                self._ws_loop.stop()
+                            break
+
+                _ws_mod._select = _patched_select
+                try:
+                    if self._ws_client and not self._stop_event.is_set():
+                        self._ws_loop.create_task(
+                            _monitor_connection_health(),
+                        )
+                        logger.info(
+                            "feishu WebSocket connecting (long connection)...",
+                        )
+                        self._ws_client.start()
+                        # If start() returns normally, connection was closed
+                        # by server; reset retry delay and reconnect
+                        if not self._stop_event.is_set() and not self._closed:
+                            logger.info(
+                                "feishu WebSocket disconnected, "
+                                "reconnecting immediately...",
+                            )
+                except RuntimeError as e:
+                    # Normal shutdown: loop.stop() causes run_until_complete
+                    # to raise "Event loop stopped before Future completed."
+                    if "Event loop stopped" in str(e):
+                        logger.debug(
+                            "feishu WebSocket stopped normally: %s",
+                            e,
+                        )
+                        # Check if this was an intentional stop
+                        if self._stop_event.is_set() or self._closed:
+                            break
+                        # Otherwise, treat as disconnection and reconnect
+                        logger.info(
+                            "feishu WebSocket event loop stopped, "
+                            "will attempt to reconnect",
+                        )
+                    else:
+                        logger.exception(
+                            "feishu WebSocket thread failed, "
+                            "will attempt to reconnect",
+                        )
+                except Exception:
+                    if self._stop_event.is_set() or self._closed:
+                        logger.debug(
+                            "feishu WebSocket stopped during reconnect",
+                        )
+                    else:
+                        logger.exception(
+                            "feishu WebSocket thread failed, "
+                            "will attempt to reconnect",
+                        )
+            finally:
+                # Ensure lock is released (covers KeyboardInterrupt).
+                if not lock_released:
+                    try:
+                        _WS_START_LOCK.release()
+                    except RuntimeError:
+                        pass
+                try:
+                    _ws_mod._select = _orig_select
+                except Exception:
+                    pass
+                if self._ws_loop and not self._ws_loop.is_closed():
+                    try:
+                        if self._ws_client and hasattr(
+                            self._ws_client,
+                            "_disconnect",
+                        ):
+                            try:
+                                self._ws_loop.run_until_complete(
+                                    self._ws_client._disconnect(),
+                                )
+                                logger.debug(
+                                    "feishu WebSocket disconnected gracefully",
+                                )
+                            except Exception:
+                                logger.debug(
+                                    "feishu ws disconnect failed",
+                                    exc_info=True,
+                                )
+                        pending = [
+                            t
+                            for t in asyncio.all_tasks(self._ws_loop)
+                            if not t.done()
+                        ]
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            self._ws_loop.run_until_complete(
+                                asyncio.gather(
+                                    *pending,
+                                    return_exceptions=True,
+                                ),
+                            )
+                            logger.debug(
+                                f"feishu cancelled {len(pending)} tasks",
+                            )
+                    except Exception:
+                        logger.debug("feishu ws cleanup failed", exc_info=True)
+                try:
+                    if (
+                        _ws_mod
+                        and getattr(_ws_mod, "loop", None) is self._ws_loop
+                    ):
+                        _ws_mod.loop = old_ws_client_loop
+                except Exception:
+                    pass
+                try:
+                    if self._ws_loop and not self._ws_loop.is_closed():
+                        self._ws_loop.close()
+                except Exception:
+                    logger.debug("feishu ws loop close failed", exc_info=True)
+                self._ws_loop = None
+
+            # Wait before reconnecting (if not stopped)
+            if not self._stop_event.is_set() and not self._closed:
+                if connection_started:
+                    # Connection was established, reset retry delay
+                    retry_delay = FEISHU_WS_INITIAL_RETRY_DELAY
+                else:
+                    # Connection failed to establish, use exponential backoff
+                    logger.info(
+                        "feishu WebSocket reconnecting in %.1fs...",
+                        retry_delay,
+                    )
+                    # Use wait with timeout to allow early exit on stop
+                    self._stop_event.wait(timeout=retry_delay)
+                    # Increase delay for next attempt
+                    retry_delay = min(
+                        retry_delay * FEISHU_WS_BACKOFF_FACTOR,
+                        FEISHU_WS_MAX_RETRY_DELAY,
+                    )
+
+        # Final cleanup signal
+        self._stop_event.set()
 
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("feishu channel disabled")
             return
+        self._closed = False
         self._load_receive_id_store_from_disk()
         if lark is None:
             raise RuntimeError(
@@ -1845,12 +2014,18 @@ class FeishuChannel(BaseChannel):
                 "feishu channel is enabled.",
             )
         self._loop = asyncio.get_running_loop()
+        self._http_client = httpx.AsyncClient(
+            timeout=30.0,
+            headers={"User-Agent": "CoPaw/1.0"},
+        )
+        sdk_domain = (
+            lark.LARK_DOMAIN if self.domain == "lark" else lark.FEISHU_DOMAIN
+        )
         self._client = (
             lark.Client.builder()
             .app_id(self.app_id)
-            .app_secret(
-                self.app_secret,
-            )
+            .app_secret(self.app_secret)
+            .domain(sdk_domain)
             .log_level(lark.LogLevel.INFO)
             .build()
         )
@@ -1867,6 +2042,11 @@ class FeishuChannel(BaseChannel):
             self.app_secret,
             event_handler=event_handler,
             log_level=lark.LogLevel.INFO,
+            domain=(
+                "https://open.larksuite.com"
+                if self.domain == "lark"
+                else "https://open.feishu.cn"
+            ),
         )
         self._stop_event.clear()
         self._ws_thread = threading.Thread(
@@ -1874,8 +2054,6 @@ class FeishuChannel(BaseChannel):
             daemon=True,
         )
         self._ws_thread.start()
-        if self._http is None:
-            self._http = aiohttp.ClientSession()
         try:
             self._bot_open_id = await self._fetch_bot_open_id()
             logger.info(
@@ -1891,17 +2069,32 @@ class FeishuChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
+
+        self._closed = True
         self._stop_event.set()
-        if self._ws_client:
+
+        # Stop the WebSocket event loop - cleanup happens in _run_ws_forever
+        # finally block (disconnect, cancel tasks, close loop)
+        if self._ws_loop and not self._ws_loop.is_closed():
             try:
-                self._ws_client.stop()
+                self._ws_loop.call_soon_threadsafe(self._ws_loop.stop)
             except Exception:
-                pass
+                logger.debug("feishu ws_loop.stop failed", exc_info=True)
+
         if self._ws_thread:
             self._ws_thread.join(timeout=5)
-        if self._http is not None:
-            await self._http.close()
-            self._http = None
+            if self._ws_thread.is_alive():
+                logger.warning("feishu ws thread did not stop within timeout")
+
+        if self._http_client:
+            try:
+                await self._http_client.aclose()
+            except Exception:
+                logger.debug("feishu http_client close failed", exc_info=True)
+
         self._client = None
         self._ws_client = None
+        self._ws_thread = None
+        self._ws_loop = None
+        self._http_client = None
         logger.info("feishu channel stopped")

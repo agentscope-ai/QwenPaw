@@ -35,7 +35,7 @@ RequestExecutionLevel user
 
 Section "CoPaw Desktop" SEC01
   SetOutPath "$INSTDIR"
-  File /r /x "*.pyc" /x "__pycache__" "${UNPACKED}\*.*"
+  File /r "${UNPACKED}\*.*"
   WriteRegStr HKCU "Software\CoPaw" "InstallPath" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 

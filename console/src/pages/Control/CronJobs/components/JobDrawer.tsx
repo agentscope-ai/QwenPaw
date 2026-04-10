@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
 import { TIMEZONE_OPTIONS, DEFAULT_FORM_VALUES } from "./constants";
+import styles from "../index.module.less";
 
 type CronJob = CronJobSpecOutput;
 
@@ -20,6 +21,7 @@ interface JobDrawerProps {
   open: boolean;
   editingJob: CronJob | null;
   form: FormInstance<CronJob>;
+  saving: boolean;
   onClose: () => void;
   onSubmit: (values: CronJob) => void;
 }
@@ -28,6 +30,7 @@ export function JobDrawer({
   open,
   editingJob,
   form,
+  saving,
   onClose,
   onSubmit,
 }: JobDrawerProps) {
@@ -41,6 +44,14 @@ export function JobDrawer({
       open={open}
       onClose={onClose}
       destroyOnClose
+      footer={
+        <div className={styles.formActions}>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button type="primary" loading={saving} onClick={() => form.submit()}>
+            {t("common.save")}
+          </Button>
+        </div>
+      }
     >
       <Form
         form={form}
@@ -176,7 +187,7 @@ export function JobDrawer({
                     { required: true, message: t("cronJobs.pleaseInputCron") },
                   ]}
                   extra={
-                    <div style={{ fontSize: 12, color: "#8c8c8c" }}>
+                    <div className={styles.formExtraText}>
                       <div style={{ marginBottom: 4 }}>
                         {t("cronJobs.cronExample")}
                       </div>
@@ -186,7 +197,7 @@ export function JobDrawer({
                           href="https://crontab.guru/"
                           target="_blank"
                           rel="noopener noreferrer"
-                          style={{ color: "#1890ff" }}
+                          className={styles.formHelperLink}
                         >
                           {t("cronJobs.cronHelperLink")} →
                         </a>
@@ -238,47 +249,81 @@ export function JobDrawer({
         </Form.Item>
 
         <Form.Item
-          name="text"
-          label={t("cronJobs.text")}
-          tooltip={t("cronJobs.textTooltip")}
+          noStyle
+          shouldUpdate={(prev, cur) => prev.task_type !== cur.task_type}
         >
-          <Input.TextArea
-            rows={3}
-            placeholder={t("cronJobs.taskDescriptionPlaceholder")}
-          />
-        </Form.Item>
+          {({ getFieldValue }) => {
+            const taskType = getFieldValue("task_type");
+            const textRequired = taskType === "text";
+            const agentRequired = taskType === "agent";
 
-        <Form.Item
-          name={["request", "input"]}
-          label={t("cronJobs.requestInput")}
-          rules={[
-            { required: true, message: t("cronJobs.pleaseInputRequest") },
-            {
-              validator: (_, value) => {
-                if (!value) return Promise.resolve();
-                try {
-                  JSON.parse(value);
-                  return Promise.resolve();
-                } catch {
-                  return Promise.reject(
-                    new Error(t("cronJobs.invalidJsonFormat")),
-                  );
-                }
-              },
-            },
-          ]}
-          tooltip={t("cronJobs.requestInputTooltip")}
-          extra={
-            <span style={{ fontSize: 12, color: "#8c8c8c" }}>
-              {t("cronJobs.requestInputExample")}
-            </span>
-          }
-        >
-          <Input.TextArea
-            rows={6}
-            placeholder='[{"role":"user","content":[{"text":"Hello","type":"text"}]}]'
-            style={{ fontFamily: "monospace", fontSize: 12 }}
-          />
+            return (
+              <>
+                <Form.Item
+                  name="text"
+                  label={t("cronJobs.text")}
+                  required={textRequired}
+                  rules={
+                    textRequired
+                      ? [
+                          {
+                            required: true,
+                            message: t("cronJobs.pleaseInputMessageContent"),
+                          },
+                        ]
+                      : []
+                  }
+                  tooltip={t("cronJobs.textTooltip")}
+                >
+                  <Input.TextArea
+                    rows={3}
+                    placeholder={t("cronJobs.taskDescriptionPlaceholder")}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name={["request", "input"]}
+                  label={t("cronJobs.requestInput")}
+                  required={agentRequired}
+                  rules={[
+                    ...(agentRequired
+                      ? [
+                          {
+                            required: true,
+                            message: t("cronJobs.pleaseInputRequest"),
+                          },
+                        ]
+                      : []),
+                    {
+                      validator: (_, value) => {
+                        if (!value) return Promise.resolve();
+                        try {
+                          JSON.parse(value);
+                          return Promise.resolve();
+                        } catch {
+                          return Promise.reject(
+                            new Error(t("cronJobs.invalidJsonFormat")),
+                          );
+                        }
+                      },
+                    },
+                  ]}
+                  tooltip={t("cronJobs.requestInputTooltip")}
+                  extra={
+                    <span className={styles.formExtraText}>
+                      {t("cronJobs.requestInputExample")}
+                    </span>
+                  }
+                >
+                  <Input.TextArea
+                    rows={6}
+                    placeholder='[{"role":"user","content":[{"text":"Hello","type":"text"}]}]'
+                    style={{ fontFamily: "monospace", fontSize: 12 }}
+                  />
+                </Form.Item>
+              </>
+            );
+          }}
         </Form.Item>
 
         <Form.Item
@@ -365,24 +410,6 @@ export function JobDrawer({
           tooltip={t("cronJobs.misfireGraceSecondsTooltip")}
         >
           <InputNumber min={0} style={{ width: "100%" }} placeholder="60" />
-        </Form.Item>
-
-        <Form.Item>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 8,
-              marginTop: 24,
-              paddingTop: 16,
-              borderTop: "1px solid #f0f0f0",
-            }}
-          >
-            <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button type="primary" htmlType="submit">
-              {t("common.save")}
-            </Button>
-          </div>
         </Form.Item>
       </Form>
     </Drawer>

@@ -3,317 +3,328 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from typing import Dict, List, Optional
+from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 
-from ..download_task_store import (
-    DownloadTask,
-    DownloadTaskStatus,
-    cancel_task,
-    clear_completed,
-    create_task,
-    get_task,
-    get_tasks,
-    update_status,
-)
-from ...providers import ProviderManager
-
-logger = logging.getLogger(__name__)
+from ...local_models import DownloadSource, LocalModelInfo, LocalModelManager
+from ...providers.provider_manager import ProviderManager
 
 router = APIRouter(prefix="/local-models", tags=["local-models"])
 
-_background_tasks: Dict[str, asyncio.Task] = {}
-_background_tasks_lock = asyncio.Lock()
+
+def get_local_model_manager(request: Request) -> LocalModelManager:
+    """Helper to get the LocalModelManager instance from app state."""
+    return request.app.state.local_model_manager
 
 
-class DownloadRequest(BaseModel):
-    repo_id: str = Field(..., description="Hugging Face or ModelScope repo ID")
-    filename: Optional[str] = Field(
-        None,
-        description="Specific file to download",
+def get_provider_manager(request: Request) -> ProviderManager:
+    """Helper to get the ProviderManager instance from app state."""
+    return request.app.state.provider_manager
+
+
+class ServerStatus(BaseModel):
+    available: bool = Field(
+        ...,
+        description="Whether llama.cpp is running and responding",
     )
-    backend: str = Field("llamacpp", description="Backend: llamacpp or mlx")
-    source: str = Field(
-        "huggingface",
-        description="Source: huggingface or modelscope",
+    installed: bool = Field(..., description="Whether llama.cpp is installed")
+    port: Optional[int] = Field(
+        default=None,
+        description="Active llama.cpp server port",
+    )
+    model_name: Optional[str] = Field(
+        default=None,
+        description="Model alias currently served by llama.cpp",
+    )
+    message: Optional[str] = Field(
+        default=None,
+        description="Additional info if the server is not available",
     )
 
 
-class LocalModelResponse(BaseModel):
-    id: str
-    repo_id: str
-    filename: str
-    backend: str
-    source: str
-    file_size: int
-    local_path: str
-    display_name: str
-
-
-class DownloadTaskResponse(BaseModel):
-    task_id: str
+class DownloadProgressResponse(BaseModel):
     status: str
-    repo_id: str
-    filename: Optional[str] = None
-    backend: str
-    source: str
+    model_name: Optional[str] = None
+    downloaded_bytes: int
+    total_bytes: Optional[int] = None
+    speed_bytes_per_sec: float
+    source: Optional[str] = None
     error: Optional[str] = None
-    result: Optional[LocalModelResponse] = None
+    local_path: Optional[str] = None
 
 
-def _task_to_response(task: DownloadTask) -> DownloadTaskResponse:
-    result = None
-    if task.result:
-        result = LocalModelResponse(**task.result)
-    return DownloadTaskResponse(
-        task_id=task.task_id,
-        status=task.status.value,
-        repo_id=task.repo_id,
-        filename=task.filename,
-        backend=task.backend,
-        source=task.source,
-        error=task.error,
-        result=result,
+class StartServerRequest(BaseModel):
+    model_id: str = Field(
+        ...,
+        description="The model id of the downloaded local model to serve",
     )
 
 
-async def _register_background_task(task_id: str, task: asyncio.Task) -> None:
-    async with _background_tasks_lock:
-        _background_tasks[task_id] = task
+class StartServerResponse(BaseModel):
+    port: int = Field(..., description="Port bound by the llama.cpp server")
+    model_name: str = Field(
+        ...,
+        description="Alias exposed by the llama.cpp server",
+    )
 
 
-async def _pop_background_task(task_id: str) -> Optional[asyncio.Task]:
-    async with _background_tasks_lock:
-        return _background_tasks.pop(task_id, None)
+class StartModelDownloadRequest(BaseModel):
+    model_name: str = Field(
+        ...,
+        description="Recommended local model name to download",
+    )
+    source: DownloadSource = Field(
+        default=DownloadSource.AUTO,
+        description="Optional source to download the model from",
+    )
+
+
+class ActionResponse(BaseModel):
+    status: str = Field(..., description="Operation result status")
+    message: str = Field(..., description="Human-readable operation result")
+
+
+# =========================================================================
+# llama.cpp server related endpoints
+# ========================================================================
+
+
+SERVER_STATUS_CHECK_TIMEOUT = 3.0
 
 
 @router.get(
-    "",
-    response_model=List[LocalModelResponse],
-    summary="List downloaded local models",
+    "/server",
+    response_model=ServerStatus,
+    summary="Check if local server is available",
 )
-async def list_local(
-    backend: Optional[str] = None,
-) -> List[LocalModelResponse]:
-    try:
-        from ...local_models import list_local_models, BackendType
-    except ImportError:
-        return []
+async def server_available(
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> ServerStatus:
+    """Check if the local model server is properly installed and ready."""
+    installed = manager.check_llamacpp_installation()
+    ready = False
+    message = ""
 
-    backend_type = BackendType(backend) if backend else None
-    return [
-        LocalModelResponse(
-            id=m.id,
-            repo_id=m.repo_id,
-            filename=m.filename,
-            backend=m.backend.value,
-            source=m.source.value,
-            file_size=m.file_size,
-            local_path=m.local_path,
-            display_name=m.display_name,
+    if not installed:
+        return ServerStatus(
+            available=False,
+            installed=False,
+            port=None,
+            model_name=None,
+            message="llama.cpp is not installed",
         )
-        for m in list_local_models(backend=backend_type)
-    ]
+
+    server_state = manager.get_llamacpp_server_status()
+
+    if server_state["running"] and manager.is_llamacpp_server_transitioning():
+        message = "llama.cpp server is starting"
+    elif server_state["running"]:
+        try:
+            ready = await manager.check_llamacpp_server_ready(
+                timeout=SERVER_STATUS_CHECK_TIMEOUT,
+            )
+        except RuntimeError as exc:
+            message = str(exc)
+        except ValueError:
+            message = "llama.cpp server status is temporarily unavailable"
+    else:
+        message = "llama.cpp server is not running"
+
+    if server_state["running"] and not ready and not message:
+        message = "llama.cpp server is not responding"
+
+    return ServerStatus(
+        available=installed and ready,
+        installed=installed,
+        port=server_state["port"],
+        model_name=server_state["model_name"],
+        message=message,
+    )
 
 
 @router.post(
-    "/download",
-    response_model=DownloadTaskResponse,
-    summary="Start a background model download",
+    "/server/download",
+    response_model=ActionResponse,
+    summary="Start llama.cpp download",
 )
-async def download_model(
-    body: DownloadRequest,
-) -> DownloadTaskResponse:
-    """Start a background download. Returns a task_id immediately."""
+async def start_llamacpp_download(
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> ActionResponse:
+    """Start downloading the llama.cpp binary package."""
     try:
-        from ...local_models import BackendType, DownloadSource
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                "Local model dependencies not installed. "
-                "Install with: pip install 'copaw[local]'"
-            ),
-        ) from exc
-
-    # Validate enum values early
-    try:
-        BackendType(body.backend)
-        DownloadSource(body.source)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    await clear_completed(backend=body.backend)
-    task = await create_task(
-        repo_id=body.repo_id,
-        filename=body.filename,
-        backend=body.backend,
-        source=body.source,
+        manager.start_llamacpp_download()
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ActionResponse(
+        status="accepted",
+        message="llama.cpp download started",
     )
-
-    background_task = asyncio.create_task(
-        _run_download_in_background(
-            task_id=task.task_id,
-            body=body,
-        ),
-        name=f"model-download-{task.task_id}",
-    )
-    await _register_background_task(task.task_id, background_task)
-
-    return _task_to_response(task)
-
-
-async def _run_download_in_background(
-    task_id: str,
-    body: DownloadRequest,
-) -> None:
-    """Execute the download in a thread and update task status."""
-    from ..console_push_store import append as push_store_append
-    from ...local_models import BackendType, DownloadSource, LocalModelManager
-
-    # Check if task was cancelled before starting
-    task = await get_task(task_id)
-    if task and task.status == DownloadTaskStatus.CANCELLED:
-        logger.info("Task %s was cancelled before download started", task_id)
-        await _pop_background_task(task_id)
-        return
-
-    await update_status(task_id, DownloadTaskStatus.DOWNLOADING)
-
-    try:
-        loop = asyncio.get_running_loop()
-        # Periodically check if task was cancelled during download
-        # We run the download in executor, but check cancellation status
-        info = await loop.run_in_executor(
-            None,
-            lambda: LocalModelManager.download_model_sync(
-                repo_id=body.repo_id,
-                filename=body.filename,
-                backend=BackendType(body.backend),
-                source=DownloadSource(body.source),
-            ),
-        )
-
-        # Check if cancelled after download completes but before marking
-        # complete
-        task = await get_task(task_id)
-        if task and task.status == DownloadTaskStatus.CANCELLED:
-            logger.info(
-                "Task %s was cancelled after download, cleaning up",
-                task_id,
-            )
-            # Try to delete the downloaded model
-            try:
-                from ...local_models import delete_local_model
-
-                delete_local_model(info.id)
-            except Exception:
-                pass
-            await _pop_background_task(task_id)
-            return
-
-        result_dict = {
-            "id": info.id,
-            "repo_id": info.repo_id,
-            "filename": info.filename,
-            "backend": info.backend.value,
-            "source": info.source.value,
-            "file_size": info.file_size,
-            "local_path": info.local_path,
-            "display_name": info.display_name,
-        }
-        await update_status(
-            task_id,
-            DownloadTaskStatus.COMPLETED,
-            result=result_dict,
-        )
-        await push_store_append(
-            "console",
-            f"Model downloaded: {info.display_name}",
-        )
-        ProviderManager.get_instance().update_local_models()
-    except asyncio.CancelledError:
-        await update_status(task_id, DownloadTaskStatus.CANCELLED)
-        logger.info("Local model download task %s cancelled", task_id)
-        raise
-    except Exception as exc:
-        logger.exception("Background model download failed: %s", exc)
-        await update_status(
-            task_id,
-            DownloadTaskStatus.FAILED,
-            error=str(exc),
-        )
-        await push_store_append(
-            "console",
-            f"Model download failed: {body.repo_id} — {exc}",
-        )
-    finally:
-        await _pop_background_task(task_id)
 
 
 @router.get(
-    "/download-status",
-    response_model=List[DownloadTaskResponse],
-    summary="Get active download tasks",
+    "/server/download",
+    response_model=DownloadProgressResponse,
+    summary="Get llama.cpp download progress",
 )
-async def get_download_status(
-    backend: Optional[str] = None,
-) -> List[DownloadTaskResponse]:
-    tasks = await get_tasks(backend=backend)
-    return [_task_to_response(t) for t in tasks]
+async def get_llamacpp_download_progress(
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> dict[str, Any]:
+    """Return the current llama.cpp download progress snapshot."""
+    return manager.get_llamacpp_download_progress()
 
 
 @router.delete(
-    "/{model_id:path}",
-    summary="Delete a downloaded local model",
+    "/server/download",
+    response_model=ActionResponse,
+    summary="Cancel llama.cpp download",
 )
-async def delete_local(model_id: str) -> dict:
-    try:
-        from ...local_models import delete_local_model
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=501,
-            detail="Local model dependencies not installed.",
-        ) from exc
-
-    try:
-        delete_local_model(model_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    ProviderManager.get_instance().update_local_models()
-
-    return {"status": "deleted", "model_id": model_id}
-
-
-async def _cancel_download_task(task_id: str) -> dict:
-    """Cancel a pending or downloading task and stop its
-    background coroutine."""
-    success = await cancel_task(task_id)
-    if not success:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                "Task not found or not cancellable "
-                "(already completed/failed/cancelled)"
-            ),
-        )
-
-    background_task = await _pop_background_task(task_id)
-    if background_task and not background_task.done():
-        background_task.cancel()
-
-    return {"status": "cancelled", "task_id": task_id}
+async def cancel_llamacpp_download(
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> ActionResponse:
+    """Cancel the current llama.cpp download task."""
+    manager.cancel_llamacpp_download()
+    return ActionResponse(
+        status="ok",
+        message="llama.cpp download cancellation requested",
+    )
 
 
 @router.post(
-    "/cancel-download/{task_id}",
-    summary="Cancel an active download task",
+    "/server",
+    response_model=StartServerResponse,
+    summary="Start llama.cpp server",
 )
-async def cancel_download(task_id: str) -> dict:
-    """Cancel a pending or downloading task."""
-    return await _cancel_download_task(task_id)
+async def start_llamacpp_server(
+    payload: StartServerRequest,
+    model_manager: LocalModelManager = Depends(get_local_model_manager),
+    provider_manager: ProviderManager = Depends(get_provider_manager),
+) -> StartServerResponse:
+    """Start a local llama.cpp server for a downloaded model."""
+    try:
+        port = await model_manager.setup_server(
+            model_id=payload.model_id,
+        )
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    provider_manager.update_provider(
+        "copaw-local",
+        {
+            "base_url": f"http://127.0.0.1:{port}/v1",
+            "extra_models": [
+                {
+                    "id": payload.model_id,
+                    "name": payload.model_id,
+                },
+            ],
+        },
+    )
+    await provider_manager.activate_model(
+        provider_id="copaw-local",
+        model_id=payload.model_id,
+    )
+    return StartServerResponse(
+        port=port,
+        model_name=payload.model_id,
+    )
+
+
+@router.delete(
+    "/server",
+    response_model=ActionResponse,
+    summary="Stop llama.cpp server",
+)
+async def stop_llamacpp_server(
+    model_manager: LocalModelManager = Depends(get_local_model_manager),
+    provider_manager: ProviderManager = Depends(get_provider_manager),
+) -> ActionResponse:
+    """Stop the active llama.cpp server."""
+    await model_manager.shutdown_server()
+    provider_manager.update_provider(
+        "copaw-local",
+        {
+            "base_url": "",
+            "extra_models": [],
+        },
+    )
+
+    return ActionResponse(
+        status="ok",
+        message="llama.cpp server stopped",
+    )
+
+
+# ===============================================================
+# Local Model related endpoints
+# ===============================================================
+
+
+@router.get(
+    "/models",
+    response_model=List[LocalModelInfo],
+    summary="List recommended and downloaded local models",
+)
+async def list_local(
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> List[LocalModelInfo]:
+    """List recommended models plus downloaded local models."""
+    models_by_id = {
+        model.id: model for model in manager.get_recommended_models()
+    }
+    for model in manager.list_downloaded_models():
+        models_by_id.setdefault(model.id, model)
+    return list(models_by_id.values())
+
+
+@router.post(
+    "/models/download",
+    response_model=ActionResponse,
+    summary="Start local model download",
+)
+async def start_local_model_download(
+    payload: StartModelDownloadRequest,
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> ActionResponse:
+    """Start downloading a recommended local model."""
+    try:
+        manager.start_model_download(
+            payload.model_name,
+            source=payload.source,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return ActionResponse(
+        status="accepted",
+        message=f"Local model download started: {payload.model_name}",
+    )
+
+
+@router.get(
+    "/models/download",
+    response_model=DownloadProgressResponse,
+    summary="Get local model download progress",
+)
+async def get_local_model_download_progress(
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> dict[str, Any]:
+    """Return the current local model download progress snapshot."""
+    return manager.get_model_download_progress()
+
+
+@router.delete(
+    "/models/download",
+    response_model=ActionResponse,
+    summary="Cancel local model download",
+)
+async def cancel_local_model_download(
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> ActionResponse:
+    """Cancel the current local model download task."""
+    manager.cancel_model_download()
+    return ActionResponse(
+        status="ok",
+        message="Local model download cancellation requested",
+    )

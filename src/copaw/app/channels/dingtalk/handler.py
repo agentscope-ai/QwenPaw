@@ -15,7 +15,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ..base import ContentType
 
-from .constants import SENT_VIA_WEBHOOK
+from .constants import SENT_VIA_AI_CARD, SENT_VIA_WEBHOOK
 from .content_utils import (
     conversation_id_from_chatbot_message,
     conversation_type_from_chatbot_message,
@@ -121,12 +121,14 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 # Text may be under "text" or "content" (API variation).
                 item_text = item.get("text") or item.get("content")
                 if item_text is not None:
-                    content.append(
-                        TextContent(
-                            type=ContentType.TEXT,
-                            text=(item_text or "").strip(),
-                        ),
-                    )
+                    stripped = (item_text or "").strip()
+                    if stripped:
+                        content.append(
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=stripped,
+                            ),
+                        )
                 # Picture items may use pictureDownloadCode or downloadCode.
                 dl_code = (
                     item.get("downloadCode")
@@ -260,6 +262,13 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 "reply_loop": loop,
                 "conversation_type": conversation_type,
                 "is_group": is_group,
+                "sender_staff_id": getattr(
+                    incoming_message,
+                    "sender_staff_id",
+                    None,
+                )
+                or getattr(incoming_message, "senderStaffId", None)
+                or "",
             }
             if is_bot_mentioned:
                 meta["bot_mentioned"] = True
@@ -288,6 +297,8 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     "session_webhook_expired_time",
                     None,
                 )
+                if sw_exp is not None:
+                    meta["session_webhook_expired_time"] = int(sw_exp)
                 logger.info(
                     "dingtalk recv: session_webhook present "
                     "session_from_url=%s "
@@ -335,7 +346,10 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
             self._emit_native_threadsafe(native)
 
             response_text = await reply_future
-            if response_text == SENT_VIA_WEBHOOK:
+            if response_text == SENT_VIA_AI_CARD:
+                logger.info("sent to=%s via ai card", sender)
+                self.reply_text(" ", incoming_message)
+            elif response_text == SENT_VIA_WEBHOOK:
                 logger.info(
                     "sent to=%s via sessionWebhook (multi-message)",
                     sender,

@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 _DEFAULT_GUARDED_TOOLS = frozenset(
     {
         "execute_shell_command",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "append_file",
+        "send_file_to_user",
+        "view_text_file",
+        "write_text_file",
     },
 )
 

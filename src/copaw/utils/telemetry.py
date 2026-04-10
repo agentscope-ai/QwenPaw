@@ -172,7 +172,7 @@ def _upload_telemetry_sync(data: dict[str, Any]) -> bool:
     try:
         import httpx
 
-        with httpx.Client(timeout=5.0) as client:
+        with httpx.Client(timeout=2.0) as client:
             response = client.post(TELEMETRY_ENDPOINT, json=data)
             return response.status_code in (200, 201, 204)
     except Exception as e:
@@ -219,7 +219,32 @@ def has_telemetry_been_collected(working_dir: Path) -> bool:
         return False
 
 
-def mark_telemetry_collected(working_dir: Path) -> None:
+def is_telemetry_opted_out(working_dir: Path) -> bool:
+    """Check if the user has explicitly opted out of telemetry.
+
+    Once opted out, telemetry is never collected again regardless of version.
+
+    Args:
+        working_dir: Path to CoPaw working directory
+
+    Returns:
+        True if user has opted out, False otherwise
+    """
+    marker_file = working_dir / TELEMETRY_MARKER_FILE
+    if not marker_file.exists():
+        return False
+    try:
+        marker_data = json.loads(marker_file.read_text(encoding="utf-8"))
+        return marker_data.get("opted_out", False) is True
+    except Exception:
+        return False
+
+
+def mark_telemetry_collected(
+    working_dir: Path,
+    *,
+    opted_out: bool = False,
+) -> None:
     """Mark that telemetry has been collected for the current version.
 
     Maintains a list of all versions that have been collected, so switching
@@ -227,18 +252,20 @@ def mark_telemetry_collected(working_dir: Path) -> None:
 
     Args:
         working_dir: Path to CoPaw working directory
+        opted_out: If True, marks the user as permanently opted out
     """
     marker_file = working_dir / TELEMETRY_MARKER_FILE
     current = _get_current_version()
     try:
-        # Preserve existing collected versions
         collected_versions: list[str] = []
+        prev_opted_out = False
         if marker_file.exists():
             try:
                 old_data = json.loads(
                     marker_file.read_text(encoding="utf-8"),
                 )
                 collected_versions = old_data.get("collected_versions", [])
+                prev_opted_out = old_data.get("opted_out", False) is True
                 # Migrate from v1.1 single-version format
                 if not collected_versions:
                     old_ver = old_data.get("copaw_version", "")
@@ -254,7 +281,8 @@ def mark_telemetry_collected(working_dir: Path) -> None:
             "collected_at": time.time(),
             "copaw_version": current,
             "collected_versions": collected_versions,
-            "version": "1.2",
+            "opted_out": opted_out or prev_opted_out,
+            "version": "1.3",
         }
         marker_file.write_text(json.dumps(marker_data), encoding="utf-8")
     except Exception as e:

@@ -40,6 +40,40 @@ def extract_json_key(content: Optional[str], *keys: str) -> Optional[str]:
     return None
 
 
+# Magic bytes mapping for common file formats
+_MAGIC_BYTES_MAP = [
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"GIF8", "gif"),
+    (b"%PDF", "pdf"),
+    (b"PK\x03\x04", "zip"),  # Also docx, xlsx, pptx
+    (b"ID3", "mp3"),
+    (b"\xff\xfb", "mp3"),
+    (b"\xff\xfa", "mp3"),
+    (b"OggS", "ogg"),
+    (b"fLaC", "flac"),
+    (b"\x1aE\xdf\xa3", "webm"),
+]
+
+
+def detect_file_ext(data: bytes, default: str = "bin") -> str:
+    """Detect file extension from magic bytes."""
+    if not data:
+        return default
+    # Check simple magic bytes
+    for magic, ext in _MAGIC_BYTES_MAP:
+        if data.startswith(magic):
+            return ext
+    # Special cases needing offset checks
+    if data[:4] == b"RIFF" and len(data) > 12 and data[8:12] == b"WEBP":
+        return "webp"
+    if len(data) > 8 and data[4:8] == b"ftyp":
+        return "mp4"
+    # JPEG: starts with FFD8FF
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    return default
+
+
 def extract_post_text(content: Optional[str]) -> Optional[str]:
     # pylint: disable=too-many-branches
     """Extract plain text from Feishu post message content."""
@@ -200,9 +234,9 @@ def _parse_md_table(table_lines: List[str]) -> Optional[Dict[str, Any]]:
             "name": col_keys[i],
             "display_name": headers[i],
             "width": "auto",
-            "horizontal_align": alignments[i]
-            if i < len(alignments)
-            else "left",
+            "horizontal_align": (
+                alignments[i] if i < len(alignments) else "left"
+            ),
         }
         for i in range(len(headers))
     ]
@@ -231,40 +265,99 @@ def _convert_md_headings_to_bold(text: str) -> str:
     return re.sub(r"^#{1,6}\s+(.+)$", r"**\1**", text, flags=re.MULTILINE)
 
 
-def build_interactive_content(text: str) -> str:
-    """Build an interactive card JSON with mixed markdown + native table."""
+_MAX_TABLES_PER_CARD = 5
+
+
+def _build_elements(text: str) -> List[Dict[str, Any]]:
+    """Parse text into a list of card elements (table or markdown)."""
     lines = text.split("\n")
     elements: List[Dict[str, Any]] = []
     i = 0
     while i < len(lines):
         line = lines[i]
         if re.match(r"^\s*\|", line):
-            # Collect the full table block
             table_block: List[str] = []
-            while i < len(lines) and re.match(r"^\s*\|", lines[i]):
+            while i < len(lines) and re.match(
+                r"^\s*\|",
+                lines[i],
+            ):
                 table_block.append(lines[i])
                 i += 1
             table_elem = _parse_md_table(table_block)
             if table_elem:
                 elements.append(table_elem)
             else:
-                # Fallback: render as plain markdown text
-                fallback = _convert_md_headings_to_bold("\n".join(table_block))
-                elements.append({"tag": "markdown", "content": fallback})
+                fallback = _convert_md_headings_to_bold(
+                    "\n".join(table_block),
+                )
+                elements.append(
+                    {"tag": "markdown", "content": fallback},
+                )
         else:
-            # Collect non-table lines
             text_block: List[str] = []
-            while i < len(lines) and not re.match(r"^\s*\|", lines[i]):
+            while i < len(lines) and not re.match(
+                r"^\s*\|",
+                lines[i],
+            ):
                 text_block.append(lines[i])
                 i += 1
             content = "\n".join(text_block).strip()
             if content:
-                # Convert headings to bold for interactive card markdown
                 content = _convert_md_headings_to_bold(content)
-                elements.append({"tag": "markdown", "content": content})
+                elements.append(
+                    {"tag": "markdown", "content": content},
+                )
     if not elements:
         elements = [
-            {"tag": "markdown", "content": _convert_md_headings_to_bold(text)},
+            {
+                "tag": "markdown",
+                "content": _convert_md_headings_to_bold(text),
+            },
         ]
+    return elements
+
+
+def _split_elements(
+    elements: List[Dict[str, Any]],
+) -> List[List[Dict[str, Any]]]:
+    """Split elements into chunks, each with at most _MAX_TABLES_PER_CARD."""
+    chunks: List[List[Dict[str, Any]]] = []
+    current: List[Dict[str, Any]] = []
+    # Non-table elements buffered until we know which chunk they belong to.
+    pending: List[Dict[str, Any]] = []
+    table_count = 0
+    for elem in elements:
+        if elem.get("tag") == "table":
+            if table_count >= _MAX_TABLES_PER_CARD:
+                # Flush current chunk; pending text belongs to next chunk.
+                chunks.append(current)
+                current = list(pending)
+                table_count = 0
+            else:
+                current.extend(pending)
+            pending = []
+            current.append(elem)
+            table_count += 1
+        else:
+            pending.append(elem)
+    # Remaining pending text follows the last table chunk.
+    current.extend(pending)
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def build_interactive_content(text: str) -> str:
+    """Build an interactive card JSON with mixed markdown + native table."""
+    elements = _build_elements(text)
     card = {"elements": elements}
     return json.dumps(card, ensure_ascii=False)
+
+
+def build_interactive_content_chunks(text: str) -> List[str]:
+    """Build card JSONs, split when table count exceeds the limit."""
+    elements = _build_elements(text)
+    chunks = _split_elements(elements)
+    return [
+        json.dumps({"elements": chunk}, ensure_ascii=False) for chunk in chunks
+    ]

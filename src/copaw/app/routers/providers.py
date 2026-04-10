@@ -3,18 +3,44 @@
 
 from __future__ import annotations
 
+import logging
 from typing import List, Literal, Optional
 from copy import deepcopy
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+)
 from pydantic import BaseModel, Field
 
+from ..agent_context import get_agent_for_request
+from ..utils import schedule_agent_reload
+from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
+from ...providers.models import ModelSlotConfig
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/models", tags=["models"])
 
-ChatModelName = Literal["OpenAIChatModel", "AnthropicChatModel"]
+ChatModelName = Literal[
+    "OpenAIChatModel",
+    "AnthropicChatModel",
+    "GeminiChatModel",
+]
+
+# effective: agent-specific if set, otherwise global
+# global: the global model only, ignoring any agent-specific setting
+# agent: a specific agent's model only, error if not set
+ActiveModelReadScope = Literal["effective", "global", "agent"]
+ActiveModelWriteScope = Literal["global", "agent"]
 
 
 def get_provider_manager(request: Request) -> ProviderManager:
@@ -49,6 +75,14 @@ class ProviderConfigRequest(BaseModel):
 class ModelSlotRequest(BaseModel):
     provider_id: str = Field(..., description="Provider to use")
     model: str = Field(..., description="Model identifier")
+    scope: ActiveModelWriteScope = Field(
+        ...,
+        description="Whether to update the global model or a specific agent",
+    )
+    agent_id: Optional[str] = Field(
+        default=None,
+        description="Target agent ID when scope is 'agent'",
+    )
 
 
 class CreateCustomProviderRequest(BaseModel):
@@ -63,6 +97,38 @@ class CreateCustomProviderRequest(BaseModel):
 class AddModelRequest(BaseModel):
     id: str = Field(...)
     name: str = Field(...)
+
+
+def _validate_model_slot(
+    manager: ProviderManager,
+    provider_id: str,
+    model_id: str,
+) -> None:
+    """Validate that the provider and model exist without mutating state."""
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found.",
+        )
+    if not provider.has_model(model_id):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Model '{model_id}' not found in provider "
+                f"'{provider_id}'."
+            ),
+        )
+
+
+async def _load_agent_model(
+    request: Request,
+    agent_id: str,
+) -> ModelSlotConfig | None:
+    """Load the model configured for a specific agent."""
+    workspace = await get_agent_for_request(request, agent_id=agent_id)
+    agent_config = load_agent_config(workspace.agent_id)
+    return agent_config.active_model
 
 
 @router.get(
@@ -216,9 +282,9 @@ async def test_provider(
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
-            message="Connection successful"
-            if ok
-            else f"Connection failed: {msg}",
+            message=(
+                "Connection successful" if ok else f"Connection failed: {msg}"
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -327,6 +393,46 @@ async def add_model_endpoint(
     return provider
 
 
+class ProbeMultimodalResponse(BaseModel):
+    supports_image: bool = Field(
+        default=False,
+        description="Whether the model supports image input",
+    )
+    supports_video: bool = Field(
+        default=False,
+        description="Whether the model supports video input",
+    )
+    supports_multimodal: bool = Field(
+        default=False,
+        description="Whether the model supports any multimodal input",
+    )
+    image_message: str = Field(
+        default="",
+        description="Probe result message for image support",
+    )
+    video_message: str = Field(
+        default="",
+        description="Probe result message for video support",
+    )
+
+
+@router.post(
+    "/{provider_id}/models/{model_id:path}/probe-multimodal",
+    response_model=ProbeMultimodalResponse,
+    summary="Probe model multimodal capability",
+)
+async def probe_model_multimodal(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    model_id: str = Path(...),
+) -> ProbeMultimodalResponse:
+    """Probe image and video support by sending lightweight test requests."""
+    result = await manager.probe_model_multimodal(provider_id, model_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return ProbeMultimodalResponse(**result)
+
+
 @router.delete(
     "/{provider_id}/models/{model_id:path}",
     response_model=ProviderInfo,
@@ -350,12 +456,57 @@ async def remove_model_endpoint(
 @router.get(
     "/active",
     response_model=ActiveModelsInfo,
-    summary="Get active LLM",
+    summary="Get effective active LLM",
 )
 async def get_active_models(
+    request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
+    scope: ActiveModelReadScope = Query(default="effective"),
+    agent_id: Optional[str] = Query(default=None),
 ) -> ActiveModelsInfo:
-    return ActiveModelsInfo(active_llm=manager.get_active_model())
+    """Get active model by scope.
+
+    - effective: agent-specific first, otherwise global fallback
+    - global: ProviderManager global model only
+    - agent: a specific agent's configured model only
+    """
+    if scope == "global":
+        return ActiveModelsInfo(active_llm=manager.get_active_model())
+
+    if scope == "agent":
+        if not agent_id:
+            raise HTTPException(
+                status_code=400,
+                detail="agent_id is required when scope is 'agent'",
+            )
+        return ActiveModelsInfo(
+            active_llm=await _load_agent_model(request, agent_id),
+        )
+
+    try:
+        target_agent_id = agent_id
+        if target_agent_id is None:
+            workspace = await get_agent_for_request(request)
+            target_agent_id = workspace.agent_id
+
+        agent_model = await _load_agent_model(request, target_agent_id)
+        if agent_model:
+            logger.info(
+                "Returning agent-specific model for %s: %s",
+                target_agent_id,
+                agent_model,
+            )
+            return ActiveModelsInfo(active_llm=agent_model)
+    except (HTTPException, OSError, ValueError, TypeError) as exc:
+        logger.warning(
+            "Failed to get agent-specific model: %s",
+            exc,
+            exc_info=True,
+        )
+
+    global_model = manager.get_active_model()
+    logger.info("Returning global model: %s", global_model)
+    return ActiveModelsInfo(active_llm=global_model)
 
 
 @router.put(
@@ -364,17 +515,60 @@ async def get_active_models(
     summary="Set active LLM",
 )
 async def set_active_model(
+    request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
     body: ModelSlotRequest = Body(...),
 ) -> ActiveModelsInfo:
+    """Set active model by scope."""
+    if body.scope == "global":
+        try:
+            await manager.activate_model(body.provider_id, body.model)
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            message = str(exc)
+            lower_msg = message.lower()
+            if "provider" in lower_msg and "not found" in lower_msg:
+                raise HTTPException(status_code=404, detail=message) from exc
+            raise HTTPException(status_code=400, detail=message) from exc
+        return ActiveModelsInfo(active_llm=manager.get_active_model())
+
+    if not body.agent_id:
+        raise HTTPException(
+            status_code=400,
+            detail="agent_id is required when scope is 'agent'",
+        )
+
+    _validate_model_slot(manager, body.provider_id, body.model)
+
     try:
-        await manager.activate_model(body.provider_id, body.model)
-    except ValueError as exc:
-        message = str(exc)
-        lower_msg = message.lower()
-        if "provider" in lower_msg and "not found" in lower_msg:
-            # Missing provider
-            raise HTTPException(status_code=404, detail=message) from exc
-        # Invalid model, unreachable provider, or other configuration error
-        raise HTTPException(status_code=400, detail=message) from exc
-    return ActiveModelsInfo(active_llm=manager.get_active_model())
+        workspace = await get_agent_for_request(
+            request,
+            agent_id=body.agent_id,
+        )
+        agent_config = load_agent_config(workspace.agent_id)
+        agent_config.active_model = ModelSlotConfig(
+            provider_id=body.provider_id,
+            model=body.model,
+        )
+        save_agent_config(workspace.agent_id, agent_config)
+        # Hot reload agent (async, non-blocking)
+        schedule_agent_reload(request, workspace.agent_id)
+
+    except (HTTPException, OSError, ValueError, TypeError) as exc:
+        logger.warning(
+            "Failed to save active model to agent config: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save active model to agent config",
+        ) from exc
+
+    manager.maybe_probe_multimodal(body.provider_id, body.model)
+
+    return ActiveModelsInfo(
+        active_llm=ModelSlotConfig(
+            provider_id=body.provider_id,
+            model=body.model,
+        ),
+    )

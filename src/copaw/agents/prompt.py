@@ -6,7 +6,10 @@ This module provides utilities for building system prompts from
 markdown configuration files in the working directory.
 """
 import logging
+import re
 from pathlib import Path
+
+from .utils.file_handling import read_text_file_with_encoding_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -34,19 +37,28 @@ class PromptConfig:
 class PromptBuilder:
     """Builder for constructing system prompts from markdown files."""
 
+    # Regex pattern to match heartbeat section markers
+    HEARTBEAT_PATTERN = re.compile(
+        r"<!-- heartbeat:start -->.*?<!-- heartbeat:end -->",
+        re.DOTALL,
+    )
+
     def __init__(
         self,
         working_dir: Path,
         enabled_files: list[str] | None = None,
+        heartbeat_enabled: bool = False,
     ):
         """Initialize prompt builder.
 
         Args:
             working_dir: Directory containing markdown configuration files
             enabled_files: List of filenames to load (if None, uses default order)
+            heartbeat_enabled: Whether heartbeat is enabled, affects AGENTS.md content
         """
         self.working_dir = working_dir
         self.enabled_files = enabled_files
+        self.heartbeat_enabled = heartbeat_enabled
         self.prompt_parts = []
         self.loaded_count = 0
 
@@ -66,13 +78,22 @@ class PromptBuilder:
             return
 
         try:
-            content = file_path.read_text(encoding="utf-8").strip()
+            content = read_text_file_with_encoding_fallback(file_path).strip()
 
             # Remove YAML frontmatter if present
             if content.startswith("---"):
                 parts = content.split("---", 2)
                 if len(parts) >= 3:
                     content = parts[2].strip()
+
+            # Filter heartbeat section from AGENTS.md if heartbeat is disabled
+            if filename == "AGENTS.md":
+                try:
+                    content = self._process_heartbeat_section(content)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to process heartbeat with {e}",
+                    )
 
             if content:
                 if self.prompt_parts:  # Add separator if not first section
@@ -92,6 +113,33 @@ class PromptBuilder:
                 filename,
                 e,
             )
+
+    def _process_heartbeat_section(self, content: str) -> str:
+        """Process heartbeat section in AGENTS.md content.
+
+        - If heartbeat markers not found: keep content unchanged (backward compatibility)
+        - If heartbeat is enabled: keep the content but remove the markers
+        - If heartbeat is disabled: remove the entire section
+
+        Args:
+            content: Original AGENTS.md content
+
+        Returns:
+            Processed content
+        """
+        # Check if markers exist
+        if "<!-- heartbeat:start -->" not in content:
+            return content
+
+        if self.heartbeat_enabled:
+            # Keep content, just remove the markers
+            content = content.replace("<!-- heartbeat:start -->", "")
+            content = content.replace("<!-- heartbeat:end -->", "")
+            return content.strip()
+        else:
+            # Remove the entire heartbeat section
+            filtered = self.HEARTBEAT_PATTERN.sub("", content)
+            return filtered.strip()
 
     def build(self) -> str:
         """Build the system prompt from markdown files.
@@ -128,22 +176,36 @@ class PromptBuilder:
         return final_prompt
 
 
-def build_system_prompt_from_working_dir() -> str:
+def build_system_prompt_from_working_dir(
+    working_dir: Path | None = None,
+    enabled_files: list[str] | None = None,
+    agent_id: str | None = None,
+    heartbeat_enabled: bool = False,
+) -> str:
     """
     Build system prompt by reading markdown files from working directory.
 
     This function constructs the system prompt by loading markdown files from
-    WORKING_DIR (~/.copaw by default). These files define the agent's behavior,
-    personality, and operational guidelines.
+    the specified working directory (workspace_dir for multi-agent setup).
+    These files define the agent's behavior, personality, and operational guidelines.
 
-    The files to load are determined by the agents.system_prompt_files configuration.
-    If not configured, falls back to default files:
+    The files to load are determined by the enabled_files parameter or
+    agents.system_prompt_files configuration. If not configured, falls back to
+    default files:
     - AGENTS.md - Detailed workflows, rules, and guidelines
     - SOUL.md - Core identity and behavioral principles
     - PROFILE.md - Agent identity and user profile
 
     All files are optional. If a file doesn't exist or can't be read, it will be
     skipped. If no files can be loaded, returns the default prompt.
+
+    Args:
+        working_dir: Directory to read markdown files from (if None, uses
+            global WORKING_DIR for backward compatibility)
+        enabled_files: List of filenames to load (if None, uses config or defaults)
+        agent_id: Agent identifier to include in system prompt (optional)
+        heartbeat_enabled: Whether heartbeat is enabled. When False, filters
+            heartbeat section from AGENTS.md to avoid confusing instructions.
 
     Returns:
         str: Constructed system prompt from markdown files.
@@ -156,19 +218,45 @@ def build_system_prompt_from_working_dir() -> str:
     from ..constant import WORKING_DIR
     from ..config import load_config
 
-    # Load enabled files from config
-    config = load_config()
-    enabled_files = (
-        config.agents.system_prompt_files
-        if config.agents.system_prompt_files is not None
-        else None
-    )
+    # Use provided working_dir or fallback to global WORKING_DIR
+    if working_dir is None:
+        working_dir = Path(WORKING_DIR)
+
+    # Load enabled files from parameter or config
+    if enabled_files is None:
+        # Use agent-specific config if agent_id provided
+        if agent_id:
+            from ..config.config import load_agent_config
+
+            try:
+                agent_config = load_agent_config(agent_id)
+                enabled_files = agent_config.system_prompt_files
+            except (ValueError, FileNotFoundError):
+                # Agent not found in config, fallback to global config
+                config = load_config()
+                enabled_files = config.agents.system_prompt_files
+        else:
+            # Fallback to global config for backward compatibility
+            config = load_config()
+            enabled_files = config.agents.system_prompt_files
 
     builder = PromptBuilder(
-        working_dir=Path(WORKING_DIR),
+        working_dir=working_dir,
         enabled_files=enabled_files,
+        heartbeat_enabled=heartbeat_enabled,
     )
-    return builder.build()
+    prompt = builder.build()
+
+    # Add agent identity information at the beginning of the prompt
+    if agent_id:
+        identity_header = (
+            f"# Agent Identity\n\n"
+            f"Your agent id is `{agent_id}`. "
+            f"This is your unique identifier in the multi-agent system.\n\n"
+        )
+        prompt = identity_header + prompt
+
+    return prompt
 
 
 def build_bootstrap_guidance(
@@ -223,9 +311,88 @@ def build_bootstrap_guidance(
     )
 
 
+def _get_active_model_info():
+    """Resolve the active model's ModelInfo and model name.
+
+    Tries agent-specific model first, then falls back to global.
+
+    Returns:
+        A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
+        when the active model cannot be resolved.
+    """
+    try:
+        from ..app.agent_context import get_current_agent_id
+        from ..config.config import load_agent_config
+        from ..providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+
+        # Try to get agent-specific model first
+        active = None
+        try:
+            agent_id = get_current_agent_id()
+            agent_config = load_agent_config(agent_id)
+            if agent_config.active_model:
+                active = agent_config.active_model
+        except Exception:
+            pass
+
+        # Fallback to global active model
+        if not active:
+            active = manager.get_active_model()
+
+        if not active:
+            return None, None
+
+        provider = manager.get_provider(active.provider_id)
+        if not provider:
+            return None, None
+
+        for m in provider.models + provider.extra_models:
+            if m.id == active.model:
+                return m, active.model
+        return None, None
+    except Exception:
+        return None, None
+
+
+def get_active_model_supports_multimodal() -> bool:
+    """Check if the current active model supports multimodal input."""
+    model_info, _ = _get_active_model_info()
+    if model_info is None:
+        return False
+    return bool(model_info.supports_multimodal)
+
+
+def build_multimodal_hint() -> str:
+    """Build a short system-prompt snippet describing multimodal capability."""
+    model_info, model_name = _get_active_model_info()
+    if model_info is None:
+        return ""
+    return format_multimodal_hint(model_info, model_name)
+
+
+def format_multimodal_hint(model_info, _model_name: str) -> str:
+    """Format the multimodal hint string for the system prompt."""
+    if (
+        model_info.supports_image
+        or model_info.supports_video
+        or model_info.supports_multimodal is None
+    ):
+        return ""
+    return (
+        "It appears that you can only understand text content. "
+        " Please honestly inform the user about this when "
+        " their input includes multimodal information."
+    )
+
+
 __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
+    "build_multimodal_hint",
+    "format_multimodal_hint",
+    "get_active_model_supports_multimodal",
     "PromptBuilder",
     "PromptConfig",
     "DEFAULT_SYS_PROMPT",

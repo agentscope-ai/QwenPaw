@@ -10,14 +10,19 @@ from .models import CronJobSpec, CronJobView
 router = APIRouter(prefix="/cron", tags=["cron"])
 
 
-def get_cron_manager(request: Request) -> CronManager:
-    mgr = getattr(request.app.state, "cron_manager", None)
-    if mgr is None:
+async def get_cron_manager(
+    request: Request,
+) -> CronManager:
+    """Get cron manager for the active agent."""
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    if workspace.cron_manager is None:
         raise HTTPException(
-            status_code=503,
-            detail="cron manager not initialized",
+            status_code=500,
+            detail="CronManager not initialized",
         )
-    return mgr
+    return workspace.cron_manager
 
 
 @router.get("/jobs", response_model=list[CronJobSpec])

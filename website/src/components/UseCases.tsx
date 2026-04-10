@@ -43,7 +43,8 @@ export function UseCases({ lang }: UseCasesProps) {
       className="usecases-section"
       style={{
         margin: "0 auto",
-        maxWidth: "var(--container)",
+        width: "90%",
+        maxWidth: "1400px",
         padding: "var(--space-8) var(--space-4)",
       }}
     >
