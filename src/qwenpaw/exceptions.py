@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CoPaw exception definitions and converters."""
+"""QwenPaw exception definitions and converters."""
 
 from typing import Any, Dict, Optional
 
@@ -15,7 +15,7 @@ from agentscope_runtime.engine.schemas.exception import (
 )
 
 
-# ==================== CoPaw Business Exceptions ====================
+# ==================== QwenPaw Business Exceptions ====================
 
 
 class ProviderError(AgentRuntimeErrorException):
