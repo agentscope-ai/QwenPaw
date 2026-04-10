@@ -35,7 +35,9 @@ from .skills_manager import (
 )
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
+    agent_chat,
     browser_use,
+    list_agents,
     desktop_screenshot,
     edit_file,
     execute_shell_command,
@@ -238,6 +240,8 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
+            "list_agents": list_agents,
+            "agent_chat": agent_chat,
         }
 
         multimodal = get_active_model_supports_multimodal()

@@ -1,6 +1,6 @@
 ---
 name: multi_agent_collaboration
-description: Use this skill when another agent's expertise/context is needed, or when the user explicitly asks to involve another agent. First list agents, then use copaw agents chat for two-way communication with replies. | 当需要其他 agent 的专长/上下文，或用户明确要求调用其他 agent 时使用；先查 agent，再用 copaw agents chat 双向通信（有回复）
+description: Use this skill when another agent's expertise/context is needed, or when the user explicitly asks to involve another agent. First use the built-in list_agents tool to discover targets, then use the built-in agent_chat tool for agent-to-agent collaboration; use copaw agents commands only for manual debugging. | 当需要其他 agent 的专长/上下文，或用户明确要求调用其他 agent 时使用；先用内置 list_agents 工具查目标，再默认用内置 agent_chat 工具进行双向协作，copaw agents 命令仅用于人工调试。
 metadata:
   builtin_skill_version: "1.2"
   copaw:
@@ -36,32 +36,33 @@ metadata:
 
 ---
 
-## 最常用命令
+## 最常用方式
 
 ### 1) 先查询可用 agents
 
-```bash
-copaw agents list
+```text
+list_agents()
 ```
 
 ### 2) 发起新对话（实时模式）
 
-```bash
-copaw agents chat \
-  --from-agent <your_agent> \
-  --to-agent <target_agent> \
-  --text-file ./agent_request.txt
+```text
+agent_chat(
+  to_agent="<target_agent>",
+  text="[Agent <your_agent> requesting] ...",
+)
 ```
 
 ### 3) 发起复杂任务（后台模式）
 
 **复杂任务**包括：数据分析、报告生成、批量处理、外部API调用等。
 
-```bash
-copaw agents chat --background \
-  --from-agent <your_agent> \
-  --to-agent <target_agent> \
-  --text-file ./agent_request.txt
+```text
+agent_chat(
+  to_agent="<target_agent>",
+  text="[Agent <your_agent> requesting] ...",
+  background=True,
+)
 ```
 
 **输出**：
@@ -72,8 +73,8 @@ copaw agents chat --background \
 
 ### 4) 查询后台任务状态
 
-```bash
-copaw agents chat --background --task-id <task_id>
+```text
+agent_chat(background=True, task_id="<task_id>")
 ```
 
 **重要**：不要频繁查询！提交任务后：
@@ -86,12 +87,12 @@ copaw agents chat --background --task-id <task_id>
 
 ### 5) 继续已有对话
 
-```bash
-copaw agents chat \
-  --from-agent <your_agent> \
-  --to-agent <target_agent> \
-  --session-id "<session_id>" \
-  --text-file ./follow_up.txt
+```text
+agent_chat(
+  to_agent="<target_agent>",
+  text="[Agent <your_agent> requesting] ...",
+  session_id="<session_id>",
+)
 ```
 
 **重点**:
@@ -107,8 +108,8 @@ copaw agents chat \
 
 | 任务类型 | 使用模式 | 命令 |
 |---------|---------|------|
-| 简单快速查询 | 实时模式 | `copaw agents chat` |
-| 复杂任务（数据分析、批量处理等） | 后台模式 | `copaw agents chat --background` |
+| 简单快速查询 | 实时模式 | `agent_chat(...)` |
+| 复杂任务（数据分析、批量处理等） | 后台模式 | `agent_chat(background=True, ...)` |
 
 **复杂任务示例**：
 - 分析大量数据或日志文件
@@ -127,8 +128,8 @@ copaw agents chat \
 
 ```
 1. 判断是否需要其他 agent，或用户是否明确要求调用
-2. copaw agents list
-3. copaw agents chat 发起对话
+2. 调用 `list_agents()`
+3. 调用 `agent_chat` 发起对话
 4. 从输出中记录 [SESSION: ...]
 5. 后续需要上下文时带上 --session-id
 ```
@@ -137,8 +138,8 @@ copaw agents chat \
 
 ```
 1. 判断任务是否复杂（数据分析、报告生成等）
-2. copaw agents list
-3. copaw agents chat --background 提交任务
+2. 调用 `list_agents()`
+3. 调用 `agent_chat(background=True, ...)` 提交任务
 4. 从输出中记录 [TASK_ID: ...]
 5. 继续处理其他工作
 6. 等待合理时间（30-60秒）后查询状态
@@ -151,10 +152,11 @@ copaw agents chat \
 
 ### 必填参数
 
-`copaw agents chat` 必须同时提供：
-- `--from-agent`
-- `--to-agent`
-- `--text-file`（推荐）或 `--text`
+`agent_chat` 默认提供：
+- `to_agent`
+- `text`
+
+`from_agent` 会从当前 agent 上下文自动获取，不需要手动传入。
 
 ### 身份前缀
 
@@ -180,32 +182,31 @@ copaw agents chat \
 
 ### 用户明确要求调用其他 agent
 
-```bash
-copaw agents list
-
-copaw agents chat \
-  --from-agent scheduler_bot \
-  --to-agent finance_bot \
-  --text-file ./finance_request.txt
+```text
+先用 `list_agents()` 确认目标 agent，然后调用：
+agent_chat(
+  to_agent="finance_bot",
+  text="[Agent scheduler_bot requesting] User explicitly asked to consult finance_bot. 请回答当前待处理的财务任务。",
+)
 ```
 
 ### 新对话
 
-```bash
-copaw agents chat \
-  --from-agent scheduler_bot \
-  --to-agent finance_bot \
-  --text-file ./todo_request.txt
+```text
+agent_chat(
+  to_agent="finance_bot",
+  text="[Agent scheduler_bot requesting] 今天有哪些待处理的财务任务？",
+)
 ```
 
 ### 续聊
 
-```bash
-copaw agents chat \
-  --from-agent scheduler_bot \
-  --to-agent finance_bot \
-  --session-id "scheduler_bot:to:finance_bot:1710912345:a1b2c3d4" \
-  --text-file ./follow_up.txt
+```text
+agent_chat(
+  to_agent="finance_bot",
+  text="[Agent scheduler_bot requesting] 展开第2项",
+  session_id="scheduler_bot:to:finance_bot:1710912345:a1b2c3d4",
+)
 ```
 
 ---
@@ -216,8 +217,8 @@ copaw agents chat \
 
 不要猜 agent ID，先执行：
 
-```bash
-copaw agents list
+```text
+list_agents()
 ```
 
 ### 错误 2：想续聊但没传 session-id
@@ -236,9 +237,16 @@ copaw agents list
 
 ```bash
 copaw chats list --agent-id <your_agent>
+
+### 人工调试时查看 agent 列表
+
+```bash
+copaw agents list
 ```
 
-### 流式输出
+### CLI 调试用法
+
+当你需要人工调试或手动验证接口时，仍可使用 CLI：
 
 ```bash
 copaw agents chat \
@@ -270,6 +278,8 @@ copaw agents chat \
 **无必填参数**，直接运行即可。
 
 ### copaw agents chat
+
+这是人工调试入口；agent 默认不应通过 shell 调它。
 
 **必填参数**（实时模式）：
 - `--from-agent`：发起方agent ID
@@ -310,7 +320,7 @@ copaw agents chat \
 
 ### 后台任务示例
 
-#### 提交复杂任务
+#### 提交复杂任务（CLI 调试）
 
 ```bash
 copaw agents chat --background \

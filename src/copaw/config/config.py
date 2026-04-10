@@ -890,11 +890,11 @@ class BuiltinToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
     description: str = Field(default="", description="Tool description")
     display_to_user: bool = Field(
-        True,
+        default=True,
         description="Whether tool output is rendered to user channels",
     )
     async_execution: bool = Field(
-        False,
+        default=False,
         description="Whether to execute the tool asynchronously in background",
     )
     icon: str | None = Field(
@@ -991,6 +991,19 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Get llm token usage",
             icon="📊",
+        ),
+        "agent_chat": BuiltinToolConfig(
+            name="agent_chat",
+            enabled=True,
+            description="Communicate directly with another agent",
+            icon="🤝",
+            # async_execution=True,
+        ),
+        "list_agents": BuiltinToolConfig(
+            name="list_agents",
+            enabled=True,
+            description="Discover available agents and their IDs",
+            icon="🧭",
         ),
     }
 

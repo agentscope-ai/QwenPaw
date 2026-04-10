@@ -292,7 +292,7 @@ copaw channels send \
 
 > 对应技能：**Multi-Agent Collaboration（多智能体协作）**
 
-智能体通过启用 **multi_agent_collaboration** 技能，可以在需要时自动使用 `copaw agents chat` 与其他智能体协作。
+智能体通过启用 **multi_agent_collaboration** 技能，可以在需要时自动先使用内置 `list_agents` 工具发现目标，再通过内置 `agent_chat` 工具与其他智能体协作；`copaw agents chat` 主要用于人工调试和手动调用。
 
 **别名：** 可以用 `copaw agent`（单数）作为 `copaw agents` 的简写。
 
@@ -300,6 +300,8 @@ copaw channels send \
 | ------------------- | ------------------------------------------------ |
 | `copaw agents list` | 列出所有已配置的智能体（ID、名称、描述、工作区） |
 | `copaw agents chat` | 与另一个智能体通信（双向，支持多轮对话）         |
+
+**说明：** 上述 CLI 面向人工终端使用；agent 在运行时默认应调用内置 `list_agents` 与 `agent_chat` 工具，而不是通过 shell 转调 CLI。
 
 ```bash
 # 列出所有智能体

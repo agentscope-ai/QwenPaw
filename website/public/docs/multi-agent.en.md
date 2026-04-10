@@ -500,6 +500,8 @@ Profile: [Auto-generated detailed capability description]
 
 Agents reference both **Description** and **Profile** when deciding which agent to collaborate with.
 
+> **Default approach**: running agents should prefer the built-in `list_agents` tool to discover targets and the built-in `agent_chat` tool for collaboration. The `copaw agents chat` examples below are mainly for manual debugging or terminal-based validation.
+
 #### Communicate with Other Agents
 
 ```bash
@@ -550,7 +552,6 @@ When tasks are complex (e.g., data analysis, batch processing, report generation
 - Complex tasks with uncertain execution time
 
 > **Recommendation**: Prefer `--text-file` by default for longer prompts, especially when content includes quotes, newlines, JSON, or code blocks.
-
 > **Note**: These commands are executed automatically by agents; users typically don't need to call them manually. See [CLI - Agents](./cli#agents) for details.
 
 ### Agent Management CLI

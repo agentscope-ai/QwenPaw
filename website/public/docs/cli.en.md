@@ -302,7 +302,7 @@ Manage agents and enable inter-agent communication.
 
 > Corresponding skill: **Multi-Agent Collaboration**
 
-When agents have the **multi_agent_collaboration** skill enabled, they can automatically use `copaw agents chat` to collaborate with other agents as needed.
+When agents have the **multi_agent_collaboration** skill enabled, they can first use the built-in `list_agents` tool to discover targets and then use the built-in `agent_chat` tool to collaborate with other agents as needed. `copaw agents chat` is mainly the human-facing CLI/debug entrypoint.
 
 **Alias:** You can use `copaw agent` (singular) as a shorthand for `copaw agents`.
 
@@ -310,6 +310,8 @@ When agents have the **multi_agent_collaboration** skill enabled, they can autom
 | ------------------- | ---------------------------------------------------------------------------- |
 | `copaw agents list` | List all configured agents with their IDs, names, descriptions, workspaces   |
 | `copaw agents chat` | Communicate with another agent (bidirectional, supports multi-turn dialogue) |
+
+**Note:** The CLI examples below are for manual terminal use. Runtime agents should prefer the built-in `list_agents` and `agent_chat` tools instead of shelling out to the CLI.
 
 ```bash
 # List all agents
