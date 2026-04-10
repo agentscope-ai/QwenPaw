@@ -1287,30 +1287,50 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
         # 2. Migrate stored provider config file
         copaw_config_path = self.builtin_path / "copaw-local.json"
+        # pylint: disable=too-many-nested-blocks
         if copaw_config_path.exists():
             try:
+                # Load old config and apply to new provider instance
                 with open(copaw_config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                # Update provider ID in config
-                if config.get("id") == "copaw-local":
-                    config["id"] = "qwenpaw-local"
-                    config["name"] = "QwenPaw Local"
-                # Migrate model IDs in extra_models
-                if "extra_models" in config:
-                    for model in config["extra_models"]:
-                        if model.get("id") in self._COPAW_TO_QWENPAW_MODELS:
-                            old_id = model["id"]
-                            model["id"] = self._COPAW_TO_QWENPAW_MODELS[old_id]
-                            model["name"] = model["id"].split("/")[-1]
-                            logger.info(
-                                "Migrated extra_model from %s to %s",
-                                old_id,
-                                model["id"],
+                    old_config = json.load(f)
+
+                # Get the new built-in provider instance
+                provider = self.builtin_providers.get("qwenpaw-local")
+                if provider:
+                    # Apply migrated configuration
+                    if "extra_models" in old_config:
+                        extra_models = []
+                        for model in old_config["extra_models"]:
+                            model_id = model.get("id", "")
+                            # Migrate model ID if it's a legacy CoPaw model
+                            if model_id in self._COPAW_TO_QWENPAW_MODELS:
+                                old_id = model_id
+                                model_id = self._COPAW_TO_QWENPAW_MODELS[
+                                    old_id
+                                ]
+                                logger.info(
+                                    "Migrated extra_model from %s to %s",
+                                    old_id,
+                                    model_id,
+                                )
+                            extra_models.append(
+                                ModelInfo(
+                                    id=model_id,
+                                    name=model.get("name", model_id),
+                                ),
                             )
-                # Save as new provider config
-                qwenpaw_config_path = self.builtin_path / "qwenpaw-local.json"
-                with open(qwenpaw_config_path, "w", encoding="utf-8") as f:
-                    json.dump(config, f, ensure_ascii=False, indent=2)
+                        provider.extra_models = extra_models
+
+                    if "base_url" in old_config:
+                        provider.base_url = old_config["base_url"]
+                    if "generate_kwargs" in old_config:
+                        provider.generate_kwargs = old_config[
+                            "generate_kwargs"
+                        ]
+
+                    # Save using standard persistence logic (with encryption)
+                    self._save_provider(provider, is_builtin=True)
+
                 # Remove old config file
                 copaw_config_path.unlink()
                 logger.info(
