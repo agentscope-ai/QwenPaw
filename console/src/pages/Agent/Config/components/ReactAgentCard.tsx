@@ -1,4 +1,4 @@
-import { Form, InputNumber, Select, Card, Alert } from "@agentscope-ai/design";
+import { Form, InputNumber, Select, Card, Alert, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
@@ -128,6 +128,15 @@ export function ReactAgentCard({
           step={1024}
           placeholder={t("agentConfig.maxContextLengthPlaceholder")}
         />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.enablePlanNotebook")}
+        name="enable_plan_notebook"
+        valuePropName="checked"
+        tooltip={t("agentConfig.enablePlanNotebookTooltip")}
+      >
+        <Switch />
       </Form.Item>
     </Card>
   );

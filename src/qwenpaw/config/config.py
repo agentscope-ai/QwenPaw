@@ -590,6 +590,14 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    enable_plan_notebook: bool = Field(
+        default=False,
+        description=(
+            "Enable AgentScope PlanNotebook for task planning (experimental). "
+            "When enabled, the agent can break complex tasks into subtasks."
+        ),
+    )
+
     @property
     def memory_compact_reserve(self) -> int:
         """Memory compact reserve size (tokens)."""

@@ -1004,7 +1004,9 @@
     "embeddingEnableHint": "Base URLとモデル名を両方入力すると埋め込み機能が有効になります。APIキーは必要に応じて入力してください",
     "rebuildMemoryIndexOnStart": "起動時に記憶インデックスを再構築",
     "rebuildMemoryIndexOnStartTooltip": "エージェント起動時に記憶検索インデックスをクリアして再構築します。無効にすると再インデックス化をスキップし、新しいファイルの変更のみを監視します（起動が速くなりますが、インデックスが同期しなくなる可能性があります）",
-    "toolResultCompactRecentGtOld": "最新メッセージの閾値は古いメッセージの閾値以上である必要があります"
+    "toolResultCompactRecentGtOld": "最新メッセージの閾値は古いメッセージの閾値以上である必要があります",
+    "enablePlanNotebook": "計画機能を有効化 (ベータ)",
+    "enablePlanNotebookTooltip": "有効にすると、エージェントは複雑なタスクをサブタスクに分割し、計画に従って実行できます（実験機能）"
   },
   "tools": {
     "title": "ビルトインツール",

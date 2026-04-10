@@ -1040,7 +1040,9 @@
     "embeddingEnableHint": "同时填写 Base URL 和模型名称后即可启用向量模型功能，API Key 按需填写",
     "rebuildMemoryIndexOnStart": "启动时重建记忆索引",
     "rebuildMemoryIndexOnStartTooltip": "智能体启动时清空并重建记忆搜索索引。关闭后跳过重新索引，仅监听新文件变化（启动更快，但索引可能与文件不同步）",
-    "toolResultCompactRecentGtOld": "最新消息阈值必须大于或等于早期消息阈值"
+    "toolResultCompactRecentGtOld": "最新消息阈值必须大于或等于早期消息阈值",
+    "enablePlanNotebook": "开启计划功能 (测试)",
+    "enablePlanNotebookTooltip": "启用后，智能体在处理复杂任务时可以自动拆解为子任务并按计划执行（测试功能）"
   },
   "tools": {
     "title": "内置工具",
