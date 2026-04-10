@@ -58,28 +58,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-[2026-04-09] We released v1.0.2! See the [v1.0.2 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-- **[v1.0.2] Added:** Plugin system support; run `qwenpaw task` without the web UI; use `/model` in chat to switch models; SiliconFlow provider; QwenPaw Local multimodal support and richer console settings; sensitive credential encryption; `/skills` and `/<skill name>` commands to list and run skills; skill-pool tags.
-- **[v1.0.2] Changed:** Timezone names follow the UI language; settings pages load on demand; smoother interaction for large skill lists; localized provider connection-test prompts; more consistent error codes across chat channels, HTTP API, and CLI.
-- **[v1.0.2] Fixed:** MCP client CPU usage after close/reconnect; browser automation duplicate-element targeting and docs; shell tool newlines inside quotes.
-- **[v1.0.2] Contributors:** Thanks to new contributors: [@energyd](https://github.com/energyd), [@fengrui-z](https://github.com/fengrui-z), [@alostbear](https://github.com/alostbear), [@chr6192](https://github.com/chr6192), [@yyyzl](https://github.com/yyyzl).
-
-[2026-04-04] We released v1.0.1! See the [v1.0.1 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-- **[v1.0.1] Added:** Zhipu AI model support; video analysis for multimodal models; per-model generate parameters configuration; QwenPaw local provider auto-update mechanism; OneBot v11 channel for NapCat/QQ; Agent drag-and-drop ordering; Batch skill operations; WeChat file upload and typing improvements; Extra instructions for manual compact.
-- **[v1.0.1] Changed:** Website UI modernization; enhanced skill card and list view; MCP console UI refresh.
-- **[v1.0.1] Fixed:** DingTalk sessionWebhook and allowlist handling; WeCom WebSocket reliability; QQ reconnect state; console UI fixes; Windows tool compatibility; browser idle watchdog; tool guard with thinking models; llama.cpp Windows NVIDIA GPU support.
-- **[v1.0.1] Documentation:** QwenPaw-Flash deployment FAQ; skill documentation updates.
-- **[v1.0.1] Contributors:** Thanks to new contributors: [@Jacky51351684](https://github.com/Jacky51351684), [@xianzhisheng](https://github.com/xianzhisheng), [@kobewl](https://github.com/kobewl), [@rikey123](https://github.com/rikey123), [@solarhell](https://github.com/solarhell).
-
-[2026-03-30] We released v1.0.0! See the [v1.0.0 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-[2026-03-24] We released v0.2.0! See the [v0.2.0 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-[2026-03-18] We released v0.1.0! See the [v0.1.0 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-[2026-03-12] We released v0.0.7! See the [v0.0.7 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
+[2026-04-10] **CoPaw is now QwenPaw.** Same vision, same community, new name. As we move into the next phase, CoPaw is officially rebranding to QwenPaw. This update better reflects the ecosystem and long-term direction we're building toward.
 
 ---
 

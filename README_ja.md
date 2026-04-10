@@ -58,40 +58,7 @@
 
 ## ニュース
 
-[2026-04-09] v1.0.2 をリリースしました。詳細は [v1.0.2 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)をご覧ください。
-
-- **[v1.0.2] 追加:** プラグイン対応; Web UI なしで `qwenpaw task` を実行; チャットで `/model` によりモデル切り替え; SiliconFlow プロバイダー; QwenPaw Local のマルチモーダル対応とコンソール設定の拡充; 機微な認証情報の暗号化; `/skills` と `/<スキル名>` でスキル一覧と実行指定; スキルプールのタグ。
-- **[v1.0.2] 変更:** タイムゾーン名が UI 言語に追随; 設定画面のオンデマンド読み込み; 大規模スキルリストの操作がより滑らかに; プロバイダー接続テストの文言をローカライズ; 各チャットチャネル・HTTP API・CLI でエラーコードをより統一。
-- **[v1.0.2] 修正:** MCP クライアント切断・再接続後の CPU 異常; 重複要素がある DOM でのブラウザ自動化とドキュメント; シェルツールで引用符内の改行を保持。
-- **[v1.0.2] 貢献者:** 新規貢献者のみなさまに感謝します: [@energyd](https://github.com/energyd)、[@fengrui-z](https://github.com/fengrui-z)、[@alostbear](https://github.com/alostbear)、[@chr6192](https://github.com/chr6192)、[@yyyzl](https://github.com/yyyzl)。
-
-[2026-04-04] v1.0.1をリリースしました！詳細は [v1.0.1 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
-
-- **[v1.0.1] 追加:** Zhipu AI モデルサポート; マルチモーダルモデルの動画分析; モデルごとの生成パラメータ設定; QwenPaw Local 自動更新; OneBot v11 チャネル（NapCat/QQ）; エージェントドラッグ&ドロップ並び替え; スキル一括操作; WeChat ファイルアップロードと入力中表示改善; 手動コンパクトの追加指示。
-- **[v1.0.1] 変更:** Web サイト UI 刷新; スキルカードとリスト表示の強化; MCP コンソール UI 改善。
-- **[v1.0.1] 修正:** DingTalk sessionWebhook と許可リスト処理; WeCom WebSocket 信頼性; QQ 再接続状態; コンソール UI 修正; Windows ツール互換性; ブラウザアイドルウォッチドッグ; シンキングモデルでのツールガード; llama.cpp Windows NVIDIA GPU サポート。
-- **[v1.0.1] ドキュメント:** QwenPaw-Flash 展開 FAQ; スキルドキュメント更新。
-- **[v1.0.1] 貢献者:** 新規貢献者の皆さんに感謝します: [@Jacky51351684](https://github.com/Jacky51351684)、[@xianzhisheng](https://github.com/xianzhisheng)、[@kobewl](https://github.com/kobewl)、[@rikey123](https://github.com/rikey123)、[@solarhell](https://github.com/solarhell)。
-
-[2026-03-30] v1.0.0をリリースしました！詳細は [v1.0.0 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
-
-- **[v1.0.0] 追加:**
-  - **マルチエージェントシステム**: CLI `--background` フラグによるバックグラウンドタスクサポートとタスク追跡; コンソールと API によるエージェントの有効化/無効化トグル; タスクキャンセル用の `/stop` コマンド付き統一優先度キューシステム
-  - **プロバイダーとモデル**: llama.cpp を使用した QwenPaw ローカルモデルプロバイダー; QPM スライディングウィンドウによるグローバル LLM レートリミッター
-  - **セキュリティ**: システム再起動・サービス制御保護用のツールガードルール; スキルスキャナーでの中国語プロンプトインジェクション検出
-  - **コンソールと UI**: ミラーサイト付きデスクトップインストーラー用ダウンロードページ; コンソールチャットでのマルチモーダルプレビュー（画像、音声、動画、ファイル）
-  - **チャネル**: WeChat iLink Bot チャネル; Webhook 用カスタムチャネル HTTP ルート
-  - **ツールとスキル**: バックグラウンドタスクヘルパー付き非同期ツール実行; 2 層スキルプールアーキテクチャ; Chrome 自動化用ブラウザ CDP サポート
-- **[v1.0.0] 変更:** ネスト化された設定モデル、新しいコンパクション フック、ツール結果のコンパクション、プロアクティブメモリ検索を含むコンテキスト管理 v2.0; トランケーションロジックの改善; ストリーミング grep 検索。
-- **[v1.0.0] 修正:** Feishu WebSocket 再接続とマルチインスタンス メッセージルーティング; Discord 重複メッセージ; QQ ボイスメッセージ変換; マルチエージェント モデル設定; クロスプラットフォーム ファイルエンコーディング。
-- **[v1.0.0] ドキュメント:** マルチエージェント、インストール・CLI、モデルプロバイダー、プロジェクト構造ガイドライン、コンテキスト管理、セキュリティ、MCP・ツール、スキル、マジックコマンドなど包括的なドキュメント更新。
-- **[v1.0.0] 貢献者:** 新規貢献者の皆さんに感謝します: [@qzcpl](https://github.com/qzcpl)、[@livehl](https://github.com/livehl)、[@carlos999-hqsama](https://github.com/carlos999-hqsama)、[@bowenliang123](https://github.com/bowenliang123)、[@jinglinpeng](https://github.com/jinglinpeng)。
-
-[2026-03-24] v0.2.0をリリースしました！詳細は [v0.2.0 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
-
-[2026-03-18] v0.1.0をリリースしました！詳細は [v0.1.0 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
-
-[2026-03-12] v0.0.7をリリースしました！詳細は [v0.0.7 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
+[2026-04-10] **CoPaw は正式に QwenPaw へ改名しました。** ブランド名の刷新であり、次のステージへ踏み出す重要な一歩です。新しい名前は、私たちが構築しているエコシステムと、持続的に推進している全体的な方向性をより的確に体現しています。
 
 ---
 

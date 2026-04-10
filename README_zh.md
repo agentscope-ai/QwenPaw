@@ -58,40 +58,7 @@
 
 ## 新闻
 
-[2026-04-09] 我们发布了 v1.0.2！完整更新说明见 [v1.0.2 发布说明](https://agentscope-ai.github.io/QwenPaw/release-notes)。
-
-- **[v1.0.2] 新增：** 插件系统支持；无需 Web 界面运行 `qwenpaw task`；在对话中使用 `/model`切换模型；SiliconFlow 模型供应商；QwenPaw Local 多模态能力与更丰富的控制台配置；敏感凭据加密；`/skills` 与 `/<技能名>`命令指定技能执行；技能池标签。
-- **[v1.0.2] 优化：** 时区名称随界面语言展示；设置页按需加载；大型技能列表交互更顺滑；提供商连通性测试提示已本地化；各聊天通道、HTTP API 与 CLI 的错误码更加统一。
-- **[v1.0.2] 修复：** MCP 客户端在关闭或重连后异常占用 CPU；浏览器自动化在重复 DOM 下的定位与相关文档；Shell 工具在引号内保留换行。
-- **[v1.0.2] 贡献者：** 感谢新贡献者：[@energyd](https://github.com/energyd)、[@fengrui-z](https://github.com/fengrui-z)、[@alostbear](https://github.com/alostbear)、[@chr6192](https://github.com/chr6192)、[@yyyzl](https://github.com/yyyzl)。
-
-[2026-04-04] 我们发布了 v1.0.1！完整更新说明见 [v1.0.1 发布说明](https://agentscope-ai.github.io/QwenPaw/release-notes)。
-
-- **[v1.0.1] 新增：** 智谱 AI 模型支持；多模态模型视频分析；模型参数配置；QwenPaw本地模型提供商自动更新；OneBot v11 频道（NapCat/QQ）；智能体拖拽排序；技能批量操作；微信文件上传与输入中提示优化；记忆压缩额外指令。
-- **[v1.0.1] 优化：** 官网界面焕新；技能卡片与列表视图；MCP 控制台优化。
-- **[v1.0.1] 修复：** 钉钉 sessionWebhook 和白名单处理；企业微信 WebSocket 可靠性；QQ 重连状态；控制台 UI 修复；Windows 工具兼容性；浏览器空闲看门狗；思考模型工具防护；llama.cpp Windows NVIDIA GPU 支持。
-- **[v1.0.1] 文档：** QwenPaw-Flash 部署 FAQ；技能文档更新。
-- **[v1.0.1] 贡献者：** 感谢新贡献者：[@Jacky51351684](https://github.com/Jacky51351684)、[@xianzhisheng](https://github.com/xianzhisheng)、[@kobewl](https://github.com/kobewl)、[@rikey123](https://github.com/rikey123)、[@solarhell](https://github.com/solarhell)。
-
-[2026-03-30] 我们发布了 v1.0.0！完整更新说明见 [v1.0.0 发布说明](https://agentscope-ai.github.io/QwenPaw/release-notes)。
-
-- **[v1.0.0] 新增：**
-  - **多 Agent 系统**：支持通过 CLI `--background` 标志执行后台任务并追踪；通过控制台和 API 启用/禁用 Agent；统一优先级队列系统（含 `/stop` 命令用于任务取消）
-  - **模型供应商**：QwenPaw 本地模型供应商（基于 llama.cpp）；全局 LLM 流控器（QPM 滑动窗口）
-  - **安全**：工具守卫规则（保护系统重启与服务控制）；技能扫描器中的中文提示词注入检测
-  - **控制台与界面**：下载页面（提供桌面安装包及镜像站点）；控制台聊天中的多模态预览（图片、音频、视频、文件）
-  - **频道**：微信 iLink Bot 频道；自定义频道 HTTP 路由（用于 Webhook）
-  - **工具与技能**：异步工具执行（含后台任务辅助工具）；双层技能池架构；浏览器 CDP 支持（Chrome 自动化）
-- **[v1.0.0] 变更：** 上下文管理 v2.0（包含嵌套配置模型、新增压缩钩子、工具结果压缩和主动记忆搜索）；优化截断逻辑；流式 Grep 搜索。
-- **[v1.0.0] 修复：** 飞书 WebSocket 重连和多实例消息路由；Discord 重复消息；QQ 语音消息转换；多 Agent 模型配置；跨平台文件编码。
-- **[v1.0.0] 文档：** 全面更新文档，包括多 Agent、安装与 CLI、模型供应商、项目结构指南、上下文管理、安全、MCP 与工具、技能和魔法命令。
-- **[v1.0.0] 贡献者：** 感谢新贡献者：[@qzcpl](https://github.com/qzcpl)、[@livehl](https://github.com/livehl)、[@carlos999-hqsama](https://github.com/carlos999-hqsama)、[@bowenliang123](https://github.com/bowenliang123)、[@jinglinpeng](https://github.com/jinglinpeng)。
-
-[2026-03-24] 我们发布了 v0.2.0！完整更新说明见 [v0.2.0 发布说明](https://agentscope-ai.github.io/QwenPaw/release-notes)。
-
-[2026-03-18] 我们发布了 v0.1.0！完整更新说明见 [v0.1.0 发布说明](https://agentscope-ai.github.io/QwenPaw/release-notes)。
-
-[2026-03-12] 我们发布了 v0.0.7！完整更新说明见 [v0.0.7 发布说明](https://agentscope-ai.github.io/QwenPaw/release-notes)。
+[2026-04-10] **CoPaw 正式更名为 QwenPaw。** 这是一次品牌名称焕新，也是我们迈向下一阶段的重要一步。新的名字，更好地体现了我们正在构建的生态，以及我们持续推进的整体方向。
 
 ---
 
