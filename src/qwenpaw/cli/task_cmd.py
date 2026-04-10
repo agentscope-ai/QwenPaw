@@ -94,7 +94,7 @@ async def _run_task(
     skills_dir: str | None = None,
 ) -> dict:
     from agentscope.message import Msg
-    from ..agents.react_agent import CoPawAgent
+    from ..agents.react_agent import QwenPawAgent
 
     agent_config.running.max_iters = max_iters
 
@@ -103,7 +103,7 @@ async def _run_task(
         base_workspace = Path(agent_config.workspace_dir).expanduser()
 
     with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
-        agent = CoPawAgent(
+        agent = QwenPawAgent(
             agent_config=agent_config,
             enable_memory_manager=False,
             request_context=request_context,
