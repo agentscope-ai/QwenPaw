@@ -5,7 +5,7 @@ import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
 
 function getSelectedAgentId(): string {
   try {
-    const agentStorage = sessionStorage.getItem("qwenpaw-agent-storage");
+    const agentStorage = sessionStorage.getItem("copaw-agent-storage");
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;
@@ -28,7 +28,7 @@ function generateFallbackFilename(): string {
     .replace(/\..+/, "")
     .replace("T", "_")
     .slice(0, 15); // YYYYMMDD_HHMMSS
-  return `qwenpaw_workspace_${agentId}_${timestamp}.zip`;
+  return `copaw_workspace_${agentId}_${timestamp}.zip`;
 }
 
 export interface WorkspaceDownloadResult {

@@ -14,7 +14,7 @@ export const ProviderCard = React.memo(function ProviderCard({
   activeModels,
   onSaved,
 }: ProviderCardProps) {
-  if (provider.id === "qwenpaw-local") {
+  if (provider.id === "copaw-local") {
     return <LocalProviderCard provider={provider} onSaved={onSaved} />;
   }
 

@@ -4,10 +4,10 @@ const defaultConfig = {
   theme: {
     colorPrimary: "#FF7F16",
     darkMode: false,
-    prefix: "qwenpaw",
+    prefix: "copaw",
     leftHeader: {
       logo: "",
-      title: "Work with QwenPaw",
+      title: "Work with CoPaw",
     },
   },
   sender: {
@@ -19,7 +19,7 @@ const defaultConfig = {
     greeting: "Hello, how can I help you today?",
     description:
       "I am a helpful assistant that can help you with your questions.",
-    avatar: `${import.meta.env.BASE_URL}qwenpaw-symbol.svg`,
+    avatar: `${import.meta.env.BASE_URL}copaw-symbol.svg`,
     prompts: [
       {
         value: "Let's start a new journey!",

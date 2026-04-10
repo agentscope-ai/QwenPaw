@@ -142,7 +142,7 @@ export function AgentModal({
           help={!editingAgent ? t("agent.workspaceHelp") : undefined}
         >
           <Input
-            placeholder="~/.qwenpaw/workspaces/my-agent"
+            placeholder="~/.copaw/workspaces/my-agent"
             disabled={!!editingAgent}
           />
         </Form.Item>

@@ -104,8 +104,8 @@
 
     :global {
       /* Center icon in collapsed menu items */
-      .qwenpaw-menu-item,
-      .qwenpaw-menu-submenu .qwenpaw-menu-item {
+      .copaw-menu-item,
+      .copaw-menu-submenu .copaw-menu-item {
         padding-left: 0 !important;
         padding-right: 0 !important;
         display: flex !important;
@@ -114,27 +114,27 @@
       }
 
       /* Hide label text in collapsed mode */
-      .qwenpaw-menu-title-content,
-      .qwenpaw-menu-item > span:not([role]),
-      .qwenpaw-menu-item-only-child > span {
+      .copaw-menu-title-content,
+      .copaw-menu-item > span:not([role]),
+      .copaw-menu-item-only-child > span {
         display: none !important;
       }
 
       /* Hide group labels */
-      .qwenpaw-menu-submenu-title {
+      .copaw-menu-submenu-title {
         display: none !important;
       }
     }
   }
 
   :global {
-    .qwenpaw-menu {
+    .copaw-menu {
       background: #f9f8f4 !important;
       border-inline-end: 0 !important;
     }
 
     /* Group title (一级菜单分组) */
-    .qwenpaw-menu-submenu-title {
+    .copaw-menu-submenu-title {
       font-family: "PingFang SC", sans-serif !important;
       font-size: 12px !important;
       font-weight: 500 !important;
@@ -151,43 +151,43 @@
     }
 
     /* Hide submenu arrow */
-    .qwenpaw-menu-submenu-arrow {
+    .copaw-menu-submenu-arrow {
       display: none !important;
     }
 
     /* Always expand submenus */
-    .qwenpaw-menu-submenu {
-      > .qwenpaw-menu {
+    .copaw-menu-submenu {
+      > .copaw-menu {
         display: block !important;
       }
     }
 
     /* Menu item padding - align all items */
-    .qwenpaw-menu-item {
+    .copaw-menu-item {
       padding-left: 8px !important;
     }
 
     /* Remove submenu indent - align with parent */
-    .qwenpaw-menu-submenu .qwenpaw-menu-item {
+    .copaw-menu-submenu .copaw-menu-item {
       padding-left: 8px !important;
     }
 
     /* Selected item */
-    .qwenpaw-menu-item-selected {
+    .copaw-menu-item-selected {
       background: rgba(43, 18, 0, 0.08) !important;
       color: inherit !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
 
-      .qwenpaw-menu-title-content {
+      .copaw-menu-title-content {
         display: flex !important;
         align-items: center !important;
       }
     }
 
     /* Selected submenu item - keep text color unchanged */
-    .qwenpaw-menu-submenu .qwenpaw-menu-item-selected {
+    .copaw-menu-submenu .copaw-menu-item-selected {
       color: inherit !important;
     }
   }
@@ -203,13 +203,13 @@
   }
 
   :global {
-    .qwenpaw-menu {
+    .copaw-menu {
       background: #1a1a1a !important;
       border-inline-end: 0 !important;
     }
 
     /* Group title (sub-menu label) */
-    .qwenpaw-menu-submenu-title {
+    .copaw-menu-submenu-title {
       color: rgba(255, 255, 255, 0.45) !important;
 
       /* No hover effect for group titles in dark mode */
@@ -220,18 +220,18 @@
     }
 
     /* Regular menu item */
-    .qwenpaw-menu-item {
+    .copaw-menu-item {
       color: rgba(255, 255, 255, 0.75) !important;
     }
 
     /* Hover state - only for menu items, not group titles */
-    .qwenpaw-menu-item:hover {
+    .copaw-menu-item:hover {
       background: rgba(255, 255, 255, 0.1) !important;
       color: rgba(255, 255, 255, 0.95) !important;
     }
 
     /* Selected item */
-    .qwenpaw-menu-item-selected {
+    .copaw-menu-item-selected {
       background: rgba(255, 127, 22, 0.5) !important;
       color: #ff7f16 !important;
     }
@@ -379,7 +379,7 @@
 
 // ─── Update Modal ─────────────────────────────────────────────────────────────
 .updateModal {
-  :global(.qwenpaw-modal-content) {
+  :global(.copaw-modal-content) {
     padding: 0 !important;
     border-radius: 12px !important;
     overflow: visible !important;
@@ -387,20 +387,20 @@
     border: none !important;
   }
 
-  :global(.qwenpaw-modal-body) {
+  :global(.copaw-modal-body) {
     padding: 0 !important;
   }
 
-  :global(.qwenpaw-modal-footer) {
+  :global(.copaw-modal-footer) {
     padding: 12px 24px;
     margin-top: 0;
   }
 
-  :global(.qwenpaw-modal-header) {
+  :global(.copaw-modal-header) {
     display: none !important;
   }
 
-  :global(.qwenpaw-modal-close) {
+  :global(.copaw-modal-close) {
     display: none !important;
   }
 }
@@ -540,7 +540,7 @@
     color: rgba(255, 255, 255, 0.85);
 
     /* Text buttons (Docs / FAQ / GitHub / Changelog) */
-    :global(.qwenpaw-btn-text),
+    :global(.copaw-btn-text),
     :global(.ant-btn-text) {
       color: rgba(255, 255, 255, 0.75) !important;
 
