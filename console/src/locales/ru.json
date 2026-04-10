@@ -50,7 +50,29 @@
     "security": "Безопасность",
     "tokenUsage": "Использование токенов",
     "voiceTranscription": "Транскрипция голоса",
-    "agents": "Управление агентами"
+    "agents": "Управление агентами",
+    "debug": "Отладка"
+  },
+  "debug": {
+    "title": "Отладка",
+    "desc": "Просмотр файла логов backend-демона CoPaw для диагностики. Пока открыта эта страница, логи обновляются автоматически.",
+    "level": { "all": "Все" },
+    "backend": {
+      "title": "Backend-логи",
+      "autoRefresh": "Автообновление",
+      "newestFirst": "Сначала новые",
+      "updatedAt": "Обновлено",
+      "path": "Файл лога",
+      "notFound": "Файл backend-логов пока не найден.",
+      "placeholder": "Здесь появится вывод backend-логов.",
+      "loadFailed": "Не удалось загрузить backend-логи",
+      "searchPlaceholder": "Поиск по backend-логам..."
+    },
+    "actions": {
+      "refreshBackend": "Обновить backend-логи",
+      "refreshSuccess": "Логи обновлены",
+      "copyBackend": "Копировать backend-логи"
+    }
   },
   "agent": {
     "parent": "Настройки",

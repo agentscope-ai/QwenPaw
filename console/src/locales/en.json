@@ -53,7 +53,29 @@
     "environments": "Environments",
     "security": "Security",
     "tokenUsage": "Token Usage",
-    "voiceTranscription": "Voice Transcription"
+    "voiceTranscription": "Voice Transcription",
+    "debug": "Debug"
+  },
+  "debug": {
+    "title": "Debug",
+    "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
+    "level": { "all": "All" },
+    "backend": {
+      "title": "Backend logs",
+      "autoRefresh": "Auto refresh",
+      "newestFirst": "Newest first",
+      "updatedAt": "Updated at",
+      "path": "Log file",
+      "notFound": "Backend log file was not found yet.",
+      "placeholder": "Backend log output will appear here.",
+      "loadFailed": "Failed to load backend logs",
+      "searchPlaceholder": "Search backend logs..."
+    },
+    "actions": {
+      "refreshBackend": "Refresh backend logs",
+      "refreshSuccess": "Logs refreshed",
+      "copyBackend": "Copy backend logs"
+    }
   },
   "voiceTranscription": {
     "title": "Voice Transcription",

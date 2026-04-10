@@ -50,7 +50,29 @@
     "tokenUsage": "トークン使用量",
     "tools": "ツール",
     "voiceTranscription": "音声文字起こし",
-    "agents": "エージェント管理"
+    "agents": "エージェント管理",
+    "debug": "デバッグ"
+  },
+  "debug": {
+    "title": "デバッグ",
+    "desc": "CoPaw バックエンドのデーモンログを表示し、問題の調査に役立てます。このページを開いている間は自動で更新されます。",
+    "level": { "all": "すべて" },
+    "backend": {
+      "title": "バックエンドログ",
+      "autoRefresh": "自動更新",
+      "newestFirst": "新しい順",
+      "updatedAt": "更新時刻",
+      "path": "ログファイル",
+      "notFound": "バックエンドログファイルはまだ見つかっていません。",
+      "placeholder": "バックエンドログがここに表示されます。",
+      "loadFailed": "バックエンドログの読み込みに失敗しました",
+      "searchPlaceholder": "バックエンドログを検索..."
+    },
+    "actions": {
+      "refreshBackend": "バックエンドログを更新",
+      "refreshSuccess": "ログを更新しました",
+      "copyBackend": "バックエンドログをコピー"
+    }
   },
   "agent": {
     "parent": "設定",
