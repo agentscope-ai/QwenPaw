@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Memory management module for CoPaw agents."""
+"""Memory management module for QwenPaw agents."""
 
 from .agent_md_manager import AgentMdManager
 from .base_memory_manager import BaseMemoryManager
