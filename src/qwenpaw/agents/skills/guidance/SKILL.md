@@ -1,16 +1,16 @@
 ---
 name: guidance
-description: "回答用户关于 CoPaw 安装与配置的问题：优先定位并阅读本地文档，再提炼答案；若本地信息不足，兜底访问官网文档。"
+description: "回答用户关于 QwenPaw 安装与配置的问题：优先定位并阅读本地文档，再提炼答案；若本地信息不足，兜底访问官网文档。"
 metadata:
-  builtin_skill_version: "1.1"
-  copaw:
+  builtin_skill_version: "1.2"
+  qwenpaw:
     emoji: "🧭"
     requires: {}
 ---
 
-# CoPaw 安装与配置问答指南
+# QwenPaw 安装与配置问答指南
 
-当用户询问 **CoPaw 的安装、初始化、环境配置、依赖要求、常见配置项** 时，使用本 skill。
+当用户询问 **QwenPaw 的安装、初始化、环境配置、依赖要求、常见配置项** 时，使用本 skill。
 
 核心原则：
 
@@ -29,49 +29,49 @@ metadata:
 
 ```bash
 # 获取memory中的文档目录
-DOC_DIR=$(find ~/.copaw/memory/ -type d -name "docs")
+DOC_DIR=$(find ~/.qwenpaw/memory/ -type d -name "docs")
 ```
 
 如果 memory 中没有文档目录，则继续执行下面的逻辑。
 
 **检查项目源码中的文档目录**
 
-执行以下脚本逻辑来获取变量 $COPAW_ROOT：
+执行以下脚本逻辑来获取变量 $QWENPAW_ROOT：
 
 ```bash
 # 获取二进制绝对路径
-COP_PATH=$(which copaw 2>/dev/null || whereis copaw | awk '{print $2}')
+COP_PATH=$(which qwenpaw 2>/dev/null || whereis qwenpaw | awk '{print $2}')
 
-# 逻辑推导：如果路径包含 .copaw/bin/copaw，则根目录在其上三层
-# 例如：/path/to/CoPaw/.copaw/bin/copaw -> /path/to/CoPaw
-if [[ "$COP_PATH" == *".copaw/bin/copaw" ]]; then
-    COPAW_ROOT=$(echo "$COP_PATH" | sed 's/\/\.copaw\/bin\/copaw//')
+# 逻辑推导：如果路径包含 .qwenpaw/bin/qwenpaw，则根目录在其上三层
+# 例如：/path/to/QwenPaw/.qwenpaw/bin/qwenpaw -> /path/to/QwenPaw
+if [[ "$COP_PATH" == *".qwenpaw/bin/qwenpaw" ]]; then
+    QWENPAW_ROOT=$(echo "$COP_PATH" | sed 's/\/\.qwenpaw\/bin\/qwenpaw//')
 else
     # 兜底：尝试获取所在目录的父目录
-    COPAW_ROOT=$(dirname $(dirname "$COP_PATH") 2>/dev/null || echo ".")
+    QWENPAW_ROOT=$(dirname $(dirname "$COP_PATH") 2>/dev/null || echo ".")
 fi
 
-echo "Detected CoPaw Root: $COPAW_ROOT"
+echo "Detected QwenPaw Root: $QWENPAW_ROOT"
 ```
 
 验证并列出文档目录：
-使用推导出的 $COPAW_ROOT 定位文档：
+使用推导出的 $QWENPAW_ROOT 定位文档：
 
 ```bash
 # 组合标准文档路径
-="$COPAW_ROOT/website/public/docs/"
+="$QWENPAW_ROOT/website/public/docs/"
 
 # 检查路径是否存在并列出文件
 if [ -d "$DOC_DIR" ]; then
     find "$DOC_DIR" -type f -name "*.md" | head -n 100
 else
     # 如果推导路径不对，执行全局模糊搜索
-    find "$COPAW_ROOT" -type d -name "docs" | grep "website/public/docs"
+    find "$QWENPAW_ROOT" -type d -name "docs" | grep "website/public/docs"
 fi
 ```
 **如果项目文档不存在，搜索工作目录**
 
-如果还是找不到文档，搜索 copaw 安装路径下的可用文档内容：
+如果还是找不到文档，搜索 qwenpaw 安装路径下的可用文档内容：
 
 ```bash
 # 寻找 faq.en.md 或 config.zh.md 等特征文件
@@ -125,7 +125,7 @@ find $DOC_DIR -type f -name "*.md"
 
 若前面步骤无法完成（本地无文档、文档缺失、信息不足），使用官网作为兜底：
 
-- http://copaw.agentscope.io/
+- http://qwenpaw.agentscope.io/
 
 基于官网可获得内容继续回答，并在答案中明确说明该结论来自官网文档。
 

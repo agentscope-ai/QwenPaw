@@ -128,7 +128,7 @@ BUILTIN_QA_AGENT_NAME = "QA Agent"
 # Default skills when the builtin QA workspace is first created only.
 BUILTIN_QA_AGENT_SKILL_NAMES: tuple[str, ...] = (
     "guidance",
-    "copaw_source_index",
+    "QA_source_index",
 )
 
 TOKEN_USAGE_FILE = EnvVarLoader.get_str(

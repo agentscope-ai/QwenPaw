@@ -3,8 +3,8 @@ name: himalaya
 description: "CLI to manage emails via IMAP/SMTP. Use `himalaya` to list, read, write, reply, forward, search, and organize emails from the terminal. Supports multiple accounts and message composition with MML (MIME Meta Language)."
 homepage: https://github.com/pimalaya/himalaya
 metadata:
-  builtin_skill_version: "1.2"
-  copaw:
+  builtin_skill_version: "1.3"
+  qwenpaw:
     emoji: "📧"
     requires:
       bins:
