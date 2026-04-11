@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Switch, Card, Input, Typography, Space, Tag, Tooltip } from "@agentscope-ai/design";
+import { Switch, Card, Input, Tag, Tooltip } from "@agentscope-ai/design";
+import { Typography, Space } from "antd";
 import {
   ClockCircleOutlined,
   InfoCircleOutlined,
@@ -7,7 +8,7 @@ import {
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
-import type { TimeAwarenessConfig } from "../../../../api/types";
+import type { TimeAwarenessConfig } from "../../../../api/modules/timeAwareness";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import styles from "../index.module.less";
 
