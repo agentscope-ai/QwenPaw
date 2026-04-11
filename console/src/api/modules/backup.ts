@@ -44,10 +44,7 @@ export const backupApi = {
 
   listBackups: () => request<BackupListResponse>("/backup/list"),
 
-  exportAssets: (body: {
-    types?: string[];
-    output_path?: string;
-  }) =>
+  exportAssets: (body: { types?: string[]; output_path?: string }) =>
     request<ExportResponse>("/backup/export", {
       method: "POST",
       body: JSON.stringify(body),

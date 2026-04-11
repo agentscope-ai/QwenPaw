@@ -61,10 +61,17 @@ function BackupPage() {
   const [saving, setSaving] = useState(false);
   const [backups, setBackups] = useState<BackupEntry[]>([]);
   const [backupsLoading, setBackupsLoading] = useState(false);
-  const [activeSection, setActiveSection] = useState<"config" | "history" | "transfer">("config");
+  const [activeSection, setActiveSection] = useState<
+    "config" | "history" | "transfer"
+  >("config");
 
   // Export state
-  const [exportTypes, setExportTypes] = useState<string[]>(["preferences", "memories", "skills", "tools"]);
+  const [exportTypes, setExportTypes] = useState<string[]>([
+    "preferences",
+    "memories",
+    "skills",
+    "tools",
+  ]);
   const [exportAgents, setExportAgents] = useState<string[]>([selectedAgent]);
   const [exporting, setExporting] = useState(false);
 
@@ -115,7 +122,11 @@ function BackupPage() {
       message.success(t("backup.configSaved", "Configuration saved"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
-      message.error(err instanceof Error ? err.message : t("backup.configSaveFailed", "Save failed"));
+      message.error(
+        err instanceof Error
+          ? err.message
+          : t("backup.configSaveFailed", "Save failed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -123,7 +134,9 @@ function BackupPage() {
 
   const handleExport = useCallback(async () => {
     if (exportTypes.length === 0) {
-      message.warning(t("backup.selectTypes", "Select at least one asset type"));
+      message.warning(
+        t("backup.selectTypes", "Select at least one asset type"),
+      );
       return;
     }
     if (exportAgents.length === 0) {
@@ -133,9 +146,17 @@ function BackupPage() {
     try {
       setExporting(true);
       const res = await api.exportAssets({ types: exportTypes });
-      message.success(t("backup.exportSuccess", "Exported {{count}} assets", { count: res.asset_count }));
+      message.success(
+        t("backup.exportSuccess", "Exported {{count}} assets", {
+          count: res.asset_count,
+        }),
+      );
     } catch (err) {
-      message.error(err instanceof Error ? err.message : t("backup.exportFailed", "Export failed"));
+      message.error(
+        err instanceof Error
+          ? err.message
+          : t("backup.exportFailed", "Export failed"),
+      );
     } finally {
       setExporting(false);
     }
@@ -153,28 +174,50 @@ function BackupPage() {
         strategy: importStrategy,
         types: importTypes.length > 0 ? importTypes : undefined,
       });
-      message.success(t("backup.importSuccess", "Imported {{count}} assets", { count: res.imported.length }));
+      message.success(
+        t("backup.importSuccess", "Imported {{count}} assets", {
+          count: res.imported.length,
+        }),
+      );
       setImportFile("");
       fetchBackups();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : t("backup.importFailed", "Import failed"));
+      message.error(
+        err instanceof Error
+          ? err.message
+          : t("backup.importFailed", "Import failed"),
+      );
     } finally {
       setImporting(false);
     }
   }, [importFile, importStrategy, importTypes, t, message, fetchBackups]);
 
-  const handleRestore = useCallback(async (backupPath: string) => {
-    try {
-      setRestoring(backupPath);
-      const filename = backupPath.split("/").pop() || backupPath;
-      const res = await api.restore({ backup_name: filename, strategy: "overwrite" });
-      message.success(t("backup.restoreSuccess", "Restored {{count}} assets", { count: res.imported.length }));
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : t("backup.restoreFailed", "Restore failed"));
-    } finally {
-      setRestoring(null);
-    }
-  }, [t, message]);
+  const handleRestore = useCallback(
+    async (backupPath: string) => {
+      try {
+        setRestoring(backupPath);
+        const filename = backupPath.split("/").pop() || backupPath;
+        const res = await api.restore({
+          backup_name: filename,
+          strategy: "overwrite",
+        });
+        message.success(
+          t("backup.restoreSuccess", "Restored {{count}} assets", {
+            count: res.imported.length,
+          }),
+        );
+      } catch (err) {
+        message.error(
+          err instanceof Error
+            ? err.message
+            : t("backup.restoreFailed", "Restore failed"),
+        );
+      } finally {
+        setRestoring(null);
+      }
+    },
+    [t, message],
+  );
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return "0 B";
@@ -187,7 +230,10 @@ function BackupPage() {
   const formatTimestamp = (ts: string) => {
     // ts format: YYYYMMDD-HHmmss
     if (ts.length === 15 && ts[8] === "-") {
-      return `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)} ${ts.slice(9, 11)}:${ts.slice(11, 13)}:${ts.slice(13, 15)}`;
+      return `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)} ${ts.slice(
+        9,
+        11,
+      )}:${ts.slice(11, 13)}:${ts.slice(13, 15)}`;
     }
     return ts;
   };
@@ -198,7 +244,9 @@ function BackupPage() {
       dataIndex: "timestamp",
       key: "timestamp",
       width: 180,
-      render: (val: string) => <span className={styles.monoText}>{formatTimestamp(val)}</span>,
+      render: (val: string) => (
+        <span className={styles.monoText}>{formatTimestamp(val)}</span>
+      ),
     },
     {
       title: t("backup.size", "Size"),
@@ -212,7 +260,9 @@ function BackupPage() {
       dataIndex: "backup_path",
       key: "backup_path",
       ellipsis: true,
-      render: (val: string) => <span className={styles.fileName}>{val.split("/").pop() || val}</span>,
+      render: (val: string) => (
+        <span className={styles.fileName}>{val.split("/").pop() || val}</span>
+      ),
     },
     {
       title: "",
@@ -233,9 +283,21 @@ function BackupPage() {
   ];
 
   const sectionTabs = [
-    { key: "config", icon: <SettingOutlined />, label: t("backup.configTab", "Auto Backup") },
-    { key: "history", icon: <HistoryOutlined />, label: t("backup.historyTab", "History") },
-    { key: "transfer", icon: <SwapOutlined />, label: t("backup.transferTab", "Export / Import") },
+    {
+      key: "config",
+      icon: <SettingOutlined />,
+      label: t("backup.configTab", "Auto Backup"),
+    },
+    {
+      key: "history",
+      icon: <HistoryOutlined />,
+      label: t("backup.historyTab", "History"),
+    },
+    {
+      key: "transfer",
+      icon: <SwapOutlined />,
+      label: t("backup.transferTab", "Export / Import"),
+    },
   ];
 
   if (loading) {
@@ -272,7 +334,9 @@ function BackupPage() {
         {sectionTabs.map((tab) => (
           <button
             key={tab.key}
-            className={`${styles.tabItem} ${activeSection === tab.key ? styles.tabItemActive : ""}`}
+            className={`${styles.tabItem} ${
+              activeSection === tab.key ? styles.tabItemActive : ""
+            }`}
             onClick={() => setActiveSection(tab.key as typeof activeSection)}
           >
             {tab.icon}
@@ -288,9 +352,14 @@ function BackupPage() {
               <Form form={configForm} layout="vertical" className={styles.form}>
                 <div className={styles.switchRow}>
                   <div className={styles.switchInfo}>
-                    <span className={styles.switchLabel}>{t("backup.enabled", "Automatic Backup")}</span>
+                    <span className={styles.switchLabel}>
+                      {t("backup.enabled", "Automatic Backup")}
+                    </span>
                     <span className={styles.switchDesc}>
-                      {t("backup.enabledDesc", "Automatically back up your workspace on a schedule")}
+                      {t(
+                        "backup.enabledDesc",
+                        "Automatically back up your workspace on a schedule",
+                      )}
                     </span>
                   </div>
                   <Form.Item name="enabled" valuePropName="checked" noStyle>
@@ -302,7 +371,10 @@ function BackupPage() {
                   <Form.Item
                     label={t("backup.schedule", "Backup Frequency")}
                     name="schedule"
-                    tooltip={t("backup.scheduleTooltip", "How often backups run in the background")}
+                    tooltip={t(
+                      "backup.scheduleTooltip",
+                      "How often backups run in the background",
+                    )}
                   >
                     <Select
                       options={SCHEDULE_PRESETS.map((p) => ({
@@ -315,16 +387,32 @@ function BackupPage() {
                   <Form.Item
                     label={t("backup.retentionDays", "Keep backups for")}
                     name="retention_days"
-                    tooltip={t("backup.retentionDaysTooltip", "Backups older than this are automatically deleted")}
+                    tooltip={t(
+                      "backup.retentionDaysTooltip",
+                      "Backups older than this are automatically deleted",
+                    )}
                   >
-                    <InputNumber min={1} max={365} style={{ width: "100%" }} addonAfter={t("backup.days", "days")} />
+                    <InputNumber
+                      min={1}
+                      max={365}
+                      style={{ width: "100%" }}
+                      addonAfter={t("backup.days", "days")}
+                    />
                   </Form.Item>
                   <Form.Item
                     label={t("backup.maxBackups", "Maximum backups")}
                     name="max_backups"
-                    tooltip={t("backup.maxBackupsTooltip", "Oldest backups are removed when this limit is reached")}
+                    tooltip={t(
+                      "backup.maxBackupsTooltip",
+                      "Oldest backups are removed when this limit is reached",
+                    )}
                   >
-                    <InputNumber min={1} max={100} style={{ width: "100%" }} addonAfter={t("backup.copies", "copies")} />
+                    <InputNumber
+                      min={1}
+                      max={100}
+                      style={{ width: "100%" }}
+                      addonAfter={t("backup.copies", "copies")}
+                    />
                   </Form.Item>
                 </div>
               </Form>
@@ -334,7 +422,11 @@ function BackupPage() {
               <Button onClick={fetchConfig} disabled={saving}>
                 {t("common.reset", "Reset")}
               </Button>
-              <Button type="primary" onClick={handleSaveConfig} loading={saving}>
+              <Button
+                type="primary"
+                onClick={handleSaveConfig}
+                loading={saving}
+              >
                 {t("common.save", "Save")}
               </Button>
             </div>
@@ -345,7 +437,9 @@ function BackupPage() {
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <span className={styles.sectionHint}>
-                {t("backup.historyHint", "{{count}} backup(s) available", { count: backups.length })}
+                {t("backup.historyHint", "{{count}} backup(s) available", {
+                  count: backups.length,
+                })}
               </span>
               <Button
                 icon={<ReloadOutlined />}
@@ -364,7 +458,12 @@ function BackupPage() {
                 loading={backupsLoading}
                 size="small"
                 pagination={false}
-                locale={{ emptyText: t("backup.noBackups", "No backups yet. Enable automatic backup or export manually.") }}
+                locale={{
+                  emptyText: t(
+                    "backup.noBackups",
+                    "No backups yet. Enable automatic backup or export manually.",
+                  ),
+                }}
               />
             </Card>
           </div>
@@ -378,9 +477,14 @@ function BackupPage() {
                 <div className={styles.transferHeader}>
                   <DownloadOutlined className={styles.transferIcon} />
                   <div>
-                    <h3 className={styles.transferTitle}>{t("backup.export", "Export")}</h3>
+                    <h3 className={styles.transferTitle}>
+                      {t("backup.export", "Export")}
+                    </h3>
                     <p className={styles.transferDesc}>
-                      {t("backup.exportDesc", "Package your workspace assets into a portable ZIP file")}
+                      {t(
+                        "backup.exportDesc",
+                        "Package your workspace assets into a portable ZIP file",
+                      )}
                     </p>
                   </div>
                 </div>
@@ -388,16 +492,28 @@ function BackupPage() {
                 <div className={styles.agentTip}>
                   <InfoCircleOutlined className={styles.tipIcon} />
                   <span>
-                    {t("backup.currentAgentTip", "Current agent: {{agent}}. Select which agents to export below.", { agent: selectedAgent })}
+                    {t(
+                      "backup.currentAgentTip",
+                      "Current agent: {{agent}}. Select which agents to export below.",
+                      { agent: selectedAgent },
+                    )}
                   </span>
                 </div>
 
                 <div className={styles.assetPicker}>
-                  <span className={styles.pickerLabel}>{t("backup.agentToExport", "Agents to export")}</span>
+                  <span className={styles.pickerLabel}>
+                    {t("backup.agentToExport", "Agents to export")}
+                  </span>
                   <div style={{ marginBottom: 8 }}>
                     <Checkbox
-                      checked={exportAgents.length === agents.length && agents.length > 0}
-                      indeterminate={exportAgents.length > 0 && exportAgents.length < agents.length}
+                      checked={
+                        exportAgents.length === agents.length &&
+                        agents.length > 0
+                      }
+                      indeterminate={
+                        exportAgents.length > 0 &&
+                        exportAgents.length < agents.length
+                      }
                       onChange={(e) => {
                         if (e.target.checked) {
                           setExportAgents(agents.map((a) => a.id));
@@ -415,10 +531,17 @@ function BackupPage() {
                     className={styles.assetCheckboxes}
                   >
                     {agents.map((a) => (
-                      <Checkbox key={a.id} value={a.id} className={styles.assetCheckbox}>
+                      <Checkbox
+                        key={a.id}
+                        value={a.id}
+                        className={styles.assetCheckbox}
+                      >
                         {a.name || a.id}
                         {a.id === selectedAgent && (
-                          <Tag color="orange" style={{ marginLeft: 4, fontSize: 11 }}>
+                          <Tag
+                            color="orange"
+                            style={{ marginLeft: 4, fontSize: 11 }}
+                          >
                             {t("backup.current", "current")}
                           </Tag>
                         )}
@@ -428,14 +551,20 @@ function BackupPage() {
                 </div>
 
                 <div className={styles.assetPicker}>
-                  <span className={styles.pickerLabel}>{t("backup.whatToExport", "What to export")}</span>
+                  <span className={styles.pickerLabel}>
+                    {t("backup.whatToExport", "What to export")}
+                  </span>
                   <Checkbox.Group
                     value={exportTypes}
                     onChange={(vals) => setExportTypes(vals as string[])}
                     className={styles.assetCheckboxes}
                   >
                     {ASSET_TYPES.map((at) => (
-                      <Checkbox key={at.value} value={at.value} className={styles.assetCheckbox}>
+                      <Checkbox
+                        key={at.value}
+                        value={at.value}
+                        className={styles.assetCheckbox}
+                      >
                         {t(`backup.assetType.${at.value}`, at.label)}
                       </Checkbox>
                     ))}
@@ -459,14 +588,22 @@ function BackupPage() {
                 <div className={styles.transferHeader}>
                   <CloudUploadOutlined className={styles.transferIcon} />
                   <div>
-                    <h3 className={styles.transferTitle}>{t("backup.import", "Import")}</h3>
+                    <h3 className={styles.transferTitle}>
+                      {t("backup.import", "Import")}
+                    </h3>
                     <p className={styles.transferDesc}>
-                      {t("backup.importDesc", "Restore assets from a previously exported ZIP file")}
+                      {t(
+                        "backup.importDesc",
+                        "Restore assets from a previously exported ZIP file",
+                      )}
                     </p>
                   </div>
                 </div>
 
-                <div className={styles.uploadArea} onClick={() => fileInputRef.current?.click()}>
+                <div
+                  className={styles.uploadArea}
+                  onClick={() => fileInputRef.current?.click()}
+                >
                   <CloudUploadOutlined className={styles.uploadIcon} />
                   <span className={styles.uploadText}>
                     {importFile
@@ -487,7 +624,9 @@ function BackupPage() {
 
                 <div className={styles.importOptions}>
                   <div className={styles.optionRow}>
-                    <span className={styles.optionLabel}>{t("backup.conflictStrategy", "If conflicts")}</span>
+                    <span className={styles.optionLabel}>
+                      {t("backup.conflictStrategy", "If conflicts")}
+                    </span>
                     <Select
                       value={importStrategy}
                       onChange={setImportStrategy}
@@ -500,7 +639,9 @@ function BackupPage() {
                     />
                   </div>
                   <div className={styles.optionRow}>
-                    <span className={styles.optionLabel}>{t("backup.filterTypes", "Import only")}</span>
+                    <span className={styles.optionLabel}>
+                      {t("backup.filterTypes", "Import only")}
+                    </span>
                     <Checkbox.Group
                       options={ASSET_TYPES.map((at) => ({
                         label: t(`backup.assetType.${at.value}`, at.label),

@@ -42,9 +42,7 @@ const EnvironmentsPage = lazyWithRetry(
 const SecurityPage = lazyWithRetry(
   () => import("../../pages/Settings/Security"),
 );
-const BackupPage = lazyWithRetry(
-  () => import("../../pages/Settings/Backup"),
-);
+const BackupPage = lazyWithRetry(() => import("../../pages/Settings/Backup"));
 const TokenUsagePage = lazyWithRetry(
   () => import("../../pages/Settings/TokenUsage"),
 );
