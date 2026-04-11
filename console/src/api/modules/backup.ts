@@ -62,11 +62,7 @@ export const backupApi = {
       body: JSON.stringify(body),
     }),
 
-  importUpload: (
-    file: File,
-    strategy?: string,
-    types?: string[],
-  ) => {
+  importUpload: (file: File, strategy?: string, types?: string[]) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("strategy", strategy || "skip");

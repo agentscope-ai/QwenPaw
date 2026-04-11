@@ -177,9 +177,7 @@ function BackupPage() {
 
   const handleDownload = useCallback(async () => {
     if (!exportResult?.downloadUrl) return;
-    const { getApiUrl, getApiToken } = await import(
-      "../../../api/config"
-    );
+    const { getApiUrl, getApiToken } = await import("../../../api/config");
     const url = getApiUrl(exportResult.downloadUrl);
     const token = getApiToken();
     const link = document.createElement("a");
@@ -192,9 +190,7 @@ function BackupPage() {
 
   const handleImport = useCallback(async () => {
     if (!importFile) {
-      message.warning(
-        t("backup.selectFile", "Please select a file to import"),
-      );
+      message.warning(t("backup.selectFile", "Please select a file to import"));
       return;
     }
     try {
@@ -205,10 +201,14 @@ function BackupPage() {
         importTypes.length > 0 ? importTypes : undefined,
       );
       message.success(
-        t("backup.importSuccess", "Imported {{imported}} assets, {{skipped}} skipped (identical)", {
-          imported: res.imported.length,
-          skipped: res.skipped.length,
-        }),
+        t(
+          "backup.importSuccess",
+          "Imported {{imported}} assets, {{skipped}} skipped (identical)",
+          {
+            imported: res.imported.length,
+            skipped: res.skipped.length,
+          },
+        ),
       );
       setImportFile(null);
       fetchBackups();
@@ -692,11 +692,20 @@ function BackupPage() {
                   </div>
                   <div className={styles.strategyHint}>
                     {importStrategy === "skip" &&
-                      t("backup.strategyHint.skip", "Keep your existing files unchanged when there is a conflict")}
+                      t(
+                        "backup.strategyHint.skip",
+                        "Keep your existing files unchanged when there is a conflict",
+                      )}
                     {importStrategy === "overwrite" &&
-                      t("backup.strategyHint.overwrite", "Replace existing files with the imported version")}
+                      t(
+                        "backup.strategyHint.overwrite",
+                        "Replace existing files with the imported version",
+                      )}
                     {importStrategy === "rename" &&
-                      t("backup.strategyHint.rename", "Import as a new file with a different name, keeping both versions")}
+                      t(
+                        "backup.strategyHint.rename",
+                        "Import as a new file with a different name, keeping both versions",
+                      )}
                   </div>
                   <div className={styles.optionRow}>
                     <span className={styles.optionLabel}>
