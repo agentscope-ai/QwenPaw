@@ -22,6 +22,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     ContentType,
 )
 
+from ....exceptions import ChannelError
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
 from ..utils import file_url_to_local_path
@@ -369,6 +370,10 @@ class DiscordChannel(BaseChannel):
         if len(text) <= max_len:
             return [text]
 
+        # Reserve space for a closing fence suffix ("\n```") that _flush()
+        # may append when a code block spans chunk boundaries.
+        fence_close_len = len("\n```")
+
         chunks: list[str] = []
         current: list[str] = []
         current_len = 0
@@ -394,7 +399,13 @@ class DiscordChannel(BaseChannel):
                     fence_open = stripped
 
             # Flush if adding this line would exceed the limit.
-            if current and current_len + len(line_with_nl) > max_len:
+            # When inside a code fence, reserve space for the closing
+            # suffix that _flush() appends.
+            reserved = fence_close_len if fence_open else 0
+            if (
+                current
+                and current_len + len(line_with_nl) + reserved > max_len
+            ):
                 saved_fence = fence_open
                 _flush()
                 current_len = 0
@@ -440,14 +451,23 @@ class DiscordChannel(BaseChannel):
         if not self.enabled:
             return
         if not self._client:
-            raise RuntimeError("Discord client is not initialized")
+            raise ChannelError(
+                channel_name="discord",
+                message="Discord client is not initialized",
+            )
         if not self._client.is_ready():
-            raise RuntimeError("Discord client is not ready yet")
+            raise ChannelError(
+                channel_name="discord",
+                message="Discord client is not ready yet",
+            )
         target = await self._resolve_target(to_handle, meta)
         if not target:
-            raise ValueError(
-                "DiscordChannel.send requires meta['channel_id']"
-                " or meta['user_id']",
+            raise ChannelError(
+                channel_name="discord",
+                message=(
+                    "DiscordChannel.send requires "
+                    "meta['channel_id'] or meta['user_id']"
+                ),
             )
         for chunk in self._chunk_text(text, self._DISCORD_MAX_LEN):
             await target.send(chunk)

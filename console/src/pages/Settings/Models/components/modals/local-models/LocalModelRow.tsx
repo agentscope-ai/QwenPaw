@@ -8,7 +8,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { LocalModelInfo } from "../../../../../../api/types";
 import styles from "../../../index.module.less";
-import { formatFileSize } from "./shared";
+import prettyBytes from "pretty-bytes";
 
 interface LocalModelRowProps {
   model: LocalModelInfo;
@@ -42,7 +42,7 @@ export const LocalModelRow = memo(function LocalModelRow({
       <div className={styles.modelListItemInfo}>
         <span className={styles.modelListItemName}>{model.name}</span>
         <span className={styles.modelListItemId}>
-          {model.id} · {formatFileSize(model.size_bytes)}
+          {model.id} · {prettyBytes(model.size_bytes)}
         </span>
       </div>
       <div className={styles.modelListItemActions}>

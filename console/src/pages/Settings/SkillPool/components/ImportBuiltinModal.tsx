@@ -3,7 +3,7 @@ import { Button, Modal } from "@agentscope-ai/design";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { BuiltinImportSpec } from "../../../../api/types";
-import styles from "../../Skills/index.module.less";
+import styles from "../../../Agent/Skills/index.module.less";
 
 interface ImportBuiltinModalProps {
   open: boolean;

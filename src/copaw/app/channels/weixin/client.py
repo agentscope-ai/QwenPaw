@@ -29,6 +29,7 @@ from .utils import (
     aes_ecb_encrypt,
     make_headers,
 )
+from ....exceptions import ChannelError
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,10 @@ class ILinkClient:
 
     async def _get(self, path: str, params: Dict[str, Any] = None) -> Any:
         if self._client is None:
-            raise RuntimeError("ILinkClient not started")
+            raise ChannelError(
+                channel_name="weixin",
+                message="ILinkClient not started",
+            )
         headers = make_headers(self.bot_token)
         resp = await self._client.get(
             self._url(path),
@@ -100,7 +104,10 @@ class ILinkClient:
         timeout: float = _DEFAULT_TIMEOUT,
     ) -> Any:
         if self._client is None:
-            raise RuntimeError("ILinkClient not started")
+            raise ChannelError(
+                channel_name="weixin",
+                message="ILinkClient not started",
+            )
         headers = make_headers(self.bot_token)
         resp = await self._client.post(
             self._url(path),
@@ -166,8 +173,9 @@ class ILinkClient:
                 base_url = data.get("baseurl", self.base_url)
                 return token, base_url
             if status == "expired":
-                raise RuntimeError(
-                    "WeChat QR code expired, please retry login",
+                raise ChannelError(
+                    channel_name="weixin",
+                    message="WeChat QR code expired, please retry login",
                 )
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
@@ -334,7 +342,10 @@ class ILinkClient:
             Decrypted (or raw) file bytes.
         """
         if self._client is None:
-            raise RuntimeError("ILinkClient not started")
+            raise ChannelError(
+                channel_name="weixin",
+                message="ILinkClient not started",
+            )
 
         if encrypt_query_param:
             cdn_base = "https://novac2c.cdn.weixin.qq.com/c2c"
@@ -425,7 +436,10 @@ class ILinkClient:
                 filesize (int): Encrypted file size.
         """
         if self._client is None:
-            raise RuntimeError("ILinkClient not started")
+            raise ChannelError(
+                channel_name="weixin",
+                message="ILinkClient not started",
+            )
 
         # Read original file
         with open(file_path, "rb") as f:

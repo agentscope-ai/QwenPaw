@@ -138,6 +138,12 @@ export const skillApi = {
     if (cached) return cached;
 
     const data = await request<PoolSkillSpec[]>("/skills/pool");
+    // Ensure data is an array
+    if (!Array.isArray(data)) {
+      throw new Error(
+        `Expected array from /skills/pool but got ${typeof data}`,
+      );
+    }
     setCache(cacheKey, data);
     return data;
   },
@@ -155,6 +161,12 @@ export const skillApi = {
     const data = await request<PoolSkillSpec[]>("/skills/pool/refresh", {
       method: "POST",
     });
+    // Ensure data is an array
+    if (!Array.isArray(data)) {
+      throw new Error(
+        `Expected array from /skills/pool/refresh but got ${typeof data}`,
+      );
+    }
     setCache("/skills/pool", data);
     return data;
   },
@@ -374,6 +386,24 @@ export const skillApi = {
       {
         method: "PUT",
         body: JSON.stringify(channels),
+      },
+    ),
+
+  updateSkillTags: (skillName: string, tags: string[]) =>
+    request<{ updated: boolean; tags: string[] }>(
+      `/skills/${encodeURIComponent(skillName)}/tags`,
+      {
+        method: "PUT",
+        body: JSON.stringify(tags),
+      },
+    ),
+
+  updatePoolSkillTags: (skillName: string, tags: string[]) =>
+    request<{ updated: boolean; tags: string[] }>(
+      `/skills/pool/${encodeURIComponent(skillName)}/tags`,
+      {
+        method: "PUT",
+        body: JSON.stringify(tags),
       },
     ),
 

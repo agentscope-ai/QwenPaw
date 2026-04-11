@@ -5,18 +5,19 @@ import atexit
 import asyncio
 import logging
 import multiprocessing as mp
-import os
 import shutil
 import socket
 import tempfile
 import uuid
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 import httpx
+from pydantic import BaseModel
 
 from copaw.constant import DEFAULT_LOCAL_PROVIDER_DIR
+from copaw.providers.provider import ModelInfo
 
 from .download_manager import (
     DownloadProgressUpdate,
@@ -38,6 +39,13 @@ from ..utils import system_info
 from ..utils.stdio import ensure_standard_streams
 
 logger = logging.getLogger(__name__)
+
+
+class LlamaCppServerSetupResult(BaseModel):
+    """Runtime information for a started llama.cpp server."""
+
+    port: int
+    model_info: ModelInfo
 
 
 class LlamaCppBackend:
@@ -205,18 +213,32 @@ class LlamaCppBackend:
         )
         self._download_controller.start(spec)
 
-    async def setup_server(self, model_path: Path, model_name: str) -> int:
-        """Setup llama.cpp server, and return the port it's running on.
+    async def setup_server(
+        self,
+        model_path: Path,
+        model_name: str,
+        max_context_length: int | None = None,
+    ) -> LlamaCppServerSetupResult:
+        """Setup llama.cpp server and return the runtime port and model info.
 
         Args:
             model_path: Path to a local HF repo directory or GGUF file
             model_name: Name of the model to be used in the server
+            max_context_length: Optional context window passed to llama.cpp
         """
         installed, message = self.check_llamacpp_installation()
         if not installed:
             raise RuntimeError(message or "llama.cpp server is not installed")
         if not model_path.exists():
             raise FileNotFoundError(f"Model path not found: {model_path}")
+
+        resolved_model_path, resolved_mmproj_path = self._resolve_model_file(
+            model_path,
+        )
+        model_info = self._build_model_info(
+            model_name=model_name,
+            resolved_mmproj_path=resolved_mmproj_path,
+        )
 
         if (
             model_name == self._server_model_name
@@ -228,7 +250,10 @@ class LlamaCppBackend:
                     model_name,
                     self._server_port,
                 )
-                return self._server_port  # type: ignore[return-value]
+                return LlamaCppServerSetupResult(
+                    port=self._server_port,
+                    model_info=model_info,
+                )
             else:
                 logger.warning(
                     "Previous llama.cpp server process for model %s exited "
@@ -236,8 +261,6 @@ class LlamaCppBackend:
                     self._server_model_name,
                     self._server_process.returncode,
                 )
-
-        resolved_model_path = self._resolve_model_file(model_path)
         if self._server_process and self._server_process.returncode is None:
             await self.shutdown_server()
 
@@ -248,8 +271,10 @@ class LlamaCppBackend:
             process_kwargs["start_new_session"] = True
         process = await self._create_server_process(
             resolved_model_path=resolved_model_path,
+            resolved_mmproj_path=resolved_mmproj_path,
             model_name=model_name,
             port=port,
+            max_context_length=max_context_length,
             process_kwargs=process_kwargs,
         )
 
@@ -276,7 +301,10 @@ class LlamaCppBackend:
             port,
             model_name,
         )
-        return port
+        return LlamaCppServerSetupResult(
+            port=port,
+            model_info=model_info,
+        )
 
     async def list_devices(self) -> list[str]:
         """List available devices for llama.cpp using
@@ -321,8 +349,10 @@ class LlamaCppBackend:
     async def _create_server_process(
         self,
         resolved_model_path: Path,
+        resolved_mmproj_path: Path | None,
         model_name: str,
         port: int,
+        max_context_length: int | None,
         process_kwargs: dict[str, Any],
     ) -> ManagedProcess:
         command = [
@@ -338,11 +368,25 @@ class LlamaCppBackend:
             "--gpu-layers",
             "auto",
         ]
+        if max_context_length is not None:
+            command.extend(["--ctx-size", str(max_context_length)])
+        if resolved_mmproj_path is not None:
+            command.extend(
+                [
+                    "--mmproj",
+                    str(resolved_mmproj_path),
+                ],
+            )
 
         logger.info(
-            "Setting up llama.cpp server for model %s at path %s",
+            "Setting up llama.cpp server for model %s at path %s%s",
             model_name,
             resolved_model_path,
+            (
+                f" with mmproj {resolved_mmproj_path}"
+                if resolved_mmproj_path is not None
+                else ""
+            ),
         )
         return await start_command_async(
             command,
@@ -353,33 +397,27 @@ class LlamaCppBackend:
 
     async def shutdown_server(self) -> None:
         """Shutdown the llama.cpp server if it's running."""
-        self._server_transitioning = True
-        await self._cancel_server_log_task()
+        with self._server_shutdown_context() as process:
+            await self._cancel_server_log_task()
 
-        process = self._server_process
-        if process and process.returncode is None:
-            await shutdown_process(
-                process,
-                graceful_timeout=5.0,
-                kill_timeout=3.0,
-            )
+            if process and process.returncode is None:
+                await shutdown_process(
+                    process,
+                    graceful_timeout=5.0,
+                    kill_timeout=3.0,
+                )
 
-        self._reset_server_state()
-
-    def force_shutdown_server(self) -> None:
+    def shutdown_server_sync(self) -> None:
         """Best-effort synchronous cleanup for shutdown and atexit paths."""
-        self._server_transitioning = True
-        self._cancel_server_log_task_nowait()
+        with self._server_shutdown_context() as process:
+            self._cancel_server_log_task_nowait()
 
-        process = self._server_process
-        if process and process.returncode is None:
-            shutdown_process_sync(
-                process,
-                graceful_timeout=5.0,
-                kill_timeout=1.0,
-            )
-
-        self._reset_server_state()
+            if process and process.returncode is None:
+                shutdown_process_sync(
+                    process,
+                    graceful_timeout=5.0,
+                    kill_timeout=1.0,
+                )
 
     # -----------------------------
     # Internal helpers
@@ -392,13 +430,16 @@ class LlamaCppBackend:
 
         return path
 
-    def _resolve_model_file(self, model_path: Path) -> Path:
+    def _resolve_model_file(
+        self,
+        model_path: Path,
+    ) -> tuple[Path, Path | None]:
         if model_path.is_file():
             if model_path.suffix.lower() != ".gguf":
                 raise RuntimeError(
                     f"Model file must be a .gguf file: {model_path}",
                 )
-            return model_path.resolve()
+            return model_path.resolve(), None
 
         gguf_files = sorted(
             candidate
@@ -414,7 +455,44 @@ class LlamaCppBackend:
                 "Model repository at "
                 f"{model_path} does not contain any .gguf files.",
             )
-        return gguf_files[0].resolve()
+
+        mmproj_files = [
+            candidate
+            for candidate in gguf_files
+            if candidate.name.lower().startswith("mmproj")
+        ]
+        model_files = [
+            candidate
+            for candidate in gguf_files
+            if not candidate.name.lower().startswith("mmproj")
+        ]
+
+        if not model_files:
+            raise RuntimeError(
+                "Model repository at "
+                f"{model_path} does not contain any model .gguf files.",
+            )
+
+        return (
+            model_files[0].resolve(),
+            mmproj_files[0].resolve() if mmproj_files else None,
+        )
+
+    @staticmethod
+    def _build_model_info(
+        model_name: str,
+        resolved_mmproj_path: Path | None,
+    ) -> ModelInfo:
+        supports_multimodal = resolved_mmproj_path is not None
+        return ModelInfo(
+            id=model_name,
+            name=model_name,
+            supports_multimodal=supports_multimodal,
+            # TODO: add more detailed capability flags
+            supports_image=supports_multimodal,
+            supports_video=False,
+            probe_source="probed",
+        )
 
     def _finalize_download_result(
         self,
@@ -426,10 +504,29 @@ class LlamaCppBackend:
         if result.status != DownloadTaskStatus.COMPLETED:
             return result, None
 
-        if final_dir.exists():
-            shutil.rmtree(final_dir)
-        final_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(staging_dir), str(final_dir))
+        try:
+            if final_dir.exists():
+                shutil.rmtree(final_dir)
+            final_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(staging_dir), str(final_dir))
+        except (OSError, shutil.Error) as exc:
+            logger.warning(
+                "Failed to finalize llama.cpp download from %s to %s: %s",
+                staging_dir,
+                final_dir,
+                exc,
+            )
+            return (
+                DownloadTaskResult(
+                    status=DownloadTaskStatus.FAILED,
+                    error=(
+                        "llama.cpp download completed, but installing "
+                        f"files to {final_dir} failed: {exc}"
+                    ),
+                ),
+                None,
+            )
+
         return (
             DownloadTaskResult(
                 status=DownloadTaskStatus.COMPLETED,
@@ -618,6 +715,15 @@ class LlamaCppBackend:
         if task and not task.done():
             task.cancel()
 
+    @contextmanager
+    def _server_shutdown_context(self) -> Iterator[ManagedProcess | None]:
+        self._server_transitioning = True
+        process = self._server_process
+        try:
+            yield process
+        finally:
+            self._reset_server_state()
+
     def _reset_server_state(self) -> None:
         self._server_process = None
         self._server_log_task = None
@@ -627,7 +733,7 @@ class LlamaCppBackend:
 
     def _shutdown_server_at_exit(self) -> None:
         with suppress(Exception):
-            self.force_shutdown_server()
+            self.shutdown_server_sync()
 
     @staticmethod
     def _extract_archive(
@@ -654,31 +760,21 @@ class LlamaCppBackend:
         staging_dir: Path,
         dest_dir: Path,
     ) -> None:
+        # There are only two expected archive structures:
+        # 1) All files directly in the root of the archive
+        # 2) All files in a single top-level directory (e.g. "llama-xx/")
         extracted_entries = list(staging_dir.iterdir())
         source_root = staging_dir
         if len(extracted_entries) == 1 and extracted_entries[0].is_dir():
             source_root = extracted_entries[0]
 
         for item in source_root.iterdir():
-            LlamaCppBackend._merge_path(item, dest_dir / item.name)
-
-    @staticmethod
-    def _merge_path(source: Path, destination: Path) -> None:
-        if source.is_symlink():
-            destination.unlink(missing_ok=True)
-            os.symlink(os.readlink(source), destination)
-            return
-
-        if source.is_dir():
-            shutil.copytree(
-                source,
-                destination,
-                dirs_exist_ok=True,
-                symlinks=True,
-            )
-            return
-
-        shutil.copy2(source, destination)
+            if not item.is_file():
+                raise RuntimeError(
+                    "Unexpected directory structure in llama.cpp archive: "
+                    f"{item}",
+                )
+            shutil.copy2(item, dest_dir / item.name)
 
     @staticmethod
     def _cleanup_download_files(

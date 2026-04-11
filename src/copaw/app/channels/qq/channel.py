@@ -12,6 +12,7 @@ Rich media read (images, videos, files)
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -35,6 +36,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import QQConfig as QQChannelConfig
 from ....constant import WORKING_DIR
+from ....exceptions import ChannelError
 
 from ..base import (
     BaseChannel,
@@ -299,12 +301,21 @@ def _get_channel_url_sync(access_token: str) -> str:
         msg = f"HTTP {e.code}: {e.reason}"
         if body:
             msg += f" | body: {body[:500]}"
-        raise RuntimeError(f"Failed to get channel url: {msg}") from e
+        raise ChannelError(
+            channel_name="qq",
+            message=f"Failed to get channel url: {msg}",
+        ) from e
     except Exception as e:
-        raise RuntimeError(f"Failed to get channel url: {e}") from e
+        raise ChannelError(
+            channel_name="qq",
+            message=f"Failed to get channel url: {e}",
+        ) from e
     channel_url = data.get("url")
     if not channel_url:
-        raise RuntimeError(f"No url in channel response: {data}")
+        raise ChannelError(
+            channel_name="qq",
+            message=f"No url in channel response: {data}",
+        )
     return channel_url
 
 
@@ -411,10 +422,16 @@ async def _upload_media_async(
     access_token: str,
     openid: str,
     media_type: int,
-    url: str,
+    url: str = "",
     message_type: str = "c2c",
+    file_data: str = "",
+    file_name: str = "",
 ) -> Optional[str]:
     """Upload media to QQ rich media server.
+
+    Supports two modes:
+    - URL mode: provide ``url`` for QQ to fetch the resource.
+    - Base64 mode: provide ``file_data`` (base64-encoded binary).
 
     Returns file_info if success, None otherwise.
     """
@@ -422,17 +439,31 @@ async def _upload_media_async(
     if not path:
         logger.warning("Unsupported type for media upload: %s", message_type)
         return None
+    body: Dict[str, Any] = {
+        "file_type": media_type,
+        "srv_send_msg": False,
+    }
+    if file_data:
+        body["file_data"] = file_data
+        if file_name:
+            body["file_name"] = file_name
+    elif url:
+        body["url"] = url
+    else:
+        logger.warning("No url or file_data provided for media upload")
+        return None
     try:
         response = await _api_request_async(
             session,
             access_token,
             "POST",
             path,
-            {"file_type": media_type, "url": url, "srv_send_msg": False},
+            body,
         )
         return response.get("file_info")
     except Exception:
-        logger.exception("Failed to upload media from url: %s", url)
+        source = url or "file_data"
+        logger.exception("Failed to upload media: %s", source)
         return None
 
 
@@ -443,8 +474,15 @@ async def _send_media_message_async(
     file_info: str,
     msg_id: Optional[str] = None,
     message_type: str = "c2c",
+    filename: Optional[str] = None,
 ) -> None:
-    """Send rich media message."""
+    """Send rich media message.
+
+    Args:
+        filename: optional display filename shown to the recipient.
+                  Passed via the ``content`` field so QQ renders the
+                  file name and extension in the chat bubble.
+    """
     path = _media_path(message_type, openid, "messages")
     if not path:
         logger.warning("Unsupported type for media send: %s", message_type)
@@ -454,6 +492,8 @@ async def _send_media_message_async(
         "media": {"file_info": file_info},
         "msg_seq": _get_next_msg_seq(msg_id or f"{message_type}_media"),
     }
+    if filename:
+        body["content"] = filename
     if msg_id:
         body["msg_id"] = msg_id
     await _api_request_async(
@@ -463,6 +503,89 @@ async def _send_media_message_async(
         path,
         body,
     )
+
+
+async def _send_guild_image_async(
+    session: Any,
+    access_token: str,
+    path: str,
+    image_url: str,
+    msg_id: Optional[str] = None,
+) -> None:
+    """Send an image in guild/dm via the ``image`` field (URL mode).
+
+    Guild and DM channels do not use the rich-media upload API.
+    Instead they accept an ``image`` URL directly in the message body.
+    """
+    body: Dict[str, Any] = {"image": image_url}
+    if msg_id:
+        body["msg_id"] = msg_id
+    await _api_request_async(
+        session,
+        access_token,
+        "POST",
+        path,
+        body,
+    )
+
+
+async def _send_guild_image_file_async(
+    session: Any,
+    access_token: str,
+    path: str,
+    file_path: str,
+    msg_id: Optional[str] = None,
+) -> None:
+    """Send an image in guild/dm via form-data ``file_image`` upload.
+
+    Used when the image is a local file rather than a URL.
+    """
+    api_url = f"{_get_api_base()}{path}"
+    loop = asyncio.get_running_loop()
+
+    def _read_file():
+        with open(file_path, "rb") as fh:
+            return fh.read()
+
+    file_bytes = await loop.run_in_executor(None, _read_file)
+    data = aiohttp.FormData()
+    if msg_id:
+        data.add_field("msg_id", msg_id)
+    data.add_field(
+        "file_image",
+        file_bytes,
+        filename=Path(file_path).name,
+    )
+    async with session.post(
+        api_url,
+        data=data,
+        headers={"Authorization": f"QQBot {access_token}"},
+    ) as resp:
+        resp_data = await resp.json()
+        if resp.status >= 400:
+            raise QQApiError(path=path, status=resp.status, data=resp_data)
+
+
+async def _read_file_as_base64(file_path: str) -> str:
+    """Read a local file and return its base64-encoded content.
+
+    File I/O is offloaded to a thread pool to avoid blocking the
+    event loop.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _read():
+        with open(file_path, "rb") as fh:
+            return base64.b64encode(fh.read()).decode("ascii")
+
+    return await loop.run_in_executor(None, _read)
+
+
+# QQ rich-media file_type constants
+_MEDIA_TYPE_IMAGE = 1
+_MEDIA_TYPE_VIDEO = 2
+_MEDIA_TYPE_AUDIO = 3
+_MEDIA_TYPE_FILE = 4
 
 
 async def _download_qq_file(
@@ -570,10 +693,16 @@ class QQChannel(BaseChannel):
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
         except Exception as e:
-            raise RuntimeError(f"Failed to get access_token: {e}") from e
+            raise ChannelError(
+                channel_name="qq",
+                message=f"Failed to get access_token: {e}",
+            ) from e
         token = data.get("access_token")
         if not token:
-            raise RuntimeError(f"No access_token in response: {data}")
+            raise ChannelError(
+                channel_name="qq",
+                message=f"No access_token in response: {data}",
+            )
         expires_in = data.get("expires_in", 7200)
         if isinstance(expires_in, str):
             expires_in = int(expires_in)
@@ -599,13 +728,17 @@ class QQChannel(BaseChannel):
         ) as resp:
             if resp.status >= 400:
                 text = await resp.text()
-                raise RuntimeError(
-                    f"Token request failed {resp.status}: {text}",
+                raise ChannelError(
+                    channel_name="qq",
+                    message=f"Token request failed {resp.status}: {text}",
                 )
             data = await resp.json()
         token = data.get("access_token")
         if not token:
-            raise RuntimeError(f"No access_token: {data}")
+            raise ChannelError(
+                channel_name="qq",
+                message=f"No access_token: {data}",
+            )
         expires_in = data.get("expires_in", 7200)
         if isinstance(expires_in, str):
             expires_in = int(expires_in)
@@ -1409,9 +1542,12 @@ class QQChannel(BaseChannel):
             logger.debug("qq channel disabled by QQ_CHANNEL_ENABLED=0")
             return
         if not self.app_id or not self.client_secret:
-            raise RuntimeError(
-                "QQ_APP_ID and QQ_CLIENT_SECRET are required when "
-                "channel is enabled.",
+            raise ChannelError(
+                channel_name="qq",
+                message=(
+                    "QQ_APP_ID and QQ_CLIENT_SECRET "
+                    "are required when channel is enabled"
+                ),
             )
         self._loop = asyncio.get_running_loop()
         self._stop_event.clear()
@@ -1432,3 +1568,397 @@ class QQChannel(BaseChannel):
         if self._http is not None:
             await self._http.close()
             self._http = None
+
+    # ------------------------------------------------------------------
+    # Rich-media sending: send_content_parts / send_media overrides
+    # ------------------------------------------------------------------
+
+    def _resolve_media_meta(
+        self,
+        meta: Optional[Dict[str, Any]],
+    ) -> tuple[
+        str,
+        Optional[str],
+        Optional[str],
+        Optional[str],
+        Optional[str],
+    ]:
+        """Extract routing fields from meta for media sending.
+
+        Returns (message_type, sender_id, channel_id, group_openid, guild_id).
+        """
+        meta = meta or {}
+        message_type = meta.get("message_type", "c2c")
+        sender_id = meta.get("sender_id")
+        channel_id = meta.get("channel_id")
+        group_openid = meta.get("group_openid")
+        guild_id = meta.get("guild_id")
+        return message_type, sender_id, channel_id, group_openid, guild_id
+
+    def _resolve_media_url_and_path(
+        self,
+        part: OutgoingContentPart,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Extract URL and local file path from a content part.
+
+        Returns (url_or_none, local_path_or_none).
+        """
+        content_type = getattr(part, "type", None)
+        url: Optional[str] = None
+        local_path: Optional[str] = None
+
+        if content_type == ContentType.IMAGE:
+            raw = getattr(part, "image_url", None) or ""
+        elif content_type == ContentType.VIDEO:
+            raw = getattr(part, "video_url", None) or ""
+        elif content_type == ContentType.AUDIO:
+            raw = getattr(part, "data", None) or ""
+        elif content_type == ContentType.FILE:
+            raw = getattr(part, "file_url", None) or ""
+        else:
+            return None, None
+
+        if not raw:
+            return None, None
+
+        # file:// protocol → treat as local file
+        if raw.startswith("file://"):
+            resolved = raw[7:]  # strip "file://"
+            if os.path.isfile(resolved):
+                local_path = resolved
+            else:
+                logger.warning("qq: file:// path not found: %s", resolved)
+            return url, local_path
+
+        if raw.startswith(("http://", "https://")):
+            url = raw
+        elif os.path.isfile(raw):
+            local_path = raw
+        else:
+            url = raw
+
+        return url, local_path
+
+    @staticmethod
+    def _content_type_to_media_type(
+        content_type: Any,
+    ) -> Optional[int]:
+        """Map ContentType to QQ rich-media file_type integer."""
+        mapping = {
+            ContentType.IMAGE: _MEDIA_TYPE_IMAGE,
+            ContentType.VIDEO: _MEDIA_TYPE_VIDEO,
+            ContentType.AUDIO: _MEDIA_TYPE_FILE,
+            ContentType.FILE: _MEDIA_TYPE_FILE,
+        }
+        return mapping.get(content_type)
+
+    async def send_content_parts(
+        self,
+        to_handle: str,
+        parts: List[OutgoingContentPart],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Override BaseChannel to route media parts through QQ APIs.
+
+        Text/refusal parts are merged and sent as text.
+        Media parts (image, video, audio, file) are sent via the
+        appropriate QQ API depending on message_type.
+        """
+        if not self.enabled:
+            return
+
+        text_parts: List[str] = []
+        media_parts: List[OutgoingContentPart] = []
+
+        for part in parts:
+            part_type = getattr(part, "type", None)
+            if part_type == ContentType.TEXT and getattr(part, "text", None):
+                text_parts.append(part.text)
+            elif part_type == ContentType.REFUSAL and getattr(
+                part,
+                "refusal",
+                None,
+            ):
+                text_parts.append(part.refusal)
+            elif part_type in (
+                ContentType.IMAGE,
+                ContentType.VIDEO,
+                ContentType.AUDIO,
+                ContentType.FILE,
+            ):
+                media_parts.append(part)
+
+        body = "\n".join(text_parts).strip() if text_parts else ""
+
+        meta = meta or {}
+        message_type = meta.get("message_type", "c2c")
+        msg_id = meta.get("message_id")
+
+        try:
+            token = await self._get_access_token_async()
+        except Exception:
+            logger.exception("qq send_content_parts: get token failed")
+            return
+
+        use_markdown = _as_bool(
+            meta.get("markdown_enabled", self._markdown_enabled),
+        )
+
+        text_sent = False
+        if body:
+            sender_id = meta.get("sender_id") or to_handle
+            channel_id = meta.get("channel_id")
+            group_openid = meta.get("group_openid")
+            guild_id = meta.get("guild_id")
+            for chunk in split_text(body):
+                text_sent = await self._send_text_with_fallback(
+                    message_type,
+                    sender_id,
+                    channel_id,
+                    group_openid,
+                    chunk,
+                    msg_id,
+                    token,
+                    use_markdown,
+                    guild_id=guild_id,
+                )
+
+        for media_part in media_parts:
+            await self.send_media(
+                to_handle,
+                media_part,
+                meta,
+                token=token,
+                text_already_sent=text_sent,
+            )
+            text_sent = True
+
+    async def send_media(
+        self,
+        to_handle: str,
+        part: OutgoingContentPart,
+        meta: Optional[Dict[str, Any]] = None,
+        *,
+        token: Optional[str] = None,
+        text_already_sent: bool = True,
+    ) -> None:
+        """Send a single media part via the appropriate QQ API.
+
+        Routing logic per message_type:
+        - **c2c / group**: Upload via rich-media ``/files`` endpoint,
+          then send via ``/messages`` with ``msg_type=7``.
+          Group does NOT support file_type=4 (file).
+        - **guild / dm**: Only images are supported.
+          Use ``image`` field (URL) or ``file_image`` (form-data upload).
+        """
+        if not self.enabled:
+            return
+
+        meta = meta or {}
+        (
+            message_type,
+            sender_id,
+            channel_id,
+            group_openid,
+            guild_id,
+        ) = self._resolve_media_meta(meta)
+        msg_id = meta.get("message_id")
+        content_type = getattr(part, "type", None)
+
+        if token is None:
+            try:
+                token = await self._get_access_token_async()
+            except Exception:
+                logger.exception("qq send_media: get token failed")
+                return
+
+        url, local_path = self._resolve_media_url_and_path(part)
+        if not url and not local_path:
+            logger.warning(
+                "qq send_media: no url or local path for %s",
+                content_type,
+            )
+            return
+
+        if message_type in ("c2c", "group"):
+            await self._send_media_c2c_or_group(
+                message_type=message_type,
+                content_type=content_type,
+                sender_id=sender_id or to_handle,
+                group_openid=group_openid,
+                url=url,
+                local_path=local_path,
+                msg_id=msg_id if not text_already_sent else None,
+                token=token,
+            )
+        elif message_type in ("guild", "dm"):
+            await self._send_media_guild_or_dm(
+                message_type=message_type,
+                content_type=content_type,
+                channel_id=channel_id,
+                guild_id=guild_id,
+                url=url,
+                local_path=local_path,
+                msg_id=msg_id if not text_already_sent else None,
+                token=token,
+            )
+        else:
+            logger.warning(
+                "qq send_media: unsupported message_type=%s",
+                message_type,
+            )
+
+    async def _send_media_c2c_or_group(
+        self,
+        *,
+        message_type: str,
+        content_type: Any,
+        sender_id: str,
+        group_openid: Optional[str],
+        url: Optional[str],
+        local_path: Optional[str],
+        msg_id: Optional[str],
+        token: str,
+    ) -> None:
+        """Upload + send rich media for c2c or group scenarios."""
+        media_type = self._content_type_to_media_type(content_type)
+        if media_type is None:
+            logger.warning(
+                "qq _send_media_c2c_or_group: unknown content_type=%s",
+                content_type,
+            )
+            return
+
+        # Group does not support file_type=4 (file)
+        if message_type == "group" and media_type == _MEDIA_TYPE_FILE:
+            logger.warning(
+                "qq: group does not support sending files (file_type=4), "
+                "skipping",
+            )
+            return
+
+        target_openid = sender_id if message_type == "c2c" else group_openid
+        if not target_openid:
+            logger.warning(
+                "qq _send_media_c2c_or_group: no target openid",
+            )
+            return
+
+        file_data = ""
+        display_filename = ""
+        source_path = url or local_path or ""
+        if local_path and not url:
+            try:
+                file_data = await _read_file_as_base64(local_path)
+                display_filename = Path(local_path).name
+            except Exception:
+                logger.exception(
+                    "qq: failed to read local file as base64: %s",
+                    local_path,
+                )
+                return
+        elif url:
+            display_filename = Path(url.split("?")[0]).name
+
+        try:
+            file_info = await _upload_media_async(
+                self._http,
+                token,
+                target_openid,
+                media_type=media_type,
+                url=url or "",
+                message_type=message_type,
+                file_data=file_data,
+                file_name=display_filename,
+            )
+            if not file_info:
+                logger.warning(
+                    "qq: media upload returned no file_info for %s",
+                    source_path,
+                )
+                return
+            await _send_media_message_async(
+                self._http,
+                token,
+                target_openid,
+                file_info,
+                msg_id,
+                message_type=message_type,
+                filename=display_filename,
+            )
+            logger.info(
+                "qq: sent %s media (%s) to %s",
+                message_type,
+                content_type,
+                target_openid,
+            )
+        except Exception:
+            logger.exception(
+                "qq: failed to send %s media (%s)",
+                message_type,
+                content_type,
+            )
+
+    async def _send_media_guild_or_dm(
+        self,
+        *,
+        message_type: str,
+        content_type: Any,
+        channel_id: Optional[str],
+        guild_id: Optional[str],
+        url: Optional[str],
+        local_path: Optional[str],
+        msg_id: Optional[str],
+        token: str,
+    ) -> None:
+        """Send media for guild (text channel) or dm scenarios.
+
+        Per QQ official docs, guild/dm supports sending images and
+        videos via the ``image`` field (URL) or ``file_image``
+        (form-data upload).  Audio and file types are not supported.
+        """
+        if content_type not in (ContentType.IMAGE, ContentType.VIDEO):
+            logger.warning(
+                "qq: guild/dm does not support sending %s, skipping",
+                content_type,
+            )
+            return
+
+        if message_type == "dm" and guild_id:
+            path = f"/dms/{guild_id}/messages"
+        elif message_type == "guild" and channel_id:
+            path = f"/channels/{channel_id}/messages"
+        else:
+            logger.warning(
+                "qq _send_media_guild_or_dm: missing channel_id or guild_id",
+            )
+            return
+
+        try:
+            if url:
+                await _send_guild_image_async(
+                    self._http,
+                    token,
+                    path,
+                    url,
+                    msg_id,
+                )
+            elif local_path:
+                await _send_guild_image_file_async(
+                    self._http,
+                    token,
+                    path,
+                    local_path,
+                    msg_id,
+                )
+            logger.info(
+                "qq: sent %s media (%s) to guild/dm",
+                message_type,
+                content_type,
+            )
+        except Exception:
+            logger.exception(
+                "qq: failed to send %s media (%s) to guild/dm",
+                message_type,
+                content_type,
+            )

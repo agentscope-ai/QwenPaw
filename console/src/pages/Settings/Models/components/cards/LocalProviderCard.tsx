@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Card, Button } from "@agentscope-ai/design";
 import type { ProviderInfo } from "../../../../../api/types";
 import { ModelManageModal } from "../modals/ModelManageModal";
@@ -9,19 +9,14 @@ import { providerIcon } from "../providerIcon";
 interface LocalProviderCardProps {
   provider: ProviderInfo;
   onSaved: () => void;
-  isHover: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
 }
 
-export function LocalProviderCard({
+export const LocalProviderCard = React.memo(function LocalProviderCard({
   provider,
   onSaved,
-  isHover,
-  onMouseEnter,
-  onMouseLeave,
 }: LocalProviderCardProps) {
   const { t } = useTranslation();
+  const [isHover, setIsHover] = useState(false);
   const [modelManageOpen, setModelManageOpen] = useState(false);
 
   const totalCount = provider.models.length + provider.extra_models.length;
@@ -33,8 +28,8 @@ export function LocalProviderCard({
   return (
     <Card
       hoverable
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={() => setIsHover(true)}
+      onMouseLeave={() => setIsHover(false)}
       className={`${styles.providerCard} ${
         statusReady ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
@@ -113,4 +108,4 @@ export function LocalProviderCard({
       />
     </Card>
   );
-}
+});

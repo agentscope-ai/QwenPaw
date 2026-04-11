@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
-from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from anyio import ClosedResourceError
 from pydantic import BaseModel
 
+from ..app.mcp import HttpStatefulClient, StdIOStatefulClient
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .model_factory import create_model_and_formatter
@@ -1003,7 +1003,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                             max_results=ms.force_max_results,
                             min_score=ms.force_min_score,
                         ),
-                        timeout=1,
+                        timeout=ms.force_memory_search_timeout,
                     )
                     self.memory._long_term_memory = "\n".join(
                         block["text"]

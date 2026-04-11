@@ -17,6 +17,8 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
+from copaw.security.secret_store import decrypt, encrypt, is_encrypted
+
 logger = logging.getLogger(__name__)
 
 _BOOTSTRAP_WORKING_DIR = (
@@ -151,7 +153,10 @@ def _sync_environ(
 def load_envs(
     path: Optional[Path] = None,
 ) -> dict[str, str]:
-    """Load env vars from envs.json."""
+    """Load env vars from envs.json, decrypting values transparently.
+
+    Legacy plaintext values are detected and re-encrypted on disk.
+    """
     if path is None:
         path = get_envs_json_path()
         _migrate_legacy_envs_json(path)
@@ -167,7 +172,14 @@ def load_envs(
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict):
-            return {k: str(v) for k, v in data.items()}
+            raw = {k: str(v) for k, v in data.items()}
+            has_plaintext = any(
+                v and not is_encrypted(v) for v in raw.values()
+            )
+            decrypted = {k: decrypt(v) for k, v in raw.items()}
+            if has_plaintext:
+                _rewrite_encrypted(path, decrypted)
+            return decrypted
     except (json.JSONDecodeError, ValueError):
         pass
     except OSError as exc:
@@ -179,11 +191,26 @@ def load_envs(
     return {}
 
 
+def _rewrite_encrypted(path: Path, envs: dict[str, str]) -> None:
+    """Re-write *envs* with all values encrypted (migration helper)."""
+    try:
+        encrypted = {
+            k: encrypt(v) if v and not is_encrypted(v) else v
+            for k, v in envs.items()
+        }
+        _prepare_secret_parent(path)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(encrypted, fh, indent=2, ensure_ascii=False)
+        _chmod_best_effort(path, 0o600)
+    except Exception as exc:
+        logger.warning("Failed to re-encrypt envs.json: %s", exc)
+
+
 def save_envs(
     envs: dict[str, str],
     path: Optional[Path] = None,
 ) -> None:
-    """Write env vars to envs.json and sync to ``os.environ``."""
+    """Write env vars to envs.json (encrypted) and sync to ``os.environ``."""
     if path is None:
         path = get_envs_json_path()
         _migrate_legacy_envs_json(path)
@@ -193,8 +220,12 @@ def save_envs(
             f"envs.json path exists but is not a regular file: {path}",
         )
     _prepare_secret_parent(path)
+    encrypted = {
+        k: encrypt(v) if v and not is_encrypted(v) else v
+        for k, v in envs.items()
+    }
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump(envs, fh, indent=2, ensure_ascii=False)
+        json.dump(encrypted, fh, indent=2, ensure_ascii=False)
     _chmod_best_effort(path, 0o600)
 
     _sync_environ(old, envs)

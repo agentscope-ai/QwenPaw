@@ -23,6 +23,13 @@
     "contentPlaceholder": "内容を入力してください...",
     "close": "閉じる"
   },
+  "chunkError": {
+    "title": "ページの読み込みに失敗しました",
+    "subTitle": "ネットワークの問題またはアプリの更新が原因の可能性があります。",
+    "genericTitle": "問題が発生しました",
+    "genericSubTitle": "このページのレンダリング中に予期しないエラーが発生しました。",
+    "reload": "再読み込み"
+  },
   "nav": {
     "chat": "チャット",
     "control": "コントロール",
@@ -135,6 +142,7 @@
     "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/、または https://modelscope.cn/skills/ で始まる必要があります",
     "type": "タイプ",
     "skillDescription": "説明",
+    "tags": "タグ",
     "builtin": "組み込み",
     "custom": "カスタム",
     "createSkill": "スキルを作成",
@@ -247,6 +255,9 @@
     "edit": "編集",
     "delete": "削除",
     "descriptionLabel": "説明",
+    "tags": "タグ",
+    "tagsPlaceholder": "タグを選択または入力",
+    "filterByTag": "タグで絞り込む",
     "version": "バージョン",
     "createTitle": "スキルプール項目を作成",
     "editTitle": "{{name}} を編集",
@@ -311,7 +322,12 @@
     "deleteConfirm": "このMCPクライアントを削除してもよろしいですか？",
     "deleteSuccess": "MCPクライアントを削除しました",
     "deleteError": "MCPクライアントの削除に失敗しました",
-    "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。"
+    "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。",
+    "tools": "ツール",
+    "noTools": "このMCPサーバーには利用可能なツールがありません",
+    "toolsLoadError": "MCPサーバーからツール一覧の取得に失敗しました",
+    "toolsConnecting": "MCPサーバーに接続中です。しばらくしてから再度お試しください",
+    "toolSchema": "入力スキーマ"
   },
   "heartbeat": {
     "title": "ハートビート",
@@ -502,7 +518,9 @@
     "weixinScanHint": "WeChatでQRコードをスキャンして、完了後に保存してください",
     "weixinQrcodeFailed": "QRコードの取得に失敗しました。再試行してください",
     "weixinLoginSuccess": "WeChat ログイン成功、トークンが入力されました",
-    "weixinQrcodeExpired": "QRコードが期限切れです。再取得してください"
+    "weixinQrcodeExpired": "QRコードが期限切れです。再取得してください",
+    "onebotShareSessionInGroup": "グループでセッション共有",
+    "onebotShareSessionInGroupTooltip": "有効にすると、グループの全メンバーが同じ会話セッションを共有します。無効にすると、各メンバーが独自のセッションを持ちます。"
   },
   "sessions": {
     "title": "セッション",
@@ -693,7 +711,7 @@
     "local": "ローカル",
     "localType": "タイプ",
     "localEmbedded": "組み込み（インプロセス）",
-    "localDownloadFirst": "先にモデルをダウンロードしてください",
+    "localDownloadFirst": "モデルサービスは未起動です",
     "localDownloadModel": "モデルをダウンロード",
     "localModelsTitle": "{{provider}} — ローカルモデル",
     "localNoModels": "まだダウンロード済みモデルがありません",
@@ -716,7 +734,7 @@
     "localDownloadInProgress": "すでにダウンロードが進行中です",
     "localDownloaded": "ダウンロード済み",
     "localNotDownloaded": "未ダウンロード",
-    "localNoRecommendedModels": "推奨ローカルモデルはありません",
+    "localNoRecommendedModels": "現在のマシン性能ではローカルモデルの実行に向いていません",
     "localCancelDownloadTitle": "ダウンロードをキャンセル",
     "localCancelDownloadAction": "ダウンロードをキャンセル",
     "localCancelDownloadConfirm": "\"{{repo}}\" のダウンロードをキャンセルしますか？",
@@ -766,6 +784,16 @@
     "localAlternativeRuntimeHint": "Ollama または LM Studio をお試しください",
     "localModelsCount": "ダウンロード済み {{downloaded}} / {{total}}",
     "localCurrentDownloadTitle": "現在のダウンロード",
+    "localAdvancedConfigTitle": "ローカルモデル詳細設定",
+    "localAdvancedConfigDescription": "これらの設定は組み込みのローカル推論ランタイムに適用されます。最大コンテキスト長の変更は、次回ローカルサーバー起動時に反映されます。",
+    "localAdvancedConfigSaved": "ローカルモデル詳細設定を保存しました",
+    "localAdvancedConfigSaveFailed": "ローカルモデル詳細設定の保存に失敗しました",
+    "localMaxContextLengthLabel": "最大コンテキスト長",
+    "localMaxContextLengthHint": "モデルのコンテキストウィンドウで扱える最大トークン数です。各リクエストに含められる履歴長を決定します。変更は次回ローカルサーバー起動時に反映されます。",
+    "localMaxContextLengthRequired": "最大コンテキスト長を入力してください",
+    "localMaxContextLengthMin": "最大コンテキスト長は {{min}} 以上である必要があります",
+    "localMaxContextLengthPlaceholder": "最大コンテキスト長を入力",
+    "localGenerateConfigHint": "ローカルモデルの生成パラメータを JSON オブジェクトで設定します。後続の生成リクエストに展開して渡されます。",
     "localCustomModelTitle": "カスタムモデルのダウンロード",
     "localCustomModelHint": "モデルリポジトリIDを入力します。GGUF形式のみ対応。",
     "localSourceHuggingFace": "Hugging Face",
@@ -774,6 +802,7 @@
     "testConnection": "接続テスト",
     "testConnectionSuccess": "接続テストに成功しました",
     "testConnectionFailed": "接続テストに失敗しました",
+    "testConnectionFailedWithMessage": "接続テストに失敗しました: {{message}}",
     "testConnectionError": "接続テスト中にエラーが発生しました",
     "discoverModels": "モデルを検出",
     "discoverModelsFailed": "モデルの検出に失敗しました",
@@ -1026,6 +1055,7 @@
   "chat": {
     "modelSelectTooltip": "モデルを選択",
     "newChatTooltip": "新しいチャット",
+    "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
@@ -1036,7 +1066,7 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
-    "inputPlaceholder": "/ を入力してコマンドを表示。承認時は /approve または /deny を使えます...",
+    "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"
@@ -1060,6 +1090,15 @@
       "multimodalWarning": "現在のモデルにマルチモーダル機能が検出されていません。画像や動画が正しく処理されない場合があります",
       "imageOnlyAccept": "現在のモデルは画像ファイルのみ対応しています",
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
+    },
+    "search": {
+      "title": "チャットを検索",
+      "tooltip": "現在のチャットを検索",
+      "placeholder": "メッセージを検索...",
+      "noResults": "結果が見つかりません",
+      "resultsCount": "{{count}} 件の結果が見つかりました",
+      "userMessage": "ユーザー",
+      "assistantMessage": "アシスタント"
     }
   },
   "security": {
