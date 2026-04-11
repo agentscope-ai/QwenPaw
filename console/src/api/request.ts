@@ -65,6 +65,12 @@ export async function request<T = unknown>(
   const method = options.method || "GET";
   const headers = buildHeaders(method, options.headers);
 
+  // When body is FormData, remove Content-Type so the
+  // browser sets it with the correct multipart boundary.
+  if (options.body instanceof FormData) {
+    headers.delete("Content-Type");
+  }
+
   const response = await fetch(url, {
     ...options,
     headers,

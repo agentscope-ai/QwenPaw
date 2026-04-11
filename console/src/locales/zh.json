@@ -1402,6 +1402,8 @@
       "tools": "工具"
     },
     "exportBtn": "导出资产",
+    "exportedTo": "已导出到：",
+    "downloadZip": "下载",
     "exportSuccess": "已导出 {{count}} 个资产",
     "exportFailed": "导出失败",
     "selectTypes": "请至少选择一种资产类型",

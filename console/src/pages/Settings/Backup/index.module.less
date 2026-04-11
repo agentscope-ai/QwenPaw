@@ -376,6 +376,49 @@
   margin-top: 4px;
 }
 
+/* ---- Export Result ---- */
+.exportResult {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #f0faf0;
+  border: 1px solid #b7eb8f;
+  border-radius: 8px;
+}
+
+:global(.dark-mode) .exportResult {
+  background: rgba(82, 196, 26, 0.08);
+  border-color: rgba(82, 196, 26, 0.3);
+}
+
+.exportResultInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.exportResultLabel {
+  font-size: 12px;
+  color: #52c41a;
+  font-weight: 500;
+}
+
+.exportResultPath {
+  font-size: 12px;
+  color: #666;
+  word-break: break-all;
+  font-family: "SF Mono", "Fira Code", monospace;
+}
+
+:global(.dark-mode) .exportResultPath {
+  color: rgba(255, 255, 255, 0.55);
+}
+
 /* ---- States ---- */
 .centerState {
   display: flex;

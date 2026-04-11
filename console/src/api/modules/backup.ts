@@ -62,6 +62,23 @@ export const backupApi = {
       body: JSON.stringify(body),
     }),
 
+  importUpload: (
+    file: File,
+    strategy?: string,
+    types?: string[],
+  ) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("strategy", strategy || "skip");
+    if (types && types.length > 0) {
+      formData.append("types", types.join(","));
+    }
+    return request<ImportResponse>("/backup/import/upload", {
+      method: "POST",
+      body: formData,
+    });
+  },
+
   restore: (body: { backup_name: string; strategy?: string }) =>
     request<ImportResponse>("/backup/restore", {
       method: "POST",

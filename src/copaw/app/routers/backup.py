@@ -11,9 +11,19 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    Body,
+    File,
+    Form as FastAPIForm,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse
 
+from ..agent_context import get_agent_for_request
 from ...backup.exporter import AssetExporter, ExportOptions
 from ...backup.importer import AssetImporter
 from ...backup.models import AssetType, BackupConfig, ConflictStrategy
@@ -96,13 +106,16 @@ def _parse_types(types: Optional[list[str]]) -> Optional[list[AssetType]]:
 
 @router.post("/export", summary="Export workspace assets")
 async def export_assets(
+    request: Request,
     body: dict = Body(
         ...,
         description='{"workspace_dir":"...","types":[...]}',
     ),
 ) -> dict:
+    # Resolve workspace from agent context
+    agent = await get_agent_for_request(request)
     workspace_dir = Path(
-        body.get("workspace_dir", str(WORKING_DIR)),
+        body.get("workspace_dir", str(agent.workspace_dir)),
     ).expanduser()
     if not workspace_dir.exists():
         raise HTTPException(
@@ -163,8 +176,81 @@ async def download_export(
     )
 
 
-@router.post("/import", summary="Import assets from ZIP")
+@router.post(
+    "/import/upload",
+    summary="Import assets from uploaded ZIP",
+)
+async def import_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    strategy: str = FastAPIForm("skip"),
+    types: str = FastAPIForm(""),
+) -> dict:
+    """Accept a ZIP upload, save to temp, then import."""
+    import tempfile
+
+    if not file.filename or not file.filename.endswith(".zip"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a .zip file",
+        )
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".zip",
+        delete=False,
+    ) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp.flush()
+        tmp_path = Path(tmp.name)
+
+    if tmp_path.stat().st_size == 0:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty",
+        )
+
+    try:
+        strat = ConflictStrategy(strategy.lower())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid strategy: {strategy!r}",
+        ) from exc
+
+    type_list = None
+    if types.strip():
+        type_list = _parse_types(types.split(","))
+
+    try:
+        agent = await get_agent_for_request(request)
+        importer = AssetImporter(
+            workspace_dir=agent.workspace_dir,
+        )
+        result = await importer.import_assets(
+            zip_path=tmp_path,
+            strategy=strat,
+            asset_types=type_list,
+        )
+        return {
+            "imported": result.imported,
+            "skipped": result.skipped,
+            "conflicts_count": len(result.conflicts),
+            "errors": result.errors,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+        ) from exc
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@router.post("/import", summary="Import assets from ZIP path")
 async def import_assets(
+    request: Request,
     body: dict = Body(
         ...,
         description='{"zip_path": "...", "strategy": "...", "types": [...]}',
@@ -192,7 +278,10 @@ async def import_assets(
     asset_types = _parse_types(body.get("types"))
 
     try:
-        importer = AssetImporter(workspace_dir=WORKING_DIR)
+        agent = await get_agent_for_request(request)
+        importer = AssetImporter(
+            workspace_dir=agent.workspace_dir,
+        )
         result = await importer.import_assets(
             zip_path=zip_path,
             strategy=strategy,
@@ -231,6 +320,7 @@ async def list_backups() -> dict:
 
 @router.post("/restore", summary="Restore from backup")
 async def restore_backup(
+    request: Request,
     body: dict = Body(
         ...,
         description='{"backup_name": "...", "strategy": "overwrite"}',
@@ -274,9 +364,10 @@ async def restore_backup(
         )
 
     try:
+        agent = await get_agent_for_request(request)
         result = await scheduler.restore_from_backup(
             backup_path=backup_path,
-            workspace_dir=WORKING_DIR,
+            workspace_dir=agent.workspace_dir,
             strategy=strategy,
         )
         return {

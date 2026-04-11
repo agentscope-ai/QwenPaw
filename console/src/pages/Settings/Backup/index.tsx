@@ -74,9 +74,15 @@ function BackupPage() {
   ]);
   const [exportAgents, setExportAgents] = useState<string[]>([selectedAgent]);
   const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<{
+    path: string;
+    filename: string;
+    downloadUrl: string;
+    count: number;
+  } | null>(null);
 
   // Import state
-  const [importFile, setImportFile] = useState<string>("");
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [importStrategy, setImportStrategy] = useState("skip");
   const [importTypes, setImportTypes] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
@@ -145,25 +151,19 @@ function BackupPage() {
     }
     try {
       setExporting(true);
+      setExportResult(null);
       const res = await api.exportAssets({ types: exportTypes });
+      setExportResult({
+        path: res.zip_path,
+        filename: res.filename,
+        downloadUrl: res.download_url,
+        count: res.asset_count,
+      });
       message.success(
         t("backup.exportSuccess", "Exported {{count}} assets", {
           count: res.asset_count,
         }),
       );
-
-      // Trigger browser download
-      if (res.download_url) {
-        const { getApiUrl, getApiToken } = await import("../../../api/config");
-        const url = getApiUrl(res.download_url);
-        const token = getApiToken();
-        const link = document.createElement("a");
-        link.href = token ? `${url}&token=${token}` : url;
-        link.download = res.filename || "backup.zip";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
     } catch (err) {
       message.error(
         err instanceof Error
@@ -175,24 +175,41 @@ function BackupPage() {
     }
   }, [exportTypes, exportAgents, t, message]);
 
+  const handleDownload = useCallback(async () => {
+    if (!exportResult?.downloadUrl) return;
+    const { getApiUrl, getApiToken } = await import(
+      "../../../api/config"
+    );
+    const url = getApiUrl(exportResult.downloadUrl);
+    const token = getApiToken();
+    const link = document.createElement("a");
+    link.href = token ? `${url}&token=${token}` : url;
+    link.download = exportResult.filename || "backup.zip";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [exportResult]);
+
   const handleImport = useCallback(async () => {
-    if (!importFile.trim()) {
-      message.warning(t("backup.selectFile", "Please select a file to import"));
+    if (!importFile) {
+      message.warning(
+        t("backup.selectFile", "Please select a file to import"),
+      );
       return;
     }
     try {
       setImporting(true);
-      const res = await api.importAssets({
-        zip_path: importFile.trim(),
-        strategy: importStrategy,
-        types: importTypes.length > 0 ? importTypes : undefined,
-      });
+      const res = await api.importUpload(
+        importFile,
+        importStrategy,
+        importTypes.length > 0 ? importTypes : undefined,
+      );
       message.success(
         t("backup.importSuccess", "Imported {{count}} assets", {
           count: res.imported.length,
         }),
       );
-      setImportFile("");
+      setImportFile(null);
       fetchBackups();
     } catch (err) {
       message.error(
@@ -594,6 +611,27 @@ function BackupPage() {
                 >
                   {t("backup.exportBtn", "Export Assets")}
                 </Button>
+
+                {exportResult && (
+                  <div className={styles.exportResult}>
+                    <div className={styles.exportResultInfo}>
+                      <span className={styles.exportResultLabel}>
+                        {t("backup.exportedTo", "Exported to:")}
+                      </span>
+                      <code className={styles.exportResultPath}>
+                        {exportResult.path}
+                      </code>
+                    </div>
+                    <Button
+                      type="primary"
+                      icon={<DownloadOutlined />}
+                      onClick={handleDownload}
+                      size="small"
+                    >
+                      {t("backup.downloadZip", "Download")}
+                    </Button>
+                  </div>
+                )}
               </Card>
 
               {/* Import */}
@@ -620,7 +658,7 @@ function BackupPage() {
                   <CloudUploadOutlined className={styles.uploadIcon} />
                   <span className={styles.uploadText}>
                     {importFile
-                      ? importFile.split("/").pop()
+                      ? importFile.name
                       : t("backup.dropOrBrowse", "Click to select a .zip file")}
                   </span>
                   <input
@@ -630,7 +668,7 @@ function BackupPage() {
                     style={{ display: "none" }}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) setImportFile(file.name);
+                      if (file) setImportFile(file);
                     }}
                   />
                 </div>

@@ -1394,6 +1394,8 @@
       "tools": "Tools"
     },
     "exportBtn": "Export Assets",
+    "exportedTo": "Exported to:",
+    "downloadZip": "Download",
     "exportSuccess": "Exported {{count}} assets",
     "exportFailed": "Export failed",
     "selectTypes": "Select at least one asset type",
