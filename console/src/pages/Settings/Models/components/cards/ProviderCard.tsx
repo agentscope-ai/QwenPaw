@@ -1,3 +1,4 @@
+import React from "react";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../../../api/types";
 import { LocalProviderCard } from "./LocalProviderCard";
 import { RemoteProviderCard } from "./RemoteProviderCard";
@@ -6,29 +7,15 @@ interface ProviderCardProps {
   provider: ProviderInfo;
   activeModels: ActiveModelsInfo | null;
   onSaved: () => void;
-  isHover: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
 }
 
-export function ProviderCard({
+export const ProviderCard = React.memo(function ProviderCard({
   provider,
   activeModels,
   onSaved,
-  isHover,
-  onMouseEnter,
-  onMouseLeave,
 }: ProviderCardProps) {
-  if (provider.is_local) {
-    return (
-      <LocalProviderCard
-        provider={provider}
-        onSaved={onSaved}
-        isHover={isHover}
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
-      />
-    );
+  if (provider.id === "copaw-local") {
+    return <LocalProviderCard provider={provider} onSaved={onSaved} />;
   }
 
   return (
@@ -36,9 +23,6 @@ export function ProviderCard({
       provider={provider}
       activeModels={activeModels}
       onSaved={onSaved}
-      isHover={isHover}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
     />
   );
-}
+});

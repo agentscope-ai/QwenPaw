@@ -8,7 +8,9 @@ import logging
 import os
 import platform
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
+
 from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
 
@@ -18,6 +20,10 @@ from copaw.agents.tools import read_file, write_file, edit_file
 from copaw.agents.utils import get_copaw_token_counter
 from copaw.config import load_config
 from copaw.config.config import load_agent_config
+from copaw.config.context import (
+    set_current_workspace_dir,
+    set_current_recent_max_bytes,
+)
 from copaw.constant import EnvVarLoader
 
 if TYPE_CHECKING:
@@ -25,7 +31,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_REME_VERSION = "0.3.1.6"
+_EXPECTED_REME_VERSION = "0.3.1.8"
 
 
 class ReMeLightMemoryManager(BaseMemoryManager):
@@ -61,14 +67,30 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             f"agent_id={agent_id}, working_dir={working_dir}",
         )
 
-        try:
-            from reme.reme_light import ReMeLight
-        except ImportError as e:
-            logger.warning(
-                "reme package not installed, memory features will be "
-                f"limited. {e}",
-            )
-            return
+        backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
+        if backend_env == "auto":
+            if platform.system() == "Windows":
+                memory_backend = "local"
+            else:
+                try:
+                    import chromadb  # noqa: F401 pylint: disable=unused-import
+
+                    memory_backend = "chroma"
+                except Exception as e:
+                    logger.warning(
+                        f"""
+chromadb import failed, falling back to `local` backend.
+This is often caused by an outdated system SQLite (requires >= 3.35).
+Please upgrade your system SQLite to >= 3.35.
+See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
+| Error: {e}
+                        """,
+                    )
+                    memory_backend = "local"
+        else:
+            memory_backend = backend_env
+
+        from reme.reme_light import ReMeLight
 
         emb_config = self.get_embedding_config()
         vector_enabled = bool(emb_config["base_url"]) and bool(
@@ -84,13 +106,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
-
-        backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
-        memory_backend = (
-            ("local" if platform.system() == "Windows" else "chroma")
-            if backend_env == "auto"
-            else backend_env
-        )
 
         agent_config = load_agent_config(self.agent_id)
         rebuild_on_start = (
@@ -241,6 +256,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self,
         messages: list[Msg],
         previous_summary: str = "",
+        extra_instruction: str = "",
         **_kwargs,
     ) -> str:
         """Compact messages into a condensed summary.
@@ -252,18 +268,34 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         agent_config = load_agent_config(self.agent_id)
         cc = agent_config.running.context_compact
 
-        result = await self._reme.compact_memory(
-            messages=messages,
-            as_llm=self.chat_model,
-            as_llm_formatter=self.formatter,
-            as_token_counter=get_copaw_token_counter(agent_config),
-            language=agent_config.language,
-            max_input_length=agent_config.running.max_input_length,
-            compact_ratio=cc.memory_compact_ratio,
-            previous_summary=previous_summary,
-            return_dict=True,
-            add_thinking_block=cc.compact_with_thinking_block,
-        )
+        if extra_instruction:
+            result = await self._reme.compact_memory(
+                messages=messages,
+                as_llm=self.chat_model,
+                as_llm_formatter=self.formatter,
+                as_token_counter=get_copaw_token_counter(agent_config),
+                language=agent_config.language,
+                max_input_length=agent_config.running.max_input_length,
+                compact_ratio=cc.memory_compact_ratio,
+                previous_summary=previous_summary,
+                return_dict=True,
+                add_thinking_block=cc.compact_with_thinking_block,
+                extra_instruction=extra_instruction,
+            )
+        else:
+            # Compatible with older versions of ReMe
+            result = await self._reme.compact_memory(
+                messages=messages,
+                as_llm=self.chat_model,
+                as_llm_formatter=self.formatter,
+                as_token_counter=get_copaw_token_counter(agent_config),
+                language=agent_config.language,
+                max_input_length=agent_config.running.max_input_length,
+                compact_ratio=cc.memory_compact_ratio,
+                previous_summary=previous_summary,
+                return_dict=True,
+                add_thinking_block=cc.compact_with_thinking_block,
+            )
 
         if isinstance(result, str):
             logger.error(
@@ -304,6 +336,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         agent_config = load_agent_config(self.agent_id)
         cc = agent_config.running.context_compact
+
+        set_current_workspace_dir(Path(self.working_dir))
+        recent_max_bytes = (
+            agent_config.running.tool_result_compact.recent_max_bytes
+        )
+        set_current_recent_max_bytes(recent_max_bytes)
 
         return await self._reme.summary_memory(
             messages=messages,

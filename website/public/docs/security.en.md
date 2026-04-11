@@ -22,8 +22,6 @@ Security Architecture:
 
 **Additional feature**: Web Authentication — Optional login protection for the Console interface
 
-<!-- TODO: Add architecture diagram here -->
-
 **Key concepts**:
 
 - **Tool Guard** inspects tool calls in real-time before execution, using regex rules to detect dangerous patterns
@@ -39,16 +37,17 @@ The **Tool Guard** scans tool parameters **before** the agent invokes a tool, de
 
 ### How it works
 
-1. When the agent calls a tool (e.g., `execute_shell_command`, `write_file`), the Tool Guard inspects the call parameters
-2. Uses regex rules to detect dangerous patterns:
+1. When the agent calls a tool, the Tool Guard inspects relevant parameters. Built-in regex rules primarily target **`execute_shell_command`**.
+2. Regex rules detect dangerous patterns, for example:
    - `rm -rf /` — Dangerous file deletion
-   - SQL injection patterns
+   - SQL-injection-like fragments
    - Command substitution `$(...)` or `` `...` ``
    - Path traversal `../`
    - Privilege escalation `sudo`, `su`
    - Reverse shells, fork bombs, etc.
+     (Exact coverage depends on built-in and custom rules.)
 3. Each rule has an independent severity level (CRITICAL, HIGH, MEDIUM, LOW, INFO)
-4. When a CRITICAL or HIGH finding is detected, the tool call is blocked and the agent receives a denial message
+4. For CRITICAL or HIGH findings: in the Console / interactive sessions, the tool call enters a pending-approval flow — you approve or reject before it runs. In non-interactive contexts without a session, findings are logged and execution may still proceed — use **`denied_tools`** to hard-block specific tools or tighten rules when needed.
 
 ### Configuration
 
@@ -147,7 +146,7 @@ Each custom rule is a JSON object with the following fields:
 
 In the Console under **Settings → Security → Tool Guard** tab, you can:
 
-<!-- TODO: Add screenshot of Tool Guard console interface -->
+![tool guard](https://img.alicdn.com/imgextra/i3/O1CN01RI8YBr1JorIWpB4uI_!!6000000001076-2-tps-3822-2064.png)
 
 - **Enable/disable Tool Guard** — Master switch; when disabled, all tool calls bypass checks
 - **Select guard scope** — Leave empty to guard all tools, or specify a list of tools to guard
@@ -264,7 +263,7 @@ In `config.json`:
 
 In the Console under **Settings → Security → File Guard** tab, you can:
 
-<!-- TODO: Add screenshot of File Guard console interface -->
+![file guard](https://img.alicdn.com/imgextra/i1/O1CN01tOHz591o77Z0SsWXA_!!6000000005177-2-tps-3822-2064.png)
 
 - **Enable/disable File Guard** — Independent toggle; controls file protection without affecting other Tool Guard features
 - **View protection list** — Table display of all protected paths:
@@ -336,6 +335,9 @@ Alert records include:
 
 ### Whitelist
 
+**Where to add:** In the Console, go to **Settings → Security → Skill Scanner**, open the **Scan Alerts** tab, and click the shield icon (**Add to Whitelist**) on the row for that skill’s alert. Entries appear under the **Whitelist** tab for review and removal (see **Scan Alerts** and **Console management** above).
+**Prerequisite:** The skill must have been scanned and show up as **blocked** or **warned** before it appears in Scan Alerts; you cannot add a whitelist entry from the Console with no prior alert. Advanced: edit `security.skill_scanner.whitelist` in `config.json` (see **Configuration** below).
+
 Whitelisted skills bypass the security scan. The whitelist mechanism is based on **content hash verification**:
 
 - Each whitelist entry contains:
@@ -355,7 +357,7 @@ The whitelist is useful for:
 
 In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
-<!-- TODO: Add screenshot of Skill Scanner console interface with tabs -->
+![skill scanner](https://img.alicdn.com/imgextra/i2/O1CN01oZHdxC1M983gp03Ox_!!6000000001391-2-tps-3822-2064.png)
 
 **Configuration area**:
 
@@ -364,7 +366,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
 **Scan Alerts tab** (shows badge count when alerts exist):
 
-<!-- TODO: Add screenshot of Scan Alerts tab with example alerts -->
+![alarm](https://img.alicdn.com/imgextra/i4/O1CN01B3j7d21yhtWQ7b0NB_!!6000000006611-2-tps-3822-2064.png)
 
 - View all blocked and warned records
 - Click eye icon to view detailed findings
@@ -374,7 +376,7 @@ In the Console under **Settings → Security → Skill Scanner** tab, you can:
 
 **Whitelist tab** (shows badge count when entries exist):
 
-<!-- TODO: Add screenshot of Whitelist tab -->
+![white list](https://img.alicdn.com/imgextra/i1/O1CN01yZTkBE1EmVBHhaNwh_!!6000000000394-2-tps-3822-2064.png)
 
 - View all whitelisted skills
 - Shows skill name, content hash (first 16 chars), added time
@@ -403,7 +405,7 @@ Built-in signature categories:
 - `hardcoded_secrets` — Hardcoded secrets
 - `prompt_injection` — Prompt injection
 - `social_engineering` — Social engineering
-- `supply_chain` — Supply chain attacks
+- `supply_chain_attack` — Supply chain attacks
 - `obfuscation` — Code obfuscation
 - `resource_abuse` — Resource abuse
 - `unauthorized_tool_use` — Unauthorized tool use
@@ -534,7 +536,7 @@ Here's a complete `config.json` with all security features configured:
 
 CoPaw supports optional web login authentication to protect the Console from unauthorized access. Authentication is **disabled by default** and must be explicitly enabled via the `COPAW_AUTH_ENABLED` environment variable.
 
-<!-- TODO: Add screenshot of login page and registration page -->
+![login](https://img.alicdn.com/imgextra/i3/O1CN01SP7Ppd289g5e9kKO6_!!6000000007890-2-tps-3822-2064.png)
 
 ### How it works
 
@@ -688,7 +690,7 @@ This command will:
 
 1. Display the current registered username
 2. Prompt for a new password (hidden input, requires confirmation twice)
-3. Rotate the JWT signing secret, which **invalidates all existing sessions** — all logged-in devices must log in again with the new password
+3. Rotate the session signing secret (the key stored in `auth.json`), which **invalidates all existing sessions** — all logged-in devices must log in again with the new password
 
 **Docker deployments**:
 

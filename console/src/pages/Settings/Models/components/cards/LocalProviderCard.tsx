@@ -1,26 +1,22 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Card, Button } from "@agentscope-ai/design";
 import type { ProviderInfo } from "../../../../../api/types";
 import { ModelManageModal } from "../modals/ModelManageModal";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
+import { providerIcon } from "../providerIcon";
 
 interface LocalProviderCardProps {
   provider: ProviderInfo;
   onSaved: () => void;
-  isHover: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
 }
 
-export function LocalProviderCard({
+export const LocalProviderCard = React.memo(function LocalProviderCard({
   provider,
   onSaved,
-  isHover,
-  onMouseEnter,
-  onMouseLeave,
 }: LocalProviderCardProps) {
   const { t } = useTranslation();
+  const [isHover, setIsHover] = useState(false);
   const [modelManageOpen, setModelManageOpen] = useState(false);
 
   const totalCount = provider.models.length + provider.extra_models.length;
@@ -32,30 +28,37 @@ export function LocalProviderCard({
   return (
     <Card
       hoverable
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={() => setIsHover(true)}
+      onMouseLeave={() => setIsHover(false)}
       className={`${styles.providerCard} ${
         statusReady ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
     >
-      {/* Status Header */}
-      <div className={styles.cardStatusHeader}>
-        <span
-          className={styles.statusDot}
-          style={{
-            backgroundColor: statusReady ? "#52c41a" : "#d9d9d9",
-            boxShadow: statusReady
-              ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
-              : "none",
-          }}
+      {/* Card Header with Icon and Status */}
+      <div className={styles.cardHeaderRow}>
+        <img
+          src={providerIcon(provider.id)}
+          alt={provider.name}
+          className={styles.providerIcon}
         />
-        <span
-          className={`${styles.statusText} ${
-            statusReady ? styles.enabled : styles.disabled
-          }`}
-        >
-          {statusLabel}
-        </span>
+        <div className={styles.cardStatusHeader}>
+          <span
+            className={styles.statusDot}
+            style={{
+              backgroundColor: statusReady ? "#52c41a" : "#d9d9d9",
+              boxShadow: statusReady
+                ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
+                : "none",
+            }}
+          />
+          <span
+            className={`${styles.statusText} ${
+              statusReady ? styles.enabled : styles.disabled
+            }`}
+          >
+            {statusLabel}
+          </span>
+        </div>
       </div>
 
       {/* Title Row */}
@@ -105,4 +108,4 @@ export function LocalProviderCard({
       />
     </Card>
   );
-}
+});

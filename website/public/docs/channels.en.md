@@ -61,7 +61,7 @@ You can configure it either in the Console frontend or by editing the agent work
 
 Go to "Control→Channels", find **DingTalk**, click it, and enter the **Client ID** and **Client Secret** you just obtained.
 
-![console](https://img.alicdn.com/imgextra/i3/O1CN01i07tt61rzZUSMo5SI_!!6000000005702-2-tps-3643-1897.png)
+![console](https://img.alicdn.com/imgextra/i2/O1CN01TncUmE1TUNkR7e2ft_!!6000000002385-2-tps-3822-2064.png)
 
 **Method 2**: Edit agent workspace `agent.json`
 
@@ -237,7 +237,7 @@ Find `channels.feishu` in your agent's `agent.json` (e.g., `~/.copaw/workspaces/
 If your environment uses a SOCKS proxy, also install `python-socks` (for example, `pip install python-socks`), otherwise you may see: `python-socks is required to use a SOCKS proxy`.
 
 > **Note:** You can also fill in **App ID** and **App Secret** in the Console UI, but you must restart the copaw service before continuing with the long-connection configuration.
-> ![console](https://img.alicdn.com/imgextra/i1/O1CN01JInbHT1ei5MdfkMGv_!!6000000003904-2-tps-4082-2126.png)
+> ![console](https://img.alicdn.com/imgextra/i2/O1CN01ybSbN01luB8jyt9BD_!!6000000004878-2-tps-3822-2064.png)
 
 ### Recommended bot permissions
 
@@ -308,7 +308,7 @@ The app polls the local iMessage database for new messages and sends replies on 
 
    - In **Console → Channels**, click the **iMessage** card, turn **Enable** on, enter the path in **DB Path**, and click **Save**.
 
-     ![save](https://img.alicdn.com/imgextra/i1/O1CN01Bc1Dxe1rhi2vhjGsC_!!6000000005663-2-tps-3814-1954.png)
+     ![save](https://img.alicdn.com/imgextra/i2/O1CN01i0Ilrp1eSyIl9ecy5_!!6000000003871-2-tps-3822-2064.png)
 
    - Or edit the agent workspace `agent.json` (usually at `~/.copaw/workspaces/default/agent.json`):
 
@@ -380,7 +380,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 Go to **Control → Channels**, click **Discord**, and enter the **Bot Token** you obtained.
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN019GKk901VE0od1PU9t_!!6000000002620-2-tps-4084-2126.png)
+![Console](https://img.alicdn.com/imgextra/i1/O1CN01ChQJNp1afYixv52rv_!!6000000003357-2-tps-3822-2064.png)
 
 **Method 2:** Edit agent workspace `agent.json`
 
@@ -470,7 +470,76 @@ In your agent's `agent.json` (e.g., `~/.copaw/workspaces/default/agent.json`), f
 
 You can also fill them in the Console UI.
 
-![1](https://img.alicdn.com/imgextra/i1/O1CN013zS1dF1hLal9IM4rc_!!6000000004261-2-tps-4082-2126.png)
+![1](https://img.alicdn.com/imgextra/i3/O1CN01l801uc1jPpfLTOsR5_!!6000000004541-2-tps-3822-2064.png)
+
+---
+
+## OneBot v11 (NapCat / QQ full protocol)
+
+The **OneBot** channel connects CoPaw to [NapCat](https://github.com/NapNeko/NapCatQQ), [go-cqhttp](https://github.com/Mrs4s/go-cqhttp), [Lagrange](https://github.com/LagrangeDev/Lagrange.Core), or any other [OneBot v11](https://github.com/botuniverse/onebot-11) compatible implementation via **reverse WebSocket**.
+
+Unlike the built-in QQ channel (which uses the official QQ Bot API with limited features), OneBot v11 provides **full QQ protocol** support: personal accounts, group messages without @mention, rich media, and more.
+
+### How it works
+
+CoPaw starts a WebSocket server; the OneBot implementation (e.g. NapCat) connects to it as a client:
+
+```
+NapCat  ──reverse WS──▶  CoPaw (:6199/ws)
+```
+
+### Setup NapCat
+
+1. Run NapCat via Docker:
+
+   ```bash
+   docker run -d \
+     --name napcat \
+     -e ACCOUNT=<your_qq_number> \
+     -p 6099:6099 \
+     mlikiowa/napcat-docker:latest
+   ```
+
+2. Open NapCat WebUI at `http://localhost:6099`, scan the QR code with QQ to log in.
+
+3. Go to **Network Config** → **New** → **WebSocket Client** (reverse WS):
+   - URL: `ws://<copaw_host>:6199/ws`
+   - Access Token: same as `access_token` in CoPaw config (optional)
+
+### Fill agent.json
+
+```json
+"onebot": {
+  "enabled": true,
+  "ws_host": "0.0.0.0",
+  "ws_port": 6199,
+  "access_token": "",
+  "share_session_in_group": false
+}
+```
+
+**OneBot-specific fields:**
+
+| Field                    | Type   | Default   | Description                                                                                              |
+| ------------------------ | ------ | --------- | -------------------------------------------------------------------------------------------------------- |
+| `ws_host`                | string | `0.0.0.0` | WebSocket server listen address                                                                          |
+| `ws_port`                | int    | `6199`    | WebSocket server listen port                                                                             |
+| `access_token`           | string | `""`      | Optional token for authentication (must match NapCat config)                                             |
+| `share_session_in_group` | bool   | `false`   | If `true`, all members in a group share one session; if `false`, each member gets an independent session |
+
+> **Docker Compose tip:** When running CoPaw and NapCat in Docker Compose, set the NapCat reverse WS URL to `ws://copaw:6199/ws` (using the service name).
+
+**Multimodal support:**
+
+| Type  | Receive | Send |
+| ----- | ------- | ---- |
+| Text  | ✓       | ✓    |
+| Image | ✓       | ✓    |
+| Audio | 🚧      | ✓    |
+| Video | 🚧      | ✓    |
+| File  | ✓       | ✓    |
+
+> **Note:** Audio and video are received at the channel level, but require CoPaw's transcription provider (`transcription_provider_type`) to be configured for the LLM to process them. Without transcription, voice messages are shown as placeholders.
 
 ---
 
@@ -510,7 +579,7 @@ You can bind the bot by filling in the Bot ID and Secret in the Console or `agen
 
 **Method 1:** Fill in the Console
 
-![Bind robot](https://img.alicdn.com/imgextra/i2/O1CN01X8NcEj1NrqL0e3AMS_!!6000000001624-2-tps-2732-1390.png)
+![Bind robot](https://img.alicdn.com/imgextra/i3/O1CN01ZZeM111FXDa0GoZUN_!!6000000000496-2-tps-3822-2064.png)
 
 **Method 2:** Fill in `agent.json` (e.g., `~/.copaw/workspaces/default/agent.json`)
 
@@ -622,7 +691,7 @@ You can configure via the Console UI or by editing the agent workspace `agent.js
 
 Go to **Control → Channels**, click **Telegram**, and enter the **Bot Token** you obtained.
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01utJvvg1dmNSiFOOJi_!!6000000003778-0-tps-1920-993.jpg)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01Ps7Odl1a35SETdKna_!!6000000003273-2-tps-3822-2064.png)
 
 **Method 2:** Edit agent workspace `agent.json`
 
@@ -1027,9 +1096,9 @@ done). **✗** = not supported (not possible on this channel).
 | Feishu     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
-| QQ         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| QQ         | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | WeCom      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
-| WeChat     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| WeChat     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Telegram   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
 | Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
@@ -1051,7 +1120,7 @@ Notes:
   currently text + link-only.
 - **Telegram**: Attachments are parsed as files on receive and can be opened in the corresponding format (image / voice / video / file) within the Telegram chat interface.
 - **WeCom**: WebSocket long connection for receiving; markdown/template_card for sending. Supports receiving and sending text, image, voice, video, and file.
-- **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending currently supports text only (iLink API limitation).
+- **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending supports text, images, files, and videos; audio files (e.g., MP3) are not supported due to iLink API limitations.
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
 - **Voice**: Phone call interaction via Twilio ConversationRelay. Receives audio (speech) and sends audio (TTS). All communication is voice-based; text/image/video/file are not supported over phone calls.

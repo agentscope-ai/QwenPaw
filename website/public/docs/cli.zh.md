@@ -23,14 +23,10 @@ copaw init --force      # 覆盖已有配置文件
 
 **交互流程（按顺序）：**
 
-1. **心跳** —— 间隔（如 `30m`）、目标（`main` / `last`）、可选活跃时间段。
-2. **工具详情** —— 是否在频道消息中显示工具调用细节。
-3. **语言** —— Agent 人设文件（SOUL.md 等）使用 `zh` / `en` / `ru`。
-4. **频道** —— 可选配置 iMessage / Discord / DingTalk / Feishu / QQ / Console。
-5. **LLM 提供商** —— 选择提供商、输入 API Key、选择模型（**必选**）。
-6. **技能** —— 全部启用 / 不启用 / 自定义选择。
-7. **环境变量** —— 可选添加工具所需的键值对。
-8. **HEARTBEAT.md** —— 在默认编辑器中编辑心跳检查清单。
+1. **默认工作区初始化** —— 自动创建默认工作区及配置文件。
+2. **LLM 提供商** —— 选择提供商、输入 API Key、选择模型（**必选**）。
+3. **环境变量** —— 可选添加工具所需的键值对。
+4. **HEARTBEAT.md** —— 在默认编辑器中编辑心跳检查清单。
 
 ### copaw app
 
@@ -38,7 +34,6 @@ copaw init --force      # 覆盖已有配置文件
 
 ```bash
 copaw app                             # 默认 127.0.0.1:8088
-copaw app --host 0.0.0.0 --port 9090 # 自定义地址
 copaw app --reload                    # 代码改动自动重载（开发用）
 copaw app --log-level debug           # 详细日志
 ```
@@ -102,8 +97,8 @@ copaw daemon logs -n 50
 | `copaw models config`                  | 完整交互式配置：API Key → 选择模型     |
 | `copaw models config-key [provider]`   | 单独配置某个提供商的 API Key           |
 | `copaw models set-llm`                 | 只切换活跃模型（不改 API Key）         |
-| `copaw models download <repo_id>`      | 下载本地模型（llama.cpp / MLX）        |
 | `copaw models local`                   | 查看已下载的本地模型                   |
+| `copaw models download <repo_id>`      | 下载一个本地模型（llama.cpp）          |
 | `copaw models remove-local <model_id>` | 删除已下载的本地模型                   |
 
 ```bash
@@ -117,8 +112,8 @@ copaw models set-llm                 # 只切换模型
 
 #### 本地模型
 
-CoPaw 也支持通过 llama.cpp 或 MLX 在本地运行模型——无需 API Key。
-先安装后端：`pip install 'copaw[llamacpp]'` 或 `pip install 'copaw[mlx]'`。
+CoPaw 也支持通过 llama.cpp，Ollama 或 LM Studio 在本地运行模型——无需 API Key。
+但在此之前需要先下载对应的应用，例如 [Ollama](https://ollama.com/download) 或 [LM Studio](https://lmstudio.ai/download)。
 
 ```bash
 # 下载模型（自动选择 Q4_K_M GGUF）

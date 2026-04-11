@@ -1,4 +1,5 @@
 import { Slider } from "@agentscope-ai/design";
+import styles from "../index.module.less";
 
 interface SliderWithValueProps {
   value?: number;
@@ -35,7 +36,7 @@ export function SliderWithValue({
         />
       </div>
       <div style={{ minWidth: 50, textAlign: "right", lineHeight: "32px" }}>
-        <span style={{ fontWeight: 500, color: "#1890ff" }}>
+        <span className={styles.sliderValue}>
           {value !== undefined ? formatValue(value) : "-"}
         </span>
       </div>

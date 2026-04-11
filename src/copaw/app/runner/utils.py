@@ -20,6 +20,9 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     FunctionCallOutput,
     MessageType,
 )
+from agentscope_runtime.engine.schemas.exception import (
+    AgentRuntimeErrorException,
+)
 
 from ...config import load_config
 
@@ -81,7 +84,11 @@ def build_env_context(
             "Consult the relevant skill documentation if unsure.\n"
             "  2. When using write_file, if you want to avoid overwriting "
             "existing content, use read_file first to inspect the file, "
-            "then use edit_file for partial updates or appending.",
+            "then use edit_file for partial updates or appending.\n"
+            "  3. Use tool calls to perform actions. A response without a "
+            "tool call indicates the task is complete. To continue a task, "
+            "you must generate a tool call or provide useful feedback if "
+            "you are blocked.\n",
         )
 
     return (
@@ -308,7 +315,12 @@ def agentscope_msg_to_message(
     elif isinstance(messages, list):
         msgs = messages
     else:
-        raise TypeError(f"Expected Msg or list[Msg], got {type(messages)}")
+        raise AgentRuntimeErrorException(
+            code="INVALID_MESSAGE_TYPE",
+            message=(
+                f"Expected Msg or list[Msg], got {type(messages).__name__}"
+            ),
+        )
 
     results: List[Message] = []
 

@@ -8,6 +8,10 @@ import asyncio
 import logging
 from typing import Dict, Set
 
+from agentscope_runtime.engine.schemas.exception import (
+    ConfigurationException,
+)
+
 from .workspace import Workspace
 from ..config.utils import load_config
 
@@ -44,7 +48,7 @@ class MultiAgentManager:
             Workspace: The requested workspace instance
 
         Raises:
-            ValueError: If agent ID not found in configuration
+            ConfigurationException: If agent ID not found in configuration
         """
         async with self._lock:
             # Return existing agent if already loaded
@@ -56,9 +60,13 @@ class MultiAgentManager:
             config = load_config()
 
             if agent_id not in config.agents.profiles:
-                raise ValueError(
-                    f"Agent '{agent_id}' not found in configuration. "
-                    f"Available agents: {list(config.agents.profiles.keys())}",
+                raise ConfigurationException(
+                    config_key="agent",
+                    message=(
+                        f"Agent '{agent_id}' not found in configuration. "
+                        f"Available agents: "
+                        f"{list(config.agents.profiles.keys())}"
+                    ),
                 )
 
             agent_ref = config.agents.profiles[agent_id]

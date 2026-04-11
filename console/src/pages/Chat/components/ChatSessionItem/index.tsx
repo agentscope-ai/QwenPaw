@@ -1,8 +1,18 @@
 import React from "react";
 import { Input } from "antd";
 import { IconButton } from "@agentscope-ai/design";
-import { SparkEditLine, SparkDeleteLine } from "@agentscope-ai/icons";
-import { getChannelIconUrl } from "../../../Control/Channels/components";
+import {
+  SparkEditLine,
+  SparkDeleteLine,
+  SparkMarkLine,
+  SparkMarkFill,
+} from "@agentscope-ai/icons";
+import { useTranslation } from "react-i18next";
+import {
+  getChannelIconUrl,
+  getChannelLabel,
+} from "../../../Control/Channels/components";
+import type { ChatStatus } from "../../../../api/types/chat";
 import styles from "./index.module.less";
 
 interface ChatSessionItemProps {
@@ -14,18 +24,24 @@ interface ChatSessionItemProps {
   channelKey?: string;
   /** Localized channel label (e.g. Console, DingTalk) */
   channelLabel?: string;
+  chatStatus?: ChatStatus;
+  generating?: boolean;
   /** Whether this is the currently selected session */
   active?: boolean;
   /** Whether the item is in inline-edit mode */
   editing?: boolean;
   /** Current value of the edit input */
   editValue?: string;
+  /** Whether the chat is pinned */
+  pinned?: boolean;
   /** Click callback */
   onClick?: () => void;
   /** Edit button callback */
   onEdit?: () => void;
   /** Delete button callback */
   onDelete?: () => void;
+  /** Pin button callback */
+  onPin?: () => void;
   /** Edit input value change callback */
   onEditChange?: (value: string) => void;
   /** Confirm edit callback (Enter key or blur) */
@@ -36,10 +52,24 @@ interface ChatSessionItemProps {
 }
 
 const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
+  const { t } = useTranslation();
+  const hasVisibleChannelLabel = Boolean(props.channelLabel?.trim());
+  const channelIconAlt =
+    hasVisibleChannelLabel || !props.channelKey
+      ? ""
+      : getChannelLabel(props.channelKey, t);
+
+  const inProgress =
+    props.generating === true || props.chatStatus === "running";
+  const statusAriaLabel = inProgress
+    ? t("chat.statusInProgress")
+    : t("chat.statusIdle");
+
   const className = [
     styles.chatSessionItem,
     props.active ? styles.active : "",
     props.editing ? styles.editing : "",
+    props.pinned ? styles.pinned : "",
     props.className || "",
   ]
     .filter(Boolean)
@@ -64,7 +94,21 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <div className={styles.name}>{props.name}</div>
+          <div className={styles.titleRow}>
+            <div
+              className={styles.statusWrap}
+              role="img"
+              aria-label={statusAriaLabel}
+            >
+              <span
+                className={`${styles.statusDot} ${
+                  inProgress ? styles.statusDotActive : styles.statusDotIdle
+                }`}
+                aria-hidden
+              />
+            </div>
+            <div className={styles.name}>{props.name}</div>
+          </div>
         )}
         <div className={styles.metaRow}>
           <span className={styles.time}>{props.time}</span>
@@ -77,7 +121,7 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
                 <img
                   className={styles.channelIcon}
                   src={getChannelIconUrl(props.channelKey)}
-                  alt=""
+                  alt={channelIconAlt}
                   loading="lazy"
                   decoding="async"
                 />
@@ -91,7 +135,21 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
           )}
         </div>
       </div>
-      {/* Action buttons visible on hover */}
+      {/* Pin button - always visible when pinned, positioned independently */}
+      {!props.editing && (
+        <IconButton
+          bordered={false}
+          size="small"
+          className={styles.pinButton}
+          data-pinned={props.pinned}
+          icon={props.pinned ? <SparkMarkFill /> : <SparkMarkLine />}
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onPin?.();
+          }}
+        />
+      )}
+      {/* Action buttons - edit and delete, only visible on hover */}
       {!props.editing && (
         <div className={styles.actions}>
           <IconButton

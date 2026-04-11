@@ -107,7 +107,9 @@ class ToolGuardMixin:
                     return True
         return False
 
-    def _pop_forced_tool_call(self) -> dict[str, Any] | None:
+    def _pop_forced_tool_call(  # pylint: disable=too-many-branches
+        self,
+    ) -> dict[str, Any] | None:
         """Pop and validate a forced tool call injected by the runner."""
         raw = self._request_context.pop("forced_tool_call_json", "")
         if not raw:
@@ -148,6 +150,7 @@ class ToolGuardMixin:
 
         siblings = tool_call.pop("_sibling_tool_calls", None)
         remaining = tool_call.pop("_remaining_queue", None)
+        thinking_blocks = tool_call.pop("_thinking_blocks", None)
 
         if remaining is not None and isinstance(remaining, list):
             self._tool_guard_replay_queue = remaining
@@ -164,11 +167,17 @@ class ToolGuardMixin:
         else:
             self._tool_guard_replay_queue = []
 
-        return {
+        result = {
             "id": tool_id,
             "name": tool_name,
             "input": tool_input,
         }
+
+        # Preserve thinking blocks for models that require reasoning_content
+        if thinking_blocks is not None and isinstance(thinking_blocks, list):
+            result["_thinking_blocks"] = thinking_blocks
+
+        return result
 
     async def _get_pending_info_for_display(self) -> dict[str, Any]:
         """Return pending tool info aligned with approval queue head."""
@@ -207,6 +216,7 @@ class ToolGuardMixin:
             or fallback.get("tool_name", "unknown"),
             "tool_input": tool_input or fallback.get("tool_input", {}),
             "guardians": fallback.get("guardians", []),
+            "guard_result": fallback.get("guard_result"),
         }
 
     async def _cleanup_tool_guard_denied_messages(
@@ -265,6 +275,10 @@ class ToolGuardMixin:
         pre-approved and non-guarded) runs **outside** the lock for
         true parallelism.
         """
+        ctx = getattr(self, "_request_context", None) or {}
+        if ctx.get("_headless_tool_guard", "true").lower() == "false":
+            return await super()._acting(tool_call)  # type: ignore[misc]
+
         self._ensure_tool_guard()
 
         action: _GuardAction | None = None
@@ -494,13 +508,26 @@ class ToolGuardMixin:
 
         channel = str(self._request_context.get("channel") or "")
 
+        # Find the original assistant message and extract thinking blocks
+        original_msg = None
         for msg, marks in reversed(self.memory.content):
             if msg.role == "assistant":
                 if TOOL_GUARD_DENIED_MARK not in marks:
                     marks.append(TOOL_GUARD_DENIED_MARK)
+                original_msg = msg
                 break
 
         extra: dict[str, Any] = {"tool_call": tool_call}
+
+        # Preserve thinking blocks from the original message
+        if original_msg is not None:
+            thinking_blocks = [
+                b
+                for b in original_msg.get_content_blocks()
+                if isinstance(b, dict) and b.get("type") == "thinking"
+            ]
+            if thinking_blocks:
+                extra["thinking_blocks"] = thinking_blocks
 
         replay_queue = getattr(self, "_tool_guard_replay_queue", None)
         if replay_queue is not None:
@@ -548,6 +575,7 @@ class ToolGuardMixin:
             "tool_name": tool_name,
             "tool_input": tool_call.get("input", {}),
             "guardians": guardians,
+            "guard_result": guard_result,
         }
 
         findings_text = format_findings_summary(guard_result)
@@ -702,16 +730,33 @@ class ToolGuardMixin:
             from agentscope.message import ToolUseBlock
 
             self._tool_guard_forced_replay_active = True
+
+            # Extract thinking blocks if present
+            thinking_blocks = forced_tool_call.pop("_thinking_blocks", None)
+
+            # Build content blocks
+            content_blocks = []
+
+            # Add thinking blocks first (if present)
+            if thinking_blocks is not None and isinstance(
+                thinking_blocks,
+                list,
+            ):
+                content_blocks.extend(thinking_blocks)
+
+            # Add tool use block
+            content_blocks.append(
+                ToolUseBlock(
+                    type="tool_use",
+                    id=forced_tool_call["id"],
+                    name=forced_tool_call["name"],
+                    input=forced_tool_call["input"],
+                ),
+            )
+
             msg = Msg(
                 self.name,
-                [
-                    ToolUseBlock(
-                        type="tool_use",
-                        id=forced_tool_call["id"],
-                        name=forced_tool_call["name"],
-                        input=forced_tool_call["input"],
-                    ),
-                ],
+                content_blocks,
                 "assistant",
             )
             await self.print(msg, True)
@@ -761,12 +806,38 @@ class ToolGuardMixin:
         tool_name = pending.get("tool_name", "unknown")
         tool_input = pending.get("tool_input", {})
         guardians: list[str] = pending.get("guardians", [])
+        guard_result = pending.get("guard_result")
+
         params_text = _json.dumps(
             tool_input,
             ensure_ascii=False,
             indent=2,
         )
         trigger_label, settings_hint = self._guardian_trigger_hint(guardians)
+
+        # Extract remediation hint from guard result if available
+        remediation_hint = ""
+        if guard_result and guard_result.findings:
+            try:
+                finding = guard_result.findings[0]
+                # Use structured metadata for custom hints
+                if finding.metadata and "custom_hint" in finding.metadata:
+                    custom_hint = finding.metadata["custom_hint"]
+                    if (
+                        isinstance(custom_hint, dict)
+                        and "messages" in custom_hint
+                    ):
+                        messages = custom_hint["messages"]
+                        if isinstance(messages, list) and all(
+                            isinstance(m, str) for m in messages
+                        ):
+                            remediation_hint = "\n\n" + "\n".join(messages)
+            except (KeyError, TypeError, AttributeError) as e:
+                logger.debug(
+                    "Failed to extract remediation hint from metadata: %s",
+                    e,
+                )
+
         return await self._emit_assistant_msg(
             "⏳ Waiting for approval / 等待审批\n\n"
             f"- Tool / 工具: `{tool_name}`\n"
@@ -777,5 +848,5 @@ class ToolGuardMixin:
             "Type `/approve` to approve, "
             "or send any message to deny.\n"
             "输入 `/approve` 批准执行，"
-            "或发送任意消息拒绝。",
+            f"或发送任意消息拒绝。{remediation_hint}",
         )

@@ -11,6 +11,10 @@ from typing import TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
+
 from . import control_commands
 from .daemon_commands import (
     DaemonContext,
@@ -48,7 +52,8 @@ def _is_conversation_command(query: str | None) -> bool:
     """True if query is a conversation command (/compact, /new, etc.)."""
     if not query or not query.startswith("/"):
         return False
-    cmd = query.strip().lstrip("/").split()[0] if query.strip() else ""
+    stripped = query.strip().lstrip("/")
+    cmd = stripped.split(" ", 1)[0] if stripped else ""
     return cmd in CommandHandler.SYSTEM_COMMANDS
 
 
@@ -71,7 +76,7 @@ def _is_command(query: str | None) -> bool:
     return _is_conversation_command(query)
 
 
-async def run_command_path(  # pylint: disable=too-many-statements
+async def run_command_path(  # pylint: disable=too-many-statements,too-many-branches  # noqa: E501
     request,
     msgs,
     runner: AgentRunner,
@@ -210,9 +215,10 @@ async def run_command_path(  # pylint: disable=too-many-statements
             yield response_msg, True
             logger.info("handle_control_command %s completed", query)
         except Exception as e:
-            logger.exception(
-                f"Control command failed: {query}",
-            )
+            if isinstance(e, (ValueError, AppBaseException)):
+                logger.warning("Control command failed: %s – %s", query, e)
+            else:
+                logger.exception("Control command unexpected error: %s", query)
             error_msg = Msg(
                 name="Friday",
                 role="assistant",
@@ -243,7 +249,7 @@ async def run_command_path(  # pylint: disable=too-many-statements
     )
     try:
         response_msg = await conv_handler.handle_conversation_command(query)
-    except RuntimeError as e:
+    except (RuntimeError, AppBaseException) as e:
         response_msg = Msg(
             name="Friday",
             role="assistant",

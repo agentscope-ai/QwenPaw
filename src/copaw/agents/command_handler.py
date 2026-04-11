@@ -12,6 +12,7 @@ from agentscope.message import Msg, TextBlock
 
 from ..config.config import load_agent_config
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
+from ..exceptions import SystemCommandException
 
 if TYPE_CHECKING:
     from .memory import BaseMemoryManager
@@ -53,7 +54,9 @@ class ConversationCommandHandlerMixin:
         """
         if not isinstance(query, str) or not query.startswith("/"):
             return False
-        return query.strip().lstrip("/") in self.SYSTEM_COMMANDS
+        stripped = query.strip().lstrip("/")
+        cmd = stripped.split(" ", 1)[0] if stripped else ""
+        return cmd in self.SYSTEM_COMMANDS
 
 
 class CommandHandler(ConversationCommandHandlerMixin):
@@ -113,9 +116,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
     async def _process_compact(
         self,
         messages: list[Msg],
-        _args: str = "",
+        args: str = "",
     ) -> Msg:
         """Process /compact command."""
+        extra_instruction = args.strip()
         if not messages:
             return await self._make_system_msg(
                 "**No messages to compact.**\n\n"
@@ -133,6 +137,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         compact_content = await self.memory_manager.compact_memory(
             messages=messages,
             previous_summary=self.memory.get_compressed_summary(),
+            extra_instruction=extra_instruction,
         )
 
         if not compact_content:
@@ -501,7 +506,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             System response message
 
         Raises:
-            RuntimeError: If command is not recognized
+            SystemCommandException: If command is not recognized
         """
         messages = await self.memory.get_memory(
             prepend_summary=False,
@@ -514,7 +519,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         handler = getattr(self, f"_process_{command}", None)
         if handler is None:
-            raise RuntimeError(f"Unknown command: {query}")
+            raise SystemCommandException(
+                message=f"Unknown command: {query}",
+            )
         return await handler(messages, args)
 
     async def handle_command(self, query: str) -> Msg:

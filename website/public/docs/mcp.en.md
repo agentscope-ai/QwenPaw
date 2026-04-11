@@ -46,7 +46,7 @@ node --version  # Check version
 3. Paste your MCP client JSON configuration
 4. Click **Create** to import
 
-<!-- TODO: Add screenshot - Show MCP creation modal -->
+![MCP](https://img.alicdn.com/imgextra/i3/O1CN014Jr2g11POBvoVaqI5_!!6000000001830-2-tps-3822-2064.png)
 
 ---
 
@@ -196,7 +196,7 @@ CoPaw provides a set of ready-to-use built-in tools that agents can directly cal
 
 ### Tool Management
 
-<!-- TODO: Add screenshot - Show tool management page with grid layout of tool cards, displaying tool names, status indicators, descriptions, and enable/disable switches -->
+![tool](https://img.alicdn.com/imgextra/i3/O1CN017MOn851uGdU8hpyiR_!!6000000006010-2-tps-3822-2064.png)
 
 #### Enable and Disable Tools
 

@@ -7,6 +7,10 @@ import type {
   ModelSlotRequest,
   CreateCustomProviderRequest,
   AddModelRequest,
+  ModelConfigRequest,
+  LocalActionResponse,
+  LocalModelConfig,
+  LocalModelConfigRequest,
   TestConnectionResponse,
   TestProviderRequest,
   TestModelRequest,
@@ -77,6 +81,29 @@ export const providerApi = {
       )}`,
       { method: "DELETE" },
     ),
+
+  configureModel: (
+    providerId: string,
+    modelId: string,
+    body: ModelConfigRequest,
+  ) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/config`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  configureLocalModelSettings: (body: LocalModelConfigRequest) =>
+    request<LocalActionResponse>(`/local-models/config`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  getLocalModelConfig: () => request<LocalModelConfig>("/local-models/config"),
 
   /* ---- Test Connection ---- */
 

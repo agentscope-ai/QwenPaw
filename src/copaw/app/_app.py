@@ -12,6 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
+
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path
 from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
@@ -87,7 +91,7 @@ class DynamicMultiAgentRunner:
                 workspace.runner,
             )
             return workspace.runner
-        except ValueError as e:
+        except (ValueError, AppBaseException) as e:
             logger.error(f"Agent not found: {e}")
             raise
         except Exception as e:
@@ -225,6 +229,116 @@ async def lifespan(
 
     provider_manager.start_local_model_resume(local_model_manager)
 
+    # ==================== Plugin System Initialization ====================
+    logger.info("Initializing plugin system...")
+
+    from ..plugins.loader import PluginLoader
+    from ..plugins.runtime import RuntimeHelpers
+    from ..config.utils import get_plugins_dir
+
+    # Define plugin directories (user plugins only)
+    plugin_dirs = [
+        get_plugins_dir(),  # User installed plugins
+    ]
+
+    # Create plugin loader
+    plugin_loader = PluginLoader(plugin_dirs)
+
+    # Load plugin configurations from main config
+    config = load_config(get_config_path())
+    plugin_configs = config.plugins if hasattr(config, "plugins") else {}
+    logger.info(f"Loading plugins with {len(plugin_configs)} config(s)")
+
+    # Load all plugins with their configurations (async)
+    loaded_plugins = await plugin_loader.load_all_plugins(
+        configs=plugin_configs,
+    )
+    logger.info(f"✓ Loaded {len(loaded_plugins)} plugin(s)")
+
+    # Set runtime helpers
+    runtime_helpers = RuntimeHelpers(provider_manager=provider_manager)
+    plugin_loader.registry.set_runtime_helpers(runtime_helpers)
+
+    # Register plugin providers to ProviderManager
+    for (
+        provider_id,
+        provider_reg,
+    ) in plugin_loader.registry.get_all_providers().items():
+        provider_manager.register_plugin_provider(
+            provider_id=provider_id,
+            provider_class=provider_reg.provider_class,
+            label=provider_reg.label,
+            base_url=provider_reg.base_url,
+            metadata=provider_reg.metadata,
+        )
+        logger.info(f"✓ Registered plugin provider: {provider_id}")
+
+    # Expose to application
+    app.state.plugin_loader = plugin_loader
+    app.state.plugin_registry = plugin_loader.registry
+
+    # ==================== Register Plugin Control Commands ===================
+    logger.info("Registering plugin control commands...")
+    from ..app.runner.control_commands import register_command
+    from ..app.channels.command_registry import CommandRegistry
+
+    # Get the global command registry (will be created if not exists)
+    command_registry = CommandRegistry()
+
+    control_commands = plugin_loader.registry.get_control_commands()
+    for cmd_reg in control_commands:
+        try:
+            # Register to control command system
+            register_command(cmd_reg.handler)
+
+            # Register to command registry for priority
+            command_registry.register_command(
+                f"/{cmd_reg.handler.command_name}",
+                priority_level=cmd_reg.priority_level,
+            )
+
+            logger.info(
+                f"✓ Registered plugin control command: "
+                f"/{cmd_reg.handler.command_name} "
+                f"from plugin '{cmd_reg.plugin_id}' (priority"
+                f"={cmd_reg.priority_level})",
+            )
+        except Exception as e:
+            logger.error(
+                f"✗ Failed to register control command "
+                f"'{cmd_reg.handler.command_name}' "
+                f"from plugin '{cmd_reg.plugin_id}': {e}",
+                exc_info=True,
+            )
+
+    # ==================== Execute Startup Hooks ====================
+    logger.info("Executing plugin startup hooks...")
+    startup_hooks = plugin_loader.registry.get_startup_hooks()
+    for hook in startup_hooks:
+        try:
+            logger.info(
+                f"Executing startup hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}' (priority={hook.priority})",
+            )
+
+            # Support both sync and async callbacks
+            import inspect
+
+            result = hook.callback()
+            if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                await result
+
+            logger.info(
+                f"✓ Completed startup hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}'",
+            )
+        except Exception as e:
+            logger.error(
+                f"✗ Failed to execute startup hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}': {e}",
+                exc_info=True,
+            )
+
     # Setup approval service with default agent's channel_manager
     default_agent = await multi_agent_manager.get_agent("default")
     if default_agent.channel_manager:
@@ -242,6 +356,40 @@ async def lifespan(
     try:
         yield
     finally:
+        # ==================== Execute Shutdown Hooks ====================
+        plugin_registry = getattr(app.state, "plugin_registry", None)
+        if plugin_registry is not None:
+            logger.info("Executing plugin shutdown hooks...")
+            shutdown_hooks = plugin_registry.get_shutdown_hooks()
+            for hook in shutdown_hooks:
+                try:
+                    logger.info(
+                        f"Executing shutdown hook '{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}' (priority"
+                        f"={hook.priority})",
+                    )
+
+                    # Support both sync and async callbacks
+                    import inspect
+
+                    result = hook.callback()
+                    if inspect.iscoroutine(result) or inspect.isawaitable(
+                        result,
+                    ):
+                        await result
+
+                    logger.info(
+                        f"✓ Completed shutdown hook '{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}'",
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"✗ Failed to execute shutdown hook "
+                        f"'{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}': {e}",
+                        exc_info=True,
+                    )
+
         local_model_mgr = getattr(app.state, "local_model_manager", None)
         if local_model_mgr is not None:
             logger.info("Stopping local model server...")
@@ -253,7 +401,7 @@ async def lifespan(
                     exc,
                 )
                 with suppress(OSError, RuntimeError, ValueError):
-                    local_model_mgr.force_shutdown_server()
+                    local_model_mgr.shutdown_server_sync()
 
         # Stop multi-agent manager (stops all agents and their components)
         multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)

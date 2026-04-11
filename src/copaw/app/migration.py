@@ -51,6 +51,7 @@ _WORKSPACE_JSON_DEFAULTS: list[tuple[str, dict]] = [
 
 
 def migrate_legacy_workspace_to_default_agent() -> bool:
+    # pylint: disable=too-many-statements
     """Migrate legacy single-agent workspace to default agent workspace.
 
     This function:
@@ -63,6 +64,20 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     Returns:
         bool: True if migration was performed, False if already migrated
     """
+    try:
+        return _do_migrate_legacy_workspace()
+    except Exception as e:
+        logger.error(
+            f"Legacy workspace migration failed: {e}. "
+            "Please check your configuration. If you have custom skills, "
+            "verify that all SKILL.md files have valid YAML frontmatter.",
+            exc_info=True,
+        )
+        return False
+
+
+def _do_migrate_legacy_workspace() -> bool:
+    """Internal implementation of legacy workspace migration."""
     try:
         config = load_config()
     except Exception as e:
@@ -138,15 +153,27 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
     )
 
     # Save default agent configuration to workspace/agent.json
+    # Use atomic write to prevent corruption
     agent_config_path = default_workspace / "agent.json"
-    with open(agent_config_path, "w", encoding="utf-8") as f:
-        json.dump(
-            default_agent_config.model_dump(exclude_none=True),
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
-    logger.info(f"Created agent config: {agent_config_path}")
+    agent_config_tmp = default_workspace / "agent.json.tmp"
+
+    try:
+        with open(agent_config_tmp, "w", encoding="utf-8") as f:
+            json.dump(
+                default_agent_config.model_dump(exclude_none=True),
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        # Atomic rename (safer than direct write)
+        agent_config_tmp.replace(agent_config_path)
+        logger.info(f"Created agent config: {agent_config_path}")
+    except Exception as e:
+        logger.error(f"Failed to save agent config: {e}")
+        # Clean up temp file if it exists
+        if agent_config_tmp.exists():
+            agent_config_tmp.unlink()
+        raise
 
     migrated_items = []
 
@@ -290,18 +317,43 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
 
     Users can manually upload workspace skills to the shared pool later
     via the UI.
+
+    Returns:
+        bool: True if skills were migrated, False otherwise.
     """
+    try:
+        return _do_migrate_legacy_skills()
+    except Exception as e:
+        logger.error(
+            f"Legacy skill migration failed: {e}. "
+            "This may be due to malformed YAML in custom SKILL.md files. "
+            "Please check your skills and fix any YAML syntax errors.",
+            exc_info=True,
+        )
+        return False
+
+
+def _do_migrate_legacy_skills() -> bool:
+    """Internal implementation of legacy skills migration."""
+    from datetime import datetime, timezone
+
     from ..agents.skills_manager import (
         _build_signature,
         _copy_skill_dir,
         _default_workspace_manifest,
         _mutate_json,
-        _timestamp,
         ensure_skill_pool_initialized,
+        get_pool_skill_manifest_path,
         get_workspace_skill_manifest_path,
         get_workspace_skills_dir,
         reconcile_workspace_manifest,
     )
+
+    # --- Phase 0: Check if migration already completed ---
+    # If skill pool manifest exists, migration has been done
+    pool_manifest = get_pool_skill_manifest_path()
+    if pool_manifest.exists():
+        return False
 
     def _has_legacy_skill_root(root: Path) -> bool:
         return any(
@@ -350,7 +402,7 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
         _copy_skill_dir(source_dir, target_dir)
         return True
 
-    # --- Phase 0: Initialize pool ---
+    # --- Phase 1: Initialize pool ---
     try:
         ensure_skill_pool_initialized()
     except Exception as e:
@@ -443,6 +495,14 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
         if not customized and not active:
             continue
 
+        logger.debug(
+            "Found legacy skills in %s (%s): %d customized, %d active",
+            source_root,
+            source_kind,
+            len(customized),
+            len(active),
+        )
+
         active_names = workspace_active_names.setdefault(
             target_workspace,
             set(),
@@ -501,17 +561,11 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
                     copied_workspace_skills += 1
                 active_names.add(skill_name)  # Mark as enabled
             # else: already handled in customized loop
-        logger.debug(
-            "Prepared legacy skill migration from %s to %s (%s)",
-            source_root,
-            target_workspace,
-            source_kind,
-        )
 
     # --- Phase 4: Reconcile workspace manifests ---
     for workspace_dir in workspace_dirs:
         # reconcile discovers on-disk skills and populates skill.json
-        # with correct source, metadata, signature, and sync_to_pool.
+        # with correct source, metadata, and signature.
         reconcile_workspace_manifest(workspace_dir)
         active_names = workspace_active_names.get(workspace_dir, set())
 
@@ -530,7 +584,11 @@ def migrate_legacy_skills_to_skill_pool() -> bool:
                     continue
                 if not entry.get("enabled", False):
                     entry["enabled"] = True
-                    entry["updated_at"] = _timestamp()
+                    entry["updated_at"] = (
+                        datetime.now(timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                    )
                     changed += 1
             return changed
 
@@ -569,6 +627,18 @@ def ensure_default_agent_exists() -> None:
     is properly configured. If not, it will be created.
     Also ensures necessary workspace files exist (chats.json, jobs.json).
     """
+    try:
+        _do_ensure_default_agent()
+    except Exception as e:
+        logger.error(
+            f"Failed to ensure default agent exists: {e}. "
+            "Application may not work correctly.",
+            exc_info=True,
+        )
+
+
+def _do_ensure_default_agent() -> None:
+    """Internal implementation of default agent initialization."""
     config = load_config()
 
     # Get or determine default workspace path
@@ -639,7 +709,7 @@ def _other_agent_owns_workspace(
 def ensure_qa_agent_exists() -> None:
     """Ensure the builtin QA agent profile and workspace exist.
 
-    On **first creation** only, ``active_skills`` is seeded from
+    On **first creation** only, ``skills/`` is seeded from
     ``BUILTIN_QA_AGENT_SKILL_NAMES`` (e.g. ``guidance``,
     ``copaw_source_index``), and built-in tools are restricted (see
     ``build_qa_agent_tools_config``).
@@ -649,7 +719,23 @@ def ensure_qa_agent_exists() -> None:
     If the canonical QA workspace path is already used by another agent id,
     builtin creation is **skipped** (with a warning) so that workspace's
     ``agent.json`` is not overwritten.
+
+    Note:
+        This function catches all exceptions internally and never raises.
+        Errors are logged for graceful degradation.
     """
+    try:
+        _do_ensure_qa_agent()
+    except Exception as e:
+        logger.error(
+            f"Failed to ensure QA agent exists: {e}. "
+            "QA agent will not be available.",
+            exc_info=True,
+        )
+
+
+def _do_ensure_qa_agent() -> None:
+    """Internal implementation of QA agent initialization."""
     from .routers.agents import _initialize_agent_workspace
 
     config = load_config()
@@ -679,9 +765,10 @@ def ensure_qa_agent_exists() -> None:
     )
     if other_id is not None:
         logger.warning(
-            "Skipping builtin QA profile %r: workspace %s is already used by "
-            "agent %r. Point that agent to another directory or remove it "
-            "from config before the builtin QA slot can be created.",
+            "Skipping builtin QA profile %r: workspace %s is already "
+            "used by agent %r. Point that agent to another directory "
+            "or remove it from config before the builtin QA slot can "
+            "be created.",
             qa_id,
             qa_workspace,
             other_id,
@@ -711,7 +798,6 @@ def ensure_qa_agent_exists() -> None:
 
     _initialize_agent_workspace(
         qa_workspace,
-        agent_config,
         skill_names=qa_skill_list,
         builtin_qa_md_seed=True,
     )

@@ -386,6 +386,18 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  padding: 0 16px;
+}
+
+/* ---- Rule Table ---- */
+.ruleTable {
+  :global(.ant-table-thead > tr > th),
+  :global(.copaw-table-thead > tr > th),
+  :global(.ant-table-tbody > tr > td),
+  :global(.copaw-table-tbody > tr > td) {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
 }
 
 .sectionTitle {
@@ -448,7 +460,6 @@
 
 .skillScannerConfigItem + .skillScannerConfigItem {
   padding-right: 0;
-  padding-left: 24px;
   border-left: 1px solid var(--ant-color-border, #f0f0f0);
 }
 

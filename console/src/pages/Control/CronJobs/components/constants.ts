@@ -1,7 +1,5 @@
 import dayjs from "dayjs";
 
-export { TIMEZONE_OPTIONS } from "../../../../constants/timezone";
-
 export const DEFAULT_FORM_VALUES = {
   enabled: false,
   schedule: {

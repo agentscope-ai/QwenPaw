@@ -24,6 +24,12 @@
 /compact
 ```
 
+也可以额外补一句说明，指导摘要保留或删除哪些信息：
+
+```
+/compact 保留需求、决策和待办，去掉调试日志和工具调用细节
+```
+
 **返回示例：**
 
 ```
@@ -36,6 +42,7 @@
 ```
 
 > 💡 与自动压缩不同，`/compact` 会压缩**所有**当前消息，而不是只压缩超出阈值的部分。
+> 💡 额外说明只作用于这一次手动 `/compact`，不会改变自动压缩行为。
 
 ---
 
@@ -248,6 +255,227 @@
 - 加载前会**清空当前内存**，请确保已备份重要内容
 
 > ⚠️ **警告**：`/load_history` 会清空当前内存后再加载，现有对话将丢失！
+
+---
+
+## 模型管理命令
+
+管理和切换 AI 模型的命令，无需通过 Agent 理解意图，直接执行。
+
+| 命令                             | 说明                   | 对话 |
+| -------------------------------- | ---------------------- | ---- |
+| `/model`                         | 显示当前使用的模型     | ✅   |
+| `/model -h` 或 `/model help`     | 显示帮助信息           | ✅   |
+| `/model list`                    | 列出所有可用模型       | ✅   |
+| `/model <provider>:<model>`      | 切换到指定模型         | ✅   |
+| `/model reset`                   | 重置为全局默认模型     | ✅   |
+| `/model info <provider>:<model>` | 显示指定模型的详细信息 | ✅   |
+
+---
+
+### `/model` - 显示当前模型
+
+显示当前 Agent 正在使用的模型。
+
+**用法：**
+
+```
+/model
+```
+
+**返回示例：**
+
+```
+**Current Model**
+
+Provider: `openai`
+Model: `gpt-4o` ✓
+
+Use `/model list` to see all available models.
+```
+
+---
+
+### `/model -h` 或 `/model help` - 显示帮助
+
+显示所有 `/model` 命令的帮助信息。
+
+**用法：**
+
+```
+/model -h
+/model --help
+/model help
+```
+
+**返回示例：**
+
+```
+**Model Management Commands**
+
+Manage and switch AI models for the current agent.
+
+**Available Commands:**
+
+`/model` - Show current active model
+`/model list` - List all available models
+`/model <provider>:<model>` - Switch to specified model
+`/model reset` - Reset to global default model
+`/model info <provider>:<model>` - Show model information
+`/model help` or `/model -h` - Show this help message
+
+**Examples:**
+
+`/model` - Show current model
+`/model list` - List all models
+`/model openai:gpt-4o` - Switch to GPT-4o
+`/model reset` - Reset to global default
+`/model info openai:gpt-4o` - Show GPT-4o information
+
+**Capability Indicators:**
+
+🖼️ - Supports image input
+🎥 - Supports video input
+```
+
+---
+
+### `/model list` - 列出所有模型
+
+显示所有已配置的 Provider 及其可用模型。当前激活的模型会标记为 **[ACTIVE]**。
+
+**用法：**
+
+```
+/model list
+```
+
+**返回示例：**
+
+```
+**Available Models**
+
+**OpenAI** (`openai`)
+  - `gpt-4o` 🖼️ **[ACTIVE]**
+  - `gpt-4o-mini` 🖼️
+  - `gpt-3.5-turbo`
+  - `my-custom-model` *(user-added)*
+
+**Anthropic** (`anthropic`)
+  - `claude-3-5-sonnet-20241022`
+  - `claude-3-opus-20240229`
+
+**Google** (`gemini`)
+  - `gemini-2.0-flash-exp` 🖼️🎥
+
+---
+Total: 3 provider(s), 8 model(s)
+
+Use `/model <provider>:<model>` to switch models.
+Example: `/model openai:gpt-4o`
+```
+
+**标识说明：**
+
+- 🖼️ - 支持图片输入
+- 🎥 - 支持视频输入
+- _(user-added)_ - 用户手动添加的模型（通过 `copaw models add-model` 命令）
+
+---
+
+### `/model <provider>:<model>` - 切换模型
+
+将当前 Agent 切换到使用不同的模型。
+
+**用法：**
+
+```
+/model <provider>:<model>
+```
+
+**示例：**
+
+```
+/model openai:gpt-4o
+/model anthropic:claude-3-5-sonnet-20241022
+/model gemini:gemini-2.0-flash-exp
+```
+
+**返回示例：**
+
+```
+**Model Switched**
+
+Provider: `anthropic`
+Model: `claude-3-5-sonnet-20241022`
+
+The new model will be used for subsequent messages.
+```
+
+> 💡 **提示**：模型切换只影响当前 Agent，其他 Agent 继续使用各自配置的模型。
+
+---
+
+### `/model reset` - 重置为全局默认模型
+
+将当前 Agent 的模型重置为在 Web UI 中配置的全局默认模型。
+
+**用法：**
+
+```
+/model reset
+```
+
+**返回示例：**
+
+```
+**Model Reset**
+
+Agent model has been reset to global default:
+
+Provider: `openai`
+Model: `gpt-4o`
+
+The global default model will be used for subsequent messages.
+```
+
+> 💡 **提示**：使用此命令可以撤销 Agent 级别的模型覆盖设置。
+
+---
+
+### `/model info` - 显示模型信息
+
+显示指定模型的详细信息，包括能力和当前状态。
+
+**用法：**
+
+```
+/model info <provider>:<model>
+```
+
+**示例：**
+
+```
+/model info openai:gpt-4o
+/model info anthropic:claude-3-5-sonnet-20241022
+```
+
+**返回示例：**
+
+```
+**Model Information**
+
+**Provider:** `openai` (OpenAI)
+**Model ID:** `gpt-4o`
+**Model Name:** GPT-4o
+**Capabilities:** 🖼️ Image, 🎨 Multimodal
+**Probe Source:** documentation
+
+**Status:** ✓ Currently active
+
+---
+Use `/model openai:gpt-4o` to switch to this model.
+```
 
 ---
 

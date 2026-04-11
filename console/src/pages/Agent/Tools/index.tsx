@@ -1,8 +1,15 @@
-import { useState, useMemo } from "react";
-import { Card, Switch, Empty } from "@agentscope-ai/design";
+import { useMemo } from "react";
+import { Card, Switch, Empty, Button } from "@agentscope-ai/design";
+import {
+  EyeOutlined,
+  EyeInvisibleOutlined,
+  ThunderboltOutlined,
+  ClockCircleOutlined,
+} from "@ant-design/icons";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 export default function ToolsPage() {
@@ -16,8 +23,6 @@ export default function ToolsPage() {
     enableAll,
     disableAll,
   } = useTools();
-  const [hoverKey, setHoverKey] = useState<string | null>(null);
-
   const handleToggle = (tool: ToolInfo) => {
     toggleEnabled(tool);
   };
@@ -33,22 +38,20 @@ export default function ToolsPage() {
 
   return (
     <div className={styles.toolsPage}>
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumbHeader}>
-          <span className={styles.breadcrumbParent}>Agent</span>
-          <span className={styles.breadcrumbSeparator}>/</span>
-          <span className={styles.breadcrumbCurrent}>{t("tools.title")}</span>
-        </div>
-        <div className={styles.headerAction}>
-          <Switch
-            checked={hasEnabledTools && !hasDisabledTools}
-            onChange={() => (hasDisabledTools ? enableAll() : disableAll())}
-            disabled={batchLoading || loading}
-            checkedChildren={t("tools.enableAll")}
-            unCheckedChildren={t("tools.disableAll")}
-          />
-        </div>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.agent") }, { title: t("tools.title") }]}
+        extra={
+          <div className={styles.headerAction}>
+            <Switch
+              checked={hasEnabledTools && !hasDisabledTools}
+              onChange={() => (hasDisabledTools ? enableAll() : disableAll())}
+              disabled={batchLoading || loading}
+              checkedChildren={t("tools.enableAll")}
+              unCheckedChildren={t("tools.disableAll")}
+            />
+          </div>
+        }
+      />
       <div className={styles.toolsContainer}>
         {loading ? (
           <div className={styles.loading}>
@@ -63,14 +66,12 @@ export default function ToolsPage() {
                 key={tool.name}
                 className={`${styles.toolCard} ${
                   tool.enabled ? styles.enabledCard : ""
-                } ${
-                  hoverKey === tool.name ? styles.hoverCard : styles.normalCard
                 }`}
-                onMouseEnter={() => setHoverKey(tool.name)}
-                onMouseLeave={() => setHoverKey(null)}
               >
                 <div className={styles.cardHeader}>
-                  <h3 className={styles.toolName}>{tool.name}</h3>
+                  <h3 className={styles.toolName}>
+                    {tool.icon} {tool.name}
+                  </h3>
                   <div className={styles.statusContainer}>
                     <span className={styles.statusDot} />
                     <span className={styles.statusText}>
@@ -85,21 +86,32 @@ export default function ToolsPage() {
 
                 <div className={styles.cardFooter}>
                   {tool.name === "execute_shell_command" && (
-                    <div className={styles.inlineSettingItem}>
-                      <span className={styles.settingLabel}>
-                        {t("tools.asyncExecution")}
-                      </span>
-                      <Switch
-                        checked={tool.async_execution}
-                        onChange={() => toggleAsyncExecution(tool)}
-                        disabled={!tool.enabled}
-                      />
-                    </div>
+                    <Button
+                      className={styles.toggleButton}
+                      onClick={() => toggleAsyncExecution(tool)}
+                      disabled={!tool.enabled}
+                      icon={
+                        tool.async_execution ? (
+                          <ThunderboltOutlined />
+                        ) : (
+                          <ClockCircleOutlined />
+                        )
+                      }
+                    >
+                      {tool.async_execution
+                        ? t("tools.asyncExecutionEnabled")
+                        : t("tools.asyncExecutionDisabled")}
+                    </Button>
                   )}
-                  <Switch
-                    checked={tool.enabled}
-                    onChange={() => handleToggle(tool)}
-                  />
+                  <Button
+                    className={styles.toggleButton}
+                    onClick={() => handleToggle(tool)}
+                    icon={
+                      tool.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />
+                    }
+                  >
+                    {tool.enabled ? t("common.disable") : t("common.enable")}
+                  </Button>
                 </div>
               </Card>
             ))}

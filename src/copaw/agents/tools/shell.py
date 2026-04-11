@@ -37,6 +37,104 @@ def _kill_process_tree_win32(pid: int) -> None:
         pass
 
 
+def _collapse_newlines_outside_quotes(cmd: str) -> str:
+    r"""Collapse newlines outside quoted strings; preserve those inside.
+
+    Used only on Unix where sh/bash correctly handles newlines in quotes.
+    Handles backslash-newline (line continuation) by removing both chars,
+    and treats single-quoted content as fully literal per POSIX.
+    """
+    result: list[str] = []
+    in_single_quote = False
+    in_double_quote = False
+    i = 0
+    length = len(cmd)
+
+    while i < length:
+        char = cmd[i]
+
+        # Toggle quote state
+        if char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            result.append(char)
+            i += 1
+            continue
+
+        if char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            result.append(char)
+            i += 1
+            continue
+
+        # Inside single quotes: everything is literal (POSIX)
+        if in_single_quote:
+            result.append(char)
+            i += 1
+            continue
+
+        # Backslash-newline (line continuation): remove both chars
+        if char == "\\" and i + 1 < length and cmd[i + 1] in ("\r", "\n"):
+            i += 2
+            # \r\n sequence: skip the \n as well
+            if i < length and cmd[i - 1] == "\r" and cmd[i] == "\n":
+                i += 1
+            continue
+
+        # Backslash escape (non-newline): keep both chars
+        if char == "\\" and i + 1 < length:
+            result.append(char)
+            result.append(cmd[i + 1])
+            i += 2
+            continue
+
+        # Newlines
+        if char in ("\r", "\n"):
+            if in_double_quote:
+                # Preserve newlines inside double quotes
+                result.append(char)
+            else:
+                # Collapse \r\n as a single space
+                if char == "\r" and i + 1 < length and cmd[i + 1] == "\n":
+                    i += 1
+                result.append(" ")
+            i += 1
+            continue
+
+        result.append(char)
+        i += 1
+
+    return "".join(result)
+
+
+def _collapse_embedded_newlines(cmd: str) -> str:
+    r"""Replace embedded newline characters with spaces in a command string.
+
+    LLMs produce tool-call arguments in JSON where ``\n`` is parsed as an
+    actual newline character.  In the original shell command the user
+    intended the *literal* two-character sequence ``\n`` (e.g. inside a
+    ``--content`` flag), but after JSON decoding it becomes a real line
+    break.  When passed to a shell:
+
+    * **Windows** ``cmd.exe`` truncates the command at the first newline
+      regardless of quoting context — this is a hard limitation of the
+      Windows command processor.  All newlines must be collapsed.
+    * **Unix** ``sh -c`` treats an unquoted newline as a command separator,
+      but correctly handles newlines inside quoted strings.
+
+    On Unix/macOS, newlines inside quoted strings are preserved so that
+    downstream commands receive the correct multi-line content (e.g.
+    ``--text "Hello\nWorld"``).  On Windows, all newlines are collapsed
+    to ensure the command at least executes successfully.
+    """
+    if "\n" not in cmd:
+        return cmd
+    if sys.platform == "win32":
+        # cmd.exe truncates at newlines regardless of quoting — must
+        # collapse all to ensure the command executes at all.
+        return cmd.replace("\r\n", " ").replace("\n", " ")
+    return _collapse_newlines_outside_quotes(cmd)
+
+
 def _sanitize_win_cmd(cmd: str) -> str:
     """Fix common LLM escaping artefacts for Windows ``cmd.exe``.
 
@@ -63,7 +161,7 @@ def _read_temp_file(path: str) -> str:
 def _execute_subprocess_sync(
     cmd: str,
     cwd: str,
-    timeout: int,
+    timeout: float,
     env: dict | None = None,
 ) -> tuple[int, str, str]:
     """Execute subprocess synchronously in a thread.
@@ -79,12 +177,19 @@ def _execute_subprocess_sync(
     only waits for the direct child (``cmd.exe``) to exit, so commands
     that spawn background processes return immediately.
 
+    .. note::
+
+       Callers must pre-process *cmd* through
+       :func:`_collapse_embedded_newlines` before passing it here.
+       ``execute_shell_command`` already does this.
+
     Args:
         cmd (`str`):
-            The shell command to execute.
+            The shell command to execute (must not contain embedded
+            newlines — see note above).
         cwd (`str`):
             The working directory for the command execution.
-        timeout (`int`):
+        timeout (`float`):
             The maximum time (in seconds) allowed for the command to run.
         env (`dict | None`):
             Environment variables for the subprocess.
@@ -178,7 +283,7 @@ def _execute_subprocess_sync(
 # pylint: disable=too-many-branches, too-many-statements
 async def execute_shell_command(
     command: str,
-    timeout: int = 60,
+    timeout: float = 60.0,
     cwd: Optional[Path] = None,
 ) -> ToolResponse:
     """Execute a shell command and return its output.
@@ -190,9 +295,9 @@ async def execute_shell_command(
     Args:
         command (`str`):
             The shell command to execute.
-        timeout (`int`, defaults to `60`):
+        timeout (`float`, defaults to `60.0`):
             The maximum time (in seconds) allowed for the command to run.
-            Default is 60 seconds.
+            Default is 60.0 seconds.
         cwd (`Optional[Path]`, defaults to `None`):
             The working directory for the command execution.
             If None, defaults to WORKING_DIR.
@@ -204,7 +309,13 @@ async def execute_shell_command(
             return code will be -1 and stderr will contain timeout information.
     """
 
-    cmd = (command or "").strip()
+    cmd = _collapse_embedded_newlines((command or "").strip())
+
+    if isinstance(timeout, str):
+        try:
+            timeout = float(timeout)
+        except (ValueError, TypeError):
+            timeout = 60.0
 
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:

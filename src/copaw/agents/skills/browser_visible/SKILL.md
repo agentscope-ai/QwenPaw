@@ -2,14 +2,10 @@
 name: browser_visible
 description: "当用户希望打开真实可见的浏览器窗口（而非后台无头模式）时，使用 browser_use 的 headed 参数启动浏览器，随后可正常 open/snapshot/click 等。适用于用户想亲眼看到页面、演示或调试场景。"
 metadata:
-  {
-    "builtin_skill_version": "1.0",
-    "copaw":
-      {
-        "emoji": "🖥️",
-        "requires": {}
-      }
-  }
+  builtin_skill_version: "1.1"
+  copaw:
+    emoji: "🖥️"
+    requires: {}
 ---
 
 # 可见浏览器（真实窗口）参考

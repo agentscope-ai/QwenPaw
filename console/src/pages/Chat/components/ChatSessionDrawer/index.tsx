@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Drawer } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine } from "@agentscope-ai/icons";
@@ -8,6 +8,7 @@ import {
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
+import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import ChatSessionItem from "../ChatSessionItem";
@@ -22,7 +23,9 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   meta?: Record<string, unknown>;
-  status?: "idle" | "running";
+  status?: ChatStatus;
+  generating?: boolean;
+  pinned?: boolean;
 }
 
 interface ChatSessionDrawerProps {
@@ -71,11 +74,56 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
 
+  /** Sessions sorted by pinned first, then by createdAt descending */
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      const extA = a as ExtendedChatSession;
+      const extB = b as ExtendedChatSession;
+
+      // Pinned items come first
+      if (extA.pinned && !extB.pinned) return -1;
+      if (!extA.pinned && extB.pinned) return 1;
+
+      // Then sort by createdAt descending
+      const aTime = extA.createdAt;
+      const bTime = extB.createdAt;
+      if (!aTime && !bTime) return 0;
+      if (!aTime) return 1;
+      if (!bTime) return -1;
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
+  }, [sessions]);
+
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
     const list = await sessionApi.getSessionList();
     setSessions(list);
   }, [setSessions]);
+
+  /** Open drawer → refresh session list (same deduped fetch as getSessionList). */
+  useEffect(() => {
+    if (!props.open) return;
+
+    let isCancelled = false;
+
+    const fetchSessions = async () => {
+      try {
+        const list = await sessionApi.getSessionList();
+        if (!isCancelled) {
+          setSessions(list);
+        }
+      } catch (error) {
+        // It's good practice to log errors.
+        console.error("Failed to refresh session list:", error);
+      }
+    };
+
+    void fetchSessions();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [props.open, setSessions]);
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
@@ -120,7 +168,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setEditValue(value);
   }, []);
 
-  /** Submit rename: call updateChat with all original fields overriding only name, then refresh */
+  /** Submit rename: send a minimal patch so stale session fields cannot overwrite the title. */
   const handleEditSubmit = useCallback(async () => {
     if (!editingSessionId) return;
 
@@ -131,16 +179,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     const newName = editValue.trim();
 
     if (backendId && newName && session) {
-      // Reconstruct full ChatSpec from ExtendedSession, replacing only the name
       await chatApi.updateChat(backendId, {
-        id: backendId,
         name: newName,
-        session_id: session.sessionId as string,
-        user_id: session.userId as string,
-        channel: session.channel as string,
-        created_at: session.createdAt ?? null,
-        meta: session.meta,
-        status: session.status,
       });
     }
 
@@ -154,6 +194,29 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     setEditingSessionId(null);
     setEditValue("");
   }, []);
+
+  /** Toggle pin status for a session */
+  const handlePinToggle = useCallback(
+    async (sessionId: string) => {
+      const session = sessions.find((s) => s.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+
+      if (backendId && session) {
+        try {
+          const newPinnedState = !session.pinned;
+          await chatApi.updateChat(backendId, {
+            pinned: newPinnedState,
+          });
+          await refreshSessions();
+        } catch (error) {
+          console.error("Failed to toggle pin status:", error);
+        }
+      }
+    },
+    [sessions, refreshSessions],
+  );
 
   return (
     <Drawer
@@ -201,7 +264,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       <div className={styles.listWrapper}>
         <div className={styles.topGradient} />
         <div className={styles.list}>
-          {sessions.map((session) => {
+          {sortedSessions.map((session) => {
             const ext = session as ExtendedChatSession;
             const channelKey = ext.channel?.trim() || "";
             const channelLabel = channelKey
@@ -214,6 +277,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
                 time={formatCreatedAt(ext.createdAt ?? null)}
                 channelKey={channelKey || undefined}
                 channelLabel={channelLabel}
+                chatStatus={ext.status}
+                generating={ext.generating}
+                pinned={ext.pinned}
                 active={session.id === currentSessionId}
                 editing={editingSessionId === session.id}
                 editValue={
@@ -224,6 +290,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
                   handleEditStart(session.id!, session.name || "New Chat")
                 }
                 onDelete={() => handleDelete(session.id!)}
+                onPin={() => handlePinToggle(session.id!)}
                 onEditChange={handleEditChange}
                 onEditSubmit={handleEditSubmit}
                 onEditCancel={handleEditCancel}

@@ -11,6 +11,10 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, field_validator
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
+
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ..utils import schedule_agent_reload
 from ...config.config import (
@@ -23,6 +27,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.utils import copy_builtin_qa_md_files
+from ...agents.skills_manager import SkillPoolService, get_workspace_skills_dir
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 
@@ -45,6 +50,12 @@ class AgentListResponse(BaseModel):
     """Response for listing agents."""
 
     agents: list[AgentSummary]
+
+
+class ReorderAgentsRequest(BaseModel):
+    """Request model for persisting agent order."""
+
+    agent_ids: list[str]
 
 
 class CreateAgentRequest(BaseModel):
@@ -94,17 +105,24 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
     return request.app.state.multi_agent_manager
 
 
+def _normalized_agent_order(config) -> list[str]:
+    """Return a deduplicated agent order covering every configured agent."""
+    profile_ids = list(config.agents.profiles.keys())
+    ordered_ids: list[str] = []
+
+    for agent_id in config.agents.agent_order:
+        if agent_id in config.agents.profiles and agent_id not in ordered_ids:
+            ordered_ids.append(agent_id)
+
+    for agent_id in profile_ids:
+        if agent_id not in ordered_ids:
+            ordered_ids.append(agent_id)
+
+    return ordered_ids
+
+
 def _read_profile_description(workspace_dir: str) -> str:
-    """Read description from PROFILE.md if exists.
-
-    Extracts identity section from PROFILE.md as fallback description.
-
-    Args:
-        workspace_dir: Path to agent workspace
-
-    Returns:
-        Description text from PROFILE.md, or empty string if not found
-    """
+    """Read description from PROFILE.md if exists."""
     try:
         profile_path = Path(workspace_dir) / "PROFILE.md"
         if not profile_path.exists():
@@ -140,22 +158,20 @@ def _read_profile_description(workspace_dir: str) -> str:
 async def list_agents() -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
+    ordered_agent_ids = _normalized_agent_order(config)
 
     agents = []
-    for agent_id, agent_ref in config.agents.profiles.items():
-        # Load agent config to get name and description
+    for agent_id in ordered_agent_ids:
+        agent_ref = config.agents.profiles[agent_id]
         try:
             agent_config = load_agent_config(agent_id)
             description = agent_config.description or ""
 
-            # Always read PROFILE.md and append/merge
             profile_desc = _read_profile_description(agent_ref.workspace_dir)
             if profile_desc:
                 if description.strip():
-                    # Both exist: merge with separator
                     description = f"{description.strip()} | {profile_desc}"
                 else:
-                    # Only PROFILE.md exists
                     description = profile_desc
 
             agents.append(
@@ -168,7 +184,6 @@ async def list_agents() -> AgentListResponse:
                 ),
             )
         except Exception:  # noqa: E722
-            # If agent config load fails, use basic info
             agents.append(
                 AgentSummary(
                     id=agent_id,
@@ -179,9 +194,37 @@ async def list_agents() -> AgentListResponse:
                 ),
             )
 
-    return AgentListResponse(
-        agents=agents,
-    )
+    return AgentListResponse(agents=agents)
+
+
+@router.put(
+    "/order",
+    summary="Persist agent order",
+    description="Save the full ordered list of configured agent IDs",
+)
+async def reorder_agents(
+    reorder_request: ReorderAgentsRequest = Body(...),
+) -> dict:
+    """Persist the full ordered list of agent IDs."""
+    config = load_config()
+    configured_ids = list(config.agents.profiles.keys())
+
+    if len(reorder_request.agent_ids) != len(set(reorder_request.agent_ids)):
+        raise HTTPException(
+            status_code=400,
+            detail="Each configured agent ID must appear exactly once.",
+        )
+
+    if set(reorder_request.agent_ids) != set(configured_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="Each configured agent ID must appear exactly once.",
+        )
+
+    config.agents.agent_order = list(reorder_request.agent_ids)
+    save_config(config)
+
+    return {"success": True, "agent_ids": config.agents.agent_order}
 
 
 @router.get(
@@ -195,7 +238,7 @@ async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
     try:
         agent_config = load_agent_config(agentId)
         return agent_config
-    except ValueError as e:
+    except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -214,7 +257,6 @@ async def create_agent(
     """Create a new agent with auto-generated ID."""
     config = load_config()
 
-    # Always generate a unique short UUID (6 characters)
     max_attempts = 10
     new_id = None
     for _ in range(max_attempts):
@@ -229,13 +271,11 @@ async def create_agent(
             detail="Failed to generate unique agent ID after 10 attempts",
         )
 
-    # Create workspace directory
     workspace_dir = Path(
         request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
     ).expanduser()
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build complete agent config with generated ID
     from ...config.config import (
         ChannelConfig,
         MCPConfig,
@@ -255,27 +295,22 @@ async def create_agent(
         tools=ToolsConfig(),
     )
 
-    # Initialize workspace with default files
     _initialize_agent_workspace(
         workspace_dir,
-        agent_config,
         skill_names=(
             request.skill_names if request.skill_names is not None else []
         ),
     )
 
-    # Save agent configuration to workspace/agent.json
     agent_ref = AgentProfileRef(
         id=new_id,
         workspace_dir=str(workspace_dir),
         enabled=True,
     )
 
-    # Add to root config
     config.agents.profiles[new_id] = agent_ref
+    config.agents.agent_order = _normalized_agent_order(config)
     save_config(config)
-
-    # Save agent config to workspace
     save_agent_config(new_id, agent_config)
 
     logger.info(f"Created new agent: {new_id} (name={request.name})")
@@ -303,22 +338,15 @@ async def update_agent(
             detail=f"Agent '{agentId}' not found",
         )
 
-    # Load existing complete configuration
     existing_config = load_agent_config(agentId)
 
-    # Merge updates: only update fields that are explicitly set
     update_data = agent_config.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         if key != "id":
             setattr(existing_config, key, value)
 
-    # Ensure ID doesn't change
     existing_config.id = agentId
-
-    # Save merged configuration
     save_agent_config(agentId, existing_config)
-
-    # Trigger hot reload if agent is running (async, non-blocking)
     schedule_agent_reload(request, agentId)
 
     return agent_config
@@ -348,16 +376,12 @@ async def delete_agent(
             detail="Cannot delete the default agent",
         )
 
-    # Stop agent instance if running
     manager = _get_multi_agent_manager(request)
     await manager.stop_agent(agentId)
 
-    # Remove from config
     del config.agents.profiles[agentId]
+    config.agents.agent_order = _normalized_agent_order(config)
     save_config(config)
-
-    # Note: We don't delete the workspace directory for safety
-    # Users can manually delete it if needed
 
     return {"success": True, "agent_id": agentId}
 
@@ -372,16 +396,7 @@ async def toggle_agent_enabled(
     enabled: bool = Body(..., embed=True),
     request: Request = None,
 ) -> dict:
-    """Toggle agent enabled state.
-
-    When disabling an agent:
-    1. Stop the agent instance if running
-    2. Update enabled field in config.json
-
-    When enabling an agent:
-    1. Update enabled field in config.json
-    2. Agent will be started immediately
-    """
+    """Toggle agent enabled state."""
     config = load_config()
 
     if agentId not in config.agents.profiles:
@@ -399,15 +414,12 @@ async def toggle_agent_enabled(
     agent_ref = config.agents.profiles[agentId]
     manager = _get_multi_agent_manager(request)
 
-    # If disabling, stop the agent instance
     if not enabled and getattr(agent_ref, "enabled", True):
         await manager.stop_agent(agentId)
 
-    # Update enabled status
     agent_ref.enabled = enabled
     save_config(config)
 
-    # If enabling, start the agent instance immediately
     if enabled:
         try:
             await manager.get_agent(agentId)
@@ -441,7 +453,7 @@ async def list_agent_files(
 
     try:
         workspace = await manager.get_agent(agentId)
-    except ValueError as e:
+    except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
     workspace_manager = AgentMdManager(str(workspace.workspace_dir))
@@ -472,7 +484,7 @@ async def read_agent_file(
 
     try:
         workspace = await manager.get_agent(agentId)
-    except ValueError as e:
+    except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
     workspace_manager = AgentMdManager(str(workspace.workspace_dir))
@@ -506,7 +518,7 @@ async def write_agent_file(
 
     try:
         workspace = await manager.get_agent(agentId)
-    except ValueError as e:
+    except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
     workspace_manager = AgentMdManager(str(workspace.workspace_dir))
@@ -533,7 +545,7 @@ async def list_agent_memory(
 
     try:
         workspace = await manager.get_agent(agentId)
-    except ValueError as e:
+    except (ValueError, AppBaseException) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
     workspace_manager = AgentMdManager(str(workspace.workspace_dir))
@@ -548,12 +560,43 @@ async def list_agent_memory(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-def _ensure_default_heartbeat_md(workspace_dir: Path, language: str) -> None:
-    """Write a default HEARTBEAT.md when the workspace has none."""
+def _seed_workspace_md_files(
+    workspace_dir: Path,
+    language: str,
+    *,
+    builtin_qa_md_seed: bool,
+) -> None:
+    """Seed workspace markdown files for a new agent."""
+    if builtin_qa_md_seed:
+        try:
+            copy_builtin_qa_md_files(language, workspace_dir)
+        except Exception as e:
+            logger.warning("Failed to seed builtin QA md files: %s", e)
+        return
+
+    md_files_dir = (
+        Path(__file__).parent.parent.parent / "agents" / "md_files" / language
+    )
+    if not md_files_dir.exists():
+        return
+
+    for md_file in md_files_dir.glob("*.md"):
+        target_file = workspace_dir / md_file.name
+        if target_file.exists():
+            continue
+        try:
+            shutil.copy2(md_file, target_file)
+        except Exception as e:
+            logger.warning("Failed to copy %s: %s", md_file.name, e)
+
+
+def _ensure_heartbeat_file(workspace_dir: Path, language: str) -> None:
+    """Create the default HEARTBEAT.md if it is missing."""
     heartbeat_file = workspace_dir / "HEARTBEAT.md"
     if heartbeat_file.exists():
         return
-    default_by_lang = {
+
+    default_heartbeat_mds = {
         "zh": """# Heartbeat checklist
 - 扫描收件箱紧急邮件
 - 查看未来 2h 的日历
@@ -573,105 +616,110 @@ def _ensure_default_heartbeat_md(workspace_dir: Path, language: str) -> None:
 - Лёгкая проверка при отсутствии активности более 8 часов
 """,
     }
-    content = default_by_lang.get(language, default_by_lang["en"])
-    with open(heartbeat_file, "w", encoding="utf-8") as f:
-        f.write(content.strip())
+    heartbeat_content = default_heartbeat_mds.get(
+        language,
+        default_heartbeat_mds["en"],
+    )
+    with open(heartbeat_file, "w", encoding="utf-8") as file:
+        file.write(heartbeat_content.strip())
 
 
-def _initialize_agent_workspace(  # pylint: disable=too-many-branches
+def _copy_builtin_skills(workspace_dir: Path) -> None:
+    """Copy builtin skills into a new workspace when missing."""
+    builtin_skills_dir = (
+        Path(__file__).parent.parent.parent / "agents" / "skills"
+    )
+    if not builtin_skills_dir.exists():
+        return
+
+    target_skills_dir = get_workspace_skills_dir(workspace_dir)
+    target_skills_dir.mkdir(parents=True, exist_ok=True)
+
+    for skill_dir in builtin_skills_dir.iterdir():
+        if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
+            continue
+        target_skill_dir = target_skills_dir / skill_dir.name
+        if target_skill_dir.exists():
+            continue
+        try:
+            shutil.copytree(skill_dir, target_skill_dir)
+        except Exception as e:
+            logger.warning("Failed to copy skill %s: %s", skill_dir.name, e)
+
+
+def _install_initial_skills(
     workspace_dir: Path,
-    agent_config: AgentProfileConfig,  # pylint: disable=unused-argument
-    *,
+    skill_names: list[str] | None,
+) -> None:
+    """Install requested initial skills from the skill pool."""
+    if not skill_names:
+        return
+
+    pool_service = SkillPoolService()
+    for skill_name in skill_names:
+        try:
+            result = pool_service.download_to_workspace(
+                skill_name=skill_name,
+                workspace_dir=workspace_dir,
+                overwrite=False,
+            )
+            if result.get("success"):
+                continue
+            logger.warning(
+                "Failed to install initial skill %s for %s: %s",
+                skill_name,
+                workspace_dir,
+                result.get("reason", "unknown"),
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to install initial skill %s for %s: %s",
+                skill_name,
+                workspace_dir,
+                e,
+            )
+
+
+def _initialize_agent_workspace(
+    workspace_dir: Path,
     skill_names: list[str] | None = None,
     builtin_qa_md_seed: bool = False,
 ) -> None:
-    """Initialize agent workspace (similar to copaw init --defaults).
-
-    Args:
-        workspace_dir: Path to agent workspace
-        agent_config: Agent configuration (reserved for future use)
-        skill_names: If set, only these skills are copied from the
-            pool into the workspace. If ``None``, skip skill seeding
-            (default for new agents).
-        builtin_qa_md_seed: If True, seed the builtin QA persona from
-            ``md_files/qa/<lang>/`` (AGENTS, PROFILE, SOUL), copy MEMORY and
-            HEARTBEAT from the normal language pack, and **omit** BOOTSTRAP.md
-            so bootstrap mode never triggers.
-    """
+    """Initialize agent workspace (similar to copaw init --defaults)."""
     from ...config import load_config as load_global_config
 
-    workspace_dir = Path(workspace_dir).expanduser()
-
-    # Create essential subdirectories
     (workspace_dir / "sessions").mkdir(exist_ok=True)
     (workspace_dir / "memory").mkdir(exist_ok=True)
-    (workspace_dir / "skills").mkdir(exist_ok=True)
+    get_workspace_skills_dir(workspace_dir).mkdir(exist_ok=True)
 
-    # Get language from global config
     config = load_global_config()
     language = config.agents.language or "zh"
 
-    package_agents_root = Path(__file__).parent.parent.parent / "agents"
-    md_files_dir = package_agents_root / "md_files" / language
+    _seed_workspace_md_files(
+        workspace_dir,
+        language,
+        builtin_qa_md_seed=builtin_qa_md_seed,
+    )
+    _ensure_heartbeat_file(workspace_dir, language)
+    _copy_builtin_skills(workspace_dir)
+    _install_initial_skills(workspace_dir, skill_names)
 
-    if builtin_qa_md_seed:
-        copy_builtin_qa_md_files(
-            language,
-            workspace_dir,
-            only_if_missing=True,
-        )
-    elif md_files_dir.exists():
-        for md_file in md_files_dir.glob("*.md"):
-            target_file = workspace_dir / md_file.name
-            if not target_file.exists():
-                try:
-                    shutil.copy2(md_file, target_file)
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to copy {md_file.name}: {e}",
-                    )
-
-    _ensure_default_heartbeat_md(workspace_dir, language)
-
-    if skill_names is not None:
-        from ...agents.skills_manager import (
-            get_skill_pool_dir,
-            reconcile_workspace_manifest,
-        )
-
-        pool_dir = get_skill_pool_dir()
-        skills_dir = workspace_dir / "skills"
-        for name in skill_names:
-            source = pool_dir / name
-            target = skills_dir / name
-            if source.exists() and not target.exists():
-                shutil.copytree(source, target)
-        reconcile_workspace_manifest(workspace_dir)
-
-    # Create empty jobs.json for cron jobs
     jobs_file = workspace_dir / "jobs.json"
     if not jobs_file.exists():
-        with open(jobs_file, "w", encoding="utf-8") as f:
+        with open(jobs_file, "w", encoding="utf-8") as file:
             json.dump(
                 {"version": 1, "jobs": []},
-                f,
+                file,
                 ensure_ascii=False,
                 indent=2,
             )
 
-    # Create empty chats.json for chat history
     chats_file = workspace_dir / "chats.json"
     if not chats_file.exists():
-        with open(chats_file, "w", encoding="utf-8") as f:
+        with open(chats_file, "w", encoding="utf-8") as file:
             json.dump(
                 {"version": 1, "chats": []},
-                f,
+                file,
                 ensure_ascii=False,
                 indent=2,
             )
-
-    # Create empty token_usage.json
-    token_usage_file = workspace_dir / "token_usage.json"
-    if not token_usage_file.exists():
-        with open(token_usage_file, "w", encoding="utf-8") as f:
-            f.write("[]")

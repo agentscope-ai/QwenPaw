@@ -19,17 +19,17 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
   mattermost:
     "https://gw.alicdn.com/imgextra/i2/O1CN01A2bvSh1eVig4fDBEF_!!6000000003877-2-tps-400-400.png",
   matrix:
-    "https://gw.alicdn.com/imgextra/i4/O1CN01LF8Tv61tAqrsI5yMY_!!6000000005862-2-tps-400-400.png",
+    "https://gw.alicdn.com/imgextra/i2/O1CN01Q8i1P826mUQG4dCAs_!!6000000007704-2-tps-400-400.png",
   console:
-    "https://gw.alicdn.com/imgextra/i4/O1CN01eeLWyo1ZgBePACyWf_!!6000000003223-2-tps-320-320.png",
+    "https://gw.alicdn.com/imgextra/i3/O1CN01L3azqd1XIi7O2jumZ_!!6000000002901-2-tps-400-400.png",
   wecom:
     "https://gw.alicdn.com/imgextra/i1/O1CN01HWtzmr1hkK9beQICJ_!!6000000004315-2-tps-400-400.png",
   weixin:
-    "https://img.alicdn.com/imgextra/i4/O1CN01Jw2SLK1XxvlP5879e_!!6000000002991-55-tps-1200-800.svg",
+    "https://gw.alicdn.com/imgextra/i4/O1CN01GsAob11fkfDWVIb3R_!!6000000004045-2-tps-400-400.png",
 };
 
 export const CHANNEL_DEFAULT_ICON_URL =
-  "https://gw.alicdn.com/imgextra/i3/O1CN01CQSF5R29JaGuuzZ5X_!!6000000008047-2-tps-320-320.png";
+  "https://gw.alicdn.com/imgextra/i3/O1CN01xqM0EN1oKrRiAFX3K_!!6000000005207-2-tps-400-400.png";
 
 export function getChannelIconUrl(channelKey: string): string {
   return CHANNEL_ICON_URLS[channelKey] ?? CHANNEL_DEFAULT_ICON_URL;

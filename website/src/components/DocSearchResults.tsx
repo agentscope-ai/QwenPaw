@@ -1,9 +1,8 @@
 import { Link } from "react-router-dom";
 import { FileText } from "lucide-react";
-import type { Lang } from "../i18n";
-import { t } from "../i18n";
-import { useDocSearch } from "../lib/docsSearch";
-import type { SearchRow } from "../lib/docsSearch";
+import { useTranslation } from "react-i18next";
+import { useDocSearch } from "@/lib/docsSearch";
+import type { SearchRow } from "@/lib/docsSearch";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -68,12 +67,15 @@ function getSnippet(fullText: string, query: string): string {
 }
 
 interface DocSearchResultsProps {
-  lang: Lang;
   query: string;
 }
 
-export function DocSearchResults({ lang, query }: DocSearchResultsProps) {
-  const { results, loading } = useDocSearch(lang, query);
+export function DocSearchResults({ query }: DocSearchResultsProps) {
+  const { t, i18n } = useTranslation();
+  const { results, loading } = useDocSearch(
+    i18n.resolvedLanguage ?? "en",
+    query,
+  );
 
   return (
     <div
@@ -93,8 +95,8 @@ export function DocSearchResults({ lang, query }: DocSearchResultsProps) {
         }}
       >
         {query.trim()
-          ? t(lang, "docs.searchResultsTitle")
-          : t(lang, "docs.searchResultsTitleEmpty")}
+          ? t("docs.searchResultsTitle")
+          : t("docs.searchResultsTitleEmpty")}
       </h1>
       {loading ? (
         <p
@@ -103,7 +105,7 @@ export function DocSearchResults({ lang, query }: DocSearchResultsProps) {
             color: "var(--text-muted)",
           }}
         >
-          {t(lang, "docs.searchLoading")}
+          {t("docs.searchLoading")}
         </p>
       ) : !query.trim() ? (
         <p
@@ -112,7 +114,7 @@ export function DocSearchResults({ lang, query }: DocSearchResultsProps) {
             color: "var(--text-muted)",
           }}
         >
-          {t(lang, "docs.searchHint")}
+          {t("docs.searchHint")}
         </p>
       ) : results.length === 0 ? (
         <p
@@ -121,7 +123,7 @@ export function DocSearchResults({ lang, query }: DocSearchResultsProps) {
             color: "var(--text-muted)",
           }}
         >
-          {t(lang, "docs.searchNoResults")}
+          {t("docs.searchNoResults")}
         </p>
       ) : (
         <ul

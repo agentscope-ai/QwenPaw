@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
-from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from anyio import ClosedResourceError
 from pydantic import BaseModel
 
+from ..app.mcp import HttpStatefulClient, StdIOStatefulClient
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook, MemoryCompactionHook
 from .model_factory import create_model_and_formatter
@@ -47,6 +47,7 @@ from .tools import (
     send_file_to_user,
     set_user_timezone,
     view_image,
+    view_video,
     write_file,
     create_memory_search_tool,
 )
@@ -232,6 +233,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             "browser_use": browser_use,
             "desktop_screenshot": desktop_screenshot,
             "view_image": view_image,
+            "view_video": view_video,
             "send_file_to_user": send_file_to_user,
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
@@ -247,9 +249,10 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 logger.debug("Skipped disabled tool: %s", tool_name)
                 continue
 
-            if tool_name == "view_image" and not multimodal:
+            if tool_name in ("view_image", "view_video") and not multimodal:
                 logger.debug(
-                    "Skipped view_image — model does not support multimodal",
+                    "Skipped %s — model does not support multimodal",
+                    tool_name,
                 )
                 continue
 
@@ -955,10 +958,16 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Response message
         """
-        # Set workspace_dir in context for tool functions
-        from ..config.context import set_current_workspace_dir
+        # Set workspace_dir and recent_max_bytes in context for tool functions
+        from ..config.context import (
+            set_current_workspace_dir,
+            set_current_recent_max_bytes,
+        )
 
         set_current_workspace_dir(self._workspace_dir)
+        set_current_recent_max_bytes(
+            self._agent_config.running.tool_result_compact.recent_max_bytes,
+        )
 
         # Process file and media blocks in messages
         if msg is not None:
@@ -994,7 +1003,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                             max_results=ms.force_max_results,
                             min_score=ms.force_min_score,
                         ),
-                        timeout=1,
+                        timeout=ms.force_memory_search_timeout,
                     )
                     self.memory._long_term_memory = "\n".join(
                         block["text"]

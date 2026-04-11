@@ -32,6 +32,9 @@ from typing import Any, AsyncGenerator
 
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
+from agentscope_runtime.engine.schemas.exception import (
+    RateLimitExceededException,
+)
 
 from ..constant import (
     LLM_ACQUIRE_TIMEOUT,
@@ -296,10 +299,14 @@ class RetryChatModel(ChatModelBase):
                     )
                     acquired = True
                 except asyncio.TimeoutError as exc:
-                    raise RuntimeError(
-                        f"LLM rate limiter: timed out waiting"
-                        f" {self._rate_limit_config.acquire_timeout:.0f}s "
-                        "for an execution slot",
+                    raise RateLimitExceededException(
+                        operation="LLM execution",
+                        retry_after=int(
+                            self._rate_limit_config.acquire_timeout,
+                        ),
+                        details={
+                            "reason": "Timed out waiting for execution slot",
+                        },
                     ) from exc
 
                 result = await self._inner(*args, **kwargs)
@@ -396,10 +403,14 @@ class RetryChatModel(ChatModelBase):
                     )
                     acquired = True
                 except asyncio.TimeoutError as exc:
-                    raise RuntimeError(
-                        f"LLM rate limiter: timed out waiting"
-                        f" {self._rate_limit_config.acquire_timeout:.0f}s"
-                        f" for an execution slot (stream retry)",
+                    raise RateLimitExceededException(
+                        operation="LLM execution (stream retry)",
+                        retry_after=int(
+                            self._rate_limit_config.acquire_timeout,
+                        ),
+                        details={
+                            "reason": "Timed out waiting for execution slot",
+                        },
                     ) from exc
 
                 result = await self._inner(*call_args, **call_kwargs)

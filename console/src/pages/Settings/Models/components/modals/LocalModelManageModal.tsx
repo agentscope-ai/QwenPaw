@@ -1,24 +1,33 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Button,
   Input,
+  InputNumber,
   Modal,
   Select,
   Tooltip,
-  message,
 } from "@agentscope-ai/design";
-import { CloseOutlined, DownloadOutlined } from "@ant-design/icons";
+import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
+import {
+  CloseOutlined,
+  DownloadOutlined,
+  DownOutlined,
+  SaveOutlined,
+} from "@ant-design/icons";
 import { Progress } from "antd";
 import type {
+  LocalModelConfig,
   ProviderInfo,
   LocalDownloadProgress,
   LocalDownloadSource,
   LocalModelInfo,
   LocalServerStatus,
+  LocalServerUpdateStatus,
 } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
+import { JsonConfigEditor } from "./JsonConfigEditor.tsx";
 import { LocalModelRow } from "./local-models/LocalModelRow";
 import { LocalRuntimePanel } from "./local-models/LocalRuntimePanel";
 import {
@@ -28,8 +37,21 @@ import {
 } from "./local-models/shared";
 
 const POLL_INTERVAL_MS = 3000;
+const DEFAULT_LOCAL_MAX_CONTEXT_LENGTH = 65536;
+const MIN_LOCAL_MAX_CONTEXT_LENGTH = 32768;
 
 type LocalDownloadStatus = LocalDownloadProgress["status"];
+
+function getInitialLocalModelConfig(config?: LocalModelConfig | null) {
+  return {
+    maxContextLength:
+      typeof config?.max_context_length === "number" &&
+      Number.isInteger(config.max_context_length) &&
+      config.max_context_length >= MIN_LOCAL_MAX_CONTEXT_LENGTH
+        ? config.max_context_length
+        : DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+  };
+}
 
 function isSameServerStatus(
   left: LocalServerStatus | null,
@@ -37,11 +59,19 @@ function isSameServerStatus(
 ): boolean {
   return (
     left?.available === right?.available &&
+    left?.installable === right?.installable &&
     left?.installed === right?.installed &&
     left?.port === right?.port &&
     left?.model_name === right?.model_name &&
     left?.message === right?.message
   );
+}
+
+function isSameServerUpdateStatus(
+  left: LocalServerUpdateStatus | null,
+  right: LocalServerUpdateStatus | null,
+): boolean {
+  return left?.has_update === right?.has_update;
 }
 
 function isSameDownloadProgress(
@@ -94,6 +124,8 @@ export function LocalModelManageModal({
   const [serverStatus, setServerStatus] = useState<LocalServerStatus | null>(
     null,
   );
+  const [serverUpdateStatus, setServerUpdateStatus] =
+    useState<LocalServerUpdateStatus | null>(null);
   const [llamacppDownload, setLlamacppDownload] =
     useState<LocalDownloadProgress | null>(null);
   const [modelDownload, setModelDownload] =
@@ -102,10 +134,73 @@ export function LocalModelManageModal({
     null,
   );
   const [stoppingServer, setStoppingServer] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedSaving, setAdvancedSaving] = useState(false);
+  const [loadingLocalConfig, setLoadingLocalConfig] = useState(false);
+  const [maxContextLength, setMaxContextLength] = useState<number>(
+    DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+  );
+  const [savedMaxContextLength, setSavedMaxContextLength] = useState<number>(
+    DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+  );
+  const [generateKwargsText, setGenerateKwargsText] = useState("");
+  const [savedGenerateKwargsText, setSavedGenerateKwargsText] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
   const previousLlamacppStatusRef = useRef<string | null>(null);
   const previousModelStatusRef = useRef<string | null>(null);
+  const onSavedRef = useRef(onSaved);
+  const initializedOpenRef = useRef(false);
+
+  const { message } = useAppMessage();
+
+  useEffect(() => {
+    onSavedRef.current = onSaved;
+  }, [onSaved]);
+
+  const initialLocalConfig = useMemo(
+    () => ({
+      generateKwargsText:
+        Object.keys(provider.generate_kwargs ?? {}).length > 0
+          ? JSON.stringify(provider.generate_kwargs, null, 2)
+          : "",
+    }),
+    [provider.generate_kwargs],
+  );
+
+  const parseGenerateConfig = useCallback(
+    (value?: string) => {
+      const trimmed = value?.trim();
+      if (!trimmed) {
+        return undefined;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        throw new Error(t("models.generateConfigInvalidJson"));
+      }
+
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error(t("models.generateConfigMustBeObject"));
+      }
+
+      return parsed as Record<string, unknown>;
+    },
+    [t],
+  );
+
+  const generateKwargsError = useMemo(() => {
+    try {
+      parseGenerateConfig(generateKwargsText);
+      return null;
+    } catch (error) {
+      return error instanceof Error
+        ? error.message
+        : t("models.generateConfigInvalidJson");
+    }
+  }, [generateKwargsText, parseGenerateConfig, t]);
 
   const getLocalModelDisplayName = (modelId: string | null) => {
     if (!modelId) {
@@ -133,6 +228,24 @@ export function LocalModelManageModal({
     }
   }, []);
 
+  const fetchLocalConfig = useCallback(async () => {
+    setLoadingLocalConfig(true);
+    try {
+      const config = await api.getLocalModelConfig();
+      const normalizedConfig = getInitialLocalModelConfig(config);
+      setMaxContextLength(normalizedConfig.maxContextLength);
+      setSavedMaxContextLength(normalizedConfig.maxContextLength);
+      return normalizedConfig;
+    } catch {
+      const fallbackConfig = getInitialLocalModelConfig();
+      setMaxContextLength(fallbackConfig.maxContextLength);
+      setSavedMaxContextLength(fallbackConfig.maxContextLength);
+      return fallbackConfig;
+    } finally {
+      setLoadingLocalConfig(false);
+    }
+  }, []);
+
   const setModelDownloadState = useCallback(
     (
       value:
@@ -151,6 +264,38 @@ export function LocalModelManageModal({
     [],
   );
 
+  const refreshUpdateStatus = useCallback(
+    async (nextServerStatus?: LocalServerStatus | null) => {
+      const effectiveServerStatus = nextServerStatus ?? serverStatus;
+
+      if (
+        !effectiveServerStatus?.installable ||
+        !effectiveServerStatus.installed
+      ) {
+        const fallbackStatus = { has_update: false };
+        setServerUpdateStatus((prev) =>
+          isSameServerUpdateStatus(prev, fallbackStatus)
+            ? prev
+            : fallbackStatus,
+        );
+        return fallbackStatus;
+      }
+
+      try {
+        const nextUpdateStatus = await api.getLocalServerUpdateStatus();
+        setServerUpdateStatus((prev) =>
+          isSameServerUpdateStatus(prev, nextUpdateStatus)
+            ? prev
+            : nextUpdateStatus,
+        );
+        return nextUpdateStatus;
+      } catch {
+        return null;
+      }
+    },
+    [serverStatus],
+  );
+
   const refreshStatus = useCallback(
     async (showLoading = false) => {
       if (showLoading) {
@@ -167,6 +312,13 @@ export function LocalModelManageModal({
         setServerStatus((prev) =>
           isSameServerStatus(prev, nextServerStatus) ? prev : nextServerStatus,
         );
+        if (!nextServerStatus.installable || !nextServerStatus.installed) {
+          setServerUpdateStatus((prev) =>
+            isSameServerUpdateStatus(prev, { has_update: false })
+              ? prev
+              : { has_update: false },
+          );
+        }
         setLlamacppDownload((prev) =>
           isSameDownloadProgress(prev, nextLlamacppDownload)
             ? prev
@@ -184,6 +336,7 @@ export function LocalModelManageModal({
           nextLlamacppDownload.status === "completed"
         ) {
           message.success(t("models.localLlamacppInstallSuccess"));
+          void refreshUpdateStatus(nextServerStatus);
         }
 
         if (
@@ -192,7 +345,7 @@ export function LocalModelManageModal({
           nextModelDownload.status === "completed"
         ) {
           message.success(t("models.localDownloadSuccess"));
-          onSaved();
+          onSavedRef.current();
           void fetchLocalModels();
         }
 
@@ -234,7 +387,7 @@ export function LocalModelManageModal({
         }
       }
     },
-    [fetchLocalModels, onSaved, stopPolling, t],
+    [fetchLocalModels, refreshUpdateStatus, stopPolling, t],
   );
 
   const startPolling = useCallback(() => {
@@ -245,22 +398,119 @@ export function LocalModelManageModal({
   }, [refreshStatus]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initializedOpenRef.current = false;
+      return;
+    }
 
-    void Promise.all([fetchLocalModels(), refreshStatus(true)]).then(
-      ([, statuses]) => {
-        if (
-          statuses &&
-          (isBusyDownloadStatus(statuses.llamacpp.status) ||
-            isBusyDownloadStatus(statuses.model.status))
-        ) {
-          startPolling();
-        }
-      },
-    );
+    if (initializedOpenRef.current) {
+      return;
+    }
+    initializedOpenRef.current = true;
+
+    setAdvancedOpen(false);
+    setMaxContextLength(DEFAULT_LOCAL_MAX_CONTEXT_LENGTH);
+    setSavedMaxContextLength(DEFAULT_LOCAL_MAX_CONTEXT_LENGTH);
+    setGenerateKwargsText(initialLocalConfig.generateKwargsText);
+    setSavedGenerateKwargsText(initialLocalConfig.generateKwargsText);
+
+    void Promise.all([
+      fetchLocalConfig(),
+      fetchLocalModels(),
+      refreshStatus(true),
+    ]).then(([, , statuses]) => {
+      void refreshUpdateStatus(statuses?.server ?? null);
+      if (
+        statuses &&
+        (isBusyDownloadStatus(statuses.llamacpp.status) ||
+          isBusyDownloadStatus(statuses.model.status))
+      ) {
+        startPolling();
+      }
+    });
 
     return () => stopPolling();
-  }, [fetchLocalModels, open, refreshStatus, startPolling, stopPolling]);
+  }, [
+    fetchLocalConfig,
+    fetchLocalModels,
+    open,
+    refreshStatus,
+    refreshUpdateStatus,
+    startPolling,
+    stopPolling,
+    initialLocalConfig,
+  ]);
+
+  const handleSaveMaxContextLength = useCallback(async () => {
+    if (!Number.isInteger(maxContextLength)) {
+      message.error(t("models.localMaxContextLengthRequired"));
+      return;
+    }
+
+    if (maxContextLength < MIN_LOCAL_MAX_CONTEXT_LENGTH) {
+      message.error(
+        t("models.localMaxContextLengthMin", {
+          min: MIN_LOCAL_MAX_CONTEXT_LENGTH,
+        }),
+      );
+      return;
+    }
+
+    setAdvancedSaving(true);
+    try {
+      await api.configureLocalModelSettings({
+        max_context_length: maxContextLength,
+      });
+      setSavedMaxContextLength(maxContextLength);
+      message.success(t("models.localAdvancedConfigSaved"));
+      await onSavedRef.current();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setAdvancedSaving(false);
+    }
+  }, [maxContextLength, message, t]);
+
+  const handleSaveGenerateKwargs = useCallback(async () => {
+    let parsed: Record<string, unknown> = {};
+
+    try {
+      parsed = parseGenerateConfig(generateKwargsText) ?? {};
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("models.generateConfigInvalidJson"),
+      );
+      return;
+    }
+
+    const trimmed = generateKwargsText.trim();
+    const normalizedText = trimmed ? JSON.stringify(parsed, null, 2) : "";
+
+    setAdvancedSaving(true);
+    try {
+      await api.configureLocalModelSettings({
+        generate_kwargs: parsed,
+      });
+      setGenerateKwargsText(normalizedText);
+      setSavedGenerateKwargsText(normalizedText);
+      message.success(t("models.localAdvancedConfigSaved"));
+      await onSavedRef.current();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setAdvancedSaving(false);
+    }
+  }, [generateKwargsText, message, parseGenerateConfig, t]);
 
   const handleStartLlamacppDownload = useCallback(async () => {
     const previousLlamacppDownload = llamacppDownload;
@@ -281,6 +531,7 @@ export function LocalModelManageModal({
     try {
       await api.startLlamacppDownload();
       message.success(t("models.localLlamacppInstallStarted"));
+      setServerUpdateStatus({ has_update: false });
       await refreshStatus();
       startPolling();
     } catch (error) {
@@ -483,7 +734,12 @@ export function LocalModelManageModal({
 
   const isModelDownloading = isDownloadActive(modelDownload);
   const isServerBusy = stoppingServer || startingModelName !== null;
+  const isRuntimeInstallable = serverStatus?.installable ?? true;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
+  const runtimeLockedMessage =
+    !isRuntimeInstallable && serverStatus?.message
+      ? serverStatus.message
+      : t("models.localModelsLockedHint");
   const isCustomDownloadDisabled =
     customModelRepoId.trim().length === 0 || isModelDownloading || isServerBusy;
   const downloadedModelCount = localModels.filter(
@@ -498,6 +754,7 @@ export function LocalModelManageModal({
     getLocalModelDisplayName(modelDownload?.model_name ?? null) ||
     t("models.localDownloadPending");
   const currentModelDownloadPercent = getProgressPercent(modelDownload);
+  // Removed isAdvancedDirty, now handled per-field
 
   return (
     <Modal
@@ -514,94 +771,105 @@ export function LocalModelManageModal({
       width={600}
       destroyOnHidden
     >
-      {(loadingLocal || loadingStatus) && localModels.length === 0 ? (
+      {(loadingLocal || loadingStatus || loadingLocalConfig) &&
+      localModels.length === 0 ? (
         <div className={styles.modelListEmpty}>{t("common.loading")}</div>
       ) : null}
 
       <section className={styles.localSection}>
         <LocalRuntimePanel
           serverStatus={serverStatus}
+          hasUpdate={Boolean(serverUpdateStatus?.has_update)}
           progress={llamacppDownload}
           onStart={handleStartLlamacppDownload}
           onCancel={handleCancelLlamacppDownload}
           onStop={handleStopServer}
           stopping={stoppingServer}
         />
-      </section>
-
-      <section className={styles.localSection}>
-        <div className={styles.localSectionHeader}>
-          <div>
-            <div className={styles.localSectionTitle}>
-              {t("models.localModelsSectionTitle")}
+        {!isRuntimeInstalled ? (
+          <div className={styles.localLockedPanel}>
+            <div className={styles.localLockedPanelTitle}>
+              {isRuntimeInstallable
+                ? t("models.localRuntimeMissing")
+                : t("models.localRuntimeUnsupported")}
+            </div>
+            <div className={styles.localLockedPanelDescription}>
+              <div>{runtimeLockedMessage}</div>
+              {!isRuntimeInstallable ? (
+                <div>{t("models.localAlternativeRuntimeHint")}</div>
+              ) : null}
             </div>
           </div>
-        </div>
+        ) : null}
+      </section>
 
-        {isRuntimeInstalled && isModelDownloading ? (
-          <div className={styles.localSectionInfoRow}>
-            <div className={styles.localSectionInfoContent}>
-              <span className={styles.localSectionInfoLabel}>
-                {t("models.localCurrentDownloadTitle")}
-              </span>
-              <span className={styles.localSectionInfoValue}>
-                {currentModelDownloadName}
-              </span>
-              <div className={styles.localRuntimeDownloadRow}>
-                <div className={styles.localRuntimeProgressBlock}>
-                  <div className={styles.localRuntimeProgressBarRow}>
-                    <Progress
-                      className={styles.localRuntimeProgress}
-                      percent={currentModelDownloadPercent ?? 0}
-                      showInfo={false}
-                      status="active"
-                      strokeColor="#ff7f16"
-                      strokeWidth={10}
-                    />
-                    <Tooltip title={t("models.localCancelDownloadAction")}>
-                      <Button
-                        danger
-                        size="small"
-                        icon={<CloseOutlined />}
-                        onClick={() =>
-                          handleCancelModelDownload(currentModelDownloadName)
-                        }
-                      />
-                    </Tooltip>
-                  </div>
-                  <span className={styles.localRuntimeProgressMeta}>
-                    {formatProgressText(modelDownload)}
-                  </span>
-                </div>
+      {isRuntimeInstalled ? (
+        <section className={styles.localSection}>
+          <div className={styles.localSectionHeader}>
+            <div>
+              <div className={styles.localSectionTitle}>
+                {t("models.localModelsSectionTitle")}
               </div>
             </div>
           </div>
-        ) : null}
 
-        {isRuntimeInstalled && currentRunningModelName ? (
-          <div className={styles.localSectionInfoRow}>
-            <span className={styles.localSectionInfoLabel}>
-              {t("models.localEngineCurrentModelLabel")}
-            </span>
-            <span className={styles.localSectionInfoValue}>
-              {currentRunningModelDisplayName}
-            </span>
-          </div>
-        ) : null}
-
-        {isRuntimeInstalled && downloadedModelCount === 0 ? (
-          <div className={styles.localSectionNotice}>
-            {t("models.localNoDownloadedModelsHint")}
-          </div>
-        ) : null}
-
-        {!isRuntimeInstalled ? (
-          <div className={styles.localLockedPanel}>
-            <div className={styles.localLockedPanelDescription}>
-              {t("models.localModelsLockedHint")}
+          {isRuntimeInstalled && isModelDownloading ? (
+            <div className={styles.localSectionInfoRow}>
+              <div className={styles.localSectionInfoContent}>
+                <span className={styles.localSectionInfoLabel}>
+                  {t("models.localCurrentDownloadTitle")}
+                </span>
+                <span className={styles.localSectionInfoValue}>
+                  {currentModelDownloadName}
+                </span>
+                <div className={styles.localRuntimeDownloadRow}>
+                  <div className={styles.localRuntimeProgressBlock}>
+                    <div className={styles.localRuntimeProgressBarRow}>
+                      <Progress
+                        className={styles.localRuntimeProgress}
+                        percent={currentModelDownloadPercent ?? 0}
+                        showInfo={false}
+                        status="active"
+                        strokeColor="#ff7f16"
+                        strokeWidth={10}
+                      />
+                      <Tooltip title={t("models.localCancelDownloadAction")}>
+                        <Button
+                          danger
+                          size="small"
+                          icon={<CloseOutlined />}
+                          onClick={() =>
+                            handleCancelModelDownload(currentModelDownloadName)
+                          }
+                        />
+                      </Tooltip>
+                    </div>
+                    <span className={styles.localRuntimeProgressMeta}>
+                      {formatProgressText(modelDownload)}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        ) : (
+          ) : null}
+
+          {isRuntimeInstalled && currentRunningModelName ? (
+            <div className={styles.localSectionInfoRow}>
+              <span className={styles.localSectionInfoLabel}>
+                {t("models.localEngineCurrentModelLabel")}
+              </span>
+              <span className={styles.localSectionInfoValue}>
+                {currentRunningModelDisplayName}
+              </span>
+            </div>
+          ) : null}
+
+          {isRuntimeInstalled && downloadedModelCount === 0 ? (
+            <div className={styles.localSectionNotice}>
+              {t("models.localNoDownloadedModelsHint")}
+            </div>
+          ) : null}
+
           <div className={styles.modelList}>
             {serverStatus?.installed && loadingLocal ? (
               <div className={styles.modelListEmpty}>{t("common.loading")}</div>
@@ -684,7 +952,116 @@ export function LocalModelManageModal({
               </div>
             ) : null}
           </div>
-        )}
+        </section>
+      ) : null}
+
+      <section className={styles.localAdvancedConfigSection}>
+        <div className={styles.localAdvancedConfigHeader}>
+          <button
+            type="button"
+            className={styles.advancedConfigToggle}
+            onClick={() => setAdvancedOpen((prev) => !prev)}
+          >
+            <span className={styles.advancedConfigToggleLabel}>
+              {t("models.localAdvancedConfigTitle")}
+            </span>
+            <DownOutlined
+              className={
+                advancedOpen
+                  ? styles.localAdvancedConfigChevronOpen
+                  : styles.localAdvancedConfigChevronClosed
+              }
+            />
+          </button>
+        </div>
+
+        {advancedOpen ? (
+          <div className={styles.localAdvancedConfigFields}>
+            <div
+              className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
+            >
+              <div
+                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+              >
+                <span>{t("models.localMaxContextLengthLabel")}</span>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SaveOutlined />}
+                  loading={advancedSaving}
+                  disabled={maxContextLength === savedMaxContextLength}
+                  onClick={() => {
+                    if (maxContextLength !== savedMaxContextLength) {
+                      void handleSaveMaxContextLength();
+                    }
+                  }}
+                >
+                  {t("models.save")}
+                </Button>
+              </div>
+              <InputNumber
+                min={MIN_LOCAL_MAX_CONTEXT_LENGTH}
+                step={1024}
+                precision={0}
+                value={maxContextLength}
+                onChange={(value) =>
+                  setMaxContextLength(
+                    typeof value === "number"
+                      ? Math.trunc(value)
+                      : DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+                  )
+                }
+                className={styles.localAdvancedConfigInput}
+                placeholder={t("models.localMaxContextLengthPlaceholder")}
+              />
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localMaxContextLengthHint")}
+              </div>
+            </div>
+
+            <div className={styles.localAdvancedConfigField}>
+              <div
+                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+              >
+                <span>{t("models.modelGenerateConfig")}</span>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SaveOutlined />}
+                  loading={advancedSaving}
+                  disabled={
+                    generateKwargsText === savedGenerateKwargsText ||
+                    Boolean(generateKwargsError)
+                  }
+                  onClick={() => {
+                    if (
+                      generateKwargsText !== savedGenerateKwargsText &&
+                      !generateKwargsError
+                    ) {
+                      void handleSaveGenerateKwargs();
+                    }
+                  }}
+                >
+                  {t("models.save")}
+                </Button>
+              </div>
+              <JsonConfigEditor
+                value={generateKwargsText}
+                onChange={setGenerateKwargsText}
+                placeholder={`Example:\n{\n  "temperature": 0.7,\n  "top_p": 0.95\n}`}
+                variant="expanded"
+              />
+              {generateKwargsError ? (
+                <div className={styles.localAdvancedConfigError}>
+                  {generateKwargsError}
+                </div>
+              ) : null}
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localGenerateConfigHint")}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </section>
     </Modal>
   );

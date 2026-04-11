@@ -36,7 +36,7 @@
 }
 
 .mcpCard {
-  height: 178px;
+  height: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -45,16 +45,9 @@
   border: 1px solid var(--color-border-secondary, #eae8e7);
   box-sizing: border-box;
   transition: all 0.2s ease-in-out;
-  position: relative;
 
-  :global {
-    .ant-card-body {
-      padding: 0 !important;
-    }
-
-    .copaw-spark-card-wrapper {
-      padding: 16px !important;
-    }
+  :global(.copaw-card-body) {
+    padding: 0 !important;
   }
 
   &.enabledCard {
@@ -82,15 +75,6 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 12px;
-}
-
-.leftSection {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  flex: 1;
 }
 
 .mcpTitle {
@@ -120,34 +104,18 @@
   }
 
   &.remote {
-    background-color: rgba(255, 247, 230, 0.8);
-    color: rgba(255, 255, 255, 0.85);
+    background-color: rgba(255, 247, 230, 0.9);
+    color: #d48806;
+    border: 1px solid rgba(250, 173, 20, 0.2);
   }
 }
 
-.fileIcon {
-  font-size: 20px;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.descriptionContainer {
-  margin-top: 12px;
-}
-
-.descriptionLabel {
-  margin: 0 0 4px 0;
-  font-size: 12px;
-  color: rgba(20, 20, 19, 0.45);
-  font-weight: normal;
-}
-
-.descriptionText {
-  margin: 0;
-  font-size: 12px;
-  color: rgba(20, 20, 19, 0.65);
-  line-height: 16px;
+.mcpDescription {
+  margin: 6px 0 16px 0;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: 40px;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -156,74 +124,46 @@
 }
 
 .cardFooter {
-  position: absolute;
-  bottom: 16px;
-  left: 0;
-  right: 0;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 0 16px;
+  gap: 12px;
+  padding-top: 12px;
+  margin-top: auto;
+  border-top: 1px solid #f0f0f0;
 }
 
-.actionButton {
+.toggleButton {
   flex: 1;
-  height: 32px;
-  font-size: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  background-color: #ffffff;
-  color: rgba(20, 20, 19, 0.88);
+  padding: 8px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #666;
+  background: transparent;
+  border: 1px solid #d9d9d9;
   cursor: pointer;
+  transition: all 0.18s ease;
 
   &:hover {
-    border-color: rgba(20, 20, 19, 0.88);
-    background-color: #ffffff;
+    color: #333;
+    border-color: #bfbfbf;
   }
 }
 
-.deleteButtonLarge {
+.deleteButton {
   flex: 1;
-  height: 32px;
-  font-size: 14px;
-  background-color: rgba(255, 77, 79, 0.06);
+  padding: 8px 16px;
+  border-radius: 7px;
+  font-size: 13px;
   color: #ff4d4f;
-  border: 1px solid transparent;
+  background: transparent;
+  border: 1px solid #d9d9d9;
   cursor: pointer;
+  transition: all 0.18s ease;
 
   &:hover {
-    background-color: rgba(255, 77, 79, 0.15);
+    color: #ff4d4f;
     border-color: #ff4d4f;
-  }
-}
-
-.enableLink {
-  padding: 0;
-  font-size: 14px;
-  color: #40a9ff;
-  background: none;
-  border: none;
-  cursor: pointer;
-
-  &:hover {
-    color: #69b1ff;
-  }
-}
-
-.deleteIconButton {
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.65);
-  background: none;
-  border: none;
-  cursor: pointer;
-
-  &:hover {
-    color: #ff7875;
-    background-color: rgba(255, 77, 79, 0.15);
-    border-radius: 4px;
   }
 }
 
@@ -240,14 +180,7 @@
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-
-  &.enabled {
-    background-color: rgba(20, 184, 166, 1);
-  }
-
-  &.disabled {
-    background-color: rgba(255, 255, 255, 0.25);
-  }
+  background-color: #d9d9d9;
 }
 
 .statusText {
@@ -256,14 +189,7 @@
   font-weight: normal;
   line-height: 19px;
   letter-spacing: normal;
-
-  &.enabled {
-    color: rgba(20, 184, 166, 1);
-  }
-
-  &.disabled {
-    color: rgba(255, 255, 255, 0.65);
-  }
+  color: rgba(20, 20, 19, 0.45);
 }
 
 .editJsonTextArea {
@@ -333,6 +259,105 @@
   font-size: 13px;
 }
 
+.maskedFieldHint {
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  background-color: rgba(255, 165, 0, 0.08);
+  border-radius: 6px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.toolsButton {
+  flex: 1;
+  padding: 8px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #1677ff;
+  background: transparent;
+  border: 1px solid #d9d9d9;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover {
+    border-color: #1677ff;
+  }
+
+  &:disabled {
+    color: rgba(0, 0, 0, 0.25);
+    cursor: not-allowed;
+    border-color: #d9d9d9;
+  }
+}
+
+.toolsLoading {
+  text-align: center;
+  padding: 40px 0;
+}
+
+.toolsError {
+  text-align: center;
+  padding: 24px;
+  color: #ff4d4f;
+  font-size: 13px;
+}
+
+.toolsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.toolItem {
+  padding: 12px 16px;
+  border: 1px solid var(--color-border-secondary, #f0f0f0);
+  border-radius: 8px;
+  background: var(--color-bg-base, #fafafa);
+}
+
+.toolHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.toolDescription {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.55);
+  line-height: 1.5;
+}
+
+.toolSchema {
+  margin-top: 8px;
+  font-size: 12px;
+
+  summary {
+    cursor: pointer;
+    color: rgba(0, 0, 0, 0.45);
+    user-select: none;
+
+    &:hover {
+      color: rgba(0, 0, 0, 0.65);
+    }
+  }
+}
+
+.toolSchemaContent {
+  margin-top: 6px;
+  padding: 10px;
+  background: var(--color-bg-container-disabled, #f5f5f5);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow: auto;
+  color: rgba(0, 0, 0, 0.75);
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .pageHeader {
@@ -347,20 +372,12 @@
     color: rgba(255, 255, 255, 0.88);
   }
 
-  .descriptionLabel {
+  .statusText {
     color: rgba(255, 255, 255, 0.45);
   }
 
-  .descriptionText {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .statusText.disabled {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .statusDot.disabled {
-    background-color: rgba(255, 255, 255, 0.25);
+  .statusDot {
+    background-color: rgba(255, 255, 255, 0.2);
   }
 
   .mcpCard {
@@ -368,22 +385,76 @@
     border-color: rgba(255, 255, 255, 0.08);
   }
 
-  /* Action buttons - Enable/Disable link */
-  .enableLink {
-    color: rgba(255, 255, 255, 0.85) !important;
+  .mcpDescription {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .cardFooter {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .toggleButton {
+    color: rgba(255, 255, 255, 0.65);
+    border-color: rgba(255, 255, 255, 0.2);
 
     &:hover {
-      color: #ff7f16 !important;
+      color: rgba(255, 255, 255, 0.85);
+      border-color: rgba(255, 255, 255, 0.35);
     }
   }
 
-  /* Action buttons - Delete icon */
-  .deleteIconButton {
-    color: rgba(255, 255, 255, 0.65) !important;
+  .deleteButton {
+    color: #ff7875;
+    border-color: rgba(255, 255, 255, 0.2);
 
     &:hover {
-      color: #ff7875 !important;
-      background-color: rgba(255, 77, 79, 0.15);
+      color: #ff4d4f;
+      border-color: #ff4d4f;
     }
+  }
+
+  .maskedFieldHint {
+    background-color: rgba(255, 165, 0, 0.12);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .toolsButton {
+    color: #4096ff;
+    border-color: rgba(255, 255, 255, 0.2);
+
+    &:hover {
+      border-color: #4096ff;
+    }
+
+    &:disabled {
+      color: rgba(255, 255, 255, 0.25);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  .toolsError {
+    color: #ff7875;
+  }
+
+  .toolItem {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .toolDescription {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .toolSchema summary {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
+
+  .toolSchemaContent {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.75);
   }
 }

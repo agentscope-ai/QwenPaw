@@ -25,16 +25,11 @@ copaw init --force      # Overwrite existing config files
 
 **What the interactive flow covers (in order):**
 
-1. **Heartbeat** — interval (e.g. `30m`), target (`main` / `last`), optional
-   active hours.
-2. **Show tool details** — whether tool call details appear in channel messages.
-3. **Language** — `zh` / `en` / `ru` for agent persona files (SOUL.md, etc.).
-4. **Channels** — optionally configure iMessage / Discord / DingTalk / Feishu /
-   QQ / Console.
-5. **LLM provider** — select provider, enter API key, choose model (**required**).
-6. **Skills** — enable all / none / custom selection.
-7. **Environment variables** — optionally add key-value pairs for tools.
-8. **HEARTBEAT.md** — edit the heartbeat checklist in your default editor.
+1. **Default Workspace Initialization** — automatically create default workspace and configuration files.
+2. **LLM provider** — select provider, enter API key, choose model
+   (**required**).
+3. **Environment variables** — optionally add key-value pairs for tools.
+4. **HEARTBEAT.md** — edit the heartbeat checklist in your default editor.
 
 ### copaw app
 
@@ -43,7 +38,6 @@ UI — depends on this.
 
 ```bash
 copaw app                             # Start on 127.0.0.1:8088
-copaw app --host 0.0.0.0 --port 9090 # Custom address
 copaw app --reload                    # Auto-reload on code change (dev)
 copaw app --log-level debug           # Verbose logging
 ```
@@ -126,8 +120,8 @@ copaw models set-llm                 # Change active model only
 
 #### Local models
 
-CoPaw can also run models locally via llama.cpp — no API key needed.
-Install the backend first: `pip install 'copaw[local]'`
+CoPaw can also run models locally via llama.cpp, Ollama, or LM Studio — no API key needed.
+But you need to download the corresponding application first, such as [Ollama](https://ollama.com/download) or [LM Studio](https://lmstudio.ai/download).
 
 ```bash
 # Download a model (auto-selects Q4_K_M GGUF)

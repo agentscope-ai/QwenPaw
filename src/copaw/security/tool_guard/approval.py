@@ -31,7 +31,11 @@ def format_findings_summary(
         lines.append(
             f"- [{finding.severity.value}] {finding.description}",
         )
-    remaining = result.findings_count - len(lines)
+        # Don't add remediation here - it will be added separately at the end
+
+    # Calculate remaining based on findings processed, not lines added
+    processed_count = min(max_items, len(result.findings))
+    remaining = result.findings_count - processed_count
     if remaining > 0:
         lines.append(f"- ... and {remaining} more finding(s) omitted")
     return "\n".join(lines)

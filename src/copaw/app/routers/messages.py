@@ -5,6 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -116,7 +119,7 @@ async def send_message(
     # Get workspace for the agent
     try:
         workspace = await multi_agent_manager.get_agent(agent_id)
-    except ValueError as e:
+    except (ValueError, AppBaseException) as e:
         logger.error("Agent not found: %s", e)
         raise HTTPException(
             status_code=404,

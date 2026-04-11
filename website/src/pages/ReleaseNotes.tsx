@@ -1,13 +1,10 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import { ChevronDown, ChevronRight, FileText, Menu } from "lucide-react";
-import { Nav } from "../components/Nav";
-import { Footer } from "../components/Footer";
-import type { SiteConfig } from "../config";
-import { type Lang, t } from "../i18n";
 
 interface ReleaseNote {
   version: string;
@@ -15,25 +12,24 @@ interface ReleaseNote {
   date?: string;
 }
 
-interface ReleaseNotesProps {
-  config: SiteConfig;
-  lang: Lang;
-  onLangClick: () => void;
-}
-
 const RELEASE_NOTES_DATA: { version: string; date?: string }[] = [
+  { version: "v1.0.2" },
+  { version: "v1.0.1" },
+  { version: "v1.0.0" },
   { version: "v0.2.0" },
   { version: "v0.1.0" },
   { version: "v0.0.7" },
   { version: "v0.0.6" },
   { version: "v0.0.5" },
-  { version: "v0.0.5-beta.3" },
-  { version: "v0.0.5-beta.2" },
-  { version: "v0.0.5-beta.1" },
+  // { version: "v0.0.5-beta.3" },
+  // { version: "v0.0.5-beta.2" },
+  // { version: "v0.0.5-beta.1" },
   { version: "v0.0.4" },
 ];
 
-export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
+export default function ReleaseNotes() {
+  const { t, i18n } = useTranslation();
+  const isZh = i18n.resolvedLanguage === "zh";
   const [releases, setReleases] = useState<ReleaseNote[]>([]);
   const [expandedSet, setExpandedSet] = useState<Set<number>>(
     () => new Set([0]),
@@ -54,7 +50,7 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
           let response;
 
           // Chinese: try .zh.md first, then fallback to .md
-          if (lang === "zh") {
+          if (isZh) {
             response = await fetch(`${base}/release-notes/${version}.zh.md`);
             if (!response.ok) {
               response = await fetch(`${base}/release-notes/${version}.md`);
@@ -83,7 +79,7 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
       }
       setLoading(false);
     });
-  }, [lang]);
+  }, [isZh]);
 
   // Monitor scroll position to update active version
   useEffect(() => {
@@ -114,6 +110,10 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
     return () => container.removeEventListener("scroll", updateActive);
   }, [releases]);
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [isZh]);
+
   const handleVersionClick = (version: string, idx: number) => {
     const el = versionRefs.current.get(version);
     if (el && contentRef.current) {
@@ -134,87 +134,49 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
 
   if (loading) {
     return (
-      <>
-        <Nav
-          projectName={config.projectName}
-          lang={lang}
-          onLangClick={onLangClick}
-          docsPath={config.docsPath}
-          repoUrl={config.repoUrl}
-        />
-        <div
-          style={{
-            minHeight: "calc(100vh - 4rem)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--text-muted)",
-          }}
-        >
-          {t(lang, "docs.searchLoading")}
-        </div>
-      </>
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center text-(--text-muted)">
+        {t("docs.searchLoading")}
+      </div>
     );
   }
 
   return (
     <>
-      <Nav
-        projectName={config.projectName}
-        lang={lang}
-        onLangClick={onLangClick}
-        docsPath={config.docsPath}
-        repoUrl={config.repoUrl}
-      />
-      <div className="docs-layout">
+      <div className="docs-layout relative">
+        {sidebarOpen && (
+          <button
+            type="button"
+            className="fixed inset-0 z-30 bg-black/40 md:hidden"
+            aria-label={t("docs.closeSidebar")}
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
         <aside
-          style={{
-            width: "16rem",
-            flexShrink: 0,
-            borderRight: "1px solid var(--border)",
-            padding: "var(--space-4) var(--space-2)",
-            background: "var(--surface)",
-          }}
-          className={sidebarOpen ? "docs-sidebar open" : "docs-sidebar"}
+          className={[
+            "docs-sidebar z-40 w-64 shrink-0 border-r border-(--border) bg-(--surface) px-2 py-4",
+            "fixed left-0 top-14 bottom-0 overflow-y-auto transition-transform duration-200 md:static md:top-auto md:bottom-auto md:translate-x-0",
+            sidebarOpen
+              ? "translate-x-0"
+              : "-translate-x-full md:translate-x-0",
+          ].join(" ")}
         >
           <button
             type="button"
-            className="docs-sidebar-toggle"
+            className="mb-2 inline-flex items-center rounded-md p-2 text-(--text) hover:bg-(--bg) md:hidden"
             onClick={() => setSidebarOpen((o) => !o)}
-            aria-label="Toggle sidebar"
-            style={{
-              display: "none",
-              background: "none",
-              border: "none",
-              padding: "var(--space-2)",
-            }}
+            aria-label={t("docs.toggleSidebar")}
           >
             <Menu size={24} />
           </button>
 
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-              padding: "var(--space-2)",
-              marginBottom: "var(--space-3)",
-            }}
-          >
+          <div className="mb-3 flex items-center gap-2 px-2 py-2">
             <FileText size={20} strokeWidth={1.5} aria-hidden />
-            <h2
-              style={{
-                fontSize: "1rem",
-                fontWeight: 600,
-                color: "var(--text)",
-                margin: 0,
-              }}
-            >
-              {t(lang, "releaseNotes.title")}
+            <h2 className="m-0 text-base font-semibold text-(--text)">
+              {t("releaseNotes.title")}
             </h2>
           </div>
 
-          <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <nav className="flex flex-col gap-0.5">
             {releases.map((release, idx) => {
               const isActive = activeVersion === release.version;
               return (
@@ -222,54 +184,51 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
                   key={release.version}
                   type="button"
                   onClick={() => handleVersionClick(release.version, idx)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--space-1)",
-                    padding: "var(--space-2)",
-                    borderRadius: "0.375rem",
-                    fontSize: "0.9375rem",
-                    fontWeight: isActive ? 500 : 400,
-                    color: isActive ? "var(--text)" : "var(--text-muted)",
-                    background: isActive ? "var(--bg)" : "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    width: "100%",
-                    transition: "all 0.15s",
-                  }}
+                  className={[
+                    "flex w-full items-center gap-1 rounded-md border-0 px-2 py-2 text-left text-[0.9375rem] transition-colors",
+                    isActive
+                      ? "bg-(--bg) font-medium text-(--text)"
+                      : "text-(--text-muted) hover:bg-(--bg)/60 hover:text-(--text)",
+                  ].join(" ")}
                 >
-                  <span style={{ flex: 1 }}>{release.version}</span>
-                  {isActive && (
-                    <ChevronRight size={16} style={{ flexShrink: 0 }} />
-                  )}
+                  <span className="flex-1">{release.version}</span>
+                  {isActive && <ChevronRight size={16} className="shrink-0" />}
                 </button>
               );
             })}
           </nav>
         </aside>
 
-        <main className="docs-main">
+        <main className="docs-main relative min-w-0">
           <div className="docs-content-scroll" ref={contentRef}>
-            <article className="docs-content">
-              {releases.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: "center",
-                    padding: "var(--space-8)",
-                    color: "var(--text-muted)",
-                  }}
+            <div className="border-y border-(--border)/60 bg-(--surface) py-3 md:hidden">
+              <div
+                className="flex items-center gap-2 px-4"
+                onClick={() => setSidebarOpen((o) => !o)}
+              >
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-(--text-muted) hover:bg-(--bg)"
+                  aria-label={
+                    sidebarOpen
+                      ? t("docs.closeSidebar")
+                      : t("docs.toggleSidebar")
+                  }
                 >
-                  {t(lang, "releaseNotes.noReleases")}
+                  <Menu size={18} />
+                </button>
+                <span className="text-sm font-semibold text-(--text)">
+                  {t("releaseNotes.title")}
+                </span>
+              </div>
+            </div>
+            <article className="docs-content  mt-6 md:mt-0">
+              {releases.length === 0 ? (
+                <div className="p-(--space-8) text-center text-(--text-muted)">
+                  {t("releaseNotes.noReleases")}
                 </div>
               ) : (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1rem",
-                  }}
-                >
+                <div className="flex flex-col gap-4">
                   {releases.map((release, idx) => {
                     const expanded = expandedSet.has(idx);
                     return (
@@ -278,12 +237,7 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
                         ref={(el) => {
                           if (el) versionRefs.current.set(release.version, el);
                         }}
-                        style={{
-                          border: "1px solid var(--border)",
-                          borderRadius: "0.75rem",
-                          background: "var(--surface)",
-                          overflow: "hidden",
-                        }}
+                        className="overflow-hidden rounded-xl border border-(--border) bg-(--surface)"
                       >
                         <button
                           type="button"
@@ -295,21 +249,10 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
                               return next;
                             });
                           }}
-                          style={{
-                            width: "100%",
-                            textAlign: "left",
-                            background: "transparent",
-                            border: "none",
-                            padding: "1.25rem 1.5rem",
-                            cursor: "pointer",
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: "1rem",
-                          }}
+                          className="flex w-full items-center justify-between gap-3 border-0 bg-transparent px-4 py-2 text-left md:gap-4 md:px-6 md:py-5"
                           aria-expanded={expanded}
                         >
-                          <div>
+                          <div className="leading-tight">
                             <h2
                               style={{
                                 fontSize: "1.5rem",
@@ -322,60 +265,33 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
                               {release.version}
                             </h2>
                             {release.date && (
-                              <div
-                                style={{
-                                  fontSize: "0.875rem",
-                                  color: "var(--text-muted)",
-                                }}
-                              >
+                              <div className="text-sm text-(--text-muted)">
                                 {release.date}
                               </div>
                             )}
                           </div>
                           <ChevronDown
-                            size={24}
-                            style={{
-                              flexShrink: 0,
-                              transform: expanded
-                                ? "rotate(180deg)"
-                                : "rotate(0deg)",
-                              transition: "transform 0.2s ease",
-                              color: "var(--text-muted)",
-                            }}
+                            size={20}
+                            className={[
+                              "shrink-0 text-(--text-muted) transition-transform duration-200 ease-in-out",
+                              expanded ? "rotate-180" : "rotate-0",
+                            ].join(" ")}
                           />
                         </button>
                         {expanded && (
-                          <div
-                            className="release-notes-content"
-                            style={{
-                              padding: "0 1.5rem 1.5rem 1.5rem",
-                              borderTop: "1px solid var(--border)",
-                              paddingTop: "1.5rem",
-                            }}
-                          >
+                          <div className="release-notes-content border-t border-(--border) px-4 pb-4 pt-4 md:px-6 md:pb-6 md:pt-6 [&>:first-child]:mt-0 [&>:last-child]:mb-0">
                             <ReactMarkdown
                               remarkPlugins={[remarkGfm]}
                               rehypePlugins={[rehypeRaw, rehypeHighlight]}
                               components={{
                                 h1: ({ children }) => (
-                                  <h3
-                                    style={{
-                                      fontSize: "1.25rem",
-                                      marginTop: 0,
-                                    }}
-                                  >
-                                    {children}
-                                  </h3>
+                                  <h3 className="mt-0 text-xl">{children}</h3>
                                 ),
                                 h2: ({ children }) => (
-                                  <h3 style={{ fontSize: "1.125rem" }}>
-                                    {children}
-                                  </h3>
+                                  <h3 className="text-lg">{children}</h3>
                                 ),
                                 h3: ({ children }) => (
-                                  <h4 style={{ fontSize: "1rem" }}>
-                                    {children}
-                                  </h4>
+                                  <h4 className="text-base">{children}</h4>
                                 ),
                                 a: ({ href, children }) => (
                                   <a
@@ -398,37 +314,9 @@ export function ReleaseNotes({ config, lang, onLangClick }: ReleaseNotesProps) {
                 </div>
               )}
             </article>
-            <footer className="docs-page-footer" aria-label="Document footer">
-              <Footer lang={lang} />
-            </footer>
           </div>
         </main>
       </div>
-      <style>{`
-        .release-notes-content > :first-child {
-          margin-top: 0;
-        }
-        .release-notes-content > :last-child {
-          margin-bottom: 0;
-        }
-        @media (max-width: 768px) {
-          .docs-sidebar {
-            position: fixed;
-            left: 0;
-            top: 3.5rem;
-            bottom: 0;
-            z-index: 20;
-            transform: translateX(-100%);
-            transition: transform 0.2s;
-          }
-          .docs-sidebar.open {
-            transform: translateX(0);
-          }
-          .docs-sidebar-toggle {
-            display: flex !important;
-          }
-        }
-      `}</style>
     </>
   );
 }

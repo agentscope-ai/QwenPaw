@@ -58,6 +58,10 @@ yarn-debug.log*
 yarn-error.log*
 openapi-ts*.log
 
+# Only ignore npm lockfiles inside subpackages
+console/package-lock.json
+website/package-lock.json
+
 # MacOS
 .DS_Store
 
@@ -82,9 +86,9 @@ logs/
 *.log
 
 # vibe coding
+AGENTS.md
 .claude
 openspec
-/AGENTS.md
 CLAUDE.md
 *.tmp
 
@@ -97,3 +101,9 @@ src/.hypothesis/
 
 # Kiro IDE
 .kiro/
+
+# Qoder IDE
+.qoder/
+
+# Worktrees
+.worktrees/
