@@ -1040,7 +1040,31 @@
     "embeddingEnableHint": "同时填写 Base URL 和模型名称后即可启用向量模型功能，API Key 按需填写",
     "rebuildMemoryIndexOnStart": "启动时重建记忆索引",
     "rebuildMemoryIndexOnStartTooltip": "智能体启动时清空并重建记忆搜索索引。关闭后跳过重新索引，仅监听新文件变化（启动更快，但索引可能与文件不同步）",
-    "toolResultCompactRecentGtOld": "最新消息阈值必须大于或等于早期消息阈值"
+    "toolResultCompactRecentGtOld": "最新消息阈值必须大于或等于早期消息阈值",
+    "timeAwareness": {
+      "title": "时间感知 (Time Awareness)",
+      "description": "自动将当前时间注入到用户消息前，让 AI 始终感知时间，无需调用工具。支持 prompt caching，可降低 API 费用。",
+      "enabled": "已启用",
+      "disabled": "已禁用",
+      "enableLabel": "启用时间感知",
+      "enableHint": "开启后，每次对话会自动在用户消息前注入当前时间信息（使用您的时区）",
+      "on": "开",
+      "off": "关",
+      "formatLabel": "自定义时间格式",
+      "formatTooltip": "使用 strftime 格式字符串自定义显示格式。留空则使用默认完整格式。",
+      "formatPlaceholder": "例如: %Y-%m-%d %H:%M 或留空使用默认格式",
+      "formatSaveSuccess": "时间格式已更新",
+      "formatSaveFailed": "时间格式保存失败",
+      "examples": "快捷示例",
+      "previewLabel": "预览效果",
+      "previewPrefix": "当前时间",
+      "previewHint": "实际效果将根据您的时区和语言设置动态生成",
+      "enableSuccess": "时间感知已启用 ✅",
+      "disableSuccess": "时间感知已禁用 ❌",
+      "saveFailed": "配置保存失败",
+      "loadFailed": "加载配置失败",
+      "disabledHint": "当前已禁用时间感知功能。AI 需要通过调用 get_current_time() 工具来获取时间信息。"
+    }
   },
   "tools": {
     "title": "内置工具",

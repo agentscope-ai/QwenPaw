@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..utils import schedule_agent_reload
 from ...config import (
@@ -394,6 +394,74 @@ async def put_user_timezone(
     config.user_timezone = tz
     save_config(config)
     return {"timezone": tz}
+
+
+# ── Time Awareness ───────────────────────────────────────────────────
+
+
+class TimeAwarenessResponse(BaseModel):
+    """Time awareness configuration response model for API documentation."""
+
+    enabled: bool = Field(
+        description="Whether automatic time injection is enabled",
+    )
+    format: Optional[str] = Field(
+        default=None,
+        description="Custom strftime format string (null for default)",
+    )
+
+
+class TimeAwarenessUpdate(BaseModel):
+    """Request body model for updating time awareness settings."""
+
+    enabled: Optional[bool] = Field(
+        default=None,
+        description="Enable or disable time awareness",
+    )
+    format: Optional[str] = Field(
+        default=None,
+        description="Custom strftime format string",
+    )
+
+    model_config = {"extra": "ignore"}
+
+
+@router.get(
+    "/time-awareness",
+    response_model=TimeAwarenessResponse,
+    summary="Get time awareness settings",
+    description="Return the current time awareness configuration",
+)
+async def get_time_awareness() -> TimeAwarenessResponse:
+    config = load_config()
+    return TimeAwarenessResponse(
+        enabled=config.time_awareness.enabled,
+        format=config.time_awareness.format,
+    )
+
+
+@router.put(
+    "/time-awareness",
+    response_model=TimeAwarenessResponse,
+    summary="Update time awareness settings",
+    description="Enable/disable automatic time injection into user messages",
+)
+async def put_time_awareness(
+    body: TimeAwarenessUpdate = Body(..., description="Time awareness settings to update"),
+) -> TimeAwarenessResponse:
+    config = load_config()
+
+    if body.enabled is not None:
+        config.time_awareness.enabled = body.enabled
+
+    if body.format is not None:
+        config.time_awareness.format = body.format or None
+
+    save_config(config)
+    return TimeAwarenessResponse(
+        enabled=config.time_awareness.enabled,
+        format=config.time_awareness.format,
+    )
 
 
 # ── Security / Tool Guard ────────────────────────────────────────────

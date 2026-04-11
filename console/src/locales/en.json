@@ -1066,7 +1066,31 @@
     "embeddingEnableHint": "Fill in both Base URL and Model Name to enable the embedding feature. API Key is optional.",
     "rebuildMemoryIndexOnStart": "Rebuild Memory Index on Start",
     "rebuildMemoryIndexOnStartTooltip": "Clear and rebuild the memory search index when the agent starts. Disable to skip re-indexing and only watch for new file changes (faster startup, but index may be out of sync).",
-    "toolResultCompactRecentGtOld": "Recent messages threshold must be greater than or equal to the older messages threshold"
+    "toolResultCompactRecentGtOld": "Recent messages threshold must be greater than or equal to the older messages threshold",
+    "timeAwareness": {
+      "title": "Time Awareness",
+      "description": "Automatically inject current time before user messages, allowing AI to always be time-aware without tool calls. Supports prompt caching to reduce API costs.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "enableLabel": "Enable Time Awareness",
+      "enableHint": "When enabled, current time info (using your timezone) will be automatically prepended to each user message",
+      "on": "ON",
+      "off": "OFF",
+      "formatLabel": "Custom Time Format",
+      "formatTooltip": "Use strftime format string for custom display. Leave empty for default full format.",
+      "formatPlaceholder": "e.g., %Y-%m-%d %H:%M or leave empty for default",
+      "formatSaveSuccess": "Time format updated",
+      "formatSaveFailed": "Failed to save time format",
+      "examples": "Quick Examples",
+      "previewLabel": "Preview",
+      "previewPrefix": "Current time",
+      "previewHint": "Actual output will dynamically generate based on your timezone and language settings",
+      "enableSuccess": "Time awareness enabled ✅",
+      "disableSuccess": "Time awareness disabled ❌",
+      "saveFailed": "Failed to save configuration",
+      "loadFailed": "Failed to load configuration",
+      "disabledHint": "Time awareness is currently disabled. AI needs to call get_current_time() tool to get time information."
+    }
   },
   "tools": {
     "title": "Built-in Tools",

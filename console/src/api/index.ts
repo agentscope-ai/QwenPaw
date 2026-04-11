@@ -22,6 +22,7 @@ import { toolsApi } from "./modules/tools";
 import { securityApi } from "./modules/security";
 import { userTimezoneApi } from "./modules/userTimezone";
 import { languageApi } from "./modules/language";
+import { timeAwarenessApi } from "./modules/timeAwareness";
 
 export const api = {
   // Root
@@ -76,6 +77,9 @@ export const api = {
 
   // Language
   ...languageApi,
+
+  // Time Awareness
+  ...timeAwarenessApi,
 };
 
 export default api;

@@ -197,3 +197,119 @@
     color: #ff7f16;
   }
 }
+
+/* ─── Time Awareness Card ───────────────────────────────────────────────────── */
+.timeAwarenessContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.description {
+  margin-bottom: 8px !important;
+  color: #666;
+  font-size: 14px;
+}
+
+.switchRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+  transition: all 0.3s ease;
+
+  &:hover {
+    background: #f5f5f5;
+    border-color: #d9d9d9;
+  }
+}
+
+.hintText {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.formatSection {
+  margin-top: 16px;
+  padding: 16px;
+  background: #f9f9f9;
+  border-radius: 8px;
+  border-left: 4px solid #1890ff;
+}
+
+.formatExamples {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  :global {
+    .ant-tag {
+      cursor: pointer;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: #e6f7ff;
+        border-color: #1890ff;
+        color: #1890ff;
+      }
+    }
+  }
+}
+
+.previewSection {
+  margin-top: 16px;
+}
+
+.previewBox {
+  margin-top: 8px;
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px dashed #d9d9d9;
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+}
+
+.disabledHint {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: #fffbe6;
+  border-radius: 6px;
+  border-left: 4px solid #faad14;
+}
+
+:global(.dark-mode) {
+  .description {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .switchRow {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+  }
+
+  .formatSection {
+    background: rgba(255, 255, 255, 0.04);
+    border-left-color: #177ddc;
+  }
+
+  .previewBox {
+    background: rgba(0, 0, 0, 0.2);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .disabledHint {
+    background: rgba(250, 173, 20, 0.1);
+    border-left-color: #faad14;
+  }
+}
+
