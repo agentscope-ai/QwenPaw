@@ -128,7 +128,7 @@ curl -X POST "https://public-api.etoro.com/api/v1/trading/execution/demo/market-
   Returns historical closing prices for all instruments (bulk).
 - `GET /market-data/instruments/{instrumentId}/history/candles/{direction}/{interval}/{candlesCount}`  
   `direction`: `asc` or `desc`. `candlesCount` max 1000.  
-  Use only supported `interval` values (confirm via docs if unsure).
+  Supported interval values typically include: OneMinute, FiveMinutes, FifteenMinutes, ThirtyMinutes, OneHour, OneDay, OneWeek.
 
 **Reference data**
 - `GET /market-data/exchanges` (optional `exchangeIds`)
