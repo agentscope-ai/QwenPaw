@@ -6,8 +6,11 @@ calculation, and chain migration for asset package schema versions.
 """
 from __future__ import annotations
 
+import json
 import re
-from typing import Callable
+import zipfile
+from pathlib import Path
+from typing import Callable, Optional
 
 from copaw.backup.errors import IncompatibleVersionError
 from copaw.backup.models import (
@@ -219,3 +222,80 @@ class VersionChecker:
         manifest_data: dict, source: VersionInfo, target: VersionInfo
     ) -> dict:
         return migrate_manifest(manifest_data, source, target)
+
+
+# ---------------------------------------------------------------------------
+# Package validation (used by CLI ``copaw assets verify``)
+# ---------------------------------------------------------------------------
+
+
+def validate_package(zip_path: Path) -> dict:
+    """Validate a ZIP asset package and return a diagnostic report.
+
+    Returns a dict with keys:
+    - ``valid`` (bool)
+    - ``compatibility`` (CompatibilityResult | None)
+    - ``manifest_issues`` (list[str])
+    - ``zip_issues`` (list[str])
+    """
+    manifest_issues: list[str] = []
+    zip_issues: list[str] = []
+    compat: Optional[CompatibilityResult] = None
+
+    if not zip_path.exists():
+        return {
+            "valid": False,
+            "compatibility": None,
+            "manifest_issues": [f"File not found: {zip_path}"],
+            "zip_issues": [],
+        }
+
+    try:
+        zf = zipfile.ZipFile(zip_path, "r")
+    except zipfile.BadZipFile as exc:
+        return {
+            "valid": False,
+            "compatibility": None,
+            "manifest_issues": [f"Invalid ZIP file: {exc}"],
+            "zip_issues": [],
+        }
+
+    with zf:
+        names = set(zf.namelist())
+
+        # Check manifest.json
+        if "manifest.json" not in names:
+            manifest_issues.append("manifest.json not found in ZIP")
+        else:
+            try:
+                raw = json.loads(zf.read("manifest.json"))
+                manifest = AssetManifest.model_validate(raw)
+                compat = check_compatibility(manifest)
+
+                # Verify referenced paths exist
+                for entry in manifest.assets:
+                    if entry.relative_path not in names:
+                        zip_issues.append(
+                            f"Missing file: {entry.relative_path}"
+                        )
+            except (json.JSONDecodeError, Exception) as exc:
+                manifest_issues.append(f"Invalid manifest.json: {exc}")
+
+        # Check for path traversal
+        for name in names:
+            if ".." in name.split("/"):
+                zip_issues.append(f"Path traversal detected: {name!r}")
+
+    valid = (
+        not manifest_issues
+        and not zip_issues
+        and compat is not None
+        and compat.level.value != "incompatible"
+    )
+
+    return {
+        "valid": valid,
+        "compatibility": compat,
+        "manifest_issues": manifest_issues,
+        "zip_issues": zip_issues,
+    }

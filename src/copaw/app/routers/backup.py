@@ -160,11 +160,11 @@ async def import_assets(
     strategy_str = body.get("strategy", "ask")
     try:
         strategy = ConflictStrategy(strategy_str.lower())
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid strategy: {strategy_str!r}",
-        )
+        ) from exc
 
     asset_types = _parse_types(body.get("types"))
 
@@ -223,11 +223,11 @@ async def restore_backup(
     strategy_str = body.get("strategy", "overwrite")
     try:
         strategy = ConflictStrategy(strategy_str.lower())
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid strategy: {strategy_str!r}",
-        )
+        ) from exc
 
     scheduler = BackupScheduler()
 
