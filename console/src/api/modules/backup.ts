@@ -22,8 +22,10 @@ export interface BackupListResponse {
 
 export interface ExportResponse {
   zip_path: string;
+  filename: string;
   asset_count: number;
   total_size_bytes: number;
+  download_url: string;
 }
 
 export interface ImportResponse {

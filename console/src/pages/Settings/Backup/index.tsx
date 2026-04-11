@@ -151,6 +151,19 @@ function BackupPage() {
           count: res.asset_count,
         }),
       );
+
+      // Trigger browser download
+      if (res.download_url) {
+        const { getApiUrl, getApiToken } = await import("../../../api/config");
+        const url = getApiUrl(res.download_url);
+        const token = getApiToken();
+        const link = document.createElement("a");
+        link.href = token ? `${url}&token=${token}` : url;
+        link.download = res.filename || "backup.zip";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
     } catch (err) {
       message.error(
         err instanceof Error

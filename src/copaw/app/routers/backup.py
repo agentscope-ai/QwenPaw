@@ -11,7 +11,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from ...backup.exporter import AssetExporter, ExportOptions
 from ...backup.importer import AssetImporter
@@ -97,11 +98,7 @@ def _parse_types(types: Optional[list[str]]) -> Optional[list[AssetType]]:
 async def export_assets(
     body: dict = Body(
         ...,
-        description=(
-            '{"workspace_dir": "...",'
-            ' "types": [...],'
-            ' "output_path": "..."}'
-        ),
+        description='{"workspace_dir":"...","types":[...]}',
     ),
 ) -> dict:
     workspace_dir = Path(
@@ -116,17 +113,16 @@ async def export_assets(
     asset_types = _parse_types(body.get("types"))
     output_path = body.get("output_path")
 
-    include_all = asset_types is None
-    types_list = asset_types or []
+    inc_all = asset_types is None
+    tl = asset_types or []
+    inc_gc = inc_all or AssetType.GLOBAL_CONFIG in tl
     options = ExportOptions(
         workspace_dir=workspace_dir,
-        include_preferences=include_all or AssetType.PREFERENCES in types_list,
-        include_memories=include_all or AssetType.MEMORIES in types_list,
-        include_skills=include_all or AssetType.SKILLS in types_list,
-        include_tools=include_all or AssetType.TOOLS in types_list,
-        include_global_config=(
-            include_all or AssetType.GLOBAL_CONFIG in types_list
-        ),
+        include_preferences=inc_all or AssetType.PREFERENCES in tl,
+        include_memories=inc_all or AssetType.MEMORIES in tl,
+        include_skills=inc_all or AssetType.SKILLS in tl,
+        include_tools=inc_all or AssetType.TOOLS in tl,
+        include_global_config=inc_gc,
         output_path=Path(output_path).expanduser() if output_path else None,
     )
 
@@ -135,11 +131,36 @@ async def export_assets(
         result = await exporter.export_assets(options)
         return {
             "zip_path": str(result.zip_path),
+            "filename": result.zip_path.name,
             "asset_count": result.asset_count,
             "total_size_bytes": result.total_size_bytes,
+            "download_url": f"/backup/download?path={result.zip_path}",
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/download", summary="Download exported ZIP")
+async def download_export(
+    path: str = Query(..., description="Path to ZIP file"),
+) -> FileResponse:
+    """Stream a ZIP file to the client for download."""
+    file_path = Path(path).expanduser()
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="File not found",
+        )
+    if file_path.suffix != ".zip":
+        raise HTTPException(
+            status_code=400,
+            detail="Only ZIP files can be downloaded",
+        )
+    return FileResponse(
+        path=str(file_path),
+        filename=file_path.name,
+        media_type="application/zip",
+    )
 
 
 @router.post("/import", summary="Import assets from ZIP")
