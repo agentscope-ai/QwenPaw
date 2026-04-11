@@ -13,7 +13,9 @@ from agentscope.model._model_response import ChatResponse
 from pydantic import BaseModel
 
 from copaw.local_models.tag_parser import (
+    extract_thinking_from_text,
     parse_tool_calls_from_text,
+    text_contains_think_tag,
     text_contains_tool_call_tag,
 )
 
@@ -268,11 +270,29 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 # --- 2. Scan text/content blocks ---
                 # Some models emit <tool_call> tags directly in their
                 # response text instead of (or in addition to) thinking.
+                # Others embed reasoning inside <think>/<thought> tags
+                # in the text rather than via reasoning_content.
                 new_content: list | None = None
+                injected_thinking_blocks: list = []
                 for i, block in enumerate(parsed.content):
                     if block.get("type") != "text":
                         continue
                     text = block.get("text") or ""
+
+                    # --- 2a. Extract <think>/<thought> tags from text ---
+                    if text_contains_think_tag(text):
+                        think_result = extract_thinking_from_text(text)
+                        if think_result.thinking or think_result.has_open_tag:
+                            injected_thinking_blocks.append(
+                                {
+                                    "type": "thinking",
+                                    "thinking": think_result.thinking,
+                                },
+                            )
+                            text = think_result.remaining_text
+                            block["text"] = text
+
+                    # --- 2b. Extract <tool_call> tags from text ---
                     if not text_contains_tool_call_tag(text):
                         continue
 
@@ -299,6 +319,14 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                         if new_content is None:
                             new_content = list(parsed.content)
                         new_content[i] = None  # type: ignore[index]
+
+                if injected_thinking_blocks:
+                    # Prepend extracted thinking blocks before existing content.
+                    parsed.content = injected_thinking_blocks + list(
+                        parsed.content,
+                    )
+                    # Rebuild new_content index offsets after prepending.
+                    new_content = None
 
                 if new_content is not None:
                     parsed.content = [b for b in new_content if b is not None]
