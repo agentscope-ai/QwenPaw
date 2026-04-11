@@ -9,12 +9,14 @@ from typing import cast
 import pytest
 
 from copaw.local_models import manager as local_model_manager_module
+from copaw.local_models.llamacpp import LlamaCppServerSetupResult
 from copaw.local_models.manager import (
     DownloadSource,
     LocalModelManager,
 )
 from copaw.local_models.llamacpp import LlamaCppBackend
 from copaw.local_models.model_manager import ModelManager
+from copaw.providers.provider import ModelInfo
 
 
 class _FakeLlamaCppBackend:
@@ -58,7 +60,7 @@ class _FakeLlamaCppBackend:
         model_path: Path,
         model_name: str,
         max_context_length: int | None = None,
-    ) -> int:
+    ) -> LlamaCppServerSetupResult:
         self.calls.append(
             (
                 "setup",
@@ -69,7 +71,17 @@ class _FakeLlamaCppBackend:
                 ),
             ),
         )
-        return 8080
+        return LlamaCppServerSetupResult(
+            port=8080,
+            model_info=ModelInfo(
+                id=model_name,
+                name=model_name,
+                supports_multimodal=False,
+                supports_image=False,
+                supports_video=False,
+                probe_source="documentation",
+            ),
+        )
 
     async def shutdown_server(self) -> None:
         self.calls.append(("shutdown", None))
@@ -185,11 +197,19 @@ async def test_local_model_manager_forwards_async_server_calls(
     await manager.set_max_context_length(131072)
 
     ready = await manager.check_llamacpp_server_ready(timeout=7.5)
-    port = await manager.setup_server("demo")
+    setup_result = await manager.setup_server("demo")
     await manager.shutdown_server()
 
     assert ready is True
-    assert port == 8080
+    assert setup_result.port == 8080
+    assert setup_result.model_info == ModelInfo(
+        id="demo",
+        name="demo",
+        supports_multimodal=False,
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    )
     assert fake_llamacpp_backend.calls == [
         ("server_ready", 7.5),
         ("setup", (Path("/fake/path/demo"), "demo", 131072)),

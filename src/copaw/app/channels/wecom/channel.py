@@ -34,6 +34,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 from aibot import WSClient, WSClientOptions, generate_req_id
 
 from ....constant import DEFAULT_MEDIA_DIR
+from ....exceptions import ChannelError
 from ..base import (
     BaseChannel,
     ContentType,
@@ -693,9 +694,12 @@ class WecomChannel(BaseChannel):
             self._upload_ack_futures.pop(req_id, None)
         errcode = ack.get("errcode", -1)
         if errcode != 0:
-            raise RuntimeError(
-                f"wecom upload cmd={cmd} failed: "
-                f"errcode={errcode} errmsg={ack.get('errmsg')}",
+            raise ChannelError(
+                channel_name="wecom",
+                message=(
+                    f"wecom upload cmd={cmd} failed: "
+                    f"errcode={errcode} errmsg={ack.get('errmsg')}"
+                ),
             )
         return ack.get("body") or {}
 
@@ -753,7 +757,10 @@ class WecomChannel(BaseChannel):
                 )
                 upload_id = init_body.get("upload_id", "")
                 if not upload_id:
-                    raise RuntimeError("wecom upload: empty upload_id")
+                    raise ChannelError(
+                        channel_name="wecom",
+                        message="wecom upload: empty upload_id",
+                    )
                 logger.debug(
                     "wecom upload init: upload_id=%s chunks=%d",
                     upload_id[:20],
@@ -778,7 +785,10 @@ class WecomChannel(BaseChannel):
                 )
                 media_id = finish_body.get("media_id", "")
                 if not media_id:
-                    raise RuntimeError("wecom upload: empty media_id")
+                    raise ChannelError(
+                        channel_name="wecom",
+                        message="wecom upload: empty media_id",
+                    )
                 logger.info(
                     "wecom upload done: media_id=%s type=%s",
                     media_id[:20],
@@ -1095,9 +1105,12 @@ class WecomChannel(BaseChannel):
             return
 
         if not self.bot_id or not self.secret:
-            raise RuntimeError(
-                "WECOM_BOT_ID and WECOM_SECRET are required when "
-                "the wecom channel is enabled.",
+            raise ChannelError(
+                channel_name="wecom",
+                message=(
+                    "WECOM_BOT_ID and WECOM_SECRET are required "
+                    "when the wecom channel is enabled"
+                ),
             )
 
         self._loop = asyncio.get_running_loop()

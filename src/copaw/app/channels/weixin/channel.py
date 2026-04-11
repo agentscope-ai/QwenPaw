@@ -36,6 +36,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     VideoContent,
 )
 
+from ....exceptions import ChannelError
 from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
     BaseChannel,
@@ -1247,9 +1248,12 @@ class WeixinChannel(BaseChannel):
                 self._client = login_client
                 ok = await self._do_qrcode_login()
                 if not ok:
-                    raise RuntimeError(
-                        "WeChat QR code login failed. "
-                        "Please provide a valid bot_token in config.",
+                    raise ChannelError(
+                        channel_name="weixin",
+                        message=(
+                            "WeChat QR code login failed. "
+                            "Please provide a valid bot_token in config"
+                        ),
                     )
                 # Login succeeded; login_client becomes the long-lived client
             except Exception:

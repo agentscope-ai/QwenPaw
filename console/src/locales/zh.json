@@ -26,6 +26,13 @@
     "actions": "操作",
     "total": "共 {{count}} 条"
   },
+  "chunkError": {
+    "title": "页面加载失败",
+    "subTitle": "可能由网络问题或应用更新导致，请稍后重试。",
+    "genericTitle": "页面出现异常",
+    "genericSubTitle": "渲染此页面时发生了意外错误。",
+    "reload": "刷新页面"
+  },
   "nav": {
     "chat": "聊天",
     "control": "控制",
@@ -339,7 +346,12 @@
     "deleteConfirm": "确定要删除此 MCP 客户端吗？",
     "deleteSuccess": "MCP 客户端删除成功",
     "deleteError": "MCP 客户端删除失败",
-    "maskedFieldHint": "敏感字段已用 *** 遮掩，不支持在遮掩值上直接编辑，如需修改请替换为完整新值。"
+    "maskedFieldHint": "敏感字段已用 *** 遮掩，不支持在遮掩值上直接编辑，如需修改请替换为完整新值。",
+    "tools": "工具列表",
+    "noTools": "该 MCP 服务器暂无可用工具",
+    "toolsLoadError": "获取 MCP 服务器工具列表失败",
+    "toolsConnecting": "MCP 服务器正在连接中，请稍后重试",
+    "toolSchema": "输入参数"
   },
   "heartbeat": {
     "title": "心跳",

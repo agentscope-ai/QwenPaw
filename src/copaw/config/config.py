@@ -6,6 +6,9 @@ from typing import Optional, Union, Dict, List, Literal, Any
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
+from agentscope_runtime.engine.schemas.exception import (
+    ConfigurationException,
+)
 
 from .timezone import detect_system_timezone
 from ..constant import (
@@ -527,9 +530,12 @@ class AgentsRunningConfig(BaseModel):
     def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
         """Validate LLM retry backoff relationships."""
         if self.llm_backoff_cap < self.llm_backoff_base:
-            raise ValueError(
-                "llm_backoff_cap must be greater than or equal to "
-                "llm_backoff_base",
+            raise ConfigurationException(
+                config_key="llm_backoff",
+                message=(
+                    "llm_backoff_cap must be greater than or equal to "
+                    "llm_backoff_base"
+                ),
             )
         return self
 
@@ -842,12 +848,16 @@ class MCPClientConfig(BaseModel):
         """Validate required fields for each MCP transport type."""
         if self.transport == "stdio":
             if not self.command.strip():
-                raise ValueError("stdio MCP client requires non-empty command")
+                raise ConfigurationException(
+                    config_key="mcp.command",
+                    message="stdio MCP client requires non-empty command",
+                )
             return self
 
         if not self.url.strip():
-            raise ValueError(
-                f"{self.transport} MCP client requires non-empty url",
+            raise ConfigurationException(
+                config_key="mcp.url",
+                message=f"{self.transport} MCP client requires non-empty url",
             )
         return self
 
@@ -1171,7 +1181,10 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     config = load_config()
 
     if agent_id not in config.agents.profiles:
-        raise ValueError(f"Agent '{agent_id}' not found in config")
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' not found in config",
+        )
 
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
@@ -1259,7 +1272,10 @@ def save_agent_config(
     config = load_config()
 
     if agent_id not in config.agents.profiles:
-        raise ValueError(f"Agent '{agent_id}' not found in config")
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' not found in config",
+        )
 
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()

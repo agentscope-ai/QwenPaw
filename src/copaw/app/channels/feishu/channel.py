@@ -34,6 +34,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
 )
 
+from ....exceptions import ChannelError
 from ....config.config import FeishuConfig as FeishuChannelConfig
 from ....config.utils import get_config_path
 from ....constant import DEFAULT_MEDIA_DIR
@@ -151,10 +152,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Serialise multi-instance WebSocket start-up: lark_oapi.ws.client.loop is a
-# module-level variable that concurrent start() calls would overwrite.
-_WS_START_LOCK: threading.Lock = threading.Lock()
-
 
 class FeishuChannel(BaseChannel):
     """Feishu/Lark channel: WebSocket receive, Open API send.
@@ -237,10 +234,10 @@ class FeishuChannel(BaseChannel):
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         # session_id -> (receive_id, receive_id_type) for send
         self._receive_id_store: Dict[str, Tuple[str, str]] = {}
-        self._receive_id_lock = threading.Lock()
+        self._receive_id_lock = asyncio.Lock()
         # open_id -> nickname (from Contact API) for sender display
         self._nickname_cache: Dict[str, str] = {}
-        self._nickname_cache_lock = threading.Lock()
+        self._nickname_cache_lock = asyncio.Lock()
 
     @classmethod
     def from_env(
@@ -481,7 +478,7 @@ class FeishuChannel(BaseChannel):
         """
         if not open_id or open_id.startswith("unknown_"):
             return None
-        with self._nickname_cache_lock:
+        async with self._nickname_cache_lock:
             if open_id in self._nickname_cache:
                 return self._nickname_cache[open_id]
         try:
@@ -519,7 +516,7 @@ class FeishuChannel(BaseChannel):
                 )
 
             if name:
-                with self._nickname_cache_lock:
+                async with self._nickname_cache_lock:
                     if len(self._nickname_cache) >= FEISHU_NICKNAME_CACHE_MAX:
                         # Drop oldest: dict has no order, drop arbitrary
                         self._nickname_cache.pop(
@@ -1059,7 +1056,7 @@ class FeishuChannel(BaseChannel):
     ) -> None:
         if not session_id or not receive_id:
             return
-        with self._receive_id_lock:
+        async with self._receive_id_lock:
             # Store (receive_id_type, receive_id) to match unpack elsewhere
             self._receive_id_store[session_id] = (receive_id_type, receive_id)
             # Also key by open_id so cron can resolve when session_id is full
@@ -1081,7 +1078,7 @@ class FeishuChannel(BaseChannel):
     ) -> Optional[Tuple[str, str]]:
         if not session_id:
             return None
-        with self._receive_id_lock:
+        async with self._receive_id_lock:
             out = self._receive_id_store.get(session_id)
             if out is not None:
                 return out
@@ -1557,7 +1554,7 @@ class FeishuChannel(BaseChannel):
             if "#" in session_key:
                 suffix = session_key.split("#", 1)[-1].strip()
                 if len(suffix) >= 4:
-                    with self._receive_id_lock:
+                    async with self._receive_id_lock:
                         for _, v in self._receive_id_store.items():
                             # v is (receive_id_type, receive_id)
                             if v[1] and str(v[1]).endswith(suffix):
@@ -1760,61 +1757,86 @@ class FeishuChannel(BaseChannel):
                 receive_id_type,
             )
 
-    def _run_ws_forever(self) -> None:
-        """Run WebSocket with automatic reconnection.
+    def _create_ws_client(self) -> Any:
+        """Create a fresh ``lark.ws.Client`` with loop-isolated internals.
 
-        Implements exponential backoff reconnection:
-        - Initial delay: 1 second
-        - Max delay: 60 seconds
-        - Backoff factor: 2x
-
-        Reconnection stops when:
-        - _stop_event is set (explicit stop)
-        - _closed is True (channel closed)
+        The SDK uses a module-level ``loop`` for ``create_task`` calls,
+        which causes cross-loop errors when multiple agents run in
+        separate threads.  We patch ``_connect`` and
+        ``_receive_message_loop`` to swap in the running loop before
+        delegating to the originals.
         """
-        # Reconnection settings
+        event_handler = (
+            lark.EventDispatcherHandler.builder(
+                self.encrypt_key,
+                self.verification_token,
+            )
+            .register_p2_im_message_receive_v1(self._on_message_sync)
+            .build()
+        )
+        client = lark.ws.Client(
+            self.app_id,
+            self.app_secret,
+            event_handler=event_handler,
+            log_level=lark.LogLevel.INFO,
+            domain=(
+                lark.LARK_DOMAIN
+                if self.domain == "lark"
+                else lark.FEISHU_DOMAIN
+            ),
+        )
+
+        _original_connect = client._connect
+        _original_recv_loop = client._receive_message_loop
+
+        async def _patched_connect() -> None:
+            import lark_oapi.ws.client as _ws_mod
+
+            saved, _ws_mod.loop = _ws_mod.loop, asyncio.get_running_loop()
+            try:
+                await _original_connect()
+            finally:
+                _ws_mod.loop = saved
+
+        async def _patched_receive_message_loop() -> None:
+            import lark_oapi.ws.client as _ws_mod
+
+            saved, _ws_mod.loop = _ws_mod.loop, asyncio.get_running_loop()
+            try:
+                await _original_recv_loop()
+            finally:
+                _ws_mod.loop = saved
+
+        client._connect = _patched_connect
+        client._receive_message_loop = _patched_receive_message_loop
+        return client
+
+    def _run_ws_forever(self) -> None:
+        """Run WebSocket with automatic reconnection (exponential backoff).
+
+        Each iteration creates a fresh event loop and ``ws.Client``, then
+        drives the connection directly (``_connect`` → ``_ping_loop`` →
+        ``_select``) instead of calling the SDK's ``start()`` which relies
+        on a shared module-level ``loop``.
+        """
         retry_delay = FEISHU_WS_INITIAL_RETRY_DELAY
 
         while not self._stop_event.is_set() and not self._closed:
             self._ws_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._ws_loop)
-            old_ws_client_loop = None
-            _ws_mod: types.ModuleType = types.ModuleType("_ws_mod_placeholder")
-            _orig_select = None
-            # Hold the lock until _connect() finishes so concurrent instances
-            # don't overwrite each other's ws_client.loop.
-            _WS_START_LOCK.acquire()  # pylint: disable=consider-using-with
-            lock_released = False
             connection_started = False
             try:
-                try:
-                    import lark_oapi.ws.client as _lark_ws_mod
+                self._ws_client = self._create_ws_client()
 
-                    _ws_mod = _lark_ws_mod
-                    old_ws_client_loop = getattr(_ws_mod, "loop", None)
-                    _ws_mod.loop = self._ws_loop
-                    # Patch _select to release lock after _connect().
-                    _orig_select = _ws_mod._select
-                except ImportError:
-                    pass
-
-                async def _patched_select() -> None:
-                    nonlocal lock_released, connection_started
-                    if not lock_released:
-                        _WS_START_LOCK.release()
-                        lock_released = True
-                        connection_started = True
-                    if _orig_select is not None:
-                        await _orig_select()
+                async def _select() -> None:
+                    while True:
+                        await asyncio.sleep(3600)
 
                 async def _monitor_connection_health() -> None:
-                    """Force reconnect if SDK's internal reconnect gives up."""
                     while not self._stop_event.is_set() and not self._closed:
                         await asyncio.sleep(30)
                         if self._stop_event.is_set() or self._closed:
                             break
-                        if not connection_started:
-                            continue
                         ws = self._ws_client
                         if (
                             ws is not None
@@ -1828,35 +1850,39 @@ class FeishuChannel(BaseChannel):
                                 self._ws_loop.stop()
                             break
 
-                _ws_mod._select = _patched_select
+                async def _drive_connection() -> None:
+                    nonlocal connection_started
+                    await self._ws_client._connect()
+                    connection_started = True
+                    self._ws_loop.create_task(
+                        self._ws_client._ping_loop(),
+                    )
+                    self._ws_loop.create_task(
+                        _monitor_connection_health(),
+                    )
+                    await _select()
+
                 try:
-                    if self._ws_client and not self._stop_event.is_set():
-                        self._ws_loop.create_task(
-                            _monitor_connection_health(),
-                        )
+                    if not self._stop_event.is_set():
                         logger.info(
                             "feishu WebSocket connecting (long connection)...",
                         )
-                        self._ws_client.start()
-                        # If start() returns normally, connection was closed
-                        # by server; reset retry delay and reconnect
+                        self._ws_loop.run_until_complete(
+                            _drive_connection(),
+                        )
                         if not self._stop_event.is_set() and not self._closed:
                             logger.info(
                                 "feishu WebSocket disconnected, "
                                 "reconnecting immediately...",
                             )
                 except RuntimeError as e:
-                    # Normal shutdown: loop.stop() causes run_until_complete
-                    # to raise "Event loop stopped before Future completed."
                     if "Event loop stopped" in str(e):
                         logger.debug(
                             "feishu WebSocket stopped normally: %s",
                             e,
                         )
-                        # Check if this was an intentional stop
                         if self._stop_event.is_set() or self._closed:
                             break
-                        # Otherwise, treat as disconnection and reconnect
                         logger.info(
                             "feishu WebSocket event loop stopped, "
                             "will attempt to reconnect",
@@ -1877,16 +1903,6 @@ class FeishuChannel(BaseChannel):
                             "will attempt to reconnect",
                         )
             finally:
-                # Ensure lock is released (covers KeyboardInterrupt).
-                if not lock_released:
-                    try:
-                        _WS_START_LOCK.release()
-                    except RuntimeError:
-                        pass
-                try:
-                    _ws_mod._select = _orig_select
-                except Exception:
-                    pass
                 if self._ws_loop and not self._ws_loop.is_closed():
                     try:
                         if self._ws_client and hasattr(
@@ -1920,18 +1936,11 @@ class FeishuChannel(BaseChannel):
                                 ),
                             )
                             logger.debug(
-                                f"feishu cancelled {len(pending)} tasks",
+                                "feishu cancelled %d tasks",
+                                len(pending),
                             )
                     except Exception:
                         logger.debug("feishu ws cleanup failed", exc_info=True)
-                try:
-                    if (
-                        _ws_mod
-                        and getattr(_ws_mod, "loop", None) is self._ws_loop
-                    ):
-                        _ws_mod.loop = old_ws_client_loop
-                except Exception:
-                    pass
                 try:
                     if self._ws_loop and not self._ws_loop.is_closed():
                         self._ws_loop.close()
@@ -1942,17 +1951,13 @@ class FeishuChannel(BaseChannel):
             # Wait before reconnecting (if not stopped)
             if not self._stop_event.is_set() and not self._closed:
                 if connection_started:
-                    # Connection was established, reset retry delay
                     retry_delay = FEISHU_WS_INITIAL_RETRY_DELAY
                 else:
-                    # Connection failed to establish, use exponential backoff
                     logger.info(
                         "feishu WebSocket reconnecting in %.1fs...",
                         retry_delay,
                     )
-                    # Use wait with timeout to allow early exit on stop
                     self._stop_event.wait(timeout=retry_delay)
-                    # Increase delay for next attempt
                     retry_delay = min(
                         retry_delay * FEISHU_WS_BACKOFF_FACTOR,
                         FEISHU_WS_MAX_RETRY_DELAY,
@@ -1968,14 +1973,20 @@ class FeishuChannel(BaseChannel):
         self._closed = False
         self._load_receive_id_store_from_disk()
         if lark is None:
-            raise RuntimeError(
-                "Feishu channel enabled but lark-oapi is not installed. "
-                "Run: pip install lark-oapi",
+            raise ChannelError(
+                channel_name="feishu",
+                message=(
+                    "Feishu channel enabled but lark-oapi is not "
+                    "installed. Run: pip install lark-oapi"
+                ),
             )
         if not self.app_id or not self.app_secret:
-            raise RuntimeError(
-                "FEISHU_APP_ID and FEISHU_APP_SECRET are required when "
-                "feishu channel is enabled.",
+            raise ChannelError(
+                channel_name="feishu",
+                message=(
+                    "FEISHU_APP_ID and FEISHU_APP_SECRET are required "
+                    "when feishu channel is enabled"
+                ),
             )
         self._loop = asyncio.get_running_loop()
         self._http_client = httpx.AsyncClient(
@@ -1992,25 +2003,6 @@ class FeishuChannel(BaseChannel):
             .domain(sdk_domain)
             .log_level(lark.LogLevel.INFO)
             .build()
-        )
-        event_handler = (
-            lark.EventDispatcherHandler.builder(
-                self.encrypt_key,
-                self.verification_token,
-            )
-            .register_p2_im_message_receive_v1(self._on_message_sync)
-            .build()
-        )
-        self._ws_client = lark.ws.Client(
-            self.app_id,
-            self.app_secret,
-            event_handler=event_handler,
-            log_level=lark.LogLevel.INFO,
-            domain=(
-                "https://open.larksuite.com"
-                if self.domain == "lark"
-                else "https://open.feishu.cn"
-            ),
         )
         self._stop_event.clear()
         self._ws_thread = threading.Thread(

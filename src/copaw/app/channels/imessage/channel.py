@@ -20,6 +20,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     ContentType,
 )
 
+from ....exceptions import ChannelError
 from ....config.config import IMessageChannelConfig
 from ....constant import DEFAULT_MEDIA_DIR
 from ..utils import file_url_to_local_path
@@ -160,11 +161,13 @@ class IMessageChannel(BaseChannel):
     def _ensure_imsg(self) -> str:
         path = shutil.which("imsg")
         if not path:
-            raise RuntimeError(
-                "Cannot find executable: imsg. Install it with:\n"
-                "  brew install steipete/tap/imsg\n"
-                "Then verify:\n"
-                "  which imsg\n",
+            raise ChannelError(
+                channel_name="imessage",
+                message=(
+                    "Cannot find executable: imsg. "
+                    "Install it with:\n  brew install steipete/tap/imsg\n"
+                    "Then verify:\n  which imsg"
+                ),
             )
         return path
 
@@ -175,8 +178,9 @@ class IMessageChannel(BaseChannel):
         file_path: Optional[str] = None,
     ) -> None:
         if not self._imsg_path:
-            raise RuntimeError(
-                "iMessage channel not initialized (imsg path missing).",
+            raise ChannelError(
+                channel_name="imessage",
+                message="iMessage channel not initialized (imsg path missing)",
             )
         # Capture stdout/stderr so imsg's "sent" (or similar) does not
         # appear in our process output.

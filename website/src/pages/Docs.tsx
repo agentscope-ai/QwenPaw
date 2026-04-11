@@ -236,7 +236,7 @@ const DOC_BANNER_BY_SLUG = (() => {
   return map;
 })();
 
-export function Docs() {
+export default function Docs() {
   const { t, i18n } = useTranslation();
   const lang: "zh" | "en" = i18n.resolvedLanguage === "zh" ? "zh" : "en";
   const { slug } = useParams<{ slug: string }>();

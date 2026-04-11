@@ -8,7 +8,8 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
-import { formatFileSize, formatTimeAgo } from "./utils";
+import prettyBytes from "pretty-bytes";
+import { formatTimeAgo } from "./utils";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -92,7 +93,7 @@ export const FileItem: React.FC<FileItemProps> = ({
               {file.filename}
             </div>
             <div className={styles.fileItemMeta}>
-              {formatFileSize(file.size)} · {formatTimeAgo(file.modified_time)}
+              {prettyBytes(file.size)} · {formatTimeAgo(file.modified_time)}
             </div>
           </div>
           <div className={styles.fileItemActions}>
@@ -131,8 +132,7 @@ export const FileItem: React.FC<FileItemProps> = ({
               >
                 <div className={styles.dailyMemoryName}>{daily.date}.md</div>
                 <div className={styles.dailyMemoryMeta}>
-                  {formatFileSize(daily.size)} ·{" "}
-                  {formatTimeAgo(daily.updated_at)}
+                  {prettyBytes(daily.size)} · {formatTimeAgo(daily.updated_at)}
                 </div>
               </div>
             );

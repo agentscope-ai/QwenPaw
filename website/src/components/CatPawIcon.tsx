@@ -6,8 +6,7 @@ interface CatPawIconProps {
   className?: string;
 }
 
-const LOGO_SRC =
-  "https://img.alicdn.com/imgextra/i1/O1CN0187d8Zq1U51Qw6WTtl_!!6000000002465-2-tps-4167-981.png";
+const LOGO_SRC = "/logo.png";
 
 export function CatPawIcon({ size, className = "" }: CatPawIconProps) {
   return (

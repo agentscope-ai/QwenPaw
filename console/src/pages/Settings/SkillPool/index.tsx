@@ -13,10 +13,8 @@ import {
   UploadOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import {
-  ImportHubModal,
-  SkillFilterDropdown,
-} from "../../Agent/Skills/components";
+import { ImportHubModal } from "../../Agent/Skills/components/ImportHubModal";
+import { SkillFilterDropdown } from "../../Agent/Skills/components/SkillFilterDropdown";
 import {
   BroadcastModal,
   ImportBuiltinModal,
@@ -25,12 +23,18 @@ import {
   PoolSkillDrawer,
 } from "./components";
 import { useSkillPool } from "./useSkillPool";
+import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 function SkillPoolPage() {
   const { t } = useTranslation();
   const pool = useSkillPool();
+  const {
+    visibleItems: visibleSkills,
+    hasMore,
+    sentinelRef,
+  } = useProgressiveRender(pool.sortedSkills);
 
   return (
     <div className={styles.skillsPage}>
@@ -204,7 +208,7 @@ function SkillPoolPage() {
           </div>
         ) : pool.viewMode === "card" ? (
           <div className={styles.skillsGrid}>
-            {pool.sortedSkills.map((skill: any) => (
+            {visibleSkills.map((skill: any) => (
               <PoolSkillCard
                 key={skill.name}
                 skill={skill}
@@ -216,10 +220,11 @@ function SkillPoolPage() {
                 onDelete={pool.handleDelete}
               />
             ))}
+            {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
           </div>
         ) : (
           <div className={styles.skillsList}>
-            {pool.sortedSkills.map((skill: any) => (
+            {visibleSkills.map((skill: any) => (
               <PoolSkillListItem
                 key={skill.name}
                 skill={skill}
@@ -231,6 +236,7 @@ function SkillPoolPage() {
                 onDelete={pool.handleDelete}
               />
             ))}
+            {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
           </div>
         )}
       </div>

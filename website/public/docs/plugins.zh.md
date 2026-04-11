@@ -232,11 +232,11 @@ cd my-llm-provider
 # -*- coding: utf-8 -*-
 """My LLM Provider Implementation."""
 
-from copaw.providers.provider import BaseProvider
+from copaw.providers.provider import ModelInfo, Provider
 from typing import List
 
 
-class MyLLMProvider(BaseProvider):
+class MyLLMProvider(Provider):
     """My custom LLM provider."""
 
     def __init__(self, **kwargs):
@@ -244,11 +244,16 @@ class MyLLMProvider(BaseProvider):
         super().__init__(**kwargs)
 
     @classmethod
-    def get_default_models(cls) -> List[str]:
+    def get_default_models(cls) -> List[ModelInfo]:
         """Get default models."""
         return [
-            "my-model-v1",
-            "my-model-v2",
+            ModelInfo(
+                id="my-model",
+                name="My Model",
+                supports_multimodal=False,
+                supports_image=False,
+                supports_video=False,
+            ),
         ]
 ```
 
@@ -317,7 +322,7 @@ plugin = MyLLMProviderPlugin()
 copaw plugin install my-llm-provider
 
 # 启动 CoPaw
-copaw start
+copaw app
 
 # 在 Web UI 中配置 API Key
 # 然后就可以使用新的 Provider 了
@@ -407,7 +412,7 @@ plugin = MonitoringHookPlugin()
 
 ```bash
 copaw plugin install monitoring-hook
-copaw start
+copaw app
 ```
 
 ### 示例 3：添加自定义命令
@@ -548,7 +553,7 @@ plugin = StatusCommandPlugin()
 
 ```bash
 copaw plugin install status-command
-copaw start
+copaw app
 
 # 使用命令
 /status
@@ -792,7 +797,7 @@ A: 插件通过 `PluginApi` 访问核心功能，包括：
 
 - Provider 注册
 - Hook 注册
-- Runtime helpers（provider_manager 等）
+- Runtime helpers（`provider_manager` 等）
 
 ### Q: 插件可以修改 CoPaw 的核心行为吗？
 
@@ -800,4 +805,4 @@ A: 可以，通过 monkey patch 或 hook 机制。但请谨慎使用，确保不
 
 ### Q: 插件之间会冲突吗？
 
-A: 如果多个插件注册相同的 provider_id 或 command_name，后注册的会覆盖先注册的。建议使用唯一的 ID。
+A: 如果多个插件注册相同的 `provider_id` 或 `command_name`，后注册的会覆盖先注册的。建议使用唯一的 ID。

@@ -18,6 +18,10 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
+
 from ..agent_context import get_agent_for_request
 from ..utils import schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
@@ -207,7 +211,7 @@ async def create_custom_provider_endpoint(
                 extra_models=body.models,
             ),
         )
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return provider_info
@@ -296,7 +300,7 @@ async def test_provider(
                 "Connection successful" if ok else f"Connection failed: {msg}"
             ),
         )
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
@@ -332,7 +336,7 @@ async def discover_models(
             result = []
             success = False
         return DiscoverModelsResponse(success=success, models=result)
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
@@ -360,7 +364,7 @@ async def test_model(
                 else f"Model connection failed: {msg}"
             ),
         )
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
@@ -377,7 +381,7 @@ async def delete_custom_provider_endpoint(
         ok = manager.remove_custom_provider(provider_id)
         if not ok:
             raise ValueError(f"Custom Provider '{provider_id}' not found")
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await manager.list_provider_info()
 
@@ -398,7 +402,7 @@ async def add_model_endpoint(
             provider_id=provider_id,
             model_info=ModelInfo(id=body.id, name=body.name),
         )  # Validate provider exists and add model
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return provider
 
@@ -458,7 +462,7 @@ async def remove_model_endpoint(
             provider_id=provider_id,
             model_id=model_id,
         )  # Validate provider and model exist and delete
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return provider
 
@@ -482,7 +486,7 @@ async def configure_model(
             model_id=model_id,
             config={"generate_kwargs": body.generate_kwargs},
         )
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return provider_info
 
@@ -531,7 +535,13 @@ async def get_active_models(
                 agent_model,
             )
             return ActiveModelsInfo(active_llm=agent_model)
-    except (HTTPException, OSError, ValueError, TypeError) as exc:
+    except (
+        HTTPException,
+        OSError,
+        ValueError,
+        TypeError,
+        AppBaseException,
+    ) as exc:
         logger.warning(
             "Failed to get agent-specific model: %s",
             exc,
@@ -557,7 +567,12 @@ async def set_active_model(
     if body.scope == "global":
         try:
             await manager.activate_model(body.provider_id, body.model)
-        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        except (
+            FileNotFoundError,
+            RuntimeError,
+            ValueError,
+            AppBaseException,
+        ) as exc:
             message = str(exc)
             lower_msg = message.lower()
             if "provider" in lower_msg and "not found" in lower_msg:
@@ -587,7 +602,13 @@ async def set_active_model(
         # Hot reload agent (async, non-blocking)
         schedule_agent_reload(request, workspace.agent_id)
 
-    except (HTTPException, OSError, ValueError, TypeError) as exc:
+    except (
+        HTTPException,
+        OSError,
+        ValueError,
+        TypeError,
+        AppBaseException,
+    ) as exc:
         logger.warning(
             "Failed to save active model to agent config: %s",
             exc,

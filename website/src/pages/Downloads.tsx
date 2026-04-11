@@ -152,7 +152,7 @@ function PlatformCard({
   );
 }
 
-export function Downloads() {
+export default function Downloads() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage === "zh";
   const { docsPath } = useSiteConfig();

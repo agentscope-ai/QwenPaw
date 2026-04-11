@@ -22,6 +22,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     ContentType,
 )
 
+from ....exceptions import ChannelError
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
 from ..utils import file_url_to_local_path
@@ -450,14 +451,23 @@ class DiscordChannel(BaseChannel):
         if not self.enabled:
             return
         if not self._client:
-            raise RuntimeError("Discord client is not initialized")
+            raise ChannelError(
+                channel_name="discord",
+                message="Discord client is not initialized",
+            )
         if not self._client.is_ready():
-            raise RuntimeError("Discord client is not ready yet")
+            raise ChannelError(
+                channel_name="discord",
+                message="Discord client is not ready yet",
+            )
         target = await self._resolve_target(to_handle, meta)
         if not target:
-            raise ValueError(
-                "DiscordChannel.send requires meta['channel_id']"
-                " or meta['user_id']",
+            raise ChannelError(
+                channel_name="discord",
+                message=(
+                    "DiscordChannel.send requires "
+                    "meta['channel_id'] or meta['user_id']"
+                ),
             )
         for chunk in self._chunk_text(text, self._DISCORD_MAX_LEN):
             await target.send(chunk)

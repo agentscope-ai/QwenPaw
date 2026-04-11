@@ -75,6 +75,18 @@ class MCPClientManager:
                 if client is not None
             ]
 
+    async def get_client(self, key: str) -> Any | None:
+        """Get a specific active MCP client by key.
+
+        Args:
+            key: Client identifier (from config)
+
+        Returns:
+            Connected MCP client instance, or None if not found
+        """
+        async with self._lock:
+            return self._clients.get(key)
+
     async def replace_client(
         self,
         key: str,

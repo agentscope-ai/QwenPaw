@@ -19,8 +19,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import AsyncExitStack
+from datetime import timedelta
 from typing import Any, Literal
 
+import httpx
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
@@ -389,33 +391,58 @@ class HttpStatefulClient(StatefulClientBase):
 
     async def _run_lifecycle(self) -> None:
         """Run MCP client lifecycle in a dedicated task."""
-        # Select client based on transport
-        if self.transport == "streamable_http":
-            client_factory = lambda: streamable_http_client(
-                url=self.url,
-                headers=self.headers,
-                timeout=self.timeout,
-                sse_read_timeout=self.sse_read_timeout,
-                **self.client_kwargs,
-            )
-        else:
-            client_factory = lambda: sse_client(
-                url=self.url,
-                headers=self.headers,
-                timeout=self.timeout,
-                sse_read_timeout=self.sse_read_timeout,
-                **self.client_kwargs,
-            )
-
         while not self._stop_event.is_set():
             try:
                 logger.debug(f"Connecting MCP client: {self.name}")
 
                 # Enter context manager in THIS task
                 async with AsyncExitStack() as stack:
-                    context = await stack.enter_async_context(
-                        client_factory(),
-                    )
+                    # Select client based on transport
+                    if self.transport == "streamable_http":
+                        # Create httpx.AsyncClient with headers and timeout
+                        timeout_seconds = (
+                            self.timeout.total_seconds()
+                            if isinstance(self.timeout, timedelta)
+                            else self.timeout
+                        )
+                        sse_read_timeout_seconds = (
+                            self.sse_read_timeout.total_seconds()
+                            if isinstance(self.sse_read_timeout, timedelta)
+                            else self.sse_read_timeout
+                        )
+
+                        # Configure httpx client with MCP-recommended timeouts
+                        http_client = httpx.AsyncClient(
+                            headers=self.headers or {},
+                            timeout=httpx.Timeout(
+                                connect=timeout_seconds,
+                                read=sse_read_timeout_seconds,
+                                write=timeout_seconds,
+                                pool=timeout_seconds,
+                            ),
+                            **self.client_kwargs,
+                        )
+
+                        # Add http_client to exit stack for proper cleanup
+                        await stack.enter_async_context(http_client)
+
+                        context = await stack.enter_async_context(
+                            streamable_http_client(
+                                url=self.url,
+                                http_client=http_client,
+                            ),
+                        )
+                    else:
+                        context = await stack.enter_async_context(
+                            sse_client(
+                                url=self.url,
+                                headers=self.headers,
+                                timeout=self.timeout,
+                                sse_read_timeout=self.sse_read_timeout,
+                                **self.client_kwargs,
+                            ),
+                        )
+
                     read_stream, write_stream = context[0], context[1]
 
                     # Initialize session

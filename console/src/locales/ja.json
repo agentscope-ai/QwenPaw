@@ -23,6 +23,13 @@
     "contentPlaceholder": "内容を入力してください...",
     "close": "閉じる"
   },
+  "chunkError": {
+    "title": "ページの読み込みに失敗しました",
+    "subTitle": "ネットワークの問題またはアプリの更新が原因の可能性があります。",
+    "genericTitle": "問題が発生しました",
+    "genericSubTitle": "このページのレンダリング中に予期しないエラーが発生しました。",
+    "reload": "再読み込み"
+  },
   "nav": {
     "chat": "チャット",
     "control": "コントロール",
@@ -316,7 +323,12 @@
     "deleteConfirm": "このMCPクライアントを削除してもよろしいですか？",
     "deleteSuccess": "MCPクライアントを削除しました",
     "deleteError": "MCPクライアントの削除に失敗しました",
-    "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。"
+    "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。",
+    "tools": "ツール",
+    "noTools": "このMCPサーバーには利用可能なツールがありません",
+    "toolsLoadError": "MCPサーバーからツール一覧の取得に失敗しました",
+    "toolsConnecting": "MCPサーバーに接続中です。しばらくしてから再度お試しください",
+    "toolSchema": "入力スキーマ"
   },
   "heartbeat": {
     "title": "ハートビート",

@@ -12,6 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
+
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path
 from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS, WORKING_DIR
@@ -87,7 +91,7 @@ class DynamicMultiAgentRunner:
                 workspace.runner,
             )
             return workspace.runner
-        except ValueError as e:
+        except (ValueError, AppBaseException) as e:
             logger.error(f"Agent not found: {e}")
             raise
         except Exception as e:
@@ -397,7 +401,7 @@ async def lifespan(
                     exc,
                 )
                 with suppress(OSError, RuntimeError, ValueError):
-                    local_model_mgr.force_shutdown_server()
+                    local_model_mgr.shutdown_server_sync()
 
         # Stop multi-agent manager (stops all agents and their components)
         multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)

@@ -13,6 +13,7 @@ All existing single-agent components are reused without modification.
 import logging
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
+from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
 from .service_manager import ServiceDescriptor, ServiceManager
 from .service_factories import (
@@ -42,7 +43,9 @@ def _resolve_memory_class(backend: str) -> type:
 
     if backend == "remelight":
         return ReMeLightMemoryManager
-    raise ValueError(f"Unsupported memory manager backend: '{backend}'")
+    raise ConfigurationException(
+        message=f"Unsupported memory manager backend: '{backend}'",
+    )
 
 
 class Workspace:

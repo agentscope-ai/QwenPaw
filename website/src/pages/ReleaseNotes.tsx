@@ -13,6 +13,7 @@ interface ReleaseNote {
 }
 
 const RELEASE_NOTES_DATA: { version: string; date?: string }[] = [
+  { version: "v1.0.2" },
   { version: "v1.0.1" },
   { version: "v1.0.0" },
   { version: "v0.2.0" },
@@ -26,7 +27,7 @@ const RELEASE_NOTES_DATA: { version: string; date?: string }[] = [
   { version: "v0.0.4" },
 ];
 
-export function ReleaseNotes() {
+export default function ReleaseNotes() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage === "zh";
   const [releases, setReleases] = useState<ReleaseNote[]>([]);

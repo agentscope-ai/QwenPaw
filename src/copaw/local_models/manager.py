@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
 
-from .llamacpp import LlamaCppBackend
+from .llamacpp import LlamaCppBackend, LlamaCppServerSetupResult
 from .model_manager import LocalModelInfo as RecommendedLocalModelInfo
 from .model_manager import ModelManager, DownloadSource
 
@@ -197,7 +197,10 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         """Delete a downloaded local model by repo id or directory name."""
         self._model_manager.remove_downloaded_model(model_id)
 
-    async def setup_server(self, model_id: str) -> int:
+    async def setup_server(
+        self,
+        model_id: str,
+    ) -> LlamaCppServerSetupResult:
         """Start the llama.cpp server for the specified model."""
         async with self._server_lifecycle_lock:
             return await self._llamacpp_backend.setup_server(
@@ -211,9 +214,9 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         async with self._server_lifecycle_lock:
             await self._llamacpp_backend.shutdown_server()
 
-    def force_shutdown_server(self) -> None:
+    def shutdown_server_sync(self) -> None:
         """Best-effort synchronous shutdown for process teardown paths."""
-        self._llamacpp_backend.force_shutdown_server()
+        self._llamacpp_backend.shutdown_server_sync()
 
     @staticmethod
     def get_instance() -> LocalModelManager:

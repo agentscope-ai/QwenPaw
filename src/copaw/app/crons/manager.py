@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Union
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
 from ...config import get_heartbeat_config
 
@@ -274,9 +275,11 @@ class CronManager:
         # enforce 5 fields (no seconds)
         parts = [p for p in spec.schedule.cron.split() if p]
         if len(parts) != 5:
-            raise ValueError(
-                f"cron must have 5 fields, got {len(parts)}:"
-                f" {spec.schedule.cron}",
+            raise ConfigurationException(
+                message=(
+                    f"cron must have 5 fields, "
+                    f"got {len(parts)}: {spec.schedule.cron}"
+                ),
             )
 
         minute, hour, day, month, day_of_week = parts
