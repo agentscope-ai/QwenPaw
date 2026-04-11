@@ -25,29 +25,30 @@
 
 2. 进入"应用开发→企业内部应用→钉钉应用→创建 **应用**"
 
-    ![钉钉开发者后台](https://img.alicdn.com/imgextra/i1/O1CN01KLtwvu1rt9weVn8in_!!6000000005688-2-tps-2809-1585.png)
+   ![钉钉开发者后台](https://img.alicdn.com/imgextra/i1/O1CN01KLtwvu1rt9weVn8in_!!6000000005688-2-tps-2809-1585.png)
 
 3. 在"应用能力→添加应用能力"中添加 **「机器人」**
 
-    ![添加机器人](https://img.alicdn.com/imgextra/i2/O1CN01AboPsn1XGQ84utCG8_!!6000000002896-2-tps-2814-1581.png)
+   ![添加机器人](https://img.alicdn.com/imgextra/i2/O1CN01AboPsn1XGQ84utCG8_!!6000000002896-2-tps-2814-1581.png)
 
 4. 配置机器人基础信息，设置消息接收模式为 **Stream 模式**（流式接收），点击发布
 
-    ![机器人基础信息](https://img.alicdn.com/imgextra/i3/O1CN01KwmNZ61GwhDhKxgSv_!!6000000000687-2-tps-2814-1581.png)
+   ![机器人基础信息](https://img.alicdn.com/imgextra/i3/O1CN01KwmNZ61GwhDhKxgSv_!!6000000000687-2-tps-2814-1581.png)
 
-    ![Stream模式+发布](https://img.alicdn.com/imgextra/i2/O1CN01tk8QW11NqvXYqcoPH_!!6000000001622-2-tps-2809-1590.png)
+   ![Stream模式+发布](https://img.alicdn.com/imgextra/i2/O1CN01tk8QW11NqvXYqcoPH_!!6000000001622-2-tps-2809-1590.png)
 
 5. 在"应用发布→版本管理与发布"中创建新版本，填写基础信息后保存
 
-    ![创建新版本](https://img.alicdn.com/imgextra/i3/O1CN01lRCPuf1PQwIeFL4AL_!!6000000001836-2-tps-2818-1590.png)
+   ![创建新版本](https://img.alicdn.com/imgextra/i3/O1CN01lRCPuf1PQwIeFL4AL_!!6000000001836-2-tps-2818-1590.png)
 
-    ![保存](https://img.alicdn.com/imgextra/i1/O1CN01vrzbIA1Qey2x8Jbua_!!6000000002002-2-tps-2809-1585.png)
+   ![保存](https://img.alicdn.com/imgextra/i1/O1CN01vrzbIA1Qey2x8Jbua_!!6000000002002-2-tps-2809-1585.png)
 
 6. 在"基础信息→凭证与基础信息"中获取：
-    - **Client ID**（即 AppKey）
-    - **Client Secret**（即 AppSecret）
 
-    ![client](https://img.alicdn.com/imgextra/i3/O1CN01JsRrwx1hJImLfM7O1_!!6000000004256-2-tps-2809-1585.png)
+   - **Client ID**（即 AppKey）
+   - **Client Secret**（即 AppSecret）
+
+   ![client](https://img.alicdn.com/imgextra/i3/O1CN01JsRrwx1hJImLfM7O1_!!6000000004256-2-tps-2809-1585.png)
 
 7. （可选） **将服务器 IP 加入白名单** — 调用钉钉开放平台 API（如下载用户发送的图片和文件）时需要此配置。在应用设置中进入 **"安全设置→服务器出口 IP"**，添加运行 CoPaw 的机器的公网 IP。可在终端执行 `curl ifconfig.me` 查看公网 IP。若未配置白名单，图片和文件下载将报 `Forbidden.AccessDenied.IpNotInWhiteList` 错误。
 
@@ -147,23 +148,23 @@
 
 ```json
 {
-    "scopes": {
-        "tenant": [
-            "aily:file:read",
-            "aily:file:write",
-            "aily:message:read",
-            "aily:message:write",
-            "corehr:file:download",
-            "im:chat",
-            "im:message",
-            "im:message.group_msg",
-            "im:message.p2p_msg:readonly",
-            "im:message.reactions:read",
-            "im:resource",
-            "contact:user.base:readonly"
-        ],
-        "user": []
-    }
+  "scopes": {
+    "tenant": [
+      "aily:file:read",
+      "aily:file:write",
+      "aily:message:read",
+      "aily:message:write",
+      "corehr:file:download",
+      "im:chat",
+      "im:message",
+      "im:message.group_msg",
+      "im:message.p2p_msg:readonly",
+      "im:message.reactions:read",
+      "im:resource",
+      "contact:user.base:readonly"
+    ],
+    "user": []
+  }
 }
 ```
 
@@ -265,41 +266,42 @@
 
 2. 安装 **imsg**（用于访问 iMessage 数据库）：
 
-    ```bash
-    brew install steipete/tap/imsg
-    ```
+   ```bash
+   brew install steipete/tap/imsg
+   ```
 
-    > 如果 Intel 芯片 Mac 用户通过上述方式无法安装成功，需要先克隆源码再编译
-    >
-    > ```bash
-    > git clone https://github.com/steipete/imsg.git
-    > cd imsg
-    > make build
-    > sudo cp build/Release/imsg /usr/local/bin/
-    > cp ./bin/imsg /usr/local/bin/
-    > ```
+   > 如果 Intel 芯片 Mac 用户通过上述方式无法安装成功，需要先克隆源码再编译
+   >
+   > ```bash
+   > git clone https://github.com/steipete/imsg.git
+   > cd imsg
+   > make build
+   > sudo cp build/Release/imsg /usr/local/bin/
+   > cp ./bin/imsg /usr/local/bin/
+   > ```
 
 3. 为了使 iMessage 中的信息能被获取，需要 **终端** （或你用来运行 CoPaw 的 app） 和 **消息** 有 **完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限）。
 
-    ![权限](https://img.alicdn.com/imgextra/i2/O1CN01gCbMWX1S2c77mcoPo_!!6000000002189-2-tps-958-440.png)
+   ![权限](https://img.alicdn.com/imgextra/i2/O1CN01gCbMWX1S2c77mcoPo_!!6000000002189-2-tps-958-440.png)
 
 4. 填写 iMessage 数据库路径。默认路径为 `~/Library/Messages/chat.db`，若你改过系统路径，请填实际路径。有以下两种填写方案：
-    - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
-        ![控制台](https://img.alicdn.com/imgextra/i3/O1CN01ut2ooB1mxDNNtz1Qc_!!6000000005020-2-tps-3814-1954.png)
+   - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
-        ![控制台](https://img.alicdn.com/imgextra/i2/O1CN01AmgRk91Q9Mj5HfpDl_!!6000000001933-2-tps-3822-2064.png)
+     ![控制台](https://img.alicdn.com/imgextra/i3/O1CN01ut2ooB1mxDNNtz1Qc_!!6000000005020-2-tps-3814-1954.png)
 
-    - 填写智能体工作区的 `agent.json`（如 `~/.copaw/workspaces/default/agent.json`）：
+     ![控制台](https://img.alicdn.com/imgextra/i2/O1CN01AmgRk91Q9Mj5HfpDl_!!6000000001933-2-tps-3822-2064.png)
 
-        ```json
-        "imessage": {
-          "enabled": true,
-          "bot_prefix": "[BOT]",
-          "db_path": "~/Library/Messages/chat.db",
-          "poll_sec": 1.0
-        }
-        ```
+   - 填写智能体工作区的 `agent.json`（如 `~/.copaw/workspaces/default/agent.json`）：
+
+     ```json
+     "imessage": {
+       "enabled": true,
+       "bot_prefix": "[BOT]",
+       "db_path": "~/Library/Messages/chat.db",
+       "poll_sec": 1.0
+     }
+     ```
 
 **iMessage 专属字段说明：**
 
@@ -310,7 +312,7 @@
 
 5. 填写完成后，使用你的手机，给当前电脑登录的 iMessage 账号（与电脑Apple ID一致）发送任意一条消息，可以看到回复。
 
-    ![聊天](https://img.alicdn.com/imgextra/i4/O1CN01beScxi1rBBvSFeIbz_!!6000000005592-2-tps-1206-2622.png)
+   ![聊天](https://img.alicdn.com/imgextra/i4/O1CN01beScxi1rBBvSFeIbz_!!6000000005592-2-tps-1206-2622.png)
 
 ---
 
@@ -416,7 +418,7 @@
 
 5. 在**开发管理**中获取**AppID**和**AppSecret**（即 ClientSecret），填入 `agent.json`，方式见下方填写 agent.json。在**IP白名单**中添加一个IP。
 
-    > **提示：** 如果使用魔搭创空间部署CoPaw，QQ频道的IP白名单应填写：`47.92.200.108`
+   > **提示：** 如果使用魔搭创空间部署CoPaw，QQ频道的IP白名单应填写：`47.92.200.108`
 
 ![1](https://img.alicdn.com/imgextra/i4/O1CN012UQWI21cnvBAUcz54_!!6000000003646-2-tps-4082-2126.png)
 
@@ -662,11 +664,11 @@ WEIXIN_GROUP_POLICY=open
 1. 打开 Telegram 并搜索 `@BotFather` 添加 Bot（注意需要是官方 @BotFather，有蓝色认证标识）。
 2. 打开与 @BotFather 的聊天，根据对话中的指引创建新机器人
 
-    ![创建机器人](https://img.alicdn.com/imgextra/i1/O1CN01wVVmbY1qkcxBn8Oc0_!!6000000005534-0-tps-817-1279.jpg)
+   ![创建机器人](https://img.alicdn.com/imgextra/i1/O1CN01wVVmbY1qkcxBn8Oc0_!!6000000005534-0-tps-817-1279.jpg)
 
 3. 在对话框中创建 bot_name，复制 bot_token
 
-    ![复制token](https://img.alicdn.com/imgextra/i3/O1CN01KUMvBW1UnuF599tNX_!!6000000002563-0-tps-1209-1237.jpg)
+   ![复制token](https://img.alicdn.com/imgextra/i3/O1CN01KUMvBW1UnuF599tNX_!!6000000002563-0-tps-1209-1237.jpg)
 
 ### 绑定 Bot
 
@@ -790,30 +792,30 @@ JSON消息格式
 
 1. 简单订阅和推送
 
-    | subscribe_topic | publish_topic |
-    | --------------- | ------------- |
-    | server          | client        |
+   | subscribe_topic | publish_topic |
+   | --------------- | ------------- |
+   | server          | client        |
 
 2. 模糊匹配订阅和自动推送
 
-    模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送CoPaw处理完后，将会向`/client/client_b/down`推送消息。
+   模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送CoPaw处理完后，将会向`/client/client_b/down`推送消息。
 
-    | subscribe_topic | publish_topic           |
-    | --------------- | ----------------------- |
-    | server/+/up     | client/{client_id}/down |
+   | subscribe_topic | publish_topic           |
+   | --------------- | ----------------------- |
+   | server/+/up     | client/{client_id}/down |
 
 3. 重定向主题推送
 
-    发送消息为JSON格式，订阅主题为`server/client_a/up`，推送主题为`client/client_a/down`
+   发送消息为JSON格式，订阅主题为`server/client_a/up`，推送主题为`client/client_a/down`
 
-    ```json
-    {
-        "text": "讲个笑话，直接回复文本即可。",
-        "redirect_client_id": "client_b"
-    }
-    ```
+   ```json
+   {
+     "text": "讲个笑话，直接回复文本即可。",
+     "redirect_client_id": "client_b"
+   }
+   ```
 
-    消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以CoPaw为核心，根据个人需求，多设备间自主推送消息。
+   消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以CoPaw为核心，根据个人需求，多设备间自主推送消息。
 
 ---
 
@@ -826,19 +828,20 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 1. 在任意 Matrix 服务器上注册机器人账号（例如 [matrix.org](https://matrix.org)，可在 [app.element.io](https://app.element.io/#/register) 注册）。
 
 2. 获取机器人的 **Access Token**，最简便的方式是通过 Element：
-    - 以机器人账号登录 [app.element.io](https://app.element.io)
-    - 前往 **设置 → 帮助与关于 → 高级 → Access Token**
-    - 复制 Token（以 `syt_...` 开头）
 
-    也可以直接调用 Matrix Client-Server API：
+   - 以机器人账号登录 [app.element.io](https://app.element.io)
+   - 前往 **设置 → 帮助与关于 → 高级 → Access Token**
+   - 复制 Token（以 `syt_...` 开头）
 
-    ```bash
-    curl -X POST "https://matrix.org/_matrix/client/v3/login" \
-      -H "Content-Type: application/json" \
-      -d '{"type":"m.login.password","user":"@yourbot:matrix.org","password":"yourpassword"}'
-    ```
+   也可以直接调用 Matrix Client-Server API：
 
-    响应中的 `access_token` 即为所需 Token。
+   ```bash
+   curl -X POST "https://matrix.org/_matrix/client/v3/login" \
+     -H "Content-Type: application/json" \
+     -d '{"type":"m.login.password","user":"@yourbot:matrix.org","password":"yourpassword"}'
+   ```
+
+   响应中的 `access_token` 即为所需 Token。
 
 3. 记录机器人的 **User ID**（格式：`@用户名:服务器`，例如 `@mybot:matrix.org`）和 **Homeserver URL**（例如 `https://matrix.org`）。
 
@@ -943,12 +946,12 @@ Voice 频道通过 Twilio ConversationRelay 实现电话语音交互，支持语
 
 1. 访问 [Twilio Console](https://console.twilio.com/)，注册账号
 2. 在 Dashboard 中获取：
-    - **Account SID**（账号标识）
-    - **Auth Token**（认证令牌）
+   - **Account SID**（账号标识）
+   - **Auth Token**（认证令牌）
 3. 购买电话号码：
-    - 前往 **Phone Numbers → Buy a Number**
-    - 选择支持语音通话的号码
-    - 记录 **Phone Number**（如 `+1234567890`）和 **Phone Number SID**
+   - 前往 **Phone Numbers → Buy a Number**
+   - 选择支持语音通话的号码
+   - 记录 **Phone Number**（如 `+1234567890`）和 **Phone Number SID**
 
 ### 配置 Cloudflare Tunnel
 
@@ -997,20 +1000,20 @@ cloudflared tunnel --url http://localhost:8088
 
 ```json
 {
-    "channels": {
-        "voice": {
-            "enabled": true,
-            "twilio_account_sid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxx",
-            "twilio_auth_token": "your_auth_token",
-            "phone_number": "+1234567890",
-            "phone_number_sid": "PNxxxxxxxxxxxxxxxxxxxxxxxxxx",
-            "tts_provider": "google",
-            "tts_voice": "en-US-Journey-D",
-            "stt_provider": "deepgram",
-            "language": "en-US",
-            "welcome_greeting": "Hi! This is CoPaw. How can I help you?"
-        }
+  "channels": {
+    "voice": {
+      "enabled": true,
+      "twilio_account_sid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "twilio_auth_token": "your_auth_token",
+      "phone_number": "+1234567890",
+      "phone_number_sid": "PNxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "tts_provider": "google",
+      "tts_voice": "en-US-Journey-D",
+      "stt_provider": "deepgram",
+      "language": "en-US",
+      "welcome_greeting": "Hi! This is CoPaw. How can I help you?"
     }
+  }
 }
 ```
 
@@ -1021,9 +1024,9 @@ cloudflared tunnel --url http://localhost:8088
 1. 前往 **Phone Numbers → Manage → Active Numbers**
 2. 点击你的电话号码
 3. 在 **Voice Configuration** 部分：
-    - **A Call Comes In**：选择 **Webhook**
-    - **URL**：填入 `https://your-cloudflare-url.trycloudflare.com/api/voice/callback`
-    - **HTTP Method**：选择 **POST**
+   - **A Call Comes In**：选择 **Webhook**
+   - **URL**：填入 `https://your-cloudflare-url.trycloudflare.com/api/voice/callback`
+   - **HTTP Method**：选择 **POST**
 4. 保存配置
 
 ### 使用方式
@@ -1344,11 +1347,11 @@ def register_app_routes(app):
 
 ```json
 {
-    "channels": {
-        "my_echo": {
-            "enabled": true
-        }
+  "channels": {
+    "my_echo": {
+      "enabled": true
     }
+  }
 }
 ```
 
