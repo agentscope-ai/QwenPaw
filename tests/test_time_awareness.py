@@ -10,18 +10,18 @@ Tests cover:
 - Integration with message processing
 - Edge cases and error handling
 """
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
+import pytest
 
+from agentscope.message import Msg
 from copaw.config.config import Config, TimeAwarenessConfig
 from copaw.agents.utils.message_processing import (
     inject_time_awareness,
     get_last_user_message,
     prepend_to_message_content,
 )
-from agentscope.message import Msg
 
 
 class TestTimeAwarenessConfig:
@@ -41,8 +41,6 @@ class TestTimeAwarenessConfig:
 
     def test_config_serialization(self):
         """Test that config can be serialized/deserialized to JSON."""
-        import json
-
         config = TimeAwarenessConfig(enabled=True, format="%Y-%m-%d")
         json_str = config.model_dump_json()
         restored = TimeAwarenessConfig.model_validate_json(json_str)
@@ -56,7 +54,7 @@ class TestConfigIntegration:
     def test_default_in_main_config(self):
         """Test that main Config has time_awareness field with defaults."""
         config = Config()
-        assert hasattr(config, 'time_awareness')
+        assert hasattr(config, "time_awareness")
         assert config.time_awareness.enabled is False
         assert config.time_awareness.format is None
 
@@ -90,12 +88,20 @@ class TestConfigIntegration:
 class TestInjectTimeAwareness:
     """Test inject_time_awareness() function."""
 
-    @patch('copaw.agents.utils.message_processing.datetime')
+    @patch("copaw.agents.utils.message_processing.datetime")
     def test_chinese_label(self, mock_datetime):
         """Test Chinese label when language is zh."""
-        fixed_time = datetime(2026, 4, 11, 14, 30, 45, tzinfo=ZoneInfo("Asia/Shanghai"))
+        fixed_time = datetime(
+            2026,
+            4,
+            11,
+            14,
+            30,
+            45,
+            tzinfo=ZoneInfo("Asia/Shanghai"),
+        )
         mock_datetime.now.return_value = fixed_time
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        mock_datetime.side_effect = datetime
 
         config = MagicMock()
         config.time_awareness = TimeAwarenessConfig(enabled=True)
@@ -109,12 +115,20 @@ class TestInjectTimeAwareness:
         assert "14:30:45" in result
         assert "Asia/Shanghai" in result
 
-    @patch('copaw.agents.utils.message_processing.datetime')
+    @patch("copaw.agents.utils.message_processing.datetime")
     def test_english_label(self, mock_datetime):
         """Test English label when language is not zh."""
-        fixed_time = datetime(2026, 4, 11, 2, 30, 45, tzinfo=ZoneInfo("America/New_York"))
+        fixed_time = datetime(
+            2026,
+            4,
+            11,
+            2,
+            30,
+            45,
+            tzinfo=ZoneInfo("America/New_York"),
+        )
         mock_datetime.now.return_value = fixed_time
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        mock_datetime.side_effect = datetime
 
         config = MagicMock()
         config.time_awareness = TimeAwarenessConfig(enabled=True)
@@ -126,18 +140,18 @@ class TestInjectTimeAwareness:
         assert "[Current time:" in result
         assert "America/New_York" in result
 
-    @patch('copaw.agents.utils.message_processing.datetime')
+    @patch("copaw.agents.utils.message_processing.datetime")
     def test_custom_format(self, mock_datetime):
         """Test custom strftime format."""
         fixed_time = datetime(2026, 4, 11, 14, 30, 45, tzinfo=ZoneInfo("UTC"))
         mock_datetime.now.return_value = fixed_time
         mock_datetime.strftime = fixed_time.strftime
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        mock_datetime.side_effect = datetime
 
         config = MagicMock()
         config.time_awareness = TimeAwarenessConfig(
             enabled=True,
-            format="%Y-%m-%d %H:%M"
+            format="%Y-%m-%d %H:%M",
         )
         config.user_timezone = "UTC"
         config.agents.language = "en"
@@ -165,12 +179,12 @@ class TestInjectTimeAwareness:
         result = inject_time_awareness(config)
         assert result is None
 
-    @patch('copaw.agents.utils.message_processing.datetime')
+    @patch("copaw.agents.utils.message_processing.datetime")
     def test_invalid_timezone_fallback(self, mock_datetime):
         """Test fallback to UTC on invalid timezone."""
         fixed_time = datetime(2026, 4, 11, 14, 30, 45, tzinfo=timezone.utc)
         mock_datetime.now.return_value = fixed_time
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        mock_datetime.side_effect = datetime
 
         config = MagicMock()
         config.time_awareness = TimeAwarenessConfig(enabled=True)
@@ -182,12 +196,12 @@ class TestInjectTimeAwareness:
         assert result is not None
         assert "UTC" in result
 
-    @patch('copaw.agents.utils.message_processing.datetime')
+    @patch("copaw.agents.utils.message_processing.datetime")
     def test_empty_timezone_fallback(self, mock_datetime):
         """Test fallback to UTC on empty timezone string."""
         fixed_time = datetime(2026, 4, 11, 14, 30, 45, tzinfo=timezone.utc)
         mock_datetime.now.return_value = fixed_time
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        mock_datetime.side_effect = datetime
 
         config = MagicMock()
         config.time_awareness = TimeAwarenessConfig(enabled=True)
@@ -198,7 +212,7 @@ class TestInjectTimeAwareness:
         assert result is not None
         assert "UTC" in result
 
-    @patch('copaw.agents.utils.message_processing.datetime')
+    @patch("copaw.agents.utils.message_processing.datetime")
     def test_multiple_timezones(self, mock_datetime):
         """Test correct conversion for multiple timezones."""
         test_cases = [
@@ -208,9 +222,17 @@ class TestInjectTimeAwareness:
         ]
 
         for tz_name in test_cases:
-            fixed_time = datetime(2026, 4, 11, 12, 0, 0, tzinfo=ZoneInfo(tz_name[0]))
+            fixed_time = datetime(
+                2026,
+                4,
+                11,
+                12,
+                0,
+                0,
+                tzinfo=ZoneInfo(tz_name[0]),
+            )
             mock_datetime.now.return_value = fixed_time
-            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+            mock_datetime.side_effect = datetime
 
             config = MagicMock()
             config.time_awareness = TimeAwarenessConfig(enabled=True)
@@ -310,14 +332,14 @@ class TestPrependToMessageContent:
 class TestPerformance:
     """Performance and edge case tests."""
 
-    @patch('copaw.agents.utils.message_processing.datetime')
+    @patch("copaw.agents.utils.message_processing.datetime")
     def test_execution_time(self, mock_datetime):
         """Test that execution completes within 1ms."""
         import time
 
         fixed_time = datetime(2026, 4, 11, 14, 30, 45, tzinfo=ZoneInfo("UTC"))
         mock_datetime.now.return_value = fixed_time
-        mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        mock_datetime.side_effect = datetime
 
         config = MagicMock()
         config.time_awareness = TimeAwarenessConfig(enabled=True)
@@ -331,7 +353,9 @@ class TestPerformance:
 
         # Average should be < 1ms per call
         avg_time_ms = elapsed / 1000
-        assert avg_time_ms < 1.0, f"Average time {avg_time_ms:.3f}ms exceeds 1ms limit"
+        assert (
+            avg_time_ms < 1.0
+        ), f"Average time {avg_time_ms:.3f}ms exceeds 1ms limit"
 
     def test_none_msg_safe_handling(self):
         """Test safe handling of None message object."""

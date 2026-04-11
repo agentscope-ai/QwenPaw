@@ -39,7 +39,8 @@ from ...agents.utils.message_processing import (
     get_last_user_message,
     prepend_to_message_content,
 )
-from ...config.config import load_config, load_agent_config
+from ...config.config import load_agent_config
+from ...config.utils import load_config
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -539,8 +540,12 @@ class AgentRunner(Runner):
 
             # Inject time awareness into user message if enabled
             try:
-                config = load_config()  # Use global config (time_awareness is defined globally)
-                if config.time_awareness.enabled:  # Global Config always has time_awareness field
+                config = (
+                    load_config()
+                )  # Use global config (time_awareness is defined globally)
+                if (
+                    config.time_awareness.enabled
+                ):  # Global Config always has time_awareness field
                     time_str = inject_time_awareness(config)
                     if time_str and msgs:
                         last_user_msg = get_last_user_message(msgs)

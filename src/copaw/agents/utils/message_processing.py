@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import Msg
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from agentscope.message import Msg
 
 from ...config import load_config
 from .file_handling import download_file_from_base64, download_file_from_url
@@ -492,13 +492,13 @@ def inject_time_awareness(config) -> Optional[str]:
     custom time formats, and graceful fallback to UTC on invalid timezone.
 
     Args:
-        config: Config object containing time_awareness and user_timezone settings.
+        config: Config object with time_awareness and user_timezone settings
 
     Returns:
-        Formatted time string like "[当前时间: 2026-04-11 14:30:45 Asia/Shanghai (Saturday)]",
-        or None if time awareness is disabled or an error occurs.
+        Formatted time string like "[当前时间: 2026-04-11 14:30:45 Asia/Shanghai]",
+        or None if disabled or error occurs.
     """
-    if not config or not getattr(config, 'time_awareness', None):
+    if not config or not getattr(config, "time_awareness", None):
         return None
 
     if not config.time_awareness.enabled:
@@ -513,15 +513,21 @@ def inject_time_awareness(config) -> Optional[str]:
     except (ZoneInfoNotFoundError, KeyError, Exception) as e:
         logger.warning(
             "Invalid timezone %r for time awareness, falling back to UTC: %s",
-            getattr(config, 'user_timezone', None),
+            getattr(config, "user_timezone", None),
             e,
         )
         now = datetime.now(timezone.utc)
         user_tz = "UTC"
 
     try:
-        language = getattr(config.agents, 'language', 'en') if hasattr(config, 'agents') else 'en'
-        is_chinese = language and language.lower().startswith('zh')  # Support zh-CN, zh-TW variants
+        language = (
+            getattr(config.agents, "language", "en")
+            if hasattr(config, "agents")
+            else "en"
+        )
+        is_chinese = language and language.lower().startswith(
+            "zh",
+        )  # Support zh-CN, zh-TW variants
 
         label = "[当前时间:" if is_chinese else "[Current time:"
 
@@ -529,15 +535,16 @@ def inject_time_awareness(config) -> Optional[str]:
             try:
                 time_str = now.strftime(config.time_awareness.format)
                 return f"{label} {time_str}]"
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError):
                 logger.warning(
-                    "Invalid strftime format %r for time awareness, using default: %s",
+                    "Invalid strftime format %r, using default",
                     config.time_awareness.format,
-                    e,
                 )
                 # Fall through to default format below
 
-        default_format = f"{now.strftime('%Y-%m-%d %H:%M:%S')} {user_tz} ({now.strftime('%A')})"
+        time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        weekday_str = now.strftime("%A")
+        default_format = f"{time_str} {user_tz} ({weekday_str})"
         return f"{label} {default_format}]"
 
     except Exception as e:
@@ -558,8 +565,7 @@ def get_last_user_message(msgs: list) -> Optional[Msg]:
         return None
 
     for msg in reversed(msgs):
-        if isinstance(msg, Msg) and getattr(msg, 'role', None) == 'user':
+        if isinstance(msg, Msg) and getattr(msg, "role", None) == "user":
             return msg
 
     return None
-

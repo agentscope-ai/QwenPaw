@@ -8,7 +8,6 @@ import {
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
-import type { TimeAwarenessConfig } from "../../../../api/modules/timeAwareness";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import styles from "../index.module.less";
 
@@ -47,7 +46,10 @@ export function TimeAwarenessCard(_props: TimeAwarenessCardProps) {
     async (checked: boolean) => {
       setSaving(true);
       try {
-        await api.updateTimeAwareness({ enabled: checked, format: format || null });
+        await api.updateTimeAwareness({
+          enabled: checked,
+          format: format || null,
+        });
         setEnabled(checked);
         message.success(
           checked
@@ -194,7 +196,10 @@ export function TimeAwarenessCard(_props: TimeAwarenessCardProps) {
               <Text strong>{t("timeAwareness.previewLabel")}</Text>
               <div className={styles.previewBox}>
                 <Text code style={{ fontSize: 13 }}>
-                  {[t("timeAwareness.previewPrefix"), ": 2026-04-11 14:30:45 Asia/Shanghai (Saturday)"].join("")}
+                  {[
+                    t("timeAwareness.previewPrefix"),
+                    ": 2026-04-11 14:30:45 Asia/Shanghai (Saturday)",
+                  ].join("")}
                 </Text>
                 <Text type="secondary" style={{ fontSize: 12, marginTop: 4 }}>
                   {t("timeAwareness.previewHint")}
@@ -206,9 +211,7 @@ export function TimeAwarenessCard(_props: TimeAwarenessCardProps) {
 
         {!enabled && (
           <div className={styles.disabledHint}>
-            <Text type="warning">
-              ⚠️ {t("timeAwareness.disabledHint")}
-            </Text>
+            <Text type="warning">⚠️ {t("timeAwareness.disabledHint")}</Text>
           </div>
         )}
       </div>

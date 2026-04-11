@@ -447,7 +447,10 @@ async def get_time_awareness() -> TimeAwarenessResponse:
     description="Enable/disable automatic time injection into user messages",
 )
 async def put_time_awareness(
-    body: TimeAwarenessUpdate = Body(..., description="Time awareness settings to update"),
+    body: TimeAwarenessUpdate = Body(
+        ...,
+        description="Time awareness settings to update",
+    ),
 ) -> TimeAwarenessResponse:
     config = load_config()
 
