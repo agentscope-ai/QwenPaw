@@ -34,7 +34,13 @@ from ...exceptions import convert_model_exception
 from ...agents.utils.file_handling import (
     read_text_file_with_encoding_fallback,
 )
+from ...agents.utils.message_processing import (
+    inject_time_awareness,
+    get_last_user_message,
+    prepend_to_message_content,
+)
 from ...config.config import load_agent_config
+from ...config.utils import load_config
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -531,6 +537,29 @@ class AgentRunner(Runner):
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
             # in the session state.
             agent.rebuild_sys_prompt()
+
+            # Inject time awareness into user message if enabled
+            try:
+                config = (
+                    load_config()
+                )  # Use global config (time_awareness is defined globally)
+                if (
+                    config.time_awareness.enabled
+                ):  # Global Config always has time_awareness field
+                    time_str = inject_time_awareness(config)
+                    if time_str and msgs:
+                        last_user_msg = get_last_user_message(msgs)
+                        if last_user_msg:
+                            prepend_to_message_content(last_user_msg, time_str)
+                            logger.debug(
+                                "Time awareness injected: %s",
+                                time_str,
+                            )
+            except Exception as e:
+                logger.warning(
+                    "Failed to inject time awareness (non-critical): %s",
+                    e,
+                )
 
             async for msg, last in stream_printing_messages(
                 agents=[agent],

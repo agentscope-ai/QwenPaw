@@ -5,15 +5,18 @@ This module handles:
 - File and media block processing
 - Message content manipulation
 - Message validation
+- Time awareness injection for prompt caching optimization
 """
 import asyncio
 import logging
 import os
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from agentscope.message import Msg
 
 from ...config import load_config
@@ -460,6 +463,9 @@ def prepend_to_message_content(msg, guidance: str) -> None:
         msg: Msg object to modify.
         guidance: Text to prepend to the message content.
     """
+    if msg is None:
+        return
+
     if isinstance(msg.content, str):
         msg.content = guidance + "\n\n" + msg.content
         return
@@ -473,3 +479,93 @@ def prepend_to_message_content(msg, guidance: str) -> None:
             return
 
     msg.content.insert(0, {"type": "text", "text": guidance})
+
+
+logger = logging.getLogger(__name__)
+
+
+def inject_time_awareness(config) -> Optional[str]:
+    """Generate time awareness string for injection into user messages.
+
+    This function creates a formatted time string based on the user's
+    timezone configuration. It supports both Chinese and English labels,
+    custom time formats, and graceful fallback to UTC on invalid timezone.
+
+    Args:
+        config: Config object with time_awareness and user_timezone settings
+
+    Returns:
+        Formatted time string like "[当前时间: 2026-04-11 14:30:45 Asia/Shanghai]",
+        or None if disabled or error occurs.
+    """
+    if not config or not getattr(config, "time_awareness", None):
+        return None
+
+    if not config.time_awareness.enabled:
+        return None
+
+    try:
+        user_tz = config.user_timezone or "UTC"
+        if not user_tz or not user_tz.strip():
+            user_tz = "UTC"
+
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError, Exception) as e:
+        logger.warning(
+            "Invalid timezone %r for time awareness, falling back to UTC: %s",
+            getattr(config, "user_timezone", None),
+            e,
+        )
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
+
+    try:
+        language = (
+            getattr(config.agents, "language", "en")
+            if hasattr(config, "agents")
+            else "en"
+        )
+        is_chinese = language and language.lower().startswith(
+            "zh",
+        )  # Support zh-CN, zh-TW variants
+
+        label = "[当前时间:" if is_chinese else "[Current time:"
+
+        if config.time_awareness.format:
+            try:
+                time_str = now.strftime(config.time_awareness.format)
+                return f"{label} {time_str}]"
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Invalid strftime format %r, using default",
+                    config.time_awareness.format,
+                )
+                # Fall through to default format below
+
+        time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        weekday_str = now.strftime("%A")
+        default_format = f"{time_str} {user_tz} ({weekday_str})"
+        return f"{label} {default_format}]"
+
+    except Exception as e:
+        logger.error("Failed to format time awareness string: %s", e)
+        return None
+
+
+def get_last_user_message(msgs: list) -> Optional[Msg]:
+    """Get the last user role message from a message list.
+
+    Args:
+        msgs: List of message objects (Msg).
+
+    Returns:
+        The last Msg object with role='user', or None if not found.
+    """
+    if not msgs:
+        return None
+
+    for msg in reversed(msgs):
+        if isinstance(msg, Msg) and getattr(msg, "role", None) == "user":
+            return msg
+
+    return None

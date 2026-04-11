@@ -6,3 +6,4 @@ export { ContextCompactCard } from "./ContextCompactCard";
 export { ToolResultCompactCard } from "./ToolResultCompactCard";
 export { MemorySummaryCard } from "./MemorySummaryCard";
 export { EmbeddingConfigCard } from "./EmbeddingConfigCard";
+export { TimeAwarenessCard } from "./TimeAwarenessCard";

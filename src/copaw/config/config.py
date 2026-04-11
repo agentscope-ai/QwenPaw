@@ -1120,6 +1120,36 @@ class SecurityConfig(BaseModel):
     )
 
 
+class TimeAwarenessConfig(BaseModel):
+    """Configuration for automatic time injection into user messages.
+
+    When enabled, the system automatically prepends the current time
+    to user messages before sending them to the LLM. This allows AI
+    to be time-aware without explicit tool calls, and supports
+    prompt caching by using a predictable prefix format.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Whether to enable automatic time awareness. "
+            "When True, current time is injected before each user message. "
+            "Default is False for backward compatibility."
+        ),
+    )
+    format: Optional[str] = Field(
+        default=None,
+        description=(
+            "Custom strftime format string for time display. "
+            "If None, uses default format: "
+            "'%%Y-%%m-%%d %%H:%%M:%%S {tz} ({weekday})'. "
+            "Example: '%%Y-%%m-%%d %%H:%%M' for compact format"
+        ),
+    )
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -1135,6 +1165,10 @@ class Config(BaseModel):
         default_factory=detect_system_timezone,
         description="User IANA timezone (e.g. Asia/Shanghai). "
         "Defaults to the system timezone.",
+    )
+    time_awareness: TimeAwarenessConfig = Field(
+        default_factory=TimeAwarenessConfig,
+        description="Time awareness settings for automatic time injection.",
     )
     plugins: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict,
