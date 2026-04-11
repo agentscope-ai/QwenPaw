@@ -1143,8 +1143,9 @@ class TimeAwarenessConfig(BaseModel):
         default=None,
         description=(
             "Custom strftime format string for time display. "
-            "If None, uses default format: '%%Y-%%m-%%d %%H:%%M:%%S {tz} ({weekday})'. "
-            "Example: '%%Y-%%m-%%d %%H:%%M' for compact format."
+            "If None, uses default format: "
+            "'%%Y-%%m-%%d %%H:%%M:%%S {tz} ({weekday})'. "
+            "Example: '%%Y-%%m-%%d %%H:%%M' for compact format"
         ),
     )
 
