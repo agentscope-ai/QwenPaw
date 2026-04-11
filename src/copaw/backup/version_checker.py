@@ -132,16 +132,15 @@ def check_compatibility(
             message=f"Migration required: {' -> '.join(migration_path)}",
         )
 
+    s, t = source.major, target.major
+    msg = f"Missing migration path from v{s} to v{t}"
     return CompatibilityResult(
         level=CompatibilityLevel.INCOMPATIBLE,
         source_version=source,
         target_version=target,
         migration_needed=False,
         migration_path=[],
-        message=(
-            "Missing migration path from"
-            f" v{source.major} to v{target.major}"
-        ),
+        message=msg,
     )
 
 
@@ -216,7 +215,8 @@ class VersionChecker:
 
     @staticmethod
     def get_migration_path(
-        source: VersionInfo, target: VersionInfo,
+        source: VersionInfo,
+        target: VersionInfo,
     ) -> list[str]:
         return get_migration_path(source, target)
 
@@ -278,10 +278,8 @@ def validate_package(zip_path: Path) -> dict:
                 # Verify referenced paths exist
                 for entry in manifest.assets:
                     if entry.relative_path not in names:
-                        zip_issues.append(
-                            "Missing file:"
-                            f" {entry.relative_path}"
-                        )
+                        rp = entry.relative_path
+                        zip_issues.append(f"Missing file: {rp}")
             except (json.JSONDecodeError, Exception) as exc:
                 manifest_issues.append(f"Invalid manifest.json: {exc}")
 
