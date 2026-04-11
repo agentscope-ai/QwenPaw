@@ -36,7 +36,7 @@ description: "在进行任何创意工作 - 创建功能、构建组件、添加
 ## 设计完成后
 
 **文档化：**
-- 将通过验证的设计写入 `工作区目录/design_docs/YYYY-MM-DD-<topic>-design.md`。
+将通过验证的设计写入 工作区目录/design_docs/YYYY-MM-DD-<topic>-design.md（如果目录不存在请先创建,或使用用户指定目录）。
 - 使用清晰简洁的写作技巧。
 
 **实施（如果继续）：**
