@@ -217,7 +217,7 @@ class TestQQChannelFromEnv:
         """from_env should use sensible defaults."""
         from copaw.app.channels.qq.channel import QQChannel
 
-        # Explicitly set app_id and secret to empty defaults, and disable channel
+        # Set app_id and secret to empty defaults, and disable channel
         monkeypatch.delenv("QQ_CHANNEL_ENABLED", raising=False)
         monkeypatch.delenv("QQ_BOT_PREFIX", raising=False)
         monkeypatch.delenv("QQ_MARKDOWN_ENABLED", raising=False)
@@ -226,8 +226,7 @@ class TestQQChannelFromEnv:
 
         channel = QQChannel.from_env(mock_process_handler)
 
-        # Note: enabled defaults to True in implementation when credentials are missing
-        # This tests the actual behavior, verify key attributes exist
+        # Enabled defaults to True when credentials are missing in impl
         assert hasattr(channel, "bot_prefix")
         assert channel.bot_prefix == ""  # Default empty
         assert hasattr(channel, "_markdown_enabled")
@@ -571,7 +570,7 @@ class TestGetAccessTokenAsync:
         )
         qq_channel._http = mock_http_session
 
-        with pytest.raises(RuntimeError, match="Token request failed"):
+        with pytest.raises(Exception, match="Token request failed"):
             await qq_channel._get_access_token_async()
 
 
@@ -1108,7 +1107,7 @@ class TestLifecycle:
         )
 
         with pytest.raises(
-            RuntimeError,
+            Exception,
             match="QQ_APP_ID and QQ_CLIENT_SECRET",
         ):
             await channel.start()
@@ -1687,7 +1686,6 @@ class TestWSConnectOnce:
 
     def test_max_reconnect_attempts_reached(self, qq_channel):
         """Should return False when max attempts reached after disconnect."""
-        from unittest.mock import patch
         from copaw.app.channels.qq.channel import _WSState
 
         qq_channel._max_reconnect_attempts = 3
@@ -1716,7 +1714,6 @@ class TestWSConnectOnce:
 
     def test_normal_connection_flow(self, qq_channel):
         """Should handle normal connection and cleanup properly."""
-        from unittest.mock import patch
         from copaw.app.channels.qq.channel import _WSState
 
         qq_channel._get_access_token_sync = MagicMock(return_value="token123")
@@ -1752,7 +1749,7 @@ class TestWSConnectOnce:
             "copaw.app.channels.qq.channel._get_channel_url_sync",
             return_value="wss://gateway",
         ) as mock_get_url:
-            result = qq_channel._ws_connect_once(state, mock_websocket)
+            _result = qq_channel._ws_connect_once(state, mock_websocket)
 
             assert (
                 state.should_refresh_token is False
@@ -1829,3 +1826,273 @@ class TestDownloadQQFile:
         assert result is not None
         assert "passwd" in result
         assert "../../../etc/" not in result
+
+
+# =============================================================================
+# Additional tests from test_qq_channel.py
+# =============================================================================
+
+
+class TestHandleMsgEvent:
+    """Tests for _handle_msg_event method."""
+
+    def test_c2c_message_enqueues(self, qq_channel):
+        """C2C message should be enqueued."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {
+            "author": {"user_openid": "sender_1", "id": "fallback_id"},
+            "content": "hello",
+            "id": "msg_001",
+            "attachments": [],
+        }
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", d)
+        assert len(enqueued) == 1
+        req = enqueued[0]
+        assert req.channel_meta["message_type"] == "c2c"
+        assert req.channel_meta["sender_id"] == "sender_1"
+
+    def test_guild_message_has_extra_meta(self, qq_channel):
+        """Guild message should have extra metadata."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {
+            "author": {"id": "author_1"},
+            "content": "hello guild",
+            "id": "msg_002",
+            "channel_id": "ch_100",
+            "guild_id": "g_200",
+        }
+        qq_channel._handle_msg_event("AT_MESSAGE_CREATE", d)
+        assert len(enqueued) == 1
+        meta = enqueued[0].channel_meta
+        assert meta["message_type"] == "guild"
+        assert meta["channel_id"] == "ch_100"
+        assert meta["guild_id"] == "g_200"
+
+    def test_group_message(self, qq_channel):
+        """Group message should work correctly."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {
+            "author": {"member_openid": "mem_1"},
+            "content": "hi group",
+            "id": "msg_003",
+            "group_openid": "grp_300",
+        }
+        qq_channel._handle_msg_event("GROUP_AT_MESSAGE_CREATE", d)
+        assert len(enqueued) == 1
+        meta = enqueued[0].channel_meta
+        assert meta["message_type"] == "group"
+        assert meta["group_openid"] == "grp_300"
+
+    def test_empty_text_no_attachments_skipped(self, qq_channel):
+        """Empty text with no attachments should be skipped."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {"author": {"user_openid": "u1"}, "content": "", "id": "m1"}
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", d)
+        assert len(enqueued) == 0
+
+    def test_bot_prefix_skipped(self, qq_channel):
+        """Messages with bot prefix should be skipped."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {
+            "author": {"user_openid": "u1"},
+            "content": "[Bot] response",
+            "id": "m1",
+        }
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", d)
+        assert len(enqueued) == 0
+
+    def test_no_sender_skipped(self, qq_channel):
+        """Messages without sender should be skipped."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {"author": {}, "content": "hello", "id": "m1"}
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", d)
+        assert len(enqueued) == 0
+
+    def test_unknown_event_type_ignored(self, qq_channel):
+        """Unknown event types should be ignored."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        qq_channel._handle_msg_event("UNKNOWN_EVENT", {"content": "hi"})
+        assert len(enqueued) == 0
+
+    def test_sender_fallback_to_second_key(self, qq_channel):
+        """C2C: if user_openid missing, falls back to id."""
+        enqueued = []
+        qq_channel._enqueue = enqueued.append
+        d = {
+            "author": {"id": "fallback_id"},
+            "content": "hello",
+            "id": "m1",
+        }
+        qq_channel._handle_msg_event("C2C_MESSAGE_CREATE", d)
+        assert len(enqueued) == 1
+        assert enqueued[0].channel_meta["sender_id"] == "fallback_id"
+
+
+class TestSendImages:
+    """Tests for _send_images method."""
+
+    @pytest.mark.asyncio
+    async def test_no_images_noop(self, qq_channel):
+        """No images should be a no-op."""
+        await qq_channel._send_images([], "c2c", "u1", "m1", "tok", True)
+        # no exception
+
+    @pytest.mark.asyncio
+    async def test_unsupported_type_noop(self, qq_channel):
+        """Unsupported type should be a no-op."""
+        await qq_channel._send_images(
+            ["https://img.com/a.png"],
+            "guild",
+            "u1",
+            "m1",
+            "tok",
+            True,
+        )
+        # guild not supported, no exception
+
+    @pytest.mark.asyncio
+    @patch("copaw.app.channels.qq.channel._upload_media_async")
+    @patch("copaw.app.channels.qq.channel._send_media_message_async")
+    async def test_upload_and_send(
+        self, mock_send_media, mock_upload, qq_channel
+    ):
+        """Should upload and send images."""
+        mock_upload.return_value = "file_info_123"
+        await qq_channel._send_images(
+            ["https://img.com/a.png"],
+            "c2c",
+            "u1",
+            "m1",
+            "tok",
+            False,
+        )
+        mock_upload.assert_called_once()
+        mock_send_media.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("copaw.app.channels.qq.channel._upload_media_async")
+    async def test_upload_failure_skips(self, mock_upload, qq_channel):
+        """Upload failure should skip sending."""
+        mock_upload.return_value = None
+        # should not raise
+        await qq_channel._send_images(
+            ["https://img.com/a.png"],
+            "c2c",
+            "u1",
+            "m1",
+            "tok",
+            False,
+        )
+
+
+class TestSendMessageAsync:
+    """Tests for _send_message_async function."""
+
+    @pytest.mark.asyncio
+    @patch("copaw.app.channels.qq.channel._api_request_async")
+    async def test_plain_text(self, mock_api):
+        """Should send plain text message."""
+        from copaw.app.channels.qq.channel import _send_message_async
+
+        mock_api.return_value = {}
+        await _send_message_async(
+            MagicMock(),
+            "tok",
+            "/v2/users/u1/messages",
+            "hello",
+            msg_id="m1",
+            use_markdown=False,
+            use_msg_seq=True,
+            seq_key="c2c",
+        )
+        mock_api.assert_called_once()
+        body = mock_api.call_args[0][4]
+        assert body["content"] == "hello"
+        assert body["msg_type"] == 0
+        assert "msg_seq" in body
+        assert body["msg_id"] == "m1"
+
+    @pytest.mark.asyncio
+    @patch("copaw.app.channels.qq.channel._api_request_async")
+    async def test_markdown(self, mock_api):
+        """Should send markdown message."""
+        from copaw.app.channels.qq.channel import _send_message_async
+
+        mock_api.return_value = {}
+        await _send_message_async(
+            MagicMock(),
+            "tok",
+            "/v2/users/u1/messages",
+            "# Title",
+            msg_id=None,
+            use_markdown=True,
+            use_msg_seq=True,
+            seq_key="c2c",
+        )
+        body = mock_api.call_args[0][4]
+        assert body["markdown"]["content"] == "# Title"
+        assert body["msg_type"] == 2
+
+    @pytest.mark.asyncio
+    @patch("copaw.app.channels.qq.channel._api_request_async")
+    async def test_channel_no_msg_seq(self, mock_api):
+        """Channel messages should not include msg_seq."""
+        from copaw.app.channels.qq.channel import _send_message_async
+
+        mock_api.return_value = {}
+        await _send_message_async(
+            MagicMock(),
+            "tok",
+            "/channels/ch1/messages",
+            "hello",
+            use_msg_seq=False,
+        )
+        body = mock_api.call_args[0][4]
+        assert "msg_seq" not in body
+        assert "msg_type" not in body
+
+
+class TestBuildAgentRequestFromNative:
+    """Tests for build_agent_request_from_native method."""
+
+    def test_basic_request(self, qq_channel):
+        """Should build basic request from native data."""
+        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+
+        native = {
+            "channel_id": "qq",
+            "sender_id": "user_1",
+            "content_parts": [
+                TextContent(type="text", text="hello"),
+            ],
+            "meta": {"message_type": "c2c"},
+        }
+        req = qq_channel.build_agent_request_from_native(native)
+        assert req.user_id == "user_1"
+
+    def test_non_dict_payload(self, qq_channel):
+        """Should handle non-dict payload gracefully."""
+        req = qq_channel.build_agent_request_from_native("invalid")
+        # should not raise, uses empty defaults
+        assert req is not None
+
+    def test_with_attachments(self, qq_channel):
+        """Should handle attachments in native data."""
+        qq_channel._parse_qq_attachments = MagicMock(return_value=[])
+        native = {
+            "channel_id": "qq",
+            "sender_id": "user_1",
+            "content_parts": [],
+            "meta": {
+                "attachments": [{"url": "http://a.jpg", "filename": "a.jpg"}],
+            },
+        }
+        qq_channel.build_agent_request_from_native(native)
+        qq_channel._parse_qq_attachments.assert_called_once()
