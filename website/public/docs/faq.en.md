@@ -109,6 +109,8 @@ docker run -p 127.0.0.1:8088:8088 \
 
 After upgrading, restart the service with `qwenpaw app`.
 
+If you previously used CoPaw, upgrading to QwenPaw only requires downloading the latest QwenPaw. No extra migration is needed; your configuration, memory, skills, and other data from the CoPaw era continue to work.
+
 ### How to initialize and start QwenPaw service
 
 Recommended quick initialization:

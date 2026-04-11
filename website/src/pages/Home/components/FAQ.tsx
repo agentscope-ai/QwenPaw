@@ -117,6 +117,7 @@ export function FAQ() {
                   </ul>
                 </li>
               </ul>
+              <p className="mt-2">{t("homeFaq.quickStart.update.p2")}</p>
             </>
           ),
         },
