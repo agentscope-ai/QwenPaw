@@ -98,7 +98,9 @@ async def export_assets(
     body: dict = Body(
         ...,
         description=(
-            '{"workspace_dir": "...", "types": [...], "output_path": "..."}'
+            '{"workspace_dir": "...",'
+            ' "types": [...],'
+            ' "output_path": "..."}'
         ),
     ),
 ) -> dict:
@@ -118,13 +120,13 @@ async def export_assets(
     types_list = asset_types or []
     options = ExportOptions(
         workspace_dir=workspace_dir,
-        include_preferences=include_all
-        or AssetType.PREFERENCES in types_list,
+        include_preferences=include_all or AssetType.PREFERENCES in types_list,
         include_memories=include_all or AssetType.MEMORIES in types_list,
         include_skills=include_all or AssetType.SKILLS in types_list,
         include_tools=include_all or AssetType.TOOLS in types_list,
-        include_global_config=include_all
-        or AssetType.GLOBAL_CONFIG in types_list,
+        include_global_config=(
+            include_all or AssetType.GLOBAL_CONFIG in types_list
+        ),
         output_path=Path(output_path).expanduser() if output_path else None,
     )
 

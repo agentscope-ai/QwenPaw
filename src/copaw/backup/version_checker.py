@@ -60,8 +60,12 @@ def parse_version(version_str: str) -> VersionInfo:
     )
 
 
-def check_compatibility(manifest: AssetManifest) -> CompatibilityResult:
-    """Check version compatibility between an asset manifest and the current system.
+def check_compatibility(
+    manifest: AssetManifest,
+) -> CompatibilityResult:
+    """Check version compatibility.
+
+    Compares an asset manifest against the current system.
 
     Returns a :class:`CompatibilityResult` describing the compatibility level,
     whether migration is needed, and the migration path (if any).
@@ -135,14 +139,13 @@ def check_compatibility(manifest: AssetManifest) -> CompatibilityResult:
         migration_needed=False,
         migration_path=[],
         message=(
-            f"Missing migration path from v{source.major} to v{target.major}"
+            "Missing migration path from"
+            f" v{source.major} to v{target.major}"
         ),
     )
 
 
-def get_migration_path(
-    source: VersionInfo, target: VersionInfo
-) -> list[str]:
+def get_migration_path(source: VersionInfo, target: VersionInfo) -> list[str]:
     """Calculate the chain migration path from *source* to *target*.
 
     Returns a list like ``["v1 -> v2", "v2 -> v3"]``.
@@ -213,7 +216,7 @@ class VersionChecker:
 
     @staticmethod
     def get_migration_path(
-        source: VersionInfo, target: VersionInfo
+        source: VersionInfo, target: VersionInfo,
     ) -> list[str]:
         return get_migration_path(source, target)
 
@@ -276,7 +279,8 @@ def validate_package(zip_path: Path) -> dict:
                 for entry in manifest.assets:
                     if entry.relative_path not in names:
                         zip_issues.append(
-                            f"Missing file: {entry.relative_path}"
+                            "Missing file:"
+                            f" {entry.relative_path}"
                         )
             except (json.JSONDecodeError, Exception) as exc:
                 manifest_issues.append(f"Invalid manifest.json: {exc}")
