@@ -10,6 +10,10 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
+
 from ...agents.model_factory import create_model_and_formatter
 
 
@@ -25,7 +29,7 @@ def get_model():
     try:
         model, _ = create_model_and_formatter()
         return model
-    except Exception as e:
+    except (ValueError, AppBaseException) as e:
         logger.warning("Failed to get model: %s", e)
         return None
 

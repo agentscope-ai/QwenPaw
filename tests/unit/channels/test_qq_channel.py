@@ -14,6 +14,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
 )
 
+from copaw.exceptions import ChannelError
 from copaw.app.channels.qq.channel import (
     QQApiError,
     QQChannel,
@@ -1018,7 +1019,7 @@ class TestLifecycle:
 
     async def test_start_missing_credentials(self):
         ch = _make_channel(app_id="", client_secret="")
-        with pytest.raises(RuntimeError, match="QQ_APP_ID"):
+        with pytest.raises(ChannelError, match="QQ_APP_ID"):
             await ch.start()
 
     async def test_stop_disabled_noop(self):

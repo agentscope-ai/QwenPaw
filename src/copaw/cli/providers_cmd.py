@@ -8,6 +8,10 @@ from typing import Optional
 
 import click
 
+from agentscope_runtime.engine.schemas.exception import (
+    AppBaseException,
+)
+
 from ..providers.provider import ModelInfo, Provider, ProviderInfo
 from ..providers.provider_manager import ProviderManager
 from .utils import prompt_choice
@@ -281,7 +285,7 @@ def _add_models_interactive(provider_id: str) -> None:
                 all_models.append(ModelInfo(id=model_id, name=model_name))
             else:
                 click.echo(click.style(f"Error: {msg}", fg="red"))
-        except ValueError as exc:
+        except (ValueError, AppBaseException) as exc:
             click.echo(click.style(f"Error: {exc}", fg="red"))
 
 
@@ -415,7 +419,7 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
         return
     try:
         asyncio.run(manager.activate_model(pid, model))
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         if use_defaults:
             click.echo(
                 f"Skip default activation for {defn.name}: {exc}",
@@ -573,7 +577,7 @@ def add_provider_cmd(
                 ),
             ),
         )
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
     click.echo(
@@ -614,7 +618,7 @@ def remove_provider_cmd(provider_id: str, yes: bool) -> None:
         ok = manager.remove_custom_provider(provider_id)
         if not ok:
             raise ValueError(f"Custom provider '{provider_id}' not found.")
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
     click.echo(f"✓ Custom provider '{provider_id}' deleted.")
@@ -646,7 +650,7 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
             provider.add_model(ModelInfo(id=model_id, name=model_name)),
         )
         _save_provider(manager, provider_id)
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
     click.echo(
@@ -681,7 +685,7 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
             click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
         else:
             click.echo(click.style(f"Error: {msg}", fg="red"))
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
 
@@ -801,7 +805,7 @@ def remove_local_cmd(model_id: str, yes: bool) -> None:
             return
     try:
         local_model_manager.remove_downloaded_model(model_id)
-    except ValueError as exc:
+    except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
     click.echo(f"Done! Model '{model_id}' deleted.")

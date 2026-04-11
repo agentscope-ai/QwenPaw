@@ -1,3 +1,15 @@
+.localAdvancedConfigFieldRow {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.localAdvancedConfigLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
 /* ---- Page Layout ---- */
 .settingsPage {
   height: 100%;
@@ -401,6 +413,9 @@
 
 .jsonEditorContainer {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   border: 1px solid #d9d9d9;
   border-radius: 8px;
   overflow: hidden;
@@ -412,6 +427,24 @@
   &:focus-within {
     border-color: #ff7f16;
     box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.12);
+  }
+}
+
+.jsonEditorSpacing {
+  margin-top: 8px;
+}
+
+.jsonEditorCompact {
+  .jsonEditorHighlight,
+  .jsonEditorTextarea {
+    min-height: 100px;
+  }
+}
+
+.jsonEditorExpanded {
+  .jsonEditorHighlight,
+  .jsonEditorTextarea {
+    min-height: 140px;
   }
 }
 
@@ -758,6 +791,70 @@
   font-size: 12px;
   font-family: "SF Mono", "Menlo", monospace;
   line-height: 1.5;
+}
+
+.localAdvancedConfigSection {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.localAdvancedConfigHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.localAdvancedConfigFields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.localAdvancedConfigField {
+  display: flex;
+  flex-direction: column;
+}
+
+.localAdvancedConfigLabel {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.localAdvancedConfigHint {
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.localAdvancedConfigError {
+  margin-top: 6px;
+  color: #dc2626;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.localAdvancedConfigInput {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.localAdvancedConfigChevronOpen,
+.localAdvancedConfigChevronClosed {
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.localAdvancedConfigChevronOpen {
+  transform: rotate(0deg);
+}
+
+.localAdvancedConfigChevronClosed {
+  transform: rotate(-90deg);
 }
 
 .localSectionNotice {

@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional
 
+from agentscope_runtime.engine.schemas.exception import ConfigurationException
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -79,9 +80,11 @@ class ScheduleSpec(BaseModel):
             return f"0 0 {dom} {month} {_crontab_dow_to_name(dow)}"
 
         # 6 fields (seconds) or too short: reject
-        raise ValueError(
-            "cron must have 5 fields "
-            "(or 4/3 fields that can be normalized); seconds not supported.",
+        raise ConfigurationException(
+            message=(
+                "cron must have 5 fields (or 4/3 fields that can be "
+                "normalized); seconds not supported"
+            ),
         )
 
 
@@ -138,10 +141,14 @@ class CronJobSpec(BaseModel):
     def _validate_task_type_fields(self) -> "CronJobSpec":
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
-                raise ValueError("task_type is text but text is empty")
+                raise ConfigurationException(
+                    message="task_type is text but text is empty",
+                )
         elif self.task_type == "agent":
             if self.request is None:
-                raise ValueError("task_type is agent but request is missing")
+                raise ConfigurationException(
+                    message="task_type is agent but request is missing",
+                )
             # Keep request.user_id and request.session_id in sync with target
             target = self.dispatch.target
             self.request = self.request.model_copy(

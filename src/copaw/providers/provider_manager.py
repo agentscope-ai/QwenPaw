@@ -12,19 +12,29 @@ import json
 from pydantic import BaseModel
 
 from agentscope.model import ChatModelBase
+from agentscope_runtime.engine.schemas.exception import (
+    ModelNotFoundException,
+)
 
-from copaw.providers.provider import (
+from ..constant import SECRET_DIR
+from ..exceptions import ProviderError
+from .anthropic_provider import AnthropicProvider
+from .gemini_provider import GeminiProvider
+from .models import ModelSlotConfig
+from .ollama_provider import OllamaProvider
+from .openai_provider import OpenAIProvider
+from .provider import (
     ModelInfo,
     Provider,
     ProviderInfo,
 )
-from copaw.providers.models import ModelSlotConfig
-from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.anthropic_provider import AnthropicProvider
-from copaw.providers.gemini_provider import GeminiProvider
-from copaw.providers.ollama_provider import OllamaProvider
-from copaw.providers.openrouter_provider import OpenRouterProvider
-from copaw.constant import SECRET_DIR
+from .openrouter_provider import OpenRouterProvider
+from ..security.secret_store import (
+    PROVIDER_SECRET_FIELDS,
+    decrypt_dict_fields,
+    encrypt_dict_fields,
+    is_encrypted,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -547,6 +557,8 @@ PROVIDER_MINIMAX = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
 )
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
@@ -638,6 +650,28 @@ PROVIDER_LMSTUDIO = OpenAIProvider(
     generate_kwargs={"max_tokens": None},
 )
 
+PROVIDER_SILICONFLOW_CN = OpenAIProvider(
+    id="siliconflow-cn",
+    name="SiliconFlow (China)",
+    base_url="https://api.siliconflow.cn/v1",
+    api_key_prefix="sk-",
+    models=[],
+    freeze_url=True,
+    support_model_discovery=True,
+    require_api_key=True,
+)
+
+PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
+    id="siliconflow-intl",
+    name="SiliconFlow (International)",
+    base_url="https://api.siliconflow.com/v1",
+    api_key_prefix="sk-",
+    models=[],
+    freeze_url=True,
+    support_model_discovery=True,
+    require_api_key=True,
+)
+
 
 class ActiveModelsInfo(BaseModel):
     active_llm: ModelSlotConfig | None
@@ -654,10 +688,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # any necessary state (e.g., cached models).
         self.builtin_providers: Dict[str, Provider] = {}
         self.custom_providers: Dict[str, Provider] = {}
+        self.plugin_providers: Dict[str, Dict] = {}  # Plugin providers
         self.active_model: ModelSlotConfig | None = None
         self.root_path = SECRET_DIR / "providers"
         self.builtin_path = self.root_path / "builtin"
         self.custom_path = self.root_path / "custom"
+        self.plugin_path = self.root_path / "plugin"  # Plugin provider configs
         self._prepare_disk_storage()
         self._init_builtins()
         try:
@@ -669,7 +705,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
     def _prepare_disk_storage(self):
         """Prepare directory structure"""
-        for path in [self.root_path, self.builtin_path, self.custom_path]:
+        for path in [
+            self.root_path,
+            self.builtin_path,
+            self.custom_path,
+            self.plugin_path,
+        ]:
             path.mkdir(parents=True, exist_ok=True)
             try:
                 os.chmod(path, 0o700)  # Restrict permissions for security
@@ -697,23 +738,42 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
         self._add_builtin(PROVIDER_ZHIPU_INTL)
         self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
+        self._add_builtin(PROVIDER_SILICONFLOW_CN)
+        self._add_builtin(PROVIDER_SILICONFLOW_INTL)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
 
     async def list_provider_info(self) -> List[ProviderInfo]:
-        tasks = [
-            provider.get_info() for provider in self.builtin_providers.values()
-        ]
-        tasks += [
-            provider.get_info() for provider in self.custom_providers.values()
-        ]
+        tasks = [provider.get_info() for provider in self.builtin_providers.values()]
+        tasks += [provider.get_info() for provider in self.custom_providers.values()]
+        # Add plugin providers - directly return their ProviderInfo
+        for plugin_provider in self.plugin_providers.values():
+            provider_info = plugin_provider["info"]
+            # Plugin providers store ProviderInfo directly, no need to
+            # instantiate
+            tasks.append(self._get_plugin_provider_info(provider_info))
+
         provider_infos = await asyncio.gather(*tasks)
         return list(provider_infos)
+
+    async def _get_plugin_provider_info(
+        self,
+        provider_info: ProviderInfo,
+    ) -> ProviderInfo:
+        """Helper to return plugin provider info as async task."""
+        return provider_info
 
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
+        # Check plugin providers first
+        if provider_id in self.plugin_providers:
+            plugin_provider = self.plugin_providers[provider_id]
+            provider_info = plugin_provider["info"]
+            provider_class = plugin_provider["class"]
+            # Instantiate with **dict unpacking for Pydantic BaseModel
+            return provider_class(**provider_info.model_dump())
         if provider_id in self.builtin_providers:
             return self.builtin_providers[provider_id]
         if provider_id in self.custom_providers:
@@ -737,10 +797,21 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         if not provider:
             return False
         provider.update_config(config)
-        self._save_provider(
-            provider,
-            is_builtin=provider_id in self.builtin_providers,
-        )
+
+        # Determine save location
+        is_builtin = provider_id in self.builtin_providers
+        is_plugin = provider_id in self.plugin_providers
+
+        if is_plugin:
+            # Update plugin provider info in memory (convert Provider to
+            # ProviderInfo)
+            provider_info = ProviderInfo(**provider.model_dump())
+            self.plugin_providers[provider_id]["info"] = provider_info
+            # Save to plugin path (separate from builtin)
+            self._save_plugin_provider(provider)
+        else:
+            self._save_provider(provider, is_builtin=is_builtin)
+
         return True
 
     def start_local_model_resume(self, local_manager) -> None:
@@ -840,10 +911,13 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # agent creates chat model instances.
         provider = self.get_provider(provider_id)
         if not provider:
-            raise ValueError(f"Provider '{provider_id}' not found.")
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         if not provider.has_model(model_id):
-            raise ValueError(
-                f"Model '{model_id}' not found in provider '{provider_id}'.",
+            raise ModelNotFoundException(
+                model_name=f"{provider_id}/{model_id}",
+                details={"provider_id": provider_id, "model_id": model_id},
             )
         self.active_model = ModelSlotConfig(
             provider_id=provider_id,
@@ -889,7 +963,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     ) -> ProviderInfo:
         provider = self.get_provider(provider_id)
         if not provider:
-            raise ValueError(f"Provider '{provider_id}' not found.")
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         await provider.add_model(model_info)
         self._save_provider(
             provider,
@@ -906,10 +982,13 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """Update per-model configuration and persist to disk."""
         provider = self.get_provider(provider_id)
         if not provider:
-            raise ValueError(f"Provider '{provider_id}' not found.")
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         if not provider.update_model_config(model_id, config):
-            raise ValueError(
-                f"Model '{model_id}' not found in provider '{provider_id}'.",
+            raise ModelNotFoundException(
+                model_name=f"{provider_id}/{model_id}",
+                details={"provider_id": provider_id, "model_id": model_id},
             )
         self._save_provider(
             provider,
@@ -924,7 +1003,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     ) -> ProviderInfo:
         provider = self.get_provider(provider_id)
         if not provider:
-            raise ValueError(f"Provider '{provider_id}' not found.")
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
         await provider.delete_model(model_id=model_id)
         self._save_provider(
             provider,
@@ -997,11 +1078,28 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         is_builtin: bool = False,
         skip_if_exists: bool = False,
     ):
-        """Save a provider configuration to disk."""
+        """Save a provider configuration to disk.
+
+        Sensitive fields (``api_key``) are encrypted before writing.
+        """
         provider_dir = self.builtin_path if is_builtin else self.custom_path
         provider_path = provider_dir / f"{provider.id}.json"
         if skip_if_exists and provider_path.exists():
             return
+        data = encrypt_dict_fields(
+            provider.model_dump(),
+            PROVIDER_SECRET_FIELDS,
+        )
+        with open(provider_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        try:
+            os.chmod(provider_path, 0o600)
+        except OSError:
+            pass
+
+    def _save_plugin_provider(self, provider: Provider):
+        """Save a plugin provider configuration to disk."""
+        provider_path = self.plugin_path / f"{provider.id}.json"
         with open(provider_path, "w", encoding="utf-8") as f:
             json.dump(provider.model_dump(), f, ensure_ascii=False, indent=2)
         try:
@@ -1014,7 +1112,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id: str,
         is_builtin: bool = False,
     ) -> Provider | None:
-        """Load a provider configuration from disk."""
+        """Load a provider configuration from disk.
+
+        Encrypted fields are transparently decrypted.  If a legacy
+        plaintext ``api_key`` is detected it is re-encrypted in place.
+        """
         provider_dir = self.builtin_path if is_builtin else self.custom_path
         provider_path = provider_dir / f"{provider_id}.json"
         if not provider_path.exists():
@@ -1022,7 +1124,29 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         try:
             with open(provider_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return self._provider_from_data(data)
+
+            needs_rewrite = self._maybe_migrate_plaintext(
+                data,
+                PROVIDER_SECRET_FIELDS,
+            )
+            data = decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
+            provider = self._provider_from_data(data)
+
+            if needs_rewrite:
+                try:
+                    self._save_provider(
+                        provider,
+                        is_builtin=is_builtin,
+                        skip_if_exists=False,
+                    )
+                except Exception as enc_err:
+                    logger.debug(
+                        "Deferred plaintext→encrypted migration for provider '%s': %s",
+                        provider_id,
+                        enc_err,
+                    )
+
+            return provider
         except Exception as e:
             logger.warning(
                 "Failed to load provider '%s' from %s: %s",
@@ -1031,6 +1155,19 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 e,
             )
             return None
+
+    @staticmethod
+    def _maybe_migrate_plaintext(
+        data: dict,
+        secret_fields: frozenset[str],
+    ) -> bool:
+        """Return ``True`` when *data* contains plaintext secret fields
+        that should be re-encrypted on disk."""
+        for field in secret_fields:
+            value = data.get(field)
+            if isinstance(value, str) and value and not is_encrypted(value):
+                return True
+        return False
 
     def _provider_from_data(self, data: Dict) -> Provider:
         """Deserialize provider data to a concrete provider type."""
@@ -1070,10 +1207,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """
         if self.active_model is None:
             return False
-        if (
-            provider_id is not None
-            and self.active_model.provider_id != provider_id
-        ):
+        if provider_id is not None and self.active_model.provider_id != provider_id:
             return False
 
         self.active_model = None
@@ -1137,8 +1271,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "models" in data:
                     # migrate models to extra_models field
                     custom_provider.extra_models = [
-                        ModelInfo.model_validate(model)
-                        for model in data["models"]
+                        ModelInfo.model_validate(model) for model in data["models"]
                     ]
                 if "chat_model" in data:
                     custom_provider.chat_model = data["chat_model"]
@@ -1183,9 +1316,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if stored_model_kwargs:
                     for model in builtin.models:
                         if model.id in stored_model_kwargs:
-                            model.generate_kwargs = stored_model_kwargs[
-                                model.id
-                            ]
+                            model.generate_kwargs = stored_model_kwargs[model.id]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)
@@ -1214,10 +1345,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     continue
 
                 # Static annotations present → compute derived flag only
-                if (
-                    model.supports_image is not None
-                    or model.supports_video is not None
-                ):
+                if model.supports_image is not None or model.supports_video is not None:
                     model.supports_multimodal = bool(
                         model.supports_image or model.supports_video,
                     )
@@ -1243,21 +1371,19 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because llama.cpp is not "
-                "installed.",
+                "Skipping local model restore because llama.cpp is not installed.",
             )
             return
 
         if not local_manager.is_model_downloaded(model_id):
             logger.warning(
-                "Skipping local model restore because model is not "
-                "downloaded: %s",
+                "Skipping local model restore because model is not downloaded: %s",
                 model_id,
             )
             return
 
         try:
-            port = await local_manager.setup_server(model_id)
+            setup_result = await local_manager.setup_server(model_id)
         except (FileNotFoundError, RuntimeError, ValueError) as exc:
             logger.warning(
                 "Failed to restore local model server for %s: %s",
@@ -1269,9 +1395,86 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self.update_provider(
             "copaw-local",
             {
-                "base_url": f"http://127.0.0.1:{port}/v1",
-                "extra_models": [ModelInfo(id=model_id, name=model_id)],
+                "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
+                "extra_models": [setup_result.model_info],
             },
+        )
+
+    def register_plugin_provider(
+        self,
+        provider_id: str,
+        provider_class,
+        label: str,
+        base_url: str,
+        metadata: Dict,
+    ):
+        """Register a plugin provider.
+
+        Args:
+            provider_id: Provider ID
+            provider_class: Provider class
+            label: Display label
+            base_url: API base URL
+            metadata: Additional metadata
+        """
+        # Get default models from provider class if available
+        default_models = []
+        if hasattr(provider_class, "get_default_models"):
+            try:
+                default_models = provider_class.get_default_models()
+            except Exception as e:
+                logger.warning(
+                    f"Failed to get default models for {provider_id}: {e}",
+                )
+
+        # Create ProviderInfo
+        provider_info = ProviderInfo(
+            id=provider_id,
+            name=label,
+            base_url=base_url,
+            api_key="",  # Will be configured by user
+            chat_model=metadata.get("chat_model", "OpenAIChatModel"),
+            models=default_models,  # Add default models
+            is_custom=False,  # Mark as non-custom (like builtin, cannot be
+            # deleted)
+            require_api_key=metadata.get("require_api_key", True),
+            support_model_discovery=metadata.get(
+                "support_model_discovery",
+                False,
+            ),
+            meta=metadata.get("meta", {}),  # Pass meta from plugin
+        )
+
+        # Check if there's a saved configuration for this plugin provider
+        saved_config_path = self.plugin_path / f"{provider_id}.json"
+        if saved_config_path.exists():
+            try:
+                with open(saved_config_path, "r", encoding="utf-8") as f:
+                    saved_config = json.load(f)
+                # Merge saved config (mainly api_key and base_url)
+                if "api_key" in saved_config:
+                    provider_info.api_key = saved_config["api_key"]
+                if "base_url" in saved_config:
+                    provider_info.base_url = saved_config["base_url"]
+                if "generate_kwargs" in saved_config:
+                    provider_info.generate_kwargs = saved_config["generate_kwargs"]
+                logger.info(
+                    f"✓ Loaded saved config for plugin provider: {provider_id}",
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load saved config for {provider_id}: {e}",
+                )
+
+        # Register to internal dict
+        self.plugin_providers[provider_id] = {
+            "info": provider_info,
+            "class": provider_class,
+        }
+
+        logger.info(
+            f"✓ Registered plugin provider: {provider_id} "
+            f"with {len(default_models)} default model(s)",
         )
 
     @staticmethod
@@ -1287,10 +1490,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         manager = ProviderManager.get_instance()
         model = manager.get_active_model()
         if model is None or model.provider_id == "" or model.model == "":
-            raise ValueError("No active model configured.")
+            raise ProviderError(
+                message="No active model configured.",
+            )
         provider = manager.get_provider(model.provider_id)
         if provider is None:
-            raise ValueError(
-                f"Active provider '{model.provider_id}' not found.",
+            raise ProviderError(
+                message=f"Active provider '{model.provider_id}' not found.",
             )
         return provider.get_chat_model_instance(model.model)

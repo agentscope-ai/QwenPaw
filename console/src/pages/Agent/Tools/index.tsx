@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { Card, Switch, Empty, Button } from "@agentscope-ai/design";
 import {
   EyeOutlined,
@@ -23,8 +23,6 @@ export default function ToolsPage() {
     enableAll,
     disableAll,
   } = useTools();
-  const [hoverKey, setHoverKey] = useState<string | null>(null);
-
   const handleToggle = (tool: ToolInfo) => {
     toggleEnabled(tool);
   };
@@ -68,14 +66,12 @@ export default function ToolsPage() {
                 key={tool.name}
                 className={`${styles.toolCard} ${
                   tool.enabled ? styles.enabledCard : ""
-                } ${
-                  hoverKey === tool.name ? styles.hoverCard : styles.normalCard
                 }`}
-                onMouseEnter={() => setHoverKey(tool.name)}
-                onMouseLeave={() => setHoverKey(null)}
               >
                 <div className={styles.cardHeader}>
-                  <h3 className={styles.toolName}>{tool.name}</h3>
+                  <h3 className={styles.toolName}>
+                    {tool.icon} {tool.name}
+                  </h3>
                   <div className={styles.statusContainer}>
                     <span className={styles.statusDot} />
                     <span className={styles.statusText}>

@@ -12,6 +12,7 @@ from agentscope.message import Msg, TextBlock
 
 from ..config.config import load_agent_config
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
+from ..exceptions import SystemCommandException
 
 if TYPE_CHECKING:
     from .memory import BaseMemoryManager
@@ -505,7 +506,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             System response message
 
         Raises:
-            RuntimeError: If command is not recognized
+            SystemCommandException: If command is not recognized
         """
         messages = await self.memory.get_memory(
             prepend_summary=False,
@@ -518,7 +519,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         handler = getattr(self, f"_process_{command}", None)
         if handler is None:
-            raise RuntimeError(f"Unknown command: {query}")
+            raise SystemCommandException(
+                message=f"Unknown command: {query}",
+            )
         return await handler(messages, args)
 
     async def handle_command(self, query: str) -> Msg:

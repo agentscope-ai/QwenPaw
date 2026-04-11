@@ -79,6 +79,21 @@ class ColorFormatter(logging.Formatter):
         return f"{prefix} | {original_msg}"
 
 
+class PlainFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        full_path = record.pathname
+        cwd = os.getcwd()
+        try:
+            if os.path.commonpath([full_path, cwd]) == cwd:
+                full_path = os.path.relpath(full_path, cwd)
+        except ValueError:
+            pass
+
+        prefix = f"{record.levelname} | {full_path}:{record.lineno}"
+        formatted_time = self.formatTime(record, self.datefmt)
+        return f"{formatted_time} | {prefix} | {record.getMessage()}"
+
+
 class SuppressPathAccessLogFilter(logging.Filter):
     """
     Filter out uvicorn access log lines whose message contains any of the
@@ -175,10 +190,9 @@ def add_copaw_file_handler(log_path: Path) -> None:
             backupCount=_COPAW_LOG_BACKUP_COUNT,
         )
 
-    if platform.system() == "Windows":
-        file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(logger.level or logging.INFO)
 
     file_handler.setFormatter(
-        logging.Formatter("%(asctime)s | %(message)s", "%Y-%m-%d %H:%M:%S"),
+        PlainFormatter("%(asctime)s | %(message)s", "%Y-%m-%d %H:%M:%S"),
     )
     logger.addHandler(file_handler)
