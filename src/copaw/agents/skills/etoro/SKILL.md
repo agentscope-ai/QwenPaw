@@ -115,7 +115,7 @@ curl -X POST "https://public-api.etoro.com/api/v1/trading/execution/demo/market-
 - Required query: `fields` (comma-separated list of instrument fields to return)
 - Optional: `searchText`, `pageSize`, `pageNumber`, `sort`
 - The Search endpoint supports filtering by fields returned in results; for exact symbol lookup, use `internalSymbolFull` as a query param and verify the exact match.
-- Recommended minimal `fields` when you need IDs: include the instrument identifier (may appear as `instrumentId` or `InstrumentID`), plus `internalSymbolFull` and `displayname` (and `marketId` if you plan to use Feeds).
+- Recommended minimal fields when you need IDs: include instrumentId, internalSymbolFull, and displayname (and marketId if you plan to use Feeds).
 
 **Metadata**
 - `GET /market-data/instruments`  
