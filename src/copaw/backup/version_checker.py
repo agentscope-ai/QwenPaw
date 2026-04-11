@@ -162,7 +162,9 @@ def get_migration_path(source: VersionInfo, target: VersionInfo) -> list[str]:
 
 
 def migrate_manifest(
-    manifest_data: dict, source: VersionInfo, target: VersionInfo
+    manifest_data: dict,
+    source: VersionInfo,
+    target: VersionInfo,
 ) -> dict:
     """Apply chain migration from *source* to *target* on *manifest_data*.
 
@@ -183,7 +185,7 @@ def migrate_manifest(
         migration_fn = _MIGRATIONS.get((current, next_ver))
         if migration_fn is None:
             raise IncompatibleVersionError(
-                f"Missing migration function from v{current} to v{next_ver}"
+                f"Missing migration function from v{current} to v{next_ver}",
             )
         data = migration_fn(data)
         data["schema_version"] = f"copaw-assets.v{next_ver}"
@@ -222,7 +224,9 @@ class VersionChecker:
 
     @staticmethod
     def migrate_manifest(
-        manifest_data: dict, source: VersionInfo, target: VersionInfo
+        manifest_data: dict,
+        source: VersionInfo,
+        target: VersionInfo,
     ) -> dict:
         return migrate_manifest(manifest_data, source, target)
 
