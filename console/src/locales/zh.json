@@ -1423,9 +1423,14 @@
       "overwrite": "全部覆盖",
       "rename": "重命名冲突"
     },
+    "strategyHint": {
+      "skip": "遇到冲突时保留现有文件不变",
+      "overwrite": "用导入的版本替换现有文件",
+      "rename": "以新文件名导入，同时保留两个版本"
+    },
     "filterTypes": "仅导入",
     "importBtn": "导入资产",
-    "importSuccess": "已导入 {{count}} 个资产",
+    "importSuccess": "已导入 {{imported}} 个资产，{{skipped}} 个跳过（内容相同）",
     "importFailed": "导入失败",
     "enterPath": "请输入 ZIP 文件路径",
     "zipPath": "ZIP 文件路径",

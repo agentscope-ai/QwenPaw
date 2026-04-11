@@ -1415,9 +1415,14 @@
       "overwrite": "Overwrite all",
       "rename": "Rename conflicts"
     },
+    "strategyHint": {
+      "skip": "Keep your existing files unchanged when there is a conflict",
+      "overwrite": "Replace existing files with the imported version",
+      "rename": "Import as a new file with a different name, keeping both versions"
+    },
     "filterTypes": "Import only",
     "importBtn": "Import Assets",
-    "importSuccess": "Imported {{count}} assets",
+    "importSuccess": "Imported {{imported}} assets, {{skipped}} skipped (identical)",
     "importFailed": "Import failed",
     "enterPath": "Please enter the ZIP file path",
     "zipPath": "Path to .zip file",

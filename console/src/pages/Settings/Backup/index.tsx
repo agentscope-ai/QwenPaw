@@ -205,8 +205,9 @@ function BackupPage() {
         importTypes.length > 0 ? importTypes : undefined,
       );
       message.success(
-        t("backup.importSuccess", "Imported {{count}} assets", {
-          count: res.imported.length,
+        t("backup.importSuccess", "Imported {{imported}} assets, {{skipped}} skipped (identical)", {
+          imported: res.imported.length,
+          skipped: res.skipped.length,
         }),
       );
       setImportFile(null);
@@ -686,8 +687,16 @@ function BackupPage() {
                         value: s.value,
                       }))}
                       size="small"
-                      style={{ width: 160 }}
+                      style={{ width: 240 }}
                     />
+                  </div>
+                  <div className={styles.strategyHint}>
+                    {importStrategy === "skip" &&
+                      t("backup.strategyHint.skip", "Keep your existing files unchanged when there is a conflict")}
+                    {importStrategy === "overwrite" &&
+                      t("backup.strategyHint.overwrite", "Replace existing files with the imported version")}
+                    {importStrategy === "rename" &&
+                      t("backup.strategyHint.rename", "Import as a new file with a different name, keeping both versions")}
                   </div>
                   <div className={styles.optionRow}>
                     <span className={styles.optionLabel}>
