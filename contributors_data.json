@@ -24,6 +24,12 @@
     "pr_count": 1
   },
   {
+    "login": "alostbear",
+    "avatar_url": "https://github.com/alostbear.png",
+    "html_url": "https://github.com/alostbear",
+    "pr_count": 1
+  },
+  {
     "login": "aquamarine-bot",
     "avatar_url": "https://github.com/aquamarine-bot.png",
     "html_url": "https://github.com/aquamarine-bot",
@@ -48,9 +54,21 @@
     "pr_count": 1
   },
   {
+    "login": "bowenliang123",
+    "avatar_url": "https://github.com/bowenliang123.png",
+    "html_url": "https://github.com/bowenliang123",
+    "pr_count": 14
+  },
+  {
     "login": "buecker",
     "avatar_url": "https://github.com/buecker.png",
     "html_url": "https://github.com/buecker",
+    "pr_count": 1
+  },
+  {
+    "login": "carlos999-hqsama",
+    "avatar_url": "https://github.com/carlos999-hqsama.png",
+    "html_url": "https://github.com/carlos999-hqsama",
     "pr_count": 1
   },
   {
@@ -66,6 +84,12 @@
     "pr_count": 1
   },
   {
+    "login": "chr6192",
+    "avatar_url": "https://github.com/chr6192.png",
+    "html_url": "https://github.com/chr6192",
+    "pr_count": 1
+  },
+  {
     "login": "Cirilla-zmh",
     "avatar_url": "https://github.com/Cirilla-zmh.png",
     "html_url": "https://github.com/Cirilla-zmh",
@@ -75,13 +99,19 @@
     "login": "cuiyuebing",
     "avatar_url": "https://github.com/cuiyuebing.png",
     "html_url": "https://github.com/cuiyuebing",
-    "pr_count": 10
+    "pr_count": 20
   },
   {
     "login": "DavdGao",
     "avatar_url": "https://github.com/DavdGao.png",
     "html_url": "https://github.com/DavdGao",
     "pr_count": 2
+  },
+  {
+    "login": "Daye1112",
+    "avatar_url": "https://github.com/Daye1112.png",
+    "html_url": "https://github.com/Daye1112",
+    "pr_count": 1
   },
   {
     "login": "dhbxs",
@@ -126,6 +156,12 @@
     "pr_count": 2
   },
   {
+    "login": "energyd",
+    "avatar_url": "https://github.com/energyd.png",
+    "html_url": "https://github.com/energyd",
+    "pr_count": 1
+  },
+  {
     "login": "EuanTop",
     "avatar_url": "https://github.com/EuanTop.png",
     "html_url": "https://github.com/EuanTop",
@@ -147,7 +183,13 @@
     "login": "fancyboi999",
     "avatar_url": "https://github.com/fancyboi999.png",
     "html_url": "https://github.com/fancyboi999",
-    "pr_count": 19
+    "pr_count": 20
+  },
+  {
+    "login": "fengrui-z",
+    "avatar_url": "https://github.com/fengrui-z.png",
+    "html_url": "https://github.com/fengrui-z",
+    "pr_count": 1
   },
   {
     "login": "fenixc9",
@@ -183,13 +225,13 @@
     "login": "garyzhang99",
     "avatar_url": "https://github.com/garyzhang99.png",
     "html_url": "https://github.com/garyzhang99",
-    "pr_count": 12
+    "pr_count": 14
   },
   {
     "login": "gnipping",
     "avatar_url": "https://github.com/gnipping.png",
     "html_url": "https://github.com/gnipping",
-    "pr_count": 5
+    "pr_count": 11
   },
   {
     "login": "gongpx20069",
@@ -219,7 +261,7 @@
     "login": "hikariming",
     "avatar_url": "https://github.com/hikariming.png",
     "html_url": "https://github.com/hikariming",
-    "pr_count": 1
+    "pr_count": 4
   },
   {
     "login": "hiyuchang",
@@ -237,7 +279,7 @@
     "login": "hongxicheng",
     "avatar_url": "https://github.com/hongxicheng.png",
     "html_url": "https://github.com/hongxicheng",
-    "pr_count": 23
+    "pr_count": 47
   },
   {
     "login": "howyoungchen",
@@ -249,6 +291,12 @@
     "login": "ixiadao",
     "avatar_url": "https://github.com/ixiadao.png",
     "html_url": "https://github.com/ixiadao",
+    "pr_count": 1
+  },
+  {
+    "login": "Jacky51351684",
+    "avatar_url": "https://github.com/Jacky51351684.png",
+    "html_url": "https://github.com/Jacky51351684",
     "pr_count": 1
   },
   {
@@ -264,10 +312,16 @@
     "pr_count": 1
   },
   {
+    "login": "jinglinpeng",
+    "avatar_url": "https://github.com/jinglinpeng.png",
+    "html_url": "https://github.com/jinglinpeng",
+    "pr_count": 2
+  },
+  {
     "login": "jinliyl",
     "avatar_url": "https://github.com/jinliyl.png",
     "html_url": "https://github.com/jinliyl",
-    "pr_count": 20
+    "pr_count": 29
   },
   {
     "login": "JiwaniZakir",
@@ -288,10 +342,16 @@
     "pr_count": 1
   },
   {
+    "login": "kobewl",
+    "avatar_url": "https://github.com/kobewl.png",
+    "html_url": "https://github.com/kobewl",
+    "pr_count": 1
+  },
+  {
     "login": "lalaliat",
     "avatar_url": "https://github.com/lalaliat.png",
     "html_url": "https://github.com/lalaliat",
-    "pr_count": 25
+    "pr_count": 34
   },
   {
     "login": "lcq225",
@@ -303,7 +363,7 @@
     "login": "Leirunlin",
     "avatar_url": "https://github.com/Leirunlin.png",
     "html_url": "https://github.com/Leirunlin",
-    "pr_count": 21
+    "pr_count": 39
   },
   {
     "login": "leoleils",
@@ -330,6 +390,12 @@
     "pr_count": 1
   },
   {
+    "login": "livehl",
+    "avatar_url": "https://github.com/livehl.png",
+    "html_url": "https://github.com/livehl",
+    "pr_count": 1
+  },
+  {
     "login": "lizeruicq",
     "avatar_url": "https://github.com/lizeruicq.png",
     "html_url": "https://github.com/lizeruicq",
@@ -351,7 +417,7 @@
     "login": "ltzu929",
     "avatar_url": "https://github.com/ltzu929.png",
     "html_url": "https://github.com/ltzu929",
-    "pr_count": 2
+    "pr_count": 3
   },
   {
     "login": "LudovicoYIN",
@@ -369,7 +435,7 @@
     "login": "mautops",
     "avatar_url": "https://github.com/mautops.png",
     "html_url": "https://github.com/mautops",
-    "pr_count": 2
+    "pr_count": 4
   },
   {
     "login": "muchenhen",
@@ -405,13 +471,13 @@
     "login": "octo-patch",
     "avatar_url": "https://github.com/octo-patch.png",
     "html_url": "https://github.com/octo-patch",
-    "pr_count": 1
+    "pr_count": 3
   },
   {
     "login": "Osier-Yi",
     "avatar_url": "https://github.com/Osier-Yi.png",
     "html_url": "https://github.com/Osier-Yi",
-    "pr_count": 4
+    "pr_count": 6
   },
   {
     "login": "p8rtop",
@@ -423,7 +489,7 @@
     "login": "pan-x-c",
     "avatar_url": "https://github.com/pan-x-c.png",
     "html_url": "https://github.com/pan-x-c",
-    "pr_count": 15
+    "pr_count": 30
   },
   {
     "login": "pikaxinge",
@@ -441,7 +507,7 @@
     "login": "qbc2016",
     "avatar_url": "https://github.com/qbc2016.png",
     "html_url": "https://github.com/qbc2016",
-    "pr_count": 11
+    "pr_count": 39
   },
   {
     "login": "qoli",
@@ -450,10 +516,22 @@
     "pr_count": 1
   },
   {
+    "login": "qzcpl",
+    "avatar_url": "https://github.com/qzcpl.png",
+    "html_url": "https://github.com/qzcpl",
+    "pr_count": 1
+  },
+  {
     "login": "rayrayraykk",
     "avatar_url": "https://github.com/rayrayraykk.png",
     "html_url": "https://github.com/rayrayraykk",
-    "pr_count": 70
+    "pr_count": 98
+  },
+  {
+    "login": "rikey123",
+    "avatar_url": "https://github.com/rikey123.png",
+    "html_url": "https://github.com/rikey123",
+    "pr_count": 1
   },
   {
     "login": "rowanchen-com",
@@ -465,7 +543,7 @@
     "login": "sanfran1068",
     "avatar_url": "https://github.com/sanfran1068.png",
     "html_url": "https://github.com/sanfran1068",
-    "pr_count": 1
+    "pr_count": 3
   },
   {
     "login": "saschabuehrle",
@@ -510,6 +588,12 @@
     "pr_count": 2
   },
   {
+    "login": "solarhell",
+    "avatar_url": "https://github.com/solarhell.png",
+    "html_url": "https://github.com/solarhell",
+    "pr_count": 1
+  },
+  {
     "login": "StarMoonCity",
     "avatar_url": "https://github.com/StarMoonCity.png",
     "html_url": "https://github.com/StarMoonCity",
@@ -543,19 +627,25 @@
     "login": "wwx814",
     "avatar_url": "https://github.com/wwx814.png",
     "html_url": "https://github.com/wwx814",
-    "pr_count": 5
+    "pr_count": 6
   },
   {
     "login": "x1n95c",
     "avatar_url": "https://github.com/x1n95c.png",
     "html_url": "https://github.com/x1n95c",
+    "pr_count": 6
+  },
+  {
+    "login": "xianzhisheng",
+    "avatar_url": "https://github.com/xianzhisheng.png",
+    "html_url": "https://github.com/xianzhisheng",
     "pr_count": 1
   },
   {
     "login": "xieyxclack",
     "avatar_url": "https://github.com/xieyxclack.png",
     "html_url": "https://github.com/xieyxclack",
-    "pr_count": 63
+    "pr_count": 103
   },
   {
     "login": "Yaohua-Leo",
@@ -579,7 +669,7 @@
     "login": "YingchaoX",
     "avatar_url": "https://github.com/YingchaoX.png",
     "html_url": "https://github.com/YingchaoX",
-    "pr_count": 1
+    "pr_count": 3
   },
   {
     "login": "yingdachen",
@@ -597,12 +687,24 @@
     "login": "yuanxs21",
     "avatar_url": "https://github.com/yuanxs21.png",
     "html_url": "https://github.com/yuanxs21",
-    "pr_count": 3
+    "pr_count": 6
+  },
+  {
+    "login": "yuluo1007",
+    "avatar_url": "https://github.com/yuluo1007.png",
+    "html_url": "https://github.com/yuluo1007",
+    "pr_count": 9
   },
   {
     "login": "yunlzheng",
     "avatar_url": "https://github.com/yunlzheng.png",
     "html_url": "https://github.com/yunlzheng",
+    "pr_count": 1
+  },
+  {
+    "login": "yyyzl",
+    "avatar_url": "https://github.com/yyyzl.png",
+    "html_url": "https://github.com/yyyzl",
     "pr_count": 1
   },
   {
@@ -615,12 +717,12 @@
     "login": "zhaozhuang521",
     "avatar_url": "https://github.com/zhaozhuang521.png",
     "html_url": "https://github.com/zhaozhuang521",
-    "pr_count": 46
+    "pr_count": 69
   },
   {
     "login": "zhijianma",
     "avatar_url": "https://github.com/zhijianma.png",
     "html_url": "https://github.com/zhijianma",
-    "pr_count": 35
+    "pr_count": 67
   }
 ]

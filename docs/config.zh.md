@@ -1,12 +1,12 @@
 # 配置与工作目录
 
-CoPaw 的所有配置和数据都存储在**工作目录**中。本页说明：
+QwenPaw 的所有配置和数据都存储在**工作目录**中。本页说明：
 
 - **目录结构** — 文件都在哪里，各目录的作用
 - **环境变量** — 如何用环境变量自定义路径和行为
 - **配置文件** — `config.json` 和 `agent.json` 的完整字段说明
 
-从 **v0.1.0** 开始，CoPaw 支持**多智能体**，配置分为两层：
+从 **v0.1.0** 开始，QwenPaw 支持**多智能体**，配置分为两层：
 
 1. **全局配置**（`config.json`）— 模型提供商、智能体列表、全局设置
 2. **智能体配置**（`agent.json`）— 每个智能体的独立配置（频道、心跳、工具等）
@@ -15,10 +15,10 @@ CoPaw 的所有配置和数据都存储在**工作目录**中。本页说明：
 
 ## 目录结构
 
-默认工作目录是 `~/.copaw`。运行 `copaw init` 后的完整结构：
+默认工作目录是 `~/.qwenpaw`。运行 `qwenpaw init` 后的完整结构：
 
 ```
-$COPAW_WORKING_DIR/                      # 默认 ~/.copaw
+$QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 ├── config.json                          # 全局配置
 ├── workspaces/
 │   ├── default/                         # 默认智能体工作区
@@ -41,12 +41,12 @@ $COPAW_WORKING_DIR/                      # 默认 ~/.copaw
     ├── skill.json                       # 池元数据
     └── ...
 
-$COPAW_SECRET_DIR/                       # 默认 ~/.copaw.secret
+$QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 ├── providers.json                       # 模型提供商配置与 API Key
 └── envs.json                            # 环境变量
 ```
 
-> **路径说明：** `$COPAW_WORKING_DIR` 和 `$COPAW_SECRET_DIR` 是环境变量，默认值分别为 `~/.copaw` 和 `~/.copaw.secret`。可通过环境变量自定义，详见下方"环境变量"章节。
+> **路径说明：** `$QWENPAW_WORKING_DIR` 和 `$QWENPAW_SECRET_DIR` 是环境变量，默认值分别为 `~/.qwenpaw` 和 `~/.qwenpaw.secret`。可通过环境变量自定义，详见下方"环境变量"章节。
 
 ---
 
@@ -56,35 +56,35 @@ $COPAW_SECRET_DIR/                       # 默认 ~/.copaw.secret
 
 **路径相关：**
 
-| 变量                     | 默认值             | 说明                                                                                        |
-| ------------------------ | ------------------ | ------------------------------------------------------------------------------------------- |
-| `COPAW_WORKING_DIR`      | `~/.copaw`         | 工作目录根路径                                                                              |
-| `COPAW_SECRET_DIR`       | `~/.copaw.secret`  | 敏感数据目录（存放 `providers.json` 和 `envs.json`）。Docker 中默认为 `/app/working.secret` |
-| `COPAW_CONFIG_FILE`      | `config.json`      | 配置文件名（相对于 `COPAW_WORKING_DIR`）                                                    |
-| `COPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`     | 心跳文件名（相对于智能体工作区）                                                            |
-| `COPAW_JOBS_FILE`        | `jobs.json`        | 定时任务文件名（相对于智能体工作区）                                                        |
-| `COPAW_CHATS_FILE`       | `chats.json`       | 对话历史文件名（相对于智能体工作区）                                                        |
-| `COPAW_TOKEN_USAGE_FILE` | `token_usage.json` | Token 消耗记录文件名（相对于智能体工作区）                                                  |
+| 变量                       | 默认值              | 说明                                                                                        |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
+| `QWENPAW_WORKING_DIR`      | `~/.qwenpaw`        | 工作目录根路径                                                                              |
+| `QWENPAW_SECRET_DIR`       | `~/.qwenpaw.secret` | 敏感数据目录（存放 `providers.json` 和 `envs.json`）。Docker 中默认为 `/app/working.secret` |
+| `QWENPAW_CONFIG_FILE`      | `config.json`       | 配置文件名（相对于 `QWENPAW_WORKING_DIR`）                                                  |
+| `QWENPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`      | 心跳文件名（相对于智能体工作区）                                                            |
+| `QWENPAW_JOBS_FILE`        | `jobs.json`         | 定时任务文件名（相对于智能体工作区）                                                        |
+| `QWENPAW_CHATS_FILE`       | `chats.json`        | 对话历史文件名（相对于智能体工作区）                                                        |
+| `QWENPAW_TOKEN_USAGE_FILE` | `token_usage.json`  | Token 消耗记录文件名（相对于智能体工作区）                                                  |
 
 **其他配置：**
 
-| 变量                               | 默认值         | 说明                                                            |
-| ---------------------------------- | -------------- | --------------------------------------------------------------- |
-| `COPAW_LOG_LEVEL`                  | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`） |
-| `COPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`       | 触发记忆压缩的字符阈值                                          |
-| `COPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`            | 压缩后保留的最近消息数                                          |
-| `COPAW_MEMORY_COMPACT_RATIO`       | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                      |
-| `COPAW_CONSOLE_STATIC_DIR`         | _（自动检测）_ | 控制台前端静态文件路径                                          |
+| 变量                                 | 默认值         | 说明                                                            |
+| ------------------------------------ | -------------- | --------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                  | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`） |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`       | 触发记忆压缩的字符阈值                                          |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`            | 压缩后保留的最近消息数                                          |
+| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                      |
+| `QWENPAW_CONSOLE_STATIC_DIR`         | _（自动检测）_ | 控制台前端静态文件路径                                          |
 
 **安全与认证：**
 
-| 变量                       | 默认值  | 说明                                     |
-| -------------------------- | ------- | ---------------------------------------- |
-| `COPAW_AUTH_ENABLED`       | `false` | 是否启用 Web 控制台登录认证              |
-| `COPAW_AUTH_USERNAME`      | -       | 自动注册时的管理员用户名（可选）         |
-| `COPAW_AUTH_PASSWORD`      | -       | 自动注册时的管理员密码（可选）           |
-| `COPAW_TOOL_GUARD_ENABLED` | `true`  | 是否启用工具守卫                         |
-| `COPAW_SKILL_SCAN_MODE`    | `warn`  | 技能扫描模式（`block` / `warn` / `off`） |
+| 变量                         | 默认值  | 说明                                     |
+| ---------------------------- | ------- | ---------------------------------------- |
+| `QWENPAW_AUTH_ENABLED`       | `false` | 是否启用 Web 控制台登录认证              |
+| `QWENPAW_AUTH_USERNAME`      | -       | 自动注册时的管理员用户名（可选）         |
+| `QWENPAW_AUTH_PASSWORD`      | -       | 自动注册时的管理员密码（可选）           |
+| `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | 是否启用工具守卫                         |
+| `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | 技能扫描模式（`block` / `warn` / `off`） |
 
 **记忆与检索：**
 
@@ -99,8 +99,8 @@ $COPAW_SECRET_DIR/                       # 默认 ~/.copaw.secret
 
 从 **v0.1.0** 开始，配置文件分为两层：
 
-1. **全局配置** - `~/.copaw/config.json`（提供商、环境变量、智能体列表）
-2. **智能体配置** - `~/.copaw/workspaces/{agent_id}/agent.json`（每个智能体的独立配置）
+1. **全局配置** - `~/.qwenpaw/config.json`（提供商、环境变量、智能体列表）
+2. **智能体配置** - `~/.qwenpaw/workspaces/{agent_id}/agent.json`（每个智能体的独立配置）
 
 ### 全局 config.json
 
@@ -116,7 +116,7 @@ $COPAW_SECRET_DIR/                       # 默认 ~/.copaw.secret
         "name": "默认智能体",
         "description": "默认工作区智能体",
         "enabled": true,
-        "workspace_dir": "~/.copaw/workspaces/default"
+        "workspace_dir": "~/.qwenpaw/workspaces/default"
       }
     }
   },
@@ -140,32 +140,32 @@ $COPAW_SECRET_DIR/                       # 默认 ~/.copaw.secret
 | --------------------- | -------------- | -------------- | ------------------------------------------------ |
 | `agents.active_agent` | string         | `"default"`    | 当前激活的智能体 ID                              |
 | `agents.profiles`     | object         | `{}`           | 智能体配置引用字典（key 为 agent_id）            |
-| `last_api.host`       | string \| null | `null`         | 上次 `copaw app` 启动的主机地址                  |
-| `last_api.port`       | int \| null    | `null`         | 上次 `copaw app` 启动的端口                      |
+| `last_api.host`       | string \| null | `null`         | 上次 `qwenpaw app` 启动的主机地址                |
+| `last_api.port`       | int \| null    | `null`         | 上次 `qwenpaw app` 启动的端口                    |
 | `show_tool_details`   | bool           | `true`         | 是否在频道消息中显示工具调用/返回详情            |
 | `user_timezone`       | string         | _（系统时区）_ | IANA 时区名称（如 `"Asia/Shanghai"`）            |
 | `last_dispatch`       | object \| null | `null`         | 最近一次消息分发目标（用于心跳 `target="last"`） |
 
 **`agents.profiles[agent_id]`** 引用字段：
 
-| 字段            | 类型   | 必填 | 说明                                                            |
-| --------------- | ------ | ---- | --------------------------------------------------------------- |
-| `id`            | string | 是   | 智能体唯一标识                                                  |
-| `name`          | string | 是   | 智能体显示名称                                                  |
-| `description`   | string | 否   | 智能体描述（用于多智能体协作时的分工判断）                      |
-| `enabled`       | bool   | 是   | 是否启用该智能体                                                |
-| `workspace_dir` | string | 否   | 工作区路径（可选，默认为 `$COPAW_WORKING_DIR/workspaces/{id}`） |
+| 字段            | 类型   | 必填 | 说明                                                              |
+| --------------- | ------ | ---- | ----------------------------------------------------------------- |
+| `id`            | string | 是   | 智能体唯一标识                                                    |
+| `name`          | string | 是   | 智能体显示名称                                                    |
+| `description`   | string | 否   | 智能体描述（用于多智能体协作时的分工判断）                        |
+| `enabled`       | bool   | 是   | 是否启用该智能体                                                  |
+| `workspace_dir` | string | 否   | 工作区路径（可选，默认为 `$QWENPAW_WORKING_DIR/workspaces/{id}`） |
 
 > **向后兼容：** 全局 config.json 中还保留了 `channels`、`mcp`、`tools`、`security` 等字段，用于向后兼容旧版本。在多智能体模式下，这些配置应该在各智能体的 `agent.json` 中设置。
 >
 > **配置优先级：** 智能体的 `agent.json` 优先级高于全局 `config.json`。如果两处都配置了相同字段，系统会使用 `agent.json` 中的值。建议在多智能体模式下，将所有配置都写在各智能体的 `agent.json` 中。
 
-> **模型提供商配置** 存储在 `$COPAW_SECRET_DIR/providers.json`（默认 `~/.copaw.secret/providers.json`）。
-> **环境变量配置** 存储在 `$COPAW_SECRET_DIR/envs.json`（默认 `~/.copaw.secret/envs.json`）。
+> **模型提供商配置** 存储在 `$QWENPAW_SECRET_DIR/providers.json`（默认 `~/.qwenpaw.secret/providers.json`）。
+> **环境变量配置** 存储在 `$QWENPAW_SECRET_DIR/envs.json`（默认 `~/.qwenpaw.secret/envs.json`）。
 
 ### 智能体配置 agent.json
 
-每个智能体在其工作区目录（`$COPAW_WORKING_DIR/workspaces/{agent_id}/`）下有独立的 `agent.json`，用于存储该智能体的所有配置（频道、工具、心跳、MCP、安全等）。这样不同智能体可以有完全不同的配置，互不干扰。
+每个智能体在其工作区目录（`$QWENPAW_WORKING_DIR/workspaces/{agent_id}/`）下有独立的 `agent.json`，用于存储该智能体的所有配置（频道、工具、心跳、MCP、安全等）。这样不同智能体可以有完全不同的配置，互不干扰。
 
 ```json
 {
@@ -457,11 +457,11 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 ## 模型提供商
 
-CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/providers.json`（默认 `~/.copaw.secret/providers.json`）。
+QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/providers.json`（默认 `~/.qwenpaw.secret/providers.json`）。
 
 有三种设置方式：
 
-- **`copaw init`** — 交互式向导，最简单
+- **`qwenpaw init`** — 交互式向导，最简单
 - **控制台 UI** — 在设置 → 模型页面配置
 - **API** — `PUT /providers/{id}` 和 `PUT /providers/active_llm`
 
@@ -469,7 +469,7 @@ CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/prov
 
 | 提供商                        | ID                      | 说明                   |
 | ----------------------------- | ----------------------- | ---------------------- |
-| CoPaw Local                   | `copaw-local`           | 本地 llama.cpp 后端    |
+| QwenPaw Local                 | `qwenpaw-local`         | 本地 llama.cpp 后端    |
 | Ollama                        | `ollama`                | 本地 Ollama 服务       |
 | LM Studio                     | `lmstudio`              | 本地 LM Studio 服务    |
 | ModelScope（魔搭）            | `modelscope`            | 魔搭社区模型服务       |
@@ -492,7 +492,7 @@ CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/prov
 
 > **完整配置说明：** 每个提供商的详细配置方式、`providers.json` 字段结构、模型发现等请参见 [模型](./models)。
 
-> **提示：** 运行 `copaw init` 跟着提示走就行——它会列出每个提供商的可用模型让你直接选。
+> **提示：** 运行 `qwenpaw init` 跟着提示走就行——它会列出每个提供商的可用模型让你直接选。
 
 ---
 
@@ -500,13 +500,13 @@ CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/prov
 
 部分工具和 MCP 服务需要额外的 API Key（如网络搜索用的 `TAVILY_API_KEY`）。有三种管理方式：
 
-- **`copaw init`** — 初始化时会问 "Configure environment variables?"
+- **`qwenpaw init`** — 初始化时会问 "Configure environment variables?"
 - **控制台 UI** — 在设置页面编辑
 - **API** — `GET/PUT/DELETE /envs`
 
 设置好的变量会在应用启动时自动加载，所有工具和子进程都可以通过 `os.environ` 读取。
 
-> **注意：** 环境变量的值（如第三方 API Key）的有效性需要用户自行保证。CoPaw 只负责存储和注入，不会校验其正确性。
+> **注意：** 环境变量的值（如第三方 API Key）的有效性需要用户自行保证。QwenPaw 只负责存储和注入，不会校验其正确性。
 
 ---
 
@@ -514,17 +514,17 @@ CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/prov
 
 技能通过两级目录管理：
 
-- **`$COPAW_WORKING_DIR/skill_pool/`** — 本地共享技能池
-- **`$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`** — 智能体工作区中的本地技能
+- **`$QWENPAW_WORKING_DIR/skill_pool/`** — 本地共享技能池
+- **`$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`** — 智能体工作区中的本地技能
 
-每个技能是一个包含 `SKILL.md` 文件的子目录。技能的启用状态和配置存储在 `skill.json` 文件中（如 `~/.copaw/workspaces/default/skill.json`）。
+每个技能是一个包含 `SKILL.md` 文件的子目录。技能的启用状态和配置存储在 `skill.json` 文件中（如 `~/.qwenpaw/workspaces/default/skill.json`）。
 
 > **完整配置说明：** `skill.json` 的详细字段结构、技能池管理、广播、上传、Config 运行时注入等请参见 [技能](./skills)。
 
 管理方式：
 
 - **控制台**（智能体 → 技能）— 可视化管理、导入、启用/禁用
-- **`copaw skills config`** — CLI 交互式切换
+- **`qwenpaw skills config`** — CLI 交互式切换
 - **直接编辑** `skill.json` — 手动添加或修改技能
 
 ---
@@ -544,7 +544,7 @@ CoPaw 需要 LLM 提供商才能运行。配置存储在 `$COPAW_SECRET_DIR/prov
 
 ## 小结
 
-- 默认一切都在 **`$COPAW_WORKING_DIR`**（默认 `~/.copaw`）；可通过环境变量自定义。
+- 默认一切都在 **`$QWENPAW_WORKING_DIR`**（默认 `~/.qwenpaw`）；可通过环境变量自定义。
 - 从 **v0.1.0** 开始，配置分为两层：
   - **全局配置**（`config.json`）— 模型提供商、智能体列表、全局设置
   - **智能体配置**（`workspaces/{agent_id}/agent.json`）— 每个智能体的独立配置

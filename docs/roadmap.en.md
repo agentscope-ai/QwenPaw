@@ -24,9 +24,9 @@ _Status:_ _In Progress_ — actively being worked on; _Planned_ — queued or un
 
 ## Get involved
 
-We are building CoPaw in the open and welcome contributions of all kinds! Check the table above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/CoPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
+We are building QwenPaw in the open and welcome contributions of all kinds! Check the table above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
 
 - **Horizontal expansion** — new channels, model providers, skills, MCPs.
 - **Existing feature extension & refinement** — display and interaction improvements, download hints, Windows path compatibility, etc.
 
-Join the conversation on [GitHub Issue - Open Tasks](https://github.com/agentscope-ai/CoPaw/issues/2291) to suggest or pick up work.
+Join the conversation on [GitHub Issue - Open Tasks](https://github.com/agentscope-ai/QwenPaw/issues/2291) to suggest or pick up work.
