@@ -73,12 +73,14 @@ class _FakeClient:
 
 
 def test_build_agent_chat_request_adds_identity_prefix():
-    session_id, payload, prefix_added = (
-        agent_management.build_agent_chat_request(
-            "bot_b",
-            "Need a summary",
-            from_agent="bot_a",
-        )
+    (
+        session_id,
+        payload,
+        prefix_added,
+    ) = agent_management.build_agent_chat_request(
+        "bot_b",
+        "Need a summary",
+        from_agent="bot_a",
     )
 
     assert session_id.startswith("bot_a:to:bot_b:")
@@ -96,12 +98,14 @@ def test_build_agent_chat_request_discovers_calling_agent(monkeypatch):
         lambda _from_agent=None: "auto_bot",
     )
 
-    session_id, payload, prefix_added = (
-        agent_management.build_agent_chat_request(
-            "bot_b",
-            "Need a summary",
-            from_agent=None,
-        )
+    (
+        session_id,
+        payload,
+        prefix_added,
+    ) = agent_management.build_agent_chat_request(
+        "bot_b",
+        "Need a summary",
+        from_agent=None,
     )
 
     assert session_id.startswith("auto_bot:to:bot_b:")
@@ -112,13 +116,15 @@ def test_build_agent_chat_request_discovers_calling_agent(monkeypatch):
 
 
 def test_build_agent_chat_request_reuses_session_id_when_provided():
-    session_id, payload, prefix_added = (
-        agent_management.build_agent_chat_request(
-            "bot_b",
-            "Need a summary",
-            session_id="existing-session",
-            from_agent="bot_a",
-        )
+    (
+        session_id,
+        payload,
+        prefix_added,
+    ) = agent_management.build_agent_chat_request(
+        "bot_b",
+        "Need a summary",
+        session_id="existing-session",
+        from_agent="bot_a",
     )
 
     assert session_id == "existing-session"

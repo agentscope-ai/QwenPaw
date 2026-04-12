@@ -896,7 +896,10 @@ class BuiltinToolConfig(BaseModel):
     """Configuration for a single built-in tool."""
 
     name: str = Field(..., description="Tool function name")
-    enabled: bool = Field(default=True, description="Whether the tool is enabled")
+    enabled: bool = Field(
+        default=True,
+        description="Whether the tool is enabled",
+    )
     description: str = Field(default="", description="Tool description")
     display_to_user: bool = Field(
         default=True,

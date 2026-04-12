@@ -170,7 +170,7 @@ def _validate_chat_parameters(
 
 
 def _check_task_status(
-    base_url: str,
+    base_url: Optional[str],
     task_id: str,
     json_output: bool,
     to_agent: Optional[str] = None,
@@ -509,13 +509,15 @@ def chat_cmd(
         _check_task_status(resolved_base_url, task_id, json_output, to_agent)
         return
 
-    final_session_id, request_payload, prefix_added = (
-        agent_tools.build_agent_chat_request(
-            to_agent,
-            text,
-            session_id=session_id,
-            from_agent=from_agent,
-        )
+    (
+        final_session_id,
+        request_payload,
+        prefix_added,
+    ) = agent_tools.build_agent_chat_request(
+        to_agent,
+        text,
+        session_id=session_id,
+        from_agent=from_agent,
     )
 
     click.echo(f"INFO: Using session_id: {final_session_id}", err=True)

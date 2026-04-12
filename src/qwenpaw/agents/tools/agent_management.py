@@ -186,7 +186,7 @@ def _request_headers(to_agent: Optional[str]) -> Dict[str, str]:
 
 
 def stream_agent_chat(
-    base_url: str,
+    base_url: Optional[str],
     request_payload: Dict[str, Any],
     to_agent: str,
     timeout: int,
@@ -212,7 +212,7 @@ def stream_agent_chat(
 
 
 def collect_final_agent_chat_response(
-    base_url: str,
+    base_url: Optional[str],
     request_payload: Dict[str, Any],
     to_agent: str,
     timeout: int,
@@ -237,7 +237,7 @@ def collect_final_agent_chat_response(
 
 
 def submit_agent_chat_task(
-    base_url: str,
+    base_url: Optional[str],
     request_payload: Dict[str, Any],
     to_agent: str,
     timeout: int,
@@ -255,7 +255,7 @@ def submit_agent_chat_task(
 
 
 def get_agent_chat_task_status(
-    base_url: str,
+    base_url: Optional[str],
     task_id: str,
     to_agent: Optional[str] = None,
     timeout: int = 10,
