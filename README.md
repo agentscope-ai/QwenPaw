@@ -58,7 +58,20 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-[2026-04-10] **CoPaw is now QwenPaw.** Same vision, same community, new name. As we move into the next phase, CoPaw is officially rebranding to QwenPaw. This update better reflects the ecosystem and long-term direction we're building toward.
+[2026-04-10] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
+
+The new name better reflects the open ecosystem we are building and the broader direction we are continuing to pursue:
+
+*Qwen* — represents a deeper integration with the Qwen open-source ecosystem and a sharper focus on the model layer, including local models for agents and smart collaboration between small and large models.
+
+*Paw* — carries forward our original mission to accompany users and become a personal assistant users can truly trust.
+
+This rebranding does not change our vision and goals in the open-source community:
+- To build a more practical, secure, and personalized AI assistant;
+- To stay committed to open-source collaboration and move forward together with the community.
+
+Thank you all for your support along the way.
+From today on, QwenPaw will stay and grow with you!
 
 ---
 
