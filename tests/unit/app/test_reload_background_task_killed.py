@@ -8,7 +8,7 @@ an agent workspace underwent a reload.
 Root cause
 ----------
 ``MultiAgentManager._graceful_stop_old_instance()`` only consulted
-``Workspace.task_tracker`` (CoPaw's internal ``TaskTracker``).  Background
+``Workspace.task_tracker`` (QwenPaw's internal ``TaskTracker``).  Background
 tasks submitted through ``AgentApp`` were tracked in
 ``AgentApp.active_tasks`` (managed by ``agentscope_runtime``'s
 ``TaskEngineMixin``) and were *invisible* to the graceful-shutdown check.
@@ -56,8 +56,8 @@ def _import_module_directly(module_name: str, file_path: str) -> ModuleType:
 _SRC = Path(__file__).resolve().parents[3] / "src"
 
 _task_tracker_mod = _import_module_directly(
-    "copaw.app.runner.task_tracker",
-    str(_SRC / "copaw" / "app" / "runner" / "task_tracker.py"),
+    "qwenpaw.app.runner.task_tracker",
+    str(_SRC / "qwenpaw" / "app" / "runner" / "task_tracker.py"),
 )
 TaskTracker = _task_tracker_mod.TaskTracker
 
@@ -196,7 +196,7 @@ async def test_unregistered_task_causes_immediate_stop():
     with tempfile.TemporaryDirectory() as tmpdir:
         old_ws = StubWorkspace("default", str(Path(tmpdir) / "old"))
 
-        # CoPaw TaskTracker is empty (no registered tasks)
+        # QwenPaw TaskTracker is empty (no registered tasks)
         assert await old_ws.task_tracker.has_active_tasks() is False
 
         # AgentApp has a running background task (but it's not registered)
@@ -441,8 +441,8 @@ async def test_registered_external_task_delays_graceful_stop():
 
 
 @pytest.mark.asyncio
-async def test_copaw_tracked_task_delays_shutdown():
-    """Verify that tasks tracked by CoPaw's ``TaskTracker`` (internal
+async def test_internal_tracked_task_delays_shutdown():
+    """Verify that tasks tracked by QwenPaw's ``TaskTracker`` (internal
     streaming) DO delay the shutdown — proving the mechanism was always
     correct for internal tasks.
     """

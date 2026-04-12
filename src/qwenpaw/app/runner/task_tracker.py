@@ -100,7 +100,7 @@ class TaskTracker:
         """Register an externally-managed task so it is visible to
         :meth:`has_active_tasks` and :meth:`wait_all_done`.
 
-        This is used for tasks managed outside of CoPaw's own streaming
+        This is used for tasks managed outside of QwenPaw's own streaming
         pipeline (e.g. background tasks dispatched through
         ``agentscope_runtime``'s ``AgentApp``).  The caller **must** call
         :meth:`unregister_external_task` when the task completes.
