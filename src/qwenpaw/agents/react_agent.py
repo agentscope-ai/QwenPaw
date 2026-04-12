@@ -169,7 +169,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             formatter=formatter,
             max_iters=running_config.max_iters,
             plan_notebook=plan_notebook,
-            print_hint_msg=True,
         )
 
         # Setup memory manager
