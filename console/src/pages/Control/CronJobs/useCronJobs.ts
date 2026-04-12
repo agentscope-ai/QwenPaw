@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { CronJobSpecInput, CronJobSpecOutput } from "../../../api/types";
@@ -8,6 +9,7 @@ type CronJob = CronJobSpecOutput;
 type CronJobDraft = CronJobSpecInput;
 
 export function useCronJobs() {
+  const { t } = useTranslation();
   const { selectedAgent } = useAgentStore();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
@@ -22,7 +24,7 @@ export function useCronJobs() {
       }
     } catch (error) {
       console.error("Failed to load cron jobs", error);
-      message.error("Failed to load Cron Jobs");
+      message.error(t("cronJobs.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -48,11 +50,11 @@ export function useCronJobs() {
     try {
       const created = await api.createCronJob(values);
       setJobs((prev) => [created as CronJob, ...prev]);
-      message.success("Created successfully");
+      message.success(t("cronJobs.createSuccess"));
       return true;
     } catch (error) {
       console.error("Failed to create cron job", error);
-      message.error("Failed to save");
+      message.error(t("cronJobs.saveFailed"));
       return false;
     }
   };
@@ -67,18 +69,19 @@ export function useCronJobs() {
     }
 
     try {
-      const updated = await api.replaceCronJob(jobId, values);
+      const payload = { ...values, id: jobId };
+      const updated = await api.replaceCronJob(jobId, payload);
       setJobs((prev) =>
         prev.map((j) => (j.id === jobId ? (updated as CronJob) : j)),
       );
-      message.success("Updated successfully");
+      message.success(t("cronJobs.updateSuccess"));
       return true;
     } catch (error) {
       console.error("Failed to update cron job", error);
       if (original) {
         setJobs((prev) => prev.map((j) => (j.id === jobId ? original : j)));
       }
-      message.error("Failed to save");
+      message.error(t("cronJobs.saveFailed"));
       return false;
     }
   };
@@ -89,14 +92,14 @@ export function useCronJobs() {
 
     try {
       await api.deleteCronJob(jobId);
-      message.success("Deleted successfully");
+      message.success(t("cronJobs.deleteSuccess"));
       return true;
     } catch (error) {
       console.error("Failed to delete cron job", error);
       if (original) {
         setJobs((prev) => [...prev, original]);
       }
-      message.error("Failed to delete");
+      message.error(t("cronJobs.deleteFailed"));
       return false;
     }
   };
@@ -110,12 +113,14 @@ export function useCronJobs() {
       setJobs((prev) =>
         prev.map((j) => (j.id === job.id ? (returned as CronJob) : j)),
       );
-      message.success(`${updated.enabled ? "Enabled" : "Disabled"}`);
+      message.success(
+        updated.enabled ? t("agent.enableSuccess") : t("agent.disableSuccess"),
+      );
       return true;
     } catch (error) {
       console.error("Failed to toggle cron job", error);
       setJobs((prev) => prev.map((j) => (j.id === job.id ? job : j)));
-      message.error("Operation failed");
+      message.error(t("cronJobs.operationFailed"));
       return false;
     }
   };
@@ -123,11 +128,11 @@ export function useCronJobs() {
   const executeNow = async (jobId: string) => {
     try {
       await api.triggerCronJob(jobId);
-      message.success("Task triggered successfully");
+      message.success(t("cronJobs.executeNowSuccess"));
       return true;
     } catch (error) {
       console.error("Failed to execute cron job", error);
-      message.error("Failed to execute");
+      message.error(t("cronJobs.executeNowFailed"));
       return false;
     }
   };

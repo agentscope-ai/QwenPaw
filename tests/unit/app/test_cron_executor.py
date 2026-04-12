@@ -33,8 +33,8 @@ sys.modules.setdefault(
 )
 sys.modules["agentscope_runtime.engine.schemas.exception"] = exc_mod
 
-from copaw.app.crons.executor import CronExecutor
-from copaw.app.crons.models import CronJobSpec
+from qwenpaw.app.crons.executor import CronExecutor
+from qwenpaw.app.crons.models import CronJobSpec
 
 
 class DummyRunner:

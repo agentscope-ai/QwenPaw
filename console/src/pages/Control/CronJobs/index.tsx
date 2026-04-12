@@ -16,7 +16,7 @@ import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type CronJob = CronJobSpecOutput;
-type CronJobFormValues = CronJobSpecInput & {
+export type CronJobFormValues = CronJobSpecInput & {
   cronType?: string;
   cronTime?: dayjs.Dayjs;
   cronDaysOfWeek?: string[];
@@ -39,7 +39,7 @@ function CronJobsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form] = Form.useForm<CronJob>();
+  const [form] = Form.useForm<CronJobFormValues>();
   const userTimezoneRef = useRef("UTC");
 
   useEffect(() => {
@@ -228,6 +228,8 @@ function CronJobsPage() {
     onExecuteNow: handleExecuteNow,
     onEdit: handleEdit,
     onDelete: handleDelete,
+    onCopySuccess: () => message.success(t("common.copied")),
+    onCopyError: () => message.error(t("common.copyFailed")),
     t,
   });
 

@@ -13,6 +13,7 @@ import { TimePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
+import type { CronJobFormValues } from "../index";
 import { DEFAULT_FORM_VALUES } from "./constants";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
@@ -22,10 +23,10 @@ type CronJob = CronJobSpecOutput;
 interface JobDrawerProps {
   open: boolean;
   editingJob: CronJob | null;
-  form: FormInstance<CronJob>;
+  form: FormInstance<CronJobFormValues>;
   saving: boolean;
   onClose: () => void;
-  onSubmit: (values: CronJob) => void;
+  onSubmit: (values: CronJobFormValues) => void;
 }
 
 export function JobDrawer({
@@ -90,7 +91,11 @@ export function JobDrawer({
           <Switch />
         </Form.Item>
 
-        <Form.Item name={["schedule", "type"]} label="ScheduleType" hidden>
+        <Form.Item
+          name={["schedule", "type"]}
+          label={t("cronJobs.scheduleType")}
+          hidden
+        >
           <Input disabled value="cron" />
         </Form.Item>
 
@@ -156,7 +161,12 @@ export function JobDrawer({
                 <Form.Item
                   name="cronDaysOfWeek"
                   label={t("cronJobs.cronDaysOfWeek")}
-                  rules={[{ required: true, message: "请选择至少一天" }]}
+                  rules={[
+                    {
+                      required: true,
+                      message: t("cronJobs.pleaseSelectAtLeastOneDay"),
+                    },
+                  ]}
                 >
                   <Checkbox.Group
                     options={[
@@ -357,7 +367,11 @@ export function JobDrawer({
           }
         </Form.Item>
 
-        <Form.Item name={["dispatch", "type"]} label="DispatchType" hidden>
+        <Form.Item
+          name={["dispatch", "type"]}
+          label={t("cronJobs.dispatchType")}
+          hidden
+        >
           <Input disabled value="channel" />
         </Form.Item>
 

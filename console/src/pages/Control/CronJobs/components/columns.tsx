@@ -3,7 +3,6 @@ import type { ColumnsType } from "antd/es/table";
 import type { MenuProps } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
 import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
-import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { TFunction } from "i18next";
 import { parseCron } from "./parseCron";
 import styles from "../index.module.less";
@@ -15,38 +14,41 @@ interface ColumnHandlers {
   onExecuteNow: (job: CronJob) => void;
   onEdit: (job: CronJob) => void;
   onDelete: (jobId: string) => void;
+  onCopySuccess: () => void;
+  onCopyError: () => void;
   t: TFunction;
 }
 
-const createCopyToClipboard = (t: TFunction) => async (text: string) => {
-  const { message } = useAppMessage();
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      message.success(t("common.copied"));
-    } else {
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      textArea.style.position = "fixed";
-      textArea.style.left = "-999999px";
-      textArea.style.top = "-999999px";
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      document.execCommand("copy");
-      textArea.remove();
-      message.success(t("common.copied"));
+const createCopyToClipboard =
+  (handlers: Pick<ColumnHandlers, "onCopySuccess" | "onCopyError">) =>
+  async (text: string) => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        handlers.onCopySuccess();
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        textArea.remove();
+        handlers.onCopySuccess();
+      }
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+      handlers.onCopyError();
     }
-  } catch (err) {
-    console.error("Failed to copy text: ", err);
-    message.error(t("common.copyFailed"));
-  }
-};
+  };
 
 export const createColumns = (
   handlers: ColumnHandlers,
 ): ColumnsType<CronJob> => {
-  const copyToClipboard = createCopyToClipboard(handlers.t);
+  const copyToClipboard = createCopyToClipboard(handlers);
 
   return [
     {
@@ -85,7 +87,7 @@ export const createColumns = (
       dataIndex: ["schedule", "type"],
       key: "schedule_type",
       width: 140,
-      render: () => "cron",
+      render: () => handlers.t("cronJobs.scheduleTypeCron"),
     },
     {
       title: handlers.t("cronJobs.scheduleCron"),
@@ -137,12 +139,14 @@ export const createColumns = (
           <Tooltip
             title={
               <div>
-                <div>Cron 表达式：{cron}</div>
+                <div>
+                  {handlers.t("cronJobs.cronExpressionLabel")}: {cron}
+                </div>
                 <div
                   className={styles.tableText}
                   style={{ opacity: 0.8, marginTop: 4 }}
                 >
-                  格式：分钟 小时 日 月 星期
+                  {handlers.t("cronJobs.cronFormatHint")}
                 </div>
               </div>
             }
@@ -159,7 +163,7 @@ export const createColumns = (
       width: 170,
     },
     {
-      title: "TaskType",
+      title: handlers.t("cronJobs.taskType"),
       dataIndex: "task_type",
       key: "task_type",
       width: 140,
@@ -246,19 +250,19 @@ export const createColumns = (
           : handlers.t("cronJobs.executionSessionReuseDispatch"),
     },
     {
-      title: "DispatchType",
+      title: handlers.t("cronJobs.dispatchType"),
       dataIndex: ["dispatch", "type"],
       key: "dispatch_type",
       width: 140,
     },
     {
-      title: "DispatchChannel",
+      title: handlers.t("cronJobs.dispatchChannel"),
       dataIndex: ["dispatch", "channel"],
       key: "channel",
       width: 150,
     },
     {
-      title: "DispatchTargetUserID",
+      title: handlers.t("cronJobs.dispatchTargetUserId"),
       dataIndex: ["dispatch", "target", "user_id"],
       key: "target_user_id",
       width: 190,
@@ -270,25 +274,25 @@ export const createColumns = (
       width: 210,
     },
     {
-      title: "DispatchMode",
+      title: handlers.t("cronJobs.dispatchMode"),
       dataIndex: ["dispatch", "mode"],
       key: "mode",
       width: 140,
     },
     {
-      title: "RuntimeMaxConcurrency",
+      title: handlers.t("cronJobs.runtimeMaxConcurrency"),
       dataIndex: ["runtime", "max_concurrency"],
       key: "max_concurrency",
       width: 210,
     },
     {
-      title: "RuntimeTimeoutSeconds",
+      title: handlers.t("cronJobs.runtimeTimeoutSeconds"),
       dataIndex: ["runtime", "timeout_seconds"],
       key: "timeout_seconds",
       width: 210,
     },
     {
-      title: "RuntimeMisfireGraceSeconds",
+      title: handlers.t("cronJobs.runtimeMisfireGraceSeconds"),
       dataIndex: ["runtime", "misfire_grace_seconds"],
       key: "misfire_grace_seconds",
       width: 240,
