@@ -4,8 +4,8 @@
 
 配置频道有两种方式：
 
-- **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
-- **手动编辑 `agent.json`** — 在智能体工作区的 `agent.json` 中（如 `~/.copaw/workspaces/default/agent.json`），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
+-   **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
+-   **手动编辑 `agent.json`** — 在智能体工作区的 `agent.json` 中（如 `~/.copaw/workspaces/default/agent.json`），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
 
 下面按频道说明如何获取凭证并填写配置。
 
@@ -25,30 +25,30 @@
 
 2. 进入"应用开发→企业内部应用→钉钉应用→创建 **应用**"
 
-   ![钉钉开发者后台](https://img.alicdn.com/imgextra/i1/O1CN01KLtwvu1rt9weVn8in_!!6000000005688-2-tps-2809-1585.png)
+    ![钉钉开发者后台](https://img.alicdn.com/imgextra/i1/O1CN01KLtwvu1rt9weVn8in_!!6000000005688-2-tps-2809-1585.png)
 
 3. 在"应用能力→添加应用能力"中添加 **「机器人」**
 
-   ![添加机器人](https://img.alicdn.com/imgextra/i2/O1CN01AboPsn1XGQ84utCG8_!!6000000002896-2-tps-2814-1581.png)
+    ![添加机器人](https://img.alicdn.com/imgextra/i2/O1CN01AboPsn1XGQ84utCG8_!!6000000002896-2-tps-2814-1581.png)
 
 4. 配置机器人基础信息，设置消息接收模式为 **Stream 模式**（流式接收），点击发布
 
-   ![机器人基础信息](https://img.alicdn.com/imgextra/i3/O1CN01KwmNZ61GwhDhKxgSv_!!6000000000687-2-tps-2814-1581.png)
+    ![机器人基础信息](https://img.alicdn.com/imgextra/i3/O1CN01KwmNZ61GwhDhKxgSv_!!6000000000687-2-tps-2814-1581.png)
 
-   ![Stream模式+发布](https://img.alicdn.com/imgextra/i2/O1CN01tk8QW11NqvXYqcoPH_!!6000000001622-2-tps-2809-1590.png)
+    ![Stream模式+发布](https://img.alicdn.com/imgextra/i2/O1CN01tk8QW11NqvXYqcoPH_!!6000000001622-2-tps-2809-1590.png)
 
 5. 在"应用发布→版本管理与发布"中创建新版本，填写基础信息后保存
 
-   ![创建新版本](https://img.alicdn.com/imgextra/i3/O1CN01lRCPuf1PQwIeFL4AL_!!6000000001836-2-tps-2818-1590.png)
+    ![创建新版本](https://img.alicdn.com/imgextra/i3/O1CN01lRCPuf1PQwIeFL4AL_!!6000000001836-2-tps-2818-1590.png)
 
-   ![保存](https://img.alicdn.com/imgextra/i1/O1CN01vrzbIA1Qey2x8Jbua_!!6000000002002-2-tps-2809-1585.png)
+    ![保存](https://img.alicdn.com/imgextra/i1/O1CN01vrzbIA1Qey2x8Jbua_!!6000000002002-2-tps-2809-1585.png)
 
 6. 在"基础信息→凭证与基础信息"中获取：
 
-   - **Client ID**（即 AppKey）
-   - **Client Secret**（即 AppSecret）
+    - **Client ID**（即 AppKey）
+    - **Client Secret**（即 AppSecret）
 
-   ![client](https://img.alicdn.com/imgextra/i3/O1CN01JsRrwx1hJImLfM7O1_!!6000000004256-2-tps-2809-1585.png)
+    ![client](https://img.alicdn.com/imgextra/i3/O1CN01JsRrwx1hJImLfM7O1_!!6000000004256-2-tps-2809-1585.png)
 
 7. （可选） **将服务器 IP 加入白名单** — 调用钉钉开放平台 API（如下载用户发送的图片和文件）时需要此配置。在应用设置中进入 **"安全设置→服务器出口 IP"**，添加运行 CoPaw 的机器的公网 IP。可在终端执行 `curl ifconfig.me` 查看公网 IP。若未配置白名单，图片和文件下载将报 `Forbidden.AccessDenied.IpNotInWhiteList` 错误。
 
@@ -90,9 +90,9 @@
 
 > **提示：**
 >
-> - 若希望隐藏工具执行详情，可设置 `filter_tool_messages: true`。
-> - AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致。
-> - 群聊场景建议显式配置 `robot_code`；留空时 CoPaw 会回退使用 `client_id`。
+> -   若希望隐藏工具执行详情，可设置 `filter_tool_messages: true`。
+> -   AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致。
+> -   群聊场景建议显式配置 `robot_code`；留空时 CoPaw 会回退使用 `client_id`。
 
 保存后若服务已运行会自动重载；未运行则执行 `copaw app` 启动。
 
@@ -148,23 +148,23 @@
 
 ```json
 {
-  "scopes": {
-    "tenant": [
-      "aily:file:read",
-      "aily:file:write",
-      "aily:message:read",
-      "aily:message:write",
-      "corehr:file:download",
-      "im:chat",
-      "im:message",
-      "im:message.group_msg",
-      "im:message.p2p_msg:readonly",
-      "im:message.reactions:read",
-      "im:resource",
-      "contact:user.base:readonly"
-    ],
-    "user": []
-  }
+    "scopes": {
+        "tenant": [
+            "aily:file:read",
+            "aily:file:write",
+            "aily:message:read",
+            "aily:message:write",
+            "corehr:file:download",
+            "im:chat",
+            "im:message",
+            "im:message.group_msg",
+            "im:message.p2p_msg:readonly",
+            "im:message.reactions:read",
+            "im:resource",
+            "contact:user.base:readonly"
+        ],
+        "user": []
+    }
 }
 ```
 
@@ -266,42 +266,42 @@
 
 2. 安装 **imsg**（用于访问 iMessage 数据库）：
 
-   ```bash
-   brew install steipete/tap/imsg
-   ```
+    ```bash
+    brew install steipete/tap/imsg
+    ```
 
-   > 如果 Intel 芯片 Mac 用户通过上述方式无法安装成功，需要先克隆源码再编译
-   >
-   > ```bash
-   > git clone https://github.com/steipete/imsg.git
-   > cd imsg
-   > make build
-   > sudo cp build/Release/imsg /usr/local/bin/
-   > cp ./bin/imsg /usr/local/bin/
-   > ```
+    > 如果 Intel 芯片 Mac 用户通过上述方式无法安装成功，需要先克隆源码再编译
+    >
+    > ```bash
+    > git clone https://github.com/steipete/imsg.git
+    > cd imsg
+    > make build
+    > sudo cp build/Release/imsg /usr/local/bin/
+    > cp ./bin/imsg /usr/local/bin/
+    > ```
 
 3. 为了使 iMessage 中的信息能被获取，需要 **终端** （或你用来运行 CoPaw 的 app） 和 **消息** 有 **完全磁盘访问权限**（系统设置 → 隐私与安全性 → 完全磁盘访问权限）。
 
-   ![权限](https://img.alicdn.com/imgextra/i2/O1CN01gCbMWX1S2c77mcoPo_!!6000000002189-2-tps-958-440.png)
+    ![权限](https://img.alicdn.com/imgextra/i2/O1CN01gCbMWX1S2c77mcoPo_!!6000000002189-2-tps-958-440.png)
 
 4. 填写 iMessage 数据库路径。默认路径为 `~/Library/Messages/chat.db`，若你改过系统路径，请填实际路径。有以下两种填写方案：
 
-   - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
+    - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
-     ![控制台](https://img.alicdn.com/imgextra/i3/O1CN01ut2ooB1mxDNNtz1Qc_!!6000000005020-2-tps-3814-1954.png)
+        ![控制台](https://img.alicdn.com/imgextra/i3/O1CN01ut2ooB1mxDNNtz1Qc_!!6000000005020-2-tps-3814-1954.png)
 
-     ![控制台](https://img.alicdn.com/imgextra/i2/O1CN01AmgRk91Q9Mj5HfpDl_!!6000000001933-2-tps-3822-2064.png)
+        ![控制台](https://img.alicdn.com/imgextra/i2/O1CN01AmgRk91Q9Mj5HfpDl_!!6000000001933-2-tps-3822-2064.png)
 
-   - 填写智能体工作区的 `agent.json`（如 `~/.copaw/workspaces/default/agent.json`）：
+    - 填写智能体工作区的 `agent.json`（如 `~/.copaw/workspaces/default/agent.json`）：
 
-     ```json
-     "imessage": {
-       "enabled": true,
-       "bot_prefix": "[BOT]",
-       "db_path": "~/Library/Messages/chat.db",
-       "poll_sec": 1.0
-     }
-     ```
+        ```json
+        "imessage": {
+          "enabled": true,
+          "bot_prefix": "[BOT]",
+          "db_path": "~/Library/Messages/chat.db",
+          "poll_sec": 1.0
+        }
+        ```
 
 **iMessage 专属字段说明：**
 
@@ -312,7 +312,7 @@
 
 5. 填写完成后，使用你的手机，给当前电脑登录的 iMessage 账号（与电脑Apple ID一致）发送任意一条消息，可以看到回复。
 
-   ![聊天](https://img.alicdn.com/imgextra/i4/O1CN01beScxi1rBBvSFeIbz_!!6000000005592-2-tps-1206-2622.png)
+    ![聊天](https://img.alicdn.com/imgextra/i4/O1CN01beScxi1rBBvSFeIbz_!!6000000005592-2-tps-1206-2622.png)
 
 ---
 
@@ -418,7 +418,7 @@
 
 5. 在**开发管理**中获取**AppID**和**AppSecret**（即 ClientSecret），填入 `agent.json`，方式见下方填写 agent.json。在**IP白名单**中添加一个IP。
 
-   > **提示：** 如果使用魔搭创空间部署CoPaw，QQ频道的IP白名单应填写：`47.92.200.108`
+    > **提示：** 如果使用魔搭创空间部署CoPaw，QQ频道的IP白名单应填写：`47.92.200.108`
 
 ![1](https://img.alicdn.com/imgextra/i4/O1CN012UQWI21cnvBAUcz54_!!6000000003646-2-tps-4082-2126.png)
 
@@ -476,19 +476,19 @@ NapCat  ──反向 WS──▶  CoPaw (:6199/ws)
 
 1. 通过 Docker 运行 NapCat：
 
-   ```bash
-   docker run -d \
-     --name napcat \
-     -e ACCOUNT=<你的QQ号> \
-     -p 6099:6099 \
-     mlikiowa/napcat-docker:latest
-   ```
+    ```bash
+    docker run -d \
+      --name napcat \
+      -e ACCOUNT=<你的QQ号> \
+      -p 6099:6099 \
+      mlikiowa/napcat-docker:latest
+    ```
 
 2. 打开 NapCat WebUI `http://localhost:6099`，用 QQ 扫码登录。
 
 3. 进入 **网络配置** → **新建** → **WebSocket 客户端**（反向 WS）：
-   - URL：`ws://<copaw地址>:6199/ws`
-   - Access Token：与 CoPaw 配置中的 `access_token` 保持一致（可选）
+    - URL：`ws://<copaw地址>:6199/ws`
+    - Access Token：与 CoPaw 配置中的 `access_token` 保持一致（可选）
 
 ### 填写 agent.json
 
@@ -605,9 +605,9 @@ NapCat  ──反向 WS──▶  CoPaw (:6199/ws)
 
 ### 工作原理
 
-- **登录方式**：首次使用时扫描二维码授权，Token 自动持久化到本地文件（默认 `~/.copaw/weixin_bot_token`），后续启动无需重复扫码。
-- **消息接收**：通过 HTTP 长轮询（`getupdates`）持续拉取新消息，支持文本、图片、语音（ASR 转录）和文件。
-- **消息发送**：通过 `sendmessage` 接口回复用户，当前仅支持文本（iLink API 限制）。
+-   **登录方式**：首次使用时扫描二维码授权，Token 自动持久化到本地文件（默认 `~/.copaw/weixin_bot_token`），后续启动无需重复扫码。
+-   **消息接收**：通过 HTTP 长轮询（`getupdates`）持续拉取新消息，支持文本、图片、语音（ASR 转录）和文件。
+-   **消息发送**：通过 `sendmessage` 接口回复用户，当前仅支持文本（iLink API 限制）。
 
 ### 扫码登录（推荐通过 Console）
 
@@ -664,11 +664,11 @@ WEIXIN_GROUP_POLICY=open
 1. 打开 Telegram 并搜索 `@BotFather` 添加 Bot（注意需要是官方 @BotFather，有蓝色认证标识）。
 2. 打开与 @BotFather 的聊天，根据对话中的指引创建新机器人
 
-   ![创建机器人](https://img.alicdn.com/imgextra/i1/O1CN01wVVmbY1qkcxBn8Oc0_!!6000000005534-0-tps-817-1279.jpg)
+    ![创建机器人](https://img.alicdn.com/imgextra/i1/O1CN01wVVmbY1qkcxBn8Oc0_!!6000000005534-0-tps-817-1279.jpg)
 
 3. 在对话框中创建 bot_name，复制 bot_token
 
-   ![复制token](https://img.alicdn.com/imgextra/i3/O1CN01KUMvBW1UnuF599tNX_!!6000000002563-0-tps-1209-1237.jpg)
+    ![复制token](https://img.alicdn.com/imgextra/i3/O1CN01KUMvBW1UnuF599tNX_!!6000000002563-0-tps-1209-1237.jpg)
 
 ### 绑定 Bot
 
@@ -792,30 +792,30 @@ JSON消息格式
 
 1. 简单订阅和推送
 
-   | subscribe_topic | publish_topic |
-   | --------------- | ------------- |
-   | server          | client        |
+    | subscribe_topic | publish_topic |
+    | --------------- | ------------- |
+    | server          | client        |
 
 2. 模糊匹配订阅和自动推送
 
-   模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送CoPaw处理完后，将会向`/client/client_b/down`推送消息。
+    模糊订阅全server/+/up主题，根据客户端的client_id自动推送到对应的主题，例如客户端向`/server/client_a/up`推送CoPaw处理完后，将会向`/client/client_b/down`推送消息。
 
-   | subscribe_topic | publish_topic           |
-   | --------------- | ----------------------- |
-   | server/+/up     | client/{client_id}/down |
+    | subscribe_topic | publish_topic           |
+    | --------------- | ----------------------- |
+    | server/+/up     | client/{client_id}/down |
 
 3. 重定向主题推送
 
-   发送消息为JSON格式，订阅主题为`server/client_a/up`，推送主题为`client/client_a/down`
+    发送消息为JSON格式，订阅主题为`server/client_a/up`，推送主题为`client/client_a/down`
 
-   ```json
-   {
-     "text": "讲个笑话，直接回复文本即可。",
-     "redirect_client_id": "client_b"
-   }
-   ```
+    ```json
+    {
+        "text": "讲个笑话，直接回复文本即可。",
+        "redirect_client_id": "client_b"
+    }
+    ```
 
-   消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以CoPaw为核心，根据个人需求，多设备间自主推送消息。
+    消息会根据redirect_client_id属性，推送至 `client/client_b/down`，从而实现跨主题推送。在物联网场景，可以做到以CoPaw为核心，根据个人需求，多设备间自主推送消息。
 
 ---
 
@@ -829,19 +829,19 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 2. 获取机器人的 **Access Token**，最简便的方式是通过 Element：
 
-   - 以机器人账号登录 [app.element.io](https://app.element.io)
-   - 前往 **设置 → 帮助与关于 → 高级 → Access Token**
-   - 复制 Token（以 `syt_...` 开头）
+    - 以机器人账号登录 [app.element.io](https://app.element.io)
+    - 前往 **设置 → 帮助与关于 → 高级 → Access Token**
+    - 复制 Token（以 `syt_...` 开头）
 
-   也可以直接调用 Matrix Client-Server API：
+    也可以直接调用 Matrix Client-Server API：
 
-   ```bash
-   curl -X POST "https://matrix.org/_matrix/client/v3/login" \
-     -H "Content-Type: application/json" \
-     -d '{"type":"m.login.password","user":"@yourbot:matrix.org","password":"yourpassword"}'
-   ```
+    ```bash
+    curl -X POST "https://matrix.org/_matrix/client/v3/login" \
+      -H "Content-Type: application/json" \
+      -d '{"type":"m.login.password","user":"@yourbot:matrix.org","password":"yourpassword"}'
+    ```
 
-   响应中的 `access_token` 即为所需 Token。
+    响应中的 `access_token` 即为所需 Token。
 
 3. 记录机器人的 **User ID**（格式：`@用户名:服务器`，例如 `@mybot:matrix.org`）和 **Homeserver URL**（例如 `https://matrix.org`）。
 
@@ -851,9 +851,9 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 前往 **控制 → 频道**，点击 **Matrix**，启用后填写：
 
-- **Homeserver URL** — 例如 `https://matrix.org`
-- **User ID** — 例如 `@mybot:matrix.org`
-- **Access Token** — 上面复制的 Token（以密码框形式显示）
+-   **Homeserver URL** — 例如 `https://matrix.org`
+-   **User ID** — 例如 `@mybot:matrix.org`
+-   **Access Token** — 上面复制的 Token（以密码框形式显示）
 
 **方式二：** 编辑智能体工作区的 `agent.json`
 
@@ -885,9 +885,9 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Co
 
 ### 注意事项
 
-- Matrix 频道当前**仅支持文本消息**（不支持图片/文件附件）。
-- 机器人只能接收已加入房间的消息，发消息前请先邀请机器人进入对应房间。
-- 如使用自建服务器，将 `homeserver` 设置为你的服务器地址（例如 `https://matrix.example.com`）。
+-   Matrix 频道当前**仅支持文本消息**（不支持图片/文件附件）。
+-   机器人只能接收已加入房间的消息，发消息前请先邀请机器人进入对应房间。
+-   如使用自建服务器，将 `homeserver` 设置为你的服务器地址（例如 `https://matrix.example.com`）。
 
 ---
 
@@ -946,12 +946,12 @@ Voice 频道通过 Twilio ConversationRelay 实现电话语音交互，支持语
 
 1. 访问 [Twilio Console](https://console.twilio.com/)，注册账号
 2. 在 Dashboard 中获取：
-   - **Account SID**（账号标识）
-   - **Auth Token**（认证令牌）
+    - **Account SID**（账号标识）
+    - **Auth Token**（认证令牌）
 3. 购买电话号码：
-   - 前往 **Phone Numbers → Buy a Number**
-   - 选择支持语音通话的号码
-   - 记录 **Phone Number**（如 `+1234567890`）和 **Phone Number SID**
+    - 前往 **Phone Numbers → Buy a Number**
+    - 选择支持语音通话的号码
+    - 记录 **Phone Number**（如 `+1234567890`）和 **Phone Number SID**
 
 ### 配置 Cloudflare Tunnel
 
@@ -983,37 +983,37 @@ cloudflared tunnel --url http://localhost:8088
 
 前往 **控制 → 频道**，点击 **Voice**，启用后填写：
 
-- **Twilio Account SID**：从 Twilio Dashboard 获取
-- **Twilio Auth Token**：从 Twilio Dashboard 获取
-- **Phone Number**：购买的电话号码（如 `+1234567890`）
-- **Phone Number SID**：电话号码的 SID
+-   **Twilio Account SID**：从 Twilio Dashboard 获取
+-   **Twilio Auth Token**：从 Twilio Dashboard 获取
+-   **Phone Number**：购买的电话号码（如 `+1234567890`）
+-   **Phone Number SID**：电话号码的 SID
 
 高级选项：
 
-- **TTS Provider**：文本转语音提供商（默认 `google`）
-- **TTS Voice**：语音模型（默认 `en-US-Journey-D`）
-- **STT Provider**：语音转文本提供商（默认 `deepgram`）
-- **Language**：语言代码（默认 `en-US`）
-- **Welcome Greeting**：欢迎语（用户接通电话后的第一句话）
+-   **TTS Provider**：文本转语音提供商（默认 `google`）
+-   **TTS Voice**：语音模型（默认 `en-US-Journey-D`）
+-   **STT Provider**：语音转文本提供商（默认 `deepgram`）
+-   **Language**：语言代码（默认 `en-US`）
+-   **Welcome Greeting**：欢迎语（用户接通电话后的第一句话）
 
 **方式二：** 手动编辑 `agent.json`
 
 ```json
 {
-  "channels": {
-    "voice": {
-      "enabled": true,
-      "twilio_account_sid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "twilio_auth_token": "your_auth_token",
-      "phone_number": "+1234567890",
-      "phone_number_sid": "PNxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "tts_provider": "google",
-      "tts_voice": "en-US-Journey-D",
-      "stt_provider": "deepgram",
-      "language": "en-US",
-      "welcome_greeting": "Hi! This is CoPaw. How can I help you?"
+    "channels": {
+        "voice": {
+            "enabled": true,
+            "twilio_account_sid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "twilio_auth_token": "your_auth_token",
+            "phone_number": "+1234567890",
+            "phone_number_sid": "PNxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "tts_provider": "google",
+            "tts_voice": "en-US-Journey-D",
+            "stt_provider": "deepgram",
+            "language": "en-US",
+            "welcome_greeting": "Hi! This is CoPaw. How can I help you?"
+        }
     }
-  }
 }
 ```
 
@@ -1024,9 +1024,9 @@ cloudflared tunnel --url http://localhost:8088
 1. 前往 **Phone Numbers → Manage → Active Numbers**
 2. 点击你的电话号码
 3. 在 **Voice Configuration** 部分：
-   - **A Call Comes In**：选择 **Webhook**
-   - **URL**：填入 `https://your-cloudflare-url.trycloudflare.com/api/voice/callback`
-   - **HTTP Method**：选择 **POST**
+    - **A Call Comes In**：选择 **Webhook**
+    - **URL**：填入 `https://your-cloudflare-url.trycloudflare.com/api/voice/callback`
+    - **HTTP Method**：选择 **POST**
 4. 保存配置
 
 ### 使用方式
@@ -1117,26 +1117,26 @@ cloudflared tunnel --url http://localhost:8088
 
 说明：
 
-- **钉钉**：接收支持富文本与单文件（downloadCode），发送通过会话 webhook 支持图片 / 语音 / 视频 / 文件。
-- **飞书**：WebSocket 长连接收消息，Open API 发送；支持文本 / 图片 / 文件收发；群聊时在消息 metadata 中带 `feishu_chat_id`、`feishu_message_id` 便于下游去重与群上下文。
-- **Discord**：接收时附件会解析为图片 / 视频 / 音频 / 文件并传入 Agent；回复时真实附件发送为 🚧 施工中，当前仅以链接形式附在文本中。
-- **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
-- **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
-- **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
-- **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收和发送文本、图片、语音、视频和文件。
-- **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送支持文本、图片、文件和视频；音频文件（如 MP3）因 iLink API 限制暂不支持。
-- **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
-- **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。
-- **Voice**：纯语音通话频道，接收用户语音并转为文本，Agent 回复转为语音播放；不支持其他格式。
+-   **钉钉**：接收支持富文本与单文件（downloadCode），发送通过会话 webhook 支持图片 / 语音 / 视频 / 文件。
+-   **飞书**：WebSocket 长连接收消息，Open API 发送；支持文本 / 图片 / 文件收发；群聊时在消息 metadata 中带 `feishu_chat_id`、`feishu_message_id` 便于下游去重与群上下文。
+-   **Discord**：接收时附件会解析为图片 / 视频 / 音频 / 文件并传入 Agent；回复时真实附件发送为 🚧 施工中，当前仅以链接形式附在文本中。
+-   **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
+-   **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
+-   **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
+-   **企业微信**：WebSocket 长连接接收，markdown/template_card 发送；支持接收和发送文本、图片、语音、视频和文件。
+-   **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送支持文本、图片、文件和视频；音频文件（如 MP3）因 iLink API 限制暂不支持。
+-   **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
+-   **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。
+-   **Voice**：纯语音通话频道，接收用户语音并转为文本，Agent 回复转为语音播放；不支持其他格式。
 
 ### 通过 HTTP 修改配置
 
 服务运行时可读写频道配置，修改会写回 `agent.json` 并自动生效：
 
-- `GET /config/channels` — 获取全部频道
-- `PUT /config/channels` — 整体覆盖
-- `GET /config/channels/{channel_name}` — 获取单个（如 `dingtalk`、`imessage`）
-- `PUT /config/channels/{channel_name}` — 更新单个
+-   `GET /config/channels` — 获取全部频道
+-   `PUT /config/channels` — 整体覆盖
+-   `GET /config/channels/{channel_name}` — 获取单个（如 `dingtalk`、`imessage`）
+-   `PUT /config/channels/{channel_name}` — 更新单个
 
 ---
 
@@ -1146,8 +1146,8 @@ cloudflared tunnel --url http://localhost:8088
 
 ### 数据流与队列
 
-- **ChannelManager** 为每个启用队列的 channel 维护一个队列；收到消息时 channel 调用 **`self._enqueue(payload)`**（由 manager 启动时注入），manager 在消费循环中再调用 **`channel.consume_one(payload)`**。
-- 基类已实现 **默认 `consume_one`**：把 payload 转成 `AgentRequest`、跑 `_process`、对每条完成消息调用 `send_message_content`、错误时调用 `_on_consume_error`。多数渠道只需实现「入口→请求」和「回复→出口」，不必重写 `consume_one`。
+-   **ChannelManager** 为每个启用队列的 channel 维护一个队列；收到消息时 channel 调用 **`self._enqueue(payload)`**（由 manager 启动时注入），manager 在消费循环中再调用 **`channel.consume_one(payload)`**。
+-   基类已实现 **默认 `consume_one`**：把 payload 转成 `AgentRequest`、跑 `_process`、对每条完成消息调用 `send_message_content`、错误时调用 `_on_consume_error`。多数渠道只需实现「入口→请求」和「回复→出口」，不必重写 `consume_one`。
 
 ### 子类必须实现
 
@@ -1160,8 +1160,8 @@ cloudflared tunnel --url http://localhost:8088
 
 ### 基类提供的通用能力
 
-- **消费流程**：`_payload_to_request`（payload→AgentRequest）、`get_to_handle_from_request`（解析发送目标，默认 `user_id`）、`get_on_reply_sent_args`（回调参数）、`_before_consume_process`（处理前钩子，如保存 receive_id）、`_on_consume_error`（错误时发送，默认 `send_content_parts`）、可选 **`refresh_webhook_or_token`**（空实现，子类需刷新 token 时覆盖）。
-- **辅助**：`resolve_session_id`、`build_agent_request_from_user_content`、`_message_to_content_parts`、`send_message_content`、`send_content_parts`、`to_handle_from_target`。
+-   **消费流程**：`_payload_to_request`（payload→AgentRequest）、`get_to_handle_from_request`（解析发送目标，默认 `user_id`）、`get_on_reply_sent_args`（回调参数）、`_before_consume_process`（处理前钩子，如保存 receive_id）、`_on_consume_error`（错误时发送，默认 `send_content_parts`）、可选 **`refresh_webhook_or_token`**（空实现，子类需刷新 token 时覆盖）。
+-   **辅助**：`resolve_session_id`、`build_agent_request_from_user_content`、`_message_to_content_parts`、`send_message_content`、`send_content_parts`、`to_handle_from_target`。
 
 需要不同消费逻辑时（如控制台打印、钉钉合并去抖）再覆盖 **`consume_one`**；需要不同发送目标或回调参数时覆盖 **`get_to_handle_from_request`** / **`get_on_reply_sent_args`**。
 
@@ -1273,10 +1273,10 @@ def build_agent_request_from_native(self, native_payload):
 
 ### 自定义渠道目录与 CLI
 
-- **目录**：工作目录下的 `custom_channels/`（默认 `~/.copaw/custom_channels/`）用于存放自定义渠道模块。Manager 启动时会扫描该目录下的 `.py` 文件与包（含 `__init__.py` 的子目录），加载其中的 `BaseChannel` 子类，并按类的 `channel` 属性注册。
-- **安装**：`copaw channels install <key>` 会在 `custom_channels/` 下生成名为 `<key>.py` 的模板文件，可直接编辑实现；也可用 `--path <本地路径>` 或 `--url <URL>` 从本地/网络复制渠道模块。`copaw channels add <key>` 等价于安装后并写入 config 默认项，且可加 `--path`/`--url`。
-- **删除**：`copaw channels remove <key>` 会从 `custom_channels/` 中删除该渠道模块（仅支持自定义渠道，内置渠道不可删）；加 `--no-keep-config`（默认）会同时从 `config.json` 的 `channels` 中移除对应 key。
-- **Config**：`ChannelConfig` 使用 `extra="allow"`，`config.json` 的 `channels` 下可写任意 key；自定义渠道的配置会保存在 extra 中。配置方式与内置一致：`copaw channels config` 交互式配置，或直接编辑 config。
+-   **目录**：工作目录下的 `custom_channels/`（默认 `~/.copaw/custom_channels/`）用于存放自定义渠道模块。Manager 启动时会扫描该目录下的 `.py` 文件与包（含 `__init__.py` 的子目录），加载其中的 `BaseChannel` 子类，并按类的 `channel` 属性注册。
+-   **安装**：`copaw channels install <key>` 会在 `custom_channels/` 下生成名为 `<key>.py` 的模板文件，可直接编辑实现；也可用 `--path <本地路径>` 或 `--url <URL>` 从本地/网络复制渠道模块。`copaw channels add <key>` 等价于安装后并写入 config 默认项，且可加 `--path`/`--url`。
+-   **删除**：`copaw channels remove <key>` 会从 `custom_channels/` 中删除该渠道模块（仅支持自定义渠道，内置渠道不可删）；加 `--no-keep-config`（默认）会同时从 `config.json` 的 `channels` 中移除对应 key。
+-   **Config**：`ChannelConfig` 使用 `extra="allow"`，`config.json` 的 `channels` 下可写任意 key；自定义渠道的配置会保存在 extra 中。配置方式与内置一致：`copaw channels config` 交互式配置，或直接编辑 config。
 
 ### HTTP 路由注册
 
@@ -1293,10 +1293,10 @@ CoPaw 启动时会扫描 `custom_channels/` 下的模块，发现 `register_app_
 
 **接口说明 — `register_app_routes(app)`**
 
-- **参数**：`app` — FastAPI 应用实例
-- **返回**：None
-- **作用域**：注册路由、中间件、或 startup/shutdown 事件
-- **错误隔离**：单个渠道注册失败不影响其他渠道
+-   **参数**：`app` — FastAPI 应用实例
+-   **返回**：None
+-   **作用域**：注册路由、中间件、或 startup/shutdown 事件
+-   **错误隔离**：单个渠道注册失败不影响其他渠道
 
 **最简示例 — Echo 频道**：
 
@@ -1347,11 +1347,11 @@ def register_app_routes(app):
 
 ```json
 {
-  "channels": {
-    "my_echo": {
-      "enabled": true
+    "channels": {
+        "my_echo": {
+            "enabled": true
+        }
     }
-  }
 }
 ```
 
@@ -1369,8 +1369,8 @@ curl -X POST http://localhost:8088/api/my-echo/callback \
 
 ## 相关页面
 
-- [项目介绍](./intro) — 这个项目可以做什么
-- [快速开始](./quickstart) — 安装与首次启动
-- [心跳](./heartbeat) — 定时自检/摘要
-- [CLI](./cli) — init、app、cron、clean
-- [配置与工作目录](./config) — 配置文件与工作目录
+-   [项目介绍](./intro) — 这个项目可以做什么
+-   [快速开始](./quickstart) — 安装与首次启动
+-   [心跳](./heartbeat) — 定时自检/摘要
+-   [CLI](./cli) — init、app、cron、clean
+-   [配置与工作目录](./config) — 配置文件与工作目录
