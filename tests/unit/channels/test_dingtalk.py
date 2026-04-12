@@ -19,8 +19,8 @@ Run:
     pytest tests/unit/channels/test_dingtalk.py -v
     pytest tests/unit/channels/test_dingtalk.py::TestDingTalkSessionWebhook -v
 """
-# pylint: disable=redefined-outer-name,protected-access,unused-argument,line-too-long
-# pylint: disable=broad-exception-raised,using-constant-test,unused-import,reimported
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
+# pylint: disable=broad-exception-raised,using-constant-test,unused-import
 from __future__ import annotations
 
 import asyncio
@@ -735,7 +735,7 @@ class TestDingTalkSendMethods:
         self,
         dingtalk_channel,
     ):
-        """Handle API error response with non-zero errcode - patch at method level."""
+        """Handle API error response with non-zero errcode."""
 
         # Mock the response
         class MockResponse:
@@ -1653,7 +1653,7 @@ class TestDingTalkWorkspaceIntegration:
     integration with ChatManager and TaskTracker.
     """
 
-    async def _mock_stream_from_queue(*args, **kwargs):
+    async def _mock_stream_from_queue(self, *args, **kwargs):
         """Async generator for stream_from_queue mock."""
         if False:  # Never yields, just for async generator type
             yield None
@@ -1873,7 +1873,7 @@ class TestDingTalkCallbackHandler:
             "conversationType": "2",  # Group chat
             "text": {"content": "Hello, this is a test message"},
             "isInAtList": True,
-            "sessionWebhook": "https://oapi.dingtalk.com/robot/send?session=abc",
+            "sessionWebhook": "https://oapi.dingtalk.com/robot/send",  # test URL
             "sessionWebhookExpiredTime": 1893456000000,
         }
         return callback
@@ -3702,6 +3702,6 @@ class TestDingTalkAdditionalCoverage:
         msg.senderStaffId = "bot_staff_id"
         msg.is_bot = True
 
-        sender, skip = sender_from_chatbot_message(msg)
+        _sender, skip = sender_from_chatbot_message(msg)
 
         assert skip is True

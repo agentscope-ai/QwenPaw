@@ -244,7 +244,7 @@ class TestDiscordChannelFromEnv:
         assert channel.accept_bot_messages is True
 
     def test_from_env_uses_defaults(self, mock_process, monkeypatch):
-        """from_env should use defaults when environment variables are missing."""
+        """from_env uses defaults when env vars are missing."""
         from copaw.app.channels.discord_.channel import DiscordChannel
 
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")

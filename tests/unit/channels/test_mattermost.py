@@ -489,7 +489,9 @@ class TestMattermostChannelFromConfig:
                     "bot_prefix": self.bot_prefix,
                     "media_dir": self.media_dir,
                     "show_typing": self.show_typing,
-                    "thread_follow_without_mention": self.thread_follow_without_mention,
+                    "thread_follow_without_mention": (
+                        self.thread_follow_without_mention
+                    ),
                     "dm_policy": self.dm_policy,
                     "group_policy": self.group_policy,
                     "allow_from": self.allow_from,

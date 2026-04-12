@@ -20,7 +20,7 @@ Run:
     pytest tests/unit/channels/test_feishu.py -v
     pytest tests/unit/channels/test_feishu.py::TestFeishuChannelInit -v
 """
-# pylint: disable=redefined-outer-name,protected-access,unused-argument,line-too-long
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised,unused-import,unused-variable
 from __future__ import annotations
 
@@ -1399,7 +1399,7 @@ class TestFeishuChannelOnMessageComplex:
     """P1: Complex method tests for _on_message.
 
     Method characteristics:
-    - Multi-branch logic for different message types (text, post, image, file, media, audio)
+    - Multi-branch logic for different message types
     - Message deduplication
     - Media download integration
     - Bot mention handling
@@ -1431,7 +1431,7 @@ class TestFeishuChannelOnMessageComplex:
         mock_message_data,
     ):
         """Test handling basic text message."""
-        # _process is async generator, just verify message is marked as processed
+        # _process is async generator, verify message marked as processed
         await feishu_channel._on_message(mock_message_data)
         assert "msg_12345" in feishu_channel._processed_message_ids
 
@@ -2574,7 +2574,8 @@ class TestFeishuChannelSendText:
         """Should send text with table as interactive card."""
         feishu_channel._send_message = AsyncMock(return_value="msg_id_card")
 
-        body = "| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1 | Cell 2 |"
+        body = "| Header 1 | Header 2 |\n|----------|----------|\n"
+        body += "| Cell 1 | Cell 2 |"
         result = await feishu_channel._send_text(
             "open_id",
             "user_open_id",

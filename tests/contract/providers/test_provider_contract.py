@@ -15,8 +15,6 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Any
 
-import pytest
-
 from .. import BaseContractTest
 
 
@@ -24,7 +22,7 @@ class ProviderContractTest(BaseContractTest):
     """
     Contract tests for Provider subclasses.
 
-    All LLM providers (OpenAI, Anthropic, Ollama, etc.) must satisfy these contracts.
+    All LLM providers must satisfy these contracts.
     """
 
     @abstractmethod

@@ -525,7 +525,7 @@ class TestWecomChannelSessionResolution:
         assert session_id == "wecom:user_123"
 
     def test_resolve_session_id_group_chat(self, wecom_channel):
-        """resolve_session_id should return wecom:group:chatid for group chat."""
+        """resolve_session_id returns wecom:group:chatid for group chat."""
         session_id = wecom_channel.resolve_session_id(
             sender_id="user_123",
             channel_meta={
@@ -536,7 +536,7 @@ class TestWecomChannelSessionResolution:
         assert session_id == "wecom:group:group_456"
 
     def test_resolve_session_id_fallback_to_chatid(self, wecom_channel):
-        """resolve_session_id should fallback to chatid if no sender_id."""
+        """resolve_session_id falls back to chatid if no sender_id."""
         session_id = wecom_channel.resolve_session_id(
             sender_id="",
             channel_meta={"wecom_chatid": "chat_789"},
@@ -544,7 +544,7 @@ class TestWecomChannelSessionResolution:
         assert session_id == "wecom:chat_789"
 
     def test_resolve_session_id_unknown(self, wecom_channel):
-        """resolve_session_id should return wecom:unknown for empty identifiers."""
+        """resolve_session_id returns wecom:unknown for empty identifiers."""
         session_id = wecom_channel.resolve_session_id(
             sender_id="",
             channel_meta={},
@@ -552,19 +552,19 @@ class TestWecomChannelSessionResolution:
         assert session_id == "wecom:unknown"
 
     def test_parse_chatid_from_handle_single(self, wecom_channel):
-        """_parse_chatid_from_handle should extract userid from single chat handle."""
+        """_parse_chatid_from_handle extracts userid from single chat."""
         chatid = wecom_channel._parse_chatid_from_handle("wecom:user_123")
         assert chatid == "user_123"
 
     def test_parse_chatid_from_handle_group(self, wecom_channel):
-        """_parse_chatid_from_handle should extract chatid from group handle."""
+        """_parse_chatid_from_handle extracts chatid from group."""
         chatid = wecom_channel._parse_chatid_from_handle(
             "wecom:group:group_123",
         )
         assert chatid == "group_123"
 
     def test_parse_chatid_from_handle_plain(self, wecom_channel):
-        """_parse_chatid_from_handle should return plain string as-is."""
+        """_parse_chatid_from_handle returns plain string as-is."""
         chatid = wecom_channel._parse_chatid_from_handle("plain_id")
         assert chatid == "plain_id"
 
@@ -682,7 +682,7 @@ class TestWecomChannelBuildAgentRequest:
     """
 
     def test_build_agent_request_from_native_basic(self, wecom_channel):
-        """build_agent_request_from_native should create proper AgentRequest."""
+        """build_agent_request_from_native creates proper AgentRequest."""
         from agentscope_runtime.engine.schemas.agent_schemas import TextContent
 
         payload = {
@@ -700,7 +700,7 @@ class TestWecomChannelBuildAgentRequest:
         assert request.channel_meta["wecom_chatid"] == "chat_456"
 
     def test_build_agent_request_from_native_defaults(self, wecom_channel):
-        """build_agent_request_from_native should use defaults for missing fields."""
+        """build_agent_request_from_native uses defaults for missing fields."""
         request = wecom_channel.build_agent_request_from_native({})
 
         assert request.channel == "wecom"
