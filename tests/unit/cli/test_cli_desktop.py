@@ -26,7 +26,8 @@ def test_detect_windows_webview2_runtime_version_returns_first_valid(
     )
 
     assert (
-        desktop_cmd_module._detect_windows_webview2_runtime_version() == "136.0.3240.8"
+        desktop_cmd_module._detect_windows_webview2_runtime_version()
+        == "136.0.3240.8"
     )
 
 
@@ -40,7 +41,9 @@ def test_detect_windows_webview2_runtime_version_returns_none(
         lambda *_args: "",
     )
 
-    assert desktop_cmd_module._detect_windows_webview2_runtime_version() is None
+    assert (
+        desktop_cmd_module._detect_windows_webview2_runtime_version() is None
+    )
 
 
 def test_ensure_desktop_webview_available_requires_webview2_runtime(
