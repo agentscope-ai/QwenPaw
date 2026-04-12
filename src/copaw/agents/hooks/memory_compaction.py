@@ -58,6 +58,24 @@ class MemoryCompactionHook:
         )
         await agent.print(msg)
 
+        # Also send to user channel so external platforms (Telegram, Discord,
+        # etc.) receive the memory compaction notification.
+        channel_manager = getattr(agent, "_channel_manager", None)
+        request_context = getattr(agent, "_request_context", {})
+        if channel_manager and request_context:
+            ctx = request_context
+            try:
+                await channel_manager.send_text(
+                    channel=ctx.get("channel", "console"),
+                    user_id=ctx.get("user_id", ""),
+                    session_id=ctx.get("session_id", ""),
+                    text=text,
+                )
+            except Exception:
+                # Non-critical: channel send failure should not break
+                # the reasoning loop.
+                pass
+
     # pylint: disable=too-many-branches
     async def __call__(
         self,

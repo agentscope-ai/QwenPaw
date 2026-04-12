@@ -82,6 +82,7 @@ class AgentRunner(Runner):
         )
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
+        self._channel_manager = None  # Channel manager for user notification
         self._workspace: Any = None  # Workspace instance for control commands
         self.memory_manager: BaseMemoryManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
@@ -93,6 +94,14 @@ class AgentRunner(Runner):
             chat_manager: ChatManager instance
         """
         self._chat_manager = chat_manager
+
+    def set_channel_manager(self, channel_manager: Any) -> None:
+        """Set channel manager for sending messages to user channels.
+
+        Args:
+            channel_manager: ChannelManager instance
+        """
+        self._channel_manager = channel_manager
 
     def set_mcp_manager(self, mcp_manager):
         """Set MCP client manager for hot-reload support.
@@ -442,6 +451,7 @@ class AgentRunner(Runner):
                 env_context=env_context,
                 mcp_clients=mcp_clients,
                 memory_manager=self.memory_manager,
+                channel_manager=self._channel_manager,
                 request_context={
                     "session_id": session_id,
                     "user_id": user_id,

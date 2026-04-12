@@ -93,6 +93,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         enable_memory_manager: bool = True,
         mcp_clients: Optional[List[Any]] = None,
         memory_manager: "BaseMemoryManager | None" = None,
+        channel_manager: Any = None,
         request_context: Optional[dict[str, str]] = None,
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
@@ -121,6 +122,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         self._agent_config = agent_config
         self._env_context = env_context
         self._request_context = dict(request_context or {})
+        self._channel_manager = channel_manager
         self._mcp_clients = mcp_clients or []
         self._namesake_strategy = namesake_strategy
         self._workspace_dir = workspace_dir
