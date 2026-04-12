@@ -58,7 +58,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-[2026-04-10] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
+[2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
 
 The new name better reflects the open ecosystem we are building and the broader direction we are continuing to pursue:
 
