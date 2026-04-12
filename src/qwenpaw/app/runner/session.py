@@ -111,7 +111,18 @@ class SafeJSONSession(SessionBase):
                 errors="surrogatepass",
             ) as f:
                 content = await f.read()
-                states = json.loads(content)
+                try:
+                    states = json.loads(content)
+                except json.JSONDecodeError:
+                    # Fallback: extract first valid JSON object (handles
+                    # race-condition corruption where two writes overlap)
+                    decoder = json.JSONDecoder()
+                    states, _ = decoder.raw_decode(content)
+                    logger.warning(
+                        "Session file %s had corrupted JSON (Extra data). "
+                        "Recovered first valid object.",
+                        session_save_path,
+                    )
 
             for name, state_module in state_modules_mapping.items():
                 if name in states:
@@ -154,7 +165,16 @@ class SafeJSONSession(SessionBase):
                 errors="surrogatepass",
             ) as f:
                 content = await f.read()
-                states = json.loads(content)
+                try:
+                    states = json.loads(content)
+                except json.JSONDecodeError:
+                    decoder = json.JSONDecoder()
+                    states, _ = decoder.raw_decode(content)
+                    logger.warning(
+                        "Session file %s had corrupted JSON during update. "
+                        "Recovered first valid object.",
+                        session_save_path,
+                    )
 
         else:
             if not create_if_not_exist:
@@ -223,7 +243,16 @@ class SafeJSONSession(SessionBase):
                 errors="surrogatepass",
             ) as file:
                 content = await file.read()
-                states = json.loads(content)
+                try:
+                    states = json.loads(content)
+                except json.JSONDecodeError:
+                    decoder = json.JSONDecoder()
+                    states, _ = decoder.raw_decode(content)
+                    logger.warning(
+                        "Session file %s had corrupted JSON during get. "
+                        "Recovered first valid object.",
+                        session_save_path,
+                    )
 
             logger.info(
                 "Get session state dict from %s successfully.",
