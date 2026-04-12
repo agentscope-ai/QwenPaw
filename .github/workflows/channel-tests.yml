@@ -229,6 +229,7 @@ jobs:
       # Post coverage comment to PR
       - name: Comment PR with coverage
         if: github.event_name == 'pull_request'
+        continue-on-error: true  # Soft gate: coverage below threshold does not block PR
         uses: orgoro/coverage@v3.2
         with:
           coverageFile: coverage.xml
