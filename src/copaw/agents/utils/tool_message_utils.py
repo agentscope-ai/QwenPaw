@@ -387,3 +387,111 @@ def _truncate_text(text: str, max_length: int) -> str:
         f"{text[:half_length]}\n\n[...truncated {truncated_chars} "
         f"chars...]\n\n{text[-half_length:]}"
     )
+
+
+def is_valid_base64(s: str) -> bool:
+    """Check if a string is valid Base64."""
+    import base64
+    import binascii
+    if not isinstance(s, str):
+        return False
+    try:
+        base64.b64decode(s, validate=True)
+        return True
+    except binascii.Error:
+        return False
+
+def sanitize_gemini_schema(schema: dict) -> dict:
+    """Recursively sanitize JSON Schema for Gemini compatibility."""
+    new_schema = {}
+    for k, v in schema.items():
+        if k in ("additionalProperties", "additional_properties", "title", "default"):
+            continue
+        elif k in ("anyOf", "any_of", "allOf", "all_of", "oneOf", "one_of"):
+            continue
+            
+        if k == "properties" and isinstance(v, dict):
+            new_schema[k] = {
+                param_name: sanitize_gemini_schema(param_schema) if isinstance(param_schema, dict) else param_schema
+                for param_name, param_schema in v.items()
+            }
+        elif k == "items" and isinstance(v, dict):
+            new_schema[k] = sanitize_gemini_schema(v)
+        else:
+            new_schema[k] = v
+            
+    if "type" not in new_schema and any(key in schema for key in ("anyOf", "any_of", "allOf", "all_of", "oneOf", "one_of")):
+        # Extract type from the first element of anyOf/allOf/oneOf
+        extracted_type = "string"
+        for key in ("anyOf", "any_of", "allOf", "all_of", "oneOf", "one_of"):
+            arr = schema.get(key)
+            if isinstance(arr, list) and len(arr) > 0 and isinstance(arr[0], dict) and "type" in arr[0]:
+                extracted_type = arr[0]["type"]
+                break
+        new_schema["type"] = extracted_type
+        
+    return new_schema
+
+def sanitize_gemini_tools(tools: list) -> list:
+    """Sanitize tools list by removing unsupported JSON Schema fields."""
+    new_tools = []
+    if not isinstance(tools, list):
+        return tools
+    for tool in tools:
+        if not isinstance(tool, dict):
+            new_tools.append(tool)
+            continue
+            
+        new_tool = dict(tool)
+        if "function" in new_tool and isinstance(new_tool["function"], dict):
+            new_func = dict(new_tool["function"])
+            if "parameters" in new_func and isinstance(new_func["parameters"], dict):
+                new_func["parameters"] = sanitize_gemini_schema(new_func["parameters"])
+            new_tool["function"] = new_func
+        new_tools.append(new_tool)
+    return new_tools
+
+def sanitize_gemini_messages(messages: list) -> list:
+    """Remove pseudo-thought-signatures (OpenAI trace IDs) from Gemini requests."""
+    import copy
+    new_msgs = []
+    if not isinstance(messages, list):
+        return messages
+    for msg in messages:
+        if isinstance(msg, dict):
+            new_msg = dict(msg)
+            tool_calls = new_msg.get("tool_calls", [])
+            if isinstance(tool_calls, list) and tool_calls:
+                new_tcs = []
+                for tc in tool_calls:
+                    if isinstance(tc, dict):
+                        tc = dict(tc)
+                        ec = tc.get("extra_content")
+                        if ec and not is_valid_base64(ec):
+                            tc.pop("extra_content", None)
+                    new_tcs.append(tc)
+                new_msg["tool_calls"] = new_tcs
+            new_msgs.append(new_msg)
+        else:
+            has_content = hasattr(msg, 'content')
+            content = getattr(msg, 'content', None) if has_content else None
+            
+            if isinstance(content, list):
+                new_content = []
+                changed = False
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        ec = block.get("extra_content")
+                        if ec and not is_valid_base64(ec):
+                            block = dict(block)
+                            block.pop("extra_content", None)
+                            changed = True
+                    new_content.append(block)
+                if changed:
+                    new_msg = copy.copy(msg)
+                    new_msg.content = new_content
+                    new_msgs.append(new_msg)
+                    continue
+                    
+            new_msgs.append(msg)
+    return new_msgs

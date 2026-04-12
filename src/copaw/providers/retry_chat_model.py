@@ -284,6 +284,32 @@ class RetryChatModel(ChatModelBase):
         attempts = retries + 1
         last_exc: Exception | None = None
 
+        # Find the actual underlying model to check if it's Gemini
+        actual_model = self._inner
+        while hasattr(actual_model, "_model"):
+            actual_model = actual_model._model
+            
+        if actual_model.__class__.__name__ == "GeminiChatModel":
+            from ..agents.utils.tool_message_utils import sanitize_gemini_messages, sanitize_gemini_tools
+            
+            new_args = list(args)
+            new_kwargs = dict(kwargs)
+            
+            # Sanitize messages if passed as position 0
+            if len(new_args) > 0 and isinstance(new_args[0], list):
+                new_args[0] = sanitize_gemini_messages(new_args[0])
+            elif "messages" in new_kwargs and isinstance(new_kwargs["messages"], list):
+                new_kwargs["messages"] = sanitize_gemini_messages(new_kwargs["messages"])
+
+            # Sanitize tools if passed as position 1
+            if len(new_args) > 1 and new_args[1] is not None:
+                new_args[1] = sanitize_gemini_tools(new_args[1])
+            elif "tools" in new_kwargs and new_kwargs["tools"] is not None:
+                new_kwargs["tools"] = sanitize_gemini_tools(new_kwargs["tools"])
+                
+            args = tuple(new_args)
+            kwargs = new_kwargs
+
         for attempt in range(1, attempts + 1):
             # Acquire a semaphore slot, with a timeout to prevent
             # indefinite blocking. `acquired` tracks whether the slot was
