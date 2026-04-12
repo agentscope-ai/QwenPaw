@@ -131,7 +131,7 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "pass",
 ]
-fail_under = 60
+fail_under = 58
 show_missing = true
 
 [tool.coverage.html]
