@@ -332,6 +332,18 @@ async def execute_shell_command(
     else:
         env["PATH"] = python_bin_dir
 
+    # Add proxy support for network requests
+    proxy_host = os.environ.get("PROXY_HOST", "127.0.0.1")
+    proxy_port = os.environ.get("PROXY_PORT", "7897")
+    if not env.get("http_proxy"):
+        env["http_proxy"] = f"http://{proxy_host}:{proxy_port}"
+    if not env.get("https_proxy"):
+        env["https_proxy"] = f"http://{proxy_host}:{proxy_port}"
+    if not env.get("HTTP_PROXY"):
+        env["HTTP_PROXY"] = f"http://{proxy_host}:{proxy_port}"
+    if not env.get("HTTPS_PROXY"):
+        env["HTTPS_PROXY"] = f"http://{proxy_host}:{proxy_port}"
+
     try:
         if sys.platform == "win32":
             # Windows: use thread pool to avoid asyncio subprocess limitations
