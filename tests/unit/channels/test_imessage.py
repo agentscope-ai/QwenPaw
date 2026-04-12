@@ -93,7 +93,7 @@ class TestIMessageChannelInit:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """构造函数应存储基本配置参数"""
+        """Constructor should store basic configuration parameters."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -124,7 +124,7 @@ class TestIMessageChannelInit:
         mock_process_handler: AsyncMock,
         tmp_path: Path,
     ):
-        """构造函数应创建媒体目录"""
+        """Constructor should create media directory."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         media_dir = tmp_path / "media" / "imessage"
@@ -147,7 +147,7 @@ class TestIMessageChannelInit:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """构造函数应展开用户目录路径"""
+        """Constructor should expand user directory path."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -170,7 +170,7 @@ class TestIMessageChannelInit:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """构造函数应初始化内部数据结构"""
+        """Constructor should initialize internal data structures."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -200,7 +200,7 @@ class TestIMessageChannelFactoryMethods:
         monkeypatch: pytest.MonkeyPatch,
         temp_media_dir: str,
     ):
-        """from_env 应正确读取环境变量"""
+        """from_env should read environment variables correctly."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         monkeypatch.setenv("IMESSAGE_CHANNEL_ENABLED", "0")
@@ -220,7 +220,7 @@ class TestIMessageChannelFactoryMethods:
         mock_process_handler: AsyncMock,
         monkeypatch: pytest.MonkeyPatch,
     ):
-        """from_env 缺失变量时应使用默认值"""
+        """from_env should use defaults when variables are missing."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         monkeypatch.delenv("IMESSAGE_CHANNEL_ENABLED", raising=False)
@@ -242,7 +242,7 @@ class TestIMessageChannelFactoryMethods:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """from_config 应使用配置对象的值"""
+        """from_config should use config object values."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from copaw.config.config import IMessageChannelConfig
 
@@ -272,7 +272,7 @@ class TestIMessageChannelFactoryMethods:
         self,
         mock_process_handler: AsyncMock,
     ):
-        """from_config 使用默认 db_path"""
+        """from_config should use default db_path."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from copaw.config.config import IMessageChannelConfig
 
@@ -299,7 +299,7 @@ class TestIMessageChannelProperties:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """channel 类型应为 imessage"""
+        """channel type should be imessage."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -322,7 +322,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_sanitize_filename 应移除路径遍历字符"""
+        """_sanitize_filename should remove path traversal characters."""
         result = imessage_channel._sanitize_filename("../../../etc/passwd")
         assert ".." not in result
         assert "/" not in result
@@ -332,7 +332,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_sanitize_filename 应保留安全字符"""
+        """_sanitize_filename should preserve safe characters."""
         result = imessage_channel._sanitize_filename("test_file-name.123.jpg")
         assert result == "test_file-name.123.jpg"
 
@@ -340,7 +340,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_sanitize_filename 应处理空输入"""
+        """_sanitize_filename should handle empty input."""
         result = imessage_channel._sanitize_filename("")
         assert result == "media_file"
 
@@ -348,7 +348,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_sanitize_filename 应处理仅包含特殊字符的输入"""
+        """_sanitize_filename should handle input with only special characters."""
         result = imessage_channel._sanitize_filename("!@#$%")
         assert result == "media_file"
 
@@ -368,7 +368,7 @@ class TestIMessageChannelUtilityMethods:
         filename: str,
         expected: str,
     ):
-        """_sanitize_filename 应正确处理各种输入"""
+        """_sanitize_filename should handle various inputs correctly."""
         result = imessage_channel._sanitize_filename(filename)
         assert result == expected
 
@@ -376,7 +376,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_extract_url_and_filename 应正确处理 image 类型"""
+        """_extract_url_and_filename should handle image type correctly."""
         from agentscope_runtime.engine.schemas.agent_schemas import (
             ImageContent,
             ContentType,
@@ -403,7 +403,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_extract_url_and_filename 应正确处理 video 类型"""
+        """_extract_url_and_filename should handle video type correctly."""
         from agentscope_runtime.engine.schemas.agent_schemas import (
             VideoContent,
             ContentType,
@@ -430,7 +430,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_get_file_extension 应从文件名提取扩展名"""
+        """_get_file_extension should extract extension from filename."""
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
         ext = imessage_channel._get_file_extension(
@@ -443,7 +443,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_get_file_extension 应根据内容类型返回默认扩展名"""
+        """_get_file_extension should return default extension based on content type."""
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
         assert (
@@ -472,7 +472,7 @@ class TestIMessageChannelAsyncLifecycle:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """禁用时 start 不执行操作"""
+        """start should not perform operations when disabled."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -496,7 +496,7 @@ class TestIMessageChannelAsyncLifecycle:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """禁用时 stop 不执行操作"""
+        """stop should not perform operations when disabled."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -515,7 +515,7 @@ class TestIMessageChannelAsyncLifecycle:
     async def test_start_finds_imsg_binary(
         self,
     ):
-        """start 应正确设置 imsg 路径"""
+        """start should set imsg path correctly."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -529,7 +529,9 @@ class TestIMessageChannelAsyncLifecycle:
         )
 
         # Mock _ensure_imsg to avoid requiring actual installation
-        with patch.object(channel, "_ensure_imsg", return_value="/usr/local/bin/imsg"):
+        with patch.object(
+            channel, "_ensure_imsg", return_value="/usr/local/bin/imsg"
+        ):
             channel._imsg_path = channel._ensure_imsg()
             assert channel._imsg_path == "/usr/local/bin/imsg"
 
@@ -542,7 +544,7 @@ class TestIMessageChannelSend:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """禁用时 send 不执行操作"""
+        """send should not perform operations when disabled."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -559,7 +561,7 @@ class TestIMessageChannelSend:
         await channel.send("+1234567890", "Hello")
 
     def test_send_sync_raises_when_not_initialized(self):
-        """_send_sync 在未初始化时应抛出 ChannelError"""
+        """_send_sync should raise ChannelError when not initialized."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from copaw.exceptions import ChannelError
 
@@ -581,7 +583,7 @@ class TestIMessageChannelSend:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """send_content_parts 应处理纯文本 parts"""
+        """send_content_parts should handle text-only parts."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import (
             TextContent,
@@ -617,7 +619,7 @@ class TestIMessageChannelSend:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """send_content_parts 应处理空 parts 列表"""
+        """send_content_parts should handle empty parts list."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -642,7 +644,7 @@ class TestIMessageChannelMedia:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """禁用时 send_media 不执行操作"""
+        """send_media should not perform operations when disabled."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import (
             ImageContent,
@@ -673,7 +675,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
         caplog: pytest.LogCaptureFixture,
     ):
-        """send_media 应处理缺失的 URL"""
+        """send_media should handle missing URL."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -705,7 +707,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
         tmp_path: Path,
     ):
-        """_handle_local_file 应处理 file:// URL"""
+        """_handle_local_file should handle file:// URL."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -732,7 +734,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
         tmp_path: Path,
     ):
-        """_handle_local_file 应处理普通路径"""
+        """_handle_local_file should handle plain path."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -759,7 +761,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
         caplog: pytest.LogCaptureFixture,
     ):
-        """_handle_local_file 应处理不存在的文件"""
+        """_handle_local_file should handle non-existent file."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -781,7 +783,7 @@ class TestIMessageChannelMedia:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """_handle_data_url 应处理有效的 base64 数据 URL"""
+        """_handle_data_url should handle valid base64 data URL."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
@@ -816,7 +818,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
         caplog: pytest.LogCaptureFixture,
     ):
-        """_handle_data_url 应处理无效的 base64 数据"""
+        """_handle_data_url should handle invalid base64 data."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
@@ -846,7 +848,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
         caplog: pytest.LogCaptureFixture,
     ):
-        """_handle_data_url 应处理超大的 base64 数据"""
+        """_handle_data_url should handle oversized base64 data."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
@@ -880,7 +882,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
         caplog: pytest.LogCaptureFixture,
     ):
-        """_handle_data_url 应处理非 base64 格式的 data URL"""
+        """_handle_data_url should handle non-base64 format data URL."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
@@ -914,7 +916,7 @@ class TestIMessageChannelRequestBuilder:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """build_agent_request_from_native 应从 native payload 构建请求"""
+        """build_agent_request_from_native should build request from native payload."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import (
             TextContent,
@@ -952,7 +954,7 @@ class TestIMessageChannelRequestBuilder:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """build_agent_request_from_native 应处理空 payload"""
+        """build_agent_request_from_native should handle empty payload."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
@@ -977,7 +979,7 @@ class TestIMessageChannelErrorHandling:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """_on_consume_error 应发送错误消息"""
+        """_on_consume_error should send error message."""
         from copaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
