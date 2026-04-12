@@ -6,13 +6,13 @@
 tests/
 ├── contract/channels/          # ⭐ 契约测试（必需）
 │   ├── __init__.py            # ChannelContractTest 基类
-│   ├── test_console_contract.py   # 简单 Channel 参考
-│   ├── test_dingtalk_contract.py  # 复杂 Channel 参考
-│   ├── test_feishu_contract.py    # 复杂 Channel 参考
+│   ├── test_console_contract.py   # 简单 Channel 参考实现
+│   ├── test_dingtalk_contract.py  # 复杂 Channel 参考实现
+│   ├── test_feishu_contract.py    # 复杂 Channel 参考实现
 │   └── test_*_contract.py         # 全部 11 个 Channel 覆盖（0 缺失）
 │
 └── unit/channels/              # 单元测试（全量）
-    ├── README.md               # 本文件
+    ├── README.md               # 本文档
     ├── test_base_core.py       # BaseChannel 内部逻辑（68 个测试）
     ├── test_console.py         # ConsoleChannel 单元测试（26 个测试）
     ├── test_dingtalk.py        # DingTalkChannel 单元测试（159 个测试）
@@ -136,22 +136,11 @@ class TestYourChannel:
 
 | 阶段 | 测试类型 | 阈值 | 卡点类型 | 状态 |
 |------|----------|------|----------|------|
-| 1 | 契约测试 | 100% (128/128) | 🔴 硬卡点 | ⚠️ 暂时跳过（Pydantic 问题） |
-| 2 | 单元测试 | 全部通过 | 🔴 硬卡点 | ✅ 运行中 |
-| 3 | 覆盖率 | 55% 最低 | 🟡 软卡点 | ✅ 当前 57.36% |
+| 1 | 契约测试 | 100% (128/128) | 🔴 强卡点 | ⚠️ 暂时跳过（Pydantic 问题） |
+| 2 | 单元测试 | 全部通过 | 🔴 强卡点 | ✅ 运行中 |
+| 3 | 覆盖率 | 最低阈值 | 🟡 软卡点 | 非阻断，带警告 |
 
-**硬卡点**：失败将阻断 PR 合并
-**软卡点**：仅警告，不阻断（`continue-on-error`）
-
-### PR #2506 覆盖率变更
-
-| 配置项 | 之前 | 之后 | 原因 |
-|--------|------|------|------|
-| `fail_under` | 0%（不检查） | 55% | 建立最低问责线 |
-| `continue-on-error` | - | `true` | 不阻断紧急合并 |
-| 当前覆盖率 | - | 57.36% | 高于阈值 2.36% 缓冲 |
-
-**设计理由**：55% 反映现状同时建立可见问责。低于 55% = CI 警告。高于 55% = 通过。
+**软卡点设计原理**：建立可见的覆盖率基线，推动逐步改进，同时不阻断紧急合并。
 
 ## 四层防护机制（契约测试）
 
@@ -201,8 +190,8 @@ class TestYourChannel:
 
 ## 核心原则
 
-1. **契约测试是主要的** - 必须在 CI 中通过（硬卡点）
-2. **单元测试是必需的** - 必须在 CI 中通过（硬卡点）
+1. **契约测试是主要的** - 必须在 CI 中通过（强卡点）
+2. **单元测试是必需的** - 必须在 CI 中通过（强卡点）
 3. **全部 Channel 有完整覆盖** - 同时包含契约测试和单元测试
 4. **四层防护** - 有效防止"修 Console 破坏 DingTalk"
 5. **测试失败 = 阻断 PR** - CI 卡点确保代码质量
@@ -215,4 +204,9 @@ class TestYourChannel:
 | `pytest tests/contract/channels/ -v` | 运行所有契约测试 |
 | `pytest tests/unit/channels/ -v` | 运行所有单元测试 |
 | `pytest tests/unit/channels/test_dingtalk.py -v` | 运行特定 Channel 测试 |
-| `pytest tests/unit/channels/ -k "test_init"` | 运行特定测试模式 |
+
+---
+
+📖 [English version](README.md)
+
+📋 **关联**：PR #2506 - 测试基础设施与覆盖率基线建设

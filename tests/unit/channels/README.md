@@ -139,20 +139,10 @@ All tests run in the CI pipeline with the following gates:
 |-------|-----------|-----------|-----------|--------|
 | 1 | Contract Tests | 100% (128/128) | 🔴 Hard Gate | ⚠️ Temporarily skipped (Pydantic issue) |
 | 2 | Unit Tests | All must pass | 🔴 Hard Gate | ✅ Active |
-| 3 | Coverage | 55% min | 🟡 Soft Gate | ✅ 57.36% current |
+| 3 | Coverage | Minimum threshold | 🟡 Soft Gate | ✅ Non-blocking with warnings |
 
 **Hard Gate**: Failure blocks PR merge
 **Soft Gate**: Warning only, non-blocking (`continue-on-error`)
-
-### PR #2506 Coverage Changes
-
-| Setting | Before | After | Reason |
-|---------|--------|-------|--------|
-| `fail_under` | 0% (no check) | 55% | Establish minimum accountability |
-| `continue-on-error` | - | `true` | Don't block urgent merges |
-| Current Coverage | - | 57.36% | 2.36% buffer above threshold |
-
-**Rationale**: 55% reflects current state while creating visible accountability. Below 55% = CI warning. Above 55% = clean pass.
 
 ## Four-Layer Protection (Contract Tests)
 
