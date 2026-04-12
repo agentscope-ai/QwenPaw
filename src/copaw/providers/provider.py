@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Dict, List, Type, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer, model_validator
+from pydantic import ConfigDict
 
 from agentscope.model import ChatModelBase
 from copaw.exceptions import ProviderError
@@ -47,6 +48,15 @@ class ModelInfo(BaseModel):
 
 
 class ProviderInfo(BaseModel):
+    """Provider configuration and metadata."""
+
+    # Allow flexible typing for test environments where ModelInfo
+    # may be reloaded (different object identity)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_default=False,
+    )
+
     id: str = Field(..., description="Provider identifier")
     name: str = Field(..., description="Human-readable provider name")
     base_url: str = Field(default="", description="API base URL")
@@ -55,14 +65,54 @@ class ProviderInfo(BaseModel):
         default="OpenAIChatModel",
         description="AgentScope ChatModel name (e.g., 'OpenAIChatModel')",
     )
-    models: List[ModelInfo] = Field(
+    models: List[Any] = Field(
         default_factory=list,
         description="List of pre-defined models",
     )
-    extra_models: List[ModelInfo] = Field(
+    extra_models: List[Any] = Field(
         default_factory=list,
         description="List of user-added models (not fetched from provider)",
     )
+
+    @field_serializer("models", "extra_models")
+    def _serialize_models(self, v):
+        """Serialize models to dict format."""
+        if v is None:
+            return []
+        return [m.model_dump() if isinstance(m, BaseModel) else m for m in v]
+
+    @model_validator(mode="after")
+    def _validate_models(self):
+        """Ensure models are ModelInfo instances."""
+        validated = []
+        for m in self.models:
+            if isinstance(m, dict):
+                validated.append(ModelInfo(**m))
+            elif isinstance(m, BaseModel):
+                validated.append(
+                    ModelInfo(**m.model_dump())
+                    if not isinstance(m, ModelInfo)
+                    else m,
+                )
+            else:
+                validated.append(m)
+        self.models = validated
+
+        validated_extra = []
+        for m in self.extra_models:
+            if isinstance(m, dict):
+                validated_extra.append(ModelInfo(**m))
+            elif isinstance(m, BaseModel):
+                validated_extra.append(
+                    ModelInfo(**m.model_dump())
+                    if not isinstance(m, ModelInfo)
+                    else m,
+                )
+            else:
+                validated_extra.append(m)
+        self.extra_models = validated_extra
+        return self
+
     api_key_prefix: str = Field(
         default="",
         description="Expected prefix for the API key (e.g., 'sk-')",
