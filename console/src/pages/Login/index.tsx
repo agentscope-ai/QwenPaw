@@ -5,7 +5,7 @@ import { Button, Form, Input } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { authApi } from "../../api/modules/auth";
-import { setAuthToken } from "../../api/config";
+import { getStaticUrl, setAuthToken } from "../../api/config";
 import { useTheme } from "../../contexts/ThemeContext";
 
 export default function LoginPage() {
@@ -96,9 +96,7 @@ export default function LoginPage() {
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
-            src={`${import.meta.env.BASE_URL}${
-              isDark ? "dark-logo.png" : "logo.png"
-            }`}
+            src={getStaticUrl(isDark ? "dark-logo.png" : "logo.png")}
             alt="CoPaw"
             style={{ height: 48, marginBottom: 12 }}
           />

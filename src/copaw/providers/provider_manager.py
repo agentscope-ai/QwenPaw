@@ -691,7 +691,82 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except Exception as e:
             logger.warning("Failed to migrate legacy providers: %s", e)
         self._init_from_storage()
+        self._apply_env_default_llm()
         self._apply_default_annotations()
+
+    def _apply_env_default_llm(self) -> None:
+        base_url = os.environ.get("COPAW_DEFAULT_LLM_BASE_URL", "").strip()
+        model_id = os.environ.get("COPAW_DEFAULT_LLM_MODEL", "").strip()
+        api_key = os.environ.get("COPAW_DEFAULT_LLM_API_KEY", "")
+        provider_id = (
+            os.environ.get(
+                "COPAW_DEFAULT_LLM_PROVIDER_ID",
+                "copaw-env",
+            ).strip()
+            or "copaw-env"
+        )
+        force = os.environ.get(
+            "COPAW_DEFAULT_LLM_FORCE",
+            "",
+        ).strip().lower() in ("1", "true", "yes")
+
+        if not base_url or not model_id:
+            return
+
+        in_container = os.environ.get(
+            "COPAW_RUNNING_IN_CONTAINER",
+            "",
+        ).strip().lower() in ("1", "true", "yes")
+        if not in_container and os.path.exists("/.dockerenv"):
+            in_container = True
+        if not in_container:
+            try:
+                with open("/proc/1/cgroup", encoding="utf-8") as f:
+                    content = f.read()
+                in_container = "docker" in content or "kubepods" in content
+            except OSError:
+                pass
+
+        should_override = force or in_container
+        if (
+            self.active_model is not None
+            and self.active_model.provider_id
+            and self.active_model.model
+            and not should_override
+        ):
+            return
+
+        if provider_id in self.builtin_providers:
+            provider_id = f"{provider_id}-env"
+
+        provider = OpenAIProvider(
+            id=provider_id,
+            name="Default (Env)",
+            base_url=base_url,
+            api_key=api_key,
+            is_custom=True,
+            require_api_key=bool(api_key.strip()),
+            support_connection_check=False,
+        )
+        provider.extra_models = [
+            ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
+        ]
+        self.custom_providers[provider_id] = provider
+        self._save_provider(provider, is_builtin=False)
+
+        self.active_model = ModelSlotConfig(
+            provider_id=provider_id,
+            model=model_id,
+        )
+        self.save_active_model(self.active_model)
+        logger.info(
+            "Applied default LLM from env: %s / %s",
+            provider_id,
+            model_id,
+        )
 
     def _prepare_disk_storage(self):
         """Prepare directory structure"""

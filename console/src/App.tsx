@@ -21,7 +21,12 @@ import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
-import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
+import {
+  getApiUrl,
+  getApiToken,
+  clearAuthToken,
+  getRuntimeBasePath,
+} from "./api/config";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -104,6 +109,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 function getRouterBasename(pathname: string): string | undefined {
+  const base = getRuntimeBasePath();
+  if (base && pathname.startsWith(`${base}/console`)) return `${base}/console`;
+  if (base) return base;
   return /^\/console(?:\/|$)/.test(pathname) ? "/console" : undefined;
 }
 
@@ -157,7 +165,7 @@ function AppInner() {
         prefixCls="copaw"
         locale={antdLocale}
         theme={{
-          ...(bailianTheme as any)?.theme,
+          ...((bailianTheme as unknown as { theme?: object }).theme ?? {}),
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
