@@ -161,16 +161,22 @@ class DynamicMultiAgentRunner:
         graceful shutdown during agent reload can detect in-flight
         requests (fixes #3275).
         """
-        workspace = await self._get_workspace(request)
-        runner = workspace.runner
-
-        run_key = f"ext-{uuid.uuid4().hex[:12]}"
-        await workspace.task_tracker.register_external_task(run_key)
+        workspace = None
+        run_key = None
         try:
+            workspace = await self._get_workspace(request)
+            runner = workspace.runner
+
+            run_key = f"ext-{uuid.uuid4().hex[:12]}"
+            await workspace.task_tracker.register_external_task(run_key)
+
             async for item in runner.query_handler(request, *args, **kwargs):
                 yield item
         finally:
-            await workspace.task_tracker.unregister_external_task(run_key)
+            # Always unregister the task when done (success, error,
+            # or cancellation).
+            if workspace is not None and run_key is not None:
+                await workspace.task_tracker.unregister_external_task(run_key)
 
     # Async context manager support for AgentApp lifecycle
     async def __aenter__(self):

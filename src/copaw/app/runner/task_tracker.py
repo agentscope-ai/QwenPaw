@@ -117,7 +117,7 @@ class TaskTracker:
                 return
             # Use an unresolved Future as the "task" — it stays not-done
             # until unregister_external_task resolves it.
-            future: asyncio.Future = asyncio.get_event_loop().create_future()
+            future: asyncio.Future = asyncio.get_running_loop().create_future()
             self._runs[run_key] = _RunState(
                 task=future,
                 queues=[],
