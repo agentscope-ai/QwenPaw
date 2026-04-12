@@ -13,6 +13,11 @@ import api from "../../../api";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
+const getSessionDisplayName = (session: Session) => {
+  const trimmedName = session.name?.trim();
+  return trimmedName || session.id;
+};
+
 function SessionsPage() {
   const { t } = useTranslation();
   const {
@@ -75,30 +80,46 @@ function SessionsPage() {
     setDrawerOpen(true);
   };
 
-  const handleDelete = (sessionId: string) => {
+  const handleDelete = (session: Session) => {
     Modal.confirm({
       title: t("sessions.confirmDelete"),
-      content: t("sessions.deleteConfirm"),
+      content: (
+        <>
+          <p>
+            {t("sessions.deleteConfirmNamed", {
+              name: getSessionDisplayName(session),
+            })}
+          </p>
+          <p>{t("sessions.deleteBackupNotice")}</p>
+        </>
+      ),
       okText: t("cronJobs.deleteText"),
       okType: "primary",
       cancelText: t("cronJobs.cancelText"),
       onOk: async () => {
-        await deleteSession(sessionId);
+        await deleteSession(session.id);
       },
     });
   };
 
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) {
-      message.warning(t("sessions.batchDeleteConfirm", { count: 0 }));
+      message.warning(t("sessions.deleteSelectWarning"));
       return;
     }
 
     Modal.confirm({
       title: t("sessions.confirmDelete"),
-      content: t("sessions.batchDeleteConfirm", {
-        count: selectedRowKeys.length,
-      }),
+      content: (
+        <>
+          <p>
+            {t("sessions.batchDeleteConfirmDetailed", {
+              count: selectedRowKeys.length,
+            })}
+          </p>
+          <p>{t("sessions.deleteBackupNotice")}</p>
+        </>
+      ),
       okText: t("cronJobs.deleteText"),
       okType: "danger",
       cancelText: t("cronJobs.cancelText"),

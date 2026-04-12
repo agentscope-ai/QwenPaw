@@ -8,7 +8,7 @@ import styles from "../index.module.less";
 
 interface ColumnHandlers {
   onEdit: (session: Session) => void;
-  onDelete: (sessionId: string) => void;
+  onDelete: (session: Session) => void;
   t: TFunction;
 }
 
@@ -96,7 +96,7 @@ export const createColumns = (
             type="link"
             size="small"
             danger
-            onClick={() => handlers.onDelete(record.id)}
+            onClick={() => handlers.onDelete(record)}
           >
             {t("common.delete")}
           </Button>

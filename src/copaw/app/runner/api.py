@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from agentscope.memory import InMemoryMemory
+from pydantic import BaseModel
 
 from .session import SafeJSONSession
 from .manager import ChatManager
@@ -17,6 +18,10 @@ from .utils import agentscope_msg_to_message
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+class BatchDeleteChatsRequest(BaseModel):
+    chat_ids: list[str]
 
 
 async def get_workspace(request: Request):
@@ -115,19 +120,19 @@ async def create_chat(
 
 @router.post("/batch-delete", response_model=dict)
 async def batch_delete_chats(
-    chat_ids: list[str],
+    request: BatchDeleteChatsRequest,
     mgr: ChatManager = Depends(get_chat_manager),
 ):
     """Delete chats by chat IDs.
 
     Args:
-        chat_ids: List of chat IDs
+        request: Batch delete request body
         mgr: Chat manager dependency
     Returns:
         True if deleted, False if failed
 
     """
-    deleted = await mgr.delete_chats(chat_ids=chat_ids)
+    deleted = await mgr.delete_chats(chat_ids=request.chat_ids)
     return {"deleted": deleted}
 
 

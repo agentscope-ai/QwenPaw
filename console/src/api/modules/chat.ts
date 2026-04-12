@@ -130,7 +130,7 @@ export const sessionApi = {
       "/chats/batch-delete",
       {
         method: "POST",
-        body: JSON.stringify(sessionIds),
+        body: JSON.stringify({ chat_ids: sessionIds }),
       },
     ),
 };
