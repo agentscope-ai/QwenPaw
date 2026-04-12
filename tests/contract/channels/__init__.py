@@ -25,12 +25,6 @@ import pytest
 
 from .. import BaseContractTest
 
-# Skip all contract tests if upstream provider Pydantic validation fails
-# This is a temporary workaround for upstream issue
-pytestmark = pytest.mark.skip(
-    reason="Upstream provider Pydantic validation issue - not related to this PR"
-)
-
 
 class ChannelContractTest(BaseContractTest):
     """
