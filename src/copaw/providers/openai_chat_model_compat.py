@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Type
@@ -16,6 +17,55 @@ from copaw.local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
+
+
+_LEAKED_THINKING_PREFIX_RE = re.compile(
+    r"^\s*(?:Thinking|Reasoning|思考|推理)\s*:?\s*(?:\r?\n)+",
+    re.IGNORECASE,
+)
+
+
+def _strip_leaked_thinking_prefix(text: str) -> str:
+    """Drop leaked reasoning title lines from user-visible text.
+
+    Some models emit an internal heading like "Thinking" into the final text
+    when reasoning delimiters are malformed or truncated. We only strip this
+    prefix when the following line looks like formatted answer content.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+
+    match = _LEAKED_THINKING_PREFIX_RE.match(text)
+    if not match:
+        return text
+
+    remainder = text[match.end() :]
+    if not remainder.strip():
+        return text
+
+    first_line = remainder.lstrip().splitlines()[0].strip()
+    looks_like_answer = bool(
+        re.match(r"^(#{1,6}\s|[-*]\s|\d+\.\s|---|[✅📊📁🎯🚀])", first_line),
+    )
+    if not looks_like_answer:
+        return text
+
+    return remainder.lstrip()
+
+
+def _sanitize_visible_text_blocks(parsed: ChatResponse) -> None:
+    """Normalize user-visible text blocks in-place for common leakage cases."""
+    for block in parsed.content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            raw_text = block.get("text")
+            if isinstance(raw_text, str):
+                block["text"] = _strip_leaked_thinking_prefix(raw_text)
+        elif block.get("type") == "refusal":
+            raw_refusal = block.get("refusal")
+            if isinstance(raw_refusal, str):
+                block["refusal"] = _strip_leaked_thinking_prefix(raw_refusal)
 
 
 def _clone_with_overrides(obj: Any, **overrides: Any) -> Any:
@@ -212,6 +262,8 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             response=sanitized_response,
             structured_model=structured_model,
         ):
+            _sanitize_visible_text_blocks(parsed)
+
             # Attach extra_content (Gemini thought_signature) to tool_use
             # blocks.
             if sanitized_response.extra_contents:
