@@ -3,103 +3,18 @@
 # pylint:disable=too-many-branches,too-many-statements
 from __future__ import annotations
 
-import json
-import re
-import time
 from typing import Optional, Dict, Any
-from uuid import uuid4
 
 import click
+import httpx
 
-from .http import client, print_json, resolve_base_url
-
-
-def _generate_unique_session_id(from_agent: str, to_agent: str) -> str:
-    """Generate unique session_id (concurrency-safe).
-
-    Format: {from}:to:{to}:{timestamp_ms}:{uuid_short}
-    Example: bot_a:to:bot_b:1710912345678:a1b2c3d4
-
-    This ensures each call gets a unique session, avoiding concurrent
-    access to the same session which would cause errors.
-    """
-    timestamp = int(time.time() * 1000)
-    uuid_short = str(uuid4())[:8]
-    return f"{from_agent}:to:{to_agent}:{timestamp}:{uuid_short}"
-
-
-def _resolve_session_id(
-    from_agent: str,
-    to_agent: str,
-    session_id: Optional[str],
-    new_session: bool,
-) -> str:
-    """Resolve final session_id with new_session flag handling."""
-    if new_session or not session_id:
-        final_session_id = _generate_unique_session_id(from_agent, to_agent)
-        if session_id:
-            click.echo(
-                f"INFO: --new-session flag used, "
-                f"generating new session: {final_session_id}",
-                err=True,
-            )
-        return final_session_id
-    return session_id
-
-
-def _ensure_agent_identity_prefix(text: str, from_agent: str) -> str:
-    """Ensure text has agent identity prefix to prevent confusion.
-
-    Automatically adds [Agent {from_agent} requesting] prefix if missing.
-    Detects existing prefixes: [Agent xxx] or [来自智能体 xxx].
-
-    Args:
-        text: Original message text
-        from_agent: Source agent ID
-
-    Returns:
-        Text with identity prefix (added if missing)
-    """
-    patterns = [
-        r"^\[Agent\s+\w+",
-        r"^\[来自智能体\s+\w+",
-    ]
-    for pattern in patterns:
-        if re.match(pattern, text.strip()):
-            return text
-
-    return f"[Agent {from_agent} requesting] {text}"
-
-
-def _parse_sse_line(line: str) -> Optional[Dict[str, Any]]:
-    """Parse a single SSE line and return JSON data if valid."""
-    line = line.strip()
-    if line.startswith("data: "):
-        try:
-            return json.loads(line[6:])
-        except json.JSONDecodeError:
-            pass
-    return None
+from ..agents.tools import agent_management as agent_tools
+from .http import print_json, resolve_base_url
 
 
 def _extract_text_content(response_data: Dict[str, Any]) -> str:
     """Extract text content from agent response."""
-    try:
-        output = response_data.get("output", [])
-        if not output:
-            return ""
-
-        last_msg = output[-1]
-        content = last_msg.get("content", [])
-
-        text_parts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                text_parts.append(item.get("text", ""))
-
-        return "\n".join(text_parts).strip()
-    except (KeyError, IndexError, TypeError):
-        return ""
+    return agent_tools.extract_agent_text_content(response_data)
 
 
 def _extract_and_print_text(
@@ -124,48 +39,35 @@ def _extract_and_print_text(
 
 
 def _handle_stream_mode(
-    c: Any,
+    base_url: str,
     request_payload: Dict[str, Any],
-    headers: Dict[str, str],
+    to_agent: str,
     timeout: int,
 ) -> None:
     """Handle streaming mode response."""
-    with c.stream(
-        "POST",
-        "/agent/process",
-        json=request_payload,
-        headers=headers,
-        timeout=timeout,
-    ) as r:
-        r.raise_for_status()
-        for line in r.iter_lines():
-            if line:
-                click.echo(line)
+    agent_tools.stream_agent_chat(
+        base_url,
+        request_payload,
+        to_agent,
+        timeout,
+        line_handler=click.echo,
+    )
 
 
 def _handle_final_mode(
-    c: Any,
+    base_url: str,
     request_payload: Dict[str, Any],
-    headers: Dict[str, str],
+    to_agent: str,
     timeout: int,
     json_output: bool,
 ) -> None:
     """Handle final mode response (collect all SSE events)."""
-    response_data: Optional[Dict[str, Any]] = None
-
-    with c.stream(
-        "POST",
-        "/agent/process",
-        json=request_payload,
-        headers=headers,
-        timeout=timeout,
-    ) as r:
-        r.raise_for_status()
-        for line in r.iter_lines():
-            if line:
-                parsed = _parse_sse_line(line)
-                if parsed:
-                    response_data = parsed
+    response_data = agent_tools.collect_final_agent_chat_response(
+        base_url,
+        request_payload,
+        to_agent,
+        timeout,
+    )
 
     if not response_data:
         click.echo("(No response received)", err=True)
@@ -183,22 +85,20 @@ def _handle_final_mode(
 
 
 def _submit_background_task(
-    c: Any,
+    base_url: str,
     request_payload: Dict[str, Any],
-    headers: Dict[str, str],
+    to_agent: str,
     session_id: str,
     timeout: int,
 ) -> None:
     """Submit background task and return task_id."""
     try:
-        r = c.post(
-            "/agent/process/task",
-            json=request_payload,
-            headers=headers,
-            timeout=timeout,
+        result = agent_tools.submit_agent_chat_task(
+            base_url,
+            request_payload,
+            to_agent,
+            timeout,
         )
-        r.raise_for_status()
-        result = r.json()
 
         task_id = result.get("task_id")
         if not task_id:
@@ -276,91 +176,89 @@ def _check_task_status(
     to_agent: Optional[str] = None,
 ) -> None:
     """Check background task status and display result."""
-    with client(base_url) as c:
-        headers = {"X-Agent-Id": to_agent} if to_agent else {}
+    try:
+        result = agent_tools.get_agent_chat_task_status(
+            base_url,
+            task_id,
+            to_agent=to_agent,
+            timeout=10,
+        )
 
-        try:
-            r = c.get(
-                f"/agent/process/task/{task_id}",
-                headers=headers,
-                timeout=10,
-            )
-            r.raise_for_status()
-            result = r.json()
+        if json_output:
+            print_json(result)
+            return
 
-            if json_output:
-                print_json(result)
-                return
+        status = result.get("status", "unknown")
+        click.echo(f"[TASK_ID: {task_id}]")
+        click.echo(f"[STATUS: {status}]")
+        click.echo()
 
-            status = result.get("status", "unknown")
-            click.echo(f"[TASK_ID: {task_id}]")
-            click.echo(f"[STATUS: {status}]")
-            click.echo()
+        if status == "finished":
+            task_result = result.get("result", {})
+            task_status = task_result.get("status")
 
-            if status == "finished":
-                task_result = result.get("result", {})
-                task_status = task_result.get("status")
-
-                if task_status == "completed":
-                    click.echo("✅ Task completed")
-                    click.echo()
-                    _extract_and_print_text(
-                        task_result,
-                        session_id=task_result.get("session_id"),
-                    )
-                elif task_status == "failed":
-                    error_info = task_result.get("error", {})
-                    error_msg = error_info.get("message", "Unknown error")
-                    click.echo("❌ Task failed")
-                    click.echo()
-                    click.echo(f"Error: {error_msg}")
-                else:
-                    click.echo(f"Status: {task_status}")
-                    if result:
-                        print_json(result)
-
-            elif status == "running":
-                click.echo("⏳ Task is still running...")
-                created_at = result.get("created_at", "N/A")
-                click.echo(f"   Started at: {created_at}")
+            if task_status == "completed":
+                click.echo("✅ Task completed")
                 click.echo()
-                click.echo(
-                    "💡 Don't wait - continue with other tasks first!",
+                _extract_and_print_text(
+                    task_result,
+                    session_id=task_result.get("session_id"),
                 )
-                click.echo("   Check again later (10-30s):")
-                click.echo(
-                    f"  qwenpaw agents chat --background --task-id {task_id}",
-                )
-
-            elif status == "pending":
-                click.echo("⏸️  Task is pending in queue...")
+            elif task_status == "failed":
+                error_info = task_result.get("error", {})
+                error_msg = error_info.get("message", "Unknown error")
+                click.echo("❌ Task failed")
                 click.echo()
-                click.echo(
-                    "💡 Don't wait - handle other work first!",
-                )
-                click.echo("   Check again in a few seconds:")
-                click.echo(
-                    f"  qwenpaw agents chat --background --task-id {task_id}",
-                )
-
-            elif status == "submitted":
-                click.echo("📤 Task submitted, waiting to start...")
-                click.echo()
-                click.echo(
-                    "💡 Don't wait - continue with other work!",
-                )
-                click.echo("   Check again in a few seconds:")
-                click.echo(
-                    f"  qwenpaw agents chat --background --task-id {task_id}",
-                )
-
+                click.echo(f"Error: {error_msg}")
             else:
-                click.echo(f"Unknown status: {status}")
+                click.echo(f"Status: {task_status}")
                 if result:
                     print_json(result)
 
-        except Exception as e:
-            if hasattr(e, "response") and e.response.status_code == 404:
+        elif status == "running":
+            click.echo("⏳ Task is still running...")
+            created_at = result.get("created_at", "N/A")
+            click.echo(f"   Started at: {created_at}")
+            click.echo()
+            click.echo(
+                "💡 Don't wait - continue with other tasks first!",
+            )
+            click.echo("   Check again later (10-30s):")
+            click.echo(
+                f"  qwenpaw agents chat --background --task-id {task_id}",
+            )
+
+        elif status == "pending":
+            click.echo("⏸️  Task is pending in queue...")
+            click.echo()
+            click.echo(
+                "💡 Don't wait - handle other work first!",
+            )
+            click.echo("   Check again in a few seconds:")
+            click.echo(
+                f"  qwenpaw agents chat --background --task-id {task_id}",
+            )
+
+        elif status == "submitted":
+            click.echo("📤 Task submitted, waiting to start...")
+            click.echo()
+            click.echo(
+                "💡 Don't wait - continue with other work!",
+            )
+            click.echo("   Check again in a few seconds:")
+            click.echo(
+                f"  qwenpaw agents chat --background --task-id {task_id}",
+            )
+
+        else:
+            click.echo(f"Unknown status: {status}")
+            if result:
+                print_json(result)
+
+    except Exception as e:
+        if isinstance(e, httpx.HTTPStatusError):
+            response = e.response
+            if response is not None and response.status_code == 404:
                 click.echo(f"❌ Task not found: {task_id}", err=True)
                 click.echo(
                     "   Task may have expired or never existed",
@@ -368,7 +266,9 @@ def _check_task_status(
                 )
             else:
                 click.echo(f"ERROR: {e}", err=True)
-            raise click.Abort()
+        else:
+            click.echo(f"ERROR: {e}", err=True)
+        raise click.Abort()
 
 
 @click.group("agents")
@@ -422,10 +322,7 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
       }
     """
     base_url = resolve_base_url(ctx, base_url)
-    with client(base_url) as c:
-        r = c.get("/agents")
-        r.raise_for_status()
-        print_json(r.json())
+    print_json(agent_tools.list_agents_data(base_url))
 
 
 @agents_group.command("chat")
@@ -452,16 +349,7 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
     help=(
         "Explicit session ID to reuse context. "
         "WARNING: Concurrent requests to the same session may fail. "
-        "If omitted, generates unique session ID automatically."
-    ),
-)
-@click.option(
-    "--new-session",
-    is_flag=True,
-    default=False,
-    help=(
-        "Force create new session even if --session-id provided. "
-        "Generates unique session ID with timestamp."
+        "If omitted, a unique new session ID is generated automatically."
     ),
 )
 @click.option(
@@ -514,7 +402,6 @@ def chat_cmd(
     to_agent: str,
     text: str,
     session_id: Optional[str],
-    new_session: bool,
     mode: str,
     background: bool,
     task_id: Optional[str],
@@ -548,11 +435,11 @@ def chat_cmd(
       Response content here...
 
     \b
-    Session Management:
-      - Default: Auto-generates unique session ID (new conversation)
-      - To continue: See session_id in output first line
-      - Pass with --session-id on next call to reuse context
-      - Without --session-id: Always creates new conversation
+        Session Management:
+            - Default: Auto-generates unique session ID (new conversation)
+            - To continue: See session_id in output first line
+            - Pass with --session-id on next call to reuse context
+            - Without --session-id: Always creates a new conversation
 
     \b
     Identity Prefix:
@@ -622,58 +509,46 @@ def chat_cmd(
         _check_task_status(resolved_base_url, task_id, json_output, to_agent)
         return
 
-    final_session_id = _resolve_session_id(
-        from_agent,
-        to_agent,
-        session_id,
-        new_session,
+    final_session_id, request_payload, prefix_added = (
+        agent_tools.build_agent_chat_request(
+            to_agent,
+            text,
+            session_id=session_id,
+            from_agent=from_agent,
+        )
     )
 
     click.echo(f"INFO: Using session_id: {final_session_id}", err=True)
 
-    final_text = _ensure_agent_identity_prefix(text, from_agent)
-    if final_text != text:
+    if prefix_added:
         click.echo(
             f"INFO: Auto-added identity prefix: [Agent {from_agent} "
             "requesting]",
             err=True,
         )
 
-    request_payload = {
-        "session_id": final_session_id,
-        "input": [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": final_text}],
-            },
-        ],
-    }
+    if background:
+        _submit_background_task(
+            resolved_base_url,
+            request_payload,
+            to_agent,
+            final_session_id,
+            timeout,
+        )
+        return
 
-    with client(resolved_base_url) as c:
-        headers = {"X-Agent-Id": to_agent}
-
-        if background:
-            _submit_background_task(
-                c,
-                request_payload,
-                headers,
-                final_session_id,
-                timeout,
-            )
-            return
-
-        if mode == "stream":
-            _handle_stream_mode(
-                c,
-                request_payload,
-                headers,
-                timeout,
-            )
-        else:
-            _handle_final_mode(
-                c,
-                request_payload,
-                headers,
-                timeout,
-                json_output,
-            )
+    if mode == "stream":
+        _handle_stream_mode(
+            resolved_base_url,
+            request_payload,
+            to_agent,
+            timeout,
+        )
+    else:
+        _handle_final_mode(
+            resolved_base_url,
+            request_payload,
+            to_agent,
+            timeout,
+            json_output,
+        )
