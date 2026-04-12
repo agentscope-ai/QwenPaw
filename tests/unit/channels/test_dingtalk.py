@@ -21,6 +21,7 @@ Run:
 """
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised,using-constant-test,unused-import
+# pylint: disable=reimported
 from __future__ import annotations
 
 import asyncio
@@ -1873,7 +1874,7 @@ class TestDingTalkCallbackHandler:
             "conversationType": "2",  # Group chat
             "text": {"content": "Hello, this is a test message"},
             "isInAtList": True,
-            "sessionWebhook": "https://oapi.dingtalk.com/robot/send",  # test URL
+            "sessionWebhook": "https://oapi.dingtalk.com/robot/send",
             "sessionWebhookExpiredTime": 1893456000000,
         }
         return callback
@@ -2272,7 +2273,7 @@ class TestDingTalkAICardMethods:
             state=PROCESSING,
         )
 
-        # Mock the token time check by setting created_at far in past (> 300s ago)
+        # Mock token time check by setting created_at far in past (> 300s)
         card.created_at = 1234567890
 
         result = await dingtalk_channel._stream_ai_card(
@@ -2546,7 +2547,7 @@ class TestDingTalkFileDownload:
         mock_http_session,
         tmp_path,
     ):
-        """Detect real suffix from magic bytes when file has .file extension."""
+        """Detect real suffix from magic bytes for .file extension."""
         dingtalk_channel._http = mock_http_session
         dingtalk_channel._media_dir = tmp_path
 
@@ -2890,7 +2891,7 @@ class TestDingTalkSendMethodsExtended:
         self,
         dingtalk_channel,
     ):
-        """Don't use store if current request has no webhook (could be expired)."""
+        """Don't use store if request has no webhook (could be expired)."""
         # Pre-populate store
         dingtalk_channel._session_webhook_store["dingtalk:sw:testkey"] = {
             "webhook": "http://stored.webhook",

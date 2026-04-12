@@ -1610,7 +1610,7 @@ class TestFeishuChannelOnMessageComplex:
         )
         mock_message_data.event.message.message_type = "post"
         # Use a simple post format that actually works with extract_post_text
-        content = '{"title": "Test", "content": [[{"tag": "text", "text": "Hello"}]]}'
+        content = '{"title": "Test", "content": [[{"tag": "text"}]]}'
         mock_message_data.event.message.content = content
 
         await feishu_channel._on_message(mock_message_data)

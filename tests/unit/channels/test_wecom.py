@@ -370,7 +370,7 @@ class TestWecomChannelFromEnv:
         monkeypatch.setenv("WECOM_SECRET", "env_secret")
         monkeypatch.setenv("WECOM_BOT_PREFIX", "[EnvBot] ")
         monkeypatch.setenv("WECOM_MEDIA_DIR", "/env/media")
-        # Note: welcome_text is not read from env in from_env, defaults to empty
+        # Note: welcome_text not read from env, defaults to empty
 
         channel = WecomChannel.from_env(mock_process_handler)
 
@@ -1233,7 +1233,7 @@ class TestWecomChannelMediaUpload:
         wecom_channel._client = mock_ws_client
         wecom_channel._upload_lock = MagicMock()
 
-        # Return empty upload_id - implementation catches RuntimeError internally
+        # Return empty upload_id - catches RuntimeError internally
         wecom_channel._send_ws_cmd = AsyncMock(return_value={"upload_id": ""})
 
         test_file = tmp_path / "test.jpg"
