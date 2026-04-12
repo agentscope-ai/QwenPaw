@@ -348,7 +348,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_sanitize_filename should handle input with only special characters."""
+        """_sanitize_filename should handle input with only special chars."""
         result = imessage_channel._sanitize_filename("!@#$%")
         assert result == "media_file"
 
@@ -443,7 +443,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_get_file_extension should return default extension based on content type."""
+        """_get_file_extension should return default ext based on content type."""
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
         assert (
@@ -916,7 +916,7 @@ class TestIMessageChannelRequestBuilder:
         mock_process_handler: AsyncMock,
         temp_media_dir: str,
     ):
-        """build_agent_request_from_native should build request from native payload."""
+        """build_agent_request_from_native should build request from native."""
         from copaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import (
             TextContent,
