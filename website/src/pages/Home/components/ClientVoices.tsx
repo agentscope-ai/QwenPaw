@@ -38,27 +38,27 @@ const AVATARS = [
   {
     key: "a1",
     src: AVATAR_URLS.a1,
-    alt: "CoPaw user avatar 1",
+    alt: "QwenPaw user avatar 1",
   },
   {
     key: "a2",
     src: AVATAR_URLS.a2,
-    alt: "CoPaw user avatar 2",
+    alt: "QwenPaw user avatar 2",
   },
   {
     key: "a3",
     src: AVATAR_URLS.a3,
-    alt: "CoPaw user avatar 3",
+    alt: "QwenPaw user avatar 3",
   },
   {
     key: "a4",
     src: AVATAR_URLS.a4,
-    alt: "CoPaw user avatar 4",
+    alt: "QwenPaw user avatar 4",
   },
   {
     key: "a5",
     src: AVATAR_URLS.a5,
-    alt: "CoPaw user avatar 5",
+    alt: "QwenPaw user avatar 5",
   },
 ] as const;
 
@@ -101,7 +101,7 @@ const TESTIMONIALS = [
   },
 ] as const;
 
-export function CopawClientVoices() {
+export function ClientVoices() {
   const { t } = useTranslation();
 
   return (
@@ -111,7 +111,7 @@ export function CopawClientVoices() {
       initial="hidden"
       whileInView="show"
       viewport={{ once: true, amount: 0.2 }}
-      aria-labelledby="copaw-client-voices-heading"
+      aria-labelledby="qwenpaw-client-voices-heading"
     >
       <div className="mx-auto max-w-7xl">
         <motion.div variants={itemVariants}>
@@ -145,7 +145,7 @@ export function CopawClientVoices() {
           </div>
 
           <h2
-            id="copaw-client-voices-heading"
+            id="qwenpaw-client-voices-heading"
             className={`${sectionStyles.title} text-left`}
           >
             {t("clientVoices.title")}

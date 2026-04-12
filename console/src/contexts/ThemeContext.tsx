@@ -10,7 +10,7 @@ import {
 export type ThemeMode = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
-const STORAGE_KEY = "copaw-theme";
+const STORAGE_KEY = "qwenpaw-theme";
 
 interface ThemeContextValue {
   /** User selected preference: light / dark / system */

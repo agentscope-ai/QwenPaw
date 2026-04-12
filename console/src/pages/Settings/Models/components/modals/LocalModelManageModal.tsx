@@ -336,6 +336,11 @@ export function LocalModelManageModal({
           nextLlamacppDownload.status === "completed"
         ) {
           message.success(t("models.localLlamacppInstallSuccess"));
+          setServerUpdateStatus((prev) =>
+            isSameServerUpdateStatus(prev, { has_update: false })
+              ? prev
+              : { has_update: false },
+          );
           void refreshUpdateStatus(nextServerStatus);
         }
 

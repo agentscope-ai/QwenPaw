@@ -34,7 +34,7 @@ const itemVariants = {
   },
 };
 
-export function CopawContributors() {
+export function Contributors() {
   const { t } = useTranslation();
   const [contributors, setContributors] = useState<Contributor[]>([]);
   const [page, setPage] = useState(1);
@@ -85,11 +85,11 @@ export function CopawContributors() {
         initial="hidden"
         whileInView="show"
         viewport={{ once: true, amount: 0.2 }}
-        aria-labelledby="copaw-contributors-heading"
+        aria-labelledby="qwenpaw-contributors-heading"
       >
         <div className="mx-auto max-w-7xl text-center">
           <motion.h2
-            id="copaw-contributors-heading"
+            id="qwenpaw-contributors-heading"
             className="font-newsreader text-3xl font-semibold leading-[1.2] text-(--color-text) md:text-4xl"
             variants={itemVariants}
           >
@@ -186,7 +186,7 @@ export function CopawContributors() {
           </motion.div>
 
           <div
-            className="pointer-events-none relative left-1/2 mt-10 h-px w-screen -translate-x-1/2 animate-[copaw-dash-move-right_1s_linear_infinite]"
+            className="pointer-events-none relative left-1/2 mt-10 h-px w-screen -translate-x-1/2 animate-[qwenpaw-dash-move-right_1s_linear_infinite]"
             style={{
               background:
                 "repeating-linear-gradient(to right, rgba(255,157,77,0.45) 0 8px, transparent 8px 16px)",
@@ -211,12 +211,12 @@ export function CopawContributors() {
             <p>
               {t("contributors.noteLine2Prefix")}
               <a
-                href="https://github.com/agentscope-ai/CoPaw"
+                href="https://github.com/agentscope-ai/QwenPaw"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-(--color-primary) ml-1"
               >
-                agentscope-ai/CoPaw
+                agentscope-ai/QwenPaw
               </a>
               .
             </p>

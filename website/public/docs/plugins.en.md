@@ -1,6 +1,6 @@
 # Plugin System
 
-CoPaw provides a plugin system that allows users to extend CoPaw's functionality.
+QwenPaw provides a plugin system that allows users to extend QwenPaw's functionality.
 
 ## Overview
 
@@ -17,27 +17,27 @@ The plugin system supports the following extension capabilities:
 Install from local directory:
 
 ```bash
-copaw plugin install /path/to/plugin
+qwenpaw plugin install /path/to/plugin
 ```
 
 Install from URL (supports ZIP files):
 
 ```bash
-copaw plugin install https://example.com/plugin.zip
+qwenpaw plugin install https://example.com/plugin.zip
 ```
 
 Force reinstall:
 
 ```bash
-copaw plugin install /path/to/plugin --force
+qwenpaw plugin install /path/to/plugin --force
 ```
 
-**Note**: Plugin operations can only be performed when CoPaw is offline.
+**Note**: Plugin operations can only be performed when QwenPaw is offline.
 
 ### List Installed Plugins
 
 ```bash
-copaw plugin list
+qwenpaw plugin list
 ```
 
 Example output:
@@ -49,19 +49,19 @@ Installed Plugins:
 my-provider (v1.0.0)
   Custom LLM provider integration
   Author: Developer Name
-  Path: /Users/user/.copaw/plugins/my-provider
+  Path: /Users/user/.qwenpaw/plugins/my-provider
 ```
 
 ### View Plugin Details
 
 ```bash
-copaw plugin info <plugin-id>
+qwenpaw plugin info <plugin-id>
 ```
 
 ### Uninstall Plugin
 
 ```bash
-copaw plugin uninstall <plugin-id>
+qwenpaw plugin uninstall <plugin-id>
 ```
 
 ## Plugin Types
@@ -154,7 +154,7 @@ my-plugin/
   "author": "Your Name",
   "entry_point": "plugin.py",
   "dependencies": [],
-  "min_copaw_version": "0.1.0",
+  "min_version": "0.1.0",
   "meta": {}
 }
 ```
@@ -165,7 +165,7 @@ my-plugin/
 # -*- coding: utf-8 -*-
 """My Plugin Entry Point."""
 
-from copaw.plugins.api import PluginApi
+from qwenpaw.plugins.api import PluginApi
 import logging
 
 logger = logging.getLogger(__name__)
@@ -218,7 +218,7 @@ cd my-llm-provider
   "author": "Your Name",
   "entry_point": "plugin.py",
   "dependencies": ["httpx>=0.24.0"],
-  "min_copaw_version": "0.1.0",
+  "min_version": "0.1.0",
   "meta": {
     "api_key_url": "https://example.com/get-api-key",
     "api_key_hint": "Get your API key from example.com"
@@ -232,12 +232,13 @@ cd my-llm-provider
 # -*- coding: utf-8 -*-
 """My LLM Provider Implementation."""
 
-from copaw.providers.provider import ModelInfo, Provider
+from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import ModelInfo
 from typing import List
 
 
-class MyLLMProvider(Provider):
-    """My custom LLM provider."""
+class MyLLMProvider(OpenAIProvider):
+    """My custom LLM provider (OpenAI-compatible)."""
 
     def __init__(self, **kwargs):
         """Initialize provider."""
@@ -248,10 +249,17 @@ class MyLLMProvider(Provider):
         """Get default models."""
         return [
             ModelInfo(
-                id="my-model",
-                name="My Model",
+                id="my-model-v1",
+                name="My Model V1",
                 supports_multimodal=False,
                 supports_image=False,
+                supports_video=False,
+            ),
+            ModelInfo(
+                id="my-model-v2",
+                name="My Model V2",
+                supports_multimodal=True,
+                supports_image=True,
                 supports_video=False,
             ),
         ]
@@ -267,7 +275,7 @@ import importlib.util
 import logging
 import os
 
-from copaw.plugins.api import PluginApi
+from qwenpaw.plugins.api import PluginApi
 
 logger = logging.getLogger(__name__)
 
@@ -283,17 +291,13 @@ class MyLLMProviderPlugin:
         """
         logger.info("Registering My LLM Provider...")
 
-        # Load provider module
+        # Load provider module from same directory
         plugin_dir = os.path.dirname(os.path.abspath(__file__))
         provider_path = os.path.join(plugin_dir, "provider.py")
 
         spec = importlib.util.spec_from_file_location(
-            "my_provider",
-            provider_path,
+            "my_provider", provider_path
         )
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot load provider from {provider_path}")
-
         provider_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(provider_module)
 
@@ -319,10 +323,10 @@ plugin = MyLLMProviderPlugin()
 
 ```bash
 # Install plugin
-copaw plugin install my-llm-provider
+qwenpaw plugin install my-llm-provider
 
-# Start CoPaw
-copaw app
+# Start QwenPaw
+qwenpaw start
 
 # Configure API Key in Web UI
 # Then you can use the new provider
@@ -330,7 +334,7 @@ copaw app
 
 ### Example 2: Add Startup Hook
 
-Let's say you want to initialize a monitoring service when CoPaw starts.
+Let's say you want to initialize a monitoring service when QwenPaw starts.
 
 #### 1. Create Plugin
 
@@ -350,7 +354,7 @@ cd monitoring-hook
   "author": "Your Name",
   "entry_point": "plugin.py",
   "dependencies": [],
-  "min_copaw_version": "0.1.0"
+  "min_version": "0.1.0"
 }
 ```
 
@@ -360,7 +364,7 @@ cd monitoring-hook
 # -*- coding: utf-8 -*-
 """Monitoring Hook Plugin Entry Point."""
 
-from copaw.plugins.api import PluginApi
+from qwenpaw.plugins.api import PluginApi
 import logging
 
 logger = logging.getLogger(__name__)
@@ -384,7 +388,7 @@ class MonitoringHookPlugin:
 
                 # Initialize your monitoring service
                 # from my_monitoring import init_monitoring
-                # init_monitoring(app_name="CoPaw")
+                # init_monitoring(app_name="QwenPaw")
 
                 logger.info("✓ Monitoring initialized successfully")
 
@@ -411,8 +415,8 @@ plugin = MonitoringHookPlugin()
 #### 4. Install
 
 ```bash
-copaw plugin install monitoring-hook
-copaw app
+qwenpaw plugin install monitoring-hook
+qwenpaw start
 ```
 
 ### Example 3: Add Custom Command
@@ -437,7 +441,7 @@ cd status-command
   "author": "Your Name",
   "entry_point": "plugin.py",
   "dependencies": [],
-  "min_copaw_version": "0.1.0"
+  "min_version": "0.1.0"
 }
 ```
 
@@ -479,7 +483,7 @@ Please present this information in a clear format."""
 
 import logging
 
-from copaw.plugins.api import PluginApi
+from qwenpaw.plugins.api import PluginApi
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +510,7 @@ class StatusCommandPlugin:
 
     def _patch_query_handler(self):
         """Patch AgentRunner.query_handler to rewrite /status queries."""
-        from copaw.app.runner.runner import AgentRunner
+        from qwenpaw.app.runner.runner import AgentRunner
         from .query_rewriter import StatusQueryRewriter
 
         original_query_handler = AgentRunner.query_handler
@@ -552,8 +556,8 @@ plugin = StatusCommandPlugin()
 #### 5. Install and Use
 
 ```bash
-copaw plugin install status-command
-copaw app
+qwenpaw plugin install status-command
+qwenpaw app
 
 # Use the command
 /status
@@ -655,18 +659,18 @@ api.register_startup_hook("late", callback, priority=200)
 1. Check if plugin is installed:
 
    ```bash
-   copaw plugin list
+   qwenpaw plugin list
    ```
 
-2. View CoPaw logs:
+2. View QwenPaw logs:
 
    ```bash
-   tail -f ~/.copaw/logs/copaw.log | grep -i plugin
+   tail -f ~/.qwenpaw/logs/qwenpaw.log | grep -i plugin
    ```
 
 3. Verify plugin manifest format:
    ```bash
-   copaw plugin info <plugin-id>
+   qwenpaw plugin info <plugin-id>
    ```
 
 ### Dependency Installation Failed
@@ -680,7 +684,7 @@ api.register_startup_hook("late", callback, priority=200)
 
 ### Provider Not Showing
 
-1. Confirm plugin is installed and restart CoPaw
+1. Confirm plugin is installed and restart QwenPaw
 2. Check the model management page in Web UI
 3. Review provider registration info in logs
 
@@ -692,10 +696,10 @@ api.register_startup_hook("late", callback, priority=200)
 
 ## Security Considerations
 
-1. **Only install trusted plugins**: Plugin code executes in the CoPaw process
+1. **Only install trusted plugins**: Plugin code executes in the QwenPaw process
 2. **Check dependencies**: Ensure plugin dependencies come from trusted sources
 3. **Review code**: Review plugin source code before installation
-4. **Offline operations**: Plugin install/uninstall requires CoPaw to be offline
+4. **Offline operations**: Plugin install/uninstall requires QwenPaw to be offline
 
 ## PluginApi Reference
 
@@ -741,12 +745,12 @@ api.register_shutdown_hook(
 
 ### Monkey Patching
 
-For plugins that need to modify CoPaw behavior (like custom commands), you can use monkey patching:
+For plugins that need to modify QwenPaw behavior (like custom commands), you can use monkey patching:
 
 ```python
 def _patch_query_handler(self):
     """Patch AgentRunner to intercept queries."""
-    from copaw.app.runner.runner import AgentRunner
+    from qwenpaw.app.runner.runner import AgentRunner
 
     original_handler = AgentRunner.query_handler
 
@@ -786,23 +790,23 @@ zip -r my-plugin-1.0.0.zip my-plugin/
 Users can install via URL:
 
 ```bash
-copaw plugin install https://example.com/my-plugin-1.0.0.zip
+qwenpaw plugin install https://example.com/my-plugin-1.0.0.zip
 ```
 
 ## FAQ
 
-### Q: What CoPaw APIs can plugins access?
+### Q: What QwenPaw APIs can plugins access?
 
 A: Plugins access core functionality through `PluginApi`, including:
 
 - Provider registration
 - Hook registration
-- Runtime helpers (`provider_manager`, etc.)
+- Runtime helpers (provider_manager, etc.)
 
-### Q: Can plugins modify CoPaw's core behavior?
+### Q: Can plugins modify QwenPaw's core behavior?
 
 A: Yes, through monkey patching or hook mechanisms. But use with caution to avoid breaking core functionality.
 
 ### Q: Will plugins conflict with each other?
 
-A: If multiple plugins register the same `provider_id` or `command_name`, the later one will override the earlier one. Use unique IDs.
+A: If multiple plugins register the same provider_id or command_name, the later one will override the earlier one. Use unique IDs.
