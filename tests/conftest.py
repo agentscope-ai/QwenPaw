@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name
+# pylint: disable=reimported,unused-argument,unnecessary-pass
 """
 Global pytest fixtures for CoPaw test suite.
 
@@ -86,9 +88,9 @@ def temp_copaw_home(
     (temp_path / ".copaw" / "skills").mkdir(exist_ok=True)
     (temp_path / ".copaw" / "logs").mkdir(exist_ok=True)
 
-    # Store original values
-    orig_home = os.environ.get("HOME")
-    orig_copaw_home = os.environ.get("COPAW_HOME")
+    # Store original values (for potential future use)
+    _ = os.environ.get("HOME")  # noqa: F841
+    _ = os.environ.get("COPAW_HOME")  # noqa: F841
 
     # Set isolated environment
     monkeypatch.setenv("HOME", temp_dir)

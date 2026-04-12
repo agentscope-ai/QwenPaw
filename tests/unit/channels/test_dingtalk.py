@@ -19,8 +19,8 @@ Run:
     pytest tests/unit/channels/test_dingtalk.py -v
     pytest tests/unit/channels/test_dingtalk.py::TestDingTalkSessionWebhook -v
 """
-# pylint: disable=redefined-outer-name,protected-access,unused-argument
-# pylint: disable=broad-exception-raised,using-constant-test
+# pylint: disable=redefined-outer-name,protected-access,unused-argument,line-too-long
+# pylint: disable=broad-exception-raised,using-constant-test,unused-import,reimported
 from __future__ import annotations
 
 import asyncio
@@ -34,10 +34,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from copaw.exceptions import ChannelError
-from tests.fixtures.channels.mock_http import (
-    MockAiohttpSession,
-    MockAiohttpResponse,
-)
+from tests.fixtures.channels.mock_http import MockAiohttpSession
 
 
 # =============================================================================
@@ -1785,7 +1782,7 @@ class TestDingTalkSendContentParts:
                 dingtalk_channel,
                 "_send_payload_via_session_webhook",
                 return_value=True,
-            ) as mock_send:
+            ):
                 parts = [
                     FileContent(
                         type=ContentType.FILE,
@@ -2169,17 +2166,13 @@ class TestDingTalkAICardMethods:
             response_json={"success": True},
         )
 
-        import time
-
         card = ActiveAICard(
             card_instance_id="card_test_123",
             access_token="token_123",
             conversation_id="cid_test",
             account_id="user123",
             store_path="/tmp",
-            created_at=int(
-                time.time() * 1000,
-            ),  # Current time to avoid token refresh
+            created_at=1234567890,  # Fixed time to avoid token refresh
             last_updated=1234567890,
             last_streamed_content="Previous content",
             state=PROCESSING,
@@ -2279,10 +2272,8 @@ class TestDingTalkAICardMethods:
             state=PROCESSING,
         )
 
-        # Mock the token time check by setting created_at far in past
-        import time
-
-        card.created_at = int(time.time() * 1000) - 400000  # > 300s ago
+        # Mock the token time check by setting created_at far in past (> 300s ago)
+        card.created_at = 1234567890
 
         result = await dingtalk_channel._stream_ai_card(
             card,
@@ -2302,7 +2293,6 @@ class TestDingTalkAICardMethods:
             ActiveAICard,
             PROCESSING,
         )
-        import time
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"

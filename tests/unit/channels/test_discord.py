@@ -21,9 +21,6 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     ContentType,
     TextContent,
     ImageContent,
-    VideoContent,
-    AudioContent,
-    FileContent,
 )
 from copaw.exceptions import ChannelError
 

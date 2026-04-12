@@ -30,7 +30,6 @@ class ProviderContractTest(BaseContractTest):
     @abstractmethod
     def create_instance(self) -> Any:
         """Provide a configured provider instance."""
-        pass
 
     # =========================================================================
     # Contract: Required Abstract Methods
@@ -39,7 +38,8 @@ class ProviderContractTest(BaseContractTest):
     def test_has_check_connection_method(self, instance):
         """Contract: All providers must implement check_connection()."""
         assert hasattr(
-            instance, "check_connection"
+            instance,
+            "check_connection",
         ), "Missing check_connection()"
         assert callable(getattr(instance, "check_connection"))
 
@@ -51,7 +51,8 @@ class ProviderContractTest(BaseContractTest):
     def test_has_check_model_connection_method(self, instance):
         """Contract: All providers must implement check_model_connection()."""
         assert hasattr(
-            instance, "check_model_connection"
+            instance,
+            "check_model_connection",
         ), "Missing check_model_connection()"
         assert callable(getattr(instance, "check_model_connection"))
 
@@ -90,20 +91,8 @@ class ProviderContractTest(BaseContractTest):
 # Example Implementations (TODO: Add real ones)
 # =============================================================================
 
-"""
-class TestOpenAIProviderContract(ProviderContractTest):
-    def create_instance(self):
-        from copaw.providers.openai_provider import OpenAIProvider
-        return OpenAIProvider(
-            id="openai",
-            name="OpenAI",
-            base_url="https://api.openai.com/v1",
-            api_key="sk-test",
-            chat_model="OpenAIChatModel",
-        )
-
-class TestAnthropicProviderContract(ProviderContractTest):
-    def create_instance(self):
-        from copaw.providers.anthropic_provider import AnthropicProvider
-        return AnthropicProvider(...)
-"""
+# Example usage:
+# class TestOpenAIProviderContract(ProviderContractTest):
+#     def create_instance(self):
+#         from copaw.providers.openai_provider import OpenAIProvider
+#         return OpenAIProvider(...)

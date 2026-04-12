@@ -20,8 +20,8 @@ Run:
     pytest tests/unit/channels/test_feishu.py -v
     pytest tests/unit/channels/test_feishu.py::TestFeishuChannelInit -v
 """
-# pylint: disable=redefined-outer-name,protected-access,unused-argument
-# pylint: disable=broad-exception-raised
+# pylint: disable=redefined-outer-name,protected-access,unused-argument,line-too-long
+# pylint: disable=broad-exception-raised,unused-import,unused-variable
 from __future__ import annotations
 
 import asyncio
@@ -1610,7 +1610,8 @@ class TestFeishuChannelOnMessageComplex:
         )
         mock_message_data.event.message.message_type = "post"
         # Use a simple post format that actually works with extract_post_text
-        mock_message_data.event.message.content = '{"title": "Test", "content": [[{"tag": "text", "text": "Hello"}]]}'
+        content = '{"title": "Test", "content": [[{"tag": "text", "text": "Hello"}]]}'
+        mock_message_data.event.message.content = content
 
         await feishu_channel._on_message(mock_message_data)
 
