@@ -8,6 +8,10 @@ sessions_mount_dir/
 
 # testing
 /coverage
+.coverage
+coverage.xml
+htmlcov/
+htmlcov.zip
 
 # cookbook
 cookbook/_build
