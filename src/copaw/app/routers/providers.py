@@ -135,6 +135,34 @@ def _validate_model_slot(
         )
 
 
+async def _preflight_model_slot(
+    manager: ProviderManager,
+    provider_id: str,
+    model_id: str,
+) -> None:
+    """Optionally test model availability before activating the slot."""
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found.",
+        )
+
+    if not provider.support_connection_check:
+        return
+
+    ok, msg = await provider.check_model_connection(model_id=model_id)
+    if not ok:
+        detail = msg or "model is not available"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot activate model '{model_id}' on provider "
+                f"'{provider_id}': {detail}"
+            ),
+        )
+
+
 async def _load_agent_model(
     request: Request,
     agent_id: str,
@@ -566,6 +594,12 @@ async def set_active_model(
     """Set active model by scope."""
     if body.scope == "global":
         try:
+            _validate_model_slot(manager, body.provider_id, body.model)
+            await _preflight_model_slot(
+                manager,
+                body.provider_id,
+                body.model,
+            )
             await manager.activate_model(body.provider_id, body.model)
         except (
             FileNotFoundError,
@@ -587,6 +621,11 @@ async def set_active_model(
         )
 
     _validate_model_slot(manager, body.provider_id, body.model)
+    await _preflight_model_slot(
+        manager,
+        body.provider_id,
+        body.model,
+    )
 
     try:
         workspace = await get_agent_for_request(
