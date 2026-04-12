@@ -268,16 +268,17 @@ class ExpectedCapabilityRegistry:
                     note="GLM text/code models are text-only",
                 ),
             )
-        self._register(
-            ExpectedCapability(
-                provider_id="zhipu-cn",
-                model_id="glm-5v-turbo",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_zhipu_cn_doc,
-                note="GLM vision model supports image input",
-            ),
-        )
+        for mid in ("glm-5v-turbo", "glm-4v", "glm-4v-plus", "glm-4v-flash", "glm-4.6v-flash"):
+            self._register(
+                ExpectedCapability(
+                    provider_id="zhipu-cn",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_zhipu_cn_doc,
+                    note="GLM vision model supports image input",
+                ),
+            )
 
         # ---------------------------------------------------------------
         # Zhipu Coding Plan (BigModel)
@@ -294,16 +295,17 @@ class ExpectedCapabilityRegistry:
                     note="GLM text/code models are text-only",
                 ),
             )
-        self._register(
-            ExpectedCapability(
-                provider_id="zhipu-cn-codingplan",
-                model_id="glm-5v-turbo",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_zhipu_cn_cp_doc,
-                note="GLM vision model supports image input",
-            ),
-        )
+        for mid in ("glm-5v-turbo", "glm-4v", "glm-4v-plus", "glm-4v-flash", "glm-4.6v-flash"):
+            self._register(
+                ExpectedCapability(
+                    provider_id="zhipu-cn-codingplan",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_zhipu_cn_cp_doc,
+                    note="GLM vision model supports image input",
+                ),
+            )
 
         # ---------------------------------------------------------------
         # Zhipu (Z.AI)
@@ -320,16 +322,17 @@ class ExpectedCapabilityRegistry:
                     note="GLM text/code models are text-only",
                 ),
             )
-        self._register(
-            ExpectedCapability(
-                provider_id="zhipu-intl",
-                model_id="glm-5v-turbo",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_zhipu_intl_doc,
-                note="GLM vision model supports image input",
-            ),
-        )
+        for mid in ("glm-5v-turbo", "glm-4v", "glm-4v-plus", "glm-4v-flash", "glm-4.6v-flash"):
+            self._register(
+                ExpectedCapability(
+                    provider_id="zhipu-intl",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_zhipu_intl_doc,
+                    note="GLM vision model supports image input",
+                ),
+            )
 
         # ---------------------------------------------------------------
         # Zhipu Coding Plan (Z.AI)
@@ -346,16 +349,17 @@ class ExpectedCapabilityRegistry:
                     note="GLM text/code models are text-only",
                 ),
             )
-        self._register(
-            ExpectedCapability(
-                provider_id="zhipu-intl-codingplan",
-                model_id="glm-5v-turbo",
-                expected_image=True,
-                expected_video=False,
-                doc_url=_zhipu_intl_cp_doc,
-                note="GLM vision model supports image input",
-            ),
-        )
+        for mid in ("glm-5v-turbo", "glm-4v", "glm-4v-plus", "glm-4v-flash", "glm-4.6v-flash"):
+            self._register(
+                ExpectedCapability(
+                    provider_id="zhipu-intl-codingplan",
+                    model_id=mid,
+                    expected_image=True,
+                    expected_video=False,
+                    doc_url=_zhipu_intl_cp_doc,
+                    note="GLM vision model supports image input",
+                ),
+            )
 
         # ---------------------------------------------------------------
         # 4. OpenAI

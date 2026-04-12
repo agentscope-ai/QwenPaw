@@ -126,6 +126,10 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
             "glm-5.1",
             "glm-5-turbo",
             "glm-5v-turbo",
+            "glm-4v",
+            "glm-4v-plus",
+            "glm-4v-flash",
+            "glm-4.6v-flash",
         ]
 
 

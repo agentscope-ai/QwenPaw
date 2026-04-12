@@ -172,6 +172,34 @@ ZHIPU_MODELS: List[ModelInfo] = [
         supports_video=False,
         probe_source="documentation",
     ),
+    ModelInfo(
+        id="glm-4v",
+        name="glm-4v",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-4v-plus",
+        name="glm-4v-plus",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-4v-flash",
+        name="glm-4v-flash",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-4.6v-flash",
+        name="glm-4.6v-flash",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+    ),
 ]
 
 OPENAI_MODELS: List[ModelInfo] = [
