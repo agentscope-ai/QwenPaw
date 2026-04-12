@@ -6,6 +6,7 @@ Tests cover initialization, factory methods, lifecycle, and core functionality.
 Platform-specific code is handled with @pytest.mark.skipif decorators.
 """
 
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
 from __future__ import annotations
 
 import base64
@@ -13,7 +14,6 @@ import os
 import sys
 import threading
 from pathlib import Path
-from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -443,7 +443,7 @@ class TestIMessageChannelUtilityMethods:
         self,
         imessage_channel,
     ):
-        """_get_file_extension should return default ext based on content type."""
+        """_get_file_extension returns default ext based on content type."""
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
         assert (
@@ -530,7 +530,9 @@ class TestIMessageChannelAsyncLifecycle:
 
         # Mock _ensure_imsg to avoid requiring actual installation
         with patch.object(
-            channel, "_ensure_imsg", return_value="/usr/local/bin/imsg"
+            channel,
+            "_ensure_imsg",
+            return_value="/usr/local/bin/imsg",
         ):
             channel._imsg_path = channel._ensure_imsg()
             assert channel._imsg_path == "/usr/local/bin/imsg"
