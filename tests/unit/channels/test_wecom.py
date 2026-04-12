@@ -33,6 +33,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from copaw.exceptions import ChannelError
+
 
 # =============================================================================
 # Fixtures
@@ -1301,7 +1303,7 @@ class TestWecomChannelLifecycle:
         wecom_channel.secret = ""
 
         with pytest.raises(
-            RuntimeError,
+            ChannelError,
             match="WECOM_BOT_ID and WECOM_SECRET",
         ):
             await wecom_channel.start()

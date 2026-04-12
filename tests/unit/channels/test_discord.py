@@ -25,6 +25,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     AudioContent,
     FileContent,
 )
+from copaw.exceptions import ChannelError
 
 
 # =============================================================================
@@ -704,7 +705,7 @@ class TestDiscordChannelAsyncMethods:
         discord_channel._client = None
 
         with pytest.raises(
-            RuntimeError,
+            ChannelError,
             match="Discord client is not initialized",
         ):
             await discord_channel.send(
@@ -719,7 +720,7 @@ class TestDiscordChannelAsyncMethods:
         discord_channel._client = MagicMock()
         discord_channel._client.is_ready = Mock(return_value=False)
 
-        with pytest.raises(RuntimeError, match="Discord client is not ready"):
+        with pytest.raises(ChannelError, match="Discord client is not ready"):
             await discord_channel.send(
                 to_handle="discord:ch:123",
                 text="Hello",

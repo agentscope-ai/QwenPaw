@@ -25,11 +25,9 @@ from __future__ import annotations
 
 import inspect
 from abc import ABC, abstractmethod
-from typing import Any, TypeVar
+from typing import Any
 
 import pytest
-
-T = TypeVar("T")
 
 
 class BaseContractTest(ABC):
@@ -55,7 +53,7 @@ class BaseContractTest(ABC):
     """
 
     @abstractmethod
-    def create_instance(self) -> T:
+    def create_instance(self) -> Any:
         """
         Create and return an instance of the class under test.
 
@@ -66,7 +64,7 @@ class BaseContractTest(ABC):
         )
 
     @pytest.fixture
-    def instance(self) -> T:
+    def instance(self) -> Any:
         """Fixture that provides the instance from create_instance()."""
         return self.create_instance()
 
