@@ -86,6 +86,10 @@ class DiscordChannel(BaseChannel):
         self._client = None
         self._processed_message_ids: set[str] = set()
         self._processed_message_id_queue: deque[str] = deque()
+        # Maps parent_channel_msg_id -> thread_id for race-condition
+        # detection when thread creation and first message arrive
+        # simultaneously.
+        self._recent_thread_starts: dict[str, str] = {}
 
         if self.enabled:
             import discord  # type: ignore
@@ -235,13 +239,36 @@ class DiscordChannel(BaseChannel):
                     not _is_thread
                     and getattr(message, "thread", None) is not None
                 )
+                # Race-condition: thread created simultaneously
+                # with the first message. on_thread_create may
+                # have cached the thread_id before on_message
+                # fires for the starter message.
+                _race_thread_id = None
+                if (
+                    not _is_thread
+                    and not _thread_started
+                    and is_group
+                ):
+                    flags = getattr(message, "flags", None)
+                    if flags and getattr(flags, "has_thread", False):
+                        _race_thread_id = (
+                            self._recent_thread_starts.get(
+                                str(message.id),
+                            )
+                        )
+                # Determine effective channel_id for session routing
+                if _is_thread:
+                    _effective_channel_id = str(message.channel.id)
+                elif _thread_started:
+                    _effective_channel_id = str(message.thread.id)
+                elif _race_thread_id:
+                    _effective_channel_id = _race_thread_id
+                else:
+                    _effective_channel_id = str(message.channel.id)
+
                 meta = {
                     "user_id": str(message.author.id),
-                    "channel_id": str(
-                        message.thread.id
-                        if _thread_started
-                        else message.channel.id,
-                    ),
+                    "channel_id": _effective_channel_id,
                     "guild_id": (
                         str(message.guild.id) if message.guild else None
                     ),
@@ -257,9 +284,9 @@ class DiscordChannel(BaseChannel):
                         if message.channel.parent_id
                         else None
                     )
-                elif _thread_started:
+                elif _thread_started or _race_thread_id:
                     meta["is_thread"] = True
-                    meta["thread_id"] = str(message.thread.id)
+                    meta["thread_id"] = _effective_channel_id
                     meta["parent_channel_id"] = str(message.channel.id)
                 if is_bot_mentioned:
                     meta["bot_mentioned"] = True
@@ -292,6 +319,27 @@ class DiscordChannel(BaseChannel):
                     logger.warning(
                         "discord: _enqueue not set, message dropped",
                     )
+
+            @self._client.event
+            async def on_thread_create(thread):
+                """Cache starter_message_id -> thread_id so on_message
+                can detect the race where a thread-starting message
+                arrives on the parent channel before the thread exists
+                in discord.py's cache."""
+                starter = getattr(thread, "starter_message", None)
+                if starter:
+                    key = str(starter.id)
+                    self._recent_thread_starts[key] = str(thread.id)
+                    logger.info(
+                        "discord thread_create: thread=%s "
+                        "starter_msg=%s parent=%s",
+                        thread.id,
+                        starter.id,
+                        thread.parent_id,
+                    )
+                    # Evict after 30s
+                    await asyncio.sleep(30)
+                    self._recent_thread_starts.pop(key, None)
 
     @classmethod
     def from_env(
