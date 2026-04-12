@@ -28,6 +28,13 @@ logger = logging.getLogger(__name__)
 WEBVIEW2_RUNTIME_DOWNLOAD_URL = (
     "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
 )
+_WEBVIEW2_TROUBLESHOOT_SUFFIX = (
+    "Install or repair WebView2 Runtime and try again.\n\n"
+    f"Download: {WEBVIEW2_RUNTIME_DOWNLOAD_URL}\n\n"
+    "If the issue persists, run "
+    "'QwenPaw Desktop (Debug)' and "
+    "attach the terminal output."
+)
 WEBVIEW2_RUNTIME_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 WINDOWS_WEBVIEW2_REGISTRY_LOCATIONS = (
     (
@@ -156,12 +163,9 @@ def _ensure_desktop_webview_available() -> None:
 
     _abort_desktop_launch(
         "Microsoft Edge WebView2 Runtime was not detected. "
-        "QwenPaw Desktop requires WebView2 on Windows and may otherwise "
-        "fall back to an unsupported legacy renderer that shows a blank "
-        "window. Install or repair WebView2 Runtime and try again.\n\n"
-        f"Download: {WEBVIEW2_RUNTIME_DOWNLOAD_URL}\n\n"
-        "If the issue persists, run 'QwenPaw Desktop (Debug)' and attach "
-        "the terminal output.",
+        "QwenPaw Desktop requires WebView2 on Windows and "
+        "may otherwise fall back to an unsupported legacy "
+        "renderer that shows a blank window. " + _WEBVIEW2_TROUBLESHOOT_SUFFIX,
     )
 
 
@@ -335,14 +339,11 @@ def desktop_cmd(
                     logger.exception("Failed to start embedded desktop window")
                     if sys.platform == "win32":
                         _abort_desktop_launch(
-                            "Failed to start the embedded desktop window.\n\n"
-                            "On Windows this usually means the WebView2 "
-                            "Runtime is missing or damaged. Install or repair "
-                            "WebView2 Runtime and try again.\n\n"
-                            f"Download: {WEBVIEW2_RUNTIME_DOWNLOAD_URL}\n\n"
-                            "If the issue persists, run "
-                            "'QwenPaw Desktop (Debug)' and "
-                            "attach the terminal output.",
+                            "Failed to start the embedded "
+                            "desktop window.\n\n"
+                            "On Windows this usually means "
+                            "the WebView2 Runtime is missing "
+                            "or damaged. " + _WEBVIEW2_TROUBLESHOOT_SUFFIX,
                         )
                     else:
                         _abort_desktop_launch(
