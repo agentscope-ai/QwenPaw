@@ -219,7 +219,7 @@ jobs:
                 comment += `> \n`;
                 comment += `> <div align="center">\n`;
                 comment += `> \n`;
-                comment += `> [![Star QwenPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/QwenPaw)\n`;
+                comment += `> <a href="https://github.com/agentscope-ai/QwenPaw"><img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" alt="Star QwenPaw" width="600" /></a>\n`;
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;
@@ -296,7 +296,7 @@ jobs:
                 comment += `> \n`;
                 comment += `> <div align="center">\n`;
                 comment += `> \n`;
-                comment += `> [![Star QwenPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/QwenPaw)\n`;
+                comment += `> <a href="https://github.com/agentscope-ai/QwenPaw"><img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" alt="Star QwenPaw" width="600" /></a>\n`;
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;

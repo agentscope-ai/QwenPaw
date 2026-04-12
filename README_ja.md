@@ -19,7 +19,7 @@
 [[ドキュメント](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[Русский](README_ru.md)]
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN014TIqyO1U5wDiSbFfA_!!6000000002467-2-tps-816-192.png" alt="QwenPaw Logo" width="120">
+  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="QwenPaw Logo" width="120">
 </p>
 
 <p align="center"><b>あなたのために働き、あなたとともに成長する。</b></p>
@@ -58,40 +58,7 @@
 
 ## ニュース
 
-[2026-04-09] v1.0.2 をリリースしました。詳細は [v1.0.2 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)をご覧ください。
-
-- **[v1.0.2] 追加:** プラグイン対応; Web UI なしで `qwenpaw task` を実行; チャットで `/model` によりモデル切り替え; SiliconFlow プロバイダー; QwenPaw Local のマルチモーダル対応とコンソール設定の拡充; 機微な認証情報の暗号化; `/skills` と `/<スキル名>` でスキル一覧と実行指定; スキルプールのタグ。
-- **[v1.0.2] 変更:** タイムゾーン名が UI 言語に追随; 設定画面のオンデマンド読み込み; 大規模スキルリストの操作がより滑らかに; プロバイダー接続テストの文言をローカライズ; 各チャットチャネル・HTTP API・CLI でエラーコードをより統一。
-- **[v1.0.2] 修正:** MCP クライアント切断・再接続後の CPU 異常; 重複要素がある DOM でのブラウザ自動化とドキュメント; シェルツールで引用符内の改行を保持。
-- **[v1.0.2] 貢献者:** 新規貢献者のみなさまに感謝します: [@energyd](https://github.com/energyd)、[@fengrui-z](https://github.com/fengrui-z)、[@alostbear](https://github.com/alostbear)、[@chr6192](https://github.com/chr6192)、[@yyyzl](https://github.com/yyyzl)。
-
-[2026-04-04] v1.0.1をリリースしました！詳細は [v1.0.1 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
-
-- **[v1.0.1] 追加:** Zhipu AI モデルサポート; マルチモーダルモデルの動画分析; モデルごとの生成パラメータ設定; QwenPaw Local 自動更新; OneBot v11 チャネル（NapCat/QQ）; エージェントドラッグ&ドロップ並び替え; スキル一括操作; WeChat ファイルアップロードと入力中表示改善; 手動コンパクトの追加指示。
-- **[v1.0.1] 変更:** Web サイト UI 刷新; スキルカードとリスト表示の強化; MCP コンソール UI 改善。
-- **[v1.0.1] 修正:** DingTalk sessionWebhook と許可リスト処理; WeCom WebSocket 信頼性; QQ 再接続状態; コンソール UI 修正; Windows ツール互換性; ブラウザアイドルウォッチドッグ; シンキングモデルでのツールガード; llama.cpp Windows NVIDIA GPU サポート。
-- **[v1.0.1] ドキュメント:** QwenPaw-Flash 展開 FAQ; スキルドキュメント更新。
-- **[v1.0.1] 貢献者:** 新規貢献者の皆さんに感謝します: [@Jacky51351684](https://github.com/Jacky51351684)、[@xianzhisheng](https://github.com/xianzhisheng)、[@kobewl](https://github.com/kobewl)、[@rikey123](https://github.com/rikey123)、[@solarhell](https://github.com/solarhell)。
-
-[2026-03-30] v1.0.0をリリースしました！詳細は [v1.0.0 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
-
-- **[v1.0.0] 追加:**
-  - **マルチエージェントシステム**: CLI `--background` フラグによるバックグラウンドタスクサポートとタスク追跡; コンソールと API によるエージェントの有効化/無効化トグル; タスクキャンセル用の `/stop` コマンド付き統一優先度キューシステム
-  - **プロバイダーとモデル**: llama.cpp を使用した QwenPaw ローカルモデルプロバイダー; QPM スライディングウィンドウによるグローバル LLM レートリミッター
-  - **セキュリティ**: システム再起動・サービス制御保護用のツールガードルール; スキルスキャナーでの中国語プロンプトインジェクション検出
-  - **コンソールと UI**: ミラーサイト付きデスクトップインストーラー用ダウンロードページ; コンソールチャットでのマルチモーダルプレビュー（画像、音声、動画、ファイル）
-  - **チャネル**: WeChat iLink Bot チャネル; Webhook 用カスタムチャネル HTTP ルート
-  - **ツールとスキル**: バックグラウンドタスクヘルパー付き非同期ツール実行; 2 層スキルプールアーキテクチャ; Chrome 自動化用ブラウザ CDP サポート
-- **[v1.0.0] 変更:** ネスト化された設定モデル、新しいコンパクション フック、ツール結果のコンパクション、プロアクティブメモリ検索を含むコンテキスト管理 v2.0; トランケーションロジックの改善; ストリーミング grep 検索。
-- **[v1.0.0] 修正:** Feishu WebSocket 再接続とマルチインスタンス メッセージルーティング; Discord 重複メッセージ; QQ ボイスメッセージ変換; マルチエージェント モデル設定; クロスプラットフォーム ファイルエンコーディング。
-- **[v1.0.0] ドキュメント:** マルチエージェント、インストール・CLI、モデルプロバイダー、プロジェクト構造ガイドライン、コンテキスト管理、セキュリティ、MCP・ツール、スキル、マジックコマンドなど包括的なドキュメント更新。
-- **[v1.0.0] 貢献者:** 新規貢献者の皆さんに感謝します: [@qzcpl](https://github.com/qzcpl)、[@livehl](https://github.com/livehl)、[@carlos999-hqsama](https://github.com/carlos999-hqsama)、[@bowenliang123](https://github.com/bowenliang123)、[@jinglinpeng](https://github.com/jinglinpeng)。
-
-[2026-03-24] v0.2.0をリリースしました！詳細は [v0.2.0 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
-
-[2026-03-18] v0.1.0をリリースしました！詳細は [v0.1.0 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
-
-[2026-03-12] v0.0.7をリリースしました！詳細は [v0.0.7 リリースノート](https://agentscope-ai.github.io/QwenPaw/release-notes)でご確認ください。
+[2026-04-10] **CoPaw は正式に QwenPaw へ改名しました。** ブランド名の刷新であり、次のステージへ踏み出す重要な一歩です。新しい名前は、私たちが構築しているエコシステムと、持続的に推進している全体的な方向性をより的確に体現しています。
 
 ---
 
@@ -139,7 +106,7 @@ qwenpaw app
 
 ブラウザで **http://127.0.0.1:8088/** を開いてコンソールでモデルを設定します。DingTalk、Feishu、WeChat などでチャットするには、[チャネル設定](https://qwenpaw.agentscope.io/docs/channels)ドキュメントを参照してください。
 
-![Console](https://img.alicdn.com/imgextra/i3/O1CN01pyaTXq1nqAuRBGbJc_!!6000000005140-2-tps-3822-2144.png)
+![Console](https://img.alicdn.com/imgextra/i3/O1CN01zDl0T41m4Fr71McSx_!!6000000004900-2-tps-3442-2062.png)
 
 ---
 
@@ -216,7 +183,7 @@ qwenpaw app
 
 ```bash
 # 特定のバージョンをインストール
-curl -fsSL ... | bash -s -- --version 0.0.2
+curl -fsSL ... | bash -s -- --version 1.1.0
 
 # ソースからインストール（開発/テスト用）
 curl -fsSL ... | bash -s -- --from-source
@@ -438,7 +405,7 @@ QwenPaw は多層セキュリティ防護メカニズムを内蔵し、データ
 ## 最新情報をいち早く
 
 <a href="https://github.com/agentscope-ai/QwenPaw">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star QwenPaw" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
 </a>
 
 GitHubでQwenPawにスターを付けて、新しいリリースの通知を即座に受け取りましょう。
@@ -505,7 +472,7 @@ QwenPaw はオープンな協働により進化を続けており、あらゆる
 
 ## なぜQwenPaw？
 
-QwenPawは **Co Personal Agent Workstation**（共同パーソナルエージェントワークステーション）であると同時に、「co-paw」— いつもあなたのそばにいるパートナーを表しています。単なる冷たいツールではなく、QwenPawはいつでも手（または肉球！）を貸してくれる温かい「小さな肉球」です。デジタルライフにおける究極のチームメイトです。
+QwenPaw は Qwen Personal Agent Workstation（Qwen 個人エージェントワークステーション）の略であると同時に、Qwen の知性と Paw の温もりを体現しています。単なる冷たいツールではなく、いつでも手を差し伸べてくれる、賢くて温かい「小さな爪」でありたい — あなたのデジタルライフで最も息の合ったパートナーです。
 
 ---
 

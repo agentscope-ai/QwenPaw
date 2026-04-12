@@ -18,6 +18,12 @@ _current_agent_id: ContextVar[Optional[str]] = ContextVar(
     default=None,
 )
 
+# Context variable to store current session id across async calls
+_current_session_id: ContextVar[Optional[str]] = ContextVar(
+    "current_session_id",
+    default=None,
+)
+
 
 async def get_agent_for_request(
     request: Request,
@@ -138,3 +144,11 @@ def get_current_agent_id() -> str:
     if agent_id:
         return agent_id
     return get_active_agent_id()
+
+
+def set_current_session_id(session_id: str) -> None:
+    _current_session_id.set(session_id)
+
+
+def get_current_session_id() -> Optional[str]:
+    return _current_session_id.get()

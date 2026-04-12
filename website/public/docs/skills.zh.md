@@ -167,19 +167,19 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 
 1. 打开 [控制台](./console) → **工作区 → 技能**，点击 **从 Skills Hub 导入技能**。
 
-   ![import](https://img.alicdn.com/imgextra/i1/O1CN0134XTb81v513NbR5YT_!!6000000006120-2-tps-2938-1560.png)
+   ![import](https://img.alicdn.com/imgextra/i2/O1CN01iaEhjy1hOnXfVjZaK_!!6000000004268-2-tps-3822-2070.png)
 
 2. 在弹窗中粘贴 Skill URL（获取方式见下方 **URL 获取示例**）。
 
-   ![url](https://img.alicdn.com/imgextra/i4/O1CN01enUOza1epPhw1IRJs_!!6000000003920-2-tps-2924-1562.png)
+   ![url](https://img.alicdn.com/imgextra/i2/O1CN01l47mhN1aKwu48KLry_!!6000000003312-2-tps-3822-2070.png)
 
 3. 点击**从 Skills Hub 导入技能**，等待导入完成。
 
-   ![click](https://img.alicdn.com/imgextra/i3/O1CN019BEC8u1cImFpKaQJv_!!6000000003578-2-tps-2940-1556.png)
+   ![click](https://img.alicdn.com/imgextra/i4/O1CN01amjZHZ1lwT7eVqWx9_!!6000000004883-2-tps-3822-2070.png)
 
 4. 导入成功后，skill 出现在技能列表中，**默认启用**。
 
-   ![new](https://img.alicdn.com/imgextra/i2/O1CN01A4T0dQ1OxcxZ6jP3Q_!!6000000001772-2-tps-2940-1556.png)
+   ![new](https://img.alicdn.com/imgextra/i4/O1CN01TOYn2U1RFbk5BQOR1_!!6000000002082-2-tps-3822-2070.png)
 
 #### URL 获取示例
 

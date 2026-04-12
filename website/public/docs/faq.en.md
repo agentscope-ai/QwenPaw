@@ -109,6 +109,8 @@ docker run -p 127.0.0.1:8088:8088 \
 
 After upgrading, restart the service with `qwenpaw app`.
 
+If you previously used CoPaw, upgrading to QwenPaw only requires downloading the latest QwenPaw. No extra migration is needed; your configuration, memory, skills, and other data from the CoPaw era continue to work.
+
 ### How to initialize and start QwenPaw service
 
 Recommended quick initialization:
@@ -239,7 +241,7 @@ All built-in local providers in QwenPaw can be used with QwenPaw-Flash models:
 In the QwenPaw Local model interface, simply choose a QwenPaw-Flash model to
 download and start it.
 
-![Start Model](https://gw.alicdn.com/imgextra/i1/O1CN01NSNFUN1I21RynZwGy_!!6000000000834-2-tps-1224-1194.png)
+![Start Model](https://img.alicdn.com/imgextra/i4/O1CN019nuWG21Zy36HLYRWR_!!6000000003262-2-tps-1344-1678.png)
 
 > QwenPaw Local is still in beta. Compatibility across different devices and
 > runtime stability are still being improved. If you run into issues while

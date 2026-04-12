@@ -60,7 +60,7 @@
 
 从“控制→频道”找到**DingTalk**，点击后填入刚刚获取的**Client ID**和**Client Secret**
 
-![console](https://img.alicdn.com/imgextra/i2/O1CN01xF0Ip91mDPm60EVDr_!!6000000004920-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i4/O1CN01YVQdZe1WsbXoxJOnJ_!!6000000002844-2-tps-3822-2070.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -234,7 +234,7 @@
 如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
 
 > 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 QwenPaw 服务，才能继续配置长链接的操作。
-> ![console](https://img.alicdn.com/imgextra/i1/O1CN019Gfox81MMPXosAHhC_!!6000000001420-2-tps-3822-2064.png)
+> ![console](https://img.alicdn.com/imgextra/i3/O1CN01KCQj1b1z8utMnRr6y_!!6000000006670-2-tps-3822-2070.png)
 
 ### 机器人权限建议
 
@@ -307,7 +307,7 @@
 
    - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
-     ![控制台](https://img.alicdn.com/imgextra/i2/O1CN01AmgRk91Q9Mj5HfpDl_!!6000000001933-2-tps-3822-2064.png)
+     ![console](https://img.alicdn.com/imgextra/i4/O1CN01yxsvJ51yOetCYur9f_!!6000000006569-2-tps-3822-2070.png)
 
    - 填写智能体工作区的 `agent.json`（如 `~/.qwenpaw/workspaces/default/agent.json`）：
 
@@ -379,7 +379,7 @@
 
 从“控制→频道”找到**Discord**，点击后填入刚刚获取的**Bot Token**
 
-![console](https://img.alicdn.com/imgextra/i4/O1CN01Q5UP6Z22ZQfAiPEaS_!!6000000007134-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i1/O1CN01kRdzN61HBLu9LghUV_!!6000000000719-2-tps-3822-2070.png)
 
 **方法2**: 修改 `agent.json`
 
@@ -471,7 +471,7 @@
 
 或者也可以在console前端填写：
 
-![1](https://img.alicdn.com/imgextra/i2/O1CN011RzCNN1zREjSv74Y9_!!6000000006710-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i3/O1CN01FJrXGd1dNBgbrPZMf_!!6000000003723-2-tps-3822-2070.png)
 
 ---
 
@@ -580,7 +580,7 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 **方法一**在console填写
 
-![绑定机器人](https://img.alicdn.com/imgextra/i2/O1CN01hI25Kc1jrJQcrQMjR_!!6000000004601-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i1/O1CN01pyx6Ma1YMCl1kMnje_!!6000000003044-2-tps-3822-2070.png)
 
 **方法二**在 `agent.json` 填写（如 `~/.qwenpaw/workspaces/default/agent.json`）
 
@@ -695,7 +695,7 @@ WEIXIN_GROUP_POLICY=open
 
 从"控制→频道"找到**Telegram**，点击后填入刚刚获取的**Bot Token**
 
-![console](https://img.alicdn.com/imgextra/i3/O1CN01MCKRoZ1TjUomvgE0e_!!6000000002418-2-tps-3822-2064.png)
+![console](https://img.alicdn.com/imgextra/i3/O1CN01wrQfVo1QmIOUaWqoW_!!6000000002018-2-tps-3822-2070.png)
 
 **方法2**: 修改 `agent.json`
 

@@ -36,7 +36,7 @@ walk through each feature in order.
 
 This is where you talk to QwenPaw. It is the default page when the Console opens.
 
-![Chat](https://img.alicdn.com/imgextra/i1/O1CN01TZtpUC23sUlflQYuT_!!6000000007311-2-tps-3822-2064.png)
+![Chat](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 **Choose a model:**
 Use the control at the **top-right** of the chat page to pick the model for the
@@ -76,7 +76,7 @@ row to delete it.
 Manage messaging channels (Console, DingTalk, Feishu, Discord, QQ, WeChat,
 iMessage, etc.): enable/disable and credentials.
 
-![Channels](https://img.alicdn.com/imgextra/i3/O1CN01JPJzU51hn4X0X2C7y_!!6000000004321-2-tps-3822-2064.png)
+![Channels](https://img.alicdn.com/imgextra/i4/O1CN01cqMycR1SeczjROAHu_!!6000000002272-2-tps-3822-2070.png)
 
 **Enable a channel:**
 
@@ -98,7 +98,7 @@ Open the same panel, turn off **Enable**, then click **Save**.
 
 View, filter, and clean up chat sessions across all channels.
 
-![Sessions](https://img.alicdn.com/imgextra/i2/O1CN01UFzPcp1ybTydoQ87f_!!6000000006597-2-tps-3822-2064.png)
+![Sessions](https://img.alicdn.com/imgextra/i4/O1CN01PY9Yhe25Pl9TuEBfz_!!6000000007519-2-tps-3822-2070.png)
 
 **Find sessions:**
 Use the search box to filter by user, or use the dropdown to filter by
@@ -121,7 +121,7 @@ Select rows → click **Batch Delete** → confirm.
 
 Create and manage scheduled jobs that QwenPaw runs automatically by time.
 
-![Cron Jobs](https://img.alicdn.com/imgextra/i2/O1CN018jn4Wm1C9SBJy58mo_!!6000000000038-2-tps-3822-2064.png)
+![Cron Jobs](https://img.alicdn.com/imgextra/i3/O1CN01WsQvrb1dKthp8QMvd_!!6000000003718-2-tps-3822-2070.png)
 
 **Create a new job:**
 
@@ -165,7 +165,7 @@ Click **Execute Now** → confirm.
 
 > Sidebar: **Control → Heartbeat**
 
-![Heartbeat](https://img.alicdn.com/imgextra/i1/O1CN01jo9tcj1UfCirFJSqV_!!6000000002544-2-tps-3822-2064.png)
+![Heartbeat](https://img.alicdn.com/imgextra/i1/O1CN017fS5GW1jIxj8FuQXl_!!6000000004526-2-tps-3822-2070.png)
 
 Configure periodic "self-check" for the **currently selected agent**: on each
 tick, send the contents of `HEARTBEAT.md` as a user message to QwenPaw, and
@@ -197,7 +197,7 @@ Edit files that define QwenPaw's persona and behavior — `SOUL.md`, `AGENTS.md`
 > switcher at the top of the Console to change the active agent. See
 > [Multi-Agent](./multi-agent).
 
-![Files](https://img.alicdn.com/imgextra/i1/O1CN01SKTXEf1VJVZo91mry_!!6000000002632-2-tps-3822-2064.png)
+![Files](https://img.alicdn.com/imgextra/i4/O1CN01iEhSJL1cHP4JHPdio_!!6000000003575-2-tps-3822-2070.png)
 
 **Edit files:**
 
@@ -225,7 +225,7 @@ replaced. Useful for migration and backup restore.
 Manage skills that extend QwenPaw (e.g. read PDF, create Word, fetch news). More
 detail: [Skills](./skills).
 
-![Skills](https://img.alicdn.com/imgextra/i3/O1CN01UFlTdO1eHWOt2Lnk9_!!6000000003846-2-tps-3822-2064.png)
+![Skills](https://img.alicdn.com/imgextra/i4/O1CN017tsPAI27USRjSJLBA_!!6000000007800-2-tps-3822-2070.png)
 
 **Enable a skill:**
 Click **Enable** at the bottom of a skill card. It takes effect immediately.
@@ -280,7 +280,7 @@ automatically disabled first.
 
 > Sidebar: **Workspace → Tools**
 
-![Tools](https://img.alicdn.com/imgextra/i4/O1CN01HGD8O31CrQChNfY8h_!!6000000000134-2-tps-3822-2064.png)
+![Tools](https://img.alicdn.com/imgextra/i4/O1CN01ZKnoAE1pqkdpFVQuM_!!6000000005412-2-tps-3822-2070.png)
 
 Toggle **built-in tools** by name (read files, run commands, browser, etc.). When
 off, this agent cannot call that tool in chat.
@@ -296,7 +296,7 @@ to the **current agent** immediately.
 
 Enable/disable/delete **MCP** clients here, or create new ones.
 
-![MCP](https://img.alicdn.com/imgextra/i1/O1CN01Bb3x6520CrvJ1MwlW_!!6000000006814-2-tps-3822-2064.png)
+![MCP](https://img.alicdn.com/imgextra/i3/O1CN01dEioYs1JMv8ln8RE7_!!6000000001015-2-tps-3822-2070.png)
 
 **Create a client**
 Click **Create Client** in the top-right, fill in required fields, then **Create**.
@@ -308,7 +308,7 @@ The new client appears in the list.
 
 > Sidebar: **Workspace → Configuration**
 
-![Runtime Config](https://img.alicdn.com/imgextra/i2/O1CN01EiWgAm22FHEmKkb1x_!!6000000007090-2-tps-3822-2064.png)
+![Runtime Config](https://img.alicdn.com/imgextra/i1/O1CN011l1EnX1YbmDvsXolR_!!6000000003078-2-tps-3822-2070.png)
 
 This page configures **runtime parameters for the current agent**, grouped in
 cards. Click **Save** at the bottom (**Reset** reloads from the server).
@@ -330,7 +330,7 @@ For mechanics, see [Context](./context) and [Config & working directory](./confi
 
 > Sidebar: **Settings → Agent management**
 
-![Agent management](https://img.alicdn.com/imgextra/i1/O1CN01ZcpD3S1fMqccCXZXo_!!6000000003993-2-tps-3822-2064.png)
+![Agent management](https://img.alicdn.com/imgextra/i1/O1CN01MlsPdv1yioJgESwhm_!!6000000006613-2-tps-3822-2070.png)
 
 Create, edit, enable/disable, or delete agents. The **Description** field is used
 when multiple agents collaborate — write a clear role.
@@ -347,7 +347,7 @@ path, etc.). See [Multi-Agent](./multi-agent).
 
 Configure LLM providers and select the default model for agents. See [Models](./models) for details on provider and model configuration.
 
-![Models](https://img.alicdn.com/imgextra/i2/O1CN01GumhVY26BqjjKriDe_!!6000000007624-2-tps-3822-2064.png)
+![Models](https://img.alicdn.com/imgextra/i4/O1CN01rePoH21MabpCZyWr1_!!6000000001451-2-tps-3822-2070.png)
 
 On this page you can:
 
@@ -364,7 +364,7 @@ On this page you can:
 
 Global skill management. More detail: [Skills](./skills).
 
-![Skill pool](https://img.alicdn.com/imgextra/i1/O1CN01bQx5Un219x12tqVGu_!!6000000006943-2-tps-3822-2064.png)
+![Skill pool](https://img.alicdn.com/imgextra/i1/O1CN01uDUQGJ1dfVWqWGD8G_!!6000000003763-2-tps-3822-2070.png)
 
 On this page you can:
 
@@ -385,7 +385,7 @@ On this page you can:
 Manage runtime environment variables needed by QwenPaw tools and skills (e.g.
 `TAVILY_API_KEY`).
 
-![Environment Variables](https://img.alicdn.com/imgextra/i2/O1CN01g5syLq1qYGGVLKdSM_!!6000000005507-2-tps-3822-2064.png)
+![Environment Variables](https://img.alicdn.com/imgextra/i2/O1CN01TpB5YF22AhHMVydps_!!6000000007080-2-tps-3822-2070.png)
 
 **Add a variable:**
 
@@ -414,7 +414,7 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 > Sidebar: **Settings → Security**
 
-![Security](https://img.alicdn.com/imgextra/i3/O1CN019BfbyA1uvOjhmI6rJ_!!6000000006099-2-tps-3822-2064.png)
+![Security](https://img.alicdn.com/imgextra/i4/O1CN01oxB5ns1GH1BksHGtZ_!!6000000000596-2-tps-3822-2070.png)
 
 Tabs for **tool guard**, **file guard**, **skill scanner**, etc.: control
 dangerous-tool parameter blocking, sensitive path access, and skill package
@@ -428,7 +428,7 @@ Click **Save** after changing toggles or rules. Details: [Security](./security).
 
 > Sidebar: **Settings → Token Usage**
 
-![Token Usage](https://img.alicdn.com/imgextra/i3/O1CN01Hk0WIj1UPdFwl1Hex_!!6000000002510-2-tps-3822-2064.png)
+![Token Usage](https://img.alicdn.com/imgextra/i2/O1CN01KYNxoL1Xgz6z9nsVy_!!6000000002954-2-tps-3822-2070.png)
 
 View LLM token usage over a range, by date and model.
 
@@ -451,7 +451,7 @@ Ask e.g. "How many tokens have I used?" or "Show token usage." The agent calls
 
 > Sidebar: **Settings → Voice transcription**
 
-![Voice transcription](https://img.alicdn.com/imgextra/i1/O1CN01xTyvpr21VTdBJNMZ9_!!6000000006990-2-tps-3822-2064.png)
+![Voice transcription](https://img.alicdn.com/imgextra/i3/O1CN01ZdRtQq1TgkRa5kJhr_!!6000000002412-2-tps-3822-2070.png)
 
 Configure how **voice/audio from channels** is handled before it reaches the
 model (same settings apply to voice input in chat and channel voice messages).

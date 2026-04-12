@@ -316,6 +316,19 @@ class ConsoleChannel(BaseChannel):
                 )
         return media_message
 
+    def _extract_token_usage(
+        self,
+        session_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        from ....token_usage import TokenRecordingModelWrapper
+
+        if not session_id:
+            return None
+
+        usage = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+        logger.info("Usage for session %s (cleaned up): %s", session_id, usage)
+        return usage
+
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
         if isinstance(payload, dict) and "content_parts" in payload:
@@ -334,8 +347,8 @@ class ConsoleChannel(BaseChannel):
             request = self.build_agent_request_from_native(payload)
         else:
             request = payload
+            session_id = getattr(request, "session_id", "") or ""
             if getattr(request, "input", None):
-                session_id = getattr(request, "session_id", "") or ""
                 contents = list(
                     getattr(request.input[0], "content", None) or [],
                 )
@@ -381,6 +394,11 @@ class ConsoleChannel(BaseChannel):
                             )
                             if media_message:
                                 event.output.append(media_message)
+
+                if obj == "response":
+                    usage_data = self._extract_token_usage(session_id)
+                    if usage_data and hasattr(event, "usage"):
+                        setattr(event, "usage", usage_data)
 
                 if hasattr(event, "model_dump_json"):
                     data = event.model_dump_json()

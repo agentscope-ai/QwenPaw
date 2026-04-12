@@ -643,10 +643,10 @@ def get_plugins_dir() -> Path:
 
 
 def is_qwenpaw_running() -> bool:
-    """Check if CoPaw is currently running by checking API availability.
+    """Check if QwenPaw is currently running by checking API availability.
 
     Returns:
-        True if CoPaw is running, False otherwise
+        True if QwenPaw is running, False otherwise
     """
     try:
         # Read last API host/port

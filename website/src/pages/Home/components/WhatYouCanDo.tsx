@@ -22,7 +22,7 @@ const CATEGORY_CONFIG: Array<{
     background:
       "https://img.alicdn.com/imgextra/i3/O1CN010T7jhC1LptQKwxNGm_!!6000000001349-2-tps-2114-1180.png",
     preview:
-      "https://img.alicdn.com/imgextra/i2/O1CN01orpWim1OyXkfeSJ2b_!!6000000001774-2-tps-1362-894.png",
+      "https://img.alicdn.com/imgextra/i4/O1CN01XDvtE31elkXhE59ID_!!6000000003912-2-tps-1362-852.png",
   },
   {
     key: "productivity",

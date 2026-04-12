@@ -69,6 +69,7 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 qwenpaw = "qwenpaw.cli.main:cli"
+copaw = "qwenpaw.cli.main:cli"
 
 [project.optional-dependencies]
 dev = [

@@ -42,8 +42,8 @@
     "headingPrefix": "Why",
     "headingEmphasis": "QwenPaw?",
     "sub": "安装简单，可部署在本机或云端；\n支持多种 IM 应用；能力可轻松扩展。",
-    "heroLine": "QwenPaw 代表 Qwen 个人代理工作站，也蕴含着 Qwen 的智慧和 Paw 的温暖。",
-    "secondPrefix": "我们希望它不是一个冰冷的工具，而是一个智能而温暖的“小爪子”，随时准备提供帮助——成为您数字生活中最贴心的伙伴。"
+    "heroLine": "QwenPaw 既是 Qwen Personal Agent Workstation（千问个人智能体工作台），也寓意 Qwen 的智识，Paw 的温度。",
+    "secondPrefix": "我们希望它不是冰冷的工具，而是一只随时准备帮忙的智慧、温暖“小爪子”，是你数字生活中最默契的伙伴。"
   },
   "worksForYou": {
     "title": "懂你所需，伴你左右",
@@ -126,7 +126,7 @@
     "3": "想完全掌控的团队用着很顺手。"
   },
   "usecases": {
-    "title": "Qwenpaw可以为你做些什么",
+    "title": "QwenPaw可以为你做些什么",
     "sub": "记忆配置与个性化设置，由你掌控。",
     "categories": {
       "social": {
@@ -267,7 +267,7 @@
     "security": "安全",
     "cli": "CLI",
     "plugins": "插件系统",
-    "faq": "FAQ 常见问题",
+    "faq": "常见问题",
     "community": "问题反馈与交流",
     "contributing": "开源与贡献",
     "roadmap": "路线图",
@@ -326,7 +326,8 @@
         "li5bPrefix": "从以下地址下载最新版本：",
         "li5bLink": "GitHub Releases",
         "li5bSuffix": "。",
-        "li5c": "重新安装。"
+        "li5c": "重新安装。",
+        "p2": "原 CoPaw 用户升级 QwenPaw，下载最新的 QwenPaw 即可，无需做额外适配即可继续使用 CoPaw 时期的所有配置、记忆、技能等。"
       },
       "initialize": {
         "q": "如何初始化并启动 QwenPaw 服务",

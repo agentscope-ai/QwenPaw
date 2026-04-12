@@ -46,7 +46,7 @@ node --version  # Check version
 3. Paste your MCP client JSON configuration
 4. Click **Create** to import
 
-![MCP](https://img.alicdn.com/imgextra/i3/O1CN014Jr2g11POBvoVaqI5_!!6000000001830-2-tps-3822-2064.png)
+![MCP](https://img.alicdn.com/imgextra/i2/O1CN01uYjPWG1YwqRRF3wYd_!!6000000003124-2-tps-3822-2070.png)
 
 ---
 
@@ -196,7 +196,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 
 ### Tool Management
 
-![tool](https://img.alicdn.com/imgextra/i3/O1CN017MOn851uGdU8hpyiR_!!6000000006010-2-tps-3822-2064.png)
+![tool](https://img.alicdn.com/imgextra/i1/O1CN01Wwi7Im1ll1DlO9x74_!!6000000004858-2-tps-3822-2070.png)
 
 #### Enable and Disable Tools
 

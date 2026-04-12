@@ -19,7 +19,7 @@
 [[Documentation](https://qwenpaw.agentscope.io/)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN014TIqyO1U5wDiSbFfA_!!6000000002467-2-tps-816-192.png" alt="QwenPaw Logo" width="120">
+  <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="QwenPaw Logo" width="120">
 </p>
 
 <p align="center"><b>Works for you, grows with you.</b></p>
@@ -58,28 +58,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-[2026-04-09] We released v1.0.2! See the [v1.0.2 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-- **[v1.0.2] Added:** Plugin system support; run `qwenpaw task` without the web UI; use `/model` in chat to switch models; SiliconFlow provider; QwenPaw Local multimodal support and richer console settings; sensitive credential encryption; `/skills` and `/<skill name>` commands to list and run skills; skill-pool tags.
-- **[v1.0.2] Changed:** Timezone names follow the UI language; settings pages load on demand; smoother interaction for large skill lists; localized provider connection-test prompts; more consistent error codes across chat channels, HTTP API, and CLI.
-- **[v1.0.2] Fixed:** MCP client CPU usage after close/reconnect; browser automation duplicate-element targeting and docs; shell tool newlines inside quotes.
-- **[v1.0.2] Contributors:** Thanks to new contributors: [@energyd](https://github.com/energyd), [@fengrui-z](https://github.com/fengrui-z), [@alostbear](https://github.com/alostbear), [@chr6192](https://github.com/chr6192), [@yyyzl](https://github.com/yyyzl).
-
-[2026-04-04] We released v1.0.1! See the [v1.0.1 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-- **[v1.0.1] Added:** Zhipu AI model support; video analysis for multimodal models; per-model generate parameters configuration; QwenPaw local provider auto-update mechanism; OneBot v11 channel for NapCat/QQ; Agent drag-and-drop ordering; Batch skill operations; WeChat file upload and typing improvements; Extra instructions for manual compact.
-- **[v1.0.1] Changed:** Website UI modernization; enhanced skill card and list view; MCP console UI refresh.
-- **[v1.0.1] Fixed:** DingTalk sessionWebhook and allowlist handling; WeCom WebSocket reliability; QQ reconnect state; console UI fixes; Windows tool compatibility; browser idle watchdog; tool guard with thinking models; llama.cpp Windows NVIDIA GPU support.
-- **[v1.0.1] Documentation:** QwenPaw-Flash deployment FAQ; skill documentation updates.
-- **[v1.0.1] Contributors:** Thanks to new contributors: [@Jacky51351684](https://github.com/Jacky51351684), [@xianzhisheng](https://github.com/xianzhisheng), [@kobewl](https://github.com/kobewl), [@rikey123](https://github.com/rikey123), [@solarhell](https://github.com/solarhell).
-
-[2026-03-30] We released v1.0.0! See the [v1.0.0 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-[2026-03-24] We released v0.2.0! See the [v0.2.0 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-[2026-03-18] We released v0.1.0! See the [v0.1.0 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
-
-[2026-03-12] We released v0.0.7! See the [v0.0.7 Release Notes](https://agentscope-ai.github.io/QwenPaw/release-notes) for the full changelog.
+[2026-04-10] **CoPaw is now QwenPaw.** Same vision, same community, new name. As we move into the next phase, CoPaw is officially rebranding to QwenPaw. This update better reflects the ecosystem and long-term direction we're building toward.
 
 ---
 
@@ -123,7 +102,7 @@ qwenpaw app
 
 Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Feishu, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
 
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01URgadi22cdR9S6q1v_!!6000000007141-2-tps-3822-2144.png)
+![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 ---
 
@@ -200,7 +179,7 @@ qwenpaw app
 
 ```bash
 # Install a specific version
-curl -fsSL ... | bash -s -- --version 0.0.2
+curl -fsSL ... | bash -s -- --version 1.1.0
 
 # Install from source (dev/testing)
 curl -fsSL ... | bash -s -- --from-source
@@ -410,7 +389,7 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 ## Staying ahead
 
 <a href="https://github.com/agentscope-ai/QwenPaw">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star QwenPaw" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
 </a>
 
 Star QwenPaw on GitHub and be instantly notified of new releases.
@@ -476,7 +455,8 @@ Join [GitHub Discussions](https://github.com/agentscope-ai/QwenPaw/discussions) 
 
 ## Why QwenPaw?
 
-QwenPaw represents both a **Co Personal Agent Workstation** and a "co-paw"—a partner always by your side. More than just a cold tool, QwenPaw is a warm "little paw" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life.
+QwenPaw stands for Qwen Personal Agent Workstation, and also embodies the wisdom of Qwen and the warmth of a Paw.
+We hope it is not a cold tool, but an intelligent and warm "little paw" always ready to help—a most intuitive partner in your digital life.
 
 ---
 

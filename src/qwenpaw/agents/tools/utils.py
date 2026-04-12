@@ -7,6 +7,8 @@ import re
 
 import logging
 
+import aiofiles
+
 from ...constant import TRUNCATION_NOTICE_MARKER
 
 logger = logging.getLogger(__name__)
@@ -204,7 +206,7 @@ def truncate_text_output(
         return text
 
 
-def read_file_safe(
+async def read_file_safe(
     file_path: str,
     max_bytes: int = MAX_FILE_READ_BYTES,
 ) -> str:
@@ -219,8 +221,17 @@ def read_file_safe(
     """
     # Use utf-8-sig to auto-remove BOM if present, compatible with plain utf-8
     try:
-        with open(file_path, "r", encoding="utf-8-sig") as f:
-            return f.read(max_bytes)
+        async with aiofiles.open(
+            file_path,
+            "r",
+            encoding="utf-8-sig",
+        ) as f:
+            return await f.read(max_bytes)
     except UnicodeDecodeError:
-        with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
-            return f.read(max_bytes)
+        async with aiofiles.open(
+            file_path,
+            "r",
+            encoding="utf-8-sig",
+            errors="ignore",
+        ) as f:
+            return await f.read(max_bytes)

@@ -122,15 +122,20 @@ JOBS_FILE = EnvVarLoader.get_str("QWENPAW_JOBS_FILE", "jobs.json")
 
 CHATS_FILE = EnvVarLoader.get_str("QWENPAW_CHATS_FILE", "chats.json")
 
-# Builtin Q&A helper profile.  agent_id keeps "CoPaw" prefix for existing
+# Builtin Q&A helper profile.  agent_id keeps "QwenPaw" prefix for existing
 # workspaces and agent.json; do not rename.
-BUILTIN_QA_AGENT_ID = "CoPaw_QA_Agent_0.1beta1"
+BUILTIN_QA_AGENT_ID = "QwenPaw_QA_Agent_0.2"
 BUILTIN_QA_AGENT_NAME = "QA Agent"
 # Default skills when the builtin QA workspace is first created only.
 BUILTIN_QA_AGENT_SKILL_NAMES: tuple[str, ...] = (
     "guidance",
     "QA_source_index",
 )
+
+# CoPaw-era builtin QA; may remain in config.json — disabled when the current
+# ``BUILTIN_QA_AGENT_ID`` profile is first created (see ``migration``), not
+# every startup, so users can re-enable this id if they want.
+LEGACY_QA_AGENT_ID = "CoPaw_QA_Agent_0.1beta1"
 
 TOKEN_USAGE_FILE = EnvVarLoader.get_str(
     "QWENPAW_TOKEN_USAGE_FILE",

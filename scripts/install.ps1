@@ -63,7 +63,7 @@ Environment:
 
 Write-Host "[qwenpaw] " -ForegroundColor Green -NoNewline
 Write-Host "Installing QwenPaw into " -NoNewline
-Write-Host "$CopawHome" -ForegroundColor White
+Write-Host "$QwenpawHome" -ForegroundColor White
 
 # ── Execution Policy Check ────────────────────────────────────────────────────
 $policy = Get-ExecutionPolicy
@@ -193,16 +193,16 @@ function Ensure-Uv {
 Ensure-Uv
 
 # ── Step 2: Create / update virtual environment ──────────────────────────────
-if (Test-Path $CopawVenv) {
+if (Test-Path $QwenpawVenv) {
     Write-Info "Existing environment found, upgrading..."
 } else {
     Write-Info "Creating Python $PythonVersion environment..."
 }
 
-uv venv $CopawVenv --python $PythonVersion --quiet --clear
+uv venv $QwenpawVenv --python $PythonVersion --quiet --clear
 if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to create virtual environment" }
 
-$VenvPython = Join-Path $CopawVenv "Scripts\python.exe"
+$VenvPython = Join-Path $QwenpawVenv "Scripts\python.exe"
 if (-not (Test-Path $VenvPython)) { Stop-WithError "Failed to create virtual environment" }
 
 $pyVersion = & $VenvPython --version 2>&1
@@ -298,7 +298,7 @@ if ($FromSource) {
         Write-Info "Installing QwenPaw from source (GitHub)..."
         $cloneDir = Join-Path $env:TEMP "qwenpaw-install-$(Get-Random)"
         try {
-            git clone --depth 1 $CopawRepo $cloneDir
+            git clone --depth 1 $QwenpawRepo $cloneDir
             if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to clone repository" }
             Prepare-Console $cloneDir
             Write-Info "Installing package from source..."

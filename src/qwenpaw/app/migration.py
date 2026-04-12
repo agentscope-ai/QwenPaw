@@ -24,6 +24,7 @@ from ..constant import (
     BUILTIN_QA_AGENT_ID,
     BUILTIN_QA_AGENT_NAME,
     BUILTIN_QA_AGENT_SKILL_NAMES,
+    LEGACY_QA_AGENT_ID,
     WORKING_DIR,
 )
 from ..config.utils import load_config, save_config
@@ -706,6 +707,56 @@ def _other_agent_owns_workspace(
     return None
 
 
+def _fallback_active_agent_id(config, exclude_id: str) -> str:
+    """Pick a new active agent when ``exclude_id`` is no longer usable."""
+    profiles = config.agents.profiles
+    for candidate in (BUILTIN_QA_AGENT_ID, "default"):
+        ref = profiles.get(candidate)
+        if ref is None or candidate == exclude_id:
+            continue
+        if getattr(ref, "enabled", True):
+            return candidate
+    for aid, ref in profiles.items():
+        if aid == exclude_id:
+            continue
+        if getattr(ref, "enabled", True):
+            return aid
+    if "default" in profiles and exclude_id != "default":
+        return "default"
+    for aid in profiles:
+        if aid != exclude_id:
+            return aid
+    return "default"
+
+
+def _apply_legacy_qa_disable_for_migration(config) -> None:
+    """Disable Era builtin QA when the new builtin slot is first created.
+
+    Mutates ``config`` in memory only; caller persists with ``save_config``.
+    Lets users re-enable the legacy profile later without it being flipped off
+    on every startup.
+    """
+    legacy_id = LEGACY_QA_AGENT_ID
+    ref = config.agents.profiles.get(legacy_id)
+    if ref is None:
+        return
+    if getattr(ref, "enabled", True):
+        ref.enabled = False
+        logger.info(
+            "Disabled legacy builtin QA agent profile %r "
+            "(new QwenPaw builtin QA slot was created)",
+            legacy_id,
+        )
+    if config.agents.active_agent == legacy_id:
+        new_active = _fallback_active_agent_id(config, legacy_id)
+        config.agents.active_agent = new_active
+        logger.info(
+            "Moved active_agent off legacy QA %r → %r",
+            legacy_id,
+            new_active,
+        )
+
+
 def ensure_qa_agent_exists() -> None:
     """Ensure the builtin QA agent profile and workspace exist.
 
@@ -719,6 +770,12 @@ def ensure_qa_agent_exists() -> None:
     If the canonical QA workspace path is already used by another agent id,
     builtin creation is **skipped** (with a warning) so that workspace's
     ``agent.json`` is not overwritten.
+
+    On **first creation** of the current builtin QA id, if
+    ``LEGACY_QA_AGENT_ID`` is still in ``profiles``, it is set to
+    ``enabled=False`` and ``active_agent`` is moved off it if needed. This runs
+    only once (when the new slot appears), so users may re-enable the legacy
+    agent afterward without it being disabled on every startup.
 
     Note:
         This function catches all exceptions internally and never raises.
@@ -806,6 +863,7 @@ def _do_ensure_qa_agent() -> None:
         id=qa_id,
         workspace_dir=str(qa_workspace),
     )
+    _apply_legacy_qa_disable_for_migration(config)
     save_config(config)
     save_agent_config(qa_id, agent_config)
     logger.info(

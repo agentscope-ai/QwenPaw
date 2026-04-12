@@ -80,7 +80,7 @@ After setup completes, BOOTSTRAP.md is deleted, so it only exists during initial
 
 In the Console's **Agent → Workspace** page, you can:
 
-![files](https://img.alicdn.com/imgextra/i3/O1CN0152o7PT1oniOiMVRfK_!!6000000005270-2-tps-3822-2064.png)
+![files](https://img.alicdn.com/imgextra/i4/O1CN01PxPeIs1G8m3jwGq6c_!!6000000000578-2-tps-3822-2070.png)
 
 1. **View all persona files**: Left panel lists all Markdown files in the workspace (shows only `.md` files)
 2. **Edit content online**: Click a file to edit it in the right-side editor, then click "Save" to apply changes
@@ -132,7 +132,7 @@ If using `qwenpaw init --defaults`, the default language is `zh` (Chinese).
 
 You can switch the agent's language in the Console's **Agent → Runtime Config** page. After switching:
 
-![language](https://img.alicdn.com/imgextra/i2/O1CN01i3Xsd31HbusBN0MzC_!!6000000000777-2-tps-3822-2064.png)
+![language](https://img.alicdn.com/imgextra/i2/O1CN01fwbflF29ynv8ex1xR_!!6000000008137-2-tps-3822-2070.png)
 
 1. The system will **overwrite** existing persona files (AGENTS.md, SOUL.md, PROFILE.md) with new language templates
 2. This is the **agent's own language** setting that determines the system prompt language
@@ -197,7 +197,7 @@ The system prompt also includes tool and Skill descriptions:
 
 ## Built-in QA Agent
 
-QwenPaw automatically creates a built-in agent named **"QA Agent"** (ID: `QwenPaw_QA_Agent_0.1beta1`) when you first run `qwenpaw init`.
+QwenPaw automatically creates a built-in agent named **"QA Agent"** (ID: `QwenPaw_QA_Agent_0.2`) when you first run `qwenpaw init`.
 
 ### QA Agent Features
 
@@ -226,4 +226,4 @@ You can select "QA Agent" in the agent switcher at the top-right of the Console,
 
 - **Can modify**: You can manage it like any other agent—edit persona files in "Agent → Workspace" or adjust skills and tools in "Agent → Skills"
 - **Can delete**: Delete it in "Settings → Agent Management" (doesn't affect other agents; will be recreated on next `qwenpaw init`)
-- **Workspace location**: `$QWENPAW_WORKING_DIR/workspaces/QwenPaw_QA_Agent_0.1beta1/` (defaults to `~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.1beta1/`)
+- **Workspace location**: `$QWENPAW_WORKING_DIR/workspaces/QwenPaw_QA_Agent_0.2/` (defaults to `~/.qwenpaw/workspaces/QwenPaw_QA_Agent_0.2/`)
