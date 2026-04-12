@@ -341,8 +341,8 @@ def desktop_cmd(
                             "WebView2 Runtime and try again.\n\n"
                             f"Download: {WEBVIEW2_RUNTIME_DOWNLOAD_URL}\n\n"
                             "If the issue persists, run "
-                            "'QwenPaw Desktop (Debug)' and attach the terminal "
-                            "output.",
+                            "'QwenPaw Desktop (Debug)' and "
+                            "attach the terminal output.",
                         )
                     else:
                         _abort_desktop_launch(

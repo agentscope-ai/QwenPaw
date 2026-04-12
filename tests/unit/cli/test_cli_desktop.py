@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 import pytest
@@ -25,8 +26,7 @@ def test_detect_windows_webview2_runtime_version_returns_first_valid(
     )
 
     assert (
-        desktop_cmd_module._detect_windows_webview2_runtime_version()
-        == "136.0.3240.8"
+        desktop_cmd_module._detect_windows_webview2_runtime_version() == "136.0.3240.8"
     )
 
 
