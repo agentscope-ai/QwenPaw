@@ -8,15 +8,15 @@ from typing import cast
 
 import pytest
 
-from copaw.local_models import manager as local_model_manager_module
-from copaw.local_models.llamacpp import LlamaCppServerSetupResult
-from copaw.local_models.manager import (
+from qwenpaw.local_models import manager as local_model_manager_module
+from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
+from qwenpaw.local_models.manager import (
     DownloadSource,
     LocalModelManager,
 )
-from copaw.local_models.llamacpp import LlamaCppBackend
-from copaw.local_models.model_manager import ModelManager
-from copaw.providers.provider import ModelInfo
+from qwenpaw.local_models.llamacpp import LlamaCppBackend
+from qwenpaw.local_models.model_manager import ModelManager
+from qwenpaw.providers.provider import ModelInfo
 
 
 class _FakeLlamaCppBackend:

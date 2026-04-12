@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Integrated tests for CoPaw app startup and console."""
+"""Integrated tests for QwenPaw app startup and console."""
 # pylint:disable=consider-using-with
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _tee_stream(stream, buffer: list[str]) -> None:
 
 
 def test_app_startup_and_console() -> None:
-    """Test that copaw app starts correctly with backend and console."""
+    """Test that qwenpaw app starts correctly with backend and console."""
     host = "127.0.0.1"
     port = _find_free_port(host)
     log_lines: list[str] = []
@@ -40,7 +40,7 @@ def test_app_startup_and_console() -> None:
         [
             sys.executable,
             "-m",
-            "copaw",
+            "qwenpaw",
             "app",
             "--host",
             host,

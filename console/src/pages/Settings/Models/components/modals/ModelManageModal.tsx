@@ -16,7 +16,7 @@ export function ModelManageModal({
   onSaved,
 }: ModelManageModalProps) {
   // Route to the appropriate specialized modal based on provider type
-  if (provider.id === "copaw-local") {
+  if (provider.id === "qwenpaw-local") {
     return (
       <LocalModelManageModal
         provider={provider}

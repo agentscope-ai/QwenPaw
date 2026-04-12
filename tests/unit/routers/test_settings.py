@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from copaw.app.routers.settings import router
+from qwenpaw.app.routers.settings import router
 
 app = FastAPI()
 app.include_router(router, prefix="/api")
@@ -21,7 +21,7 @@ app.include_router(router, prefix="/api")
 def _use_tmp_settings(tmp_path: Path):
     """Redirect settings file to a temp directory for every test."""
     settings_file = tmp_path / "settings.json"
-    with patch("copaw.app.routers.settings._SETTINGS_FILE", settings_file):
+    with patch("qwenpaw.app.routers.settings._SETTINGS_FILE", settings_file):
         yield settings_file
 
 

@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from copaw.local_models.download_manager import (
+from qwenpaw.local_models.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
-from copaw.local_models.model_manager import ModelManager, DownloadSource
+from qwenpaw.local_models.model_manager import ModelManager, DownloadSource
 
 
 class _FakeController:
@@ -80,7 +80,7 @@ def test_start_download_uses_reachable_source(
 
     assert controller.started_spec is not None
     assert controller.started_spec.command == [
-        "copaw-model-download",
+        "qwenpaw-model-download",
         "Qwen/Qwen2-0.5B-Instruct-GGUF",
         "modelscope",
     ]
@@ -247,7 +247,7 @@ def test_start_download_uses_explicit_source_without_probe(
 
     assert controller.started_spec is not None
     assert controller.started_spec.command == [
-        "copaw-model-download",
+        "qwenpaw-model-download",
         "Qwen/Qwen2-0.5B-Instruct-GGUF",
         "huggingface",
     ]
@@ -343,7 +343,7 @@ def test_download_worker_sanitizes_standard_streams(
             queue_messages.append(item)
 
     monkeypatch.setattr(
-        "copaw.local_models.model_manager.ensure_standard_streams",
+        "qwenpaw.local_models.model_manager.ensure_standard_streams",
         lambda: calls.append("sanitized"),
     )
     monkeypatch.setattr(

@@ -1,5 +1,5 @@
 /**
- * CoPaw branding logo (logo.png). Favicon uses copaw-symbol.svg.
+ * QwenPaw branding logo (logo.png). Favicon uses qwenpaw-symbol.svg.
  */
 interface CatPawIconProps {
   size: number;
