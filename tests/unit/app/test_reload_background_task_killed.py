@@ -98,7 +98,7 @@ class StubWorkspace:
         self.runner = MagicMock()
 
     @property
-    def task_tracker(self) -> TaskTracker:
+    def task_tracker(self):
         return self._task_tracker
 
     def set_manager(self, manager: Any) -> None:
@@ -108,6 +108,9 @@ class StubWorkspace:
         self._started = True
 
     async def stop(self, final: bool = True) -> None:
+        # ``final`` mirrors Workspace.stop() signature but is unused by
+        # the stub.
+        del final
         self.stopped = True
         self._started = False
 
@@ -130,23 +133,22 @@ async def graceful_stop_old_instance(
     Reproduces the exact logic of
     ``MultiAgentManager._graceful_stop_old_instance()``.
     """
+    # ``agent_id`` kept to mirror the real signature used for logging.
+    del agent_id
     has_active = await old_instance.task_tracker.has_active_tasks()
 
     if has_active:
-        active_tasks = await old_instance.task_tracker.list_active_tasks()
 
         async def delayed_cleanup():
             try:
-                completed = await old_instance.task_tracker.wait_all_done(
-                    timeout=60.0,
-                )
+                await old_instance.task_tracker.wait_all_done(timeout=60.0)
                 await old_instance.stop(final=False)
             except Exception:
                 pass
 
         cleanup_task = asyncio.create_task(delayed_cleanup())
         cleanup_tasks.add(cleanup_task)
-        cleanup_task.add_done_callback(lambda t: cleanup_tasks.discard(t))
+        cleanup_task.add_done_callback(cleanup_tasks.discard)
         return False  # delayed
     else:
         await old_instance.stop(final=False)
@@ -206,7 +208,9 @@ async def test_unregistered_task_causes_immediate_stop():
 
         # Graceful stop runs — stops immediately (the bug path)
         stopped_immediately = await graceful_stop_old_instance(
-            old_ws, "default", cleanup_tasks,
+            old_ws,
+            "default",
+            cleanup_tasks,
         )
 
         assert stopped_immediately is True, (
@@ -239,7 +243,9 @@ async def test_reload_kills_unregistered_background_task():
 
         # Graceful stop: immediate (the bug).
         stopped_immediately = await graceful_stop_old_instance(
-            old_ws, "default", cleanup_tasks,
+            old_ws,
+            "default",
+            cleanup_tasks,
         )
         assert stopped_immediately is True
         assert old_ws.stopped is True
@@ -355,10 +361,11 @@ async def test_external_tasks_coexist_with_internal_tasks():
 
     # Start an internal streaming task
     async def stream(payload):
+        del payload
         await asyncio.sleep(0.2)
         yield "data: done\n\n"
 
-    queue, is_new = await tracker.attach_or_start("chat-1", {}, stream)
+    _queue, is_new = await tracker.attach_or_start("chat-1", {}, stream)
     assert is_new is True
 
     active = await tracker.list_active_tasks()
@@ -395,7 +402,9 @@ async def test_registered_external_task_delays_graceful_stop():
 
         # Graceful stop should now detect the active task.
         stopped_immediately = await graceful_stop_old_instance(
-            old_ws, "default", cleanup_tasks,
+            old_ws,
+            "default",
+            cleanup_tasks,
         )
 
         # NOT stopped immediately — delayed cleanup was scheduled.
@@ -403,12 +412,12 @@ async def test_registered_external_task_delays_graceful_stop():
             "With external task registered, graceful stop should delay "
             "rather than stop immediately."
         )
-        assert old_ws.stopped is False, (
-            "Workspace should still be running while external task is active"
-        )
-        assert len(cleanup_tasks) == 1, (
-            "Expected delayed cleanup task to be scheduled"
-        )
+        assert (
+            old_ws.stopped is False
+        ), "Workspace should still be running while external task is active"
+        assert (
+            len(cleanup_tasks) == 1
+        ), "Expected delayed cleanup task to be scheduled"
 
         # Simulate the background task completing (unregister it).
         await old_ws.task_tracker.unregister_external_task("ext-bg-001")
@@ -417,9 +426,9 @@ async def test_registered_external_task_delays_graceful_stop():
         await asyncio.sleep(1.0)
 
         # Now the workspace should have been stopped by the cleanup task.
-        assert old_ws.stopped is True, (
-            "Workspace should be stopped after external task completes"
-        )
+        assert (
+            old_ws.stopped is True
+        ), "Workspace should be stopped after external task completes"
 
         # Clean up
         for task in list(cleanup_tasks):
@@ -445,11 +454,12 @@ async def test_copaw_tracked_task_delays_shutdown():
         completion_event = asyncio.Event()
 
         async def slow_stream(payload):
+            del payload
             await asyncio.sleep(0.3)
             completion_event.set()
             yield "data: done\n\n"
 
-        queue, is_new = await old_ws.task_tracker.attach_or_start(
+        _queue, is_new = await old_ws.task_tracker.attach_or_start(
             "chat-123",
             {},
             slow_stream,
@@ -458,7 +468,9 @@ async def test_copaw_tracked_task_delays_shutdown():
         assert await old_ws.task_tracker.has_active_tasks() is True
 
         stopped_immediately = await graceful_stop_old_instance(
-            old_ws, "default", cleanup_tasks,
+            old_ws,
+            "default",
+            cleanup_tasks,
         )
 
         assert stopped_immediately is False
