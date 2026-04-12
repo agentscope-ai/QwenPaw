@@ -1,31 +1,28 @@
 # -*- coding: utf-8 -*-
-"""Reproduce GitHub issue #3275:
+"""Tests for GitHub issue #3275:
 
 Background tasks dispatched via ``--background`` (i.e. submitted through the
-AgentApp ``/api/agent/process/task`` endpoint) are unexpectedly cancelled when
-an agent workspace undergoes a reload.
+AgentApp ``/api/agent/process/task`` endpoint) were unexpectedly cancelled when
+an agent workspace underwent a reload.
 
 Root cause
 ----------
-``MultiAgentManager._graceful_stop_old_instance()`` only consults
+``MultiAgentManager._graceful_stop_old_instance()`` only consulted
 ``Workspace.task_tracker`` (CoPaw's internal ``TaskTracker``).  Background
-tasks submitted through ``AgentApp`` are tracked in
+tasks submitted through ``AgentApp`` were tracked in
 ``AgentApp.active_tasks`` (managed by ``agentscope_runtime``'s
-``TaskEngineMixin``) and are *invisible* to the graceful-shutdown check.
+``TaskEngineMixin``) and were *invisible* to the graceful-shutdown check.
 
-When ``has_active_tasks()`` returns ``False`` (because the CoPaw tracker is
-empty), the old workspace is stopped immediately — killing the in-flight
-``agentscope_runtime`` background task.
+Fix (Option A)
+--------------
+``DynamicMultiAgentRunner.stream_query()`` now registers each request with
+the workspace's ``TaskTracker`` via ``register_external_task()`` /
+``unregister_external_task()``.  This makes AgentApp-dispatched tasks visible
+to ``has_active_tasks()`` during graceful shutdown.
 
-What this test proves
----------------------
-1. A slow background task is running inside the old workspace.
-2. The task is tracked *only* in ``AgentApp.active_tasks``, **not** in
-   ``Workspace.task_tracker``.
-3. On ``reload_agent()``, the old workspace is stopped immediately because
-   ``has_active_tasks()`` returns ``False``.
-4. The background task is interrupted (``_is_interrupted`` flag or cancelled
-   status) even though no user stop command was issued.
+This file contains:
+- Reproduction tests proving the original bug exists without the fix
+- Verification tests proving the fix resolves the issue
 """
 from __future__ import annotations
 
@@ -36,7 +33,7 @@ import tempfile
 from pathlib import Path
 from types import ModuleType
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -64,10 +61,6 @@ _task_tracker_mod = _import_module_directly(
 )
 TaskTracker = _task_tracker_mod.TaskTracker
 
-# For MultiAgentManager we need to mock out its imports of Workspace and
-# load_config since those also have heavy dependency chains.
-# Instead we test the logic directly by replicating the key method behavior.
-
 
 # ---------------------------------------------------------------------------
 # Minimal stubs that satisfy MultiAgentManager / Workspace contracts without
@@ -89,7 +82,7 @@ class StubWorkspace:
     """Minimal stand-in for ``Workspace``.
 
     Attributes:
-        task_tracker: A real ``TaskTracker`` instance (empty — no CoPaw tasks).
+        task_tracker: A real ``TaskTracker`` instance.
         stopped: Set to ``True`` when ``stop()`` is called.
     """
 
@@ -182,152 +175,273 @@ def _make_agent_app_active_tasks() -> dict[str, dict]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Part 1: Bug reproduction tests (prove the original problem)
+# ===========================================================================
 
 
 @pytest.mark.asyncio
-async def test_graceful_stop_ignores_agentapp_background_tasks():
-    """The old workspace is stopped immediately even though a background task
-    managed by ``AgentApp`` is still running.
+async def test_unregistered_task_causes_immediate_stop():
+    """Without external task registration, the old workspace is stopped
+    immediately even though a background task is still running.
 
-    This demonstrates the bug: ``_graceful_stop_old_instance`` does not
-    consult ``AgentApp.active_tasks`` and therefore considers the workspace
-    idle.
+    This demonstrates the original bug path: when tasks are NOT registered
+    with the TaskTracker, ``_graceful_stop_old_instance`` considers the
+    workspace idle.
     """
     cleanup_tasks: set[asyncio.Task] = set()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         old_ws = StubWorkspace("default", str(Path(tmpdir) / "old"))
 
-        # ---- CoPaw TaskTracker is empty (no internal streaming tasks) ----
+        # CoPaw TaskTracker is empty (no registered tasks)
         assert await old_ws.task_tracker.has_active_tasks() is False
 
-        # ---- AgentApp has a running background task ----
+        # AgentApp has a running background task (but it's not registered)
         agent_app_tasks = _make_agent_app_active_tasks()
         assert any(
             t["status"] in ("submitted", "running")
             for t in agent_app_tasks.values()
-        ), "Precondition: at least one AgentApp task should be active"
+        )
 
-        # ---- Execute graceful stop (this is the buggy path) ----
+        # Graceful stop runs — stops immediately (the bug path)
         stopped_immediately = await graceful_stop_old_instance(
             old_ws, "default", cleanup_tasks,
         )
 
-        # ---- BUG: old workspace was stopped immediately ----
         assert stopped_immediately is True, (
-            "Expected immediate stop (bug reproduction). "
-            "The graceful-stop method should have detected the AgentApp "
-            "background task, but it did not — it only checked CoPaw's "
-            "TaskTracker which was empty."
+            "Without external task registration, the workspace is stopped "
+            "immediately because has_active_tasks() returns False."
         )
-        assert old_ws.stopped is True, (
-            "Old workspace was stopped despite active AgentApp tasks"
-        )
+        assert old_ws.stopped is True
 
 
 @pytest.mark.asyncio
-async def test_task_tracker_does_not_see_external_tasks():
-    """``TaskTracker.has_active_tasks()`` is blind to tasks managed by
-    ``agentscope_runtime`` (AgentApp / TaskEngineMixin).
+async def test_reload_kills_unregistered_background_task():
+    """End-to-end reproduction: agent reload kills a background task that is
+    NOT registered with the workspace's TaskTracker.
+    """
+    cleanup_tasks: set[asyncio.Task] = set()
 
-    This is the root-cause visibility gap described in the issue.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        old_ws = StubWorkspace("default", str(Path(tmpdir) / "old"))
+
+        async def slow_background_task():
+            await asyncio.sleep(60)
+            return "completed"
+
+        bg_task = asyncio.create_task(slow_background_task())
+        await asyncio.sleep(0)
+        assert not bg_task.done()
+
+        # TaskTracker sees nothing — the task was not registered.
+        assert await old_ws.task_tracker.has_active_tasks() is False
+
+        # Graceful stop: immediate (the bug).
+        stopped_immediately = await graceful_stop_old_instance(
+            old_ws, "default", cleanup_tasks,
+        )
+        assert stopped_immediately is True
+        assert old_ws.stopped is True
+
+        # Clean up the orphaned task.
+        bg_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await bg_task
+        assert bg_task.cancelled()
+
+
+# ===========================================================================
+# Part 2: Fix verification tests
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_register_external_task_makes_tracker_active():
+    """``register_external_task`` makes the task visible to
+    ``has_active_tasks()`` and ``list_active_tasks()``.
     """
     tracker = TaskTracker()
 
-    # Even though external tasks exist, the tracker knows nothing about them.
-    external_tasks = _make_agent_app_active_tasks()
-    assert len(external_tasks) == 1
-    assert external_tasks["task-bg-001"]["status"] == "running"
+    assert await tracker.has_active_tasks() is False
+    assert await tracker.list_active_tasks() == []
 
-    # TaskTracker reports no active tasks — the visibility gap.
+    await tracker.register_external_task("ext-001")
+
+    assert await tracker.has_active_tasks() is True
+    assert await tracker.list_active_tasks() == ["ext-001"]
+
+
+@pytest.mark.asyncio
+async def test_unregister_external_task_clears_tracker():
+    """``unregister_external_task`` removes the task and makes the tracker
+    report idle again.
+    """
+    tracker = TaskTracker()
+    await tracker.register_external_task("ext-001")
+    assert await tracker.has_active_tasks() is True
+
+    await tracker.unregister_external_task("ext-001")
+
     assert await tracker.has_active_tasks() is False
     assert await tracker.list_active_tasks() == []
 
 
 @pytest.mark.asyncio
-async def test_reload_kills_background_task():
-    """End-to-end reproduction: agent reload kills a background task that is
-    tracked only in ``AgentApp.active_tasks``.
+async def test_unregister_external_task_is_idempotent():
+    """Calling ``unregister_external_task`` twice does not raise."""
+    tracker = TaskTracker()
+    await tracker.register_external_task("ext-001")
+    await tracker.unregister_external_task("ext-001")
+    # Second call should be a no-op
+    await tracker.unregister_external_task("ext-001")
+    assert await tracker.has_active_tasks() is False
 
-    Simulates the full reload flow:
-    1. Old workspace has a slow background task (via AgentApp).
-    2. Graceful stop finds no CoPaw tasks → stops the old workspace
-       immediately.
-    3. The background task's asyncio.Task gets cancelled as a consequence
-       of the premature workspace teardown.
+
+@pytest.mark.asyncio
+async def test_register_external_task_duplicate_is_safe():
+    """Registering the same run_key twice is idempotent."""
+    tracker = TaskTracker()
+    await tracker.register_external_task("ext-001")
+    await tracker.register_external_task("ext-001")
+
+    assert await tracker.list_active_tasks() == ["ext-001"]
+
+    await tracker.unregister_external_task("ext-001")
+    assert await tracker.has_active_tasks() is False
+
+
+@pytest.mark.asyncio
+async def test_multiple_external_tasks():
+    """Multiple external tasks can coexist."""
+    tracker = TaskTracker()
+    await tracker.register_external_task("ext-001")
+    await tracker.register_external_task("ext-002")
+
+    active = await tracker.list_active_tasks()
+    assert sorted(active) == ["ext-001", "ext-002"]
+
+    await tracker.unregister_external_task("ext-001")
+    assert await tracker.list_active_tasks() == ["ext-002"]
+
+    await tracker.unregister_external_task("ext-002")
+    assert await tracker.has_active_tasks() is False
+
+
+@pytest.mark.asyncio
+async def test_wait_all_done_waits_for_external_tasks():
+    """``wait_all_done`` blocks until external tasks are unregistered."""
+    tracker = TaskTracker()
+    await tracker.register_external_task("ext-001")
+
+    async def unregister_after_delay():
+        await asyncio.sleep(0.2)
+        await tracker.unregister_external_task("ext-001")
+
+    asyncio.create_task(unregister_after_delay())
+
+    completed = await tracker.wait_all_done(timeout=5.0)
+    assert completed is True
+    assert await tracker.has_active_tasks() is False
+
+
+@pytest.mark.asyncio
+async def test_external_tasks_coexist_with_internal_tasks():
+    """External tasks and internal streaming tasks are both visible."""
+    tracker = TaskTracker()
+
+    # Register an external task
+    await tracker.register_external_task("ext-001")
+
+    # Start an internal streaming task
+    async def stream(payload):
+        await asyncio.sleep(0.2)
+        yield "data: done\n\n"
+
+    queue, is_new = await tracker.attach_or_start("chat-1", {}, stream)
+    assert is_new is True
+
+    active = await tracker.list_active_tasks()
+    assert sorted(active) == ["chat-1", "ext-001"]
+
+    # Unregister external — internal still active
+    await tracker.unregister_external_task("ext-001")
+    assert await tracker.has_active_tasks() is True
+    assert await tracker.list_active_tasks() == ["chat-1"]
+
+    # Wait for internal to finish
+    completed = await tracker.wait_all_done(timeout=5.0)
+    assert completed is True
+    assert await tracker.has_active_tasks() is False
+
+
+@pytest.mark.asyncio
+async def test_registered_external_task_delays_graceful_stop():
+    """When a background task IS registered with the TaskTracker via
+    ``register_external_task``, ``_graceful_stop_old_instance`` schedules
+    delayed cleanup instead of stopping immediately.
+
+    This is the core fix for issue #3275.
     """
     cleanup_tasks: set[asyncio.Task] = set()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         old_ws = StubWorkspace("default", str(Path(tmpdir) / "old"))
 
-        # Simulate a long-running background task via AgentApp.
-        # This task lives in the event loop but is NOT registered with
-        # the CoPaw TaskTracker.
-        async def slow_background_task():
-            """Simulates an agentscope_runtime background task."""
-            await asyncio.sleep(60)  # Simulate long work
-            return "completed"
+        # Simulate what the fixed DynamicMultiAgentRunner.stream_query()
+        # now does: register the background task with the TaskTracker.
+        await old_ws.task_tracker.register_external_task("ext-bg-001")
+        assert await old_ws.task_tracker.has_active_tasks() is True
 
-        bg_task = asyncio.create_task(slow_background_task())
-
-        # Let the task start running.
-        await asyncio.sleep(0)
-        assert not bg_task.done(), "Background task should still be running"
-
-        # CoPaw TaskTracker sees nothing.
-        assert await old_ws.task_tracker.has_active_tasks() is False
-
-        # Graceful stop: the buggy path stops old workspace immediately.
+        # Graceful stop should now detect the active task.
         stopped_immediately = await graceful_stop_old_instance(
             old_ws, "default", cleanup_tasks,
         )
 
-        assert stopped_immediately is True
-        assert old_ws.stopped is True
-
-        # The background task is STILL running (not done) because the
-        # workspace stop didn't know about it.  But the workspace services
-        # (runner, channels, etc.) that the task depends on are now torn
-        # down.  In production this leads to the task failing with
-        # "_is_interrupted=True" / "tool call has been interrupted".
-        assert not bg_task.done(), (
-            "Background task should still be alive — the workspace was "
-            "stopped but this task was invisible to the stop mechanism."
+        # NOT stopped immediately — delayed cleanup was scheduled.
+        assert stopped_immediately is False, (
+            "With external task registered, graceful stop should delay "
+            "rather than stop immediately."
+        )
+        assert old_ws.stopped is False, (
+            "Workspace should still be running while external task is active"
+        )
+        assert len(cleanup_tasks) == 1, (
+            "Expected delayed cleanup task to be scheduled"
         )
 
-        # Simulate what happens in practice: the old workspace teardown
-        # cancels asyncio tasks or invalidates the runner, causing the
-        # background task to be interrupted.
-        bg_task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await bg_task
+        # Simulate the background task completing (unregister it).
+        await old_ws.task_tracker.unregister_external_task("ext-bg-001")
 
-        # The task was cancelled — reproducing the reported symptom where
-        # tasks end with _is_interrupted=True and the error message
-        # "The tool call has been interrupted by the user" despite no user
-        # stop command being issued.
-        assert bg_task.cancelled(), (
-            "Background task was cancelled as a consequence of workspace "
-            "teardown during reload — this is issue #3275."
+        # Wait for delayed cleanup to finish.
+        await asyncio.sleep(1.0)
+
+        # Now the workspace should have been stopped by the cleanup task.
+        assert old_ws.stopped is True, (
+            "Workspace should be stopped after external task completes"
         )
+
+        # Clean up
+        for task in list(cleanup_tasks):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
 
 @pytest.mark.asyncio
 async def test_copaw_tracked_task_delays_shutdown():
-    """Verify that tasks tracked by CoPaw's ``TaskTracker`` DO delay the
-    shutdown — proving the mechanism works for internal tasks but not for
-    external (AgentApp) ones.
+    """Verify that tasks tracked by CoPaw's ``TaskTracker`` (internal
+    streaming) DO delay the shutdown — proving the mechanism was always
+    correct for internal tasks.
     """
     cleanup_tasks: set[asyncio.Task] = set()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         old_ws = StubWorkspace("default", str(Path(tmpdir) / "old"))
 
-        # Register a slow task WITH the CoPaw TaskTracker
         completion_event = asyncio.Event()
 
         async def slow_stream(payload):
@@ -343,33 +457,18 @@ async def test_copaw_tracked_task_delays_shutdown():
         assert is_new is True
         assert await old_ws.task_tracker.has_active_tasks() is True
 
-        # Graceful stop should detect the active task and schedule
-        # delayed cleanup instead of stopping immediately.
         stopped_immediately = await graceful_stop_old_instance(
             old_ws, "default", cleanup_tasks,
         )
 
-        # The workspace should NOT have been stopped immediately because
-        # there is an active CoPaw task.
-        assert stopped_immediately is False, (
-            "Expected delayed cleanup when CoPaw tasks are active"
-        )
-        assert len(cleanup_tasks) == 1, (
-            "Expected delayed cleanup task to be scheduled"
-        )
+        assert stopped_immediately is False
+        assert len(cleanup_tasks) == 1
 
-        # Wait for the streaming task to finish
         await completion_event.wait()
-
-        # Wait for cleanup to run
         await asyncio.sleep(0.5)
 
-        # Now the old workspace should have been stopped by the cleanup task
-        assert old_ws.stopped is True, (
-            "Old workspace should be stopped after CoPaw task completes"
-        )
+        assert old_ws.stopped is True
 
-        # Clean up remaining async tasks
         for task in list(cleanup_tasks):
             if not task.done():
                 task.cancel()
