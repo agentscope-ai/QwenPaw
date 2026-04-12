@@ -392,7 +392,7 @@ class TestDingTalkSessionWebhook:
     """
 
     @pytest.mark.skip(
-        reason="expired_time 功能待实现，先跳过避免 CI 失败",
+        reason="expired_time feature pending implementation, skipping to avoid CI failure",
     )
     async def test_save_session_webhook_stores_in_memory(
         self,
@@ -420,7 +420,7 @@ class TestDingTalkSessionWebhook:
         assert entry["sender_staff_id"] == "staff123"
 
     @pytest.mark.skip(
-        reason="expired_time 功能待实现，先跳过避免 CI 失败",
+        reason="expired_time feature pending implementation, skipping to avoid CI failure",
     )
     async def test_save_session_webhook_persists_to_disk(
         self,
@@ -494,7 +494,7 @@ class TestDingTalkSessionWebhook:
         assert "dingtalk:sw:diskload" in channel._session_webhook_store
 
     @pytest.mark.skip(
-        reason="expired_time 功能待实现，先跳过避免 CI 失败",
+        reason="expired_time feature pending implementation, skipping to avoid CI failure",
     )
     async def test_load_session_webhook_expired_returns_none(
         self,
@@ -535,7 +535,7 @@ class TestDingTalkSessionWebhook:
         assert result is None
 
     @pytest.mark.skip(
-        reason="expired_time 功能待实现，先跳过避免 CI 失败",
+        reason="expired_time feature pending implementation, skipping to avoid CI failure",
     )
     def test_is_webhook_expired_with_past_time(self, dingtalk_channel):
         """Webhook with past expiry time should be considered expired."""
@@ -547,7 +547,7 @@ class TestDingTalkSessionWebhook:
         assert result is True
 
     @pytest.mark.skip(
-        reason="expired_time 功能待实现，先跳过避免 CI 失败",
+        reason="expired_time feature pending implementation, skipping to avoid CI failure",
     )
     def test_is_webhook_expired_with_future_time(self, dingtalk_channel):
         """Webhook with future expiry time should not be expired."""
@@ -559,7 +559,7 @@ class TestDingTalkSessionWebhook:
         assert result is False
 
     @pytest.mark.skip(
-        reason="expired_time 功能待实现，先跳过避免 CI 失败",
+        reason="expired_time feature pending implementation, skipping to avoid CI failure",
     )
     def test_is_webhook_expired_with_safety_margin(self, dingtalk_channel):
         """Webhook near expiry (within safety margin) should be expired."""
@@ -572,7 +572,7 @@ class TestDingTalkSessionWebhook:
         assert result is True
 
     @pytest.mark.skip(
-        reason="expired_time 功能待实现，先跳过避免 CI 失败",
+        reason="expired_time feature pending implementation, skipping to avoid CI failure",
     )
     def test_is_webhook_expired_no_expiry_time(self, dingtalk_channel):
         """Webhook without expiry time should not be considered expired."""
@@ -1803,7 +1803,7 @@ class TestDingTalkWorkspaceIntegration:
         chat_manager.get_or_create_chat.return_value = mock_chat
         workspace.chat_manager = chat_manager
 
-        # Mock task_tracker - use simple MagicMock, test complex path in integration tests
+        # Mock task_tracker - use simple MagicMock,
         task_tracker = MagicMock()
         workspace.task_tracker = task_tracker
 
