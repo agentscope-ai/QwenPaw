@@ -21,20 +21,15 @@ Run:
 # pylint: disable=broad-exception-raised
 from __future__ import annotations
 
-import asyncio
 import json
 import threading
 import time
-from pathlib import Path
 from typing import Generator
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.fixtures.channels.mock_http import (
-    MockAiohttpSession,
-    MockAiohttpResponse,
-)
+from tests.fixtures.channels.mock_http import MockAiohttpSession
 
 
 # =============================================================================
@@ -1749,7 +1744,7 @@ class TestWSConnectOnce:
             "copaw.app.channels.qq.channel._get_channel_url_sync",
             return_value="wss://gateway",
         ) as mock_get_url:
-            _result = qq_channel._ws_connect_once(state, mock_websocket)
+            qq_channel._ws_connect_once(state, mock_websocket)
 
             assert (
                 state.should_refresh_token is False
@@ -1961,7 +1956,10 @@ class TestSendImages:
     @patch("copaw.app.channels.qq.channel._upload_media_async")
     @patch("copaw.app.channels.qq.channel._send_media_message_async")
     async def test_upload_and_send(
-        self, mock_send_media, mock_upload, qq_channel
+        self,
+        mock_send_media,
+        mock_upload,
+        qq_channel,
     ):
         """Should upload and send images."""
         mock_upload.return_value = "file_info_123"

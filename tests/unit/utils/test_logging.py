@@ -7,12 +7,8 @@ High coverage expected as this is stable infrastructure.
 from __future__ import annotations
 
 import logging
-import os
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from copaw.utils.logging import (
     ColorFormatter,
@@ -83,7 +79,7 @@ class TestColorFormatter:
         assert "test.py:42" in formatted
 
     @patch.object(sys.stderr, "isatty", return_value=False)
-    def test_no_color_when_not_tty(self, mock_isatty):
+    def test_no_color_when_not_tty(self, _mock_isatty):
         """S级: Colors disabled when stderr is not a tty."""
         formatter = ColorFormatter("%(message)s")
         record = logging.LogRecord(

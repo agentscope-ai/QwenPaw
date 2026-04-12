@@ -14,14 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
-from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 import aiohttp
-from aiohttp import WSMsgType
 
 
 # =============================================================================
@@ -152,7 +148,7 @@ class TestXiaoYiChannelInit:
         assert channel._reconnect_attempts == 0
 
     def test_init_with_workspace_dir(self, mock_process, tmp_path):
-        """Constructor should use workspace-specific media dir when provided."""
+        """Constructor uses workspace-specific media dir when provided."""
         from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         workspace = tmp_path / "workspace"
@@ -181,7 +177,10 @@ class TestXiaoYiChannelFactoryMethods:
     """
 
     def test_from_env_reads_env_vars(
-        self, monkeypatch, mock_process, tmp_path
+        self,
+        monkeypatch,
+        mock_process,
+        tmp_path,
     ):
         """from_env should correctly read environment variables."""
         from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
@@ -202,7 +201,7 @@ class TestXiaoYiChannelFactoryMethods:
         assert channel.ws_url == "wss://env.example.com/ws"
 
     def test_from_env_uses_defaults(self, monkeypatch, mock_process):
-        """from_env should use default values when environment variables are missing."""
+        """from_env uses default values when env vars are missing."""
         from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         monkeypatch.delenv("XIAOYI_CHANNEL_ENABLED", raising=False)
@@ -317,7 +316,7 @@ class TestXiaoYiChannelValidation:
             channel._validate_config()
 
     def test_validate_config_raises_on_missing_agent_id(self, mock_process):
-        """_validate_config should raise ValueError when agent_id is missing."""
+        """_validate_config raises ValueError when agent_id is missing."""
         from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         channel = XiaoYiChannel(
@@ -1190,7 +1189,7 @@ class TestXiaoYiChannelBuildAgentRequest:
     """
 
     def test_build_agent_request_from_native_basic(self, xiaoyi_channel):
-        """build_agent_request_from_native should build request from native payload."""
+        """build_agent_request_from_native builds request."""
         payload = {
             "channel_id": "xiaoyi",
             "sender_id": "user_123",

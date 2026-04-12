@@ -12,8 +12,9 @@ Run:
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
 
 
 # =============================================================================
@@ -560,7 +561,7 @@ class TestMQTTChannelCallbacks:
         assert mqtt_channel.connected is False
 
     def test_on_disconnect_unexpected(self, mqtt_channel):
-        """_on_disconnect should clear connected flag on unexpected disconnect."""
+        """_on_disconnect clears connected flag on unexpected disconnect."""
         mqtt_channel.connected = True
 
         mqtt_channel._on_disconnect(None, None, None, 1, None)
@@ -617,7 +618,7 @@ class TestMQTTChannelMessageHandling:
         assert call_args["content_parts"][0].text == "Plain text message"
 
     def test_on_message_extracts_client_id_from_topic(self, mqtt_channel):
-        """_on_message should extract client_id from topic path when no redirect_client_id."""
+        """_on_message extracts client_id from topic path."""
         mock_msg = MagicMock()
         mock_msg.topic = "copaw/in/my-device-001"
         mock_msg.payload = b"Hello"  # No redirect_client_id in payload
@@ -628,7 +629,7 @@ class TestMQTTChannelMessageHandling:
         mqtt_channel._on_message(None, None, mock_msg)
 
         call_args = mock_enqueue.call_args[0][0]
-        # Topic "copaw/in/my-device-001" split gives ["copaw", "in", "my-device-001"]
+        # Topic "copaw/in/my-device-001"
         # parts[1] = "in"
         assert call_args["sender_id"] == "in"
 

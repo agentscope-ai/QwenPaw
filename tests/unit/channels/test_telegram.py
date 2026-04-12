@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Generator
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -624,11 +624,6 @@ class TestTelegramTypingIndicators:
         """_typing_loop should send typing action periodically."""
         telegram_channel._application = MagicMock()
         telegram_channel._application.bot = mock_telegram_bot
-
-        # Cancel after first iteration
-        async def cancel_after_first():
-            await asyncio.sleep(0.1)
-            telegram_channel._typing_tasks.pop("12345", None)
 
         # Mock current_task in typing_tasks
         task = asyncio.create_task(
@@ -1329,10 +1324,10 @@ class TestTelegramResolveFileUrl:
             bot_token="my_bot_token",
         )
 
-        assert (
-            result
-            == "https://api.telegram.org/file/botmy_bot_token/photos/file_123.jpg"
+        expected = (
+            "https://api.telegram.org/file/botmy_bot_token/photos/file_123.jpg"
         )
+        assert result == expected
 
     async def test_resolve_error_returns_empty(self):
         """Should return empty string on TelegramError."""
@@ -1426,7 +1421,7 @@ class TestTelegramMessageMeta:
 
         result = _message_meta(mock_update)
 
-        assert result == {}
+        assert not result
 
     def test_message_meta_supergroup_is_group(self):
         """Should treat supergroup as group."""
@@ -1532,7 +1527,7 @@ class TestTelegramBuildContentParts:
         (
             parts,
             has_command,
-            is_mentioned,
+            _is_mentioned,
         ) = await _build_content_parts_from_message(
             mock_update,
             bot=mock_bot,
@@ -1575,7 +1570,7 @@ class TestTelegramBuildContentParts:
 
         (
             parts,
-            has_command,
+            _has_command,
             is_mentioned,
         ) = await _build_content_parts_from_message(
             mock_update,

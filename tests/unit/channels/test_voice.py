@@ -11,8 +11,9 @@ Run:
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 
 # =============================================================================
@@ -81,11 +82,7 @@ def voice_channel(mock_process):
 
 
 class TestVoiceChannelInit:
-    """
-    P0: VoiceChannel initialization tests.
-
-    Verifies constructor correctly stores parameters and initializes structures.
-    """
+    """P0: VoiceChannel initialization tests."""
 
     def test_init_stores_basic_config(self, mock_process):
         """Constructor should store basic configuration parameters."""
@@ -194,7 +191,7 @@ class TestVoiceChannelFromConfig:
         assert channel._filter_thinking is True
 
     def test_from_config_creates_twilio_manager(self, mock_process):
-        """from_config should create TwilioManager when credentials provided."""
+        """from_config creates TwilioManager when credentials provided."""
         from copaw.app.channels.voice.channel import VoiceChannel
 
         config = Mock()
@@ -214,7 +211,7 @@ class TestVoiceChannelFromConfig:
         self,
         mock_process,
     ):
-        """from_config should skip TwilioManager creation without credentials."""
+        """from_config skips TwilioManager creation without credentials."""
         from copaw.app.channels.voice.channel import VoiceChannel
 
         config = Mock()
@@ -532,7 +529,7 @@ class TestVoiceChannelWebSocketTokens:
         """create_ws_token should evict oldest when exceeding max."""
         # Fill to capacity
         voice_channel._MAX_PENDING_TOKENS = 5
-        for i in range(5):
+        for _ in range(5):
             voice_channel.create_ws_token()
 
         old_tokens = list(voice_channel._pending_ws_tokens.keys())

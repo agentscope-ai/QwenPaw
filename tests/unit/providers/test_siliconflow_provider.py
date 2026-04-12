@@ -41,8 +41,8 @@ def test_siliconflow_provider_configs() -> None:
 
 def test_siliconflow_models_list() -> None:
     """Verify Siliconflow has no preset models (empty list)."""
-    assert PROVIDER_SILICONFLOW_CN.models == []
-    assert PROVIDER_SILICONFLOW_INTL.models == []
+    assert not PROVIDER_SILICONFLOW_CN.models
+    assert not PROVIDER_SILICONFLOW_INTL.models
     assert len(PROVIDER_SILICONFLOW_CN.models) == 0
     assert len(PROVIDER_SILICONFLOW_INTL.models) == 0
 

@@ -35,10 +35,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.fixtures.channels.mock_http import (
-    MockAiohttpSession,
-    MockAiohttpResponse,
-)
+from tests.fixtures.channels.mock_http import MockAiohttpSession
 
 
 # =============================================================================
@@ -426,13 +423,13 @@ class TestWeixinResolveSession:
         assert result == "weixin:unknown"
 
     def test_parse_user_id_from_handle_private(self, weixin_channel):
-        """_parse_user_id_from_handle should extract user ID from private handle."""
+        """_parse_user_id_from_handle extracts user ID from private handle."""
         result = weixin_channel._parse_user_id_from_handle("weixin:user123")
 
         assert result == "user123"
 
     def test_parse_user_id_from_handle_group(self, weixin_channel):
-        """_parse_user_id_from_handle should extract group ID from group handle."""
+        """_parse_user_id_from_handle extracts group ID from group handle."""
         result = weixin_channel._parse_user_id_from_handle(
             "weixin:group:group456",
         )
@@ -949,7 +946,7 @@ class TestWeixinSendMethods:
             meta={"weixin_context_token": "ctx_token"},
         )
 
-        # Verify that send_text was called with correct user_id and includes the message text
+        # Verify send_text was called with correct user_id and message text
         mock_ilink_client.send_text.assert_called_once()
         call_args = mock_ilink_client.send_text.call_args[0]
         assert call_args[0] == "user123"  # user_id
@@ -1025,7 +1022,7 @@ class TestWeixinMediaDownload:
         weixin_channel,
         mock_ilink_client,
     ):
-        """Should download media even without encrypt_query_param (actual behavior)."""
+        """Download media even without encrypt_query_param."""
         weixin_channel._client = mock_ilink_client
 
         result = await weixin_channel._download_media(
@@ -1590,7 +1587,7 @@ class TestWeixinEdgeCases:
             side_effect=Exception("Network error"),
         )
         weixin_channel._client = mock_ilink_client
-        weixin_channel._stop_event.set()  # Stop immediately after one iteration
+        weixin_channel._stop_event.set()  # Stop after one iteration
 
         # Should not raise despite exception
         try:

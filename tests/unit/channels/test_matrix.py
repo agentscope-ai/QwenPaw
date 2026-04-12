@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for Matrix channel implementation."""
 
-import asyncio
-import tempfile
-from pathlib import Path
+# pylint: disable=redefined-outer-name,unused-import
+# pylint: disable=protected-access,unused-argument
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -25,7 +24,6 @@ from nio import (
     UploadResponse,
 )
 
-from copaw.app.channels.base import EnqueueCallback
 from copaw.app.channels.matrix.channel import MatrixChannel
 from copaw.config.config import MatrixConfig
 
@@ -34,7 +32,7 @@ from copaw.config.config import MatrixConfig
 def mock_process():
     """Create mock process handler."""
 
-    async def mock_handler(*args, **kwargs):
+    async def mock_handler(*_args, **_kwargs):
         mock_event = MagicMock()
         mock_event.object = "message"
         mock_event.status = "completed"
@@ -867,7 +865,7 @@ class TestMatrixChannelSendMedia:
         matrix_channel,
         mock_async_client,
     ):
-        """Test sending media from HTTP URL - simplified to verify error handling."""
+        """Test sending media from HTTP URL."""
         # Just verify no exception is raised when channel is properly set up
         part = ImageContent(
             type=ContentType.IMAGE,

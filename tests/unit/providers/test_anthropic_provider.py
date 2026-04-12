@@ -84,7 +84,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
         "Claude Haiku",
         "claude-3-5-sonnet",
     ]
-    assert provider.models == []
+    assert not provider.models
 
 
 async def test_check_model_connection_success(monkeypatch) -> None:

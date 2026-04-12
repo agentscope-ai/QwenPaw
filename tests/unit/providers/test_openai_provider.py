@@ -75,7 +75,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
 
     assert [m.id for m in models] == ["gpt-4o-mini", "gpt-4.1"]
     assert [m.name for m in models] == ["GPT-4o Mini", "gpt-4.1"]
-    assert provider.models == []  # should not update provider state
+    assert not provider.models  # should not update provider state
 
 
 async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
