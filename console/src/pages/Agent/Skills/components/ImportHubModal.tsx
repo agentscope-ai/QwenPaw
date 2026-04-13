@@ -24,7 +24,9 @@ interface ImportHubModalProps {
   hint?: string;
 }
 
-function validateUrl(url: string): { ok: true; source: string } | { ok: false; message: string } {
+function validateUrl(
+  url: string,
+): { ok: true; source: string } | { ok: false; message: string } {
   const trimmed = url.trim();
   if (!trimmed) {
     return { ok: false, message: "" };
@@ -82,8 +84,8 @@ export function ImportHubModal({
   const inputStateClass = validation.ok
     ? styles.valid
     : validation.message
-      ? styles.invalid
-      : "";
+    ? styles.invalid
+    : "";
 
   const activeMarketData = skillMarkets.find((m) => m.key === activeMarket);
 
@@ -103,7 +105,11 @@ export function ImportHubModal({
             className={styles.cancelButton}
             onClick={importing && cancelImport ? cancelImport : handleClose}
           >
-            {t(importing && cancelImport ? "skills.cancelImport" : "common.cancel")}
+            {t(
+              importing && cancelImport
+                ? "skills.cancelImport"
+                : "common.cancel",
+            )}
           </Button>
           <Button
             className={styles.importButton}
@@ -118,7 +124,9 @@ export function ImportHubModal({
       }
     >
       {hint && (
-        <p style={{ margin: "0 0 12px", fontSize: 13, color: "#666" }}>{hint}</p>
+        <p style={{ margin: "0 0 12px", fontSize: 13, color: "#666" }}>
+          {hint}
+        </p>
       )}
 
       <div className={styles.urlInputSection}>
@@ -189,12 +197,21 @@ export function ImportHubModal({
             className={`${styles.sourceCard} ${
               activeMarket === market.key ? styles.active : ""
             } ${importing ? styles.disabled : ""}`}
-            onClick={importing ? undefined : () => setActiveMarket((prev) => (prev === market.key ? null : market.key))}
+            onClick={
+              importing
+                ? undefined
+                : () =>
+                    setActiveMarket((prev) =>
+                      prev === market.key ? null : market.key,
+                    )
+            }
             role="button"
             tabIndex={importing ? -1 : 0}
             onKeyDown={(e) => {
               if (!importing && e.key === "Enter") {
-                setActiveMarket((prev) => (prev === market.key ? null : market.key));
+                setActiveMarket((prev) =>
+                  prev === market.key ? null : market.key,
+                );
               }
             }}
             aria-expanded={activeMarket === market.key}
