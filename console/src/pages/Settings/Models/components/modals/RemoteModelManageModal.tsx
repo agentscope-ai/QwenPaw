@@ -202,7 +202,6 @@ export function RemoteModelManageModal({
   const canDiscover =
     (isLocalProvider || isOpenRouter) && provider.support_model_discovery;
 
-  const [discoveredModels, setDiscoveredModels] = useState<ModelInfo[]>([]);
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
 
   // For custom providers ALL models are deletable.
@@ -509,6 +508,12 @@ export function RemoteModelManageModal({
       .catch(() => setDiscoveredModels([]))
       .finally(() => setLoadingDiscoveredModels(false));
   }, [adding, provider.id, provider.support_model_discovery]);
+
+  useEffect(() => {
+    if (!isOpenRouter || !adding) return;
+    setAdding(false);
+    form.resetFields();
+  }, [adding, form, isOpenRouter]);
 
   const all_models = [
     ...(provider.models ?? []),
@@ -1048,93 +1053,94 @@ export function RemoteModelManageModal({
       )}
 
       {/* Add model section */}
-      {adding ? (
-        <div className={styles.modelAddForm}>
-          <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
-            <Form.Item
-              name="id"
-              label={t("models.modelIdLabel")}
-              rules={[{ required: true, message: t("models.modelIdLabel") }]}
-              style={{ marginBottom: 12 }}
-            >
-              {provider.support_model_discovery ? (
-                <AutoComplete
-                  placeholder={t("models.modelIdPlaceholder")}
-                  options={discoveredModels.map((model) => ({
-                    value: model.id,
-                    label: model.id,
-                  }))}
-                  filterOption={(
-                    inputValue: string,
-                    option?: { value?: string },
-                  ) =>
-                    option?.value
-                      ?.toLowerCase()
-                      .includes(inputValue.toLowerCase()) ?? false
-                  }
-                  notFoundContent={
-                    loadingDiscoveredModels
-                      ? t("common.loading")
-                      : t("models.noModels")
-                  }
+      {!isOpenRouter &&
+        (adding ? (
+          <div className={styles.modelAddForm}>
+            <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
+              <Form.Item
+                name="id"
+                label={t("models.modelIdLabel")}
+                rules={[{ required: true, message: t("models.modelIdLabel") }]}
+                style={{ marginBottom: 12 }}
+              >
+                {provider.support_model_discovery ? (
+                  <AutoComplete
+                    placeholder={t("models.modelIdPlaceholder")}
+                    options={discoveredModels.map((model) => ({
+                      value: model.id,
+                      label: model.id,
+                    }))}
+                    filterOption={(
+                      inputValue: string,
+                      option?: { value?: string },
+                    ) =>
+                      option?.value
+                        ?.toLowerCase()
+                        .includes(inputValue.toLowerCase()) ?? false
+                    }
+                    notFoundContent={
+                      loadingDiscoveredModels
+                        ? t("common.loading")
+                        : t("models.noModels")
+                    }
+                  >
+                    <Input />
+                  </AutoComplete>
+                ) : (
+                  <Input placeholder={t("models.modelIdPlaceholder")} />
+                )}
+              </Form.Item>
+              <Form.Item
+                name="name"
+                label={t("models.modelNameLabel")}
+                style={{ marginBottom: 12 }}
+              >
+                <Input placeholder={t("models.modelNamePlaceholder")} />
+              </Form.Item>
+              <div
+                style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
+              >
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setAdding(false);
+                    form.resetFields();
+                  }}
                 >
-                  <Input />
-                </AutoComplete>
-              ) : (
-                <Input placeholder={t("models.modelIdPlaceholder")} />
-              )}
-            </Form.Item>
-            <Form.Item
-              name="name"
-              label={t("models.modelNameLabel")}
-              style={{ marginBottom: 12 }}
+                  {t("models.cancel")}
+                </Button>
+                <Button
+                  type="primary"
+                  size="small"
+                  loading={saving}
+                  onClick={handleAddModel}
+                >
+                  {t("models.addModel")}
+                </Button>
+              </div>
+            </Form>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <Button
+              icon={<SyncOutlined />}
+              onClick={handleDiscoverModels}
+              loading={discovering}
+              disabled={!canDiscover}
+              style={{ flex: 1 }}
             >
-              <Input placeholder={t("models.modelNamePlaceholder")} />
-            </Form.Item>
-            <div
-              style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
+              {t("models.discoverModels")}
+            </Button>
+            <Button
+              type="dashed"
+              icon={<PlusOutlined />}
+              onClick={() => setAdding(true)}
+              style={{ flex: 1 }}
             >
-              <Button
-                size="small"
-                onClick={() => {
-                  setAdding(false);
-                  form.resetFields();
-                }}
-              >
-                {t("models.cancel")}
-              </Button>
-              <Button
-                type="primary"
-                size="small"
-                loading={saving}
-                onClick={handleAddModel}
-              >
-                {t("models.addModel")}
-              </Button>
-            </div>
-          </Form>
-        </div>
-      ) : (
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <Button
-            icon={<SyncOutlined />}
-            onClick={handleDiscoverModels}
-            loading={discovering}
-            disabled={!canDiscover}
-            style={{ flex: 1 }}
-          >
-            {t("models.discoverModels")}
-          </Button>
-          <Button
-            type="dashed"
-            icon={<PlusOutlined />}
-            onClick={() => setAdding(true)}
-            style={{ flex: 1 }}
-          >
-            {t("models.addModel")}
-          </Button>
-        </div>
-      )}
+              {t("models.addModel")}
+            </Button>
+          </div>
+        ))}
     </Modal>
   );
 }
