@@ -180,3 +180,57 @@ async def test_get_nonexistent(sess):
         user_id="",
     )
     assert result == {}
+
+
+# ── completely corrupted file ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_load_completely_corrupted(sess, tmp_session_dir):
+    """File with no valid JSON at all should not crash (returns empty)."""
+    path = os.path.join(tmp_session_dir, "test--session.json")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("{{{THIS IS NOT JSON AT ALL!!!")
+
+    mod = FakeModule()
+    await sess.load_session_state(
+        "test:session",
+        user_id="",
+        memory=mod,
+    )
+    # memory key not in recovered (empty) dict → data stays None
+    assert mod.data is None
+
+
+@pytest.mark.asyncio
+async def test_get_completely_corrupted(sess, tmp_session_dir):
+    """get_session_state_dict returns empty dict for totally garbled file."""
+    path = os.path.join(tmp_session_dir, "test--session.json")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("NOT JSON {{{{")
+
+    result = await sess.get_session_state_dict(
+        "test:session",
+        user_id="",
+    )
+    assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_update_completely_corrupted(sess, tmp_session_dir):
+    """update_session_state recovers from total corruption
+    by starting fresh."""
+    path = os.path.join(tmp_session_dir, "test--session.json")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("GARBAGE DATA !!!")
+
+    await sess.update_session_state(
+        "test:session",
+        key="memory.content",
+        value=["recovered"],
+        user_id="",
+    )
+
+    with open(path, encoding="utf-8") as f:
+        result = json.load(f)
+    assert result["memory"]["content"] == ["recovered"]
