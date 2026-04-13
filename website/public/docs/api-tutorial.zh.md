@@ -663,8 +663,8 @@ qwenpaw auth reset-password
 # 删除认证文件
 rm ~/.qwenpaw.secret/auth.json
 
-# 或者如果使用自定义工作目录
-rm $WORKING_DIR.secret/auth.json
+# 或者使用 QWENPAW_SECRET_DIR 环境变量
+rm "${QWENPAW_SECRET_DIR}/auth.json"
 
 # 重启 QwenPaw 后重新注册
 qwenpaw app

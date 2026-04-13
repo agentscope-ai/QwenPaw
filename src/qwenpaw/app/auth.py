@@ -257,29 +257,37 @@ def _save_auth_data(data: dict) -> None:
 
 
 def _is_token_revoked(jti: str) -> bool:
-    """Check if a token ID (jti) is in the revocation list."""
+    """Check if a token ID (jti) is in the revocation list.
+
+    Uses O(1) dict lookup via revoked_tokens_meta for performance.
+    """
     data = _load_auth_data()
-    revoked = data.get("revoked_tokens", [])
-    return jti in revoked
+    meta = data.get("revoked_tokens_meta", {})
+    return jti in meta
 
 
 def _add_to_revocation_list(jti: str, exp: int) -> None:
-    """Add a token ID to the revocation list with its expiry time."""
+    """Add a token ID to the revocation list with its expiry time.
+
+    Uses revoked_tokens_meta dict for O(1) lookups. The revoked_tokens list
+    is kept for backwards compatibility but not used for membership checks.
+    """
     data = _load_auth_data()
     if data.get("_auth_load_error"):
         return
 
-    if "revoked_tokens" not in data:
-        data["revoked_tokens"] = []
-
-    # Store as dict with expiry time for future cleanup
-    if jti not in data["revoked_tokens"]:
-        data["revoked_tokens"].append(jti)
-
-    # Also track expiry times for cleanup
+    # Initialize revoked_tokens_meta if not present
     if "revoked_tokens_meta" not in data:
         data["revoked_tokens_meta"] = {}
-    data["revoked_tokens_meta"][jti] = exp
+
+    # O(1) check using dict
+    if jti not in data["revoked_tokens_meta"]:
+        data["revoked_tokens_meta"][jti] = exp
+
+        # Also add to list for backwards compatibility
+        if "revoked_tokens" not in data:
+            data["revoked_tokens"] = []
+        data["revoked_tokens"].append(jti)
 
     _save_auth_data(data)
 

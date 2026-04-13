@@ -6,7 +6,7 @@ This document will guide you through using the RESTful API to interact with Qwen
 > [AgentScope Runtime Protocol Documentation (English)](https://runtime.agentscope.io/en/protocol.html)
 
 > ⚠️ **Security Warning**:
-> If your QwenPaw instance is **exposed to the public internet**, strongly recommend enabling [Web Login Authentication](./security#Web-登录认证)!
+> If your QwenPaw instance is **exposed to the public internet**, strongly recommend enabling [Web Login Authentication](./security#web-authentication)!
 > Public instances without authentication pose serious security risks, allowing anyone to access and control your Agents.
 > See the [Web Authentication Token](#web-authentication-token-optional) section at the end of this document.
 
@@ -70,7 +70,7 @@ curl -X POST http://your-server.com:8088/api/console/chat \
   -d '{"input": [...]}'
 ```
 
-> **Tip**: If [Web Login Authentication](./security#Web-登录认证) is enabled and you're accessing remotely, you'll need to provide an authentication token. See the [Web Authentication Token](#web-authentication-token-optional) section at the end of this document.
+> **Tip**: If [Web Login Authentication](./security#web-authentication) is enabled and you're accessing remotely, you'll need to provide an authentication token. See the [Web Authentication Token](#web-authentication-token-optional) section at the end of this document.
 
 ## Request Format
 
@@ -605,7 +605,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 
 ### Web Authentication Token (Optional)
 
-If [Web Login Authentication](./security#Web-登录认证) is enabled (`QWENPAW_AUTH_ENABLED=true`), all API requests require an authentication token.
+If [Web Login Authentication](./security#web-authentication) is enabled (`QWENPAW_AUTH_ENABLED=true`), all API requests require an authentication token.
 
 #### Register Account
 
@@ -663,8 +663,8 @@ Method 2: Delete auth file and re-register
 # Delete auth file
 rm ~/.qwenpaw.secret/auth.json
 
-# Or if using custom working directory
-rm $WORKING_DIR.secret/auth.json
+# Or use QWENPAW_SECRET_DIR environment variable
+rm "${QWENPAW_SECRET_DIR}/auth.json"
 
 # Restart QwenPaw and re-register
 qwenpaw app
