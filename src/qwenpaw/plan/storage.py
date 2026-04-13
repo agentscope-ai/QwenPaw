@@ -12,6 +12,24 @@ from agentscope.plan import PlanStorageBase, Plan
 
 logger = logging.getLogger(__name__)
 
+# AgentScope uses shortuuid-like ids; keep a sane bound and reject path
+# segments so ``../`` cannot escape ``storage_path``.
+_MAX_PLAN_ID_LEN = 128
+
+
+def _assert_safe_plan_id(plan_id: str) -> None:
+    """Reject path separators and traversal so files stay under ``_dir``."""
+    if (
+        not plan_id
+        or len(plan_id) > _MAX_PLAN_ID_LEN
+        or "\x00" in plan_id
+        or plan_id in {".", ".."}
+    ):
+        raise ValueError("invalid plan id")
+    parts = Path(plan_id).parts
+    if len(parts) != 1 or parts[0] != plan_id:
+        raise ValueError("invalid plan id")
+
 
 class FilePlanStorage(PlanStorageBase):
     """Persist plans as JSON files under a configurable directory.
@@ -27,7 +45,12 @@ class FilePlanStorage(PlanStorageBase):
         self._lock = asyncio.Lock()
 
     def _plan_path(self, plan_id: str) -> Path:
-        return self._dir / f"{plan_id}.json"
+        _assert_safe_plan_id(plan_id)
+        dest = (self._dir / f"{plan_id}.json").resolve()
+        base = self._dir.resolve()
+        if not dest.is_relative_to(base):
+            raise ValueError("invalid plan id")
+        return dest
 
     async def add_plan(self, plan: Plan, override: bool = True) -> None:
         async with self._lock:

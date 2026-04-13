@@ -545,7 +545,6 @@ class AgentRunner(Runner):
                     f"session_id={session_id}",
                 )
 
-<<<<<<< /var/folders/9d/yytm2yxn0bs18xjj9lfv7xgh0000gn/T/tmp.Xa9Y3xoanz
             # Skill info (/<name> without input) is display-only:
             # persisted in chat history but not in agent memory.
             skill_response = self._maybe_inject_skill(
@@ -557,11 +556,9 @@ class AgentRunner(Runner):
                 yield skill_response, True
                 return
 
-=======
             load_kwargs = {"agent": agent}
             if self._plan_notebook is not None:
                 load_kwargs["plan_notebook"] = self._plan_notebook
->>>>>>> /var/folders/9d/yytm2yxn0bs18xjj9lfv7xgh0000gn/T/tmp.svwH61c2zi
             try:
                 await self.session.load_session_state(
                     session_id=session_id,

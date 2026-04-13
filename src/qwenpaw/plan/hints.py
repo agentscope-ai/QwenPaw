@@ -20,9 +20,9 @@ Key differences from the AgentScope default:
    many consecutive hint generations, the hint escalates to force
    ``finish_subtask`` so the ReAct loop does not repeat the same tool
    calls until ``max_iters`` is hit.
-6. **Console visibility** -- during execution, hints require short
-   user-visible prose each turn (not tool-only replies) so the web
-   console shows what is happening, not only tool invocations.
+6. **No text-only turns during execution** -- hints require at least
+   one tool call per turn while a plan runs; otherwise the ReAct loop
+   exits early. A short prose line may accompany tools for visibility.
 """
 from __future__ import annotations
 
@@ -47,8 +47,9 @@ _PLAN_DESC_LIMIT = 200
 # After this many consecutive hint generations for the same
 # in_progress subtask, replace the normal hint with a forced-finish
 # directive.  Keep this low — the agent should finish a subtask in
-# a handful of tool calls, not dozens.
-_STALL_THRESHOLD = 6
+# a handful of tool calls, not dozens.  Lower bound leaves headroom
+# under typical max_iters when many subtasks exist.
+_STALL_THRESHOLD = 5
 
 
 def set_plan_gate(plan_notebook, enabled: bool = True) -> None:
@@ -176,6 +177,7 @@ if _HAS_DEFAULT_HINT:
         def __init__(self) -> None:
             self._ip_call_count: int = 0
             self._last_ip_name: str | None = None
+            self._last_ip_idx: int | None = None
 
         _stalled_subtask: str = (
             "The current plan:\n"
@@ -184,13 +186,11 @@ if _HAS_DEFAULT_HINT:
             "```\n"
             "IMPORTANT: Subtask {subtask_idx} ('{subtask_name}') has been "
             "in_progress for {call_count} iterations without completion.\n"
-            "Briefly tell the user you are wrapping up this subtask "
-            "(one sentence), then call 'finish_subtask' NOW with "
-            "subtask_idx={subtask_idx} "
-            "and a summary of what you have accomplished so far (even if "
-            "incomplete). Do NOT invoke any other tool before that. If you "
-            "have not accomplished anything meaningful, state that clearly "
-            "in the outcome and move on.\n"
+            "In the SAME turn: include one short sentence to the user, then "
+            "call 'finish_subtask' with subtask_idx={subtask_idx} and a "
+            "summary of progress (even if incomplete).\n"
+            "CRITICAL: Your response MUST include a 'finish_subtask' tool "
+            "call. Text-only replies end the run and interrupt the plan.\n"
         )
 
         at_the_beginning: str = (
@@ -198,26 +198,33 @@ if _HAS_DEFAULT_HINT:
             "```\n"
             "{plan}\n"
             "```\n"
-            "Present this plan to the user and ask them to "
-            "confirm, edit, or cancel before you start.\n"
-            "- If the user confirms (e.g. 'go ahead', 'start', "
-            "'confirm', 'yes', 'ok'), call "
+            "STEP 1 — Check the user's LATEST message first:\n"
+            "- If it is a confirmation (e.g. '开始', '请开始', "
+            "'确认', 'go ahead', 'start', 'confirm', 'yes', "
+            "'ok', 'sure', 'do it', 'begin', 'execute', "
+            "'proceed', 'let's go'), IMMEDIATELY call "
             "'update_subtask_state' with subtask_idx=0 and "
-            "state='in_progress', then begin executing it.\n"
+            "state='in_progress', then begin executing it. "
+            "Do NOT present the plan again or ask for "
+            "confirmation a second time.\n"
             "- If the user asks to modify the plan, use "
             "'revise_current_plan' to make changes. Then "
             "present the updated plan and ask again.\n"
             "- If the user cancels, call 'finish_plan' with "
             "state='abandoned'.\n"
-            "- Do NOT execute any subtask until the user "
-            "explicitly confirms.\n"
-            "- Until the user confirms, do NOT use browser, "
-            "web search, or other tools to research the task. "
-            "Summarize the plan in your reply from the user's "
-            "request and reasonable assumptions. Any browsing, "
-            "repo inspection, or heavy investigation must appear "
-            "as explicit todo subtasks and run only after "
-            "confirmation when that subtask is in_progress.\n"
+            "\n"
+            "STEP 2 — Only if the plan was JUST created "
+            "(i.e. the user has NOT yet seen it), present "
+            "this plan and ask the user to confirm, edit, "
+            "or cancel before you start. Do NOT execute any "
+            "subtask until the user explicitly confirms.\n"
+            "Until confirmed, do NOT use browser, web search, "
+            "or other tools to research the task. Summarize "
+            "from the user's request and reasonable assumptions. "
+            "Any browsing, repo inspection, or heavy "
+            "investigation must appear as explicit todo "
+            "subtasks and run only after confirmation when "
+            "that subtask is in_progress.\n"
         )
 
         when_a_subtask_in_progress: str = (
@@ -230,34 +237,17 @@ if _HAS_DEFAULT_HINT:
             "```\n"
             "{subtask}\n"
             "```\n"
-            "Execute this subtask efficiently:\n"
-            "1. **User-visible progress (required):** In every "
-            "assistant turn, include plain text the user can read "
-            "before any tool calls. Start with one short paragraph: "
-            "name this subtask (index and title), state what you are "
-            "about to do, and why. Do **not** reply with only tool "
-            "calls and no readable prose in the same turn — the web "
-            "UI must show your reasoning, not just tools.\n"
-            "2. After important tool results, add 1–2 sentences "
-            "interpreting what changed and what you will do next "
-            "before more tools.\n"
-            "3. Use tools to accomplish the objective. Do "
-            "NOT call the same tool with the same or "
-            "similar arguments twice — each call must "
-            "produce genuinely new information.\n"
-            "4. As soon as the objective is achieved OR "
-            "you have gathered enough information, call "
-            "'finish_subtask' immediately with a concrete "
-            "outcome summary.\n"
-            "5. If you cannot make further progress after "
-            "a few tool calls, call 'finish_subtask' with "
-            "what you have and move to the next subtask.\n"
-            "6. After 'finish_subtask', continue directly "
-            "to the next subtask without pausing.\n"
-            "IMPORTANT: Prefer calling 'finish_subtask' "
-            "sooner rather than later. A concise partial "
-            "outcome is better than repeating the same "
-            "action.\n"
+            "Execute this subtask:\n"
+            "1. Each turn: one short line of plain text (what you are doing) "
+            "plus at least one tool call — same turn.\n"
+            "2. Use tools to achieve the objective; avoid repeating the same "
+            "tool with the same arguments.\n"
+            "3. When done or stuck after a few tries, call 'finish_subtask' "
+            "with a concrete outcome (partial is OK). The next subtask "
+            "activates automatically.\n"
+            "CRITICAL: Do NOT reply with text only. The ReAct loop stops "
+            "if there is no tool call; that interrupts the plan on all "
+            "channels.\n"
         )
 
         when_no_subtask_in_progress: str = (
@@ -267,11 +257,12 @@ if _HAS_DEFAULT_HINT:
             "```\n"
             "The first {index} subtask(s) are done and no "
             "subtask is currently in_progress.\n"
-            "First, send one short user-visible sentence: what "
-            "was finished and which subtask you are starting next "
-            "(name and goal). Then call 'update_subtask_state' to "
-            "mark the next todo subtask as 'in_progress' and begin "
-            "executing it right away. Do not pause for user input.\n"
+            "In the SAME turn: one short sentence to the user, then call "
+            "'update_subtask_state' to mark the next todo subtask as "
+            "'in_progress' and continue with tools for that subtask.\n"
+            "CRITICAL: Include an 'update_subtask_state' (or other plan) "
+            "tool call — text-only replies end the run and interrupt the "
+            "plan.\n"
         )
 
         at_the_end: str = (
@@ -280,9 +271,10 @@ if _HAS_DEFAULT_HINT:
             "{plan}\n"
             "```\n"
             "All subtasks are complete. Call 'finish_plan' "
-            "with state='done' and a concise outcome "
-            "summary, then present the full results to "
-            "the user.\n"
+            "with state='done' and a concise outcome summary, then summarize "
+            "for the user.\n"
+            "CRITICAL: Include a 'finish_plan' tool call in this turn — "
+            "text-only replies end the run before the plan is closed.\n"
         )
 
         # Shown only when plan mode is on and there is no current plan.
@@ -344,6 +336,13 @@ if _HAS_DEFAULT_HINT:
             else:
                 _, n_ip, n_done, n_abn, ip_idx = _count_states(plan)
                 if n_ip == 0:
+                    self._last_ip_name = None
+                    self._ip_call_count = 0
+                    self._last_ip_idx = None
+                elif ip_idx is not None and ip_idx != self._last_ip_idx:
+                    # New in_progress subtask (e.g. after finish_subtask):
+                    # reset stall guard so counts do not carry across subtasks.
+                    self._last_ip_idx = ip_idx
                     self._last_ip_name = None
                     self._ip_call_count = 0
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CoPaw Plan module — factory functions and storage for PlanNotebook."""
+"""QwenPaw plan module — factory functions and storage for PlanNotebook."""
 from .factory import create_plan_notebook
 from .hints import QwenPawPlanToHint, check_plan_tool_gate, set_plan_gate
 from .storage import FilePlanStorage

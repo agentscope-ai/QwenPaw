@@ -182,8 +182,9 @@ def plan_inline_description(query: str) -> str:
 
 PLAN_REQUEST_USER_PREFIX = (
     "[Plan request] Using the plan tools, create a structured plan for "
-    "the following task, then present it to the user for confirmation "
-    "before executing any subtask:\n\n"
+    "the following task, then present it to the user and wait for ONE "
+    "confirmation. Once the user confirms, start executing immediately "
+    "without asking again:\n\n"
 )
 
 

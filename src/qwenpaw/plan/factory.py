@@ -2,29 +2,25 @@
 """Factory function for PlanNotebook initialization."""
 from __future__ import annotations
 
+import importlib.util
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..config.config import PlanConfig
+    from agentscope.plan import PlanNotebook
 
 logger = logging.getLogger(__name__)
 
-try:
-    from agentscope.plan import PlanNotebook  # noqa: F401
-
-    _PLAN_AVAILABLE = True
-except ImportError:
-    _PLAN_AVAILABLE = False
-    PlanNotebook = None  # type: ignore[misc,assignment]
+_PLAN_AVAILABLE = importlib.util.find_spec("agentscope.plan") is not None
 
 
 def create_plan_notebook(
     config: "PlanConfig",
     agent_id: str,
     working_dir: Path,
-) -> "PlanNotebook | None":
+) -> PlanNotebook | None:
     """Instantiate PlanNotebook from PlanConfig.
 
     Returns None when plan is disabled or the agentscope plan module
@@ -51,12 +47,13 @@ def create_plan_notebook(
         storage = FilePlanStorage(storage_path=storage_path)
 
     from .hints import QwenPawPlanToHint
+    from .notebook import QwenPawPlanNotebook
 
     plan_to_hint = None
     if QwenPawPlanToHint is not None:
         plan_to_hint = QwenPawPlanToHint()
 
-    return PlanNotebook(
+    return QwenPawPlanNotebook(
         max_subtasks=config.max_subtasks,
         storage=storage,
         plan_to_hint=plan_to_hint,

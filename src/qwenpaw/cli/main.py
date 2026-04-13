@@ -132,7 +132,6 @@ class LazyGroup(click.Group):
             "shutdown_cmd",
             ".shutdown_cmd",
         ),
-<<<<<<< /var/folders/9d/yytm2yxn0bs18xjj9lfv7xgh0000gn/T/tmp.VY86qPbkKC
         "auth": ("qwenpaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
         "agents": ("qwenpaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
         "agent": ("qwenpaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
@@ -142,14 +141,6 @@ class LazyGroup(click.Group):
             ".plugin_commands",
         ),
         "task": ("qwenpaw.cli.task_cmd", "task_cmd", ".task_cmd"),
-=======
-        "auth": ("copaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
-        "agents": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
-        "agent": ("copaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
-        "plan": ("copaw.cli.plan_cmd", "plan_group", ".plan_cmd"),
-        "plugin": ("copaw.cli.plugin_commands", "plugin", ".plugin_commands"),
-        "task": ("copaw.cli.task_cmd", "task_cmd", ".task_cmd"),
->>>>>>> /var/folders/9d/yytm2yxn0bs18xjj9lfv7xgh0000gn/T/tmp.M6BCxobfFa
     },
 )
 @click.version_option(version=__version__, prog_name="QwenPaw")
