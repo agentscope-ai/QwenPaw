@@ -451,6 +451,35 @@ def _promote_tool_result_videos(
     return new_messages
 
 
+# Mapping of non-standard MIME subtypes to their correct forms.
+_MIME_FIXES: dict[str, str] = {
+    "image/jpg": "image/jpeg",
+}
+
+
+def _fix_image_mime_types(messages: list[dict]) -> None:
+    """Fix non-standard MIME types in base64 data URLs in-place.
+
+    agentscope derives MIME from the file extension literally
+    (e.g. ``.jpg`` → ``image/jpg``), but ``image/jpg`` is not a
+    valid IANA MIME type — the correct form is ``image/jpeg``.
+    Some APIs (Bedrock via litellm) reject the non-standard form.
+    """
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            url = (block.get("image_url") or {}).get("url", "")
+            for wrong, right in _MIME_FIXES.items():
+                if url.startswith(f"data:{wrong};"):
+                    block["image_url"]["url"] = url.replace(
+                        f"data:{wrong};",
+                        f"data:{right};",
+                        1,
+                    )
+
+
 # pylint: disable-next=too-many-statements
 def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
@@ -557,6 +586,9 @@ def _create_file_block_support_formatter(
                         msgs,
                         messages,
                     )
+
+            # Normalize non-standard MIME types (e.g. image/jpg → image/jpeg)
+            _fix_image_mime_types(messages)
 
             if extra_contents:
                 for message in messages:
