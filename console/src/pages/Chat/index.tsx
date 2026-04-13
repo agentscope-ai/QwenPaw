@@ -26,6 +26,7 @@ import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
+import AgentMentionButton from "../../components/AgentMentionButton";
 import {
   toDisplayUrl,
   copyText,
@@ -768,6 +769,7 @@ export default function ChatPage() {
           label: renderSuggestionLabel(item.command, item.description),
           value: item.value,
         })),
+        prefix: <AgentMentionButton />,
       },
       session: {
         multiple: true,
