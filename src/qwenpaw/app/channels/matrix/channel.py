@@ -1225,10 +1225,6 @@ class MatrixChannel(BaseChannel):
         iv = getattr(event, "iv", "") or ""
 
         content_parts: list[Any] = []
-        if body:
-            content_parts.append(
-                TextContent(type=ContentType.TEXT, text=body),
-            )
 
         if mxc_url and key and iv:
             eid = event.event_id[:8].lstrip("$")
@@ -1635,12 +1631,6 @@ class MatrixChannel(BaseChannel):
         body: str = event.body or ""  # filename or caption
 
         content_parts: list[Any] = []
-
-        # Filename/caption as text hint for LLM context
-        if body:
-            content_parts.append(
-                TextContent(type=ContentType.TEXT, text=body),
-            )
 
         if mxc_url:
             # Use the body as filename, fall back to a safe default.
