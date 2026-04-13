@@ -3,7 +3,7 @@
     "docs": "文档",
     "more": "更多",
     "releaseNotes": "更新日志",
-    "copaw": "Copaw",
+    "qwenpaw": "Qwenpaw",
     "download": "下载",
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
@@ -14,39 +14,36 @@
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "v1.0.0 四大方面能力升级：",
-    "sub1": "为 CoPaw 量身定制的小模型、安全机制、多智能体协同、以及记忆管理",
-    "releaseNote": "CoPaw v1.0.0版本全新发布",
+    "sub": "v1.1.0 四大方面能力升级：",
+    "sub1": "为 QwenPaw 量身定制的小模型、安全机制、多智能体协同、以及记忆管理",
+    "releaseNote": "QwenPaw v1.1.0版本全新发布",
     "cta": "查看文档",
     "quickStart": "快速开始"
   },
   "follow": {
     "title": "关注我们",
-    "sub": "第一时间获取 CoPaw 最新动态",
+    "sub": "第一时间获取 QwenPaw 最新动态",
     "xiaohongshu": "小红书：",
     "x": "X："
   },
   "channels": {
     "titleWe": "使用",
-    "titleOperateWith": "",
     "titleEverything": "全域互联",
     "sub": "内置 10+ 个频道，更多即将上线"
   },
   "finalCta": {
     "titleBefore": "欢迎使用",
-    "titleEmphasis": "CoPaw",
+    "titleEmphasis": "QwenPaw",
     "titleAfter": "，",
     "titleLine2": "懂你所需，伴你左右",
     "downloadFromGithub": "前往 GitHub 下载"
   },
-  "whyCopaw": {
+  "whyQwenpaw": {
     "headingPrefix": "Why",
-    "headingEmphasis": "CoPaw?",
+    "headingEmphasis": "QwenPaw?",
     "sub": "安装简单，可部署在本机或云端；\n支持多种 IM 应用；能力可轻松扩展。",
-    "heroLine": "CoPaw 既是 Co Personal Agent Workstation（协同个人智能体工作台），也寓意「co-paw」——始终陪伴在你身边的伙伴。",
-    "secondPrefix": "它不只是冰冷的工具，",
-    "secondEmphasis": "（CoPaw 随时准备搭把手 / 伸出一爪）",
-    "secondSuffix": "它会成为你数字生活中最默契的队友。"
+    "heroLine": "QwenPaw 既是 Qwen Personal Agent Workstation（千问个人智能体工作台），也寓意 Qwen 的智识，Paw 的温度。",
+    "secondPrefix": "我们希望它不是冰冷的工具，而是一只随时准备帮忙的智慧、温暖“小爪子”，是你数字生活中最默契的伙伴。"
   },
   "worksForYou": {
     "title": "懂你所需，伴你左右",
@@ -55,15 +52,15 @@
     "cards": {
       "skills": {
         "title": "安全机制",
-        "desc": "CoPaw 1.0 构建了工具守卫、文件防护与技能扫描器三层防御体系，覆盖运行时拦截、访问控制与安装审计，全方位守护智能体的操作安全边界。"
+        "desc": "QwenPaw 1.0 构建了工具守卫、文件防护与技能扫描器三层防御体系，覆盖运行时拦截、访问控制与安装审计，全方位守护智能体的操作安全边界。"
       },
       "control": {
         "title": "多智能体",
-        "desc": " CoPaw 1.0 支持在同一实例内并发运行多个隔离的智能体工作区，各自独立配置与记忆，并可通过异步协作机制共同完成复杂的多角色任务。"
+        "desc": " QwenPaw 1.0 支持在同一实例内并发运行多个隔离的智能体工作区，各自独立配置与记忆，并可通过异步协作机制共同完成复杂的多角色任务。"
       },
       "apps": {
-        "title": "CoPaw 定制模型",
-        "desc": "CoPaw 1.0 推出专为本地场景定制的 CoPaw-Flash 系列小模型，支持一键部署、数据不出设备，针对文档处理、记忆更新、信息检索等高频任务进行了专项优化。",
+        "title": "QwenPaw 定制模型",
+        "desc": "QwenPaw 1.0 推出专为本地场景定制的 QwenPaw-Flash 系列小模型，支持一键部署、数据不出设备，针对文档处理、记忆更新、信息检索等高频任务进行了专项优化。",
         "learnMoreHref": "https://www.modelscope.cn/organization/AgentScope"
       },
       "memory": {
@@ -78,14 +75,14 @@
   },
   "clientVoices": {
     "title": "聆听来自我们社区的用户之声",
-    "sub": "来自真实 CoPaw 用户的反馈",
+    "sub": "来自真实 QwenPaw 用户的反馈",
     "items": {
       "t1": {
-        "text": "CoPaw 是一个真正开箱即用的通用型 AI Agent 框架。随着底层能力持续迭代，我们自研的业务智能体也能实现智能跃迁，显著降低长期维护成本与技术负担。",
+        "text": "QwenPaw 是一个真正开箱即用的通用型 AI Agent 框架。随着底层能力持续迭代，我们自研的业务智能体也能实现智能跃迁，显著降低长期维护成本与技术负担。",
         "role": "阿里云开发工程师"
       },
       "t2": {
-        "text": "阿里通义这次出手很稳。CoPaw 强化了本地+云端双模部署，这在当前隐私敏感和算力需求并存的环境下非常实用。开源策略也显示出阿里在 AI 生态布局上的开放态度。",
+        "text": "阿里通义这次出手很稳。QwenPaw 强化了本地+云端双模部署，这在当前隐私敏感和算力需求并存的环境下非常实用。开源策略也显示出阿里在 AI 生态布局上的开放态度。",
         "role": "开发者"
       },
       "t3": {
@@ -97,25 +94,20 @@
         "role": "开发者"
       },
       "t5": {
-        "text": "无需重启即可热切换 MCP 是 Agent 工作流里最亮眼的能力。你可以在同一会话中扩展 CoPaw 的工具集，不打断上下文、也没有重启成本；Skill Hub + Claw Hub 的整合会让生态增长更快。",
+        "text": "无需重启即可热切换 MCP 是 Agent 工作流里最亮眼的能力。你可以在同一会话中扩展 QwenPaw 的工具集，不打断上下文、也没有重启成本；Skill Hub + Claw Hub 的整合会让生态增长更快。",
         "role": "开发者"
       },
       "t6": {
-        "text": "通义实验室的 CoPaw 开源项目真的很棒！看到大家在使用过程中既有成功的喜悦，也有整理桌面变删除文件的有趣经历。开源 AI Agent 框架对于推动整个行业的发展非常重要，期待看到更多基于 CoPaw 的创新应用。",
+        "text": "通义实验室的 QwenPaw 开源项目真的很棒！看到大家在使用过程中既有成功的喜悦，也有整理桌面变删除文件的有趣经历。开源 AI Agent 框架对于推动整个行业的发展非常重要，期待看到更多基于 QwenPaw 的创新应用。",
         "role": "开发者"
       }
     }
-  },
-  "brandstory": {
-    "title": "Why CoPaw？",
-    "para1": "CoPaw 既是「你的搭档小爪子」（co-paw），也寓意 Co Personal Agent Workstation（协同个人智能体工作台）。",
-    "para2": "我们希望它不是冰冷的工具，而是一只随时准备帮忙的温暖「小爪子」，是你数字生活中最默契的伙伴。"
   },
   "features": {
     "title": "核心能力",
     "channels": {
       "title": "全域触达",
-      "desc": "支持钉钉、飞书、QQ、Discord、iMessage 等频道，一个 CoPaw 按需连接。"
+      "desc": "支持钉钉、飞书、QQ、Discord、iMessage 等频道，一个 QwenPaw 按需连接。"
     },
     "private": {
       "title": "由你掌控",
@@ -123,35 +115,35 @@
     },
     "skills": {
       "title": "Skills 扩展",
-      "desc": "内置定时任务，自定义技能目录，CoPaw 自动加载。"
+      "desc": "内置定时任务，自定义技能目录，QwenPaw 自动加载。"
     }
   },
   "testimonials": {
     "title": "社区怎么说",
     "viewAll": "查看全部",
-    "1": "CoPaw 就该这样：多频道一个入口，Python 好改好部署。",
+    "1": "QwenPaw 就该这样：多频道一个入口，Python 好改好部署。",
     "2": "定时和心跳很实用，Skills 自己加，数据都在本地。",
     "3": "想完全掌控的团队用着很顺手。"
   },
   "usecases": {
-    "title": "CoPaw可以为你做些什么",
+    "title": "QwenPaw可以为你做些什么",
     "sub": "记忆配置与个性化设置，由你掌控。",
     "categories": {
       "social": {
         "title": "社交媒体",
-        "description": "CoPaw 帮你追踪社交动态：根据你的兴趣，汇总热门帖子、新视频和账号规律。"
+        "description": "QwenPaw 帮你追踪社交动态：根据你的兴趣，汇总热门帖子、新视频和账号规律。"
       },
       "creative": {
         "title": "创意与构建",
-        "description": "CoPaw 可以全天候在您的设备上运行，帮助您实现想法，并支持从创意构思到实现的整个内容创作过程。"
+        "description": "QwenPaw 可以全天候在您的设备上运行，帮助您实现想法，并支持从创意构思到实现的整个内容创作过程。"
       },
       "productivity": {
         "title": "生产力",
-        "description": "CoPaw 提升生产力：汇总更新、整理联系人、分析个人日志，发现有用规律。"
+        "description": "QwenPaw 提升生产力：汇总更新、整理联系人、分析个人日志，发现有用规律。"
       },
       "research": {
         "title": "研究与学习",
-        "description": "CoPaw 帮助您追踪重要的企业动态，并支持建立您的个人通用知识库，以便日常轻松检索和重复使用。"
+        "description": "QwenPaw 帮助您追踪重要的企业动态，并支持建立您的个人通用知识库，以便日常轻松检索和重复使用。"
       }
     }
   },
@@ -162,7 +154,7 @@
     "serviceNotice": "几分钟，获得专属AI助理。一行命令，或双击桌面应用，自己动手，轻松搞定。",
     "hintBefore": "安装 → 初始化 → 启动；频道配置见 ",
     "hintLink": "文档",
-    "hintAfter": "，即可通过钉钉、飞书、QQ 等频道使用 CoPaw。",
+    "hintAfter": "，即可通过钉钉、飞书、QQ 等频道使用 QwenPaw。",
     "method": {
       "pip": "pip",
       "script": "脚本安装",
@@ -207,7 +199,7 @@
   "contributors": {
     "titlePrefix": "感谢每一位",
     "titleHighlight": "贡献者",
-    "sub": "CoPaw 的每一行代码、每一个 PR，都凝聚着社区成员的热爱与投入。",
+    "sub": "QwenPaw 的每一行代码、每一个 PR，都凝聚着社区成员的热爱与投入。",
     "prev": "上一页贡献者",
     "next": "下一页贡献者",
     "noteLine1Prefix": "贡献者列表按 GitHub ID 字母顺序排列，如对名单有任何疑问，欢迎",
@@ -216,7 +208,7 @@
     "noteLine2Prefix": "数据来源于"
   },
   "footer": {
-    "text": "CoPaw — 懂你所需，伴你左右",
+    "text": "QwenPaw — 懂你所需，伴你左右",
     "sections": {
       "builtBy": "生态",
       "resources": "资源",
@@ -235,7 +227,7 @@
       "discord": "Discord",
       "youtube": "YouTube"
     },
-    "copyright": "© 2026 COPAW PRIVATE LIMITED，保留所有权利。",
+    "copyright": "© 2026 Qwenpaw PRIVATE LIMITED，保留所有权利。",
     "poweredBy": {
       "p1": "由 ",
       "p2": " 基于 ",
@@ -275,7 +267,8 @@
     "security": "安全",
     "cli": "CLI",
     "plugins": "插件系统",
-    "faq": "FAQ 常见问题",
+    "faq": "常见问题",
+    "apiTutorial": "RESTful API 接口",
     "community": "问题反馈与交流",
     "contributing": "开源与贡献",
     "roadmap": "路线图",
@@ -310,8 +303,8 @@
     },
     "quickStart": {
       "install": {
-        "q": "如何安装 CoPaw",
-        "p1": "CoPaw 支持多种安装方式，包括：",
+        "q": "如何安装 QwenPaw",
+        "p1": "QwenPaw 支持多种安装方式，包括：",
         "li1": "桌面应用（Beta）：下载并运行桌面 App，无需命令行，适合不熟悉终端的用户。",
         "li2": "脚本安装：在本机运行，无需手动配置 Python 环境。",
         "li3": "pip 安装：如果你希望自行管理 Python 环境。",
@@ -323,21 +316,22 @@
         "ctaSuffix": "。"
       },
       "update": {
-        "q": "如何更新 CoPaw",
-        "p1": "更新 CoPaw 请使用与你安装方式匹配的方法：",
+        "q": "如何更新 QwenPaw",
+        "p1": "更新 QwenPaw 请使用与你安装方式匹配的方法：",
         "li1": "若通过一行脚本安装，重新执行安装脚本即可升级。",
         "li2Prefix": "若通过 pip 安装，执行：",
         "li3": "若从源码安装，拉取最新代码并重新安装。",
         "li4": "若使用 Docker，拉取最新镜像并重启容器。",
         "li5Prefix": "若使用 Windows 桌面应用（exe），目前需要卸载后重装：",
-        "li5a": "从电脑中卸载 CoPaw。",
+        "li5a": "从电脑中卸载 QwenPaw。",
         "li5bPrefix": "从以下地址下载最新版本：",
         "li5bLink": "GitHub Releases",
         "li5bSuffix": "。",
-        "li5c": "重新安装。"
+        "li5c": "重新安装。",
+        "p2": "原 CoPaw 用户升级 QwenPaw，下载最新的 QwenPaw 即可，无需做额外适配即可继续使用 CoPaw 时期的所有配置、记忆、技能等。"
       },
       "initialize": {
-        "q": "如何初始化并启动 CoPaw 服务",
+        "q": "如何初始化并启动 QwenPaw 服务",
         "p1": "推荐快速初始化：",
         "p2": "启动服务：",
         "p3Prefix": "默认 Console 地址为",
@@ -345,7 +339,7 @@
       },
       "upgrade": {
         "q": "在哪里查看最新版本更新内容",
-        "p1": "你可以在 Console 的 Change Log 区域查看版本变更，或前往 CoPaw 的",
+        "p1": "你可以在 Console 的 Change Log 区域查看版本变更，或前往 QwenPaw 的",
         "link": "GitHub Releases",
         "p2": "页面查看。"
       }
@@ -353,7 +347,7 @@
     "features": {
       "jobs": {
         "q": "如何管理定时任务（Cron Jobs）",
-        "a": "创建定时任务最简单的方法是在你的目标频道里直接让 CoPaw 创建。例如：Create a scheduled task that reminds me to drink water every five minutes. 你也可以在 Console → Control → Cron Jobs 中手动创建与管理。"
+        "a": "创建定时任务最简单的方法是在你的目标频道里直接让 QwenPaw 创建。例如：Create a scheduled task that reminds me to drink water every five minutes. 你也可以在 Console → Control → Cron Jobs 中手动创建与管理。"
       },
       "models": {
         "q": "如何配置模型",
@@ -369,7 +363,7 @@
         "p3": "若希望为不同 Agent 使用不同模型，可在 Console 左上角切换 Agent，然后在 Chat 页右上角为该 Agent 选择模型。",
         "p4Prefix": "你也可以使用",
         "p4Mid": "进行配置、下载与切换。详见",
-        "cliLink": "CLI → Models and environment variables → copaw models",
+        "cliLink": "CLI → Models and environment variables → qwenpaw models",
         "p4Suffix": "。"
       },
       "skills": {
@@ -403,26 +397,26 @@
       },
       "localModels": {
         "q": "本地模型故障排查",
-        "p1": "大多数情况下这不是 CoPaw 的 bug，根因通常是模型的上下文长度（context length）配置过小。",
-        "p2": "当你用 Ollama 或 LM Studio 部署本地模型时，如果 context length 太低，CoPaw 可能出现：",
+        "p1": "大多数情况下这不是 QwenPaw 的 bug，根因通常是模型的上下文长度（context length）配置过小。",
+        "p2": "当你用 Ollama 或 LM Studio 部署本地模型时，如果 context length 太低，QwenPaw 可能出现：",
         "li1": "多轮对话难以稳定持续",
         "li2": "复杂工具调用时丢失上下文",
         "li3": "忘记较早轮次的指令",
         "li4": "长任务交互中逐渐偏离目标",
         "fixTitle": "如何修复：",
-        "fix1": "运行 CoPaw 前，把模型的 context length 设为至少 32K。",
+        "fix1": "运行 QwenPaw 前，把模型的 context length 设为至少 32K。",
         "fix2": "更复杂的任务、更频繁的工具调用或更长对话，可能需要高于 32K 的值。"
       },
       "cron": {
         "q": "定时任务（Cron Jobs）故障排查",
         "p1": "如果定时任务没有按预期执行，可以按以下步骤排查：",
-        "s1": "确认 CoPaw 服务正在运行。",
+        "s1": "确认 QwenPaw 服务正在运行。",
         "s2": "在 Console 中进入 Control → Cron Jobs，确认任务 Status 为 Enabled。",
         "s3": "在同页确认 Dispatch Channel 选择了目标频道（例如 Console、钉钉、飞书、Discord、iMessage）。",
         "s4": "确认 Dispatch Target User ID 与 Dispatch Target Session ID 配置正确。",
         "s5": "在 Console 中进入 Control → Sessions，找到创建任务时使用的 session；其中的 User ID 与 Session ID 必须与任务的 Dispatch Target User ID / Dispatch Target Session ID 一致，回复才会出现在该会话中。",
         "s6": "如果执行时间不对，回到 Control → Cron Jobs 检查 Schedule（Cron）表达式。",
-        "s7": "手动测试可在 Cron Jobs 页面点击 Execute Now；成功后回复会出现在目标频道。也可以直接问 CoPaw：\"Trigger the 'drink water reminder' task I just created.\""
+        "s7": "手动测试可在 Cron Jobs 页面点击 Execute Now；成功后回复会出现在目标频道。也可以直接问 QwenPaw：\"Trigger the 'drink water reminder' task I just created.\""
       },
       "help": {
         "q": "需要帮助怎么办",
@@ -433,15 +427,15 @@
         "dingtalk": "钉钉",
         "discord": "Discord",
         "s2Prefix": "在",
-        "githubIssues": "CoPaw GitHub",
+        "githubIssues": "QwenPaw GitHub",
         "s2Mid": "提交 issue，并附上完整错误信息、错误详情文件（例如",
-        "s2Suffix": "）、你的模型供应商、模型名称和 CoPaw 版本。"
+        "s2Suffix": "）、你的模型供应商、模型名称和 QwenPaw 版本。"
       }
     }
   },
   "downloads": {
     "title": "下载资源",
-    "subtitle": "获取 CoPaw 的各种安装包和工具",
+    "subtitle": "获取 QwenPaw 的各种安装包和工具",
     "loading": "加载中...",
     "emptyTitle": "暂无可下载内容",
     "emptyDesc": "桌面应用正在构建中，请稍后再来查看。",

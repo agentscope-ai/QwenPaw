@@ -1,6 +1,6 @@
 # 插件系统
 
-CoPaw 提供了插件系统，允许用户扩展 CoPaw 的功能。
+QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 
 ## 概述
 
@@ -17,27 +17,27 @@ CoPaw 提供了插件系统，允许用户扩展 CoPaw 的功能。
 从本地目录安装：
 
 ```bash
-copaw plugin install /path/to/plugin
+qwenpaw plugin install /path/to/plugin
 ```
 
 从 URL 安装（支持 ZIP 文件）：
 
 ```bash
-copaw plugin install https://example.com/plugin.zip
+qwenpaw plugin install https://example.com/plugin.zip
 ```
 
 强制重新安装：
 
 ```bash
-copaw plugin install /path/to/plugin --force
+qwenpaw plugin install /path/to/plugin --force
 ```
 
-**注意**：插件操作只能在 CoPaw 离线时执行。
+**注意**：插件操作只能在 QwenPaw 离线时执行。
 
 ### 列出已安装插件
 
 ```bash
-copaw plugin list
+qwenpaw plugin list
 ```
 
 输出示例：
@@ -49,19 +49,19 @@ Installed Plugins:
 my-provider (v1.0.0)
   Custom LLM provider integration
   Author: Developer Name
-  Path: /Users/user/.copaw/plugins/my-provider
+  Path: /Users/user/.qwenpaw/plugins/my-provider
 ```
 
 ### 查看插件详情
 
 ```bash
-copaw plugin info <plugin-id>
+qwenpaw plugin info <plugin-id>
 ```
 
 ### 卸载插件
 
 ```bash
-copaw plugin uninstall <plugin-id>
+qwenpaw plugin uninstall <plugin-id>
 ```
 
 ## 插件类型
@@ -154,7 +154,7 @@ my-plugin/
   "author": "Your Name",
   "entry_point": "plugin.py",
   "dependencies": [],
-  "min_copaw_version": "0.1.0",
+  "min_version": "0.1.0",
   "meta": {}
 }
 ```
@@ -165,7 +165,7 @@ my-plugin/
 # -*- coding: utf-8 -*-
 """My Plugin Entry Point."""
 
-from copaw.plugins.api import PluginApi
+from qwenpaw.plugins.api import PluginApi
 import logging
 
 logger = logging.getLogger(__name__)
@@ -218,7 +218,7 @@ cd my-llm-provider
   "author": "Your Name",
   "entry_point": "plugin.py",
   "dependencies": ["httpx>=0.24.0"],
-  "min_copaw_version": "0.1.0",
+  "min_version": "0.1.0",
   "meta": {
     "api_key_url": "https://example.com/get-api-key",
     "api_key_hint": "Get your API key from example.com"
@@ -232,12 +232,13 @@ cd my-llm-provider
 # -*- coding: utf-8 -*-
 """My LLM Provider Implementation."""
 
-from copaw.providers.provider import ModelInfo, Provider
+from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import ModelInfo
 from typing import List
 
 
-class MyLLMProvider(Provider):
-    """My custom LLM provider."""
+class MyLLMProvider(OpenAIProvider):
+    """My custom LLM provider (OpenAI-compatible)."""
 
     def __init__(self, **kwargs):
         """Initialize provider."""
@@ -245,13 +246,20 @@ class MyLLMProvider(Provider):
 
     @classmethod
     def get_default_models(cls) -> List[ModelInfo]:
-        """Get default models."""
+        """获取默认模型列表。"""
         return [
             ModelInfo(
-                id="my-model",
-                name="My Model",
+                id="my-model-v1",
+                name="My Model V1",
                 supports_multimodal=False,
                 supports_image=False,
+                supports_video=False,
+            ),
+            ModelInfo(
+                id="my-model-v2",
+                name="My Model V2",
+                supports_multimodal=True,
+                supports_image=True,
                 supports_video=False,
             ),
         ]
@@ -267,7 +275,7 @@ import importlib.util
 import logging
 import os
 
-from copaw.plugins.api import PluginApi
+from qwenpaw.plugins.api import PluginApi
 
 logger = logging.getLogger(__name__)
 
@@ -283,17 +291,13 @@ class MyLLMProviderPlugin:
         """
         logger.info("Registering My LLM Provider...")
 
-        # Load provider module
+        # 从同一目录加载 provider 模块
         plugin_dir = os.path.dirname(os.path.abspath(__file__))
         provider_path = os.path.join(plugin_dir, "provider.py")
 
         spec = importlib.util.spec_from_file_location(
-            "my_provider",
-            provider_path,
+            "my_provider", provider_path
         )
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot load provider from {provider_path}")
-
         provider_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(provider_module)
 
@@ -319,10 +323,10 @@ plugin = MyLLMProviderPlugin()
 
 ```bash
 # 安装插件
-copaw plugin install my-llm-provider
+qwenpaw plugin install my-llm-provider
 
-# 启动 CoPaw
-copaw app
+# 启动 QwenPaw
+qwenpaw app
 
 # 在 Web UI 中配置 API Key
 # 然后就可以使用新的 Provider 了
@@ -330,7 +334,7 @@ copaw app
 
 ### 示例 2：添加启动钩子
 
-假设你想在 CoPaw 启动时初始化一个监控服务。
+假设你想在 QwenPaw 启动时初始化一个监控服务。
 
 #### 1. 创建插件
 
@@ -350,7 +354,7 @@ cd monitoring-hook
   "author": "Your Name",
   "entry_point": "plugin.py",
   "dependencies": [],
-  "min_copaw_version": "0.1.0"
+  "min_version": "0.1.0"
 }
 ```
 
@@ -360,7 +364,7 @@ cd monitoring-hook
 # -*- coding: utf-8 -*-
 """Monitoring Hook Plugin Entry Point."""
 
-from copaw.plugins.api import PluginApi
+from qwenpaw.plugins.api import PluginApi
 import logging
 
 logger = logging.getLogger(__name__)
@@ -384,7 +388,7 @@ class MonitoringHookPlugin:
 
                 # 初始化你的监控服务
                 # from my_monitoring import init_monitoring
-                # init_monitoring(app_name="CoPaw")
+                # init_monitoring(app_name="QwenPaw")
 
                 logger.info("✓ Monitoring initialized successfully")
 
@@ -411,8 +415,8 @@ plugin = MonitoringHookPlugin()
 #### 4. 安装
 
 ```bash
-copaw plugin install monitoring-hook
-copaw app
+qwenpaw plugin install monitoring-hook
+qwenpaw app
 ```
 
 ### 示例 3：添加自定义命令
@@ -437,7 +441,7 @@ cd status-command
   "author": "Your Name",
   "entry_point": "plugin.py",
   "dependencies": [],
-  "min_copaw_version": "0.1.0"
+  "min_version": "0.1.0"
 }
 ```
 
@@ -479,7 +483,7 @@ class StatusQueryRewriter:
 
 import logging
 
-from copaw.plugins.api import PluginApi
+from qwenpaw.plugins.api import PluginApi
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +510,7 @@ class StatusCommandPlugin:
 
     def _patch_query_handler(self):
         """Patch AgentRunner.query_handler to rewrite /status queries."""
-        from copaw.app.runner.runner import AgentRunner
+        from qwenpaw.app.runner.runner import AgentRunner
         from .query_rewriter import StatusQueryRewriter
 
         original_query_handler = AgentRunner.query_handler
@@ -552,8 +556,8 @@ plugin = StatusCommandPlugin()
 #### 5. 安装和使用
 
 ```bash
-copaw plugin install status-command
-copaw app
+qwenpaw plugin install status-command
+qwenpaw app
 
 # 使用命令
 /status
@@ -655,18 +659,18 @@ api.register_startup_hook("late", callback, priority=200)
 1. 检查插件是否已安装：
 
    ```bash
-   copaw plugin list
+   qwenpaw plugin list
    ```
 
-2. 查看 CoPaw 日志：
+2. 查看 QwenPaw 日志：
 
    ```bash
-   tail -f ~/.copaw/logs/copaw.log | grep -i plugin
+   tail -f ~/.qwenpaw/logs/qwenpaw.log | grep -i plugin
    ```
 
 3. 验证插件清单格式：
    ```bash
-   copaw plugin info <plugin-id>
+   qwenpaw plugin info <plugin-id>
    ```
 
 ### 依赖安装失败
@@ -680,7 +684,7 @@ api.register_startup_hook("late", callback, priority=200)
 
 ### Provider 未显示
 
-1. 确认插件已安装并重启 CoPaw
+1. 确认插件已安装并重启 QwenPaw
 2. 检查 Web UI 的模型管理页面
 3. 查看日志中的 provider 注册信息
 
@@ -692,10 +696,10 @@ api.register_startup_hook("late", callback, priority=200)
 
 ## 安全注意事项
 
-1. **只安装可信插件**：插件代码会在 CoPaw 进程中执行
+1. **只安装可信插件**：插件代码会在 QwenPaw 进程中执行
 2. **检查依赖**：确保插件依赖来自可信源
 3. **审查代码**：安装前审查插件源代码
-4. **离线操作**：插件安装/卸载需要 CoPaw 离线
+4. **离线操作**：插件安装/卸载需要 QwenPaw 离线
 
 ## PluginApi 参考
 
@@ -741,12 +745,12 @@ api.register_shutdown_hook(
 
 ### Monkey Patch
 
-对于需要修改 CoPaw 行为的插件（如自定义命令），可以使用 monkey patch：
+对于需要修改 QwenPaw 行为的插件（如自定义命令），可以使用 monkey patch：
 
 ```python
 def _patch_query_handler(self):
     """Patch AgentRunner to intercept queries."""
-    from copaw.app.runner.runner import AgentRunner
+    from qwenpaw.app.runner.runner import AgentRunner
 
     original_handler = AgentRunner.query_handler
 
@@ -786,23 +790,23 @@ zip -r my-plugin-1.0.0.zip my-plugin/
 用户可以通过 URL 安装：
 
 ```bash
-copaw plugin install https://example.com/my-plugin-1.0.0.zip
+qwenpaw plugin install https://example.com/my-plugin-1.0.0.zip
 ```
 
 ## 常见问题
 
-### Q: 插件可以访问哪些 CoPaw API？
+### Q: 插件可以访问哪些 QwenPaw API？
 
 A: 插件通过 `PluginApi` 访问核心功能，包括：
 
 - Provider 注册
 - Hook 注册
-- Runtime helpers（`provider_manager` 等）
+- Runtime helpers（provider_manager 等）
 
-### Q: 插件可以修改 CoPaw 的核心行为吗？
+### Q: 插件可以修改 QwenPaw 的核心行为吗？
 
 A: 可以，通过 monkey patch 或 hook 机制。但请谨慎使用，确保不会破坏核心功能。
 
 ### Q: 插件之间会冲突吗？
 
-A: 如果多个插件注册相同的 `provider_id` 或 `command_name`，后注册的会覆盖先注册的。建议使用唯一的 ID。
+A: 如果多个插件注册相同的 provider_id 或 command_name，后注册的会覆盖先注册的。建议使用唯一的 ID。

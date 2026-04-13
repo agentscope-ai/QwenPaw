@@ -132,7 +132,7 @@ button {
   cursor: pointer;
 }
 
-@keyframes copaw-channels-marquee-right {
+@keyframes qwenpaw-channels-marquee-right {
   0% {
     transform: translateX(-50%);
   }
@@ -141,7 +141,7 @@ button {
   }
 }
 
-@keyframes copaw-channels-marquee-left {
+@keyframes qwenpaw-channels-marquee-left {
   0% {
     transform: translateX(0%);
   }
@@ -150,7 +150,7 @@ button {
   }
 }
 
-@keyframes copaw-dash-move-right {
+@keyframes qwenpaw-dash-move-right {
   0% {
     background-position: 0 0;
   }
@@ -159,7 +159,7 @@ button {
   }
 }
 
-@keyframes copaw-dash-move-left {
+@keyframes qwenpaw-dash-move-left {
   0% {
     background-position: 0 0;
   }
@@ -168,7 +168,7 @@ button {
   }
 }
 
-@keyframes copaw-dash-move-down {
+@keyframes qwenpaw-dash-move-down {
   0% {
     background-position: 0 0;
   }
@@ -177,7 +177,7 @@ button {
   }
 }
 
-@keyframes copaw-dash-move-up {
+@keyframes qwenpaw-dash-move-up {
   0% {
     background-position: 0 0;
   }
@@ -186,7 +186,7 @@ button {
   }
 }
 
-@keyframes copaw-hero-trim-path {
+@keyframes qwenpaw-hero-trim-path {
   0% {
     width: 0%;
   }

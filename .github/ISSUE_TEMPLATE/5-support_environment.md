@@ -14,7 +14,7 @@ assignees: []
 
 - **OS:** [e.g. macOS 14 (Apple Silicon / Intel), Ubuntu 22.04, Windows 11]
 - **Install method:** [pip / one-line install (install.sh or install.ps1) / Docker / from source / ModelScope]
-- **CoPaw version:** [e.g. 0.x.x or commit]
+- **QwenPaw version:** [e.g. 0.x.x or commit]
 - **Python version (if applicable):** [e.g. 3.10, 3.12]
 
 ## Steps you took

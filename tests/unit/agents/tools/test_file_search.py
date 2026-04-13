@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from copaw.agents.tools.file_search import (
+from qwenpaw.agents.tools.file_search import (
     _is_text_file,
     _MAX_MATCHES,
     _MAX_OUTPUT_CHARS,
@@ -514,7 +514,7 @@ def test_walk_and_grep_file_too_large(temp_dir):
     """Test that files larger than _MAX_FILE_SIZE are skipped."""
     large = temp_dir / "large.py"
     large.write_bytes(b"def foo():\n    pass\n" * 1000)
-    import copaw.agents.tools.file_search as fs
+    import qwenpaw.agents.tools.file_search as fs
 
     original_limit = fs._MAX_FILE_SIZE
     fs._MAX_FILE_SIZE = 10
@@ -706,7 +706,7 @@ def test_walk_and_grep_regex_metacharacters(temp_dir):
 
 def test_walk_and_grep_first_match_exceeds_output_limit(temp_dir):
     """Test when first match line exceeds _MAX_OUTPUT_CHARS with more lines."""
-    import copaw.agents.tools.file_search as fs
+    import qwenpaw.agents.tools.file_search as fs
 
     original_limit = fs._MAX_OUTPUT_CHARS
     # Set limit low enough that first match exceeds it

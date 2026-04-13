@@ -31,46 +31,47 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "onebot",
 ];
 
-// Doc EN URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
+// Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
 const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   dingtalk:
-    "https://copaw.agentscope.io/docs/channels/?lang=en#DingTalk-recommended",
-  feishu: "https://copaw.agentscope.io/docs/channels/?lang=en#Feishu-Lark",
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=en#DingTalk-recommended",
+  feishu: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Feishu-Lark",
   imessage:
-    "https://copaw.agentscope.io/docs/channels/?lang=en#iMessage-macOS-only",
-  discord: "https://copaw.agentscope.io/docs/channels/?lang=en#Discord",
-  qq: "https://copaw.agentscope.io/docs/channels/?lang=en#QQ",
-  telegram: "https://copaw.agentscope.io/docs/channels/?lang=en#Telegram",
-  mqtt: "https://copaw.agentscope.io/docs/channels/?lang=en#MQTT",
-  mattermost: "https://copaw.agentscope.io/docs/channels/?lang=en#Mattermost",
-  matrix: "https://copaw.agentscope.io/docs/channels/?lang=en#Matrix",
-  wecom: "https://copaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=en#iMessage-macOS-only",
+  discord: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Discord",
+  qq: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#QQ",
+  telegram: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Telegram",
+  mqtt: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#MQTT",
+  mattermost: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Mattermost",
+  matrix: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Matrix",
+  wecom:
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WeCom-WeChat-Work",
   weixin:
-    "https://copaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
-    "https://copaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
 };
 
-// Doc ZH URLs per channel (anchors on https://copaw.agentscope.io/docs/channels)
+// Doc ZH URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
 const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
-  dingtalk: "https://copaw.agentscope.io/docs/channels/?lang=zh#钉钉推荐",
-  feishu: "https://copaw.agentscope.io/docs/channels/?lang=zh#飞书",
+  dingtalk: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#钉钉推荐",
+  feishu: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#飞书",
   imessage:
-    "https://copaw.agentscope.io/docs/channels/?lang=zh#iMessage仅-macOS",
-  discord: "https://copaw.agentscope.io/docs/channels/?lang=zh#Discord",
-  qq: "https://copaw.agentscope.io/docs/channels/?lang=zh#QQ",
-  telegram: "https://copaw.agentscope.io/docs/channels/?lang=zh#Telegram",
-  mqtt: "https://copaw.agentscope.io/docs/channels/?lang=zh#MQTT",
-  mattermost: "https://copaw.agentscope.io/docs/channels/?lang=zh#Mattermost",
-  matrix: "https://copaw.agentscope.io/docs/channels/?lang=zh#Matrix",
-  wecom: "https://copaw.agentscope.io/docs/channels/?lang=zh#企业微信",
-  weixin: "https://copaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#iMessage仅-macOS",
+  discord: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Discord",
+  qq: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#QQ",
+  telegram: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Telegram",
+  mqtt: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#MQTT",
+  mattermost: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Mattermost",
+  matrix: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Matrix",
+  wecom: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#企业微信",
+  weixin: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
-    "https://copaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
+    "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";
@@ -131,6 +132,37 @@ export function ChannelDrawer({
           message.warning(t("channels.weixinQrcodeExpired"));
         } else {
           message.error(t("channels.weixinQrcodeFailed"));
+        }
+      },
+      [message, t],
+    ),
+  });
+
+  // DingTalk QR code hook
+  const dingtalkQrcode = useChannelQrcode({
+    channel: "dingtalk",
+    successStatus: "success",
+    successCredentialKey: "client_id",
+    pollInterval: 5000,
+    onSuccess: useCallback(
+      (credentials: Record<string, string>) => {
+        form.setFieldsValue({
+          client_id: credentials.client_id,
+          client_secret: credentials.client_secret,
+        });
+        message.success(t("channels.dingtalkAuthSuccess"));
+      },
+      [form, message, t],
+    ),
+    onExpired: useCallback(() => {
+      message.warning(t("channels.dingtalkQrcodeExpired"));
+    }, [message, t]),
+    onError: useCallback(
+      (type: "fetch" | "expired") => {
+        if (type === "expired") {
+          message.warning(t("channels.dingtalkQrcodeExpired"));
+        } else {
+          message.error(t("channels.dingtalkQrcodeFailed"));
         }
       },
       [message, t],
@@ -297,12 +329,55 @@ export function ChannelDrawer({
       case "dingtalk":
         return (
           <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.dingtalkSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <Form.Item label={t("channels.dingtalkScanAuth")}>
+              <Button
+                type="primary"
+                block
+                loading={dingtalkQrcode.loading}
+                onClick={dingtalkQrcode.fetchQrcode}
+              >
+                {t("channels.dingtalkGetQrcode")}
+              </Button>
+              {dingtalkQrcode.loading && (
+                <div style={{ textAlign: "center", marginTop: 12 }}>
+                  <Spin />
+                </div>
+              )}
+              {dingtalkQrcode.qrcodeImg && !dingtalkQrcode.loading && (
+                <div style={{ textAlign: "center", marginTop: 12 }}>
+                  <img
+                    src={`data:image/png;base64,${dingtalkQrcode.qrcodeImg}`}
+                    alt="DingTalk QR Code"
+                    style={{ width: 200, height: 200 }}
+                  />
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      color: isDark
+                        ? "rgba(255,255,255,0.45)"
+                        : "rgba(0,0,0,0.45)",
+                    }}
+                  >
+                    {t("channels.dingtalkScanHint")}
+                  </div>
+                </div>
+              )}
+            </Form.Item>
             <Form.Item
               name="client_id"
               label="Client ID"
               rules={[{ required: true }]}
             >
-              <Input />
+              <Input placeholder="dingxxxxx" />
             </Form.Item>
             <Form.Item
               name="client_secret"
@@ -406,7 +481,7 @@ export function ChannelDrawer({
               <Input placeholder="Optional" />
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
-              <Input placeholder="~/.copaw/media" />
+              <Input placeholder="~/.qwenpaw/media" />
             </Form.Item>
           </>
         );
@@ -576,7 +651,7 @@ export function ChannelDrawer({
               <Input.Password placeholder="Mattermost bot token" />
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
-              <Input placeholder="~/.copaw/media/mattermost" />
+              <Input placeholder="~/.qwenpaw/media/mattermost" />
             </Form.Item>
             <Form.Item
               name="show_typing"
@@ -712,7 +787,7 @@ export function ChannelDrawer({
               <Input.Password placeholder="Secret from WeCom backend" />
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
-              <Input placeholder="~/.copaw/media" />
+              <Input placeholder="~/.qwenpaw/media" />
             </Form.Item>
             <Form.Item
               name="welcome_text"
@@ -822,10 +897,10 @@ export function ChannelDrawer({
               label={t("channels.weixinBotTokenFile")}
               tooltip={t("channels.weixinBotTokenFileTooltip")}
             >
-              <Input placeholder="~/.copaw/weixin_bot_token" />
+              <Input placeholder="~/.qwenpaw/weixin_bot_token" />
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.weixinMediaDir")}>
-              <Input placeholder="~/.copaw/media" />
+              <Input placeholder="~/.qwenpaw/media" />
             </Form.Item>
           </>
         );
@@ -931,11 +1006,11 @@ export function ChannelDrawer({
               const url =
                 CHANNEL_DOC_EN_URLS[activeKey]! ||
                 CHANNEL_DOC_ZH_URLS[activeKey]!;
-              const isCopawDoc = url.includes(
-                "copaw.agentscope.io/docs/channels/",
+              const isQwenPawDoc = url.includes(
+                "qwenpaw.agentscope.io/docs/channels/",
               );
               const finalUrl =
-                isCopawDoc && currentLang === "zh"
+                isQwenPawDoc && currentLang === "zh"
                   ? CHANNEL_DOC_ZH_URLS[activeKey]!
                   : CHANNEL_DOC_EN_URLS[activeKey]!;
               window.open(finalUrl, "_blank");
