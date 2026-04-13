@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
-from copaw.config.utils import load_config
+from qwenpaw.config.utils import load_config
 
 from .service_manager import ServiceDescriptor, ServiceManager
 from .service_factories import (
