@@ -41,6 +41,7 @@ from ...constant import (
 )
 from ...security.tool_guard.approval import ApprovalDecision
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
+from ..rollback.service import SnapshotService
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
@@ -537,11 +538,36 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
+            # --- Rollback Snapshot: Before Execution ---
+            snapshot_svc = SnapshotService(
+                self.workspace_dir if self.workspace_dir else WORKING_DIR,
+            )
+            before_hash = await snapshot_svc.track()
+
             async for msg, last in stream_printing_messages(
                 agents=[agent],
                 coroutine_task=agent(msgs),
             ):
                 yield msg, last
+
+            # --- Rollback Snapshot: After Execution ---
+            if before_hash:
+                after_hash = await snapshot_svc.track()
+                if after_hash and before_hash != after_hash:
+                    # Changes detected, compute patch and save history
+                    changed_files = await snapshot_svc.patch(before_hash)
+                    if changed_files:
+                        logger.info(
+                            "Rollback: Saved workspace state "
+                            "(changed %s files)",
+                            len(changed_files),
+                        )
+                        await snapshot_svc.add_history_entry(
+                            session_id=session_id,
+                            before_hash=before_hash,
+                            after_hash=after_hash,
+                            files=changed_files,
+                        )
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
