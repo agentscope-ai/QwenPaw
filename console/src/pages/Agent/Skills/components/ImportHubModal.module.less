@@ -1,0 +1,589 @@
+// ImportHubModal.module.less
+// Styles for the redesigned ImportHubModal component
+
+// ============================================
+// Modal Container
+// ============================================
+.importHubModal {
+  width: 680px !important;
+  max-height: 85vh;
+
+  :global(.ant-modal-content) {
+    border-radius: 12px;
+  }
+
+  :global(.ant-modal-header) {
+    border-bottom: none;
+    padding: 24px 24px 0;
+  }
+
+  :global(.ant-modal-body) {
+    padding: 24px;
+  }
+
+  :global(.ant-modal-footer) {
+    border-top: 1px solid #f0f0f0;
+    padding: 16px 24px;
+  }
+}
+
+// ============================================
+// URL Input Section
+// ============================================
+.urlInputSection {
+  margin-bottom: 16px;
+}
+
+.inputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border: 1px solid #d9d9d9;
+  border-radius: 10px;
+  background: #fff;
+  transition: all 0.2s ease;
+  padding: 0 12px;
+  height: 48px;
+
+  &:hover {
+    border-color: #615ced;
+  }
+
+  &:focus-within {
+    border-color: #615ced;
+    box-shadow: 0 0 0 3px rgba(97, 92, 237, 0.1);
+  }
+
+  // State variants
+  &.valid {
+    border-color: #52c41a;
+    background: rgba(82, 196, 26, 0.02);
+  }
+
+  &.invalid {
+    border-color: #ff4d4f;
+    background: rgba(255, 77, 79, 0.02);
+  }
+
+  &.validating {
+    border-color: #615ced;
+  }
+}
+
+.urlInputIcon {
+  color: #999;
+  font-size: 16px;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.urlInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: #1a1a1a;
+
+  &::placeholder {
+    color: #bfbfbf;
+  }
+}
+
+.iconButton {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 8px;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.08);
+    color: #615ced;
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+// ============================================
+// Validation Status
+// ============================================
+.validationStatus {
+  margin-top: 8px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  &.valid {
+    color: #52c41a;
+  }
+
+  &.invalid {
+    color: #ff4d4f;
+  }
+
+  &.validating {
+    color: #615ced;
+  }
+}
+
+// ============================================
+// Divider
+// ============================================
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0;
+  color: #999;
+  font-size: 13px;
+  text-align: center;
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid #f0f0f0;
+  }
+
+  &::before {
+    margin-right: 12px;
+  }
+
+  &::after {
+    margin-left: 12px;
+  }
+}
+
+// ============================================
+// Sources Grid
+// ============================================
+.sourcesGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sourceCard {
+  position: relative;
+  padding: 16px 12px;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: center;
+
+  &:hover {
+    border-color: #615ced;
+    box-shadow: 0 4px 12px rgba(97, 92, 237, 0.12);
+    transform: translateY(-2px);
+  }
+
+  &.active {
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.04);
+    box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.15);
+  }
+
+  &.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+
+    &:hover {
+      border-color: #e8e8e8;
+      box-shadow: none;
+      transform: none;
+    }
+  }
+}
+
+.sourceCardIcon {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 10px;
+  border-radius: 10px;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  transition: all 0.2s ease;
+
+  .sourceCard:hover & {
+    background: rgba(97, 92, 237, 0.1);
+    transform: scale(1.05);
+  }
+
+  .sourceCard.active & {
+    background: rgba(97, 92, 237, 0.15);
+  }
+}
+
+.sourceCardName {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.sourceCardMeta {
+  font-size: 12px;
+  color: #999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.sourceCardArrow {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+
+  .sourceCard.active & {
+    transform: rotate(180deg);
+  }
+}
+
+.externalLink {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #d9d9d9;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  text-decoration: none;
+
+  &:hover {
+    background: rgba(97, 92, 237, 0.08);
+    color: #615ced;
+  }
+}
+
+// ============================================
+// Examples Panel
+// ============================================
+.examplesPanel {
+  margin-top: 16px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 10px;
+  border: 1px solid #f0f0f0;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.examplesHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+.examplesList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exampleItem {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  color: #333;
+
+  &:hover {
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.02);
+    color: #615ced;
+  }
+
+  &:active {
+    transform: scale(0.995);
+  }
+}
+
+.exampleItemIcon {
+  margin-right: 10px;
+  color: #bfbfbf;
+  font-size: 14px;
+}
+
+.exampleItemLabel {
+  margin-left: auto;
+  font-size: 11px;
+  color: #999;
+  background: #f5f5f5;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+// ============================================
+// Footer
+// ============================================
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.cancelButton {
+  min-width: 88px;
+}
+
+.importButton {
+  min-width: 120px;
+}
+
+// ============================================
+// Dark Mode
+// ============================================
+:global(.dark-mode) {
+  .importHubModal {
+    :global(.ant-modal-content) {
+      background: #1f1f1f;
+    }
+
+    :global(.ant-modal-header) {
+      background: transparent;
+
+      :global(.ant-modal-title) {
+        color: rgba(255, 255, 255, 0.9);
+      }
+    }
+
+    :global(.ant-modal-footer) {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .inputWrapper {
+    background: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.15);
+
+    &:hover,
+    &:focus-within {
+      border-color: #615ced;
+    }
+
+    &.valid {
+      border-color: #4ade80;
+      background: rgba(82, 196, 26, 0.05);
+    }
+
+    &.invalid {
+      border-color: #ff6b6b;
+      background: rgba(255, 77, 79, 0.05);
+    }
+  }
+
+  .urlInputIcon {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .urlInput {
+    color: rgba(255, 255, 255, 0.9);
+
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.3);
+    }
+  }
+
+  .iconButton {
+    color: rgba(255, 255, 255, 0.4);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.15);
+      color: #8b87f0;
+    }
+  }
+
+  .validationStatus {
+    &.valid {
+      color: #4ade80;
+    }
+
+    &.invalid {
+      color: #ff6b6b;
+    }
+
+    &.validating {
+      color: #8b87f0;
+    }
+  }
+
+  .divider {
+    color: rgba(255, 255, 255, 0.4);
+
+    &::before,
+    &::after {
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  .sourceCard {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.1);
+
+    &:hover {
+      border-color: #615ced;
+      background: rgba(97, 92, 237, 0.08);
+    }
+
+    &.active {
+      background: rgba(97, 92, 237, 0.12);
+    }
+
+    &.disabled:hover {
+      border-color: rgba(255, 255, 255, 0.1);
+      background: #1f1f1f;
+    }
+  }
+
+  .sourceCardName {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .sourceCardMeta {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .sourceCardIcon {
+    background: rgba(255, 255, 255, 0.08);
+
+    .sourceCard:hover & {
+      background: rgba(97, 92, 237, 0.2);
+    }
+  }
+
+  .externalLink {
+    color: rgba(255, 255, 255, 0.3);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.15);
+      color: #8b87f0;
+    }
+  }
+
+  .examplesPanel {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .examplesHeader {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .exampleItem {
+    background: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.85);
+
+    &:hover {
+      border-color: #615ced;
+      background: rgba(97, 92, 237, 0.08);
+      color: #8b87f0;
+    }
+  }
+
+  .exampleItemIcon {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .exampleItemLabel {
+    color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .modalFooter {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+// ============================================
+// Responsive
+// ============================================
+@media (max-width: 640px) {
+  .importHubModal {
+    width: 100% !important;
+    max-width: 100%;
+    margin: 0;
+    top: 0;
+    border-radius: 0;
+    height: 100vh;
+
+    :global(.ant-modal-content) {
+      border-radius: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    :global(.ant-modal-body) {
+      flex: 1;
+      overflow-y: auto;
+    }
+  }
+
+  .sourcesGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .sourceCard {
+    padding: 12px 8px;
+  }
+
+  .sourceCardIcon {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+
+  .exampleItem {
+    font-size: 12px;
+    padding: 8px 10px;
+    word-break: break-all;
+  }
+}
