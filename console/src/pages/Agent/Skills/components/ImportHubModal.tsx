@@ -32,15 +32,6 @@ interface ImportHubModalProps {
   hint?: string;
 }
 
-const MARKET_ICONS: Record<string, string> = {
-  "skills.sh": "🛠️",
-  clawhub: "🐾",
-  skillsmp: "📦",
-  lobehub: "🧠",
-  github: "🐙",
-  modelscope: "🔬",
-};
-
 function detectSource(url: string): SkillMarket | undefined {
   return skillMarkets.find((market) =>
     url.toLowerCase().startsWith(market.urlPrefix.toLowerCase()),
@@ -127,7 +118,6 @@ interface SourceCardProps {
 }
 
 function SourceCard({ market, isActive, onClick, disabled }: SourceCardProps) {
-  const icon = MARKET_ICONS[market.key] || "📦";
   const exampleCount = market.examples.length;
 
   return (
@@ -157,7 +147,6 @@ function SourceCard({ market, isActive, onClick, disabled }: SourceCardProps) {
       >
         <ExportOutlined />
       </a>
-      <div className={styles.sourceCardIcon}>{icon}</div>
       <div className={styles.sourceCardName}>{market.name}</div>
       <div className={styles.sourceCardMeta}>
         {exampleCount > 0 && (
