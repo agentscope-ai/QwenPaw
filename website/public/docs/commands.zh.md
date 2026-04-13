@@ -267,7 +267,7 @@ skill。
 - `/<skill_name>` 会显示该 skill 的详细信息，包括 description 和本地
   path。
 - `/<skill_name> <input>` 会使 Agent 强制调用 `skill_name`，解决 input
- （通常是个任务）。
+  （通常是个任务）。
 - `/[skill_name]` 也支持以上操作，可作为另一种写法。
 
 说明：
