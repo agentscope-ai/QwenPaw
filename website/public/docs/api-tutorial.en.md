@@ -60,14 +60,21 @@ Specify the Agent to interact with via the `X-Agent-Id` header:
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: default" \
-  -d '{"input": [...]}'
+  -d '{"input":[{"role":"user","content":[{"type":"text","text":"Hello"}]}],"channel":"console"}'
 
-# Authentication enabled - Authorization token required
-curl -X POST http://your-server.com:8088/api/console/chat \
+# Authentication enabled - get a token first
+AUTH_TOKEN="$(
+  curl -s -X POST http://localhost:8088/api/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"admin","password":"admin123"}' \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])'
+)"
+
+curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
   -H "X-Agent-Id: default" \
-  -d '{"input": [...]}'
+  -d '{"input":[{"role":"user","content":[{"type":"text","text":"Hello"}]}],"channel":"console"}'
 ```
 
 > **Tip**: If [Web Login Authentication](./security#web-authentication) is enabled, use the login API to obtain a bearer token for direct REST calls. The local CLI token is managed by QwenPaw and should not be used as a general-purpose REST API token.
@@ -110,9 +117,12 @@ The API uses a specific message format, similar to OpenAI's message format:
 
 ### Basic Example
 
+The examples below include the `Authorization` header used when Web Login Authentication is enabled. If authentication is disabled, remove that header.
+
 ```bash
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: default" \
   -d '{
     "input": [
@@ -138,6 +148,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 - **URL**: `http://localhost:8088/api/console/chat` (modify if deployed elsewhere)
 - **Headers**:
   - `Content-Type: application/json`: Specifies JSON format for the request body
+  - `Authorization: Bearer <YOUR_TOKEN>`: Required when Web Login Authentication is enabled
   - `X-Agent-Id: default`: Specifies the Agent ID, defaults to `default`
 - **--no-buffer**: Disables buffering for real-time streaming response
 
@@ -146,6 +157,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 ```bash
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: default" \
   -d '{
     "input": [
@@ -169,6 +181,8 @@ curl -X POST http://localhost:8088/api/console/chat \
 ## Response Format
 
 The API returns **Server-Sent Events (SSE)** streaming responses, with each event prefixed with `data:`:
+
+The stream can include response lifecycle events and message events. Assistant text may appear in `response.output[].content[]` or in top-level `message.content[]`, so the examples below handle both shapes.
 
 ```
 data: {"sequence_number":0,"object":"response","status":"created",...}
@@ -200,13 +214,14 @@ data: {"sequence_number":3,"object":"response","status":"completed",...}
 
 ## Multi-turn Conversation
 
-QwenPaw automatically manages conversation context through `session_id` and `user_id`. Simply use the same `session_id` across different requests, and the system will automatically save and load conversation history:
+QwenPaw automatically manages conversation context through `session_id` and `user_id`. Simply use the same `session_id` across different requests, and the system will automatically save and load conversation history. If Web Login Authentication is enabled, include the same `Authorization: Bearer <YOUR_TOKEN>` header shown below:
 
 **First turn**:
 
 ```bash
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: default" \
   -d '{
     "input": [
@@ -226,6 +241,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 ```bash
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: default" \
   -d '{
     "input": [
@@ -274,6 +290,20 @@ curl -X POST http://localhost:8088/api/console/chat \
 - Ensure the `input` field exists and is properly formatted
 - Verify JSON format is valid
 
+#### 401 Unauthorized
+
+```json
+{
+  "detail": "Not authenticated"
+}
+```
+
+**Solutions**:
+
+- If Web Login Authentication is enabled, obtain a token from `/api/auth/login`
+- Send the token as `Authorization: Bearer <YOUR_TOKEN>`
+- Do not copy the local CLI token from `auth.json`; it is only for the `qwenpaw` CLI loopback path
+
 #### 404 Agent Not Found
 
 ```json
@@ -305,12 +335,27 @@ curl -X POST http://localhost:8088/api/console/chat \
 Using standard library `urllib` and `json` to handle SSE streams:
 
 ```python
-import urllib.request
 import json
+import os
+import urllib.request
 
 API_URL = "http://localhost:8088/api/console/chat"
 AGENT_ID = "default"
-AUTH_TOKEN = ""  # Set your token here if authentication is enabled
+AUTH_TOKEN = os.getenv("QWENPAW_API_TOKEN", "")
+
+
+def iter_text_parts(event_data):
+    if event_data.get("object") == "message":
+        for content in event_data.get("content") or []:
+            if content.get("type") == "text":
+                yield content.get("text", "")
+
+    for item in event_data.get("output") or []:
+        if item.get("role") == "assistant":
+            for content in item.get("content") or []:
+                if content.get("type") == "text":
+                    yield content.get("text", "")
+
 
 def chat_with_agent(message, session_id="my-session"):
     # Prepare request
@@ -353,20 +398,17 @@ def chat_with_agent(message, session_id="my-session"):
         with urllib.request.urlopen(request) as response:
             for line in response:
                 line = line.decode('utf-8').strip()
-                if line.startswith('data: '):
-                    event_data = json.loads(line[6:])  # Remove 'data: ' prefix
+                if line.startswith('data:'):
+                    event_data = json.loads(line[5:].strip())
 
                     # Print status
                     status = event_data.get('status')
-                    print(f"Status: {status}")
+                    if status:
+                        print(f"Status: {status}")
 
                     # Extract reply content
-                    if event_data.get('output'):
-                        for item in event_data['output']:
-                            if item.get('role') == 'assistant':
-                                for content in item.get('content', []):
-                                    if content.get('type') == 'text':
-                                        print(f"Reply: {content.get('text')}")
+                    for text in iter_text_parts(event_data):
+                        print(f"Reply: {text}")
 
                     # Check for errors
                     if event_data.get('error'):
@@ -380,6 +422,7 @@ def chat_with_agent(message, session_id="my-session"):
 
 # Usage example
 if __name__ == "__main__":
+    # Set QWENPAW_API_TOKEN when Web Login Authentication is enabled.
     chat_with_agent("Hello, please introduce yourself")
 ```
 
@@ -388,22 +431,36 @@ if __name__ == "__main__":
 If you have the `requests` library installed, you can use this more concise code:
 
 ```python
-import requests
 import json
+import os
+
+import requests
 
 API_URL = "http://localhost:8088/api/console/chat"
 LOGIN_URL = "http://localhost:8088/api/auth/login"
 AGENT_ID = "default"
 
 def get_auth_token(username, password):
-    """Get authentication token (if authentication is enabled)"""
+    """Get an authentication token when Web Login Authentication is enabled."""
     response = requests.post(LOGIN_URL, json={
         "username": username,
         "password": password
     })
-    if response.status_code == 200:
-        return response.json()["token"]
-    return None
+    response.raise_for_status()
+    return response.json()["token"]
+
+
+def iter_text_parts(event_data):
+    if event_data.get("object") == "message":
+        for content in event_data.get("content") or []:
+            if content.get("type") == "text":
+                yield content.get("text", "")
+
+    for item in event_data.get("output") or []:
+        if item.get("role") == "assistant":
+            for content in item.get("content") or []:
+                if content.get("type") == "text":
+                    yield content.get("text", "")
 
 def chat_with_agent(message, session_id="my-session", auth_token=None):
     headers = {
@@ -429,30 +486,28 @@ def chat_with_agent(message, session_id="my-session", auth_token=None):
 
     # Streaming request
     with requests.post(API_URL, headers=headers, json=data, stream=True) as response:
-        for line in response.iter_lines():
-            if line:
-                line = line.decode('utf-8')
-                if line.startswith('data: '):
-                    event_data = json.loads(line[6:])
-                    status = event_data.get('status')
+        response.raise_for_status()
 
-                    if status == 'in_progress' or status == 'completed':
-                        if event_data.get('output'):
-                            for item in event_data['output']:
-                                if item.get('role') == 'assistant':
-                                    for content in item.get('content', []):
-                                        if content.get('type') == 'text':
-                                            print(content.get('text'), end='', flush=True)
+        for line in response.iter_lines(decode_unicode=True):
+            if not line or not line.startswith('data:'):
+                continue
 
-                    if event_data.get('error'):
-                        print(f"\nError: {event_data['error'].get('message')}")
-                        break
+            event_data = json.loads(line[5:].strip())
+            if event_data.get('error'):
+                print(f"\nError: {event_data['error'].get('message')}")
+                break
 
-# Usage examples
-# 1. Without authentication
-chat_with_agent("Hello, please introduce yourself")
+            for text in iter_text_parts(event_data):
+                print(text, end='', flush=True)
 
-# 2. With authentication
+# Usage examples:
+# Set QWENPAW_API_TOKEN when Web Login Authentication is enabled.
+chat_with_agent(
+    "Hello, please introduce yourself",
+    auth_token=os.getenv("QWENPAW_API_TOKEN") or None,
+)
+
+# Or log in from code when authentication is enabled.
 # token = get_auth_token("admin", "admin123")
 # chat_with_agent("Hello, please introduce yourself", auth_token=token)
 ```
@@ -466,22 +521,45 @@ const API_URL = "http://localhost:8088/api/console/chat";
 const LOGIN_URL = "http://localhost:8088/api/auth/login";
 const AGENT_ID = "default";
 
-// Get authentication token (if authentication is enabled)
+// Get an authentication token when Web Login Authentication is enabled.
 async function getAuthToken(username, password) {
-  try {
-    const response = await fetch(LOGIN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (response.ok) {
-      const data = await response.json();
-      return data.token;
-    }
-  } catch (error) {
-    console.error("Login failed:", error);
+  const response = await fetch(LOGIN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Login failed: ${response.status} ${await response.text()}`,
+    );
   }
-  return null;
+
+  const data = await response.json();
+  return data.token;
+}
+
+function textPartsFromEvent(eventData) {
+  const parts = [];
+
+  if (eventData.object === "message") {
+    for (const content of eventData.content || []) {
+      if (content.type === "text") {
+        parts.push(content.text || "");
+      }
+    }
+  }
+
+  for (const item of eventData.output || []) {
+    if (item.role === "assistant") {
+      for (const content of item.content || []) {
+        if (content.type === "text") {
+          parts.push(content.text || "");
+        }
+      }
+    }
+  }
+
+  return parts;
 }
 
 async function chatWithAgent(
@@ -520,34 +598,37 @@ async function chatWithAgent(
     }),
   });
 
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+  }
+  if (!response.body) {
+    throw new Error("Streaming response body is not available");
+  }
+
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  let buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const chunk = decoder.decode(value);
-    const lines = chunk.split("\n");
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
 
     for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const eventData = JSON.parse(line.slice(6));
+      if (line.startsWith("data:")) {
+        const eventData = JSON.parse(line.slice(5).trim());
 
         const status = eventData.status;
-        console.log("Status:", status);
+        if (status) {
+          console.log("Status:", status);
+        }
 
         // Extract reply
-        if (eventData.output) {
-          for (const item of eventData.output) {
-            if (item.role === "assistant") {
-              for (const content of item.content || []) {
-                if (content.type === "text") {
-                  console.log("Reply:", content.text);
-                }
-              }
-            }
-          }
+        for (const text of textPartsFromEvent(eventData)) {
+          console.log("Reply:", text);
         }
 
         // Check for errors
@@ -559,13 +640,15 @@ async function chatWithAgent(
   }
 }
 
-// Usage examples
-// 1. Without authentication
-chatWithAgent("Hello, please introduce yourself").catch((error) =>
-  console.error("Error:", error),
-);
+// Usage examples:
+// Set QWENPAW_API_TOKEN when Web Login Authentication is enabled.
+chatWithAgent(
+  "Hello, please introduce yourself",
+  "my-session",
+  process.env.QWENPAW_API_TOKEN || null,
+).catch((error) => console.error("Error:", error));
 
-// 2. With authentication
+// Or log in from code when authentication is enabled.
 // (async () => {
 //   const token = await getAuthToken('admin', 'admin123');
 //   if (token) {
@@ -593,12 +676,14 @@ Interact with different Agents by changing the `X-Agent-Id` header:
 # Chat with Agent 1
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: agent-1" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"Hello"}]}],"channel":"console"}'
 
 # Chat with Agent 2
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
   -H "X-Agent-Id: agent-2" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"Hello"}]}],"channel":"console"}'
 ```
