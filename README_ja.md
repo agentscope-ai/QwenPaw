@@ -337,7 +337,7 @@ ReleasesからQwenPaw macOSアプリをダウンロードすると、macOSは次
 
 ## APIキー
 
-**クラウド LLM API**（例：Qianwen、Gemini、OpenAI）を使用する場合、チャットの前にAPIキーを設定する必要があります。有効なキーが設定されるまでQwenPawは動作しません。詳細は[公式ドキュメント](https://qwenpaw.agentscope.io/docs/models#configure-cloud-providers)をご覧ください。
+**クラウド LLM API**（例：Qianwen、Gemini、OpenAI、Venice.ai）を使用する場合、チャットの前にAPIキーを設定する必要があります。有効なキーが設定されるまでQwenPawは動作しません。詳細は[公式ドキュメント](https://qwenpaw.agentscope.io/docs/models#configure-cloud-providers)をご覧ください。
 
 **設定方法:**
 

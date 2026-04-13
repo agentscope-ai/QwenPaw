@@ -541,6 +541,7 @@ QwenPaw needs an LLM provider to work. You can set it up in three ways:
 | Azure OpenAI                 | `azure-openai`          | _(you set it)_                                      | _(any)_        |
 | Anthropic                    | `anthropic`             | `https://api.anthropic.com`                         | _(any)_        |
 | Google Gemini                | `gemini`                | `https://generativelanguage.googleapis.com`         | _(any)_        |
+| Venice.ai                    | `venice`                | `https://api.venice.ai/api/v1`                      | _(any)_        |
 | DeepSeek                     | `deepseek`              | `https://api.deepseek.com`                          | `sk-`          |
 | Kimi (China)                 | `kimi-cn`               | `https://api.moonshot.cn/v1`                        | _(any)_        |
 | Kimi (International)         | `kimi-intl`             | `https://api.moonshot.ai/v1`                        | _(any)_        |

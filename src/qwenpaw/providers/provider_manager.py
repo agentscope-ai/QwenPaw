@@ -478,6 +478,37 @@ GEMINI_MODELS: List[ModelInfo] = [
     ),
 ]
 
+VENICE_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="venice-uncensored",
+        name="Venice Uncensored",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-r1-671b",
+        name="DeepSeek-R1-671B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="llama-3.3-70b",
+        name="Llama 3.3 70B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen-2.5-coder-32b",
+        name="Qwen 2.5 Coder 32B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
 PROVIDER_MODELSCOPE = OpenAIProvider(
     id="modelscope",
     name="ModelScope",
@@ -648,6 +679,15 @@ PROVIDER_GEMINI = GeminiProvider(
     support_model_discovery=True,
 )
 
+PROVIDER_VENICE = OpenAIProvider(
+    id="venice",
+    name="Venice.ai",
+    base_url="https://api.venice.ai/api/v1",
+    api_key_prefix="",
+    models=VENICE_MODELS,
+    freeze_url=True,
+)
+
 PROVIDER_OLLAMA = OllamaProvider(
     id="ollama",
     name="Ollama",
@@ -756,6 +796,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
+        self._add_builtin(PROVIDER_VENICE)
         self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)

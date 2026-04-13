@@ -94,7 +94,7 @@ QwenPaw is designed to be **extensible**: you can add models, channels, Skills, 
 
 ### Adding New Models / Model Providers
 
-QwenPaw supports multiple providers, including cloud providers (such as DashScope, ModelScope) and local providers (such as Ollama, LM Studio). We also welcome new model providers to enrich user choices.
+QwenPaw supports multiple providers, including cloud providers (such as DashScope, ModelScope, OpenAI, Anthropic, and Venice.ai) and local providers (such as Ollama, LM Studio). We also welcome new model providers to enrich user choices.
 
 Contributed model providers should have the following characteristics:
 

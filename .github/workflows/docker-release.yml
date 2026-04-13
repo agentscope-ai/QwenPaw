@@ -1,4 +1,4 @@
-# Build QwenPaw multi-arch Docker image and push to DockerHub + Aliyun ACR on release.
+# Build CoPaw multi-arch Docker image and push to DockerHub + Aliyun ACR on release.
 # Pre-release: update <version> and pre only.
 # Formal release: update <version>, pre and latest.
 name: Docker Build and Push on Release
@@ -20,7 +20,7 @@ on:
 
 env:
   ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
-  IMAGE: agentscope/qwenpaw
+  IMAGE: agentscope/copaw
 
 jobs:
   build-and-push:
@@ -75,7 +75,7 @@ jobs:
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           IS_PRERELEASE: ${{ steps.vars.outputs.is_prerelease }}
-          QWENPAW_DISABLED_CHANNELS: "imessage"
+          COPAW_DISABLED_CHANNELS: "imessage"
         run: |
           TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
           TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
@@ -84,5 +84,5 @@ jobs:
           fi
           docker buildx build --platform linux/amd64,linux/arm64 \
             -f deploy/Dockerfile \
-            --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
+            --build-arg COPAW_DISABLED_CHANNELS="${COPAW_DISABLED_CHANNELS}" \
             ${TAGS} --push .

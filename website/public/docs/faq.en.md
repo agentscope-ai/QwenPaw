@@ -209,8 +209,8 @@ or QwenPaw GitHub [Releases](https://github.com/agentscope-ai/QwenPaw/releases).
 In Console, go to **Settings → Models** to configure. See the
 [Models](https://qwenpaw.agentscope.io/docs/models) doc for details:
 
-- Cloud models: enter the provider API key (e.g. ModelScope, DashScope, or a
-  custom provider).
+- Cloud models: enter the provider API key (e.g. ModelScope, DashScope,
+  OpenAI, Anthropic, Venice.ai, or a custom provider).
 - Local models: supports `llama.cpp`, LM Studio and Ollama.
 
 After configuration, choose the target provider and model under **Default LLM**

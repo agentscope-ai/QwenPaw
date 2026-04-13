@@ -152,6 +152,7 @@ QwenPaw 当前支持的云提供商包括：
 - Azure OpenAI
 - Anthropic
 - Google Gemini
+- Venice.ai
 - DeepSeek
 - Kimi
 - MiniMax

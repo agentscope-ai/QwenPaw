@@ -22,7 +22,7 @@ jobs:
         run: |
           pip install setuptools==68.2.2 wheel==0.41.2
 
-      - name: Install QwenPaw with dev dependencies
+      - name: Install CoPaw with dev dependencies
         run: |
           pip install -q -e ".[dev]"
 
@@ -32,7 +32,8 @@ jobs:
 
       - name: Run pre-commit
         run: |
-          pre-commit run --all-files 2>&1 | tee pre-commit.log || true
+          pre-commit run --all-files > pre-commit.log 2>&1 || true
+          cat pre-commit.log
           if grep -q Failed pre-commit.log; then
             echo -e "\e[41m  [**FAIL**] pre-commit checks failed. Run 'pre-commit run --all-files' locally, commit any auto-fixes, then push again. \e[0m"
             exit 1

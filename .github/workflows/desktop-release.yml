@@ -1,18 +1,12 @@
-# Build QwenPaw Desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
+# Build CoPaw Desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
 # Runs automatically on release publish; also manually via Actions tab.
 
-name: QwenPaw Desktop Build
+name: CoPaw Desktop Build
 
 on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      upload_to_oss:
-        description: 'Upload to OSS'
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -30,7 +24,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $content = Get-Content src/qwenpaw/__version__.py -Raw
+          $content = Get-Content src/copaw/__version__.py -Raw
           if ($content -match '__version__\s*=\s*"([^"]+)"') {
             $v = $Matches[1]
           } else {
@@ -52,7 +46,7 @@ jobs:
         with:
           auto-update-conda: true
           python-version: "3.10"
-          activate-environment: "qwenpaw-build"
+          activate-environment: "copaw-build"
           condarc-file: .github/condarc
           conda-remove-defaults: false
 
@@ -69,7 +63,7 @@ jobs:
 
       - name: Build Windows installer
         shell: pwsh
-        run: conda run -n qwenpaw-build pwsh -File ./scripts/pack/build_win.ps1
+        run: conda run -n copaw-build pwsh -File ./scripts/pack/build_win.ps1
 
       - name: List dist (on failure)
         if: failure()
@@ -85,8 +79,8 @@ jobs:
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QwenPaw-Desktop-Windows-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-Setup-*.exe
+          name: CoPaw-Desktop-Windows-${{ steps.version.outputs.version }}
+          path: dist/CoPaw-Setup-*.exe
 
   build-macos:
     runs-on: macos-14
@@ -98,7 +92,7 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/copaw/__version__.py)" >> $GITHUB_OUTPUT
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -112,7 +106,7 @@ jobs:
         with:
           auto-update-conda: true
           python-version: "3.10"
-          activate-environment: "qwenpaw-build"
+          activate-environment: "copaw-build"
           condarc-file: .github/condarc
           conda-remove-defaults: false
 
@@ -122,13 +116,13 @@ jobs:
       - name: Build macOS .app
         run: |
           chmod +x scripts/pack/build_macos.sh
-          conda run -n qwenpaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
+          conda run -n copaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QwenPaw-Desktop-macOS-${{ steps.version.outputs.version }}
-          path: dist/QwenPaw-*.zip
+          name: CoPaw-Desktop-macOS-${{ steps.version.outputs.version }}
+          path: dist/CoPaw-*.zip
 
   upload-release:
     needs: [build-windows, build-macos]
@@ -142,235 +136,15 @@ jobs:
 
       - name: Move artifacts to root for upload
         run: |
-          mv QwenPaw-Desktop-Windows-*/QwenPaw-Setup-*.exe . 2>/dev/null || true
-          mv QwenPaw-Desktop-macOS-*/QwenPaw-*.zip . 2>/dev/null || true
+          mv CoPaw-Desktop-Windows-*/CoPaw-Setup-*.exe . 2>/dev/null || true
+          mv CoPaw-Desktop-macOS-*/CoPaw-*.zip . 2>/dev/null || true
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            QwenPaw-Setup-*.exe
-            QwenPaw-*-macOS.zip
+            CoPaw-Setup-*.exe
+            CoPaw-*-macOS.zip
           fail-on-unmatched-files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  upload-oss:
-    needs: [build-windows, build-macos]
-    # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout (for scripts)
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Get version
-        id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Install ossutil
-        run: |
-          wget https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
-          unzip ossutil-v1.7.18-linux-amd64.zip
-          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
-          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
-          ossutil --version
-
-      - name: Configure ossutil
-        run: |
-          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
-            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
-            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
-            -L CH
-
-      - name: Process and upload Windows artifacts
-        if: hashFiles('QwenPaw-Desktop-Windows-*/*.exe') != ''
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          WIN_EXE=$(find QwenPaw-Desktop-Windows-* -name "QwenPaw-Setup-*.exe" | head -1)
-
-          if [ -z "$WIN_EXE" ]; then
-            echo "No Windows exe found, skipping"
-            exit 0
-          fi
-
-          echo "Processing Windows artifact: $WIN_EXE"
-
-          # Generate metadata
-          python scripts/pack/generate_oss_metadata.py \
-            --file "$WIN_EXE" \
-            --product desktop \
-            --platform win \
-            --version "$VERSION" \
-            --output win-metadata.json
-
-          # Upload file (versioned)
-          ossutil cp "$WIN_EXE" \
-            "oss://qwenpaw-download/files/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe" \
-            --acl public-read \
-            --force
-
-          # Upload file (latest)
-          ossutil cp "$WIN_EXE" \
-            "oss://qwenpaw-download/files/apps/desktop/win/QwenPaw-Setup-latest.exe" \
-            --acl public-read \
-            --force
-
-          # Upload metadata (versioned)
-          ossutil cp win-metadata.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe.json" \
-            --acl public-read \
-            --force
-
-          # Upload metadata (latest)
-          ossutil cp win-metadata.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/win/QwenPaw-Setup-latest.exe.json" \
-            --acl public-read \
-            --force
-
-          echo "✓ Windows artifacts uploaded"
-
-      - name: Process and upload macOS artifacts
-        if: hashFiles('QwenPaw-Desktop-macOS-*/*.zip') != ''
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          MAC_ZIP=$(find QwenPaw-Desktop-macOS-* -name "QwenPaw-*.zip" | head -1)
-
-          if [ -z "$MAC_ZIP" ]; then
-            echo "No macOS zip found, skipping"
-            exit 0
-          fi
-
-          echo "Processing macOS artifact: $MAC_ZIP"
-
-          # Generate metadata
-          python scripts/pack/generate_oss_metadata.py \
-            --file "$MAC_ZIP" \
-            --product desktop \
-            --platform mac \
-            --version "$VERSION" \
-            --output mac-metadata.json
-
-          # Upload file (versioned)
-          ossutil cp "$MAC_ZIP" \
-            "oss://qwenpaw-download/files/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip" \
-            --acl public-read \
-            --force
-
-          # Upload file (latest)
-          ossutil cp "$MAC_ZIP" \
-            "oss://qwenpaw-download/files/apps/desktop/mac/QwenPaw-latest-macOS.zip" \
-            --acl public-read \
-            --force
-
-          # Upload metadata (versioned)
-          ossutil cp mac-metadata.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip.json" \
-            --acl public-read \
-            --force
-
-          # Upload metadata (latest)
-          ossutil cp mac-metadata.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/mac/QwenPaw-latest-macOS.zip.json" \
-            --acl public-read \
-            --force
-
-          echo "✓ macOS artifacts uploaded"
-
-      - name: Update desktop index
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Download existing desktop/index.json if exists
-          ossutil cp "oss://qwenpaw-download/metadata/apps/desktop/index.json" \
-            desktop-index.json 2>/dev/null || cat > desktop-index.json << 'EOF'
-          {
-            "product": "desktop",
-            "updated_at": "",
-            "platforms": {},
-            "files": {}
-          }
-          EOF
-
-          # Merge Windows metadata if exists
-          if [ -f "win-metadata.json" ]; then
-            python scripts/pack/generate_oss_metadata.py \
-              --file "$(find QwenPaw-Desktop-Windows-* -name 'QwenPaw-Setup-*.exe' | head -1)" \
-              --product desktop \
-              --platform win \
-              --version "$VERSION" \
-              --output win-metadata.json \
-              --merge-index desktop-index.json \
-              --output-index desktop-index.json
-          fi
-
-          # Merge macOS metadata if exists
-          if [ -f "mac-metadata.json" ]; then
-            python scripts/pack/generate_oss_metadata.py \
-              --file "$(find QwenPaw-Desktop-macOS-* -name 'QwenPaw-*.zip' | head -1)" \
-              --product desktop \
-              --platform mac \
-              --version "$VERSION" \
-              --output mac-metadata.json \
-              --merge-index desktop-index.json \
-              --output-index desktop-index.json
-          fi
-
-          # Upload updated desktop/index.json
-          ossutil cp desktop-index.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/index.json" \
-            --acl public-read \
-            --force
-
-          echo "✓ Desktop index updated"
-
-      - name: Update main index
-        run: |
-          # Download main index if exists
-          ossutil cp "oss://qwenpaw-download/metadata/index.json" \
-            main-index.json 2>/dev/null || cat > main-index.json << 'EOF'
-          {
-            "version": "1.0",
-            "updated_at": "",
-            "products": {}
-          }
-          EOF
-
-          # Ensure desktop product is in main index
-          python3 << 'PYTHON'
-          import json
-          from datetime import datetime, timezone
-
-          with open("main-index.json", "r") as f:
-              index = json.load(f)
-
-          index["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-          if "desktop" not in index["products"]:
-              index["products"]["desktop"] = {
-                  "name": {
-                      "zh-CN": "桌面客户端",
-                      "en-US": "Desktop Client"
-                  },
-                  "index_url": "/metadata/apps/desktop/index.json"
-              }
-
-          with open("main-index.json", "w") as f:
-              json.dump(index, f, indent=2, ensure_ascii=False)
-          PYTHON
-
-          # Upload main index
-          ossutil cp main-index.json \
-            "oss://qwenpaw-download/metadata/index.json" \
-            --acl public-read \
-            --force
-
-          echo "✓ Main index updated"

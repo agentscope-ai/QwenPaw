@@ -21,7 +21,7 @@ jobs:
             const prNumber = context.payload.pull_request.number;
 
             const body = [
-              `## Welcome to QwenPaw! :tada:`,
+              `## Welcome to CoPaw! :tada:`,
               ``,
               `Thank you @${author} for your first contribution! Your PR has been merged. :rocket:`,
               ``,
@@ -36,7 +36,7 @@ jobs:
               ``,
               `> **Note:** Only share what you're comfortable with — all fields are optional.`,
               ``,
-              `Thanks again for helping make QwenPaw better!`,
+              `Thanks again for helping make CoPaw better!`,
             ].join('\n');
 
             await github.rest.issues.createComment({

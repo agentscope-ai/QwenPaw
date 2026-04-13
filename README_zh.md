@@ -390,7 +390,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ## API Key
 
-若使用**云端大模型 API**（如通义千问、Gemini、OpenAI），在开始对话前必须配置 API Key。未配置有效 Key 前，QwenPaw 无法正常工作。详情请参考[官方文档](https://qwenpaw.agentscope.io/docs/models)。
+若使用**云端大模型 API**（如通义千问、Gemini、OpenAI、Venice.ai），在开始对话前必须配置 API Key。未配置有效 Key 前，QwenPaw 无法正常工作。详情请参考[官方文档](https://qwenpaw.agentscope.io/docs/models)。
 
 **配置方式：**
 

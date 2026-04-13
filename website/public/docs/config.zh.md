@@ -479,6 +479,7 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 | Azure OpenAI                  | `azure-openai`          | Azure OpenAI Service   |
 | Anthropic                     | `anthropic`             | Anthropic Claude API   |
 | Google Gemini                 | `gemini`                | Google Gemini API      |
+| Venice.ai                     | `venice`                | Venice.ai API          |
 | DeepSeek                      | `deepseek`              | DeepSeek API           |
 | Kimi（China）                 | `kimi-cn`               | Moonshot Kimi 国内版   |
 | Kimi（International）         | `kimi-intl`             | Moonshot Kimi 国际版   |

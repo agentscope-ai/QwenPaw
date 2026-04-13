@@ -152,6 +152,7 @@ Currently supported cloud providers include:
 - Azure OpenAI
 - Anthropic
 - Google Gemini
+- Venice.ai
 - DeepSeek
 - Kimi
 - MiniMax
