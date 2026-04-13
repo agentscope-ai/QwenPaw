@@ -125,6 +125,8 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
   const needsConfirmation =
     isActive && plan.subtasks.every((s) => s.state === "todo");
 
+  // --- handlers ---
+
   const handleStopPlan = useCallback(async () => {
     setStopping(true);
     try {
@@ -200,6 +202,8 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
     }
   }, [t]);
 
+  // --- subtask edit / add / delete (available in confirmation state) ---
+
   const handleEditSubtask = useCallback(
     (idx: number) => {
       if (!plan) return;
@@ -270,6 +274,8 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
       message.error(t("plan.addError", "Failed to add subtask"));
     }
   }, [plan, addForm, t]);
+
+  // --- render helpers ---
 
   const renderSubtaskItem = (st: SubTask, idx: number) => {
     const isExpanded = expandedIdx === idx;
@@ -506,6 +512,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
         </div>
       </Drawer>
 
+      {/* Edit Subtask Modal */}
       <Modal
         open={editIdx !== null}
         onCancel={() => {
@@ -542,6 +549,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
         </Form>
       </Modal>
 
+      {/* Add Subtask Modal */}
       <Modal
         open={addOpen}
         onCancel={() => {

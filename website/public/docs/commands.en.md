@@ -86,6 +86,25 @@ User requested help building a user authentication system, login endpoint implem
 
 ---
 
+## Plan commands
+
+Structured multi-step work uses **plan mode**. The agent is **not** prompted to create a plan on every message; you start planning explicitly.
+
+| Form                  | Behavior                                                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `/plan`               | Turns on plan mode if needed, then shows whether a plan exists and lists subtasks (or hints to use `/plan <description>`). |
+| `/plan <description>` | Treated as a normal chat message (prefix stripped): the agent receives an explicit request to create a plan for the task.  |
+
+**Example:**
+
+```
+/plan Refactor the auth module and add tests
+```
+
+**Backward compatibility:** Older flows that relied on the model seeing a default “no plan” hint on every turn no longer apply; use `/plan` or the console Plan panel to begin planning.
+
+---
+
 ## Conversation Debugging Commands
 
 Commands for viewing and managing conversation history.

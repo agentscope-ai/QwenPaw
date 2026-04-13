@@ -1160,13 +1160,16 @@
     "description": "I am a helpful assistant that can help you with your questions.",
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
-    "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
+    "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (/plan, /clear, …; \"/approve\" or \"/deny\" during approvals)",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"
       },
       "compact": {
         "description": "Compact the conversation context; optional instruction supported"
+      },
+      "plan": {
+        "description": "Enable plan mode or start a structured plan for a task (/plan <description>)"
       },
       "approve": {
         "description": "Approve the pending tool action and continue execution"
@@ -1194,6 +1197,40 @@
       "userMessage": "User",
       "assistantMessage": "Assistant"
     }
+  },
+  "plan": {
+    "title": "Plan",
+    "notEnabled": "Plan mode is not enabled",
+    "enableHintShort": "Enable plan mode to let the agent decompose complex tasks into steps and execute them with your approval.",
+    "enableButton": "Enable Plan Mode",
+    "enabledSuccess": "Plan mode enabled successfully",
+    "enabledError": "Failed to enable plan mode",
+    "confirmedSuccess": "Plan confirmed! Send a message to start execution.",
+    "confirmedError": "Failed to confirm plan",
+    "editError": "Failed to update subtask",
+    "deleteError": "Failed to delete subtask",
+    "addError": "Failed to add subtask",
+    "deleteConfirm": "Delete this subtask?",
+    "expectedOutcome": "Expected Outcome",
+    "addSubtask": "Add Subtask",
+    "cancel": "Cancel Plan",
+    "noPlan": "No active plan",
+    "editSubtask": "Edit Subtask",
+    "subtaskName": "Subtask Name",
+    "description": "Description",
+    "addSubtaskTitle": "Add Subtask",
+    "executionKickoffMessage": "[Started from Plan panel] Please continue executing the current plan.",
+    "confirmedAndStarted": "Plan confirmed. Execution started from the console.",
+    "startExecution": "Start execution",
+    "startExecutionConfirm": "Start executing this plan now?",
+    "startExecutionConfirmHint": "The agent will run tools according to the plan. This matches sending a follow-up message in chat.",
+    "noPlanHint": "Use `/plan <description>` in chat to create a plan.",
+    "stopPlan": "Stop Plan",
+    "stopConfirm": "Stop this plan? The plan will be marked as abandoned.",
+    "stoppedSuccess": "Plan has been stopped",
+    "stoppedError": "Failed to stop plan",
+    "cancelledSuccess": "Plan cancelled",
+    "cancelledError": "Failed to cancel plan"
   },
   "security": {
     "parent": "Settings",

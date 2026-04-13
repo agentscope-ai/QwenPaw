@@ -1134,13 +1134,16 @@
     "description": "我是一个智能助手，可以帮助你解答问题。",
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
-    "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令（审批时 \"/approve\" 或 \"/deny\"）",
+    "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令（/plan、/clear 等；审批时 \"/approve\" 或 \"/deny\"）",
     "commands": {
       "clear": {
         "description": "清空对话上下文"
       },
       "compact": {
         "description": "压缩对话上下文并生成摘要，支持附带说明"
+      },
+      "plan": {
+        "description": "开启计划模式或为任务创建结构化计划（/plan <描述>）"
       },
       "approve": {
         "description": "批准待执行的工具操作并继续执行"
@@ -1168,6 +1171,40 @@
       "userMessage": "用户",
       "assistantMessage": "助手"
     }
+  },
+  "plan": {
+    "title": "计划",
+    "notEnabled": "未启用计划模式",
+    "enableHintShort": "启用计划模式后，智能体可将复杂任务分解为步骤，并在您确认后依次执行。",
+    "enableButton": "启用计划模式",
+    "enabledSuccess": "计划模式已启用",
+    "enabledError": "启用计划模式失败",
+    "confirmedSuccess": "计划已确认！请发送一条消息以开始执行。",
+    "confirmedError": "确认计划失败",
+    "editError": "更新子任务失败",
+    "deleteError": "删除子任务失败",
+    "addError": "添加子任务失败",
+    "deleteConfirm": "确定删除此子任务？",
+    "expectedOutcome": "预期结果",
+    "addSubtask": "添加子任务",
+    "cancel": "取消计划",
+    "noPlan": "暂无进行中的计划",
+    "editSubtask": "编辑子任务",
+    "subtaskName": "子任务名称",
+    "description": "描述",
+    "addSubtaskTitle": "添加子任务",
+    "executionKickoffMessage": "[从计划面板启动] 请继续执行当前计划。",
+    "confirmedAndStarted": "计划已确认，已从控制台开始执行。",
+    "startExecution": "开始执行",
+    "startExecutionConfirm": "立即开始执行此计划？",
+    "startExecutionConfirmHint": "智能体将按计划调用工具，效果与在聊天中发送后续消息相同。",
+    "noPlanHint": "请在聊天中使用 `/plan <描述>` 创建计划。",
+    "stopPlan": "停止计划",
+    "stopConfirm": "确定要停止此计划吗？计划将标记为已放弃。",
+    "stoppedSuccess": "计划已停止",
+    "stoppedError": "停止计划失败",
+    "cancelledSuccess": "计划已取消",
+    "cancelledError": "取消计划失败"
   },
   "security": {
     "parent": "设置",

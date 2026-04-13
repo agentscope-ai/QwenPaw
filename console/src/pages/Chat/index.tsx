@@ -707,6 +707,11 @@ export default function ChatPage() {
         description: t("chat.commands.compact.description"),
       },
       {
+        command: "/plan",
+        value: "plan ",
+        description: t("chat.commands.plan.description"),
+      },
+      {
         command: "/approve",
         value: "approve",
         description: t("chat.commands.approve.description"),
@@ -837,7 +842,15 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
+  }, [
+    customFetch,
+    copyResponse,
+    handleFileUpload,
+    t,
+    isDark,
+    multimodalCaps,
+    handlePlanStartExecution,
+  ]);
 
   return (
     <div

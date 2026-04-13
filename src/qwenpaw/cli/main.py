@@ -135,6 +135,7 @@ class LazyGroup(click.Group):
         "auth": ("qwenpaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
         "agents": ("qwenpaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
         "agent": ("qwenpaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
+        "plan": ("qwenpaw.cli.plan_cmd", "plan_group", ".plan_cmd"),
         "plugin": (
             "qwenpaw.cli.plugin_commands",
             "plugin",

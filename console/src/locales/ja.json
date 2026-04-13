@@ -1074,13 +1074,16 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
-    "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
+    "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（/plan、/clear など；承認時は\"/approve\"または\"/deny\"）",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"
       },
       "compact": {
         "description": "会話コンテキストを圧縮して要約を生成。追加指示にも対応"
+      },
+      "plan": {
+        "description": "プランモードを有効にする、またはタスクの構造化プランを開始（/plan <説明>）"
       },
       "approve": {
         "description": "保留中のツール操作を承認して実行を続行"
@@ -1108,6 +1111,40 @@
       "userMessage": "ユーザー",
       "assistantMessage": "アシスタント"
     }
+  },
+  "plan": {
+    "title": "プラン",
+    "notEnabled": "プランモードが有効になっていません",
+    "enableHintShort": "プランモードを有効にすると、エージェントが複雑なタスクをステップに分解し、承認後に順に実行できます。",
+    "enableButton": "プランモードを有効にする",
+    "enabledSuccess": "プランモードを有効にしました",
+    "enabledError": "プランモードの有効化に失敗しました",
+    "confirmedSuccess": "プランを確認しました。実行を開始するにはメッセージを送信してください。",
+    "confirmedError": "プランの確認に失敗しました",
+    "editError": "サブタスクの更新に失敗しました",
+    "deleteError": "サブタスクの削除に失敗しました",
+    "addError": "サブタスクの追加に失敗しました",
+    "deleteConfirm": "このサブタスクを削除しますか？",
+    "expectedOutcome": "期待される成果",
+    "addSubtask": "サブタスクを追加",
+    "cancel": "プランをキャンセル",
+    "noPlan": "アクティブなプランはありません",
+    "editSubtask": "サブタスクを編集",
+    "subtaskName": "サブタスク名",
+    "description": "説明",
+    "addSubtaskTitle": "サブタスクを追加",
+    "executionKickoffMessage": "[プランパネルから開始] 現在のプランの実行を続けてください。",
+    "confirmedAndStarted": "プランを確認しました。コンソールから実行を開始しました。",
+    "startExecution": "実行を開始",
+    "startExecutionConfirm": "このプランの実行を今すぐ開始しますか？",
+    "startExecutionConfirmHint": "エージェントはプランに従ってツールを実行します。チャットでフォローアップを送るのと同じです。",
+    "noPlanHint": "チャットで `/plan <説明>` を使ってプランを作成してください。",
+    "stopPlan": "プランを停止",
+    "stopConfirm": "このプランを停止しますか？プランは放棄としてマークされます。",
+    "stoppedSuccess": "プランを停止しました",
+    "stoppedError": "プランの停止に失敗しました",
+    "cancelledSuccess": "プランをキャンセルしました",
+    "cancelledError": "プランのキャンセルに失敗しました"
   },
   "security": {
     "parent": "設定",
