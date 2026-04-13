@@ -1,6 +1,6 @@
 # 多智能体
 
-CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个独立的 AI 智能体。
+QwenPaw 支持**多智能体**，允许您在同一个 QwenPaw 实例中运行多个独立的 AI 智能体。
 
 > 本功能在 **v0.1.0** 中引入。
 
@@ -15,7 +15,7 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 
 ### 什么是多智能体？
 
-简单来说，**多智能体**就是让您可以在一个 CoPaw 中运行多个"分身"，每个分身：
+简单来说，**多智能体**就是让您可以在一个 QwenPaw 中运行多个"分身"，每个分身：
 
 - 有自己的**性格和专长**（通过不同的人设文件配置）
 - 记住**各自的对话**（互不干扰）
@@ -40,7 +40,7 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 
 ### 场景二：按平台分离
 
-您可能在多个平台使用 CoPaw：
+您可能在多个平台使用 QwenPaw：
 
 - **钉钉** - 工作相关对话
 - **Discord** - 社区讨论
@@ -65,7 +65,7 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 
 #### 1. 查看和切换智能体
 
-启动 CoPaw 后，在控制台**左上角**可以看到**智能体切换器**：
+启动 QwenPaw 后，在控制台**左上角**可以看到**智能体切换器**：
 
 ```
 ┌───────────────────────────────────┐
@@ -203,7 +203,7 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 
 在控制台的"设置 → 智能体管理"页面点击删除按钮。
 
-**注意**：删除后工作区目录会保留（防止误删数据），如需彻底清理，请手动删除 `~/.copaw/workspaces/{agent_id}` 目录。
+**注意**：删除后工作区目录会保留（防止误删数据），如需彻底清理，请手动删除 `~/.qwenpaw/workspaces/{agent_id}` 目录。
 
 ### Q: 默认智能体可以删除吗？
 
@@ -228,7 +228,7 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 
 ## 从单智能体升级
 
-如果您之前使用 CoPaw **v0.0.x**，升级到 **v0.1.0** 时会**自动迁移**：
+如果您之前使用 QwenPaw **v0.0.x**，升级到 **v0.1.0** 时会**自动迁移**：
 
 1. **首次启动时自动迁移**
 
@@ -237,14 +237,14 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 
 2. **验证迁移**
 
-   - 启动 CoPaw 后，在控制台查看智能体列表
+   - 启动 QwenPaw 后，在控制台查看智能体列表
    - 应该能看到一个名为"默认智能体"的智能体
    - 您的旧对话和配置都应该还在
 
 3. **备份建议**
    升级前备份工作目录：
    ```bash
-   cp -r ~/.copaw ~/.copaw.backup
+   cp -r ~/.qwenpaw ~/.qwenpaw.backup
    ```
 
 ---
@@ -276,10 +276,10 @@ CoPaw 支持**多智能体**，允许您在同一个 CoPaw 实例中运行多个
 
 ```bash
 # 为默认智能体启用
-copaw skills config
+qwenpaw skills config
 
 # 为特定智能体启用
-copaw skills config --agent-id abc123
+qwenpaw skills config --agent-id abc123
 
 # 在交互界面中：
 # - 使用 ↑/↓ 键找到 "multi_agent_collaboration"
@@ -427,7 +427,7 @@ copaw skills config --agent-id abc123
 系统会根据智能体的配置（包括名称、描述、技能、人设文件等）**自动生成** `PROFILE.md` 文件，存放在工作区目录：
 
 ```
-~/.copaw/workspaces/{agent_id}/PROFILE.md
+~/.qwenpaw/workspaces/{agent_id}/PROFILE.md
 ```
 
 您可以在**工作区 → 文件**页面查看自动生成的 PROFILE.md。
@@ -437,13 +437,13 @@ copaw skills config --agent-id abc123
 使用 CLI 查看所有智能体的信息：
 
 ```bash
-copaw agents list
+qwenpaw agents list
 
 # 输出示例：
 # Agent ID: code_reviewer
 # Name: 代码审查助手
 # Description: 专注于 Python/JavaScript 代码审查、重构和性能优化
-# Workspace: ~/.copaw/workspaces/code_reviewer
+# Workspace: ~/.qwenpaw/workspaces/code_reviewer
 # Profile: [自动生成的详细能力描述]
 ```
 
@@ -471,7 +471,7 @@ copaw agents list
 #### 查询可用智能体
 
 ```bash
-copaw agents list
+qwenpaw agents list
 ```
 
 此命令会列出所有已配置的智能体，包括：
@@ -488,13 +488,13 @@ copaw agents list
 Agent ID: code_reviewer
 Name: 代码审查助手
 Description: 专注于 Python/JavaScript 代码审查、重构和性能优化
-Workspace: ~/.copaw/workspaces/code_reviewer
+Workspace: ~/.qwenpaw/workspaces/code_reviewer
 Profile: [自动生成的详细能力描述，基于配置和人设文件]
 
 Agent ID: writer_bot
 Name: 写作助手
 Description: 负责文档撰写、内容润色和技术写作，擅长中英文双语
-Workspace: ~/.copaw/workspaces/writer_bot
+Workspace: ~/.qwenpaw/workspaces/writer_bot
 Profile: [自动生成的详细能力描述]
 ```
 
@@ -504,27 +504,27 @@ Profile: [自动生成的详细能力描述]
 
 ```bash
 # 发起新对话（实时模式，适合快速查询）
-copaw agents chat \
+qwenpaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
   --text "请求内容"
 
 # 多轮对话（保持上下文）
-copaw agents chat \
+qwenpaw agents chat \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
   --session-id "<session_id>" \
   --text "继续请求"
 
 # 复杂任务（后台模式，适合数据分析、报告生成等）
-copaw agents chat --background \
+qwenpaw agents chat --background \
   --from-agent <current_agent> \
   --to-agent <target_agent> \
   --text "复杂任务请求"
 # 返回 [TASK_ID: xxx] [SESSION: xxx]
 
 # 查询后台任务状态（查询时 --to-agent 为可选）
-copaw agents chat --background \
+qwenpaw agents chat --background \
   --task-id <task_id>
 # 状态流程：submitted → pending → running → finished
 # finished 时结果显示：completed（✅）或 failed（❌）
@@ -557,12 +557,12 @@ copaw agents chat --background \
 
 ```bash
 # 查看特定智能体的配置
-copaw channels list --agent-id abc123
-copaw cron list --agent-id abc123
-copaw skills list --agent-id abc123
+qwenpaw channels list --agent-id abc123
+qwenpaw cron list --agent-id abc123
+qwenpaw skills list --agent-id abc123
 
 # 为特定智能体创建定时任务
-copaw cron create \
+qwenpaw cron create \
   --agent-id abc123 \
   --type agent \
   --name "检查待办" \
@@ -575,18 +575,18 @@ copaw cron create \
 
 **支持 `--agent-id` 的命令**：
 
-- `copaw channels` - 频道管理
-- `copaw cron` - 定时任务
-- `copaw daemon` - 运行状态
-- `copaw chats` - 对话管理
-- `copaw skills` - 技能管理
+- `qwenpaw channels` - 频道管理
+- `qwenpaw cron` - 定时任务
+- `qwenpaw daemon` - 运行状态
+- `qwenpaw chats` - 对话管理
+- `qwenpaw skills` - 技能管理
 
 **不支持 `--agent-id` 的命令**（全局操作）：
 
-- `copaw init` - 初始化
-- `copaw providers` - 模型提供商
-- `copaw models` - 模型配置
-- `copaw env` - 环境变量
+- `qwenpaw init` - 初始化
+- `qwenpaw providers` - 模型提供商
+- `qwenpaw models` - 模型配置
+- `qwenpaw env` - 环境变量
 
 ### REST API
 
@@ -633,7 +633,7 @@ curl -X POST http://localhost:7860/api/cron/jobs \
 #### 旧结构（v0.0.x）
 
 ```
-~/.copaw/
+~/.qwenpaw/
 ├── config.json          # 包含所有配置
 ├── chats.json
 ├── jobs.json
@@ -644,7 +644,7 @@ curl -X POST http://localhost:7860/api/cron/jobs \
 #### 新结构（v0.1.0+）
 
 ```
-~/.copaw/
+~/.qwenpaw/
 ├── config.json          # 全局配置（providers, agents.profiles）
 └── workspaces/
     ├── default/         # 默认智能体工作区
@@ -688,10 +688,10 @@ curl -X POST http://localhost:7860/api/cron/jobs \
 
 ```bash
 # 备份特定智能体
-cp -r ~/.copaw/workspaces/abc123 ~/backups/agent-abc123-$(date +%Y%m%d)
+cp -r ~/.qwenpaw/workspaces/abc123 ~/backups/agent-abc123-$(date +%Y%m%d)
 
 # 备份所有智能体
-cp -r ~/.copaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
+cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 ```
 
 ---

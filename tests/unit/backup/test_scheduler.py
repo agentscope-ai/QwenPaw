@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from copaw.backup.models import BackupConfig, ConflictStrategy
-from copaw.backup.scheduler import (
+from qwenpaw.backup.models import BackupConfig, ConflictStrategy
+from qwenpaw.backup.scheduler import (
     BackupScheduler,
     _parse_backup_filename,
 )
@@ -82,7 +82,7 @@ async def test_run_backup_success(
 
     # Monkeypatch the default backup dir
     monkeypatch.setattr(
-        "copaw.backup.scheduler._DEFAULT_BACKUP_DIR",
+        "qwenpaw.backup.scheduler._DEFAULT_BACKUP_DIR",
         backup_dir,
     )
 
@@ -104,7 +104,7 @@ async def test_run_backup_failure(
     """Backup on nonexistent workspace returns success=False."""
     backup_dir = tmp_path / "backups"
     monkeypatch.setattr(
-        "copaw.backup.scheduler._DEFAULT_BACKUP_DIR",
+        "qwenpaw.backup.scheduler._DEFAULT_BACKUP_DIR",
         backup_dir,
     )
 
@@ -202,8 +202,8 @@ async def test_restore_from_backup(tmp_path: Path) -> None:
     ws = _create_workspace(tmp_path)
     output = tmp_path / "backup.zip"
 
-    from copaw.backup.exporter import AssetExporter
-    from copaw.backup.models import ExportOptions
+    from qwenpaw.backup.exporter import AssetExporter
+    from qwenpaw.backup.models import ExportOptions
 
     exporter = AssetExporter()
     await exporter.export_assets(

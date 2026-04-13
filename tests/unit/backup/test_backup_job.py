@@ -2,7 +2,7 @@
 """Unit tests for backup cron job builder."""
 from __future__ import annotations
 
-from copaw.app.crons.backup_job import (
+from qwenpaw.app.crons.backup_job import (
     BACKUP_JOB_ID,
     BACKUP_JOB_NAME,
     build_backup_cron_job,

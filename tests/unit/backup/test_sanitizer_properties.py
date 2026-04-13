@@ -9,7 +9,7 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from copaw.backup.sanitizer import (
+from qwenpaw.backup.sanitizer import (
     REDACTED,
     SENSITIVE_FIELDS,
     sanitize_preferences,

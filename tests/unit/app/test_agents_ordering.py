@@ -6,12 +6,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from copaw.config.config import (
+from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
     Config,
 )
-from copaw.app.routers import agents as agents_router
+from qwenpaw.app.routers import agents as agents_router
 
 
 def _build_config(

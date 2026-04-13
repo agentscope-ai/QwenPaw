@@ -6,7 +6,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
-from copaw.providers.openai_chat_model_compat import (
+from qwenpaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
     _sanitize_tool_call,
 )

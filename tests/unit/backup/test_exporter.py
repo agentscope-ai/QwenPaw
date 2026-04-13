@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from copaw.backup.exporter import AssetExporter
-from copaw.backup.models import AssetType, ExportOptions
+from qwenpaw.backup.exporter import AssetExporter
+from qwenpaw.backup.models import AssetType, ExportOptions
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +304,7 @@ async def test_export_global_config(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr("copaw.backup.exporter.WORKING_DIR", global_dir)
+    monkeypatch.setattr("qwenpaw.backup.exporter.WORKING_DIR", global_dir)
 
     exporter = AssetExporter()
     result = await exporter.export_assets(
@@ -345,7 +345,7 @@ async def test_export_global_config_missing(
 
     empty_dir = tmp_path / "empty_home"
     empty_dir.mkdir()
-    monkeypatch.setattr("copaw.backup.exporter.WORKING_DIR", empty_dir)
+    monkeypatch.setattr("qwenpaw.backup.exporter.WORKING_DIR", empty_dir)
 
     exporter = AssetExporter()
     result = await exporter.export_assets(
@@ -383,7 +383,7 @@ async def test_export_excludes_global_config_when_disabled(
         json.dumps({"x": 1}),
         encoding="utf-8",
     )
-    monkeypatch.setattr("copaw.backup.exporter.WORKING_DIR", global_dir)
+    monkeypatch.setattr("qwenpaw.backup.exporter.WORKING_DIR", global_dir)
 
     exporter = AssetExporter()
     result = await exporter.export_assets(

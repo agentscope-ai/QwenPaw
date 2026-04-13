@@ -96,10 +96,12 @@ export default function LoginPage() {
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
-            src={`${import.meta.env.BASE_URL}${
-              isDark ? "dark-logo.png" : "logo.png"
-            }`}
-            alt="CoPaw"
+            src={
+              isDark
+                ? `https://gw.alicdn.com/imgextra/i4/O1CN01L7e39724RlGeJYJ7l_!!6000000007388-55-tps-771-132.svg`
+                : "https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg"
+            }
+            alt="QwenPaw"
             style={{ height: 48, marginBottom: 12 }}
           />
           <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>

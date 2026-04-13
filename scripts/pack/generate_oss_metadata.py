@@ -4,7 +4,7 @@ Generate OSS metadata JSON files for release artifacts.
 
 Usage:
   python generate_oss_metadata.py \
-    --file dist/CoPaw-Setup-1.0.0.exe \
+    --file dist/QwenPaw-Setup-1.0.0.exe \
     --product desktop \
     --platform win \
     --version 1.0.0 \

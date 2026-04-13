@@ -9,16 +9,16 @@ from pathlib import Path
 
 import pytest
 
-from copaw.backup.errors import (
+from qwenpaw.backup.errors import (
     IncompatibleVersionError,
     InvalidAssetPackageError,
 )
-from copaw.backup.importer import (
+from qwenpaw.backup.importer import (
     AssetImporter,
     _generate_rename_path,
     _merge_preferences,
 )
-from copaw.backup.models import AssetType, ConflictStrategy
+from qwenpaw.backup.models import AssetType, ConflictStrategy
 
 
 # ---------------------------------------------------------------------------

@@ -84,7 +84,7 @@ function PlatformCard({
   const updatedDate = new Date(fileMetadata.updated_at).toLocaleDateString(
     isZh ? "zh-CN" : "en-US",
   );
-  const downloadUrl = `https://download.copaw.agentscope.io${fileMetadata.url}`;
+  const downloadUrl = `https://download.qwenpaw.agentscope.io${fileMetadata.url}`;
 
   return (
     <div className={`platform-card ${isRecommended ? "recommended" : ""}`}>
@@ -165,7 +165,7 @@ export default function Downloads() {
   useEffect(() => {
     async function loadDownloads() {
       try {
-        const CDN_BASE = "https://download.copaw.agentscope.io";
+        const CDN_BASE = "https://download.qwenpaw.agentscope.io";
 
         console.log(
           "Fetching main index from:",

@@ -16,15 +16,15 @@ import pytest
 from hypothesis import given, settings, HealthCheck, assume
 from hypothesis import strategies as st
 
-from copaw.backup.exporter import AssetExporter
-from copaw.backup.importer import AssetImporter
-from copaw.backup.models import (
+from qwenpaw.backup.exporter import AssetExporter
+from qwenpaw.backup.importer import AssetImporter
+from qwenpaw.backup.models import (
     AssetType,
     ConflictStrategy,
     ExportOptions,
     ExportResult,
 )
-from copaw.backup.sanitizer import sanitize_preferences
+from qwenpaw.backup.sanitizer import sanitize_preferences
 
 
 # ---------------------------------------------------------------------------

@@ -15,8 +15,8 @@ import pytest
 from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 
-from copaw.backup.importer import AssetImporter, _sha256
-from copaw.backup.models import (
+from qwenpaw.backup.importer import AssetImporter, _sha256
+from qwenpaw.backup.models import (
     AssetEntry,
     AssetManifest,
     AssetType,

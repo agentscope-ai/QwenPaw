@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from copaw.backup.models import (
+from qwenpaw.backup.models import (
     AssetEntry,
     AssetManifest,
     AssetType,
@@ -19,7 +19,7 @@ from copaw.backup.models import (
     ImportResult,
     VersionInfo,
 )
-from copaw.backup.errors import (
+from qwenpaw.backup.errors import (
     IncompatibleVersionError,
     InsufficientStorageError,
     InvalidAssetPackageError,

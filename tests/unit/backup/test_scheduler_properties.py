@@ -14,8 +14,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from copaw.backup.models import BackupConfig
-from copaw.backup.scheduler import BackupScheduler, _parse_backup_filename
+from qwenpaw.backup.models import BackupConfig
+from qwenpaw.backup.scheduler import BackupScheduler, _parse_backup_filename
 
 # ---------------------------------------------------------------------------
 # Strategies

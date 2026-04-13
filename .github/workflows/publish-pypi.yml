@@ -1,12 +1,18 @@
 # Publish Python package to PyPI when a release is created.
 # Build includes console frontend (see scripts/wheel_build.sh).
-# Manual trigger: uploads whl to GitHub artifacts for download.
+# Manual trigger: can optionally force push to PyPI or just upload artifacts.
 # Release trigger: publishes to PyPI.
 
 name: Publish Python Package to PyPI
 
 on:
   workflow_dispatch:
+    inputs:
+      force_push_to_pypi:
+        description: 'Force push to PyPI (even without release)'
+        required: false
+        type: boolean
+        default: false
   release:
     types: [published]
 
@@ -37,9 +43,9 @@ jobs:
 
       - name: Copy console build into package
         run: |
-          rm -rf src/copaw/console/*
-          mkdir -p src/copaw/console
-          cp -R console/dist/* src/copaw/console/
+          rm -rf src/qwenpaw/console/*
+          mkdir -p src/qwenpaw/console
+          cp -R console/dist/* src/qwenpaw/console/
 
       - name: Install build dependencies
         run: |
@@ -49,16 +55,16 @@ jobs:
       - name: Build package
         run: python -m build
 
-      - name: Upload wheel to artifacts (manual trigger only)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload wheel to artifacts (manual trigger without force push)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: copaw-wheel
+          name: qwenpaw-wheel
           path: dist/*.whl
           retention-days: 30
 
-      - name: Publish package to PyPI (release trigger only)
-        if: github.event_name == 'release'
+      - name: Publish package to PyPI
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true')
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__

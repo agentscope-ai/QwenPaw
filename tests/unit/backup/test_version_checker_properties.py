@@ -14,13 +14,13 @@ import pytest
 from hypothesis import given, settings, assume
 from hypothesis import strategies as st
 
-from copaw.backup.errors import IncompatibleVersionError
-from copaw.backup.models import (
+from qwenpaw.backup.errors import IncompatibleVersionError
+from qwenpaw.backup.models import (
     AssetManifest,
     CompatibilityLevel,
     VersionInfo,
 )
-from copaw.backup.version_checker import (
+from qwenpaw.backup.version_checker import (
     CURRENT_SCHEMA_VERSION,
     check_compatibility,
     migrate_manifest,
@@ -177,7 +177,7 @@ def test_lower_major_with_migration_returns_migratable(lower: int) -> None:
         fake_migrations[(i, i + 1)] = lambda d: d
 
     with patch.dict(
-        "copaw.backup.version_checker._MIGRATIONS",
+        "qwenpaw.backup.version_checker._MIGRATIONS",
         fake_migrations,
     ):
         manifest = _make_manifest(f"copaw-assets.v{source_major}")
@@ -202,7 +202,7 @@ def test_lower_major_without_migration_returns_incompatible(
 
     # Ensure no migrations are registered
     with patch.dict(
-        "copaw.backup.version_checker._MIGRATIONS",
+        "qwenpaw.backup.version_checker._MIGRATIONS",
         {},
         clear=True,
     ):
@@ -242,7 +242,7 @@ def test_chain_migration_updates_schema_version(
     manifest_data = {"schema_version": f"copaw-assets.v{source_major}"}
 
     with patch.dict(
-        "copaw.backup.version_checker._MIGRATIONS",
+        "qwenpaw.backup.version_checker._MIGRATIONS",
         fake_migrations,
         clear=True,
     ):
@@ -275,7 +275,7 @@ def test_missing_migration_raises_incompatible(
     manifest_data = {"schema_version": f"copaw-assets.v{source_major}"}
 
     with patch.dict(
-        "copaw.backup.version_checker._MIGRATIONS",
+        "qwenpaw.backup.version_checker._MIGRATIONS",
         fake_migrations,
         clear=True,
     ):

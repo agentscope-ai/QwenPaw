@@ -15,8 +15,8 @@ import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
-from copaw.backup.exporter import AssetExporter
-from copaw.backup.models import AssetType, ExportOptions
+from qwenpaw.backup.exporter import AssetExporter
+from qwenpaw.backup.models import AssetType, ExportOptions
 
 
 # ---------------------------------------------------------------------------
