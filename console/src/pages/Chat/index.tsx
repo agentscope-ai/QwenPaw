@@ -709,7 +709,10 @@ export default function ChatPage() {
       {
         command: "/plan",
         value: "plan ",
-        description: t("chat.commands.plan.description"),
+        description: t(
+          "chat.commands.plan.description",
+          "Create or manage a plan",
+        ),
       },
       {
         command: "/approve",
@@ -720,11 +723,6 @@ export default function ChatPage() {
         command: "/deny",
         value: "deny",
         description: t("chat.commands.deny.description"),
-      },
-      {
-        command: "/plan",
-        value: "plan ",
-        description: t("chat.commands.plan.description", "Create or manage a plan"),
       },
     ];
 
