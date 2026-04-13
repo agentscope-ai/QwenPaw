@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from copaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.app.channels.console.channel import ConsoleChannel
 
 
 class TestConsoleChannelUnit:
@@ -57,7 +57,7 @@ class TestConsoleChannelUnit:
 
     def test_init_stores_enabled_flag(self, mock_process):
         """Constructor should store the enabled flag."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         ch = ConsoleChannel(
             process=mock_process,
@@ -80,7 +80,7 @@ class TestConsoleChannelUnit:
     @pytest.mark.asyncio
     async def test_send_disabled_does_nothing(self, mock_process, capsys):
         """send() should do nothing when disabled."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         ch = ConsoleChannel(
             process=mock_process,
@@ -96,7 +96,7 @@ class TestConsoleChannelUnit:
     @pytest.mark.asyncio
     async def test_send_includes_prefix(self, mock_process, capsys):
         """send() should include bot_prefix before message."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         ch = ConsoleChannel(
             process=mock_process,
@@ -120,7 +120,7 @@ class TestConsoleChannelUnit:
     @pytest.mark.asyncio
     async def test_start_when_disabled(self, mock_process):
         """start() should handle disabled channel gracefully."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         ch = ConsoleChannel(
             process=mock_process,
@@ -141,7 +141,7 @@ class TestConsoleChannelUnit:
     @pytest.mark.asyncio
     async def test_stop_when_disabled(self, mock_process):
         """stop() should handle disabled channel gracefully."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         ch = ConsoleChannel(
             process=mock_process,
@@ -159,7 +159,7 @@ class TestConsoleChannelUnit:
         capsys,
     ):
         """send_content_parts() should combine multiple text parts."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         ch = ConsoleChannel(
             process=mock_process,
@@ -188,7 +188,7 @@ class TestConsoleChannelFromEnv:
 
     def test_from_env_reads_enabled(self, mock_process, monkeypatch):
         """from_env should read CONSOLE_CHANNEL_ENABLED from environment."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         monkeypatch.setenv("CONSOLE_CHANNEL_ENABLED", "0")
 
@@ -198,7 +198,7 @@ class TestConsoleChannelFromEnv:
 
     def test_from_env_reads_bot_prefix(self, mock_process, monkeypatch):
         """from_env should read CONSOLE_BOT_PREFIX from environment."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         monkeypatch.setenv("CONSOLE_BOT_PREFIX", "[TEST] ")
 
@@ -208,7 +208,7 @@ class TestConsoleChannelFromEnv:
 
     def test_from_env_defaults(self, mock_process, monkeypatch):
         """from_env should use sensible defaults."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         # Clear environment
         monkeypatch.delenv("CONSOLE_CHANNEL_ENABLED", raising=False)
@@ -230,8 +230,8 @@ class TestConsoleChannelFromConfig:
 
     def test_from_config_uses_config_values(self, mock_process):
         """from_config should use values from config object."""
-        from copaw.app.channels.console.channel import ConsoleChannel
-        from copaw.config.config import ConsoleConfig
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.config.config import ConsoleConfig
 
         config = ConsoleConfig(
             enabled=False,
@@ -262,7 +262,7 @@ class TestConsolePrinting:
     @pytest.fixture
     def channel_for_print(self):
         """Create channel for testing print methods."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         return ConsoleChannel(
             process=AsyncMock(),
@@ -283,7 +283,7 @@ class TestConsolePrinting:
         capsys,
     ):
         """_print_parts should format and print text content."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         parts = [TextContent(type=ContentType.TEXT, text="Test message")]
         channel_for_print._print_parts(parts, ev_type="message.completed")
@@ -298,7 +298,7 @@ class TestConsolePrinting:
         capsys,
     ):
         """_print_parts should format refusal content."""
-        from copaw.app.channels.base import RefusalContent, ContentType
+        from qwenpaw.app.channels.base import RefusalContent, ContentType
 
         parts = [
             RefusalContent(
@@ -318,7 +318,7 @@ class TestConsolePrinting:
         capsys,
     ):
         """_print_parts should format image content."""
-        from copaw.app.channels.base import ImageContent, ContentType
+        from qwenpaw.app.channels.base import ImageContent, ContentType
 
         parts = [
             ImageContent(
@@ -338,7 +338,7 @@ class TestConsolePrinting:
         capsys,
     ):
         """_print_parts should format video content."""
-        from copaw.app.channels.base import VideoContent, ContentType
+        from qwenpaw.app.channels.base import VideoContent, ContentType
 
         parts = [
             VideoContent(
@@ -361,7 +361,7 @@ class TestConsolePrinting:
 
     def test_parts_to_text_combines_text_parts(self, channel_for_print):
         """_parts_to_text should combine multiple text parts."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         parts = [
             TextContent(type=ContentType.TEXT, text="Line 1"),
@@ -375,7 +375,7 @@ class TestConsolePrinting:
 
     def test_parts_to_text_includes_prefix(self, channel_for_print):
         """_parts_to_text should include bot_prefix."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         parts = [TextContent(type=ContentType.TEXT, text="Hello")]
 
@@ -385,7 +385,7 @@ class TestConsolePrinting:
 
     def test_parts_to_text_skips_empty_parts(self, channel_for_print):
         """_parts_to_text should skip empty text parts."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         parts = [
             TextContent(type=ContentType.TEXT, text=""),
@@ -413,7 +413,7 @@ class TestConsoleStreaming:
     @pytest.fixture
     def stream_channel(self):
         """Create channel for stream testing."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         return ConsoleChannel(
             process=AsyncMock(),
@@ -550,7 +550,7 @@ class TestConsoleMediaHandling:
     @pytest.fixture
     def media_channel(self):
         """Create channel for media testing."""
-        from copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         return ConsoleChannel(
             process=AsyncMock(),

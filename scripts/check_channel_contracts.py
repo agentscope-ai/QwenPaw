@@ -23,7 +23,7 @@ from pathlib import Path
 def get_all_channel_classes() -> set[str]:
     """Scan all Channel subclasses from source code (non-runtime)."""
     src_dir = Path(__file__).parent.parent / "src"
-    channels_dir = src_dir / "copaw" / "app" / "channels"
+    channels_dir = src_dir / "qwenpaw" / "app" / "channels"
     classes = set()
 
     for channel_file in channels_dir.rglob("channel.py"):

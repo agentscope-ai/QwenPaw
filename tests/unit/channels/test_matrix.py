@@ -24,8 +24,8 @@ from nio import (
     UploadResponse,
 )
 
-from copaw.app.channels.matrix.channel import MatrixChannel
-from copaw.config.config import MatrixConfig
+from qwenpaw.app.channels.matrix.channel import MatrixChannel
+from qwenpaw.config.config import MatrixConfig
 
 
 @pytest.fixture

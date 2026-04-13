@@ -92,5 +92,5 @@ class ProviderContractTest(BaseContractTest):
 # Example usage:
 # class TestOpenAIProviderContract(ProviderContractTest):
 #     def create_instance(self):
-#         from copaw.providers.openai_provider import OpenAIProvider
+#         from qwenpaw.providers.openai_provider import OpenAIProvider
 #         return OpenAIProvider(...)

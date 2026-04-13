@@ -22,7 +22,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     TextContent,
     ImageContent,
 )
-from copaw.exceptions import ChannelError
+from qwenpaw.exceptions import ChannelError
 
 
 # =============================================================================
@@ -62,7 +62,7 @@ def mock_discord_client():
 @pytest.fixture
 def discord_channel_disabled(mock_process):
     """Create disabled DiscordChannel instance for testing."""
-    from copaw.app.channels.discord_.channel import DiscordChannel
+    from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
     channel = DiscordChannel(
         process=mock_process,
@@ -80,7 +80,7 @@ def discord_channel(mock_process):
     """Create DiscordChannel instance for testing
     (disabled to avoid client init).
     """
-    from copaw.app.channels.discord_.channel import DiscordChannel
+    from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
     channel = DiscordChannel(
         process=mock_process,
@@ -112,7 +112,7 @@ class TestDiscordChannelInit:
 
     def test_init_stores_basic_config(self, mock_process):
         """Constructor should store all basic configuration parameters."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         channel = DiscordChannel(
             process=mock_process,
@@ -131,7 +131,7 @@ class TestDiscordChannelInit:
 
     def test_init_stores_policy_config(self, mock_process):
         """Constructor should store policy configuration parameters."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         channel = DiscordChannel(
             process=mock_process,
@@ -157,7 +157,7 @@ class TestDiscordChannelInit:
 
     def test_init_creates_required_data_structures(self, mock_process):
         """Constructor should initialize required internal data structures."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         channel = DiscordChannel(
             process=mock_process,
@@ -205,7 +205,7 @@ class TestDiscordChannelFromEnv:
 
     def test_from_env_reads_basic_env_vars(self, mock_process, monkeypatch):
         """from_env should read basic environment variables."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         monkeypatch.setenv("DISCORD_CHANNEL_ENABLED", "1")
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "env_token_123")
@@ -223,7 +223,7 @@ class TestDiscordChannelFromEnv:
 
     def test_from_env_reads_policy_env_vars(self, mock_process, monkeypatch):
         """from_env should read policy environment variables."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         monkeypatch.setenv("DISCORD_CHANNEL_ENABLED", "1")
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
@@ -245,7 +245,7 @@ class TestDiscordChannelFromEnv:
 
     def test_from_env_uses_defaults(self, mock_process, monkeypatch):
         """from_env uses defaults when env vars are missing."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
         monkeypatch.delenv("DISCORD_CHANNEL_ENABLED", raising=False)
@@ -266,7 +266,7 @@ class TestDiscordChannelFromEnv:
 
     def test_from_env_empty_allow_from(self, mock_process, monkeypatch):
         """from_env should handle empty DISCORD_ALLOW_FROM."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
         monkeypatch.setenv("DISCORD_ALLOW_FROM", "")
@@ -283,7 +283,7 @@ class TestDiscordChannelFromConfig:
 
     def test_from_config_uses_config_object(self, mock_process):
         """from_config should use configuration object's values."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         mock_config = Mock()
         mock_config.enabled = True
@@ -317,7 +317,7 @@ class TestDiscordChannelFromConfig:
 
     def test_from_config_uses_defaults_for_optional(self, mock_process):
         """from_config should use defaults for optional config values."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         mock_config = Mock()
         mock_config.enabled = False
@@ -360,7 +360,7 @@ class TestDiscordChannelChunkText:
 
     def test_chunk_text_short_text_no_split(self):
         """Short text should not be split."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         text = "Hello, World!"
         chunks = DiscordChannel._chunk_text(text, max_len=2000)
@@ -370,7 +370,7 @@ class TestDiscordChannelChunkText:
 
     def test_chunk_text_empty_string(self):
         """Empty string should return list with empty string."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         chunks = DiscordChannel._chunk_text("")
 
@@ -378,7 +378,7 @@ class TestDiscordChannelChunkText:
 
     def test_chunk_text_whitespace_only(self):
         """Whitespace-only string should return as-is."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         chunks = DiscordChannel._chunk_text("   \n\t  ")
 
@@ -386,7 +386,7 @@ class TestDiscordChannelChunkText:
 
     def test_chunk_text_split_at_newlines(self):
         """Text should split at newlines when possible."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         lines = [f"Line {i}" for i in range(100)]
         text = "\n".join(lines)
@@ -399,7 +399,7 @@ class TestDiscordChannelChunkText:
 
     def test_chunk_text_with_code_fences(self):
         """Text with code fences should preserve fence structure."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         text = """```python
 def hello():
@@ -417,7 +417,7 @@ Some text after"""
 
     def test_chunk_text_long_single_line(self):
         """Long single line should be hard-split."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         text = "a" * 5000
 
@@ -431,7 +431,7 @@ Some text after"""
 
     def test_chunk_text_preserves_formatting(self):
         """Text formatting should be preserved in chunks."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         text = """First paragraph with some content.
 
@@ -861,7 +861,7 @@ class TestDiscordChannelEdgeCases:
 
     def test_chunk_text_with_only_fences(self):
         """Test chunking text with only code fences."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         text = "```\n```"
         chunks = DiscordChannel._chunk_text(text, max_len=100)
@@ -870,7 +870,7 @@ class TestDiscordChannelEdgeCases:
 
     def test_chunk_text_nested_fences(self):
         """Test chunking with nested code fences."""
-        from copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         text = """```python
 print("```nested```")

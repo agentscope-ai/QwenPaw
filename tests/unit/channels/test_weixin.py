@@ -79,7 +79,7 @@ def weixin_channel(
     temp_media_dir,
 ) -> Generator:
     """Create a WeixinChannel instance for testing."""
-    from copaw.app.channels.weixin.channel import WeixinChannel
+    from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
     channel = WeixinChannel(
         process=mock_process_handler,
@@ -148,7 +148,7 @@ class TestWeixinChannelInit:
         temp_media_dir,
     ):
         """Constructor should store all basic configuration parameters."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         channel = WeixinChannel(
             process=mock_process_handler,
@@ -173,7 +173,7 @@ class TestWeixinChannelInit:
         temp_media_dir,
     ):
         """Constructor should store advanced configuration parameters."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         channel = WeixinChannel(
             process=mock_process_handler,
@@ -200,7 +200,7 @@ class TestWeixinChannelInit:
 
     def test_init_creates_required_data_structures(self, mock_process_handler):
         """Constructor should initialize required internal data structures."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         channel = WeixinChannel(
             process=mock_process_handler,
@@ -221,7 +221,7 @@ class TestWeixinChannelInit:
 
     def test_init_creates_locks(self, mock_process_handler):
         """Constructor should create required locks for thread safety."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         channel = WeixinChannel(
             process=mock_process_handler,
@@ -247,7 +247,7 @@ class TestWeixinChannelFromEnv:
         monkeypatch,
     ):
         """from_env should read basic environment variables."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         monkeypatch.setenv("WEIXIN_CHANNEL_ENABLED", "1")
         monkeypatch.setenv("WEIXIN_BOT_TOKEN", "env_token_123")
@@ -267,7 +267,7 @@ class TestWeixinChannelFromEnv:
         monkeypatch,
     ):
         """from_env should read advanced environment variables."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         monkeypatch.setenv("WEIXIN_BOT_TOKEN_FILE", "/env/token/file.txt")
         monkeypatch.setenv("WEIXIN_MEDIA_DIR", "/env/media")
@@ -291,7 +291,7 @@ class TestWeixinChannelFromEnv:
         monkeypatch,
     ):
         """from_env should parse WEIXIN_ALLOW_FROM correctly."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         monkeypatch.setenv("WEIXIN_ALLOW_FROM", "user1,user2,user3")
 
@@ -307,7 +307,7 @@ class TestWeixinChannelFromEnv:
         monkeypatch,
     ):
         """from_env should handle empty WEIXIN_ALLOW_FROM."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         monkeypatch.setenv("WEIXIN_ALLOW_FROM", "")
 
@@ -317,7 +317,7 @@ class TestWeixinChannelFromEnv:
 
     def test_from_env_defaults(self, mock_process_handler, monkeypatch):
         """from_env should use sensible defaults."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         monkeypatch.delenv("WEIXIN_CHANNEL_ENABLED", raising=False)
         monkeypatch.delenv("WEIXIN_BOT_PREFIX", raising=False)
@@ -337,7 +337,7 @@ class TestWeixinChannelFromConfig:
 
     def test_from_config_uses_config_values(self, mock_process_handler):
         """from_config should use values from config object."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         class MockConfig:
             enabled = True
@@ -365,7 +365,7 @@ class TestWeixinChannelFromConfig:
 
     def test_from_config_handles_none_values(self, mock_process_handler):
         """from_config should handle None values gracefully."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         class MockConfig:
             enabled = False  # Use False instead of None
@@ -498,7 +498,7 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should load token from file when available."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         token_file = temp_token_dir / "weixin_bot_token"
         token_file.write_text("persisted_token_123", encoding="utf-8")
@@ -519,7 +519,7 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should return empty string when file doesn't exist."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         channel = WeixinChannel(
             process=mock_process_handler,
@@ -537,7 +537,7 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should create token file with correct content."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         token_file = temp_token_dir / "weixin_bot_token"
         channel = WeixinChannel(
@@ -557,7 +557,7 @@ class TestWeixinTokenPersistence:
         tmp_path,
     ):
         """Should create parent directories if needed."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         deep_path = tmp_path / "deep" / "nested" / "dir" / "token"
         channel = WeixinChannel(
@@ -576,7 +576,7 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should load context tokens from file."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         context_file = temp_token_dir / "weixin_context_tokens.json"
         data = {"user1": "token1", "user2": "token2"}
@@ -600,7 +600,7 @@ class TestWeixinTokenPersistence:
         temp_token_dir,
     ):
         """Should save context tokens to file."""
-        from copaw.app.channels.weixin.channel import WeixinChannel
+        from qwenpaw.app.channels.weixin.channel import WeixinChannel
 
         channel = WeixinChannel(
             process=mock_process_handler,
@@ -687,7 +687,7 @@ class TestWeixinBuildAgentRequest:
 
     def test_build_agent_request_from_native(self, weixin_channel):
         """Should create AgentRequest from native payload."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         payload = {
             "channel_id": "wechat",
@@ -710,7 +710,7 @@ class TestWeixinBuildAgentRequest:
 
     def test_build_agent_request_auto_session(self, weixin_channel):
         """Should auto-generate session_id when not provided."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         payload = {
             "channel_id": "wechat",
@@ -727,7 +727,7 @@ class TestWeixinBuildAgentRequest:
 
     def test_merge_native_items(self, weixin_channel):
         """Should merge multiple native payloads."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         items = [
             {
@@ -825,7 +825,7 @@ class TestWeixinSendMethods:
         mock_ilink_client,
     ):
         """Successfully send content parts."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         weixin_channel._client = mock_ilink_client
 
@@ -852,7 +852,7 @@ class TestWeixinSendMethods:
         mock_ilink_client,
     ):
         """Should include bot_prefix in message."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         weixin_channel._client = mock_ilink_client
 
@@ -877,7 +877,7 @@ class TestWeixinSendMethods:
         mock_ilink_client,
     ):
         """Should do nothing when channel is disabled."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         weixin_channel.enabled = False
         weixin_channel._client = mock_ilink_client
@@ -898,7 +898,7 @@ class TestWeixinSendMethods:
         mock_ilink_client,
     ):
         """Should skip sending when body is empty."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         weixin_channel._client = mock_ilink_client
 
@@ -918,7 +918,7 @@ class TestWeixinSendMethods:
         mock_ilink_client,
     ):
         """Should do nothing when to_user_id cannot be resolved."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         weixin_channel._client = mock_ilink_client
 
@@ -1537,7 +1537,7 @@ class TestWeixinEdgeCases:
         mock_ilink_client,
     ):
         """Long text should be split into chunks."""
-        from copaw.app.channels.base import TextContent, ContentType
+        from qwenpaw.app.channels.base import TextContent, ContentType
 
         weixin_channel._client = mock_ilink_client
 
@@ -1597,7 +1597,7 @@ class TestWeixinEdgeCases:
 
     def test_build_agent_request_with_varied_content(self, weixin_channel):
         """Should handle different content types in build_agent_request."""
-        from copaw.app.channels.base import ImageContent, ContentType
+        from qwenpaw.app.channels.base import ImageContent, ContentType
 
         payload = {
             "channel_id": "wechat",

@@ -60,7 +60,7 @@ def mock_session(mock_ws):
 @pytest.fixture
 def xiaoyi_channel(mock_process, tmp_path):
     """Create XiaoYiChannel instance for testing."""
-    from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+    from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
     channel = XiaoYiChannel(
         process=mock_process,
@@ -100,7 +100,7 @@ class TestXiaoYiChannelInit:
 
     def test_init_stores_basic_config(self, mock_process, tmp_path):
         """Constructor should store all basic configuration parameters."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         channel = XiaoYiChannel(
             process=mock_process,
@@ -129,7 +129,7 @@ class TestXiaoYiChannelInit:
         tmp_path,
     ):
         """Constructor should initialize internal data structures."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         channel = XiaoYiChannel(
             process=mock_process,
@@ -149,7 +149,7 @@ class TestXiaoYiChannelInit:
 
     def test_init_with_workspace_dir(self, mock_process, tmp_path):
         """Constructor uses workspace-specific media dir when provided."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         workspace = tmp_path / "workspace"
         channel = XiaoYiChannel(
@@ -183,7 +183,7 @@ class TestXiaoYiChannelFactoryMethods:
         tmp_path,
     ):
         """from_env should correctly read environment variables."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         monkeypatch.setenv("XIAOYI_CHANNEL_ENABLED", "1")
         monkeypatch.setenv("XIAOYI_AK", "env_ak_value")
@@ -202,7 +202,7 @@ class TestXiaoYiChannelFactoryMethods:
 
     def test_from_env_uses_defaults(self, monkeypatch, mock_process):
         """from_env uses default values when env vars are missing."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         monkeypatch.delenv("XIAOYI_CHANNEL_ENABLED", raising=False)
         monkeypatch.delenv("XIAOYI_AK", raising=False)
@@ -222,7 +222,7 @@ class TestXiaoYiChannelFactoryMethods:
 
     def test_from_config_with_object(self, mock_process, tmp_path):
         """from_config should use config object values."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         config = Mock()
         config.enabled = True
@@ -248,7 +248,7 @@ class TestXiaoYiChannelFactoryMethods:
 
     def test_from_config_with_dict(self, mock_process):
         """from_config should work with dict config."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         config = {
             "enabled": True,
@@ -285,7 +285,7 @@ class TestXiaoYiChannelValidation:
 
     def test_validate_config_raises_on_missing_ak(self, mock_process):
         """_validate_config should raise ValueError when AK is missing."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         channel = XiaoYiChannel(
             process=mock_process,
@@ -301,7 +301,7 @@ class TestXiaoYiChannelValidation:
 
     def test_validate_config_raises_on_missing_sk(self, mock_process):
         """_validate_config should raise ValueError when SK is missing."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         channel = XiaoYiChannel(
             process=mock_process,
@@ -317,7 +317,7 @@ class TestXiaoYiChannelValidation:
 
     def test_validate_config_raises_on_missing_agent_id(self, mock_process):
         """_validate_config raises ValueError when agent_id is missing."""
-        from copaw.app.channels.xiaoyi.channel import XiaoYiChannel
+        from qwenpaw.app.channels.xiaoyi.channel import XiaoYiChannel
 
         channel = XiaoYiChannel(
             process=mock_process,
@@ -1160,7 +1160,7 @@ class TestXiaoYiChannelConnectionRegistry:
         xiaoyi_channel,
     ):
         """_unregister_connection should remove from active connections."""
-        from copaw.app.channels.xiaoyi import channel as xiaoyi_module
+        from qwenpaw.app.channels.xiaoyi import channel as xiaoyi_module
 
         # Add to registry first
         async with xiaoyi_module._active_connections_lock:

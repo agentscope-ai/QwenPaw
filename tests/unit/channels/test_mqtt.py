@@ -54,7 +54,7 @@ def mock_mqtt_client():
 @pytest.fixture
 def mqtt_channel(mock_process):
     """Create MQTTChannel instance for testing."""
-    from copaw.app.channels.mqtt.channel import MQTTChannel
+    from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
     channel = MQTTChannel(
         process=mock_process,
@@ -86,7 +86,7 @@ class TestMQTTChannelInit:
 
     def test_init_stores_basic_config(self, mock_process):
         """Constructor should store all basic configuration parameters."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         channel = MQTTChannel(
             process=mock_process,
@@ -113,7 +113,7 @@ class TestMQTTChannelInit:
 
     def test_init_stores_advanced_config(self, mock_process):
         """Constructor should store advanced configuration parameters."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         channel = MQTTChannel(
             process=mock_process,
@@ -143,7 +143,7 @@ class TestMQTTChannelInit:
 
     def test_init_creates_required_data_structures(self, mock_process):
         """Constructor should initialize required internal data structures."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         channel = MQTTChannel(
             process=mock_process,
@@ -184,7 +184,7 @@ class TestMQTTChannelFromEnv:
 
     def test_from_env_reads_basic_env_vars(self, mock_process, monkeypatch):
         """from_env should read basic environment variables."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         monkeypatch.setenv("MQTT_CHANNEL_ENABLED", "1")
         monkeypatch.setenv("MQTT_HOST", "env.mqtt.local")
@@ -210,7 +210,7 @@ class TestMQTTChannelFromEnv:
 
     def test_from_env_reads_advanced_env_vars(self, mock_process, monkeypatch):
         """from_env should read advanced environment variables."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         monkeypatch.setenv("MQTT_CHANNEL_ENABLED", "1")
         monkeypatch.setenv("MQTT_HOST", "test.mqtt.local")
@@ -232,7 +232,7 @@ class TestMQTTChannelFromEnv:
 
     def test_from_env_defaults(self, mock_process, monkeypatch):
         """from_env should use sensible defaults."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         monkeypatch.setenv("MQTT_HOST", "test.mqtt.local")
         monkeypatch.setenv("MQTT_SUBSCRIBE_TOPIC", "test/in")
@@ -259,7 +259,7 @@ class TestMQTTChannelFromEnv:
         monkeypatch,
     ):
         """from_env should handle invalid port."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         monkeypatch.setenv("MQTT_HOST", "test.mqtt.local")
         monkeypatch.setenv("MQTT_SUBSCRIBE_TOPIC", "test/in")
@@ -278,7 +278,7 @@ class TestMQTTChannelFromConfig:
 
     def test_from_config_with_dict(self, mock_process):
         """from_config should accept dict config."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         config = {
             "enabled": True,
@@ -309,7 +309,7 @@ class TestMQTTChannelFromConfig:
 
     def test_from_config_with_object(self, mock_process):
         """from_config should accept config object."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         config = Mock()
         config.enabled = True
@@ -338,7 +338,7 @@ class TestMQTTChannelFromConfig:
 
     def test_from_config_strips_whitespace(self, mock_process):
         """from_config should strip whitespace from string values."""
-        from copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         config = {
             "host": "  spaced.host  ",
@@ -758,7 +758,7 @@ class TestMQTTChannelSend:
         mqtt_channel.client = mock_mqtt_client
         mqtt_channel.connected = True
 
-        from copaw.app.channels.base import ImageContent, ContentType
+        from qwenpaw.app.channels.base import ImageContent, ContentType
 
         mock_part = ImageContent(
             type=ContentType.IMAGE,
@@ -778,7 +778,7 @@ class TestMQTTChannelSend:
         mqtt_channel.client = mock_mqtt_client
         mqtt_channel.connected = True
 
-        from copaw.app.channels.base import VideoContent, ContentType
+        from qwenpaw.app.channels.base import VideoContent, ContentType
 
         mock_part = VideoContent(
             type=ContentType.VIDEO,
@@ -798,7 +798,7 @@ class TestMQTTChannelSend:
         mqtt_channel.client = mock_mqtt_client
         mqtt_channel.connected = True
 
-        from copaw.app.channels.base import FileContent, ContentType
+        from qwenpaw.app.channels.base import FileContent, ContentType
 
         mock_part = FileContent(
             type=ContentType.FILE,
@@ -818,7 +818,7 @@ class TestMQTTChannelSend:
         mqtt_channel.client = mock_mqtt_client
         mqtt_channel.connected = True
 
-        from copaw.app.channels.base import AudioContent, ContentType
+        from qwenpaw.app.channels.base import AudioContent, ContentType
 
         mock_part = AudioContent(
             type=ContentType.AUDIO,

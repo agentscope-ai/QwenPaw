@@ -71,7 +71,7 @@ def imessage_channel(
     temp_media_dir: str,
 ):
     """Create IMessageChannel instance for testing."""
-    from copaw.app.channels.imessage.channel import IMessageChannel
+    from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
     channel = IMessageChannel(
         process=mock_process_handler,
@@ -94,7 +94,7 @@ class TestIMessageChannelInit:
         temp_media_dir: str,
     ):
         """Constructor should store basic configuration parameters."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -125,7 +125,7 @@ class TestIMessageChannelInit:
         tmp_path: Path,
     ):
         """Constructor should create media directory."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         media_dir = tmp_path / "media" / "imessage"
         assert not media_dir.exists()
@@ -148,7 +148,7 @@ class TestIMessageChannelInit:
         temp_media_dir: str,
     ):
         """Constructor should expand user directory path."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -171,7 +171,7 @@ class TestIMessageChannelInit:
         temp_media_dir: str,
     ):
         """Constructor should initialize internal data structures."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -201,7 +201,7 @@ class TestIMessageChannelFactoryMethods:
         temp_media_dir: str,
     ):
         """from_env should read environment variables correctly."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         monkeypatch.setenv("IMESSAGE_CHANNEL_ENABLED", "0")
         monkeypatch.setenv("IMESSAGE_DB_PATH", "/custom/path/chat.db")
@@ -221,7 +221,7 @@ class TestIMessageChannelFactoryMethods:
         monkeypatch: pytest.MonkeyPatch,
     ):
         """from_env should use defaults when variables are missing."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         monkeypatch.delenv("IMESSAGE_CHANNEL_ENABLED", raising=False)
         monkeypatch.delenv("IMESSAGE_DB_PATH", raising=False)
@@ -243,8 +243,8 @@ class TestIMessageChannelFactoryMethods:
         temp_media_dir: str,
     ):
         """from_config should use config object values."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
-        from copaw.config.config import IMessageChannelConfig
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.config.config import IMessageChannelConfig
 
         config = IMessageChannelConfig(
             enabled=True,
@@ -273,8 +273,8 @@ class TestIMessageChannelFactoryMethods:
         mock_process_handler: AsyncMock,
     ):
         """from_config should use default db_path."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
-        from copaw.config.config import IMessageChannelConfig
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.config.config import IMessageChannelConfig
 
         config = IMessageChannelConfig(
             enabled=True,
@@ -300,7 +300,7 @@ class TestIMessageChannelProperties:
         temp_media_dir: str,
     ):
         """channel type should be imessage."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -473,7 +473,7 @@ class TestIMessageChannelAsyncLifecycle:
         temp_media_dir: str,
     ):
         """start should not perform operations when disabled."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -497,7 +497,7 @@ class TestIMessageChannelAsyncLifecycle:
         temp_media_dir: str,
     ):
         """stop should not perform operations when disabled."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -516,7 +516,7 @@ class TestIMessageChannelAsyncLifecycle:
         self,
     ):
         """start should set imsg path correctly."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=AsyncMock(),
@@ -547,7 +547,7 @@ class TestIMessageChannelSend:
         temp_media_dir: str,
     ):
         """send should not perform operations when disabled."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -564,8 +564,8 @@ class TestIMessageChannelSend:
 
     def test_send_sync_raises_when_not_initialized(self):
         """_send_sync should raise ChannelError when not initialized."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
-        from copaw.exceptions import ChannelError
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.exceptions import ChannelError
 
         channel = IMessageChannel(
             process=AsyncMock(),
@@ -586,7 +586,7 @@ class TestIMessageChannelSend:
         temp_media_dir: str,
     ):
         """send_content_parts should handle text-only parts."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import (
             TextContent,
             ContentType,
@@ -622,7 +622,7 @@ class TestIMessageChannelSend:
         temp_media_dir: str,
     ):
         """send_content_parts should handle empty parts list."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -647,7 +647,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
     ):
         """send_media should not perform operations when disabled."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import (
             ImageContent,
             ContentType,
@@ -678,7 +678,7 @@ class TestIMessageChannelMedia:
         caplog: pytest.LogCaptureFixture,
     ):
         """send_media should handle missing URL."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -710,7 +710,7 @@ class TestIMessageChannelMedia:
         tmp_path: Path,
     ):
         """_handle_local_file should handle file:// URL."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -737,7 +737,7 @@ class TestIMessageChannelMedia:
         tmp_path: Path,
     ):
         """_handle_local_file should handle plain path."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -764,7 +764,7 @@ class TestIMessageChannelMedia:
         caplog: pytest.LogCaptureFixture,
     ):
         """_handle_local_file should handle non-existent file."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -786,7 +786,7 @@ class TestIMessageChannelMedia:
         temp_media_dir: str,
     ):
         """_handle_data_url should handle valid base64 data URL."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
         channel = IMessageChannel(
@@ -821,7 +821,7 @@ class TestIMessageChannelMedia:
         caplog: pytest.LogCaptureFixture,
     ):
         """_handle_data_url should handle invalid base64 data."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
         channel = IMessageChannel(
@@ -851,7 +851,7 @@ class TestIMessageChannelMedia:
         caplog: pytest.LogCaptureFixture,
     ):
         """_handle_data_url should handle oversized base64 data."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
         # Set small limit for testing
@@ -885,7 +885,7 @@ class TestIMessageChannelMedia:
         caplog: pytest.LogCaptureFixture,
     ):
         """_handle_data_url should handle non-base64 format data URL."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import ContentType
 
         channel = IMessageChannel(
@@ -919,7 +919,7 @@ class TestIMessageChannelRequestBuilder:
         temp_media_dir: str,
     ):
         """build_agent_request_from_native should build request from native."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
         from agentscope_runtime.engine.schemas.agent_schemas import (
             TextContent,
             ContentType,
@@ -957,7 +957,7 @@ class TestIMessageChannelRequestBuilder:
         temp_media_dir: str,
     ):
         """build_agent_request_from_native should handle empty payload."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,
@@ -982,7 +982,7 @@ class TestIMessageChannelErrorHandling:
         temp_media_dir: str,
     ):
         """_on_consume_error should send error message."""
-        from copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         channel = IMessageChannel(
             process=mock_process_handler,

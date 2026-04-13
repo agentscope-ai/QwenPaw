@@ -74,7 +74,7 @@ def feishu_channel(
     temp_media_dir,
 ) -> Generator:
     """Create a FeishuChannel instance for testing."""
-    from copaw.app.channels.feishu.channel import FeishuChannel
+    from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
     channel = FeishuChannel(
         process=mock_process_handler,
@@ -95,7 +95,7 @@ def feishu_channel_with_workspace(
     temp_workspace_dir,
 ) -> Generator:
     """Create a FeishuChannel with workspace for testing."""
-    from copaw.app.channels.feishu.channel import FeishuChannel
+    from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
     channel = FeishuChannel(
         process=mock_process_handler,
@@ -135,7 +135,7 @@ class TestFeishuChannelInit:
         temp_media_dir,
     ):
         """Constructor should store all basic configuration parameters."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         channel = FeishuChannel(
             process=mock_process_handler,
@@ -158,7 +158,7 @@ class TestFeishuChannelInit:
 
     def test_init_uses_default_domain(self, mock_process_handler):
         """Constructor should default domain to 'feishu'."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         channel = FeishuChannel(
             process=mock_process_handler,
@@ -172,7 +172,7 @@ class TestFeishuChannelInit:
 
     def test_init_accepts_lark_domain(self, mock_process_handler):
         """Constructor should accept 'lark' as domain."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         channel = FeishuChannel(
             process=mock_process_handler,
@@ -187,7 +187,7 @@ class TestFeishuChannelInit:
 
     def test_init_rejects_invalid_domain(self, mock_process_handler):
         """Constructor should fallback to 'feishu' for invalid domain."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         channel = FeishuChannel(
             process=mock_process_handler,
@@ -205,7 +205,7 @@ class TestFeishuChannelInit:
         mock_process_handler,
     ):
         """Constructor should initialize required internal data structures."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         channel = FeishuChannel(
             process=mock_process_handler,
@@ -233,7 +233,7 @@ class TestFeishuChannelInit:
 
     def test_init_creates_locks(self, mock_process_handler):
         """Constructor should create required locks for thread safety."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         channel = FeishuChannel(
             process=mock_process_handler,
@@ -267,7 +267,7 @@ class TestFeishuChannelFromEnv:
         monkeypatch,
     ):
         """from_env should read basic environment variables."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         monkeypatch.setenv("FEISHU_CHANNEL_ENABLED", "0")
         monkeypatch.setenv("FEISHU_APP_ID", "env_app_id")
@@ -287,7 +287,7 @@ class TestFeishuChannelFromEnv:
 
     def test_from_env_reads_domain(self, mock_process_handler, monkeypatch):
         """from_env should read FEISHU_DOMAIN environment variable."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         monkeypatch.setenv("FEISHU_APP_ID", "test_id")
         monkeypatch.setenv("FEISHU_APP_SECRET", "test_secret")
@@ -303,7 +303,7 @@ class TestFeishuChannelFromEnv:
         monkeypatch,
     ):
         """from_env should parse FEISHU_ALLOW_FROM correctly."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         monkeypatch.setenv("FEISHU_APP_ID", "test_id")
         monkeypatch.setenv("FEISHU_APP_SECRET", "test_secret")
@@ -321,7 +321,7 @@ class TestFeishuChannelFromEnv:
         monkeypatch,
     ):
         """from_env should handle empty FEISHU_ALLOW_FROM."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         monkeypatch.setenv("FEISHU_APP_ID", "test_id")
         monkeypatch.setenv("FEISHU_APP_SECRET", "test_secret")
@@ -333,7 +333,7 @@ class TestFeishuChannelFromEnv:
 
     def test_from_env_require_mention(self, mock_process_handler, monkeypatch):
         """from_env should parse FEISHU_REQUIRE_MENTION correctly."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         monkeypatch.setenv("FEISHU_APP_ID", "test_id")
         monkeypatch.setenv("FEISHU_APP_SECRET", "test_secret")
@@ -345,7 +345,7 @@ class TestFeishuChannelFromEnv:
 
     def test_from_env_defaults(self, mock_process_handler, monkeypatch):
         """from_env should use sensible defaults."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         monkeypatch.setenv("FEISHU_APP_ID", "test_id")
         monkeypatch.setenv("FEISHU_APP_SECRET", "test_secret")
@@ -367,8 +367,8 @@ class TestFeishuChannelFromConfig:
 
     def test_from_config_uses_config_values(self, mock_process_handler):
         """from_config should use values from config object."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
-        from copaw.config.config import FeishuConfig
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.config.config import FeishuConfig
 
         config = FeishuConfig(
             enabled=False,
@@ -401,8 +401,8 @@ class TestFeishuChannelFromConfig:
 
     def test_from_config_with_workspace(self, mock_process_handler, tmp_path):
         """from_config should use workspace_dir when provided."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
-        from copaw.config.config import FeishuConfig
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.config.config import FeishuConfig
 
         config = FeishuConfig(
             enabled=True,
@@ -730,7 +730,7 @@ class TestFeishuChannelMessageDeduplication:
 
     def test_message_id_tracked(self, feishu_channel):
         """Processed message IDs should be tracked."""
-        from copaw.app.channels.feishu.constants import (
+        from qwenpaw.app.channels.feishu.constants import (
             FEISHU_PROCESSED_IDS_MAX,
         )
 
@@ -744,7 +744,7 @@ class TestFeishuChannelMessageDeduplication:
 
     def test_message_id_trims_when_over_limit(self, feishu_channel):
         """Old message IDs should be trimmed when over limit."""
-        from copaw.app.channels.feishu.constants import (
+        from qwenpaw.app.channels.feishu.constants import (
             FEISHU_PROCESSED_IDS_MAX,
         )
 
@@ -838,7 +838,7 @@ class TestFeishuChannelEnabledCheck:
         temp_media_dir,
     ):
         """send_content_parts should return None when channel disabled."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         channel = FeishuChannel(
             process=mock_process_handler,
@@ -863,7 +863,7 @@ class TestFeishuChannelEnabledCheck:
         temp_media_dir,
     ):
         """send should return None when channel disabled."""
-        from copaw.app.channels.feishu.channel import FeishuChannel
+        from qwenpaw.app.channels.feishu.channel import FeishuChannel
 
         channel = FeishuChannel(
             process=mock_process_handler,
@@ -1094,7 +1094,7 @@ class TestFeishuChannelFileUpload:
         tmp_path,
     ):
         """Should return None for files exceeding max size."""
-        from copaw.app.channels.feishu.constants import FEISHU_FILE_MAX_BYTES
+        from qwenpaw.app.channels.feishu.constants import FEISHU_FILE_MAX_BYTES
 
         # Create a file just over the limit
         large_file = tmp_path / "large.bin"
@@ -2212,7 +2212,7 @@ class TestFeishuChannelUploadFile:
         tmp_path,
     ):
         """Should return None for files exceeding max size."""
-        from copaw.app.channels.feishu.constants import FEISHU_FILE_MAX_BYTES
+        from qwenpaw.app.channels.feishu.constants import FEISHU_FILE_MAX_BYTES
 
         feishu_channel._media_dir = tmp_path / "media"
         feishu_channel._media_dir.mkdir(parents=True, exist_ok=True)

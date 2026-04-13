@@ -10,7 +10,7 @@ import logging
 import sys
 from unittest.mock import MagicMock, patch
 
-from copaw.utils.logging import (
+from qwenpaw.utils.logging import (
     ColorFormatter,
     SuppressPathAccessLogFilter,
     add_copaw_file_handler,

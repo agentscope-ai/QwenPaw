@@ -24,8 +24,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # Import BaseChannel directly for internal logic testing
-from copaw.app.channels.base import BaseChannel, ProcessHandler
-from copaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.app.channels.base import BaseChannel, ProcessHandler
+from qwenpaw.app.channels.console.channel import ConsoleChannel
 
 
 # =============================================================================

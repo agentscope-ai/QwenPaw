@@ -65,7 +65,7 @@ def mock_tunnel_manager():
 @pytest.fixture
 def voice_channel(mock_process):
     """Create VoiceChannel instance for testing."""
-    from copaw.app.channels.voice.channel import VoiceChannel
+    from qwenpaw.app.channels.voice.channel import VoiceChannel
 
     channel = VoiceChannel(
         process=mock_process,
@@ -86,7 +86,7 @@ class TestVoiceChannelInit:
 
     def test_init_stores_basic_config(self, mock_process):
         """Constructor should store basic configuration parameters."""
-        from copaw.app.channels.voice.channel import VoiceChannel
+        from qwenpaw.app.channels.voice.channel import VoiceChannel
 
         channel = VoiceChannel(
             process=mock_process,
@@ -102,7 +102,7 @@ class TestVoiceChannelInit:
 
     def test_init_creates_required_data_structures(self, mock_process):
         """Constructor should initialize required internal data structures."""
-        from copaw.app.channels.voice.channel import VoiceChannel
+        from qwenpaw.app.channels.voice.channel import VoiceChannel
 
         channel = VoiceChannel(process=mock_process)
 
@@ -151,7 +151,7 @@ class TestVoiceChannelFromConfig:
 
     def test_from_config_creates_instance(self, mock_process):
         """from_config should create VoiceChannel instance."""
-        from copaw.app.channels.voice.channel import VoiceChannel
+        from qwenpaw.app.channels.voice.channel import VoiceChannel
 
         config = Mock()
         config.enabled = True
@@ -171,7 +171,7 @@ class TestVoiceChannelFromConfig:
 
     def test_from_config_stores_basic_params(self, mock_process):
         """from_config should store basic config parameters."""
-        from copaw.app.channels.voice.channel import VoiceChannel
+        from qwenpaw.app.channels.voice.channel import VoiceChannel
 
         config = Mock()
         config.enabled = True
@@ -192,7 +192,7 @@ class TestVoiceChannelFromConfig:
 
     def test_from_config_creates_twilio_manager(self, mock_process):
         """from_config creates TwilioManager when credentials provided."""
-        from copaw.app.channels.voice.channel import VoiceChannel
+        from qwenpaw.app.channels.voice.channel import VoiceChannel
 
         config = Mock()
         config.enabled = True
@@ -212,7 +212,7 @@ class TestVoiceChannelFromConfig:
         mock_process,
     ):
         """from_config skips TwilioManager creation without credentials."""
-        from copaw.app.channels.voice.channel import VoiceChannel
+        from qwenpaw.app.channels.voice.channel import VoiceChannel
 
         config = Mock()
         config.enabled = True
@@ -228,7 +228,7 @@ class TestVoiceChannelFromConfig:
 
     def test_from_config_disabled_channel(self, mock_process):
         """from_config should handle disabled channel."""
-        from copaw.app.channels.voice.channel import VoiceChannel
+        from qwenpaw.app.channels.voice.channel import VoiceChannel
 
         config = Mock()
         config.enabled = False
