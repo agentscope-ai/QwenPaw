@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, master, dev, develop]
     paths:
-      - 'src/copaw/app/channels/**'
+      - 'src/qwenpaw/app/channels/**'
       - 'tests/unit/channels/**'
       - 'tests/contract/channels/**'
       - 'tests/conftest.py'
@@ -12,7 +12,7 @@ on:
   pull_request:
     branches: [main, master, dev, develop]
     paths:
-      - 'src/copaw/app/channels/**'
+      - 'src/qwenpaw/app/channels/**'
       - 'tests/unit/channels/**'
       - 'tests/contract/channels/**'
       - 'tests/conftest.py'
@@ -78,7 +78,7 @@ jobs:
         run: |
           CHANGED_FILES=$(git diff --name-only ${{ steps.range.outputs.base }} ${{ steps.range.outputs.head }} || true)
 
-          # Extract channel names from paths like src/copaw/app/channels/dingtalk/channel.py
+          # Extract channel names from paths like src/qwenpaw/app/channels/dingtalk/channel.py
           CHANNELS=$(echo "$CHANGED_FILES" | grep -oE 'channels/[^/]+' | sed 's/channels\///' | sort -u | tr '\n' ' ')
 
           echo "channels=$CHANNELS" >> $GITHUB_OUTPUT
@@ -188,25 +188,25 @@ jobs:
             # 1. Run unit tests with coverage
             pytest tests/unit/channels/ \
               -v \
-              --cov=src/copaw/app/channels \
+              --cov=src/qwenpaw/app/channels \
               --cov-report=xml:coverage.xml \
               --cov-report=term-missing
 
             # 2. Run contract tests and append coverage (primary tests)
             pytest tests/contract/channels/ \
               -v \
-              --cov=src/copaw/app/channels \
+              --cov=src/qwenpaw/app/channels \
               --cov-append \
               --cov-report=xml:coverage.xml \
               --cov-report=term-missing
           else
             # Targeted coverage for affected channels only
-            COV_SOURCES="src/copaw/app/channels/base.py"
+            COV_SOURCES="src/qwenpaw/app/channels/base.py"
 
             # Add affected channel sources
             for ch in ${{ needs.detect-changes.outputs.affected_channels }}; do
-              if [ -d "src/copaw/app/channels/$ch" ]; then
-                COV_SOURCES="$COV_SOURCES,src/copaw/app/channels/$ch"
+              if [ -d "src/qwenpaw/app/channels/$ch" ]; then
+                COV_SOURCES="$COV_SOURCES,src/qwenpaw/app/channels/$ch"
               fi
             done
 
@@ -320,7 +320,7 @@ jobs:
           EXIT_CODE = 0
 
           # Find all channel implementations
-          channels_dir = Path('src/copaw/app/channels')
+          channels_dir = Path('src/qwenpaw/app/channels')
 
           for channel_dir in channels_dir.iterdir():
               if not channel_dir.is_dir() or channel_dir.name.startswith('_'):
@@ -333,7 +333,7 @@ jobs:
                   continue
 
               try:
-                  module = importlib.import_module(f'copaw.app.channels.{channel_name}.channel')
+                  module = importlib.import_module(f'qwenpaw.app.channels.{channel_name}.channel')
 
                   # Find the channel class
                   channel_class = None
@@ -356,7 +356,7 @@ jobs:
                           missing.append(method)
 
                   # Check if base methods are overridden where needed
-                  base_module = importlib.import_module('copaw.app.channels.base')
+                  base_module = importlib.import_module('qwenpaw.app.channels.base')
                   BaseChannel = getattr(base_module, 'BaseChannel')
 
                   for method in BASE_REQUIRED_METHODS:
