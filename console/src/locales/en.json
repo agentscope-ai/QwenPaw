@@ -766,6 +766,7 @@
     "addModelTitle": "Add Model to {{provider}}",
     "modelIdLabel": "Model ID",
     "modelIdPlaceholder": "e.g. gpt-4o, gemini-2.0-flash",
+      "modelDiscoveryUnavailableHint": "No available models were found. This provider may not support model list discovery, so please enter the model ID manually.",
     "modelNameLabel": "Model Name",
     "modelNameRequired": "Please enter model name",
     "modelNamePlaceholder": "e.g. GPT-4o, Gemini 2.0 Flash",

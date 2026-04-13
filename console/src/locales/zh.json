@@ -740,6 +740,7 @@
     "addModelTitle": "为 {{provider}} 添加模型",
     "modelIdLabel": "模型 ID",
     "modelIdPlaceholder": "例如 gpt-4o, gemini-2.0-flash",
+      "modelDiscoveryUnavailableHint": "未发现可用模型。该供应商可能不支持模型列表查询，请手动输入模型 ID。",
     "modelNameLabel": "模型名称",
     "modelNameRequired": "请输入模型名称",
     "modelNamePlaceholder": "例如 GPT-4o, Gemini 2.0 Flash",
