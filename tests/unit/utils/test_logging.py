@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from qwenpaw.utils.logging import (
     ColorFormatter,
     SuppressPathAccessLogFilter,
-    add_copaw_file_handler,
+    add_project_file_handler,
     setup_logger,
     LOG_NAMESPACE,
     _LEVEL_MAP,
@@ -186,7 +186,7 @@ class TestAddCopawFileHandler:
     def test_creates_log_directory(self, tmp_path):
         """S级: Creates log directory if it doesn't exist."""
         log_path = tmp_path / "logs" / "copaw.log"
-        add_copaw_file_handler(log_path)
+        add_project_file_handler(log_path)
         assert log_path.parent.exists()
 
     def test_idempotent_same_path(self, tmp_path):
@@ -194,12 +194,12 @@ class TestAddCopawFileHandler:
         log_path = tmp_path / "copaw.log"
 
         # First call
-        add_copaw_file_handler(log_path)
+        add_project_file_handler(log_path)
         logger = logging.getLogger(LOG_NAMESPACE)
         initial_count = len(logger.handlers)
 
         # Second call - should be idempotent
-        add_copaw_file_handler(log_path)
+        add_project_file_handler(log_path)
         assert len(logger.handlers) == initial_count
 
     def test_adds_file_handler(self, tmp_path):
@@ -212,7 +212,7 @@ class TestAddCopawFileHandler:
         logger.handlers = []
 
         try:
-            add_copaw_file_handler(log_path)
+            add_project_file_handler(log_path)
             has_file_handler = any(
                 isinstance(
                     h,
