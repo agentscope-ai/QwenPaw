@@ -224,13 +224,13 @@ export function ImportHubModal({
   const [validation, setValidation] = useState<ValidationState>({
     status: "default",
   });
-  const [activeMarket, setActiveMarket] = useState<string | null>(null);
+  const [activeMarket, setActiveMarket] = useState<string | null>(skillMarkets[0]?.key || null);
 
   const handleClose = useCallback(() => {
     if (importing) return;
     setImportUrl("");
     setValidation({ status: "default" });
-    setActiveMarket(null);
+    setActiveMarket(skillMarkets[0]?.key || null);
     onCancel();
   }, [importing, onCancel]);
 
