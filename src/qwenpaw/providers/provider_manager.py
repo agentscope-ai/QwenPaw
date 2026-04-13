@@ -254,6 +254,24 @@ OPENAI_MODELS: List[ModelInfo] = [
     ),
 ]
 
+OPENCODE_MODELS: List[ModelInfo] = [
+    # Free models from OpenCode Zen
+    ModelInfo(
+        id="big-pickle",
+        name="Big Pickle",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="nemotron-3-super-free",
+        name="Nemotron 3 Super Free",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="gpt-5-chat",
@@ -543,6 +561,16 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_OPENCODE = OpenAIProvider(
+    id="opencode",
+    name="OpenCode",
+    base_url="https://opencode.ai/zen/v1",
+    api_key_prefix="",
+    models=OPENCODE_MODELS,
+    freeze_url=True,
+    support_model_discovery=True,
+)
+
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
     id="azure-openai",
     name="Azure OpenAI",
@@ -715,6 +743,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
+        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
@@ -761,9 +790,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def _normalize_provider_id(provider_id: str) -> str:
         """Normalize provider ID for backward compatibility.
 
-        Maps legacy 'copaw-local' to 'qwenpaw-local'.
+        Maps legacy 'qwenpaw-local' to 'qwenpaw-local'.
         """
-        if provider_id == "copaw-local":
+        if provider_id == "qwenpaw-local":
             return "qwenpaw-local"
         return provider_id
 
@@ -1260,28 +1289,28 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except Exception:
             return None
 
-    def _migrate_copaw_config(self) -> None:
-        """Migrate copaw-local provider config to qwenpaw-local."""
+    def _migrate_qwenpaw_config(self) -> None:
+        """Migrate qwenpaw-local provider config to qwenpaw-local."""
         # 1. Migrate active model configuration (only provider_id)
         if (
             self.active_model
-            and self.active_model.provider_id == "copaw-local"
+            and self.active_model.provider_id == "qwenpaw-local"
         ):
             self.active_model.provider_id = "qwenpaw-local"
             self.save_active_model(self.active_model)
             logger.info(
                 "Migrated active model provider from "
-                "'copaw-local' to 'qwenpaw-local'",
+                "'qwenpaw-local' to 'qwenpaw-local'",
             )
 
         # 2. Migrate stored provider config file
-        copaw_config_path = self.builtin_path / "copaw-local.json"
-        if not copaw_config_path.exists():
+        qwenpaw_config_path = self.builtin_path / "qwenpaw-local.json"
+        if not qwenpaw_config_path.exists():
             return
 
         try:
             # Load old config and apply to new provider instance
-            with open(copaw_config_path, "r", encoding="utf-8") as f:
+            with open(qwenpaw_config_path, "r", encoding="utf-8") as f:
                 old_config = json.load(f)
 
             # Get the new built-in provider instance
@@ -1304,13 +1333,13 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             self._save_provider(provider, is_builtin=True)
 
             # Remove old config file
-            copaw_config_path.unlink()
+            qwenpaw_config_path.unlink()
             logger.info(
                 "Migrated provider config from "
-                "'copaw-local.json' to 'qwenpaw-local.json'",
+                "'qwenpaw-local.json' to 'qwenpaw-local.json'",
             )
         except Exception as exc:
-            logger.warning("Failed to migrate copaw-local config: %s", exc)
+            logger.warning("Failed to migrate qwenpaw-local config: %s", exc)
 
     # pylint: disable=too-many-branches
     def _migrate_legacy_providers(self):
@@ -1363,8 +1392,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             # Migrate active model (only provider_id, not model)
             if active_model:
                 try:
-                    # Convert legacy copaw-local provider_id
-                    if active_model.get("provider_id") == "copaw-local":
+                    # Convert legacy qwenpaw-local provider_id
+                    if active_model.get("provider_id") == "qwenpaw-local":
                         active_model["provider_id"] = "qwenpaw-local"
                     self.active_model = ModelSlotConfig.model_validate(
                         active_model,
@@ -1416,8 +1445,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         if active_model:
             self.active_model = active_model
 
-        # Migrate copaw-local to qwenpaw-local for backwards compatibility
-        self._migrate_copaw_config()
+        # Migrate qwenpaw-local to qwenpaw-local for backwards compatibility
+        self._migrate_qwenpaw_config()
 
     def _apply_default_annotations(self):
         """Apply doc-based default annotations for unprobed models.
