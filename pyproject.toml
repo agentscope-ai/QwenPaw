@@ -89,7 +89,7 @@ llamacpp = [
 ]
 mlx = [
     "qwenpaw[local]",
-    "mlx-lm>=0.10.0; sys_platform == 'darwin'",
+    "mlx-lm>=0.10.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 ollama = [
     "ollama>=0.6.1",
@@ -99,7 +99,7 @@ whisper = [
 ]
 full = [
     "qwenpaw[local,ollama,llamacpp,whisper]",
-    "mlx-lm>=0.10.0; sys_platform == 'darwin'",
+    "mlx-lm>=0.10.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [tool.pytest.ini_options]
