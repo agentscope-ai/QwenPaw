@@ -246,6 +246,28 @@ async def test_add_custom_provider_conflict_resolution_loops_until_unique(
     assert manager.get_provider("openai-custom-new-new") is not None
 
 
+def test_venice_builtin_provider_defaults_and_registration(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+
+    provider = manager.get_provider("venice")
+
+    assert provider is not None
+    assert provider is manager.builtin_providers["venice"]
+    assert isinstance(provider, OpenAIProvider)
+    assert provider.name == "Venice.ai"
+    assert provider.base_url == "https://api.venice.ai/api/v1"
+    assert provider.freeze_url is True
+    assert provider.api_key_prefix == ""
+    assert [model.id for model in provider.models] == [
+        model.id for model in provider_manager_module.VENICE_MODELS
+    ]
+    assert [model.name for model in provider.models] == [
+        model.name for model in provider_manager_module.VENICE_MODELS
+    ]
+
+
 def test_update_provider_for_builtin_persists_to_builtin_path(
     isolated_secret_dir,
 ) -> None:
@@ -279,6 +301,20 @@ def test_update_provider_for_builtin_persists_to_builtin_path(
     assert isinstance(persisted_azure, OpenAIProvider)
     assert persisted_azure.base_url == "https://azure-updated.example/v1"
     assert persisted_azure.api_key == "sk-azure-updated"
+
+    ok = manager.update_provider(
+        "venice",
+        {
+            "base_url": "https://updated.venice.example/v1",
+            "api_key": "venice-api-key",
+        },
+    )
+    assert ok is True
+    persisted_venice = manager.load_provider("venice", is_builtin=True)
+    assert persisted_venice is not None
+    assert isinstance(persisted_venice, OpenAIProvider)
+    assert persisted_venice.base_url == "https://api.venice.ai/api/v1"
+    assert persisted_venice.api_key == "venice-api-key"
 
 
 def test_update_provider_for_unknown_returns_false(
