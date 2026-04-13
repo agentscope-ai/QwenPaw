@@ -30,7 +30,9 @@ function getSource(url: string): SkillMarket | undefined {
   );
 }
 
-function validateUrl(url: string): { ok: true; source: string } | { ok: false; message: string } {
+function validateUrl(
+  url: string,
+): { ok: true; source: string } | { ok: false; message: string } {
   if (!url.trim()) {
     return { ok: false, message: "" };
   }
@@ -121,8 +123,8 @@ export function ImportHubModal({
   const inputStateClass = urlError
     ? styles.invalid
     : validSource
-      ? styles.valid
-      : "";
+    ? styles.valid
+    : "";
 
   const activeMarketData = skillMarkets.find((m) => m.key === activeMarket);
 
@@ -233,7 +235,9 @@ export function ImportHubModal({
         {skillMarkets.map((market: SkillMarket) => (
           <div
             key={market.key}
-            className={`${styles.sourceCard} ${activeMarket === market.key ? styles.active : ""} ${importing ? styles.disabled : ""}`}
+            className={`${styles.sourceCard} ${
+              activeMarket === market.key ? styles.active : ""
+            } ${importing ? styles.disabled : ""}`}
             onClick={importing ? undefined : () => toggleMarket(market.key)}
             role="button"
             tabIndex={importing ? -1 : 0}
@@ -262,7 +266,9 @@ export function ImportHubModal({
                 <>
                   {market.examples.length} examples
                   <DownOutlined
-                    className={`${styles.sourceCardArrow} ${activeMarket === market.key ? styles.active : ""}`}
+                    className={`${styles.sourceCardArrow} ${
+                      activeMarket === market.key ? styles.active : ""
+                    }`}
                   />
                 </>
               )}
