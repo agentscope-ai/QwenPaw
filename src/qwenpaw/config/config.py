@@ -173,7 +173,7 @@ class MatrixConfig(BaseChannelConfig):
     history_limit: int = 50
     username: str = ""
     password: str = ""
-    device_name: str = "copaw-worker"
+    device_name: str = "qwenpaw-worker"
     # matrix-nio sync long-poll timeout (ms); typical 30s
     sync_timeout_ms: int = Field(default=30000, ge=5000, le=300000)
     # When True, prepend HTML pill to formatted_body for outbound mentions.

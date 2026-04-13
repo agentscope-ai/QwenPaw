@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-MatrixChannel: CoPaw BaseChannel implementation for Matrix (via matrix-nio).
+MatrixChannel: QwenPaw BaseChannel implementation for Matrix (via matrix-nio).
 
 """
 from __future__ import annotations
@@ -40,14 +40,14 @@ from nio import (
 )
 from nio.responses import JoinedMembersResponse, WhoamiResponse
 
-logger = logging.getLogger("copaw.channels.matrix")
+logger = logging.getLogger("qwenpaw.channels.matrix")
 
 # ---------------------------------------------------------------------------
-# Lazy import of CoPaw base types so this file can be syntax-checked without
-# copaw installed (it's only executed inside a copaw environment).
+# Lazy import of QwenPaw base types so this file can be syntax-checked without
+# qwenpaw installed (it's only executed inside a qwenpaw environment).
 # ---------------------------------------------------------------------------
 try:
-    from copaw.app.channels.base import BaseChannel
+    from qwenpaw.app.channels.base import BaseChannel
     from agentscope_runtime.engine.schemas.agent_schemas import (
         AudioContent,
         ContentType,
@@ -69,7 +69,8 @@ TYPING_RENEWAL_INTERVAL_S = 25
 TYPING_MAX_DURATION_S = 120
 DM_CACHE_TTL_MS = 30_000
 
-# Known CoPaw slash commands — used to decide whether to strip @mention prefix
+# Known QwenPaw slash commands — used to decide whether to strip
+# @mention prefix
 _SLASH_COMMANDS = frozenset(
     {
         "message",
@@ -166,7 +167,7 @@ class MatrixChannelConfig:
         # username/password fallback (rarely used in hiclaw)
         self.username: str = raw.get("username", "")
         self.password: str = raw.get("password", "")
-        self.device_name: str = raw.get("device_name", "copaw-worker")
+        self.device_name: str = raw.get("device_name", "qwenpaw-worker")
         # E2EE: when True, enable end-to-end encryption via matrix-nio + libolm
         self.encryption: bool = raw.get("encryption", False)
 
@@ -213,7 +214,7 @@ def _normalize_user_id(uid: str) -> str:
 
 
 class MatrixChannel(BaseChannel):
-    """CoPaw channel that connects to a Matrix homeserver via matrix-nio."""
+    """QwenPaw channel that connects to a Matrix homeserver via matrix-nio."""
 
     channel = CHANNEL_KEY  # type: ignore[assignment]
     uses_manager_queue: bool = True
@@ -482,7 +483,7 @@ class MatrixChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Sync loop — token persistence, catch-up, incremental sync, E2EE
     # maintenance
-    # next_batch file under COPAW_WORKING_DIR (§3);
+    # next_batch file under QWENPAW_WORKING_DIR (§3);
     # catch-up sync suppresses replay; incremental sync; E2EE maintenance
     # between syncs when encryption on.
     # ------------------------------------------------------------------
@@ -490,7 +491,9 @@ class MatrixChannel(BaseChannel):
     @staticmethod
     def _sync_token_path() -> Optional[Path]:
         """Return the file path for persisting the Matrix sync token."""
-        wd = os.environ.get("COPAW_WORKING_DIR")
+        wd = os.environ.get("QWENPAW_WORKING_DIR") or os.environ.get(
+            "COPAW_WORKING_DIR",
+        )
         if wd:
             return Path(wd) / "matrix_sync_token"
         return None
@@ -1026,16 +1029,16 @@ class MatrixChannel(BaseChannel):
     def _media_dir(self) -> Path:
         """Return (and create) the local media storage directory."""
         try:
-            from copaw.constant import WORKING_DIR
+            from qwenpaw.constant import WORKING_DIR
 
             d = WORKING_DIR / "media"
         except Exception as exc:
             logger.debug(
-                "MatrixChannel: copaw.constant.WORKING_DIR unavailable (%s), "
-                "using ~/.copaw/media",
+                "MatrixChannel: qwenpaw.constant.WORKING_DIR "
+                "unavailable (%s), using ~/.qwenpaw/media",
                 exc,
             )
-            d = Path.home() / ".copaw" / "media"
+            d = Path.home() / ".qwenpaw" / "media"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -1074,10 +1077,12 @@ class MatrixChannel(BaseChannel):
 
     def _e2ee_store_path(self) -> Path:
         """Return the directory for persisting Olm/Megolm crypto state."""
-        wd = os.environ.get("COPAW_WORKING_DIR")
+        wd = os.environ.get("QWENPAW_WORKING_DIR") or os.environ.get(
+            "COPAW_WORKING_DIR",
+        )
         if wd:
             return Path(wd) / "matrix_crypto_store"
-        return Path.home() / ".copaw" / "matrix_crypto_store"
+        return Path.home() / ".qwenpaw" / "matrix_crypto_store"
 
     async def _download_encrypted_mxc(
         self,
@@ -1549,7 +1554,7 @@ class MatrixChannel(BaseChannel):
                 )
 
         # Build content parts, prepending accumulated history for group rooms.
-        # Skip history prepend for slash commands — CoPaw's command parser
+        # Skip history prepend for slash commands — QwenPaw's command parser
         # requires the message to start with "/" to recognise it.
         content_parts: list[Any] = [
             TextContent(type=ContentType.TEXT, text=command_text),
@@ -1843,13 +1848,13 @@ class MatrixChannel(BaseChannel):
 
     # ------------------------------------------------------------------
     # build_agent_request_from_native (BaseChannel protocol)
-    # native content_parts → CoPaw Content; same
+    # native content_parts → QwenPaw Content; same
     # vision_enabled guard as inbound media for image parts (§11).
     # ------------------------------------------------------------------
 
     # pylint: disable=too-many-return-statements
     def _build_content_part(self, p: dict[str, Any]) -> Any:
-        """Convert a native content-part dict to a CoPaw Content object."""
+        """Convert a native content-part dict to a QwenPaw Content object."""
         t = p.get("type")
         if t == "text" and p.get("text"):
             return TextContent(type=ContentType.TEXT, text=p["text"])
@@ -1897,7 +1902,7 @@ class MatrixChannel(BaseChannel):
             content = [TextContent(type=ContentType.TEXT, text="")]
 
         # Use room_id as the AgentRequest user_id so that all participants
-        # in the same room share one session (CoPaw keys session state on
+        # in the same room share one session (QwenPaw keys session state on
         # both session_id AND user_id).  The real sender is preserved in
         # meta["sender_id"] for reply mentions.
         req = self.build_agent_request_from_user_content(
