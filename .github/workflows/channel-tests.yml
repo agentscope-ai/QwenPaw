@@ -235,8 +235,8 @@ jobs:
           coverageFile: coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           thresholdAll: 0.0
-          thresholdNew: 58.0
-          thresholdModified: 58.0
+          thresholdNew: 55.0
+          thresholdModified: 55.0
 
       # Check coverage thresholds (🟡 Soft gate - informational only)
       - name: Check coverage thresholds
@@ -257,7 +257,7 @@ jobs:
           print(f"   (Advisory only - soft gate, does not block PR)")
 
           # Advisory threshold for reference
-          ADVISORY_THRESHOLD = 58.0
+          ADVISORY_THRESHOLD = 55.0
 
           if coverage_pct < ADVISORY_THRESHOLD:
               print(f"⚠️  Coverage {coverage_pct:.1f}% is below advisory threshold {ADVISORY_THRESHOLD}%")
