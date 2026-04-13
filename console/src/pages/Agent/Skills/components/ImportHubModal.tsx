@@ -206,10 +206,7 @@ export function ImportHubModal({
           {validSource ? (
             <span className={styles.valid}>
               <CheckCircleOutlined />
-              {t("skills.urlValid", {
-                defaultValue: "Valid URL from {{source}}",
-                source: validSource,
-              })}
+            {t("skills.urlValid", { source: validSource })}
             </span>
           ) : urlError ? (
             <span className={styles.invalid}>
@@ -226,9 +223,7 @@ export function ImportHubModal({
       </div>
 
       <div className={styles.divider}>
-        {t("skills.orChooseFromSources", {
-          defaultValue: "or choose from supported Skill marketplaces",
-        })}
+        {t("skills.orChooseFromSources")}
       </div>
 
       <div className={styles.sourcesGrid}>
@@ -281,10 +276,7 @@ export function ImportHubModal({
         <div className={styles.examplesPanel}>
           <div className={styles.examplesHeader}>
             <PaperClipOutlined />
-            {t("skills.examplesFrom", {
-              defaultValue: "Examples from {{source}}",
-              source: activeMarketData.name,
-            })}
+        {t("skills.examplesFrom", { source: activeMarketData.name })}
           </div>
           <div className={styles.examplesList}>
             {activeMarketData.examples.map((example, idx) => (
@@ -292,9 +284,7 @@ export function ImportHubModal({
                 key={idx}
                 className={styles.exampleItem}
                 onClick={() => handleUrlChange(example.url)}
-                title={t("skills.clickToFill", {
-                  defaultValue: "Click to fill in URL",
-                })}
+            title={t("skills.clickToFill")}
                 type="button"
               >
                 <LinkOutlined className={styles.exampleItemIcon} />
