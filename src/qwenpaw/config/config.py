@@ -29,7 +29,7 @@ from ..providers.models import ModelSlotConfig
 
 # Agent ID validation: lowercase alphanumeric, hyphens, underscores.
 _AGENT_ID_PATTERN = re.compile(
-    r"^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0-9]$",
+    r"^[a-z0-9][a-z0-9_-]*[a-z0-9]$",
 )
 _AGENT_ID_MIN_LENGTH = 2
 _AGENT_ID_MAX_LENGTH = 64

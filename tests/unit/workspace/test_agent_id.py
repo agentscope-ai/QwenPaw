@@ -58,14 +58,11 @@ def test_sanitize_empty_string():
         "my_bot_v2",
         "a1",
         "agent123",
-        "x",  # single char is valid (length >= 1 matches pattern)
     ],
 )
 def test_validate_valid_ids(agent_id):
     """Test that well-formed IDs pass validation."""
-    # Should not raise for IDs of length >= 2 (except 'x' which is len 1)
-    if len(agent_id) >= 2:
-        validate_agent_id(agent_id, set())
+    validate_agent_id(agent_id, set())
 
 
 @pytest.mark.parametrize(
