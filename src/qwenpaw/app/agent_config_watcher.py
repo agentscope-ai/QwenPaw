@@ -32,11 +32,11 @@ def _heartbeat_hash(hb: Optional[HeartbeatConfig]) -> int:
     return hash(str(hb.model_dump(mode="json")))
 
 
-def _memory_job_hash(memory_summary: Any) -> int:
+def _memory_job_hash(memory_summary: Optional[Any]) -> int:
     """Hash of memory job config for change detection."""
     if memory_summary is None:
         return hash("None")
-    cron_expr = getattr(memory_summary, "memory_consolidation_cron", "")
+    cron_expr = getattr(memory_summary, "dream_cron", "")
     return hash(str(cron_expr))
 
 

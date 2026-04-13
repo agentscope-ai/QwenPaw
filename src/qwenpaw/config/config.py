@@ -407,9 +407,9 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
-    memory_consolidation_cron: str = Field(
+    dream_cron: str = Field(
         default="",
-        description="Cron expression for memory consolidation job "
+        description="Cron expression for dream-based memory optimization job "
         "(empty to disable)",
     )
 

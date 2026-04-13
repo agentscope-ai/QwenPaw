@@ -22,12 +22,12 @@ export function MemorySummaryCard() {
       </Form.Item>
 
       <Form.Item
-        label={t("agentConfig.memoryConsolidationCron")}
-        name={["memory_summary", "memory_consolidation_cron"]}
-        tooltip={t("agentConfig.memoryConsolidationCronTooltip")}
+        label={t("agentConfig.dreamCron")}
+        name={["memory_summary", "dream_cron"]}
+        tooltip={t("agentConfig.dreamCronTooltip")}
       >
         <Input
-          placeholder={t("agentConfig.memoryConsolidationCronPlaceholder")}
+          placeholder={t("agentConfig.dreamCronPlaceholder")}
         />
       </Form.Item>
 
