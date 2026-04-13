@@ -633,7 +633,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
     @classmethod
     def _authenticate_local_cli(cls, request: Request) -> Optional[str]:
         """Authenticate loopback CLI calls using the local CLI token."""
-        local_cli_token = request.headers.get(LOCAL_CLI_TOKEN_HEADER, "")
+        local_cli_token = request.headers.get(
+            LOCAL_CLI_TOKEN_HEADER,
+            "",
+        ).strip()
         if not local_cli_token or not cls._is_loopback_request(request):
             return None
 

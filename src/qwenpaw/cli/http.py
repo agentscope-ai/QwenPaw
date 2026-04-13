@@ -13,7 +13,6 @@ from ..app.auth import (
     _load_auth_data,
     create_token,
     has_registered_users,
-    is_auth_enabled,
 )
 from ..constant import EnvVarLoader
 
@@ -29,11 +28,7 @@ def _build_auth_headers(base_url: str) -> dict[str, str]:
 
     parsed = urlparse(base_url)
     host = (parsed.hostname or "").strip().lower()
-    if (
-        host not in _LOCAL_API_HOSTS
-        or not is_auth_enabled()
-        or not has_registered_users()
-    ):
+    if host not in _LOCAL_API_HOSTS or not has_registered_users():
         return {}
 
     data = _load_auth_data()

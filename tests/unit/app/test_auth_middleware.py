@@ -127,6 +127,34 @@ async def test_private_api_accepts_local_cli_token_on_loopback(
     assert response.json() == {"user": "alice"}
 
 
+async def test_private_api_accepts_local_cli_token_with_header_whitespace(
+    loopback_client: AsyncClient,
+) -> None:
+    """Whitespace around the local CLI token header should be ignored."""
+    with (
+        patch("qwenpaw.app.auth.is_auth_enabled", return_value=True),
+        patch(
+            "qwenpaw.app.auth.has_registered_users",
+            return_value=True,
+        ),
+        patch(
+            "qwenpaw.app.auth._load_auth_data",
+            return_value={
+                "local_cli_token": "cli-token",
+                "user": {"username": "alice"},
+            },
+        ),
+    ):
+        async with loopback_client:
+            response = await loopback_client.get(
+                "/api/private",
+                headers={LOCAL_CLI_TOKEN_HEADER: "  cli-token  "},
+            )
+
+    assert response.status_code == 200
+    assert response.json() == {"user": "alice"}
+
+
 async def test_private_api_rejects_local_cli_token_off_loopback(
     remote_client: AsyncClient,
 ) -> None:
