@@ -1,8 +1,5 @@
 name: PR Under Review Label
 
-# Automatically adds "Under Review" label when a maintainer (admin/maintain/write permission)
-# comments on or reviews a PR. Configure PAT_TOKEN secret for full fork PR support.
-
 on:
   issue_comment:
     types: [created]
@@ -49,7 +46,7 @@ jobs:
               prAuthor = context.payload.pull_request.user.login;
             }
 
-            core.info(`Processing from @${commenter} (type: ${commenterType}) on PR #${prNumber} by @${prAuthor}`);
+            core.info(`Processing comment from @${commenter} (type: ${commenterType}) on PR #${prNumber} by @${prAuthor}`);
 
             // Ignore bots
             if (commenterType === 'Bot' || commenter.endsWith('[bot]')) {
@@ -63,7 +60,7 @@ jobs:
               return;
             }
 
-            // Check commenter's permission level
+            // Check commenter's permission level first to avoid unnecessary API calls
             core.info(`Checking permissions for @${commenter}`);
 
             let permission;
