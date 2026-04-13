@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { SaveOutlined } from "@ant-design/icons";
-import { Select, Button, message } from "@agentscope-ai/design";
+import { Select, Button, Card } from "@agentscope-ai/design";
 import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
 
 interface ModelsSectionProps {
@@ -41,6 +42,7 @@ export function ModelsSection({
     undefined,
   );
   const [dirty, setDirty] = useState(false);
+  const { message } = useAppMessage();
 
   const currentSlot = activeModels?.active_llm;
 
@@ -50,7 +52,6 @@ export function ModelsSection({
         const hasModels =
           (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
         if (!hasModels) return false;
-        if (p.is_local) return true;
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
         if (p.require_api_key ?? true) return !!p.api_key;
@@ -91,6 +92,7 @@ export function ModelsSection({
     const body: ModelSlotRequest = {
       provider_id: selectedProviderId,
       model: selectedModel,
+      scope: "global",
     };
 
     setSaving(true);
@@ -115,19 +117,7 @@ export function ModelsSection({
   const canSave = dirty && !!selectedProviderId && !!selectedModel;
 
   return (
-    <div className={styles.slotSection}>
-      <div className={styles.slotHeader}>
-        <h3 className={styles.slotTitle}>{t("models.llmConfiguration")}</h3>
-        {currentSlot?.provider_id && currentSlot?.model && (
-          <span className={styles.slotCurrent}>
-            {t("models.active", {
-              provider: currentSlot.provider_id,
-              model: currentSlot.model,
-            })}
-          </span>
-        )}
-      </div>
-
+    <Card className={styles.slotSection} title={t("models.defaultLlm")}>
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
           <label className={styles.slotLabel}>{t("models.provider")}</label>
@@ -181,6 +171,7 @@ export function ModelsSection({
           </Button>
         </div>
       </div>
-    </div>
+      <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
+    </Card>
   );
 }

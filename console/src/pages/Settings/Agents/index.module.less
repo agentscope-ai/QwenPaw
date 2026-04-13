@@ -1,8 +1,76 @@
 .agentsPage {
-  padding: 24px;
+  height: calc(100vh - 128px);
+  padding: 0;
+
+  :global {
+    .qwenpaw-card-body {
+      padding: 0 !important;
+    }
+
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
+      background: #f9f8f4 !important;
+    }
+
+    .qwenpaw-table-cell {
+      padding: 8px 16px !important;
+    }
+
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      table
+      > thead
+      > tr:first-child
+      > *:last-child {
+      border-radius: 0px !important;
+    }
+  }
 }
 
-/* ---- Section (same as Models / Environments) ---- */
+/* ---- Page Header (breadcrumb style) ---- */
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ---- Section (old style - deprecated) ---- */
 
 .section {
   margin-bottom: 24px;
@@ -34,10 +102,117 @@
   &:last-child {
     margin-bottom: 0;
   }
+
+  :global(.ant-card-body) {
+    padding: 0;
+  }
 }
 
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+.dragHandleButton {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  cursor: grab;
+}
+
+.dragHandleButton:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.72);
+}
+
+.dragHandleButton:active {
+  cursor: grabbing;
+}
+
+.dragHandleButton[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.sortableRowDragging {
+  background: rgba(24, 144, 255, 0.08);
+}
+
+/* ─── Skill Picker (agent create/edit modal) ───────────────────────────────── */
+.pickerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.pickerCard {
+  position: relative;
+  padding: 8px 12px;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.02);
+  }
+
+  &.pickerCardSelected {
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.06);
+  }
+
+  &.pickerCardDisabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+}
+
+.pickerCheck {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #615ced;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+}
+
+.pickerCardTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1a1a1a;
+  word-break: break-all;
+}
+
+/* ─── Dark mode ──────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
   .sectionTitle {
     color: rgba(255, 255, 255, 0.85);
   }
@@ -45,21 +220,86 @@
   .sectionDesc {
     color: rgba(255, 255, 255, 0.35);
   }
-}
 
-/* Link buttons in table — must be flat global selectors to beat AntD specificity */
-:global(.dark-mode .ant-btn-link) {
-  color: #8b87f0 !important;
+  .dragHandleButton {
+    color: rgba(255, 255, 255, 0.45);
+  }
 
-  &:global(:hover) {
-    color: #a5a2f5 !important;
+  .dragHandleButton:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .sortableRowDragging {
+    background: rgba(120, 170, 255, 0.12);
+  }
+
+  .pickerCard {
+    border-color: rgba(255, 255, 255, 0.12);
+
+    &:hover {
+      background: rgba(97, 92, 237, 0.08);
+    }
+
+    &.pickerCardSelected {
+      background: rgba(97, 92, 237, 0.12);
+    }
+  }
+
+  .pickerCardTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  :global {
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
+      background: rgba(255, 255, 255, 0.04) !important;
+    }
   }
 }
 
-:global(.dark-mode .ant-btn-link.ant-btn-dangerous) {
+/* Text buttons in table - dark mode */
+:global(.dark-mode .ant-btn-text) {
+  color: rgba(255, 255, 255, 0.85) !important;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #ff7f16 !important;
+  }
+
+  .anticon,
+  svg,
+  span[class*="lucide"] {
+    color: inherit !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
+  }
+}
+
+:global(.dark-mode .ant-btn-text.ant-btn-dangerous) {
   color: #ff7875 !important;
 
-  &:global(:hover) {
+  &:hover {
+    background: rgba(255, 77, 79, 0.15) !important;
+    color: #ff7875 !important;
+  }
+}
+
+:global(.dark-mode .ant-btn-text:disabled),
+:global(.dark-mode .ant-btn-text.ant-btn-disabled),
+:global(.dark-mode .ant-btn-text[disabled]) {
+  color: rgba(255, 255, 255, 0.35) !important;
+  opacity: 1 !important;
+}
+
+/* Link buttons (delete) in table - dark mode */
+:global(.dark-mode .ant-btn-link) {
+  color: #ff7875 !important;
+
+  &:hover {
     color: #ff9c9a !important;
   }
 }
@@ -67,6 +307,6 @@
 :global(.dark-mode .ant-btn-link:disabled),
 :global(.dark-mode .ant-btn-link.ant-btn-disabled),
 :global(.dark-mode .ant-btn-link[disabled]) {
-  color: rgba(255, 255, 255, 0.35) !important;
+  color: rgba(255, 255, 255, 0.25) !important;
   opacity: 1 !important;
 }

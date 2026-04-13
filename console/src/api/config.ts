@@ -1,7 +1,7 @@
-declare const BASE_URL: string;
+declare const VITE_API_BASE_URL: string;
 declare const TOKEN: string;
 
-const AUTH_TOKEN_KEY = "copaw_auth_token";
+const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
 
 /**
  * Get the full API URL with /api prefix
@@ -9,7 +9,7 @@ const AUTH_TOKEN_KEY = "copaw_auth_token";
  * @returns Full API URL (e.g., "http://localhost:8088/api/models" or "/api/models")
  */
 export function getApiUrl(path: string): string {
-  const base = BASE_URL || "";
+  const base = VITE_API_BASE_URL || "";
   const apiPrefix = "/api";
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${base}${apiPrefix}${normalizedPath}`;

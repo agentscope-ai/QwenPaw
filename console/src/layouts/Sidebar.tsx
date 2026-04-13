@@ -2,213 +2,70 @@ import {
   Layout,
   Menu,
   Button,
-  Badge,
   Modal,
-  Spin,
+  Input,
+  Form,
   Tooltip,
   type MenuProps,
 } from "antd";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useAppMessage } from "../hooks/useAppMessage";
+import AgentSelector from "../components/AgentSelector";
 import {
-  MessageSquare,
-  Radio,
-  Zap,
-  MessageCircle,
-  Wifi,
-  UsersRound,
-  CalendarClock,
-  Activity,
-  Sparkles,
-  Briefcase,
-  Cpu,
-  Box,
-  Globe,
-  Settings,
-  Shield,
-  Plug,
-  Wrench,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Copy,
-  Check,
-  BarChart3,
-  Mic,
-  Bot,
-  LogOut,
-} from "lucide-react";
-import api from "../api";
+  SparkChatTabFill,
+  SparkWifiLine,
+  SparkUserGroupLine,
+  SparkDateLine,
+  SparkVoiceChat01Line,
+  SparkMagicWandLine,
+  SparkLocalFileLine,
+  SparkModePlazaLine,
+  SparkInternetLine,
+  SparkModifyLine,
+  SparkBrowseLine,
+  SparkMcpMcpLine,
+  SparkToolLine,
+  SparkDataLine,
+  SparkMicLine,
+  SparkAgentLine,
+  SparkExitFullscreenLine,
+  SparkSearchUserLine,
+  SparkMenuExpandLine,
+  SparkMenuFoldLine,
+  SparkOtherLine,
+} from "@agentscope-ai/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
+import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
+
+// ── Layout ────────────────────────────────────────────────────────────────
 
 const { Sider } = Layout;
 
-const PYPI_URL = "https://pypi.org/pypi/copaw/json";
-
-const DEFAULT_OPEN_KEYS = [
-  "chat-group",
-  "control-group",
-  "agent-group",
-  "settings-group",
-];
-
-const KEY_TO_PATH: Record<string, string> = {
-  chat: "/chat",
-  channels: "/channels",
-  sessions: "/sessions",
-  "cron-jobs": "/cron-jobs",
-  heartbeat: "/heartbeat",
-  skills: "/skills",
-  tools: "/tools",
-  mcp: "/mcp",
-  workspace: "/workspace",
-  agents: "/agents",
-  models: "/models",
-  environments: "/environments",
-  "agent-config": "/agent-config",
-  security: "/security",
-  "token-usage": "/token-usage",
-  "voice-transcription": "/voice-transcription",
-};
-
-const UPDATE_MD: Record<string, string> = {
-  zh: `### CoPaw如何更新
-
-要更新 CoPaw 到最新版本，可根据你的安装方式选择对应方法：
-
-1. 如果你使用的是一键安装脚本，直接重新运行安装命令即可自动升级。
-
-2. 如果你是通过 pip 安装，在终端中执行以下命令升级：
-
-\`\`\`
-pip install --upgrade copaw
-\`\`\`
-
-3. 如果你是从源码安装，进入项目目录并拉取最新代码后重新安装：
-
-\`\`\`
-cd CoPaw
-git pull origin main
-pip install -e .
-\`\`\`
-
-4. 如果你使用的是 Docker，拉取最新镜像并重启容器：
-
-\`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
-\`\`\`
-
-升级后重启服务 copaw app。`,
-
-  ru: `### Как обновить CoPaw
-
-Чтобы обновить CoPaw, выберите способ в зависимости от типа установки:
-
-1. Если вы устанавливали через однострочный скрипт, повторно запустите установщик для обновления.
-
-2. Если устанавливали через pip, выполните:
-
-\`\`\`
-pip install --upgrade copaw
-\`\`\`
-
-3. Если устанавливали из исходников, получите последние изменения и переустановите:
-
-\`\`\`
-cd CoPaw
-git pull origin main
-pip install -e .
-\`\`\`
-
-4. Если используете Docker, загрузите новый образ и перезапустите контейнер:
-
-\`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
-\`\`\`
-
-После обновления перезапустите сервис с помощью \`copaw app\`.`,
-
-  en: `### How to update CoPaw
-
-To update CoPaw, use the method matching your installation type:
-
-1. If installed via one-line script, re-run the installer to upgrade.
-
-2. If installed via pip, run:
-
-\`\`\`
-pip install --upgrade copaw
-\`\`\`
-
-3. If installed from source, pull the latest code and reinstall:
-
-\`\`\`
-cd CoPaw
-git pull origin main
-pip install -e .
-\`\`\`
-
-4. If using Docker, pull the latest image and restart the container:
-
-\`\`\`
-docker pull agentscope/copaw:latest
-docker run -p 127.0.0.1:8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
-\`\`\`
-
-After upgrading, restart the service with \`copaw app\`.`,
-};
+// ── Types ─────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
   selectedKey: string;
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const { t } = useTranslation();
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [text]);
-
-  return (
-    <Tooltip
-      title={copied ? t("common.copied", "Copied!") : t("common.copy", "Copy")}
-    >
-      <Button
-        type="text"
-        size="small"
-        icon={copied ? <Check size={13} /> : <Copy size={13} />}
-        onClick={handleCopy}
-        className={`${styles.copyBtn} ${
-          copied ? styles.copyBtnCopied : styles.copyBtnDefault
-        }`}
-      />
-    </Tooltip>
-  );
-}
+// ── Sidebar ───────────────────────────────────────────────────────────────
 
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { isDark } = useTheme();
-  const [collapsed, setCollapsed] = useState(false);
-  const [openKeys, setOpenKeys] = useState<string[]>(DEFAULT_OPEN_KEYS);
-  const [version, setVersion] = useState<string>("");
-  const [latestVersion, setLatestVersion] = useState<string>("");
-  const [allVersions, setAllVersions] = useState<string[]>([]);
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [updateMarkdown, setUpdateMarkdown] = useState<string>("");
   const [authEnabled, setAuthEnabled] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountForm] = Form.useForm();
+  const [collapsed, setCollapsed] = useState(false);
+
+  // ── Effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     authApi
@@ -217,343 +74,441 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!collapsed) {
-      setOpenKeys(DEFAULT_OPEN_KEYS);
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handleUpdateProfile = async (values: {
+    currentPassword: string;
+    newUsername?: string;
+    newPassword?: string;
+  }) => {
+    const trimmedUsername = values.newUsername?.trim() || undefined;
+    const trimmedPassword = values.newPassword?.trim() || undefined;
+
+    if (values.newPassword && !trimmedPassword) {
+      message.error(t("account.passwordEmpty"));
+      return;
     }
-  }, [collapsed]);
 
-  useEffect(() => {
-    api
-      .getVersion()
-      .then((res) => setVersion(res?.version ?? ""))
-      .catch(() => {});
-  }, []);
+    if (values.newUsername && !trimmedUsername) {
+      message.error(t("account.usernameEmpty"));
+      return;
+    }
 
-  useEffect(() => {
-    fetch(PYPI_URL)
-      .then((res) => res.json())
-      .then((data) => {
-        const releases = data?.releases ?? {};
+    if (!trimmedUsername && !trimmedPassword) {
+      message.warning(t("account.nothingToUpdate"));
+      return;
+    }
 
-        // Filter out pre-release versions (alpha, beta, rc, dev, etc.)
-        const isStableVersion = (version: string) => {
-          // Pre-release indicators: a, alpha, b, beta, rc, c, candidate, dev, post
-          const preReleasePattern = /(a|alpha|b|beta|rc|c|candidate|dev)\d*/i;
-          // Also check for prerelease field in package info
-          return !preReleasePattern.test(version);
-        };
-
-        // Sort versions by upload_time (newest first), only include stable versions
-        const versionsWithTime = Object.entries(releases)
-          .filter(([version]) => isStableVersion(version))
-          .map(([version, files]) => {
-            const fileList = files as Array<{ upload_time_iso_8601?: string }>;
-            // Get the latest upload time among all files for this version
-            const latestUpload = fileList
-              .map((f) => f.upload_time_iso_8601)
-              .filter(Boolean)
-              .sort()
-              .pop();
-            return { version, uploadTime: latestUpload || "" };
-          });
-        versionsWithTime.sort(
-          (a, b) =>
-            new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime(),
-        );
-        const versions = versionsWithTime.map((v) => v.version);
-        const latest = versions[0] ?? data?.info?.version ?? "";
-
-        // Only show update notification if the latest version was released more than 1 hour ago
-        // This gives Docker images time to build and become available
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-        const latestVersionReleaseTime = versionsWithTime.find(
-          (v) => v.version === latest,
-        )?.uploadTime;
-
-        if (
-          latestVersionReleaseTime &&
-          new Date(latestVersionReleaseTime) <= oneHourAgo
-        ) {
-          setAllVersions(versions);
-          setLatestVersion(latest);
-        } else {
-          // If latest version is less than 1 hour old, don't show update notification
-          setAllVersions([]);
-          setLatestVersion("");
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const hasUpdate =
-    version &&
-    allVersions.length > 0 &&
-    allVersions.includes(version) &&
-    version !== latestVersion;
-
-  const handleOpenUpdateModal = () => {
-    setUpdateMarkdown("");
-    setUpdateModalOpen(true);
-    const lang = i18n.language?.startsWith("zh")
-      ? "zh"
-      : i18n.language?.startsWith("ru")
-      ? "ru"
-      : "en";
-    const faqLang = lang === "zh" ? "zh" : "en";
-    const url = `https://copaw.agentscope.io/docs/faq.${faqLang}.md`;
-    fetch(url, { cache: "no-cache" })
-      .then((res) => (res.ok ? res.text() : Promise.reject()))
-      .then((text) => {
-        const zhPattern = /###\s*CoPaw如何更新[\s\S]*?(?=\n###|$)/;
-        const enPattern = /###\s*How to update CoPaw[\s\S]*?(?=\n###|$)/;
-        const match = text.match(faqLang === "zh" ? zhPattern : enPattern);
-        setUpdateMarkdown(
-          match && lang !== "ru"
-            ? match[0].trim()
-            : UPDATE_MD[lang] ?? UPDATE_MD.en,
-        );
-      })
-      .catch(() => {
-        setUpdateMarkdown(UPDATE_MD[lang] ?? UPDATE_MD.en);
-      });
+    setAccountLoading(true);
+    try {
+      await authApi.updateProfile(
+        values.currentPassword,
+        trimmedUsername,
+        trimmedPassword,
+      );
+      message.success(t("account.updateSuccess"));
+      setAccountModalOpen(false);
+      accountForm.resetFields();
+      clearAuthToken();
+      window.location.href = "/login";
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : "";
+      let msg = t("account.updateFailed");
+      if (raw.includes("password is incorrect")) {
+        msg = t("account.wrongPassword");
+      } else if (raw.includes("Nothing to update")) {
+        msg = t("account.nothingToUpdate");
+      } else if (raw.includes("cannot be empty")) {
+        msg = t("account.nothingToUpdate");
+      } else if (raw) {
+        msg = raw;
+      }
+      message.error(msg);
+    } finally {
+      setAccountLoading(false);
+    }
   };
+
+  // ── Collapsed nav items (all leaf pages) ──────────────────────────────
+
+  const collapsedNavItems = [
+    {
+      key: "chat",
+      icon: <SparkChatTabFill size={18} />,
+      path: "/chat",
+      label: t("nav.chat"),
+    },
+    {
+      key: "channels",
+      icon: <SparkWifiLine size={18} />,
+      path: "/channels",
+      label: t("nav.channels"),
+    },
+    {
+      key: "sessions",
+      icon: <SparkUserGroupLine size={18} />,
+      path: "/sessions",
+      label: t("nav.sessions"),
+    },
+    {
+      key: "cron-jobs",
+      icon: <SparkDateLine size={18} />,
+      path: "/cron-jobs",
+      label: t("nav.cronJobs"),
+    },
+    {
+      key: "heartbeat",
+      icon: <SparkVoiceChat01Line size={18} />,
+      path: "/heartbeat",
+      label: t("nav.heartbeat"),
+    },
+    {
+      key: "workspace",
+      icon: <SparkLocalFileLine size={18} />,
+      path: "/workspace",
+      label: t("nav.workspace"),
+    },
+    {
+      key: "skills",
+      icon: <SparkMagicWandLine size={18} />,
+      path: "/skills",
+      label: t("nav.skills"),
+    },
+    {
+      key: "skill-pool",
+      icon: <SparkOtherLine size={18} />,
+      path: "/skill-pool",
+      label: t("nav.skillPool", "Skill Pool"),
+    },
+    {
+      key: "tools",
+      icon: <SparkToolLine size={18} />,
+      path: "/tools",
+      label: t("nav.tools"),
+    },
+    {
+      key: "mcp",
+      icon: <SparkMcpMcpLine size={18} />,
+      path: "/mcp",
+      label: t("nav.mcp"),
+    },
+    {
+      key: "agent-config",
+      icon: <SparkModifyLine size={18} />,
+      path: "/agent-config",
+      label: t("nav.agentConfig"),
+    },
+    {
+      key: "agents",
+      icon: <SparkAgentLine size={18} />,
+      path: "/agents",
+      label: t("nav.agents"),
+    },
+    {
+      key: "models",
+      icon: <SparkModePlazaLine size={18} />,
+      path: "/models",
+      label: t("nav.models"),
+    },
+    {
+      key: "environments",
+      icon: <SparkInternetLine size={18} />,
+      path: "/environments",
+      label: t("nav.environments"),
+    },
+    {
+      key: "security",
+      icon: <SparkBrowseLine size={18} />,
+      path: "/security",
+      label: t("nav.security"),
+    },
+    {
+      key: "token-usage",
+      icon: <SparkDataLine size={18} />,
+      path: "/token-usage",
+      label: t("nav.tokenUsage"),
+    },
+    {
+      key: "voice-transcription",
+      icon: <SparkMicLine size={18} />,
+      path: "/voice-transcription",
+      label: t("nav.voiceTranscription"),
+    },
+  ];
+
+  // ── Menu items ────────────────────────────────────────────────────────────
 
   const menuItems: MenuProps["items"] = [
     {
-      key: "chat-group",
-      label: t("nav.chat"),
-      icon: <MessageSquare size={16} />,
-      children: [
-        {
-          key: "chat",
-          label: t("nav.chat"),
-          icon: <MessageCircle size={16} />,
-        },
-      ],
+      key: "chat",
+      label: collapsed ? null : t("nav.chat"),
+      icon: <SparkChatTabFill size={16} />,
     },
     {
       key: "control-group",
-      label: t("nav.control"),
-      icon: <Radio size={16} />,
+      label: collapsed ? null : t("nav.control"),
       children: [
-        { key: "channels", label: t("nav.channels"), icon: <Wifi size={16} /> },
+        {
+          key: "channels",
+          label: collapsed ? null : t("nav.channels"),
+          icon: <SparkWifiLine size={16} />,
+        },
         {
           key: "sessions",
-          label: t("nav.sessions"),
-          icon: <UsersRound size={16} />,
+          label: collapsed ? null : t("nav.sessions"),
+          icon: <SparkUserGroupLine size={16} />,
         },
         {
           key: "cron-jobs",
-          label: t("nav.cronJobs"),
-          icon: <CalendarClock size={16} />,
+          label: collapsed ? null : t("nav.cronJobs"),
+          icon: <SparkDateLine size={16} />,
         },
         {
           key: "heartbeat",
-          label: t("nav.heartbeat"),
-          icon: <Activity size={16} />,
+          label: collapsed ? null : t("nav.heartbeat"),
+          icon: <SparkVoiceChat01Line size={16} />,
         },
       ],
     },
     {
       key: "agent-group",
-      label: t("nav.agent"),
-      icon: <Zap size={16} />,
+      label: collapsed ? null : t("nav.agent"),
       children: [
         {
           key: "workspace",
-          label: t("nav.workspace"),
-          icon: <Briefcase size={16} />,
+          label: collapsed ? null : t("nav.workspace"),
+          icon: <SparkLocalFileLine size={16} />,
         },
-        { key: "skills", label: t("nav.skills"), icon: <Sparkles size={16} /> },
-        { key: "tools", label: t("nav.tools"), icon: <Wrench size={16} /> },
-        { key: "mcp", label: t("nav.mcp"), icon: <Plug size={16} /> },
+        {
+          key: "skills",
+          label: collapsed ? null : t("nav.skills"),
+          icon: <SparkMagicWandLine size={16} />,
+        },
+        {
+          key: "tools",
+          label: collapsed ? null : t("nav.tools"),
+          icon: <SparkToolLine size={16} />,
+        },
+        {
+          key: "mcp",
+          label: collapsed ? null : t("nav.mcp"),
+          icon: <SparkMcpMcpLine size={16} />,
+        },
         {
           key: "agent-config",
-          label: t("nav.agentConfig"),
-          icon: <Settings size={16} />,
+          label: collapsed ? null : t("nav.agentConfig"),
+          icon: <SparkModifyLine size={16} />,
         },
       ],
     },
     {
       key: "settings-group",
-      label: t("nav.settings"),
-      icon: <Cpu size={16} />,
+      label: collapsed ? null : t("nav.settings"),
       children: [
-        { key: "agents", label: t("nav.agents"), icon: <Bot size={16} /> },
-        { key: "models", label: t("nav.models"), icon: <Box size={16} /> },
+        {
+          key: "agents",
+          label: collapsed ? null : t("nav.agents"),
+          icon: <SparkAgentLine size={16} />,
+        },
+        {
+          key: "models",
+          label: collapsed ? null : t("nav.models"),
+          icon: <SparkModePlazaLine size={16} />,
+        },
+        {
+          key: "skill-pool",
+          label: collapsed ? null : t("nav.skillPool", "Skill Pool"),
+          icon: <SparkOtherLine size={16} />,
+        },
         {
           key: "environments",
-          label: t("nav.environments"),
-          icon: <Globe size={16} />,
+          label: collapsed ? null : t("nav.environments"),
+          icon: <SparkInternetLine size={16} />,
         },
         {
           key: "security",
-          label: t("nav.security"),
-          icon: <Shield size={16} />,
+          label: collapsed ? null : t("nav.security"),
+          icon: <SparkBrowseLine size={16} />,
         },
         {
           key: "token-usage",
-          label: t("nav.tokenUsage"),
-          icon: <BarChart3 size={16} />,
+          label: collapsed ? null : t("nav.tokenUsage"),
+          icon: <SparkDataLine size={16} />,
         },
         {
           key: "voice-transcription",
-          label: t("nav.voiceTranscription"),
-          icon: <Mic size={16} />,
+          label: collapsed ? null : t("nav.voiceTranscription"),
+          icon: <SparkMicLine size={16} />,
         },
       ],
     },
   ];
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <Sider
-      collapsed={collapsed}
-      onCollapse={setCollapsed}
-      width={275}
-      className={`${styles.sider}${isDark ? ` ${styles.siderDark}` : ""}`}
+      width={collapsed ? 72 : 240}
+      className={`${styles.sider}${
+        collapsed ? ` ${styles.siderCollapsed}` : ""
+      }${isDark ? ` ${styles.siderDark}` : ""}`}
     >
-      <div className={styles.siderTop}>
-        {!collapsed && (
-          <div className={styles.logoWrapper}>
-            <img
-              src={
-                isDark
-                  ? `${import.meta.env.BASE_URL}dark-logo.png`
-                  : `${import.meta.env.BASE_URL}logo.png`
-              }
-              alt="CoPaw"
-              className={styles.logoImg}
-            />
-            {version && (
-              <Badge dot={!!hasUpdate} color="red" offset={[4, 18]}>
-                <span
-                  className={`${styles.versionBadge} ${
-                    hasUpdate
-                      ? styles.versionBadgeClickable
-                      : styles.versionBadgeDefault
-                  }`}
-                  onClick={() => hasUpdate && handleOpenUpdateModal()}
-                >
-                  v{version}
-                </span>
-              </Badge>
-            )}
-          </div>
-        )}
-        <Button
-          type="text"
-          icon={
-            collapsed ? (
-              <PanelLeftOpen size={20} />
-            ) : (
-              <PanelLeftClose size={20} />
-            )
-          }
-          onClick={() => setCollapsed(!collapsed)}
-          className={styles.collapseBtn}
-        />
+      <div className={styles.agentSelectorContainer}>
+        <AgentSelector collapsed={collapsed} />
       </div>
 
-      <Menu
-        mode="inline"
-        selectedKeys={[selectedKey]}
-        openKeys={openKeys}
-        onOpenChange={(keys) => setOpenKeys(keys as string[])}
-        onClick={({ key }) => {
-          const path = KEY_TO_PATH[String(key)];
-          if (path) navigate(path);
-        }}
-        items={menuItems}
-        theme={isDark ? "dark" : "light"}
-      />
+      {collapsed ? (
+        <nav className={styles.collapsedNav}>
+          {collapsedNavItems.map((item) => {
+            const isActive = selectedKey === item.key;
+            return (
+              <Tooltip
+                key={item.key}
+                title={item.label}
+                placement="right"
+                overlayInnerStyle={{
+                  background: "rgba(0,0,0,0.75)",
+                  color: "#fff",
+                }}
+              >
+                <button
+                  className={`${styles.collapsedNavItem} ${
+                    isActive ? styles.collapsedNavItemActive : ""
+                  }`}
+                  onClick={() => navigate(item.path)}
+                >
+                  {item.icon}
+                </button>
+              </Tooltip>
+            );
+          })}
+        </nav>
+      ) : (
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          openKeys={DEFAULT_OPEN_KEYS}
+          onClick={({ key }) => {
+            const path = KEY_TO_PATH[String(key)];
+            if (path) navigate(path);
+          }}
+          items={menuItems}
+          theme={isDark ? "dark" : "light"}
+          className={styles.sideMenu}
+        />
+      )}
 
-      {authEnabled && (
-        <div style={{ padding: "12px 16px", borderTop: "1px solid #f0f0f0" }}>
+      {authEnabled && !collapsed && (
+        <div className={styles.authActions}>
           <Button
             type="text"
-            icon={<LogOut size={16} />}
+            icon={<SparkSearchUserLine size={16} />}
+            onClick={() => {
+              accountForm.resetFields();
+              setAccountModalOpen(true);
+            }}
+            block
+            className={`${styles.authBtn} ${
+              collapsed ? styles.authBtnCollapsed : ""
+            }`}
+          >
+            {!collapsed && t("account.title")}
+          </Button>
+          <Button
+            type="text"
+            icon={<SparkExitFullscreenLine size={16} />}
             onClick={() => {
               clearAuthToken();
               window.location.href = "/login";
             }}
             block
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              justifyContent: collapsed ? "center" : "flex-start",
-            }}
+            className={`${styles.authBtn} ${
+              collapsed ? styles.authBtnCollapsed : ""
+            }`}
           >
             {!collapsed && t("login.logout")}
           </Button>
         </div>
       )}
 
+      <div className={styles.collapseToggleContainer}>
+        <Button
+          type="text"
+          icon={
+            collapsed ? (
+              <SparkMenuExpandLine size={20} />
+            ) : (
+              <SparkMenuFoldLine size={20} />
+            )
+          }
+          onClick={() => setCollapsed(!collapsed)}
+          className={styles.collapseToggle}
+        />
+      </div>
+
       <Modal
-        open={updateModalOpen}
-        onCancel={() => setUpdateModalOpen(false)}
-        title={
-          <h3 className={styles.updateModalTitle}>
-            {t("sidebar.updateModal.title", { version: latestVersion })}
-          </h3>
-        }
-        width={680}
-        footer={[
-          <Button
-            key="releases"
-            type="primary"
-            onClick={() => {
-              const websiteLang = i18n.language?.startsWith("zh") ? "zh" : "en";
-              window.open(
-                `https://copaw.agentscope.io/release-notes?lang=${websiteLang}`,
-                "_blank",
-              );
-            }}
-            className={styles.updateModalPrimaryBtn}
-          >
-            {t("sidebar.updateModal.viewReleases")}
-          </Button>,
-          <Button key="close" onClick={() => setUpdateModalOpen(false)}>
-            {t("sidebar.updateModal.close")}
-          </Button>,
-        ]}
+        open={accountModalOpen}
+        onCancel={() => setAccountModalOpen(false)}
+        title={t("account.title")}
+        footer={null}
+        destroyOnHidden
+        centered
       >
-        <div className={styles.updateModalBody}>
-          {!updateMarkdown ? (
-            <div className={styles.updateModalSpinWrapper}>
-              <Spin />
-            </div>
-          ) : (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ className, children, ...props }) {
-                  const isBlock =
-                    className?.startsWith("language-") ||
-                    String(children).includes("\n");
-                  if (isBlock) {
-                    return (
-                      <pre className={styles.codeBlock}>
-                        <CopyButton text={String(children)} />
-                        <code className={styles.codeBlockInner} {...props}>
-                          {children}
-                        </code>
-                      </pre>
-                    );
+        <Form
+          form={accountForm}
+          layout="vertical"
+          onFinish={handleUpdateProfile}
+        >
+          <Form.Item
+            name="currentPassword"
+            label={t("account.currentPassword")}
+            rules={[
+              { required: true, message: t("account.currentPasswordRequired") },
+            ]}
+          >
+            <Input.Password />
+          </Form.Item>
+          <Form.Item name="newUsername" label={t("account.newUsername")}>
+            <Input placeholder={t("account.newUsernamePlaceholder")} />
+          </Form.Item>
+          <Form.Item name="newPassword" label={t("account.newPassword")}>
+            <Input.Password placeholder={t("account.newPasswordPlaceholder")} />
+          </Form.Item>
+          <Form.Item
+            name="confirmPassword"
+            label={t("account.confirmPassword")}
+            dependencies={["newPassword"]}
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value && !getFieldValue("newPassword")) {
+                    return Promise.resolve();
                   }
-                  return (
-                    <code className={styles.codeInline} {...props}>
-                      {children}
-                    </code>
+                  if (value === getFieldValue("newPassword")) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(
+                    new Error(t("account.passwordMismatch")),
                   );
                 },
-              }}
+              }),
+            ]}
+          >
+            <Input.Password
+              placeholder={t("account.confirmPasswordPlaceholder")}
+            />
+          </Form.Item>
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={accountLoading}
+              block
             >
-              {updateMarkdown}
-            </ReactMarkdown>
-          )}
-        </div>
+              {t("account.save")}
+            </Button>
+          </Form.Item>
+        </Form>
       </Modal>
     </Sider>
   );

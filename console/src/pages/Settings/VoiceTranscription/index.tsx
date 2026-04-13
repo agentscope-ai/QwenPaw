@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Button, Card, message } from "@agentscope-ai/design";
+import { Button, Card } from "@agentscope-ai/design";
 import { Radio, Select, Space, Spin, Alert } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 interface TranscriptionProvider {
@@ -19,6 +21,7 @@ interface LocalWhisperStatus {
 
 function VoiceTranscriptionPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [audioMode, setAudioMode] = useState("auto");
@@ -90,172 +93,13 @@ function VoiceTranscriptionPage() {
   const isWhisperApi = providerType === "whisper_api";
 
   return (
-    <div className={styles.page}>
-      <div className={styles.header}>
-        <div>
-          <h1 className={styles.title}>{t("voiceTranscription.title")}</h1>
-          <p className={styles.description}>
-            {t("voiceTranscription.description")}
-          </p>
-        </div>
-      </div>
-
-      <Card className={styles.card}>
-        <h3 className={styles.cardTitle}>
-          {t("voiceTranscription.audioModeLabel")}
-        </h3>
-        <p className={styles.cardDescription}>
-          {t("voiceTranscription.audioModeDescription")}
-        </p>
-        <Radio.Group
-          value={audioMode}
-          onChange={(e) => setAudioMode(e.target.value)}
-        >
-          <Space direction="vertical" size="middle">
-            <Radio value="auto">
-              <span className={styles.optionLabel}>
-                {t("voiceTranscription.modeAuto")}
-              </span>
-              <span className={styles.optionDescription}>
-                {t("voiceTranscription.modeAutoDesc")}
-              </span>
-            </Radio>
-            <Radio value="native">
-              <span className={styles.optionLabel}>
-                {t("voiceTranscription.modeNative")}
-              </span>
-              <span className={styles.optionDescription}>
-                {t("voiceTranscription.modeNativeDesc")}
-              </span>
-            </Radio>
-          </Space>
-        </Radio.Group>
-
-        {audioMode === "native" && localWhisperStatus && (
-          <div style={{ marginTop: 12 }}>
-            {localWhisperStatus.ffmpeg_installed ? (
-              <Alert
-                type="success"
-                showIcon
-                message={t("voiceTranscription.ffmpegReady")}
-              />
-            ) : (
-              <Alert
-                type="warning"
-                showIcon
-                message={t("voiceTranscription.ffmpegMissing")}
-                description={t("voiceTranscription.ffmpegMissingDesc")}
-              />
-            )}
-          </div>
-        )}
-      </Card>
-
-      {showProviderSection && (
-        <>
-          <Card className={styles.card}>
-            <h3 className={styles.cardTitle}>
-              {t("voiceTranscription.providerTypeLabel")}
-            </h3>
-            <p className={styles.cardDescription}>
-              {t("voiceTranscription.providerTypeDescription")}
-            </p>
-            <Radio.Group
-              value={providerType}
-              onChange={(e) => setProviderType(e.target.value)}
-            >
-              <Space direction="vertical" size="middle">
-                <Radio value="disabled">
-                  <span className={styles.optionLabel}>
-                    {t("voiceTranscription.providerTypeDisabled")}
-                  </span>
-                  <span className={styles.optionDescription}>
-                    {t("voiceTranscription.providerTypeDisabledDesc")}
-                  </span>
-                </Radio>
-                <Radio value="whisper_api">
-                  <span className={styles.optionLabel}>
-                    {t("voiceTranscription.providerTypeWhisperApi")}
-                  </span>
-                  <span className={styles.optionDescription}>
-                    {t("voiceTranscription.providerTypeWhisperApiDesc")}
-                  </span>
-                </Radio>
-                <Radio value="local_whisper">
-                  <span className={styles.optionLabel}>
-                    {t("voiceTranscription.providerTypeLocalWhisper")}
-                  </span>
-                  <span className={styles.optionDescription}>
-                    {t("voiceTranscription.providerTypeLocalWhisperDesc")}
-                  </span>
-                </Radio>
-              </Space>
-            </Radio.Group>
-
-            {isLocalWhisper && localWhisperStatus && (
-              <div style={{ marginTop: 12 }}>
-                {localWhisperStatus.available ? (
-                  <Alert
-                    type="success"
-                    showIcon
-                    message={t("voiceTranscription.localWhisperReady")}
-                  />
-                ) : (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    message={t("voiceTranscription.localWhisperMissing")}
-                    description={t(
-                      "voiceTranscription.localWhisperMissingDesc",
-                      {
-                        ffmpeg: localWhisperStatus.ffmpeg_installed
-                          ? t("common.enabled")
-                          : t("common.disabled"),
-                        whisper: localWhisperStatus.whisper_installed
-                          ? t("common.enabled")
-                          : t("common.disabled"),
-                      },
-                    )}
-                  />
-                )}
-              </div>
-            )}
-          </Card>
-
-          {isWhisperApi && (
-            <Card className={styles.card}>
-              <h3 className={styles.cardTitle}>
-                {t("voiceTranscription.providerLabel")}
-              </h3>
-              <p className={styles.cardDescription}>
-                {t("voiceTranscription.providerDescription")}
-              </p>
-
-              {availableProviders.length === 0 ? (
-                <Alert
-                  type="warning"
-                  showIcon
-                  message={t("voiceTranscription.noProvidersWarning")}
-                />
-              ) : (
-                <Select
-                  value={selectedProviderId || undefined}
-                  onChange={setSelectedProviderId}
-                  placeholder={t("voiceTranscription.providerPlaceholder")}
-                  style={{ width: "100%", maxWidth: 400 }}
-                >
-                  {availableProviders.map((p) => (
-                    <Select.Option key={p.id} value={p.id}>
-                      {p.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              )}
-            </Card>
-          )}
-        </>
-      )}
-
+    <div className={styles.voiceTranscriptionPage}>
+      <PageHeader
+        items={[
+          { title: t("nav.settings") },
+          { title: t("voiceTranscription.title") },
+        ]}
+      />
       <Alert
         type="info"
         showIcon
@@ -265,10 +109,166 @@ function VoiceTranscriptionPage() {
             ? t("voiceTranscription.transcriptionInfoDescLocal")
             : t("voiceTranscription.transcriptionInfoDesc")
         }
-        style={{ marginBottom: 16 }}
       />
+      <div className={styles.content}>
+        <Card className={styles.card}>
+          <h3 className={styles.cardTitle}>
+            {t("voiceTranscription.audioModeLabel")}
+          </h3>
+          <p className={styles.cardDescription}>
+            {t("voiceTranscription.audioModeDescription")}
+          </p>
+          <Radio.Group
+            value={audioMode}
+            onChange={(e) => setAudioMode(e.target.value)}
+          >
+            <Space direction="vertical" size="middle">
+              <Radio value="auto">
+                <span className={styles.optionLabel}>
+                  {t("voiceTranscription.modeAuto")}
+                </span>
+                <span className={styles.optionDescription}>
+                  {t("voiceTranscription.modeAutoDesc")}
+                </span>
+              </Radio>
+              <Radio value="native">
+                <span className={styles.optionLabel}>
+                  {t("voiceTranscription.modeNative")}
+                </span>
+                <span className={styles.optionDescription}>
+                  {t("voiceTranscription.modeNativeDesc")}
+                </span>
+              </Radio>
+            </Space>
+          </Radio.Group>
 
-      <div className={styles.footerActions}>
+          {audioMode === "native" && localWhisperStatus && (
+            <div style={{ marginTop: 12 }}>
+              {localWhisperStatus.ffmpeg_installed ? (
+                <Alert
+                  type="success"
+                  showIcon
+                  message={t("voiceTranscription.ffmpegReady")}
+                />
+              ) : (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={t("voiceTranscription.ffmpegMissing")}
+                  description={t("voiceTranscription.ffmpegMissingDesc")}
+                />
+              )}
+            </div>
+          )}
+        </Card>
+
+        {showProviderSection && (
+          <>
+            <Card className={styles.card}>
+              <h3 className={styles.cardTitle}>
+                {t("voiceTranscription.providerTypeLabel")}
+              </h3>
+              <p className={styles.cardDescription}>
+                {t("voiceTranscription.providerTypeDescription")}
+              </p>
+              <Radio.Group
+                value={providerType}
+                onChange={(e) => setProviderType(e.target.value)}
+              >
+                <Space direction="vertical" size="middle">
+                  <Radio value="disabled">
+                    <span className={styles.optionLabel}>
+                      {t("voiceTranscription.providerTypeDisabled")}
+                    </span>
+                    <span className={styles.optionDescription}>
+                      {t("voiceTranscription.providerTypeDisabledDesc")}
+                    </span>
+                  </Radio>
+                  <Radio value="whisper_api">
+                    <span className={styles.optionLabel}>
+                      {t("voiceTranscription.providerTypeWhisperApi")}
+                    </span>
+                    <span className={styles.optionDescription}>
+                      {t("voiceTranscription.providerTypeWhisperApiDesc")}
+                    </span>
+                  </Radio>
+                  <Radio value="local_whisper">
+                    <span className={styles.optionLabel}>
+                      {t("voiceTranscription.providerTypeLocalWhisper")}
+                    </span>
+                    <span className={styles.optionDescription}>
+                      {t("voiceTranscription.providerTypeLocalWhisperDesc")}
+                    </span>
+                  </Radio>
+                </Space>
+              </Radio.Group>
+
+              {isLocalWhisper && localWhisperStatus && (
+                <div style={{ marginTop: 12 }}>
+                  {localWhisperStatus.available ? (
+                    <Alert
+                      type="success"
+                      showIcon
+                      message={t("voiceTranscription.localWhisperReady")}
+                    />
+                  ) : (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message={t("voiceTranscription.localWhisperMissing")}
+                      description={t(
+                        "voiceTranscription.localWhisperMissingDesc",
+                        {
+                          ffmpeg: localWhisperStatus.ffmpeg_installed
+                            ? t("common.enabled")
+                            : t("common.disabled"),
+                          whisper: localWhisperStatus.whisper_installed
+                            ? t("common.enabled")
+                            : t("common.disabled"),
+                        },
+                      )}
+                    />
+                  )}
+                </div>
+              )}
+            </Card>
+
+            {isWhisperApi && (
+              <Card className={styles.card}>
+                <h3 className={styles.cardTitle}>
+                  {t("voiceTranscription.providerLabel")}
+                </h3>
+                <p className={styles.cardDescription}>
+                  {t("voiceTranscription.providerDescription")}
+                </p>
+
+                {availableProviders.length === 0 ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={t("voiceTranscription.noProvidersWarning")}
+                  />
+                ) : (
+                  <Select
+                    value={selectedProviderId || undefined}
+                    onChange={setSelectedProviderId}
+                    placeholder={t("voiceTranscription.providerPlaceholder")}
+                    style={{ width: "100%", maxWidth: 400 }}
+                  >
+                    {availableProviders.map((p) => (
+                      <Select.Option key={p.id} value={p.id}>
+                        {p.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                )}
+              </Card>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className={styles.footerButtons}>
         <Button
           onClick={fetchSettings}
           disabled={saving}

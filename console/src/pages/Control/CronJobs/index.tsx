@@ -11,6 +11,7 @@ import {
   DEFAULT_FORM_VALUES,
 } from "./components";
 import { parseCron, serializeCron } from "./components/parseCron";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 type CronJob = CronJobSpecOutput;
@@ -28,6 +29,7 @@ function CronJobsPage() {
   } = useCronJobs();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<CronJob>();
   const userTimezoneRef = useRef("UTC");
 
@@ -173,10 +175,15 @@ function CronJobsPage() {
     }
 
     let success = false;
-    if (editingJob) {
-      success = await updateJob(editingJob.id, processedValues);
-    } else {
-      success = await createJob(processedValues);
+    setSaving(true);
+    try {
+      if (editingJob) {
+        success = await updateJob(editingJob.id, processedValues);
+      } else {
+        success = await createJob(processedValues);
+      }
+    } finally {
+      setSaving(false);
     }
     if (success) {
       setDrawerOpen(false);
@@ -193,15 +200,14 @@ function CronJobsPage() {
 
   return (
     <div className={styles.cronJobsPage}>
-      <div className={styles.header}>
-        <div className={styles.headerInfo}>
-          <h1 className={styles.title}>{t("cronJobs.title")}</h1>
-          <p className={styles.description}>{t("cronJobs.description")}</p>
-        </div>
-        <Button type="primary" onClick={handleCreate}>
-          + {t("cronJobs.createJob")}
-        </Button>
-      </div>
+      <PageHeader
+        items={[{ title: t("nav.control") }, { title: t("cronJobs.title") }]}
+        extra={
+          <Button type="primary" onClick={handleCreate}>
+            + {t("cronJobs.createJob")}
+          </Button>
+        }
+      />
 
       <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
         <Table
@@ -212,8 +218,6 @@ function CronJobsPage() {
           scroll={{ x: 2840 }}
           pagination={{
             pageSize: 10,
-            showSizeChanger: false,
-            showTotal: (total) => t("cronJobs.totalItems", { count: total }),
           }}
         />
       </Card>
@@ -222,6 +226,7 @@ function CronJobsPage() {
         open={drawerOpen}
         editingJob={editingJob}
         form={form}
+        saving={saving}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />

@@ -1,24 +1,58 @@
 .channelsPage {
-  padding: 24px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.channelsContainer {
+  overflow: auto;
 }
 
 .pageHeader {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 24px;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
 }
 
 .title {
-  margin-bottom: 4px;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
+  color: #333;
 }
 
 .description {
   color: #999;
   font-size: 14px;
   margin: 0;
+  display: none;
 }
 
 .filterTabs {
@@ -48,7 +82,7 @@
 
 .filterTabActive {
   background: #fff;
-  color: #615ced;
+  color: rgba(38, 36, 76, 0.88);
   font-weight: 500;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
@@ -64,129 +98,178 @@
 
 .channelsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(346px, 1fr));
+  gap: 16px;
+  padding: 16px;
 }
 
 /* ---- Channel Card Styles ---- */
 
 .channelCard {
-  border-radius: 16px;
+  height: 138px;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+  border-radius: var(--border-radius, 8px);
+  background: var(--color-bg-base, #ffffff);
+  border: 1px solid var(--color-border-secondary, #eae8e7);
+  box-sizing: border-box;
   cursor: pointer;
   transition: all 0.2s ease-in-out;
 
+  :global {
+    .qwenpaw-card-body {
+      padding: 0 !important;
+    }
+
+    .qwenpaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+  }
+
   &.hover {
-    border: 2px solid #615ced;
-    box-shadow: 0 12px 32px rgba(97, 92, 237, 0.3);
-  }
-
-  &.enabled {
-    border: 2px solid #615ced;
-    box-shadow: 0 8px 24px rgba(97, 92, 237, 0.2);
-    transform: scale(1.02);
-  }
-
-  &.normal {
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-    transform: scale(1);
+    border-color: var(--color-border, #d9d9d9);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
 }
 
-.cardHeader {
+/* Top section: Icon and Status */
+.cardTopSection {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+  align-items: flex-start;
 }
 
-.cardHeaderRight {
+.channelIcon {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #f07e26;
+  flex-shrink: 0;
+
+  img {
+    border-radius: 8px;
+    object-fit: cover;
+  }
 }
 
-.cardTitleRow {
+.statusIndicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.statusText {
+  font-family: Lato;
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 19px;
+  letter-spacing: normal;
+
+  &.enabled {
+    color: rgba(20, 184, 166, 1);
+  }
+
+  &.disabled {
+    color: rgba(20, 20, 19, 0.45);
+  }
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+
+  &.enabled {
+    background-color: rgba(20, 184, 166, 1);
+  }
+
+  &.disabled {
+    background-color: #d9d9d9;
+  }
+}
+
+/* Middle section: Name and Tag */
+.cardMiddleSection {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
+.cardTitle {
+  color: rgba(20, 20, 19, 0.88);
+  font-family: Inter;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: normal;
+  margin: 12px 0;
+}
+
 .builtinTag {
-  font-size: 10px;
-  color: #615ced;
-  background: rgba(97, 92, 237, 0.1);
-  border-radius: 4px;
-  padding: 1px 6px;
-  white-space: nowrap;
-  flex-shrink: 0;
+  color: #8e8c99;
+  background: rgba(239, 240, 243, 0.8);
+  border-radius: 2px;
+  padding: 0px 4px;
+  font-family: Inter;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: normal;
+  margin-left: 12px;
 }
 
 .customTag {
-  font-size: 10px;
-  color: #fa8c16;
-  background: rgba(250, 140, 22, 0.1);
-  border: none;
-  border-radius: 4px;
-  padding: 1px 6px;
-  margin: 0;
+  color: #8e8c99;
+  background: rgba(239, 240, 243, 0.8);
+  border-radius: 2px;
+  padding: 0px 4px;
+  font-family: Inter;
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 16px;
   white-space: nowrap;
   flex-shrink: 0;
+  margin-left: 12px;
 }
 
-.statusContainer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 12px;
-  color: #999;
-}
-
-.statusDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-
-  &.enabled {
-    background-color: #52c41a;
-    box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.2);
-  }
-
-  &.disabled {
-    background-color: #d9d9d9;
-    box-shadow: none;
-  }
-}
-
-.channelTag {
-  font-size: 12px;
-  color: #b37feb;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(97, 92, 237, 0.08);
-}
-
-.cardTitle {
-  max-width: 150px;
-  font-size: 16px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 1;
-  min-width: 0;
-}
-
-.cardDescription {
-  font-size: 12px;
-  color: #999;
+/* Bottom section: Bot Prefix */
+.cardBottomSection {
   margin-bottom: 12px;
 }
 
+.cardDescription {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+}
+
+.actionButton {
+  padding: 0;
+  height: auto;
+  font-size: 11px;
+}
+
 .cardHint {
-  font-size: 12px;
-  color: #bbb;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.25);
 }
 
 /* ---- Channel Drawer Styles ---- */
@@ -206,11 +289,39 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 16px;
+}
+
+.formTopActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.drawerHeaderActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
   .title {
     color: rgba(255, 255, 255, 0.85);
   }
@@ -234,7 +345,7 @@
 
   .filterTabActive {
     background: #2a2a2a;
-    color: #8b87f0;
+    color: #ff7f16;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   }
 
@@ -250,23 +361,56 @@
     }
   }
 
+  .channelIcon {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
   .cardTitle {
     color: rgba(255, 255, 255, 0.85);
   }
 
-  .statusContainer {
-    color: rgba(255, 255, 255, 0.35);
+  .builtinTag,
+  .customTag {
+    color: rgba(255, 255, 255, 0.45);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .statusIndicator {
+    &.enabled {
+      color: rgba(20, 184, 166, 1);
+    }
+
+    &.disabled {
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
+
+  .statusText {
+    &.enabled {
+      color: rgba(20, 184, 166, 1);
+    }
+
+    &.disabled {
+      color: rgba(255, 255, 255, 0.65);
+    }
   }
 
   .statusDot.disabled {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.4);
   }
 
   .cardDescription {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.45);
   }
 
   .cardHint {
-    color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  .drawerHeaderActions {
+    .cancelBtn {
+      color: rgba(255, 255, 255, 0.65);
+    }
   }
 }

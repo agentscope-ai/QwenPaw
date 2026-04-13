@@ -1,8 +1,8 @@
 # 长期记忆
 
-**长期记忆** 让 CoPAW 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
+**长期记忆** 让 QwenPaw 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
 
-> 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。
+> 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，记忆即 Markdown 文件，可直接读取、编辑与迁移。
 
 ---
 
@@ -74,22 +74,64 @@ graph LR
 
 ## 记忆配置
 
-### Embedding配置（可选）
+### Embedding 配置（可选）
 
-通过以下环境变量配置 Embedding 参数，用于语义向量搜索：
+Embedding 配置用于向量语义搜索，配置优先级为：**配置文件 > 环境变量 > 默认值**。
 
-| 环境变量                     | 说明                           | 默认值 |
-| ---------------------------- | ------------------------------ | ------ |
-| `EMBEDDING_API_KEY`          | Embedding 服务的 API Key       | ``     |
-| `EMBEDDING_BASE_URL`         | Embedding 服务的 URL           | ``     |
-| `EMBEDDING_MODEL_NAME`       | Embedding 模型名称             | ``     |
-| `EMBEDDING_DIMENSIONS`       | 向量维度，用于初始化向量数据库 | `1024` |
-| `EMBEDDING_CACHE_ENABLED`    | 是否启用 Embedding 缓存        | `true` |
-| `EMBEDDING_MAX_CACHE_SIZE`   | Embedding 缓存最大条目数       | `2000` |
-| `EMBEDDING_MAX_INPUT_LENGTH` | 单次 Embedding 最大输入长度    | `8192` |
-| `EMBEDDING_MAX_BATCH_SIZE`   | Embedding 批处理最大数量       | `10`   |
+#### 通过配置文件配置（推荐）
 
-> `EMBEDDING_API_KEY`、`EMBEDDING_MODEL_NAME` 和 `EMBEDDING_BASE_URL` 都非空才能开启多路检索中的向量检索
+在 `agent.json` 的 `running.embedding_config` 中配置：
+
+| 配置项             | 说明                                  | 默认值   |
+| ------------------ | ------------------------------------- | -------- |
+| `backend`          | Embedding 后端类型                    | `openai` |
+| `api_key`          | Embedding 服务的 API Key              | ``       |
+| `base_url`         | Embedding 服务的 URL                  | ``       |
+| `model_name`       | Embedding 模型名称                    | ``       |
+| `dimensions`       | 向量维度，用于初始化向量数据库        | `1024`   |
+| `enable_cache`     | 是否启用 Embedding 缓存               | `true`   |
+| `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数 | `false`  |
+| `max_cache_size`   | Embedding 缓存最大条目数              | `2000`   |
+| `max_input_length` | 单次 Embedding 最大输入长度           | `8192`   |
+| `max_batch_size`   | Embedding 批处理最大数量              | `10`     |
+
+> `use_dimensions` 用于某些 vLLM 模型不支持 dimensions 参数的情况，设为 `false` 可跳过该参数。
+
+#### 通过环境变量配置（Fallback）
+
+当配置文件中未设置时，以下环境变量作为 fallback：
+
+| 环境变量               | 说明                     | 默认值 |
+| ---------------------- | ------------------------ | ------ |
+| `EMBEDDING_API_KEY`    | Embedding 服务的 API Key | ``     |
+| `EMBEDDING_BASE_URL`   | Embedding 服务的 URL     | ``     |
+| `EMBEDDING_MODEL_NAME` | Embedding 模型名称       | ``     |
+
+> `base_url` 和 `model_name` 都非空才能开启混合检索中的向量检索（`api_key` 不参与判断）。
+
+### 全文检索配置
+
+通过环境变量 `FTS_ENABLED` 控制是否启用 BM25 全文检索：
+
+| 环境变量      | 说明             | 默认值 |
+| ------------- | ---------------- | ------ |
+| `FTS_ENABLED` | 是否启用全文检索 | `true` |
+
+> 即使不配置 Embedding，启用全文检索仍可通过 BM25 进行关键词搜索。
+
+### 记忆总结配置
+
+在 `agent.json` 的 `running.memory_summary` 中配置：
+
+| 配置项                           | 说明                                                                        | 默认值  |
+| -------------------------------- | --------------------------------------------------------------------------- | ------- |
+| `memory_summary_enabled`         | 是否在上下文压缩时后台保存长期记忆（调用 `summary_memory` 写入文件）        | `true`  |
+| `force_memory_search` **(BETA)** | 是否在每次对话时强制执行记忆搜索，并将结果注入上下文                        | `false` |
+| `force_max_results`              | 强制搜索时最多返回的结果数                                                  | `1`     |
+| `force_min_score`                | 强制搜索时的最低相关性分数阈值（0.0 ~ 1.0）                                 | `0.3`   |
+| `rebuild_memory_index_on_start`  | 启动时是否清空并重建记忆搜索索引；设为 `false` 可跳过重建，仅监控新文件变更 | `false` |
+
+---
 
 ### 底层数据库
 

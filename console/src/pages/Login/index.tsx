@@ -1,18 +1,22 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Card, Form, Input, message } from "antd";
+import { Button, Form, Input } from "antd";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { authApi } from "../../api/modules/auth";
 import { setAuthToken } from "../../api/config";
+import { useTheme } from "../../contexts/ThemeContext";
 
 export default function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { isDark } = useTheme();
   const [loading, setLoading] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
+  const { message } = useAppMessage();
 
   useEffect(() => {
     authApi
@@ -74,20 +78,30 @@ export default function LoginPage() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
+        background: isDark
+          ? "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)"
+          : "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
       }}
     >
-      <Card
+      <div
         style={{
           width: 400,
-          boxShadow: "0 4px 24px rgba(0,0,0,0.1)",
+          padding: 32,
           borderRadius: 12,
+          background: isDark ? "#1f1f1f" : "#fff",
+          boxShadow: isDark
+            ? "0 4px 24px rgba(0,0,0,0.4)"
+            : "0 4px 24px rgba(0,0,0,0.1)",
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
-            src={`${import.meta.env.BASE_URL}logo.png`}
-            alt="CoPaw"
+            src={
+              isDark
+                ? `https://gw.alicdn.com/imgextra/i4/O1CN01L7e39724RlGeJYJ7l_!!6000000007388-55-tps-771-132.svg`
+                : "https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg"
+            }
+            alt="QwenPaw"
             style={{ height: 48, marginBottom: 12 }}
           />
           <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>
@@ -97,7 +111,7 @@ export default function LoginPage() {
             <p
               style={{
                 margin: "8px 0 0",
-                color: "#666",
+                color: isDark ? "rgba(255,255,255,0.45)" : "#666",
                 fontSize: 13,
               }}
             >
@@ -117,7 +131,13 @@ export default function LoginPage() {
             rules={[{ required: true, message: t("login.usernameRequired") }]}
           >
             <Input
-              prefix={<UserOutlined />}
+              prefix={
+                <UserOutlined
+                  style={{
+                    color: isDark ? "rgba(255,255,255,0.45)" : undefined,
+                  }}
+                />
+              }
               placeholder={t("login.usernamePlaceholder")}
               autoFocus
             />
@@ -128,7 +148,13 @@ export default function LoginPage() {
             rules={[{ required: true, message: t("login.passwordRequired") }]}
           >
             <Input.Password
-              prefix={<LockOutlined />}
+              prefix={
+                <LockOutlined
+                  style={{
+                    color: isDark ? "rgba(255,255,255,0.45)" : undefined,
+                  }}
+                />
+              }
               placeholder={t("login.passwordPlaceholder")}
             />
           </Form.Item>
@@ -145,7 +171,7 @@ export default function LoginPage() {
             </Button>
           </Form.Item>
         </Form>
-      </Card>
+      </div>
     </div>
   );
 }

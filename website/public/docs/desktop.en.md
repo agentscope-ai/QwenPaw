@@ -1,4 +1,4 @@
-# CoPaw Desktop Application Guide
+# QwenPaw Desktop Application Guide
 
 > ⚠️ **Beta Version Notice**
 >
@@ -12,9 +12,9 @@
 
 **Download**: [GitHub Releases][releases]
 
-This guide explains how to install and use the CoPaw Desktop application on Windows and macOS.
+This guide explains how to install and use the QwenPaw Desktop application on Windows and macOS.
 
-[releases]: https://github.com/agentscope-ai/CoPaw/releases
+[releases]: https://github.com/agentscope-ai/QwenPaw/releases
 
 ## Important Notice
 
@@ -38,32 +38,32 @@ This guide explains how to install and use the CoPaw Desktop application on Wind
 ### Installation Steps
 
 1. **Download the installer**
-   Download `CoPaw-Setup-<version>.exe` from the [Release page][releases]
+   Download `QwenPaw-Setup-<version>.exe` from the [Release page][releases]
 
 2. **Run the installer**
    Double-click the `.exe` file and follow the installation wizard
-   - Default installation location: `C:\Users\<your-username>\AppData\Local\CoPaw`
+   - Default installation location: `C:\Users\<your-username>\AppData\Local\QwenPaw`
    - Desktop and Start Menu shortcuts will be created after installation
 
 ### Launch Options
 
 After installation, you'll see **two launch shortcuts**:
 
-#### **CoPaw Desktop** (Recommended for daily use)
+#### **QwenPaw Desktop** (Recommended for daily use)
 
 - **Features**: Silent launch, no terminal window, clean interface
 - **Use Case**: Normal usage when you don't need to view technical logs
-- **How to Launch**: Double-click the "CoPaw Desktop" icon on desktop or Start Menu
+- **How to Launch**: Double-click the "QwenPaw Desktop" icon on desktop or Start Menu
 - **Technical Note**: Uses VBScript launcher, runs Python process in background
 
-#### **CoPaw Desktop (Debug)** (Debug Mode)
+#### **QwenPaw Desktop (Debug)** (Debug Mode)
 
 - **Features**: Shows terminal window with real-time logging
 - **Use Cases**:
   - Need to view error messages when encountering problems
   - Development and testing
   - Need to provide logs when reporting bugs
-- **How to Launch**: Double-click "CoPaw Desktop (Debug)" icon in Start Menu
+- **How to Launch**: Double-click "QwenPaw Desktop (Debug)" icon in Start Menu
 - **Log Contents**:
   - Application startup information
   - Python error stack traces
@@ -72,11 +72,17 @@ After installation, you'll see **two launch shortcuts**:
 
 ### Common Issues
 
+**Q: The app window is blank/white screen and cannot display properly?**
+A: This is usually because the system is missing the **Microsoft WebView2** runtime (some Windows 10 systems do not have it pre-installed).
+Download and install it from the Microsoft website:
+[Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+Restart the application after installation.
+
 **Q: Application doesn't respond after launch?**
-A: Use "CoPaw Desktop (Debug)" mode to view terminal output for error messages
+A: Use "QwenPaw Desktop (Debug)" mode to view terminal output for error messages
 
 **Q: How to uninstall?**
-A: Go to Windows Settings → Apps → Installed apps → Find "CoPaw Desktop" → Uninstall
+A: Go to Windows Settings → Apps → Installed apps → Find "QwenPaw Desktop" → Uninstall
 
 **Q: Is the installer safe?**
 A:
@@ -99,19 +105,19 @@ A:
 ### Installation Steps
 
 1. **Download the archive**
-   Download `CoPaw-<version>-macOS.zip` from the [Release page][releases]
+   Download `QwenPaw-<version>-macOS.zip` from the [Release page][releases]
 
 2. **Extract**
-   Double-click the `.zip` file to extract and get `CoPaw.app`
+   Double-click the `.zip` file to extract and get `QwenPaw.app`
 
 3. **Move to Applications folder (Optional)**
-   Drag `CoPaw.app` to the `/Applications` folder
+   Drag `QwenPaw.app` to the `/Applications` folder
 
 ### First Launch: Bypassing System Security Restrictions
 
 #### Why manual trust is needed?
 
-CoPaw is **not Apple Developer-signed or notarized**, so macOS Gatekeeper will block it by default.
+QwenPaw is **not Apple Developer-signed or notarized**, so macOS Gatekeeper will block it by default.
 
 **Why no signature?**
 
@@ -127,7 +133,7 @@ CoPaw is **not Apple Developer-signed or notarized**, so macOS Gatekeeper will b
 
 #### Method 1: Right-click to open (Recommended)
 
-1. **Right-click** (or Control + click) on `CoPaw.app`
+1. **Right-click** (or Control + click) on `QwenPaw.app`
 2. Select **"Open"** from the menu
 3. In the dialog that appears, click the **"Open"** button again
 4. ✅ After this, you can double-click to launch normally without further prompts
@@ -138,7 +144,7 @@ If still blocked:
 
 1. Open **System Settings → Privacy & Security**
 2. Scroll down to find a message like:
-   _"'CoPaw' was blocked from use because it cannot verify the developer"_
+   _"'QwenPaw' was blocked from use because it cannot verify the developer"_
 3. Click the **"Open Anyway"** or **"Allow"** button
 4. Enter your administrator password to confirm
 
@@ -146,7 +152,7 @@ If still blocked:
 
 ```bash
 # Remove download quarantine attribute
-xattr -cr /Applications/CoPaw.app
+xattr -cr /Applications/QwenPaw.app
 ```
 
 ⚠️ **Warning**: This method completely removes security checks; only use if you fully trust the application source.
@@ -164,9 +170,9 @@ When first launched, macOS may request the following permissions:
 
 #### Normal Launch (Double-click)
 
-- Double-click `CoPaw.app` to launch
+- Double-click `QwenPaw.app` to launch
 - The app runs in the background and opens a browser window
-- Logs are written to: `~/.copaw/desktop.log`
+- Logs are written to: `~/.qwenpaw/desktop.log`
 
 #### Terminal Launch (View real-time logs)
 
@@ -174,11 +180,11 @@ If the app crashes or you need to see detailed logs:
 
 ```bash
 # Navigate to the application directory
-cd /Applications  # or wherever your CoPaw.app is located
+cd /Applications  # or wherever your QwenPaw.app is located
 
 # Set environment variables and launch
-APP_ENV="$(pwd)/CoPaw.app/Contents/Resources/env"
-PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw desktop
+APP_ENV="$(pwd)/QwenPaw.app/Contents/Resources/env"
+PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qwenpaw desktop
 ```
 
 **Advantages of terminal launch:**
@@ -192,7 +198,7 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw desktop
 
 ```bash
 # View recent startup logs
-tail -f ~/.copaw/desktop.log
+tail -f ~/.qwenpaw/desktop.log
 ```
 
 ### Common Issues
@@ -200,14 +206,14 @@ tail -f ~/.copaw/desktop.log
 **Q: Nothing happens after double-clicking?**
 A:
 
-1. Check the `~/.copaw/desktop.log` file for errors
+1. Check the `~/.qwenpaw/desktop.log` file for errors
 2. Use the terminal command above to launch and view real-time output
 
 **Q: Message "Apple cannot verify this application"?**
 A: Follow the "Bypassing System Security Restrictions" steps above
 
 **Q: How to uninstall?**
-A: Drag `CoPaw.app` to the Trash, then delete the `~/.copaw` configuration folder
+A: Drag `QwenPaw.app` to the Trash, then delete the `~/.qwenpaw` configuration folder
 
 **Q: Can I use it on Intel Mac?**
 A: Yes, but you cannot use MLX model acceleration (MLX only supports Apple Silicon)
@@ -227,11 +233,11 @@ Currently using:
 
 ## Technical Support
 
-- **GitHub Issues**: [Submit an issue](https://github.com/agentscope-ai/CoPaw/issues)
+- **GitHub Issues**: [Submit an issue](https://github.com/agentscope-ai/QwenPaw/issues)
 - **Packaging documentation**: `scripts/pack/README.md` - Technical details and local build guide
 - **Log locations**:
-  - Windows: View in Debug mode terminal, or `%USERPROFILE%\.copaw\` directory
-  - macOS: `~/.copaw/desktop.log`
+  - Windows: View in Debug mode terminal, or `%USERPROFILE%\.qwenpaw\` directory
+  - macOS: `~/.qwenpaw/desktop.log`
 
 ---
 

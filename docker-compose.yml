@@ -1,18 +1,22 @@
 version: '3.8'
 
 volumes:
-  copaw-data:
-    name: copaw-data
-  copaw-secrets:
-    name: copaw-secrets
+  qwenpaw-data:
+    name: qwenpaw-data
+  qwenpaw-secrets:
+    name: qwenpaw-secrets
 
 services:
-  copaw:
-    image: agentscope/copaw:latest
-    container_name: copaw
+  qwenpaw:
+    image: agentscope/qwenpaw:latest
+    container_name: qwenpaw
     restart: always
     ports:
       - "127.0.0.1:8088:8088"
+    # environment:
+    #   - QWENPAW_AUTH_ENABLED=true
+    #   - QWENPAW_AUTH_USERNAME=admin
+    #   - QWENPAW_AUTH_PASSWORD=yourpassword
     volumes:
-      - copaw-data:/app/working
-      - copaw-secrets:/app/working.secret
+      - qwenpaw-data:/app/working
+      - qwenpaw-secrets:/app/working.secret

@@ -55,6 +55,15 @@ export interface MCPClientCreateRequest {
   };
 }
 
+export interface MCPToolInfo {
+  /** Tool name */
+  name: string;
+  /** Tool description */
+  description: string;
+  /** JSON Schema for the tool's input parameters */
+  input_schema: Record<string, unknown>;
+}
+
 export interface MCPClientUpdateRequest {
   /** Client display name */
   name?: string;

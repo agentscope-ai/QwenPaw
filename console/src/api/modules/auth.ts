@@ -46,4 +46,29 @@ export const authApi = {
     if (!res.ok) throw new Error("Failed to check auth status");
     return res.json();
   },
+
+  updateProfile: async (
+    currentPassword: string,
+    newUsername?: string,
+    newPassword?: string,
+  ): Promise<LoginResponse> => {
+    const token = localStorage.getItem("qwenpaw_auth_token") || "";
+    const res = await fetch(getApiUrl("/auth/update-profile"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_username: newUsername || null,
+        new_password: newPassword || null,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Update failed");
+    }
+    return res.json();
+  },
 };

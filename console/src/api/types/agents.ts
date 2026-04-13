@@ -5,10 +5,16 @@ export interface AgentSummary {
   name: string;
   description: string;
   workspace_dir: string;
+  enabled: boolean;
 }
 
 export interface AgentListResponse {
   agents: AgentSummary[];
+}
+
+export interface ReorderAgentsResponse {
+  success: boolean;
+  agent_ids: string[];
 }
 
 export interface AgentProfileConfig {
@@ -31,6 +37,7 @@ export interface CreateAgentRequest {
   description?: string;
   workspace_dir?: string;
   language?: string;
+  skill_names?: string[];
 }
 
 export interface AgentProfileRef {

@@ -1,5 +1,56 @@
 .toolsPage {
-  padding: 24px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 20px;
+  border-bottom: 1px solid #eae9e7;
+  margin-bottom: 0;
+}
+
+.toolsContainer {
+  overflow: auto;
+}
+
+.breadcrumbHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  flex: 1;
+}
+
+.breadcrumbParent {
+  color: #999;
+  font-weight: 400;
+}
+
+.breadcrumbSeparator {
+  color: #ccc;
+  margin: 0 4px;
+}
+
+.breadcrumbCurrent {
+  color: #333;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.headerAction {
+  flex-shrink: 0;
+
+  :global {
+    .qwenpaw-switch-inner-unchecked {
+      color: #000000 !important;
+    }
+  }
 }
 
 .header {
@@ -12,15 +63,6 @@
 .headerInfo {
   display: flex;
   flex-direction: column;
-}
-
-.actionTabs {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: rgba(0, 0, 0, 0.04);
-  border-radius: 10px;
-  align-self: center;
 }
 
 .actionTab {
@@ -40,13 +82,13 @@
 }
 
 .disabledTab {
-  color: #615ced !important;
+  color: #ff7f16 !important;
   background: #fff !important;
   cursor: not-allowed;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 
   &:hover {
-    color: #615ced !important;
+    color: #ff7f16 !important;
     background: #fff !important;
   }
 }
@@ -72,35 +114,40 @@
 .toolsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 24px;
+  gap: 16px;
+  padding: 16px;
 }
 
 .toolCard {
-  border-radius: 16px;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: var(--border-radius, 8px);
+  background: var(--color-bg-base, #ffffff);
+  border: 1px solid var(--color-border-secondary, #eae8e7);
+  box-sizing: border-box;
   transition: all 0.2s ease-in-out;
-  cursor: default;
+
+  :global(.qwenpaw-card-body) {
+    padding: 0 !important;
+  }
 
   &.enabledCard {
-    border: 2px solid #615ced !important;
-    box-shadow: rgba(97, 92, 237, 0.2) 0px 8px 24px !important;
-
     .statusDot {
-      background-color: #52c41a;
+      background-color: rgba(20, 184, 166, 1);
     }
 
     .statusText {
-      color: #52c41a;
+      color: rgba(20, 184, 166, 1);
     }
   }
 
-  &.hoverCard {
-    border: 1px solid #615ced;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
-  }
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 
-  &.normalCard {
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  &:hover {
+    border-color: var(--color-border, #d9d9d9);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
 }
 
@@ -108,21 +155,22 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 8px;
 }
 
 .toolName {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #1a1a1a;
-  font-family: Monaco, "Courier New", monospace;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(20, 20, 19, 0.88);
+  font-family: Inter;
+  line-height: 24px;
 }
 
 .statusContainer {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  font-size: 11px;
   flex-shrink: 0;
 }
 
@@ -130,16 +178,21 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  flex-shrink: 0;
   background-color: #d9d9d9;
 }
 
 .statusText {
+  font-family: Lato;
   font-size: 12px;
-  color: #999;
+  font-weight: normal;
+  line-height: 19px;
+  letter-spacing: normal;
+  color: rgba(20, 20, 19, 0.45);
 }
 
 .toolDescription {
-  margin: 0 0 16px 0;
+  margin: 6px 0 16px 0;
   color: #666;
   font-size: 13px;
   line-height: 1.6;
@@ -153,8 +206,154 @@
 
 .cardFooter {
   display: flex;
-  justify-content: flex-end;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding-top: 12px;
+  margin-top: auto;
   border-top: 1px solid #f0f0f0;
+}
+
+.toggleButton {
+  flex: 1;
+  padding: 8px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #666;
+  background: transparent;
+  border: 1px solid #d9d9d9;
+  cursor: pointer;
+  transition: all 0.18s ease;
+
+  &:hover:not(:disabled) {
+    color: #333;
+    border-color: #bfbfbf;
+  }
+
+  &:disabled {
+    color: #d9d9d9;
+    cursor: not-allowed;
+  }
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .pageHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .breadcrumbParent {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .breadcrumbSeparator {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .breadcrumbCurrent {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .loading {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Tool card */
+  .toolCard {
+    background: #2d2d2d;
+
+    &.normalCard {
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    &.hoverCard {
+      border-color: rgba(255, 255, 255, 0.2) !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+    }
+  }
+
+  .toolName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .statusDot {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .statusDot.enabled {
+    background-color: rgba(20, 184, 166, 1);
+  }
+
+  .statusText {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .statusText.enabled {
+    color: rgba(20, 184, 166, 1);
+  }
+
+  .toolDescription {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .cardFooter {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .toggleButton {
+    color: rgba(255, 255, 255, 0.65);
+    border-color: rgba(255, 255, 255, 0.2);
+
+    &:hover:not(:disabled) {
+      color: rgba(255, 255, 255, 0.85);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+
+    &:disabled {
+      color: rgba(255, 255, 255, 0.25);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+  }
+
+  /* Switch component in dark mode */
+  .headerAction {
+    :global(.qwenpaw-switch) {
+      background-color: rgba(255, 255, 255, 0.15);
+
+      &:hover:not(.qwenpaw-switch-disabled) {
+        background-color: rgba(255, 255, 255, 0.25);
+      }
+
+      &.qwenpaw-switch-disabled {
+        background-color: rgba(255, 255, 255, 0.08);
+        opacity: 0.65;
+
+        :global(.qwenpaw-switch-inner) {
+          color: rgba(255, 255, 255, 0.45);
+        }
+      }
+    }
+
+    :global(.qwenpaw-switch-checked) {
+      background-color: #ff7f16;
+
+      &:hover:not(.qwenpaw-switch-disabled) {
+        background-color: #ff9d4d;
+      }
+
+      &.qwenpaw-switch-disabled {
+        background-color: rgba(255, 127, 22, 0.35);
+        opacity: 0.65;
+
+        :global(.qwenpaw-switch-inner) {
+          color: rgba(255, 255, 255, 0.55);
+        }
+      }
+    }
+
+    :global(.qwenpaw-switch-inner) {
+      color: rgba(255, 255, 255, 0.85);
+    }
+  }
 }

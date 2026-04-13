@@ -1,21 +1,106 @@
 # Magic Commands
 
-**Magic commands** are special instructions prefixed with `/` that let you directly control conversation state without waiting for the AI to interpret your intent.
-
-| Command         | Wait   | Compressed Summary | Long-term Memory   | Response Content              |
-| --------------- | ------ | ------------------ | ------------------ | ----------------------------- |
-| `/history`      | ⚡ No  | -                  | -                  | 📋 Message list + Token stats |
-| `/message`      | ⚡ No  | -                  | -                  | 📄 Specified message details  |
-| `/compact_str`  | ⚡ No  | -                  | -                  | 📝 Compressed summary content |
-| `/compact`      | ⏳ Yes | 📦 Generate new    | ✅ Background save | ✅ Compact complete + Summary |
-| `/new`          | ⚡ No  | 🗑️ Clear           | ✅ Background save | ✅ New conversation prompt    |
-| `/clear`        | ⚡ No  | 🗑️ Clear           | ❌ No save         | ✅ History cleared prompt     |
-| `/dump_history` | ⚡ No  | 💾 Save            | -                  | 📁 Exported history file path |
-| `/load_history` | ⚡ No  | 📥 Restore         | -                  | ✅ History load result        |
+Magic commands are special instructions prefixed with `/` that let you **directly control conversation state** without waiting for the AI to interpret your intent.
 
 ---
 
-## /history — View Current Conversation History
+## Conversation Management Commands
+
+Commands for controlling conversation context.
+
+| Command    | Wait   | Compressed Summary | Long-term Memory   | Response Content              |
+| ---------- | ------ | ------------------ | ------------------ | ----------------------------- |
+| `/compact` | ⏳ Yes | 📦 Generate new    | ✅ Background save | ✅ Compact complete + Summary |
+| `/new`     | ⚡ No  | 🗑️ Clear           | ✅ Background save | ✅ New conversation prompt    |
+| `/clear`   | ⚡ No  | 🗑️ Clear           | ❌ No save         | ✅ History cleared prompt     |
+
+---
+
+### /compact - Compress Current Conversation
+
+Manually trigger conversation compaction, condensing all current messages into a summary (**requires waiting**), while saving to long-term memory in the background.
+
+```
+/compact
+```
+
+Optionally, add an extra instruction to guide what the summary should keep or remove:
+
+```
+/compact keep requirements, decisions, and pending tasks; remove debug logs and tool-call details
+```
+
+**Example response:**
+
+```
+**Compact Complete!**
+
+- Messages compacted: 12
+**Compressed Summary:**
+User requested help building a user authentication system, login endpoint implementation completed...
+- Summary task started in background
+```
+
+> 💡 Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
+> 💡 The extra instruction only applies to this manual `/compact` run. Auto-compaction behavior is unchanged.
+
+---
+
+### /new - Clear Context and Save Memory
+
+**Immediately clear the current context** and start a fresh conversation. History is saved to long-term memory in the background.
+
+```
+/new
+```
+
+**Example response:**
+
+```
+**New Conversation Started!**
+
+- Summary task started in background
+- Ready for new conversation
+```
+
+---
+
+### /clear - Clear Context (Without Saving Memory)
+
+**Immediately clear the current context**, including message history and compressed summaries. Nothing is saved to long-term memory.
+
+```
+/clear
+```
+
+**Example response:**
+
+```
+**History Cleared!**
+
+- Compressed summary reset
+- Memory is now empty
+```
+
+> ⚠️ **Warning**: `/clear` is **irreversible**! Unlike `/new`, cleared content will not be saved.
+
+---
+
+## Conversation Debugging Commands
+
+Commands for viewing and managing conversation history.
+
+| Command         | Response Content              |
+| --------------- | ----------------------------- |
+| `/history`      | 📋 Message list + Token stats |
+| `/message`      | 📄 Specified message details  |
+| `/compact_str`  | 📝 Compressed summary content |
+| `/dump_history` | 📁 Exported history file path |
+| `/load_history` | ✅ History load result        |
+
+---
+
+### /history - View Current Conversation History
 
 Display a list of all uncompressed messages in the current conversation, along with detailed **context usage information**.
 
@@ -45,6 +130,11 @@ Display a list of all uncompressed messages in the current conversation, along w
 [3] **user** (text_tokens=28)
     content: [text(tokens=28)]
     preview: Can you add error handling?
+
+---
+
+- Use /message <index> to view full message content
+- Use /compact_str to view full compact summary
 ```
 
 > 💡 **Tip**: Use `/history` frequently to monitor your context usage.
@@ -57,7 +147,7 @@ Display a list of all uncompressed messages in the current conversation, along w
 
 ---
 
-## /message — View Single Message
+### /message - View Single Message
 
 View detailed content of a specific message by index.
 
@@ -89,7 +179,7 @@ Write me a Python function that implements quicksort
 
 ---
 
-## /compact_str — View Compressed Summary
+### /compact_str - View Compressed Summary
 
 Display the current compressed summary content.
 
@@ -116,70 +206,7 @@ User requested help building a user authentication system, login endpoint implem
 
 ---
 
-## /compact — Compress Current Conversation
-
-Manually trigger conversation compaction, condensing all current messages into a summary (**requires waiting**), while saving to long-term memory in the background.
-
-```
-/compact
-```
-
-**Example response:**
-
-```
-**Compact Complete!**
-
-- Messages compacted: 12
-**Compressed Summary:**
-User requested help building a user authentication system, login endpoint implementation completed...
-- Summary task started in background
-```
-
-> Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
-
----
-
-## /new — Clear Context and Save Memories
-
-**Immediately clear the current context** and start a fresh conversation. History is saved to long-term memory in the background.
-
-```
-/new
-```
-
-**Example response:**
-
-```
-**New Conversation Started!**
-
-- Summary task started in background
-- Ready for new conversation
-```
-
----
-
-## /clear — Clear Context (Without Saving Memories)
-
-**Immediately clear the current context**, including message history and compressed summaries. Nothing is saved to long-term memory.
-
-```
-/clear
-```
-
-**Example response:**
-
-```
-**History Cleared!**
-
-- Compressed summary reset
-- Memory is now empty
-```
-
-> ⚠️ **Warning**: `/clear` is **irreversible**! Unlike `/new`, cleared content will not be saved.
-
----
-
-## /dump_history — Export Conversation History
+### /dump_history - Export Conversation History
 
 Save current conversation history (including compressed summary) to a JSONL file for debugging and backup.
 
@@ -193,7 +220,7 @@ Save current conversation history (including compressed summary) to a JSONL file
 **History Dumped!**
 
 - Messages saved: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 ```
 
@@ -201,7 +228,7 @@ Save current conversation history (including compressed summary) to a JSONL file
 
 ---
 
-## /load_history — Load Conversation History
+### /load_history - Load Conversation History
 
 Load conversation history from a JSONL file into current memory. **Existing memory will be cleared first**.
 
@@ -215,7 +242,7 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 **History Loaded!**
 
 - Messages loaded: 15
-- Has summary: true
+- Has summary: True
 - File: `/path/to/workspace/debug_history.jsonl`
 - Memory cleared before loading
 ```
@@ -231,22 +258,380 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 ---
 
-## Daemon Commands (Ops)
+## Skill Chat Commands
 
-In chat, send `/daemon <subcommand>` or use short names (e.g., `/status` is equivalent to `/daemon status`). From the terminal, run `copaw daemon <subcommand>`. These run without going through the Agent.
+These commands let you inspect skill status in chat and force the agent to use
+a specific skill.
 
-| Command                             | Description                                                                                    |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `/daemon status` or `/status`       | Show runtime status (config, working directory, memory service, etc.)                          |
-| `/daemon restart` or `/restart`     | In-process restart (channels, cron, MCP) when in chat; from CLI prints instructions only       |
-| `/daemon reload-config`             | Re-read and validate config (channel/MCP changes require `/daemon restart` or process restart) |
-| `/daemon version`                   | Version number, working directory, log path                                                    |
-| `/daemon logs` or `/daemon logs 50` | View last N lines of console log (default 100, from `copaw.log` in working directory)          |
+- `/skills` lists skills available in the current channel in a compact format.
+- `/<skill_name>` shows detailed information for that skill, including its
+  description and local path.
+- `/<skill_name> <input>` forces the agent to use `skill_name` to solve the
+  input, usually a task.
+- `/[skill_name]` is also supported as an alternate form.
 
-From the terminal:
+Notes:
+
+- `skill_name` must match the skill command name shown in `/skills`.
+- These slash commands only work for skills that are enabled and routed to the
+  current channel.
+
+---
+
+## Model Management Commands
+
+Commands for managing and switching AI models. These commands execute directly without going through the Agent.
+
+| Command                          | Description                                      | Chat |
+| -------------------------------- | ------------------------------------------------ | ---- |
+| `/model`                         | Show current active model                        | ✅   |
+| `/model -h` or `/model help`     | Show help information                            | ✅   |
+| `/model list`                    | List all available models                        | ✅   |
+| `/model <provider>:<model>`      | Switch to specified model                        | ✅   |
+| `/model reset`                   | Reset to global default model                    | ✅   |
+| `/model info <provider>:<model>` | Show detailed information about a specific model | ✅   |
+
+---
+
+### /model - Show Current Model
+
+Display the currently active model for this agent.
+
+**Usage:**
+
+```
+/model
+```
+
+**Example response:**
+
+```
+**Current Model**
+
+Provider: `openai`
+Model: `gpt-4o` ✓
+
+Use `/model list` to see all available models.
+```
+
+---
+
+### /model -h or /model help - Show Help
+
+Display help information for all `/model` commands.
+
+**Usage:**
+
+```
+/model -h
+/model --help
+/model help
+```
+
+**Example response:**
+
+```
+**Model Management Commands**
+
+Manage and switch AI models for the current agent.
+
+**Available Commands:**
+
+`/model` - Show current active model
+`/model list` - List all available models
+`/model <provider>:<model>` - Switch to specified model
+`/model reset` - Reset to global default model
+`/model info <provider>:<model>` - Show model information
+`/model help` or `/model -h` - Show this help message
+
+**Examples:**
+
+`/model` - Show current model
+`/model list` - List all models
+`/model openai:gpt-4o` - Switch to GPT-4o
+`/model reset` - Reset to global default
+`/model info openai:gpt-4o` - Show GPT-4o information
+
+**Capability Indicators:**
+
+🖼️ - Supports image input
+🎥 - Supports video input
+```
+
+---
+
+### /model list - List All Models
+
+Display all configured providers and their available models. The currently active model is marked with **[ACTIVE]**.
+
+**Usage:**
+
+```
+/model list
+```
+
+**Example response:**
+
+```
+**Available Models**
+
+**OpenAI** (`openai`)
+  - `gpt-4o` 🖼️ **[ACTIVE]**
+  - `gpt-4o-mini` 🖼️
+  - `gpt-3.5-turbo`
+  - `my-custom-model` *(user-added)*
+
+**Anthropic** (`anthropic`)
+  - `claude-3-5-sonnet-20241022`
+  - `claude-3-opus-20240229`
+
+**Google** (`gemini`)
+  - `gemini-2.0-flash-exp` 🖼️🎥
+
+---
+Total: 3 provider(s), 8 model(s)
+
+Use `/model <provider>:<model>` to switch models.
+Example: `/model openai:gpt-4o`
+```
+
+**Indicators:**
+
+- 🖼️ - Supports image input
+- 🎥 - Supports video input
+- _(user-added)_ - User-added model (via `qwenpaw models add-model` command)
+
+---
+
+### /model <provider>:<model> - Switch Model
+
+Switch the current agent to use a different model.
+
+**Usage:**
+
+```
+/model <provider>:<model>
+```
+
+**Examples:**
+
+```
+/model openai:gpt-4o
+/model anthropic:claude-3-5-sonnet-20241022
+/model gemini:gemini-2.0-flash-exp
+```
+
+**Example response:**
+
+```
+**Model Switched**
+
+Provider: `anthropic`
+Model: `claude-3-5-sonnet-20241022`
+
+The new model will be used for subsequent messages.
+```
+
+> 💡 **Tip**: Model changes only affect the current agent. Other agents continue using their configured models.
+
+---
+
+### /model reset - Reset to Global Default
+
+Reset the current agent's model to the global default model configured in the web UI.
+
+**Usage:**
+
+```
+/model reset
+```
+
+**Example response:**
+
+```
+**Model Reset**
+
+Agent model has been reset to global default:
+
+Provider: `openai`
+Model: `gpt-4o`
+
+The global default model will be used for subsequent messages.
+```
+
+> 💡 **Tip**: Use this command to revert agent-specific model overrides.
+
+---
+
+### /model info - Show Model Information
+
+Display detailed information about a specific model, including capabilities and current status.
+
+**Usage:**
+
+```
+/model info <provider>:<model>
+```
+
+**Examples:**
+
+```
+/model info openai:gpt-4o
+/model info anthropic:claude-3-5-sonnet-20241022
+```
+
+**Example response:**
+
+```
+**Model Information**
+
+**Provider:** `openai` (OpenAI)
+**Model ID:** `gpt-4o`
+**Model Name:** GPT-4o
+**Capabilities:** 🖼️ Image, 🎨 Multimodal
+**Probe Source:** documentation
+
+**Status:** ✓ Currently active
+
+---
+Use `/model openai:gpt-4o` to switch to this model.
+```
+
+---
+
+## System Control Commands
+
+Commands for controlling and monitoring QwenPaw's runtime status. These commands execute directly without going through the Agent.
+
+Send `/daemon <subcommand>` or short names (e.g., `/status`) in chat, or run `qwenpaw daemon <subcommand>` from the terminal.
+
+| Command                             | Description                                                                               | Chat | Terminal |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- | ---- | -------- |
+| `/stop`                             | Immediately terminate the running task in current session                                 | ✅   | ❌       |
+| `/stop session=<session_id>`        | Terminate task in specified session                                                       | ✅   | ❌       |
+| `/daemon status` or `/status`       | Show runtime status (config, working directory, memory service)                           | ✅   | ✅       |
+| `/daemon restart` or `/restart`     | Zero-downtime reload (chat); prints instructions (terminal)                               | ✅   | ✅       |
+| `/daemon reload-config`             | Re-read and validate configuration file                                                   | ✅   | ✅       |
+| `/daemon version`                   | Version number, working directory, and log path                                           | ✅   | ✅       |
+| `/daemon logs` or `/daemon logs 50` | View last N lines of log (default 100, max 2000, from `qwenpaw.log` in working directory) | ✅   | ✅       |
+| `/daemon approve`                   | Approve pending tool execution (tool-guard scenario)                                      | ✅   | ❌       |
+
+---
+
+### /stop - Stop Task
+
+Immediately terminate the task currently executing in the session. Highest priority command that processes concurrently even when tasks are running.
+
+**Usage:**
+
+```
+/stop                       # Stop current session's task
+/stop session=<session_id>  # Stop task in specified session
+```
+
+> ⚠️ **Warning**: `/stop` immediately terminates the task, which may result in partial data loss.
+
+---
+
+### /daemon status or /status - View Runtime Status
+
+Display current runtime status, including configuration, working directory, and memory service status.
+
+**Usage:**
+
+```
+/status                    # In chat
+qwenpaw daemon status        # From terminal
+```
+
+---
+
+### /daemon restart or /restart - Zero-Downtime Reload
+
+When used in chat, performs zero-downtime reload: reloads channels, cron, and MCP configurations without interrupting the process. Useful for applying channel or MCP configuration changes.
+
+**Usage:**
+
+```
+/restart                   # In chat
+qwenpaw daemon restart       # From terminal (prints instructions only)
+```
+
+> 💡 **Tip**: After modifying channel or MCP configuration, use `/daemon reload-config` first to verify correctness, then use `/daemon restart` to apply changes.
+
+---
+
+### /daemon reload-config - Reload Configuration File
+
+Re-read and validate the configuration file, but does not reload runtime components (channels, cron, MCP). Useful for verifying configuration file changes.
+
+**Usage:**
+
+```
+/daemon reload-config           # In chat
+qwenpaw daemon reload-config      # From terminal
+```
+
+---
+
+### /daemon version - Version Information
+
+Display QwenPaw version number, working directory path, and log file path.
+
+**Usage:**
+
+```
+/daemon version            # In chat
+qwenpaw daemon version       # From terminal
+```
+
+---
+
+### /daemon logs - View Logs
+
+View the last N lines of `qwenpaw.log` in the working directory. Default 100 lines, maximum 2000 lines.
+
+**Usage:**
+
+```
+/daemon logs               # Default 100 lines
+/daemon logs 50            # Specify 50 lines
+qwenpaw daemon logs -n 200   # From terminal, specify 200 lines
+```
+
+> 💡 **Tip**: For large log files, this command only reads the last 512KB from the end of the file to ensure fast response times.
+
+---
+
+### /daemon approve - Approve Tool Execution
+
+Quickly approve pending tool execution. When tool execution requires manual approval (tool-guard scenario), use this command to approve.
+
+**Usage:**
+
+```
+/daemon approve            # In chat
+```
+
+> 💡 **Tip**: This command only works in chat. When the Agent prompts for tool execution approval, send this command to quickly approve.
+
+---
+
+### Terminal Usage
+
+All daemon commands support terminal usage (except `/stop` and `/daemon approve` which only work in chat):
 
 ```bash
-copaw daemon status
-copaw daemon version
-copaw daemon logs -n 50
+qwenpaw daemon status
+qwenpaw daemon restart
+qwenpaw daemon reload-config
+qwenpaw daemon version
+qwenpaw daemon logs -n 50
+```
+
+**Multi-agent support:** All terminal commands support the `--agent-id` parameter (defaults to `default`).
+
+```bash
+qwenpaw daemon status --agent-id abc123
+qwenpaw daemon version --agent-id abc123
 ```

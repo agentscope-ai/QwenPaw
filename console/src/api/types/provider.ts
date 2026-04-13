@@ -1,6 +1,10 @@
 export interface ModelInfo {
   id: string;
   name: string;
+  supports_multimodal: boolean | null;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
+  generate_kwargs: Record<string, unknown>;
 }
 
 export interface ProviderInfo {
@@ -16,6 +20,8 @@ export interface ProviderInfo {
   is_local: boolean;
   /** Whether this provider supports fetching available models from the provider's API. */
   support_model_discovery: boolean;
+  /** Whether this provider supports checking connection to the API without model configuration. */
+  support_connection_check: boolean;
   /** True when the base_url should be frozen (not editable). */
   freeze_url: boolean;
   /** True when an API key is required for this provider. */
@@ -41,9 +47,18 @@ export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
 }
 
+export type ActiveModelScope = "effective" | "global" | "agent";
+
+export interface GetActiveModelsRequest {
+  scope?: ActiveModelScope;
+  agent_id?: string;
+}
+
 export interface ModelSlotRequest {
   provider_id: string;
   model: string;
+  scope: Exclude<ActiveModelScope, "effective">;
+  agent_id?: string;
 }
 
 /* ---- Custom provider CRUD ---- */
@@ -62,56 +77,69 @@ export interface AddModelRequest {
   name: string;
 }
 
+export interface ModelConfigRequest {
+  generate_kwargs?: Record<string, unknown>;
+}
+
+export interface LocalModelConfig {
+  max_context_length: number;
+}
+
+export interface LocalModelConfigRequest {
+  max_context_length?: number;
+  generate_kwargs?: Record<string, unknown>;
+}
+
 /* ---- Local models ---- */
 
-export interface LocalModelResponse {
+export interface LocalModelInfo {
   id: string;
-  repo_id: string;
-  filename: string;
-  backend: string;
-  source: string;
-  file_size: number;
-  local_path: string;
-  display_name: string;
+  name: string;
+  size_bytes: number;
+  downloaded: boolean;
+  source: LocalDownloadSource;
 }
 
-export interface DownloadModelRequest {
-  repo_id: string;
-  filename?: string;
-  backend: string;
-  source: string;
+export type LocalDownloadSource = "huggingface" | "modelscope" | "auto";
+
+export interface LocalServerStatus {
+  available: boolean;
+  installable: boolean;
+  installed: boolean;
+  port: number | null;
+  model_name: string | null;
+  message: string | null;
 }
 
-export interface DownloadTaskResponse {
-  task_id: string;
-  status: "pending" | "downloading" | "completed" | "failed" | "cancelled";
-  repo_id: string;
-  filename: string | null;
-  backend: string;
-  source: string;
+export interface LocalServerUpdateStatus {
+  has_update: boolean;
+}
+
+export interface LocalDownloadProgress {
+  status:
+    | "idle"
+    | "pending"
+    | "downloading"
+    | "canceling"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  model_name: string | null;
+  downloaded_bytes: number;
+  total_bytes: number | null;
+  speed_bytes_per_sec: number;
+  source: LocalDownloadSource | null;
   error: string | null;
-  result: LocalModelResponse | null;
+  local_path: string | null;
 }
 
-/* ---- Ollama models ---- */
-
-export interface OllamaModelResponse {
-  name: string;
-  size: number;
-  digest?: string | null;
-  modified_at?: string | null;
+export interface LocalActionResponse {
+  status: string;
+  message: string;
 }
 
-export interface OllamaDownloadRequest {
-  name: string;
-}
-
-export interface OllamaDownloadTaskResponse {
-  task_id: string;
-  status: "pending" | "downloading" | "completed" | "failed" | "cancelled";
-  name: string;
-  error: string | null;
-  result: OllamaModelResponse | null;
+export interface StartLocalServerRequest {
+  model_id: string;
 }
 
 /* ---- Test Connection ---- */
@@ -126,6 +154,7 @@ export interface TestProviderRequest {
   base_url?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
+  include_extended?: boolean;
 }
 
 export interface TestModelRequest {
@@ -137,4 +166,47 @@ export interface DiscoverModelsResponse {
   message: string;
   models: ModelInfo[];
   added_count: number;
+}
+
+export interface ProbeMultimodalResponse {
+  supports_image: boolean;
+  supports_video: boolean;
+  supports_multimodal: boolean;
+  image_message: string;
+  video_message: string;
+}
+
+/* ---- OpenRouter extended model types ---- */
+
+export interface ExtendedModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  input_modalities: string[];
+  output_modalities: string[];
+  pricing: Record<string, string>;
+}
+
+export interface FilterModelsRequest {
+  providers?: string[];
+  input_modalities?: string[];
+  output_modalities?: string[];
+  max_prompt_price?: number;
+}
+
+export interface SeriesResponse {
+  series: string[];
+}
+
+export interface DiscoverExtendedResponse {
+  success: boolean;
+  models: ExtendedModelInfo[];
+  providers: string[];
+  total_count: number;
+}
+
+export interface FilterModelsResponse {
+  success: boolean;
+  models: ExtendedModelInfo[];
+  total_count: number;
 }

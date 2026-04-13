@@ -18,6 +18,7 @@ export interface DiscordConfig extends BaseChannelConfig {
   bot_token: string;
   http_proxy: string;
   http_proxy_auth: string;
+  accept_bot_messages?: boolean;
 }
 
 export interface DingTalkConfig extends BaseChannelConfig {
@@ -35,6 +36,7 @@ export interface FeishuConfig extends BaseChannelConfig {
   encrypt_key: string;
   verification_token: string;
   media_dir: string;
+  domain?: "feishu" | "lark";
 }
 
 export interface QQConfig extends BaseChannelConfig {
@@ -71,6 +73,22 @@ export interface MatrixConfig extends BaseChannelConfig {
   access_token: string;
 }
 
+export interface MattermostConfig extends BaseChannelConfig {
+  url: string;
+  bot_token: string;
+  media_dir?: string;
+  show_typing?: boolean;
+  thread_follow_without_mention?: boolean;
+}
+
+export interface WecomConfig extends BaseChannelConfig {
+  bot_id: string;
+  secret: string;
+  media_dir?: string;
+  welcome_text?: string;
+  max_reconnect_attempts?: number;
+}
+
 export type ConsoleConfig = BaseChannelConfig;
 
 export interface VoiceChannelConfig extends BaseChannelConfig {
@@ -93,6 +111,13 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
+export interface OneBotConfig extends BaseChannelConfig {
+  ws_host: string;
+  ws_port: number;
+  access_token: string;
+  share_session_in_group: boolean;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -102,9 +127,12 @@ export interface ChannelConfig {
   telegram: TelegramConfig;
   mqtt: MQTTConfig;
   matrix: MatrixConfig;
+  mattermost: MattermostConfig;
+  wecom: WecomConfig;
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
   xiaoyi: XiaoYiConfig;
+  onebot: OneBotConfig;
 }
 
 export type SingleChannelConfig =
@@ -117,5 +145,8 @@ export type SingleChannelConfig =
   | TelegramConfig
   | MQTTConfig
   | MatrixConfig
+  | MattermostConfig
+  | WecomConfig
   | VoiceChannelConfig
-  | XiaoYiConfig;
+  | XiaoYiConfig
+  | OneBotConfig;

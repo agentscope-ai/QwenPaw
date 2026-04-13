@@ -19,7 +19,7 @@ export const MOCK_TESTIMONIALS: TestimonialItem[] = [
   {
     avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=alex",
     quoteEn:
-      "I've enjoyed my CoPaw assistant so much. One entry for iMessage, " +
+      "I've enjoyed my QwenPaw assistant so much. One entry for iMessage, " +
       "Discord, Feishu and DingTalk. It just works.",
     quoteZh: "一个入口管 iMessage、Discord、飞书、钉钉，用下来很顺手。",
     username: "@jdrhyne",

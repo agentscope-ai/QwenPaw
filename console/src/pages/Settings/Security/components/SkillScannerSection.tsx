@@ -6,11 +6,11 @@ import {
   Tag,
   Button,
   Modal,
-  message,
   Tooltip,
   Empty,
   Tabs,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { Select, Space } from "antd";
 import { Trash2, ShieldCheck, Eye } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -97,6 +97,7 @@ export function SkillScannerSection() {
     clearBlockedHistory,
   } = useSkillScanner();
 
+  const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
   const [findingsModal, setFindingsModal] = useState<{
     open: boolean;

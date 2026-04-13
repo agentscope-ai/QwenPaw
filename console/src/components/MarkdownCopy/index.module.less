@@ -12,6 +12,7 @@
   font-size: 12px;
   font-weight: 600;
   height: 20px;
+  color: var(--ant-color-text);
 }
 
 .controlGroup {
@@ -49,12 +50,12 @@
 }
 
 .textarea {
-  flex: 1;
   font-family: monospace;
   font-size: 13px;
-  resize: none;
-  min-height: 300px;
-  max-height: 300px;
+  resize: vertical;
+  height: min(100%, clamp(280px, 50vh, 640px));
+  min-height: min(240px, 100%);
+  max-height: 100%;
   padding: 12px;
   border: 1px solid #d9d9d9;
   border-radius: 6px;

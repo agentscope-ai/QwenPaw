@@ -4,21 +4,19 @@
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: #333;
-  //   border: 1px solid rgba(0, 0, 0, 0.08);
-  //   background: #fff;
   transition: all 0.15s ease;
   user-select: none;
   max-width: 260px;
 
   &:hover,
   &.triggerActive {
-    border-color: #615ced;
-    color: #615ced;
+    border-color: #ff7f16;
+    color: #ff7f16;
     box-shadow: 0 2px 8px rgba(97, 92, 237, 0.12);
   }
 }
@@ -32,7 +30,7 @@
 
 .triggerArrow {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 18px;
   color: #999;
   transition:
     transform 0.2s,
@@ -40,18 +38,25 @@
 
   &.triggerArrowOpen {
     transform: rotate(180deg);
-    color: #615ced;
+    color: #ff7f16;
   }
+}
+
+.providerIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  object-fit: contain;
 }
 
 /* ---- Level-1 panel ---- */
 .panel {
   min-width: 180px;
-  border-radius: 12px;
+  border-radius: 6px;
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  padding: 4px 0;
   overflow: visible;
 }
 
@@ -60,32 +65,44 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 12px;
+  padding: 4px 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   color: #333;
   transition: background 0.12s;
   gap: 8px;
 
   &:hover {
     background: rgba(97, 92, 237, 0.06);
-    color: #615ced;
+    color: #ff7f16;
   }
 
   &:hover :global(.modelSubmenu) {
     display: block;
   }
 
+  // Hover bridge: extend leftward to cover the margin-right gap between
+  // providerItem and the left-side submenu, keeping :hover active during transition
+  &::after {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 0;
+    width: 8px;
+    height: 100%;
+    background: transparent;
+  }
+
   &:first-child {
-    border-radius: 8px 8px 0 0;
+    border-radius: 6px 6px 0 0;
   }
 
   &:last-child {
-    border-radius: 0 0 8px 8px;
+    border-radius: 0 0 6px 6px;
   }
 
   &.providerItemActive {
-    font-weight: 600;
+    font-weight: 500;
   }
 }
 
@@ -98,7 +115,7 @@
 
 .providerArrow {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: 14px;
   color: #bbb;
 }
 
@@ -106,17 +123,16 @@
 .submenu {
   display: none;
   position: absolute;
-  top: -4px;
-  left: 100%;
-  margin-left: 2px;
+  top: -1px;
+  right: 100%;
+  margin-right: 2px;
   min-width: 200px;
   max-height: 360px;
   overflow-y: auto;
-  border-radius: 12px;
+  border-radius: 6px;
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  padding: 4px 0;
   z-index: 1100;
 }
 
@@ -124,9 +140,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 12px;
+  padding: 4px 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   color: #333;
   transition: background 0.12s;
   gap: 8px;
@@ -134,20 +150,20 @@
 
   &:hover {
     background: rgba(97, 92, 237, 0.06);
-    color: #615ced;
+    color: #ff7f16;
   }
 
   &:first-child {
-    border-radius: 8px 8px 0 0;
+    border-radius: 6px 6px 0 0;
   }
 
   &:last-child {
-    border-radius: 0 0 8px 8px;
+    border-radius: 0 0 6px 6px;
   }
 
   &.modelItemActive {
     background: rgba(97, 92, 237, 0.08);
-    color: #615ced;
+    color: #ff7f16;
     font-weight: 500;
   }
 }
@@ -160,13 +176,13 @@
 
 .checkIcon {
   flex-shrink: 0;
-  font-size: 11px;
-  color: #615ced;
+  font-size: 16px;
+  color: #ff7f16;
 }
 
 .emptyTip {
   padding: 10px 14px;
-  font-size: 12px;
+  font-size: 16px;
   color: #bbb;
 }
 
@@ -182,7 +198,7 @@
 
     &:hover,
     &.triggerActive {
-      color: #8b87f0;
+      color: #ff7f16;
       box-shadow: 0 2px 8px rgba(97, 92, 237, 0.2);
     }
   }
@@ -191,7 +207,7 @@
     color: rgba(255, 255, 255, 0.3);
 
     &.triggerArrowOpen {
-      color: #8b87f0;
+      color: #ff7f16;
     }
   }
 
@@ -206,7 +222,7 @@
 
     &:hover {
       background: rgba(97, 92, 237, 0.15);
-      color: #8b87f0;
+      color: #ff7f16;
     }
   }
 
@@ -225,17 +241,17 @@
 
     &:hover {
       background: rgba(97, 92, 237, 0.15);
-      color: #8b87f0;
+      color: #ff7f16;
     }
 
     &.modelItemActive {
       background: rgba(97, 92, 237, 0.18);
-      color: #8b87f0;
+      color: #ff7f16;
     }
   }
 
   .checkIcon {
-    color: #8b87f0;
+    color: #ff7f16;
   }
 
   .emptyTip {

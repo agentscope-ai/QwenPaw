@@ -1,25 +1,29 @@
 # Console
 
-The **Console** is CoPaw's built-in web interface. After running `copaw app`,
+The **Console** is QwenPaw's built-in web interface. After running `qwenpaw app`,
 open `http://127.0.0.1:8088/` in your browser to enter the Console.
 
 **In the Console, you can:**
 
-- Chat with CoPaw in real time
-- Enable/disable messaging channels
+- Chat with QwenPaw in real time
+- Enable/disable/configure messaging channels
 - View and manage all chat sessions
-- Manage scheduled jobs
-- Edit CoPaw's persona and behavior files
-- Enable/disable skills to extend CoPaw's capabilities
+- Manage scheduled jobs and heartbeat
+- Edit QwenPaw's persona and behavior files
+- Enable/import skills to extend QwenPaw's capabilities
+- Toggle tools on or off
 - Manage MCP clients
 - Modify runtime configuration
-- Configure LLM providers and select active models
-- Manage environment variables needed by tools
+- Manage multiple agents
+- Configure LLM providers and select models
+- Manage environment variables required by tools
+- Manage security options for tools and skills
 - View LLM token usage statistics
+- Configure how voice messages are handled
 
-The sidebar on the left groups features into **Chat**, **Control**, **Agent**,
-and **Settings**. Click any item to switch pages. The sections below walk
-through each feature in order.
+The sidebar on the left lists all features in four groups — **Chat**, **Control**,
+**Workspace**, and **Settings**. Click an item to switch pages. The sections below
+walk through each feature in order.
 
 > **Not seeing the Console?** Make sure the frontend has been built. See
 > [CLI](./cli).
@@ -30,24 +34,38 @@ through each feature in order.
 
 > Sidebar: **Chat → Chat**
 
-This is where you talk to CoPaw. It is the default page when the Console
-opens.
+This is where you talk to QwenPaw. It is the default page when the Console opens.
 
-![Chat](https://img.alicdn.com/imgextra/i4/O1CN01iuGyNc1mNwsUU5NQI_!!6000000004943-2-tps-3822-2070.png)
+![Chat](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
+
+**Choose a model:**
+Use the control at the **top-right** of the chat page to pick the model for the
+current agent.
 
 **Send a message:**
 Type in the input box at the bottom, then press **Enter** or click the send
-button (↑). CoPaw replies in real time.
+button (↑). QwenPaw replies in real time.
+
+**Voice input:**
+The composer supports **voice input** (browser and OS microphone permission
+required). Behavior matches **Voice transcription** settings (e.g. transcribe
+first, then send text to the model).
+
+**Attachments:**
+You can attach **files** such as documents, images, and audio/video (follow
+on-screen limits; per-file size caps apply).
 
 **Create a new session:**
-Click the **+ New Chat** button at the top of the chat sidebar to start a new
+Click the **New Chat** button at the top-right of the chat page to start a new
 conversation. Each session keeps separate history.
 
 **Switch sessions:**
-Click any session name in the chat sidebar to load its history.
+Click the **Chat history** button at the top-right to view and switch between
+past conversations.
 
 **Delete a session:**
-Click the **···** button on a session item, then click the **trash** icon.
+In the chat history panel, click the **trash** button on the right of a session
+row to delete it.
 
 ---
 
@@ -55,29 +73,16 @@ Click the **···** button on a session item, then click the **trash** icon.
 
 > Sidebar: **Control → Channels**
 
-Manage channel for DingTalk, Feishu, Discord, QQ,
-iMessage, and Console.
+Manage messaging channels (Console, DingTalk, Feishu, Discord, QQ, WeChat,
+iMessage, etc.): enable/disable and credentials.
 
-![Channels](https://img.alicdn.com/imgextra/i4/O1CN01tUJBg121ZbBnC5fjx_!!6000000006999-2-tps-3822-2070.png)
+![Channels](https://img.alicdn.com/imgextra/i4/O1CN01cqMycR1SeczjROAHu_!!6000000002272-2-tps-3822-2070.png)
 
 **Enable a channel:**
 
 1. Click the channel card you want to configure.
 2. A settings panel slides out on the right. Turn on **Enable**.
-
-   ![Channel Configuration](https://img.alicdn.com/imgextra/i1/O1CN01dbZiw21S5MUOUFJ06_!!6000000002195-2-tps-3822-2070.png)
-
-3. Fill in required credentials (fields differ by channel):
-
-   | Channel      | Required fields                                                          |
-   | ------------ | ------------------------------------------------------------------------ |
-   | **DingTalk** | Client ID, Client Secret, Message Type, Card Template ID/Key, Robot Code |
-   | **Feishu**   | App ID, App Secret, Encrypt Key, Verification Token, Media Dir           |
-   | **Discord**  | Bot Token, HTTP Proxy, Proxy Auth                                        |
-   | **QQ**       | App ID, Client Secret                                                    |
-   | **iMessage** | Database path, Poll interval                                             |
-   | **Console**  | _(toggle only)_                                                          |
-
+3. Fill in required credentials — each channel differs; see [Channels](./channels).
 4. Click **Save**. Changes take effect in seconds, no restart required.
 
 **Disable a channel:**
@@ -93,7 +98,7 @@ Open the same panel, turn off **Enable**, then click **Save**.
 
 View, filter, and clean up chat sessions across all channels.
 
-![Sessions](https://img.alicdn.com/imgextra/i2/O1CN0142DXNW1NkyOX07sJ7_!!6000000001609-2-tps-3822-2070.png)
+![Sessions](https://img.alicdn.com/imgextra/i4/O1CN01PY9Yhe25Pl9TuEBfz_!!6000000007519-2-tps-3822-2070.png)
 
 **Find sessions:**
 Use the search box to filter by user, or use the dropdown to filter by
@@ -114,145 +119,225 @@ Select rows → click **Batch Delete** → confirm.
 
 > Sidebar: **Control → Cron Jobs**
 
-Create and manage scheduled jobs that CoPaw runs automatically by time.
+Create and manage scheduled jobs that QwenPaw runs automatically by time.
 
-![Cron Jobs](https://img.alicdn.com/imgextra/i3/O1CN01JET1Aw1C9SAvXuIpk_!!6000000000038-2-tps-3822-2070.png)
+![Cron Jobs](https://img.alicdn.com/imgextra/i3/O1CN01WsQvrb1dKthp8QMvd_!!6000000003718-2-tps-3822-2070.png)
 
 **Create a new job:**
 
-> If the cron job fails to be created, please refer to the **Troubleshooting Scheduled (Cron) Tasks** section in the [FAQ](https://copaw.agentscope.io/docs/faq) to identify the cause.
+> If the cron job fails to be created, please refer to the **Troubleshooting Scheduled (Cron) Tasks** section in the [FAQ](https://qwenpaw.agentscope.io/docs/faq) to identify the cause.
 
-The **simplest way to create a cron job is to chat directly with CoPaw** and let it handle the creation for you. For example, if you want to receive a reminder to drink water on DingTalk, simply message CoPaw on DingTalk: "Help me create a cron job to remind me to drink water every 5 minutes." Once created, you can view the new task on the Cron Jobs page in the console.
+The **simplest way to create a cron job is to chat directly with QwenPaw** and let it handle the creation for you. For example, if you want to receive a reminder to drink water on DingTalk, simply message QwenPaw on DingTalk: "Help me create a cron job to remind me to drink water every 5 minutes." Once created, you can view the new task on the Cron Jobs page in the console.
 
 Alternatively, you can create tasks directly via the Console interface:
 
 1. Click **+ Create Job**.
-
-   ![Create Cron Job](https://img.alicdn.com/imgextra/i2/O1CN01jFAcIZ1wCAqyxDGKX_!!6000000006271-2-tps-3822-2070.png)
-
 2. Fill in each section:
-   - **Basic Info** — Job ID (e.g. `job-001`) and job name (e.g. "Daily Summary").
-   - **Schedule** — Cron expression (e.g. `0 9 * * *` = 9:00 AM daily) and
-     timezone (defaults to your configured user timezone)
-   - **Task Type & Content** — **Text** (fixed message) or **Agent** (ask
-     CoPaw and forward reply), then the content
-   - **Delivery** — Target channel (Console, DingTalk, etc.), target user & session id, and
-     mode (**Stream** = real-time, **Final** = one complete response)
-   - **Advanced** — Max concurrency, timeout, misfire grace time
+   - **Basic info** — Job ID (e.g. `job-001`), display name (e.g. "Daily summary"),
+     and enable the job.
+   - **Schedule** — Pick a schedule; if presets are not enough, enter a **cron
+     expression** (five fields, e.g. `0 9 * * *` = 9:00 daily). Timezone defaults
+     to the current agent's user timezone; you can change it here.
+   - **Task type & content** — **Text**: send fixed text from **Message content**.
+     **Agent**: fill **Request content**; on each run QwenPaw receives the text
+     from `content.text` as the request.
+   - **Delivery** — Target channel (Console, DingTalk, etc.), target user,
+     target session id, and mode (**Stream** = token stream, **Final** = one
+     complete reply).
+   - **Advanced** — Optional: max concurrency, timeout, misfire grace time.
 3. Click **Save**.
-
-**Edit a job:**
-Click **Edit** on a row → modify fields → **Save**.
 
 **Enable/disable a job:**
 Toggle the switch in the row.
+
+**Edit a job:**
+**Disable** the job first, click **Edit** → change fields → **Save**.
 
 **Run once immediately:**
 Click **Execute Now** → confirm.
 
 **Delete a job:**
-Click **Delete** → confirm.
+**Disable** the job first, click **Delete** → confirm.
 
 ---
 
-## Workspace
+## Heartbeat
 
-> Sidebar: **Agent → Workspace**
+> Sidebar: **Control → Heartbeat**
 
-Edit files that define CoPaw's persona and behavior, such as `SOUL.md`,
-`AGENTS.md`, and `HEARTBEAT.md`, directly in the browser.
+![Heartbeat](https://img.alicdn.com/imgextra/i1/O1CN017fS5GW1jIxj8FuQXl_!!6000000004526-2-tps-3822-2070.png)
 
-> **Multi-Agent Workspace:** Starting from **v0.1.0**, CoPaw supports
-> **multi-agent workspace** functionality. You can run multiple independent
-> agents in a single CoPaw instance, each with its own workspace, configuration,
-> memory, and conversation history. Use the agent switcher at the top of the
-> console to change the active agent. See [Multi-Agent Workspace](./multi-agent)
-> for details.
+Configure periodic "self-check" for the **currently selected agent**: on each
+tick, send the contents of `HEARTBEAT.md` as a user message to QwenPaw, and
+optionally deliver the reply to a chosen target.
 
-![Workspace](https://img.alicdn.com/imgextra/i3/O1CN01APrwdP1NqT9CKJMFt_!!6000000001621-2-tps-3822-2070.png)
+**Common options:**
+
+- **Enable** — Must be on for the schedule to run.
+- **Interval** — Number + unit (minutes / hours).
+- **Delivery target** — `main` runs in the main session only; `last` can send
+  results to the channel from your last user conversation.
+- **Active hours** (optional) — Only fire within a daily window to avoid night
+  noise.
+
+Click **Save** to apply. See [Heartbeat](./heartbeat) for wording and semantics.
+
+---
+
+## Files
+
+> Sidebar: **Workspace → Files**
+
+Edit files that define QwenPaw's persona and behavior — `SOUL.md`, `AGENTS.md`,
+`HEARTBEAT.md`, etc. — directly in the browser.
+
+> **Multi-agent:** Starting from **v0.1.0**, QwenPaw supports **multi-agent** mode.
+> You can run multiple independent agents in one QwenPaw instance, each with its own
+> workspace, configuration, memory, and history. Agents can collaborate. Use the
+> switcher at the top of the Console to change the active agent. See
+> [Multi-Agent](./multi-agent).
+
+![Files](https://img.alicdn.com/imgextra/i4/O1CN01iEhSJL1cHP4JHPdio_!!6000000003575-2-tps-3822-2070.png)
 
 **Edit files:**
 
 1. Click a file in the list (e.g. `SOUL.md`).
-2. The editor shows file content. Make your changes.
+2. The editor shows file content. Turn off preview if needed, then edit.
 3. Click **Save** to apply, or **Reset** to discard and reload.
 
 **View daily memory:**
-If `MEMORY.md` exists, click the **▶** arrow to expand date-based entries.
-Click a date to view or edit that day's memory.
+If `MEMORY.md` exists, click the **▶** arrow to expand date-based entries. Click a
+date to view or edit that day's memory.
 
 **Download workspace:**
-Click **Download** (⬇) to export the entire workspace as a `.zip`.
+Click **Download** to export the entire workspace as a `.zip` to your machine.
 
 **Upload/restore workspace:**
-Click **Upload** (⬆) → choose a `.zip` (max 100 MB). Existing workspace files
-will be replaced. Useful for migration and backup restore.
+Click **Upload** → choose a `.zip` (max 100 MB). Existing workspace files will be
+replaced. Useful for migration and backup restore.
 
 ---
 
 ## Skills
 
-> Sidebar: **Agent → Skills**
+> Sidebar: **Workspace → Skills**
 
-Manage skills that extend CoPaw's capabilities (for example: PDF reading,
-Word document creation, news retrieval).
+Manage skills that extend QwenPaw (e.g. read PDF, create Word, fetch news). More
+detail: [Skills](./skills).
 
-![Skills](https://img.alicdn.com/imgextra/i1/O1CN01ZF4kVc1Yz8PlPdiM6_!!6000000003129-2-tps-3822-2070.png)
+![Skills](https://img.alicdn.com/imgextra/i4/O1CN017tsPAI27USRjSJLBA_!!6000000007800-2-tps-3822-2070.png)
 
 **Enable a skill:**
 Click **Enable** at the bottom of a skill card. It takes effect immediately.
 
-**View skill details:**
-Click a skill card to open its full description.
-
 **Disable a skill:**
 Click **Disable**. It also takes effect immediately.
 
-**Import from Skill Hub:**
+**View skill details:**
+Click a skill card for the full description.
 
-1. Click **Import Skill**.
-2. Enter a skill URL, then click import.
-3. Wait for import to complete. The skill appears as enabled.
-
-![Import Skill](https://img.alicdn.com/imgextra/i4/O1CN01LLVYzH28gCCjby41K_!!6000000007961-2-tps-3822-2070.png)
+**Edit a skill:**
+Click a skill card → turn off content preview → edit → **Save**.
 
 **Create a custom skill:**
 
 1. Click **Create Skill**.
-2. Enter a skill name (e.g. `weather_query`) and skill content in Markdown
-   (must include `name` and `description`).
-3. Click **Save**. The new skill appears immediately.
+2. Enter a skill name (e.g. `weather_query`) and skill content in Markdown (must
+   include `name` and `description`).
+3. Click **Create**; the new skill appears in the list.
 
-![Create Skill](https://img.alicdn.com/imgextra/i3/O1CN01hW0eLY1go9qeiPrUF_!!6000000004188-2-tps-3822-2070.png)
+**Load from skill pool:**
 
-**Delete a custom skill:**
-Disable the skill first, then click the **🗑** icon on its card and confirm.
+1. Click **Load from skill pool**.
+2. In the dialog, pick skills to add to the current agent.
+3. Click **Confirm**.
 
-> For built-in skill details, Skill Hub import, and custom skill authoring, see
-> [Skills](./skills).
+**Sync to skill pool:**
+
+1. Click **Sync to skill pool**.
+2. Select skills to push to the pool.
+3. Click **Confirm**.
+
+**Upload a skill:**
+
+1. Click **Upload via zip**.
+2. Choose a skill **zip** file.
+3. Click **Open**; on success the skill appears in the list.
+
+**Import from Skills Hub:**
+
+1. Click **Import from Skills Hub** at the top.
+2. Enter the skill URL, then import.
+3. Wait for completion; the skill appears enabled in the list.
+
+**Delete a skill:**
+Click **Delete** on the card and confirm. If the skill is enabled, it is
+automatically disabled first.
+
+---
+
+## Tools
+
+> Sidebar: **Workspace → Tools**
+
+![Tools](https://img.alicdn.com/imgextra/i4/O1CN01ZKnoAE1pqkdpFVQuM_!!6000000005412-2-tps-3822-2070.png)
+
+Toggle **built-in tools** by name (read files, run commands, browser, etc.). When
+off, this agent cannot call that tool in chat.
+
+Use **Enable all** / **Disable all** at the top for batch changes. Changes apply
+to the **current agent** immediately.
 
 ---
 
 ## MCP
 
-> Sidebar: **Agent → MCP**
+> Sidebar: **Workspace → MCP**
 
 Enable/disable/delete **MCP** clients here, or create new ones.
 
-![MCP](https://img.alicdn.com/imgextra/i4/O1CN01ANXnQQ1IfPVO6bEbY_!!6000000000920-2-tps-3786-1980.png)
+![MCP](https://img.alicdn.com/imgextra/i3/O1CN01dEioYs1JMv8ln8RE7_!!6000000001015-2-tps-3822-2070.png)
 
 **Create a client**
-Click **Create Client** in the top-right, fill in the required information, then click **Create**. The new MCP client appears in the list.
+Click **Create Client** in the top-right, fill in required fields, then **Create**.
+The new client appears in the list.
 
 ---
 
-## Runtime Config
+## Configuration
 
-> Sidebar: **Agent → Runtime Config**
+> Sidebar: **Workspace → Configuration**
 
-![Runtime Config](https://img.alicdn.com/imgextra/i3/O1CN01mhPcqC1KzgGYJQgkW_!!6000000001235-2-tps-3786-1980.png)
+![Runtime Config](https://img.alicdn.com/imgextra/i1/O1CN011l1EnX1YbmDvsXolR_!!6000000003078-2-tps-3822-2070.png)
 
-Adjust **Max iterations** and **Max input length** here; click **Save** after changing.
+This page configures **runtime parameters for the current agent**, grouped in
+cards. Click **Save** at the bottom (**Reset** reloads from the server).
+
+- **ReAct Agent** — UI language, user timezone, max iterations, max context length, etc.
+- **LLM auto-retry** — Max retries, etc.
+- **LLM concurrency** — Max concurrent requests, etc.
+- **Context management** — Max input length, etc.
+- **Context compaction** — Compaction threshold ratio, etc.
+- **Tool result compaction** — Recent tool result window, etc.
+- **Memory summarization** — Max forced-search results, etc.
+- **Embedding model** — Whether to enable embedding cache, etc.
+
+For mechanics, see [Context](./context) and [Config & working directory](./config).
+
+---
+
+## Agent management
+
+> Sidebar: **Settings → Agent management**
+
+![Agent management](https://img.alicdn.com/imgextra/i1/O1CN01MlsPdv1yioJgESwhm_!!6000000006613-2-tps-3822-2070.png)
+
+Create, edit, enable/disable, or delete agents. The **Description** field is used
+when multiple agents collaborate — write a clear role.
+
+**Current agent** at the top-left of the Console selects which agent you operate
+on; this page edits each agent's metadata (name, description, custom workspace
+path, etc.). See [Multi-Agent](./multi-agent).
 
 ---
 
@@ -260,145 +345,51 @@ Adjust **Max iterations** and **Max input length** here; click **Save** after ch
 
 > Sidebar: **Settings → Models**
 
-Configure LLM providers and choose the model CoPaw uses. CoPaw supports both
-cloud providers (API key required) and local providers (no API key required).
+Configure LLM providers and select the default model for agents. See [Models](./models) for details on provider and model configuration.
 
-![Models](https://img.alicdn.com/imgextra/i2/O1CN01Kd3lg91HdkS5SaLoF_!!6000000000781-2-tps-3822-2070.png)
+![Models](https://img.alicdn.com/imgextra/i4/O1CN01rePoH21MabpCZyWr1_!!6000000001451-2-tps-3822-2070.png)
 
-### Cloud providers
+On this page you can:
 
-**Configure a provider:**
+- Configure Cloud Providers (ModelScope, DashScope, OpenAI, Anthropic, etc.)
+- Configure Local Providers (llama.cpp, Ollama, LM Studio)
+- Add Custom Providers by filling in API details
+- Select the default model for agents
 
-1. Click **Settings** on a provider card (ModelScope, DashScope).
-2. Enter your **API Key**.
-3. Click **Save**. Card status becomes "Authorized".
-4. To add a custom provider, click **Add Provider**.
-5. Enter provider ID, display name, and required fields, then click **Create**.
-6. Open **Settings** for the created provider, fill required fields, then
-   **Save**. Status becomes "Authorized".
+---
 
-**Revoke authorization:**
-Open the provider settings dialog and click **Revoke Authorization**. API key
-data is cleared. If this provider is currently active, model selection is also
-cleared.
+## Skill pool
 
-### Local providers (llama.cpp / MLX)
+> Sidebar: **Settings → Skill pool**
 
-Local providers show a purple **Local** tag. Install backend dependencies
-first (`pip install 'copaw[llamacpp]'` or `pip install 'copaw[mlx]'`).
+Global skill management. More detail: [Skills](./skills).
 
-**Download a model:**
+![Skill pool](https://img.alicdn.com/imgextra/i1/O1CN01uDUQGJ1dfVWqWGD8G_!!6000000003763-2-tps-3822-2070.png)
 
-1. Click **Manage Models** on a local provider card.
-2. Click **Download Model**, then fill:
-   - **Repo ID** (required) — e.g. `Qwen/Qwen3-4B-GGUF`
-   - **Filename** (optional) — leave empty for auto-selection
-   - **Source** — Hugging Face (default) or ModelScope
-3. Click **Download** and wait for completion.
+On this page you can:
 
-**View and delete models:**
-Downloaded models are listed with file size, source badge (**HF** / **MS**),
-and delete button.
-
-### Ollama provider
-
-The Ollama provider integrates with your local Ollama daemon and dynamically
-loads models from it.
-
-**Prerequisites:**
-
-- Install Ollama from [ollama.com](https://ollama.com)
-- Install the Ollama SDK: `pip install 'copaw[ollama]'` (or re-run the installer with `--extras ollama`)
-
-**Download a model:**
-
-1. Click **Settings** on the Ollama provider card.
-2. In **API Key**, enter a value (for example `ollama`), then click **Save**.
-3. Click **Manage Models** on the Ollama card, click **Download Model**, and
-   enter a model name (e.g. `mistral:7b`, `qwen3:8b`).
-4. Click **Download Model** and wait for completion.
-
-**Cancel a download:**
-During download, click **✕** next to the progress indicator to cancel.
-
-**View and delete models:**
-Downloaded models are listed with size and delete button. The list updates
-automatically when models are added/removed via Ollama CLI or Console.
-
-**How it differs from local providers:**
-
-- Models come from the Ollama daemon (not downloaded directly by CoPaw)
-- Model list is auto-synced with Ollama
-- Popular model examples: `mistral:7b`, `qwen3:8b`
-
-> You can also manage Ollama models via CLI: `copaw models ollama-pull`,
-> `copaw models ollama-list`, `copaw models ollama-remove`. See
-> [CLI](./cli#ollama-models).
-
-> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
->
-> To run CoPaw properly, you must set the model context length to
-> **32K or higher**. Note that this can consume substantial compute resources,
-> so make sure your local machine can handle it.
->
-> ![Ollama context length configuration](https://img.alicdn.com/imgextra/i3/O1CN01JrqRjE1l6FxuO3IMl_!!6000000004769-2-tps-699-656.png)
-
-### LM Studio provider
-
-The LM Studio provider connects to the LM Studio desktop application's
-OpenAI-compatible local server to discover and use loaded models.
-
-**Prerequisites:**
-
-- Install LM Studio from [lmstudio.ai](https://lmstudio.ai)
-- Load a model and start the local server in LM Studio (default: `http://localhost:1234`)
-
-**Configure:**
-
-1. Click **Settings** on the LM Studio provider card.
-2. The default Base URL is `http://localhost:1234/v1`. Adjust if needed, then
-   click **Save**.
-3. Click **Manage Models** to see models loaded in LM Studio. You can also
-   manually add model IDs.
-4. Select **LM Studio** in the **Provider** dropdown and pick a model.
-
-> LM Studio does not require an API key by default. Models must be loaded
-> in LM Studio before they appear in CoPaw.
-
-> ⚠️ **Before running CoPaw, you must set the context length to 32K or higher**
->
-> To run CoPaw properly, you must set the model context length to
-> **32K or higher**. Note that this can consume substantial compute resources,
-> so make sure your local machine can handle it.
->
-> ![LM Studio context length configuration](https://img.alicdn.com/imgextra/i4/O1CN01LWyG6o21E4Zovqv4G_!!6000000006952-2-tps-923-618.png)
-
-### Choose the active model
-
-1. In the **LLM Config** section, select a **Provider** from the dropdown
-   (only authorized providers or local providers with downloaded models appear).
-2. Select a **Model** from the model dropdown.
-3. Click **Save**.
-
-> **Note:** Cloud API key validity is your responsibility. CoPaw does not
-> verify key correctness.
->
-> For provider details, see [Config — LLM Providers](./config#llm-providers).
+- Broadcast skills to specific agents
+- Update built-in skills to the latest version
+- Upload skills via zip
+- Import skills from Skills Hub
+- Create skills
+- Edit skills
+- Delete skills
 
 ---
 
 ## Environment Variables
 
-> Sidebar: **Settings → Environment Variables**
+> Sidebar: **Settings → Environments**
 
-Manage runtime environment variables needed by CoPaw tools and skills
-(for example, `TAVILY_API_KEY`).
+Manage runtime environment variables needed by QwenPaw tools and skills (e.g.
+`TAVILY_API_KEY`).
 
-![Environments](https://img.alicdn.com/imgextra/i1/O1CN01jNMeBA1nMP9tQdTmU_!!6000000005075-2-tps-3822-2070.png)
+![Environment Variables](https://img.alicdn.com/imgextra/i2/O1CN01TpB5YF22AhHMVydps_!!6000000007080-2-tps-3822-2070.png)
 
 **Add a variable:**
 
-1. Click **+ Add Variable**.
+1. Click **+ Add Variable** at the bottom.
 2. Enter the variable name (e.g. `TAVILY_API_KEY`) and value.
 3. Click **Save**.
 
@@ -407,15 +398,29 @@ Change the **Value** field, then click **Save**.
 (Variable names are read-only after save; to rename, delete and recreate.)
 
 **Delete a variable:**
-Click the **🗑** icon on a row, then confirm if prompted.
+Click the **🗑** icon on a row → confirm.
 
 **Batch delete:**
 Select rows → click **Delete** in the toolbar → confirm.
 
-> **Note:** Variable validity is your responsibility. CoPaw only stores and
-> loads values.
+> **Note:** Variable validity is your responsibility. QwenPaw only stores and loads
+> values.
 >
-> See [Config — Environment Variables](./config#environment-variables) for more.
+> See [Config — Environment variables](./config#environment-variables).
+
+---
+
+## Security
+
+> Sidebar: **Settings → Security**
+
+![Security](https://img.alicdn.com/imgextra/i4/O1CN01oxB5ns1GH1BksHGtZ_!!6000000000596-2-tps-3822-2070.png)
+
+Tabs for **tool guard**, **file guard**, **skill scanner**, etc.: control
+dangerous-tool parameter blocking, sensitive path access, and skill package
+scanning policy.
+
+Click **Save** after changing toggles or rules. Details: [Security](./security).
 
 ---
 
@@ -423,7 +428,9 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 > Sidebar: **Settings → Token Usage**
 
-View LLM token consumption over a time range, aggregated by date and model.
+![Token Usage](https://img.alicdn.com/imgextra/i2/O1CN01KYNxoL1Xgz6z9nsVy_!!6000000002954-2-tps-3822-2070.png)
+
+View LLM token usage over a range, by date and model.
 
 **View usage:**
 
@@ -432,36 +439,66 @@ View LLM token consumption over a time range, aggregated by date and model.
 3. The page shows total tokens, total calls, and breakdowns by model and date.
 
 **Query via chat:**
+Ask e.g. "How many tokens have I used?" or "Show token usage." The agent calls
+`get_token_usage` and returns stats.
 
-Ask CoPaw directly, e.g. "How many tokens have I used recently?" or "Show me token usage." The agent will call the `get_token_usage` tool and return the summary.
+> Data is stored in `~/.qwenpaw/token_usage.json`. Override the filename with
+> `QWENPAW_TOKEN_USAGE_FILE`. See [Config — Environment variables](./config#environment-variables).
 
-> Data is stored in `~/.copaw/token_usage.json`. You can override the filename with the `COPAW_TOKEN_USAGE_FILE` environment variable. See [Config — Environment Variables](./config#environment-variables).
+---
+
+## Voice transcription
+
+> Sidebar: **Settings → Voice transcription**
+
+![Voice transcription](https://img.alicdn.com/imgextra/i3/O1CN01ZdRtQq1TgkRa5kJhr_!!6000000002412-2-tps-3822-2070.png)
+
+Configure how **voice/audio from channels** is handled before it reaches the
+model (same settings apply to voice input in chat and channel voice messages).
+
+- **Audio mode** — **Auto**: transcribe per settings below, then send text
+  (works for most models). **Native**: send audio as an attachment (only for
+  models that support audio).
+- **Transcription backend** — **Off**; **Whisper API** (OpenAI-compatible
+  `audio/transcriptions`; configure keys under [Models](#models) and select the
+  provider here); **Local Whisper** (requires `ffmpeg` and
+  `pip install 'qwenpaw[whisper]'`).
+
+**Save** applies to newly received audio. Follow on-page help for details.
 
 ---
 
 ## Quick Reference
 
-| Page                  | Sidebar path                     | What you can do                                                |
-| --------------------- | -------------------------------- | -------------------------------------------------------------- |
-| Chat                  | Chat → Chat                      | Talk with CoPaw, manage sessions                               |
-| Channels              | Control → Channels               | Enable/disable channels, configure credentials                 |
-| Sessions              | Control → Sessions               | Filter, rename, delete sessions                                |
-| Cron Jobs             | Control → Cron Jobs              | Create/edit/delete jobs, run immediately                       |
-| Workspace             | Agent → Workspace                | Edit persona files, view memory, upload/download               |
-| Skills                | Agent → Skills                   | Enable/disable/create/delete skills                            |
-| MCP                   | Agent → MCP                      | Enable/disable/create/delete MCP clients                       |
-| Runtime Config        | Agent → Runtime Config           | Modify runtime configuration                                   |
-| Models                | Settings → Models                | Configure providers, manage local/Ollama/LM Studio, pick model |
-| Environment Variables | Settings → Environment Variables | Add/edit/delete environment variables                          |
-| Token Usage           | Settings → Token Usage           | View LLM token usage by date and model                         |
+| Page                  | Sidebar path                   | What you can do                                |
+| --------------------- | ------------------------------ | ---------------------------------------------- |
+| Chat                  | Chat → Chat                    | Chat, voice, attachments, sessions             |
+| Channels              | Control → Channels             | Enable/disable, credentials                    |
+| Sessions              | Control → Sessions             | Filter, rename, delete                         |
+| Cron Jobs             | Control → Cron Jobs            | Create/edit/delete, run now                    |
+| Heartbeat             | Control → Heartbeat            | Interval, delivery target, active hours        |
+| Files                 | Workspace → Files              | Persona files, memory, upload/download         |
+| Skills                | Workspace → Skills             | Enable/disable, Hub/upload/custom              |
+| Tools                 | Workspace → Tools              | Toggle built-in tools by name                  |
+| MCP                   | Workspace → MCP                | MCP clients                                    |
+| Configuration         | Workspace → Configuration      | Iterations, context, retries, compaction, etc. |
+| Agent management      | Settings → Agent management    | CRUD agents, enable/disable                    |
+| Models                | Settings → Models              | Providers, local models, active model          |
+| Skill pool            | Settings → Skill pool          | Built-in and shared reusable skills            |
+| Environment Variables | Settings → Environments        | Keys for tools/skills                          |
+| Security              | Settings → Security            | Tool guard, skill scan, file guard             |
+| Token Usage           | Settings → Token Usage         | Usage by date/model                            |
+| Voice transcription   | Settings → Voice transcription | Audio mode, Whisper API/local                  |
 
 ---
 
 ## Related Pages
 
-- [Config & Working Directory](./config) — Config fields, providers, env vars
+- [Config & working directory](./config) — Config fields, providers, env vars
 - [Channels](./channels) — Per-channel setup and credentials
 - [Skills](./skills) — Built-in skills and custom skills
 - [Heartbeat](./heartbeat) — Heartbeat configuration
+- [Context](./context) — Compaction and context
+- [Security](./security) — Web login, tool guard, file guard
 - [CLI](./cli) — Command-line reference
-- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent](./multi-agent) — Multi-agent setup, management, collaboration

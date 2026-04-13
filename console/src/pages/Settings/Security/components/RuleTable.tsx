@@ -3,6 +3,7 @@ import { Space } from "antd";
 import { Eye, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MergedRule } from "../useToolGuard";
+import { useTheme } from "../../../../contexts/ThemeContext";
 import styles from "../index.module.less";
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -31,6 +32,8 @@ export function RuleTable({
   onDeleteRule,
 }: RuleTableProps) {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
+  const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.75)" } : undefined;
 
   const columns = [
     {
@@ -89,7 +92,7 @@ export function RuleTable({
       width: 100,
       render: (source: string, record: MergedRule) => (
         <Tag
-          color={source === "builtin" ? "geekblue" : "green"}
+          color={source === "builtin" ? "rgba(142, 140, 153, 1)" : "green"}
           style={{ opacity: record.disabled ? 0.4 : 1 }}
         >
           {source === "builtin"
@@ -124,10 +127,14 @@ export function RuleTable({
               size="small"
               onClick={() => onPreviewRule(record)}
               disabled={!enabled}
-              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                ...darkBtnStyle,
+              }}
             >
-              <Eye size={14} />
-              {t("security.rules.preview")}
+              <Eye size={16} />
             </Button>
           )}
           {record.source === "custom" && (
@@ -139,6 +146,7 @@ export function RuleTable({
                   icon={<Pencil size={14} />}
                   onClick={() => onEditRule(record)}
                   disabled={!enabled}
+                  style={darkBtnStyle}
                 />
               </Tooltip>
               <Tooltip title={t("security.rules.delete")}>

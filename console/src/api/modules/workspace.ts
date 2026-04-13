@@ -1,6 +1,40 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
 import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
+
+function getSelectedAgentId(): string {
+  try {
+    const agentStorage = sessionStorage.getItem("qwenpaw-agent-storage");
+    if (agentStorage) {
+      const parsed = JSON.parse(agentStorage);
+      const selectedAgent = parsed?.state?.selectedAgent;
+      if (selectedAgent) {
+        return selectedAgent;
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to get selected agent from storage:", error);
+  }
+  return "default";
+}
+
+function generateFallbackFilename(): string {
+  const agentId = getSelectedAgentId();
+  const now = new Date();
+  const timestamp = now
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\..+/, "")
+    .replace("T", "_")
+    .slice(0, 15); // YYYYMMDD_HHMMSS
+  return `qwenpaw_workspace_${agentId}_${timestamp}.zip`;
+}
+
+export interface WorkspaceDownloadResult {
+  blob: Blob;
+  filename: string;
+}
 
 export const workspaceApi = {
   listFiles: () =>
@@ -24,9 +58,10 @@ export const workspaceApi = {
     ),
 
   // Workspace package download
-  downloadWorkspace: async (): Promise<Blob> => {
+  downloadWorkspace: async (): Promise<WorkspaceDownloadResult> => {
     const response = await fetch(getApiUrl("/workspace/download"), {
       method: "GET",
+      headers: buildAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -35,7 +70,24 @@ export const workspaceApi = {
       );
     }
 
-    return await response.blob();
+    const blob = await response.blob();
+
+    // Extract filename from Content-Disposition header
+    const disposition = response.headers.get("Content-Disposition");
+    let filename: string;
+
+    if (disposition) {
+      const filenameMatch = disposition.match(/filename="(.+?)"/);
+      if (filenameMatch && filenameMatch[1]) {
+        filename = filenameMatch[1];
+      } else {
+        filename = generateFallbackFilename();
+      }
+    } else {
+      filename = generateFallbackFilename();
+    }
+
+    return { blob, filename };
   },
 
   // File upload functionality
@@ -47,6 +99,7 @@ export const workspaceApi = {
 
     const response = await fetch(getApiUrl("/workspace/upload"), {
       method: "POST",
+      headers: buildAuthHeaders(),
       body: formData,
     });
 

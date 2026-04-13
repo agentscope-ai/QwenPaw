@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
-import { Form, message } from "@agentscope-ai/design";
+import { Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-
 import api from "../../../api";
 import {
   ChannelCard,
@@ -10,17 +9,19 @@ import {
   getChannelLabel,
   type ChannelKey,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 
 type FilterType = "all" | "builtin" | "custom";
 
 function ChannelsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { channels, orderedKeys, isBuiltin, loading, fetchChannels } =
     useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
-  const [hoverKey, setHoverKey] = useState<ChannelKey | null>(null);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,7 +99,7 @@ function ChannelsPage() {
     }
   };
 
-  const activeLabel = activeKey ? getChannelLabel(activeKey) : "";
+  const activeLabel = activeKey ? getChannelLabel(activeKey, t) : "";
 
   const FILTER_TABS: { key: FilterType; label: string }[] = [
     { key: "all", label: t("channels.filterAll") },
@@ -108,46 +109,42 @@ function ChannelsPage() {
 
   return (
     <div className={styles.channelsPage}>
-      <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.title}>{t("channels.title")}</h1>
-          <p className={styles.description}>{t("channels.description")}</p>
-        </div>
-        <div className={styles.filterTabs}>
-          {FILTER_TABS.map(({ key, label }) => (
-            <button
-              key={key}
-              className={`${styles.filterTab} ${
-                filter === key ? styles.filterTabActive : ""
-              }`}
-              onClick={() => setFilter(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <PageHeader
+        items={[{ title: t("nav.control") }, { title: t("channels.title") }]}
+        center={
+          <div className={styles.filterTabs}>
+            {FILTER_TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                className={`${styles.filterTab} ${
+                  filter === key ? styles.filterTabActive : ""
+                }`}
+                onClick={() => setFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        }
+      />
+      <div className={styles.channelsContainer}>
+        {loading ? (
+          <div className={styles.loading}>
+            <span className={styles.loadingText}>{t("channels.loading")}</span>
+          </div>
+        ) : (
+          <div className={styles.channelsGrid}>
+            {cards.map(({ key, config }) => (
+              <ChannelCard
+                key={key}
+                channelKey={key}
+                config={config}
+                onClick={() => handleCardClick(key)}
+              />
+            ))}
+          </div>
+        )}
       </div>
-
-      {loading ? (
-        <div className={styles.loading}>
-          <span className={styles.loadingText}>{t("channels.loading")}</span>
-        </div>
-      ) : (
-        <div className={styles.channelsGrid}>
-          {cards.map(({ key, config }) => (
-            <ChannelCard
-              key={key}
-              channelKey={key}
-              config={config}
-              isHover={hoverKey === key}
-              onClick={() => handleCardClick(key)}
-              onMouseEnter={() => setHoverKey(key)}
-              onMouseLeave={() => setHoverKey(null)}
-            />
-          ))}
-        </div>
-      )}
-
       <ChannelDrawer
         open={drawerOpen}
         activeKey={activeKey}
