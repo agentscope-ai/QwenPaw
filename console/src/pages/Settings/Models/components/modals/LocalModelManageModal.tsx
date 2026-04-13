@@ -773,7 +773,7 @@ export function LocalModelManageModal({
           </div>
         </div>
       }
-      width={600}
+      width={700}
       destroyOnHidden
     >
       {(loadingLocal || loadingStatus || loadingLocalConfig) &&

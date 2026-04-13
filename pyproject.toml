@@ -11,6 +11,7 @@ dependencies = [
     "packaging>=24.0",
     "discord-py>=2.3",
     "dingtalk-stream>=0.24.3",
+    "alibabacloud-dingtalk>=2.2.42",
     "uvicorn>=0.40.0",
     "apscheduler>=3.11.2,<4",
     "playwright>=1.49.0",

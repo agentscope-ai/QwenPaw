@@ -15,23 +15,6 @@ def _stub_global_config(language: str = "en") -> SimpleNamespace:
     )
 
 
-def test_copy_builtin_skills_targets_unified_skills_dir(monkeypatch, tmp_path):
-    """Builtin skills should seed into workspace ``skills/``."""
-    copied_targets: list[Path] = []
-
-    def _record_copytree(_source: Path, target: Path) -> None:
-        copied_targets.append(target)
-
-    monkeypatch.setattr(agents_router.shutil, "copytree", _record_copytree)
-
-    agents_router._copy_builtin_skills(tmp_path)
-
-    assert copied_targets
-    assert all(
-        target.parent == tmp_path / "skills" for target in copied_targets
-    )
-
-
 def test_initialize_agent_workspace_creates_runtime_compatible_files(
     monkeypatch,
     tmp_path,
@@ -44,7 +27,6 @@ def test_initialize_agent_workspace_creates_runtime_compatible_files(
         "load_config",
         lambda: _stub_global_config("en"),
     )
-    monkeypatch.setattr(agents_router, "_copy_builtin_skills", lambda _: None)
     monkeypatch.setattr(
         agents_router,
         "_install_initial_skills",
@@ -90,10 +72,9 @@ def test_initialize_agent_workspace_builtin_qa_seed_passes_language_first(
         agents_router,
         "copy_builtin_qa_md_files",
         lambda language, workspace_dir: recorded_calls.append(
-            (language, Path(workspace_dir)),
+            (language, workspace_dir),
         ),
     )
-    monkeypatch.setattr(agents_router, "_copy_builtin_skills", lambda _: None)
     monkeypatch.setattr(
         agents_router,
         "_install_initial_skills",

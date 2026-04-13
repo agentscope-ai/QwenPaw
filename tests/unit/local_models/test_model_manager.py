@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -366,3 +367,47 @@ def test_download_worker_sanitizes_standard_streams(
     payload = queue_messages[0]["payload"]
     assert isinstance(payload, dict)
     assert payload["status"] == "completed"
+
+
+def test_download_from_modelscope_redirects_broken_standard_streams(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _BrokenStream:
+        encoding = "utf-8"
+
+        def write(self, _text: str) -> int:
+            raise OSError(22, "Invalid argument")
+
+        def flush(self) -> None:
+            raise OSError(22, "Invalid argument")
+
+    captured: dict[str, object] = {}
+
+    def _fake_snapshot_download(*, model_id: str, local_dir: str) -> str:
+        captured["model_id"] = model_id
+        captured["local_dir"] = local_dir
+        captured["stdout"] = sys.stdout
+        captured["stderr"] = sys.stderr
+        sys.stderr.write("")
+        sys.stderr.flush()
+        return local_dir
+
+    monkeypatch.setattr(sys, "stdout", _BrokenStream())
+    monkeypatch.setattr(sys, "stderr", _BrokenStream())
+    monkeypatch.setattr(
+        ModelManager,
+        "_get_modelscope_snapshot_download",
+        staticmethod(lambda: _fake_snapshot_download),
+    )
+
+    result = ModelManager._download_from_modelscope(
+        repo_id="AgentScope/demo",
+        local_dir=tmp_path / "download",
+    )
+
+    assert result == str(tmp_path / "download")
+    assert captured["model_id"] == "AgentScope/demo"
+    assert captured["local_dir"] == str(tmp_path / "download")
+    assert captured["stdout"] is not sys.stdout
+    assert captured["stderr"] is not sys.stderr
