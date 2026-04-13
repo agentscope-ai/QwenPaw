@@ -187,6 +187,7 @@ const DOC_GROUPS: DocGroup[] = [
       { slug: "models", titleKey: "docs.models" },
       { slug: "security", titleKey: "docs.security" },
       { slug: "cli", titleKey: "docs.cli" },
+      { slug: "plugins", titleKey: "docs.plugins" },
     ],
   },
   {
@@ -235,7 +236,7 @@ const DOC_BANNER_BY_SLUG = (() => {
   return map;
 })();
 
-export function Docs() {
+export default function Docs() {
   const { t, i18n } = useTranslation();
   const lang: "zh" | "en" = i18n.resolvedLanguage === "zh" ? "zh" : "en";
   const { slug } = useParams<{ slug: string }>();

@@ -1,10 +1,10 @@
 # Models
 
-Before using CoPaw, you need to configure at least one available model. CoPaw supports multiple model providers, which you can configure and manage on the **Settings -> Models** page in the left sidebar.
+Before using QwenPaw, you need to configure at least one available model. QwenPaw supports multiple model providers, which you can configure and manage on the **Settings -> Models** page in the left sidebar.
 
-![Settings Models](https://gw.alicdn.com/imgextra/i3/O1CN01MmM8iv1rcfh95wdn3_!!6000000005652-2-tps-3394-1880.png)
+![Settings Models](https://img.alicdn.com/imgextra/i3/O1CN011pmbBt1sDJNlaFem4_!!6000000005732-2-tps-3826-2076.png)
 
-CoPaw supports various LLM providers:
+QwenPaw supports various LLM providers:
 
 - **Local Providers** (llama.cpp / Ollama / LM Studio)
 - **Cloud Providers** (usually require an API Key)
@@ -12,39 +12,39 @@ CoPaw supports various LLM providers:
 
 Currently supported local providers include:
 
-- [CoPaw Local (llama.cpp)](https://github.com/ggml-org/llama.cpp)
+- [QwenPaw Local (llama.cpp)](https://github.com/ggml-org/llama.cpp)
 - [Ollama](https://ollama.com/)
 - [LM Studio](https://lmstudio.ai/)
 
-CoPaw Local (llama.cpp) is built into CoPaw and does not require additional software installation. Ollama and LM Studio require you to install the corresponding software in advance.
+QwenPaw Local (llama.cpp) is built into QwenPaw and does not require additional software installation. Ollama and LM Studio require you to install the corresponding software in advance.
 
-CoPaw also provides the CoPaw-Flash series for local deployment. It includes 2B, 4B, and 9B variants, with original, 4-bit, and 8-bit versions for different VRAM and performance requirements. These models are open-sourced on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models). The following sections explain how to use CoPaw-Flash with each local provider.
+QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes 2B, 4B, and 9B variants, with original, 4-bit, and 8-bit versions for different VRAM and performance requirements. These models are open-sourced on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models). The following sections explain how to use QwenPaw-Flash with each local provider.
 
-## CoPaw Local (llama.cpp) Configuration
+## QwenPaw Local (llama.cpp) Configuration
 
-> CoPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
+> QwenPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
 
-CoPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
+QwenPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
 
-![CoPaw Local Provider](https://gw.alicdn.com/imgextra/i4/O1CN01OAi8oN1acoLWlsm6B_!!6000000003351-2-tps-2410-1634.png)
+![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i2/O1CN01d2O5Bi1oUwA5J27XE_!!6000000005229-2-tps-3826-2076.png)
 
-When configuring CoPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and CoPaw will automatically download and configure the runtime. Once the download is complete, you can use the CoPaw Local provider.
+When configuring QwenPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and QwenPaw will automatically download and configure the runtime. Once the download is complete, you can use the QwenPaw Local provider.
 
-![Download llama.cpp](https://gw.alicdn.com/imgextra/i3/O1CN01Nqs9Cg1Vp6uA2WdiM_!!6000000002701-2-tps-1270-874.png)
+![Download llama.cpp](https://img.alicdn.com/imgextra/i1/O1CN01VhSJKd1yhtWZ0SgYc_!!6000000006611-2-tps-1530-1290.png)
 
-CoPaw team has trained a series of small models (the CoPaw-Flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), CoPaw will automatically recommend suitable model versions for you. If you want to use CoPaw-Flash, simply choose an appropriate version here, download it, and start it. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to where the model is downloaded from. Currently, ModelScope and Hugging Face are supported.
+QwenPaw team has trained a series of small models (the QwenPaw-Flash series) suitable for local deployment. Based on your current device (CPU / NVIDIA GPU / Apple M series chip), QwenPaw will automatically recommend suitable model versions for you. If you want to use QwenPaw-Flash, simply choose an appropriate version here, download it, and start it. If you want to use other models, you can add them by entering the _Model Repository ID_ and _Download Source_. The Model Repository ID refers to the identifier of the model in ModelScope / Hugging Face, such as `Qwen/Qwen3-0.6B-GGUF`. The Download Source refers to where the model is downloaded from. Currently, ModelScope and Hugging Face are supported.
 
-![Download Model](https://gw.alicdn.com/imgextra/i2/O1CN01IF2OXz1c99w9W8XGU_!!6000000003557-2-tps-1226-1202.png)
+![Download Model](https://img.alicdn.com/imgextra/i4/O1CN01ualQNr1KMkbpBiuTa_!!6000000001150-2-tps-1342-1680.png)
 
-After the model is downloaded, you can click the **Start** button to launch the model. The startup time may vary depending on the model size. Once started, CoPaw will automatically set this model as the global default. Only one model can be running at a time; starting another model will automatically stop the currently running one.
+After the model is downloaded, you can click the **Start** button to launch the model. The startup time may vary depending on the model size. Once started, QwenPaw will automatically set this model as the global default. Only one model can be running at a time; starting another model will automatically stop the currently running one.
 
-![Start Model](https://gw.alicdn.com/imgextra/i1/O1CN01NSNFUN1I21RynZwGy_!!6000000000834-2-tps-1224-1194.png)
+![Start Model](https://img.alicdn.com/imgextra/i4/O1CN019nuWG21Zy36HLYRWR_!!6000000003262-2-tps-1344-1678.png)
 
 When you do not need to use a model temporarily, you can click **Stop** to stop the model service.
 
-![Stop Model](https://gw.alicdn.com/imgextra/i4/O1CN01ewNXXD1nMrYq8zvuC_!!6000000005076-2-tps-1230-1284.png)
+![Stop Model](https://img.alicdn.com/imgextra/i2/O1CN01fkeHhn1onG0ItKjT5_!!6000000005269-2-tps-1358-1786.png)
 
-CoPaw Local will automatically record the model's running state. If you close the CoPaw process while a CoPaw Local model is running, it will attempt to restart the last used model the next time you open CoPaw, so you do not need to start the model manually each time.
+QwenPaw Local will automatically record the model's running state. If you close the QwenPaw process while a QwenPaw Local model is running, it will attempt to restart the last used model the next time you open QwenPaw, so you do not need to start the model manually each time.
 
 ## Ollama Configuration
 
@@ -52,30 +52,30 @@ Before using Ollama, you need to install the latest version of [Ollama](https://
 
 ![Ollama Settings](https://gw.alicdn.com/imgextra/i4/O1CN01pWWxlV1QiApLwDzbU_!!6000000002009-2-tps-1912-1510.png)
 
-To verify that Ollama is working properly, go to the **Settings** page of the CoPaw Ollama provider and click the **Test Connection** button.
+To verify that Ollama is working properly, go to the **Settings** page of the QwenPaw Ollama provider and click the **Test Connection** button.
 
-> For users deploying CoPaw in a Docker container, if Ollama is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's Ollama service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:11434`.
+> For users deploying QwenPaw in a Docker container, if Ollama is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's Ollama service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:11434`.
 
-If you want to use CoPaw-Flash with Ollama, it is recommended to choose a `Q8_0` or `Q4_K_M` quantized variant and import it with the following steps:
+If you want to use QwenPaw-Flash with Ollama, it is recommended to choose a `Q8_0` or `Q4_K_M` quantized variant and import it with the following steps:
 
-1. Download a suitable quantized CoPaw-Flash model from [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) or [Hugging Face](https://huggingface.co/agentscope-ai/models), for example `AgentScope/CoPaw-Flash-4B-Q4_K_M`.
+1. Download a suitable quantized QwenPaw-Flash model from [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) or [Hugging Face](https://huggingface.co/agentscope-ai/models), for example `AgentScope/QwenPaw-Flash-4B-Q4_K_M`.
 
 ModelScope CLI:
 
 ```bash
-modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+modelscope download --model AgentScope/QwenPaw-Flash-4B-Q4_K_M --local_dir ./dir
 ```
 
 Hugging Face CLI:
 
 ```bash
-hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+hf download agentscope-ai/QwenPaw-Flash-4B-Q4_K_M --local_dir ./dir
 ```
 
-2. Create a text file named `copaw-flash.txt` and replace `/path/to/your/copaw-xxx.gguf` with the absolute path of the downloaded `.gguf` file:
+2. Create a text file named `qwenpaw-flash.txt` and replace `/path/to/your/qwenpaw-xxx.gguf` with the absolute path of the downloaded `.gguf` file:
 
 ```text
-FROM /path/to/your/copaw-xxx.gguf
+FROM /path/to/your/qwenpaw-xxx.gguf
 TEMPLATE {{ .Prompt }}
 RENDERER qwen3.5
 PARSER qwen3.5
@@ -88,14 +88,14 @@ PARAMETER top_p 0.95
 3. Run the following command in your terminal to import the model into Ollama:
 
 ```bash
-ollama create copaw-flash -f copaw-flash.txt
+ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-4. Go back to the CoPaw Ollama provider page and click **Discover Models** to add the model to CoPaw.
+4. Go back to the QwenPaw Ollama provider page and click **Discover Models** to add the model to QwenPaw.
 
-After installing and configuring Ollama, go to the **Models** page of the CoPaw Ollama provider and click **Discover Models** to get the list of available Ollama models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
+After installing and configuring Ollama, go to the **Models** page of the QwenPaw Ollama provider and click **Discover Models** to get the list of available Ollama models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
 
-![Ollama Model List](https://gw.alicdn.com/imgextra/i3/O1CN01esQyTg1eSyIlpRK69_!!6000000003871-2-tps-1208-1322.png)
+![Ollama Model List](https://img.alicdn.com/imgextra/i1/O1CN01BbAw7o1W7QkXG8C8k_!!6000000002741-2-tps-1290-1504.png)
 
 ## LM Studio Configuration
 
@@ -105,41 +105,41 @@ By default, LM Studio does not enable the model API service. After installing LM
 
 ![LM Studio Local Server](https://gw.alicdn.com/imgextra/i3/O1CN01kLXu3D1VwRF3lokZz_!!6000000002717-2-tps-1654-1256.png)
 
-To ensure a good experience in CoPaw, set the **Default Context Length** to at least 32768 in **Settings -> Model Defaults**, and enable "When applicable, separate `reasoning_content` and `content` in API responses" in **Settings -> Developer -> Experimental Settings**.
+To ensure a good experience in QwenPaw, set the **Default Context Length** to at least 32768 in **Settings -> Model Defaults**, and enable "When applicable, separate `reasoning_content` and `content` in API responses" in **Settings -> Developer -> Experimental Settings**.
 
 ![LM Studio Context Length](https://gw.alicdn.com/imgextra/i4/O1CN011jc2q71hc51etcf7x_!!6000000004297-2-tps-1654-1256.png)
 
 ![LM Studio Reasoning Content](https://gw.alicdn.com/imgextra/i4/O1CN01dInPGl1oDX6nOH0Wh_!!6000000005191-2-tps-1654-1256.png)
 
-After completing the above LM Studio configuration, go to the **Settings** page of the CoPaw LM Studio provider and enter the LM Studio API address, which can be found on the **Developer -> Local Server** page. Be sure to add the `/v1` suffix, e.g., `http://localhost:1234/v1`.
+After completing the above LM Studio configuration, go to the **Settings** page of the QwenPaw LM Studio provider and enter the LM Studio API address, which can be found on the **Developer -> Local Server** page. Be sure to add the `/v1` suffix, e.g., `http://localhost:1234/v1`.
 
-If you want to use CoPaw-Flash with LM Studio, it is also recommended to choose a `Q8_0` or `Q4_K_M` quantized variant and import it with the following steps:
+If you want to use QwenPaw-Flash with LM Studio, it is also recommended to choose a `Q8_0` or `Q4_K_M` quantized variant and import it with the following steps:
 
-1. Download a suitable quantized CoPaw-Flash model from [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) or [Hugging Face](https://huggingface.co/agentscope-ai/models), for example `AgentScope/CoPaw-Flash-4B-Q4_K_M`.
+1. Download a suitable quantized QwenPaw-Flash model from [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) or [Hugging Face](https://huggingface.co/agentscope-ai/models), for example `AgentScope/QwenPaw-Flash-4B-Q4_K_M`.
 
 ModelScope CLI:
 
 ```bash
-modelscope download --model AgentScope/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+modelscope download --model AgentScope/QwenPaw-Flash-4B-Q4_K_M --local_dir ./dir
 ```
 
 Hugging Face CLI:
 
 ```bash
-hf download agentscope-ai/CoPaw-Flash-4B-Q4_K_M --local_dir ./dir
+hf download agentscope-ai/QwenPaw-Flash-4B-Q4_K_M --local_dir ./dir
 ```
 
 2. Run the following command to import the downloaded `.gguf` file into LM Studio:
 
 ```bash
-lms import /path/to/your/copaw-xxx.gguf -c -y --user-repo AgentScope/CoPaw-Flash
+lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-3. Go back to the CoPaw LM Studio provider page and click **Discover Models** to add the model to CoPaw.
+3. Go back to the QwenPaw LM Studio provider page and click **Discover Models** to add the model to QwenPaw.
 
 The subsequent process is the same as for Ollama: click **Test Connection** to verify the connection, then go to the LM Studio model management page and click **Discover Models** to get the list of available models. After fetching, you can further click **Test Connection** to verify if the models are working properly.
 
-> For users deploying CoPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:1234/v1`.
+> For users deploying QwenPaw in a Docker container, if LM Studio is installed on the host machine, ensure that the Docker network configuration allows the container to access the host's LM Studio service (add `--add-host=host.docker.internal:host-gateway` to the `docker run` command), and set the API address to `http://host.docker.internal:1234/v1`.
 
 ## Cloud Provider Configuration
 
@@ -152,11 +152,14 @@ Currently supported cloud providers include:
 - Azure OpenAI
 - Anthropic
 - Google Gemini
+- DeepSeek
+- Kimi
 - MiniMax
+- Zhipu
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 
-![Cloud Provider List](https://gw.alicdn.com/imgextra/i3/O1CN01EoK2LV2AH7lFM4GJu_!!6000000008177-2-tps-3402-1942.png)
+![Cloud Provider List](https://img.alicdn.com/imgextra/i1/O1CN01rdAXCF1ogqSRScNHI_!!6000000005255-2-tps-3826-2076.png)
 
 To activate a cloud provider, go to the provider's configuration page. Most cloud providers have pre-configured base URL; you only need to enter your API Key.
 
@@ -168,61 +171,61 @@ After entering the API Key, click the **Test Connection** button. The system wil
 
 Once the cloud provider is configured, you can further check if the models are available. A series of models are preset for each cloud provider. You can click the **Test Connection** button for a specific model on the provider's model management page to verify if the model is working properly.
 
-![Model Connection Test Result](https://gw.alicdn.com/imgextra/i3/O1CN01aAyd2L1N77wX0OvtY_!!6000000001522-2-tps-1150-1154.png)
+![Model Connection Test Result](https://img.alicdn.com/imgextra/i3/O1CN01tKRARl1UaAMsQC4En_!!6000000002533-2-tps-1268-1508.png)
 
 If the preset models do not meet your needs, you can also click **Add Model** on the model management page to add new models. When adding, you need to provide the **Model ID** (the identifier used by the API, usually found in the provider's documentation) and the **Model Name** (for display in the UI). Manually added models can also be tested using the **Test Connection** button.
 
-![Add Model](https://gw.alicdn.com/imgextra/i1/O1CN01FBIdEH1ud4tTIHpEZ_!!6000000006059-2-tps-1148-1342.png)
+![Add Model](https://img.alicdn.com/imgextra/i3/O1CN01gvYta11FXfyhNGE89_!!6000000000497-2-tps-1260-1692.png)
 
 ## Custom Provider Configuration
 
-If the preset cloud and local providers do not meet your needs, CoPaw also supports custom providers.
+If the preset cloud and local providers do not meet your needs, QwenPaw also supports custom providers.
 
 ### Add Provider
 
-You can add a new provider by clicking **Add Provider** in the upper right corner of **Settings -> Models -> Providers**. When adding, you need to provide the **Provider ID** (for internal indexing in CoPaw) and **Provider Name** (for display in the UI), and select the API compatibility mode (currently supports OpenAI `chat.completions` and Anthropic `messages`). After adding, you can add models under this provider just like with cloud providers, and select the provider's models in chat and other scenarios.
+You can add a new provider by clicking **Add Provider** in the upper right corner of **Settings -> Models -> Providers**. When adding, you need to provide the **Provider ID** (for internal indexing in QwenPaw) and **Provider Name** (for display in the UI), and select the API compatibility mode (currently supports OpenAI `chat.completions` and Anthropic `messages`). After adding, you can add models under this provider just like with cloud providers, and select the provider's models in chat and other scenarios.
 
-![Add Provider](https://gw.alicdn.com/imgextra/i1/O1CN01UE3Vbu1hGYPWlzpps_!!6000000004250-2-tps-3394-1882.png)
+![Add Provider](https://img.alicdn.com/imgextra/i4/O1CN011733V426ODQt6xkrv_!!6000000007651-2-tps-3826-2076.png)
 
 ### Configure Provider
 
 After adding a provider, go to its **Settings** page to configure the API access information, including _Base URL_ and _API Key_.
 
-![Custom Provider Settings](https://gw.alicdn.com/imgextra/i1/O1CN01naWZLN1T8OjjlOtWo_!!6000000002337-2-tps-1118-1172.png)
+![Custom Provider Settings](https://img.alicdn.com/imgextra/i2/O1CN01XHC4521TzWgODbUFa_!!6000000002453-2-tps-1180-1204.png)
 
 ### Add Model
 
 After configuring a custom provider, go to its **Models** page and click **Add Model**. When adding, you need to provide the **Model ID** (the identifier used by the API) and **Model Name** (for display in the UI). After adding, you can also use **Test Connection** to verify if the model is working properly.
 
-> For example, if you deploy vLLM at `http://localhost:8000` and have a model at `/path/to/Qwen3.5`, you can add a custom provider, set the API compatibility mode to OpenAI `chat.completions`, set the Base URL to `http://localhost:8000/v1`, then add a model under this provider with Model ID `/path/to/Qwen3.5` and Model Name `Qwen3.5`. After testing the connection, if everything is configured correctly, you can use this vLLM model in CoPaw.
+> For example, if you deploy vLLM at `http://localhost:8000` and have a model at `/path/to/Qwen3.5`, you can add a custom provider, set the API compatibility mode to OpenAI `chat.completions`, set the Base URL to `http://localhost:8000/v1`, then add a model under this provider with Model ID `/path/to/Qwen3.5` and Model Name `Qwen3.5`. After testing the connection, if everything is configured correctly, you can use this vLLM model in QwenPaw.
 
 ## Selecting a Model
 
-Configured model providers and models will appear in the **Settings -> Models -> Default LLM** list. You can select a model as the global default and click the **Save** button on the right. The model set on this page will be used as the global default by CoPaw. If you do not specify a model in certain scenarios (such as chat), CoPaw will use the default model set here.
+Configured model providers and models will appear in the **Settings -> Models -> Default LLM** list. You can select a model as the global default and click the **Save** button on the right. The model set on this page will be used as the global default by QwenPaw. If you do not specify a model in certain scenarios (such as chat), QwenPaw will use the default model set here.
 
-![Default Model Settings](https://gw.alicdn.com/imgextra/i4/O1CN01NH2eBZ1UBQyhucWdj_!!6000000002479-2-tps-3388-808.png)
+![Default Model Settings](https://img.alicdn.com/imgextra/i3/O1CN01DBvdcd1RQ8qrz5PAG_!!6000000002105-2-tps-3814-964.png)
 
-Since different tasks may require different model capabilities, CoPaw also supports using different models in different chats. You can select the appropriate provider and model from the dropdown menu in the upper right corner of the **Chat** page. This setting only applies to the current agent and chat. If you do not configure a provider or model in the chat page, CoPaw will use the global default model.
+Since different tasks may require different model capabilities, QwenPaw also supports using different models in different chats. You can select the appropriate provider and model from the dropdown menu in the upper right corner of the **Chat** page. This setting only applies to the current agent and chat. If you do not configure a provider or model in the chat page, QwenPaw will use the global default model.
 
-![Chat Model Settings](https://gw.alicdn.com/imgextra/i3/O1CN01BjQlqH1eC1eC7xNm8_!!6000000003834-2-tps-3402-1768.png)
+![Chat Model Settings](https://img.alicdn.com/imgextra/i4/O1CN01E8McfR1ZToxYO1ddD_!!6000000003196-2-tps-3826-2076.png)
 
 ## Advanced Model Configuration
 
 ### Model Configuration Files
 
-All provider configurations in CoPaw are saved in the `$COPAW_SECRET_DIR/providers` folder (default `~/.copaw.secret/providers`). Built-in provider configurations are in the `builtin` directory, and user-added custom provider configurations are in the `custom` directory. Each provider has a corresponding JSON file named after its ID, e.g., the configuration file for a provider with ID `Qwen` is `Qwen.json`. The file contains the provider's API access information and model list. It is not recommended for regular users to modify these files directly to avoid unnecessary errors. Also, changes to the configuration files require restarting CoPaw to take effect.
+All provider configurations in QwenPaw are saved in the `$QWENPAW_SECRET_DIR/providers` folder (default `~/.qwenpaw.secret/providers`). Built-in provider configurations are in the `builtin` directory, and user-added custom provider configurations are in the `custom` directory. Each provider has a corresponding JSON file named after its ID, e.g., the configuration file for a provider with ID `Qwen` is `Qwen.json`. The file contains the provider's API access information and model list. It is not recommended for regular users to modify these files directly to avoid unnecessary errors. Also, changes to the configuration files require restarting QwenPaw to take effect.
 
 ### Local Models
 
-If you use the CoPaw Local (llama.cpp) provider, CoPaw will save the llama.cpp runtime and model files in the `$COPAW_WORKING_DIR/local_models` folder (default `~/.copaw/local_models`). The runtime is saved in the `$COPAW_WORKING_DIR/local_models/bin` directory, and downloaded models are saved in the `$COPAW_WORKING_DIR/local_models/models` directory. Each model has a corresponding folder named after its ID, e.g., the folder for the model ID `Qwen/Qwen3-0.6B-GGUF` is `$COPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. The model folder contains the GGUF file and some model metadata files.
+If you use the QwenPaw Local (llama.cpp) provider, QwenPaw will save the llama.cpp runtime and model files in the `$QWENPAW_WORKING_DIR/local_models` folder (default `~/.qwenpaw/local_models`). The runtime is saved in the `$QWENPAW_WORKING_DIR/local_models/bin` directory, and downloaded models are saved in the `$QWENPAW_WORKING_DIR/local_models/models` directory. Each model has a corresponding folder named after its ID, e.g., the folder for the model ID `Qwen/Qwen3-0.6B-GGUF` is `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. The model folder contains the GGUF file and some model metadata files.
 
 If you need more advanced usage of llama.cpp (such as using hardware-specific acceleration), you can compile your own version of llama.cpp and replace the `llama-server` file in the `bin` directory.
 
-If you want to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the `GGUF` file in that folder. After refreshing the CoPaw Local model list, you will see the model in the list (e.g., save `Qwen3-0.6B.gguf` to `$COPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).
+If you want to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the `GGUF` file in that folder. After refreshing the QwenPaw Local model list, you will see the model in the list (e.g., save `Qwen3-0.6B.gguf` to `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).
 
 ### Generation Parameters
 
-Since different models and tasks may require different generation parameters (such as `temperature`, `top_p`, `max_tokens`), CoPaw supports configuring generation parameters in the provider settings. Go to the provider's **Settings** page, expand **Advanced Configuration**, and enter the parameter configuration in JSON format, for example:
+Since different models and tasks may require different generation parameters (such as `temperature`, `top_p`, `max_tokens`), QwenPaw supports configuring generation parameters in the provider settings. Go to the provider's **Settings** page, expand **Advanced Configuration**, and enter the parameter configuration in JSON format, for example:
 
 ```json
 {
@@ -232,6 +235,6 @@ Since different models and tasks may require different generation parameters (su
 }
 ```
 
-After configuring, click **Save**. CoPaw will automatically include these parameters when generating with models from this provider.
+After configuring, click **Save**. QwenPaw will automatically include these parameters when generating with models from this provider.
 
-![Generation Parameters](https://gw.alicdn.com/imgextra/i2/O1CN01et3R371uamugLZiT0_!!6000000006054-2-tps-1078-1732.png)
+![Generation Parameters](https://img.alicdn.com/imgextra/i1/O1CN0194Bihd239bxJwoVpi_!!6000000007213-2-tps-1180-1858.png)

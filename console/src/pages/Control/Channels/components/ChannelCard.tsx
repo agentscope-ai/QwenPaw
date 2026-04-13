@@ -1,5 +1,6 @@
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import React, { useState } from "react";
 import { getChannelIconUrl } from "./channelIcons";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import styles from "../index.module.less";
@@ -7,21 +8,16 @@ import styles from "../index.module.less";
 interface ChannelCardProps {
   channelKey: ChannelKey;
   config: Record<string, unknown>;
-  isHover: boolean;
   onClick: () => void;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
 }
 
-export function ChannelCard({
+export const ChannelCard = React.memo(function ChannelCard({
   channelKey,
   config,
-  isHover,
   onClick,
-  onMouseEnter,
-  onMouseLeave,
 }: ChannelCardProps) {
   const { t } = useTranslation();
+  const [isHover, setIsHover] = useState(false);
   const enabled = Boolean(config.enabled);
   const isBuiltin = Boolean(config.isBuiltin);
   const label = getChannelLabel(channelKey, t);
@@ -48,8 +44,8 @@ export function ChannelCard({
     <Card
       hoverable
       onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={() => setIsHover(true)}
+      onMouseLeave={() => setIsHover(false)}
       className={getCardClassNames()}
       bodyStyle={{ padding: 24 }}
     >
@@ -90,4 +86,4 @@ export function ChannelCard({
       </div>
     </Card>
   );
-}
+});

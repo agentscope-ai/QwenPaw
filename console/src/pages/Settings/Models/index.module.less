@@ -1,3 +1,15 @@
+.localAdvancedConfigFieldRow {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.localAdvancedConfigLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
 /* ---- Page Layout ---- */
 .settingsPage {
   height: 100%;
@@ -401,6 +413,9 @@
 
 .jsonEditorContainer {
   position: relative;
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   border: 1px solid #d9d9d9;
   border-radius: 8px;
   overflow: hidden;
@@ -412,6 +427,24 @@
   &:focus-within {
     border-color: #ff7f16;
     box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.12);
+  }
+}
+
+.jsonEditorSpacing {
+  margin-top: 8px;
+}
+
+.jsonEditorCompact {
+  .jsonEditorHighlight,
+  .jsonEditorTextarea {
+    min-height: 100px;
+  }
+}
+
+.jsonEditorExpanded {
+  .jsonEditorHighlight,
+  .jsonEditorTextarea {
+    min-height: 140px;
   }
 }
 
@@ -760,6 +793,70 @@
   line-height: 1.5;
 }
 
+.localAdvancedConfigSection {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.localAdvancedConfigHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.localAdvancedConfigFields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.localAdvancedConfigField {
+  display: flex;
+  flex-direction: column;
+}
+
+.localAdvancedConfigLabel {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.localAdvancedConfigHint {
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.localAdvancedConfigError {
+  margin-top: 6px;
+  color: #dc2626;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.localAdvancedConfigInput {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.localAdvancedConfigChevronOpen,
+.localAdvancedConfigChevronClosed {
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.localAdvancedConfigChevronOpen {
+  transform: rotate(0deg);
+}
+
+.localAdvancedConfigChevronClosed {
+  transform: rotate(-90deg);
+}
+
 .localSectionNotice {
   margin-top: 8px;
   padding: 10px 12px;
@@ -829,6 +926,25 @@
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+}
+
+.localStatusBadgeButton {
+  cursor: pointer;
+  appearance: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  outline: none;
+}
+
+.localStatusBadgeButton:hover {
+  filter: brightness(0.98);
+}
+
+.localStatusBadgeAction {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #60a5fa;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.12);
 }
 
 .localStatusBadgeInstalled,
@@ -1033,23 +1149,6 @@
   gap: 10px;
 }
 
-.localStatusActionPill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 8px;
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  box-sizing: border-box;
-}
-
 .localStatusHint {
   color: #7a7f8f;
   font-size: 12px;
@@ -1137,7 +1236,11 @@
 :global(.dark-mode) {
   .settingsPage {
     :global {
-      .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+      .qwenpaw-table-wrapper
+        .qwenpaw-table-container
+        .qwenpaw-table-thead
+        > tr
+        > th {
         background: rgba(255, 255, 255, 0.04) !important;
       }
     }
@@ -1227,6 +1330,13 @@
     color: #93c5fd;
     background: rgba(59, 130, 246, 0.12);
     border-color: rgba(59, 130, 246, 0.28);
+  }
+
+  .localStatusBadgeAction {
+    color: #bfdbfe;
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(96, 165, 250, 0.4);
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.12);
   }
 
   .localStatusActionPill {

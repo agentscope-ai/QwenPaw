@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-from copaw.local_models.manager import LocalModelManager, DownloadSource
+from qwenpaw.local_models import manager as local_model_manager_module
+from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
+from qwenpaw.local_models.manager import (
+    DownloadSource,
+    LocalModelManager,
+)
+from qwenpaw.local_models.llamacpp import LlamaCppBackend
+from qwenpaw.local_models.model_manager import ModelManager
+from qwenpaw.providers.provider import ModelInfo
 
 
 class _FakeLlamaCppBackend:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object | None]] = []
+        self.server_running = False
 
     def check_llamacpp_installability(self) -> tuple[bool, str]:
         self.calls.append(("installability", None))
@@ -21,8 +32,17 @@ class _FakeLlamaCppBackend:
         self.calls.append(("check", None))
         return True, ""
 
-    def download(self) -> None:
-        self.calls.append(("download", None))
+    def get_server_status(self) -> dict[str, object]:
+        self.calls.append(("server_status", None))
+        return {
+            "running": self.server_running,
+            "port": 8080 if self.server_running else None,
+            "model_name": "demo" if self.server_running else None,
+            "pid": 123 if self.server_running else None,
+        }
+
+    def download(self, base_url: str, tag: str) -> None:
+        self.calls.append(("download", (base_url, tag)))
 
     def get_download_progress(self) -> dict[str, object]:
         self.calls.append(("progress", None))
@@ -35,12 +55,37 @@ class _FakeLlamaCppBackend:
         self.calls.append(("server_ready", timeout))
         return True
 
-    async def setup_server(self, model_path: Path, model_name: str) -> int:
-        self.calls.append(("setup", (model_path, model_name)))
-        return 8080
+    async def setup_server(
+        self,
+        model_path: Path,
+        model_name: str,
+        max_context_length: int | None = None,
+    ) -> LlamaCppServerSetupResult:
+        self.calls.append(
+            (
+                "setup",
+                (
+                    (model_path, model_name)
+                    if max_context_length is None
+                    else (model_path, model_name, max_context_length)
+                ),
+            ),
+        )
+        return LlamaCppServerSetupResult(
+            port=8080,
+            model_info=ModelInfo(
+                id=model_name,
+                name=model_name,
+                supports_multimodal=False,
+                supports_image=False,
+                supports_video=False,
+                probe_source="documentation",
+            ),
+        )
 
     async def shutdown_server(self) -> None:
         self.calls.append(("shutdown", None))
+        self.server_running = False
 
 
 class _FakeModelManager:
@@ -80,21 +125,23 @@ class _FakeModelManager:
         self.calls.append(("remove", model_name))
 
 
-def test_local_model_manager_forwards_sync_calls() -> None:
+@pytest.mark.asyncio
+async def test_local_model_manager_forwards_sync_calls() -> None:
     fake_model_manager = _FakeModelManager()
     fake_llamacpp_backend = _FakeLlamaCppBackend()
     manager = LocalModelManager(
-        model_manager=fake_model_manager,
-        llamacpp_backend=fake_llamacpp_backend,
+        model_manager=cast(ModelManager, fake_model_manager),
+        llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
 
     assert manager.check_llamacpp_installability() == (True, "")
     assert manager.check_llamacpp_installation() == (True, "")
-    manager.start_llamacpp_download()
+    server_stopped = await manager.start_llamacpp_download()
     assert manager.get_llamacpp_download_progress() == {
         "status": "downloading",
     }
     manager.cancel_llamacpp_download()
+    assert server_stopped is False
 
     assert manager.get_recommended_models() == ["demo-model"]
     assert manager.is_model_downloaded("downloaded-model") is True
@@ -110,7 +157,14 @@ def test_local_model_manager_forwards_sync_calls() -> None:
     assert fake_llamacpp_backend.calls == [
         ("installability", None),
         ("check", None),
-        ("download", None),
+        ("server_status", None),
+        (
+            "download",
+            (
+                LocalModelManager.DEFAULT_LLAMA_CPP_BASE_URL,
+                LocalModelManager.DEFAULT_LLAMA_CPP_RELEASE_TAG,
+            ),
+        ),
         ("progress", None),
         ("cancel", None),
     ]
@@ -126,21 +180,87 @@ def test_local_model_manager_forwards_sync_calls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_local_model_manager_forwards_async_server_calls() -> None:
+async def test_local_model_manager_forwards_async_server_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        local_model_manager_module,
+        "DEFAULT_LOCAL_PROVIDER_DIR",
+        tmp_path,
+    )
     fake_llamacpp_backend = _FakeLlamaCppBackend()
     manager = LocalModelManager(
-        model_manager=_FakeModelManager(),
-        llamacpp_backend=fake_llamacpp_backend,
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
     )
+    await manager.set_max_context_length(131072)
 
     ready = await manager.check_llamacpp_server_ready(timeout=7.5)
-    port = await manager.setup_server("demo")
+    setup_result = await manager.setup_server("demo")
     await manager.shutdown_server()
 
     assert ready is True
-    assert port == 8080
+    assert setup_result.port == 8080
+    assert setup_result.model_info == ModelInfo(
+        id="demo",
+        name="demo",
+        supports_multimodal=False,
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    )
     assert fake_llamacpp_backend.calls == [
         ("server_ready", 7.5),
-        ("setup", (Path("/fake/path/demo"), "demo")),
+        ("setup", (Path("/fake/path/demo"), "demo", 131072)),
         ("shutdown", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_set_max_context_length_persists_local_model_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        local_model_manager_module,
+        "DEFAULT_LOCAL_PROVIDER_DIR",
+        tmp_path,
+    )
+    manager = LocalModelManager(
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, _FakeLlamaCppBackend()),
+    )
+
+    await manager.set_max_context_length(131072)
+
+    assert manager.get_config().max_context_length == 131072
+    config_path = tmp_path / LocalModelManager.CONFIG_FILE_NAME
+    assert json.loads(config_path.read_text(encoding="utf-8")) == {
+        "max_context_length": 131072,
+    }
+
+
+@pytest.mark.asyncio
+async def test_start_llamacpp_download_stops_running_server_first() -> None:
+    fake_llamacpp_backend = _FakeLlamaCppBackend()
+    fake_llamacpp_backend.server_running = True
+    manager = LocalModelManager(
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, fake_llamacpp_backend),
+    )
+
+    server_stopped = await manager.start_llamacpp_download()
+
+    assert server_stopped is True
+    assert fake_llamacpp_backend.calls == [
+        ("server_status", None),
+        ("shutdown", None),
+        (
+            "download",
+            (
+                LocalModelManager.DEFAULT_LLAMA_CPP_BASE_URL,
+                LocalModelManager.DEFAULT_LLAMA_CPP_RELEASE_TAG,
+            ),
+        ),
     ]

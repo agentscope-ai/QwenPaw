@@ -1,14 +1,14 @@
 # MCP & Built-in Tools
 
-CoPaw uses **MCP (Model Context Protocol)** to connect to external services and provides a suite of **built-in tools** that enable agents to access filesystems, execute commands, browse the web, and more.
+QwenPaw uses **MCP (Model Context Protocol)** to connect to external services and provides a suite of **built-in tools** that enable agents to access filesystems, execute commands, browse the web, and more.
 
 ---
 
 ## Concepts
 
-CoPaw provides two types of tools for agents:
+QwenPaw provides two types of tools for agents:
 
-1. **Built-in Tools**: Ready-to-use tools provided by CoPaw core, such as file operations, command execution, and browser automation
+1. **Built-in Tools**: Ready-to-use tools provided by QwenPaw core, such as file operations, command execution, and browser automation
 
    - Managed on the **Agent → Tools** page
    - Can be individually enabled/disabled
@@ -23,7 +23,7 @@ Both types can be used simultaneously without conflict.
 
 ## MCP
 
-**MCP (Model Context Protocol)** allows CoPaw to connect to external MCP servers, extending the agent's ability to access filesystems, databases, APIs, and other external resources.
+**MCP (Model Context Protocol)** allows QwenPaw to connect to external MCP servers, extending the agent's ability to access filesystems, databases, APIs, and other external resources.
 
 ### Prerequisites
 
@@ -46,13 +46,13 @@ node --version  # Check version
 3. Paste your MCP client JSON configuration
 4. Click **Create** to import
 
-![MCP](https://img.alicdn.com/imgextra/i3/O1CN014Jr2g11POBvoVaqI5_!!6000000001830-2-tps-3822-2064.png)
+![MCP](https://img.alicdn.com/imgextra/i2/O1CN01uYjPWG1YwqRRF3wYd_!!6000000003124-2-tps-3822-2070.png)
 
 ---
 
 ### Configuration Formats
 
-CoPaw supports three JSON formats—choose one:
+QwenPaw supports three JSON formats—choose one:
 
 #### Format 1: Standard mcpServers Format (**Recommended**)
 
@@ -190,13 +190,13 @@ MCP supports three transport protocols, usually auto-detected:
 
 ## Built-in Tools
 
-CoPaw provides a set of ready-to-use built-in tools that agents can directly call to perform various tasks.
+QwenPaw provides a set of ready-to-use built-in tools that agents can directly call to perform various tasks.
 
 ---
 
 ### Tool Management
 
-![tool](https://img.alicdn.com/imgextra/i3/O1CN017MOn851uGdU8hpyiR_!!6000000006010-2-tps-3822-2064.png)
+![tool](https://img.alicdn.com/imgextra/i1/O1CN01Wwi7Im1ll1DlO9x74_!!6000000004858-2-tps-3822-2070.png)
 
 #### Enable and Disable Tools
 

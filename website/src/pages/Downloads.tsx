@@ -84,7 +84,7 @@ function PlatformCard({
   const updatedDate = new Date(fileMetadata.updated_at).toLocaleDateString(
     isZh ? "zh-CN" : "en-US",
   );
-  const downloadUrl = `https://download.copaw.agentscope.io${fileMetadata.url}`;
+  const downloadUrl = `https://download.qwenpaw.agentscope.io${fileMetadata.url}`;
 
   return (
     <div className={`platform-card ${isRecommended ? "recommended" : ""}`}>
@@ -152,7 +152,7 @@ function PlatformCard({
   );
 }
 
-export function Downloads() {
+export default function Downloads() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage === "zh";
   const { docsPath } = useSiteConfig();
@@ -165,7 +165,7 @@ export function Downloads() {
   useEffect(() => {
     async function loadDownloads() {
       try {
-        const CDN_BASE = "https://download.copaw.agentscope.io";
+        const CDN_BASE = "https://download.qwenpaw.agentscope.io";
 
         console.log(
           "Fetching main index from:",

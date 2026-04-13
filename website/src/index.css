@@ -1,7 +1,18 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+
+@font-face {
+  font-family: "Newsreader";
+  src: url("/font/Newsreader.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/font/Inter.woff2") format("woff2");
+  font-display: swap;
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -9,13 +20,6 @@
   --font-newsreader: "Newsreader", ui-serif, Georgia, "Times New Roman", serif;
   --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     sans-serif;
-}
-
-html[lang^="zh"] {
-  --font-newsreader: "Noto Serif SC", ui-serif, Georgia, "Times New Roman",
-    serif;
-  --font-inter: "Noto Sans SC", ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", sans-serif;
 }
 
 html[lang^="zh"] em,
@@ -128,7 +132,7 @@ button {
   cursor: pointer;
 }
 
-@keyframes copaw-channels-marquee-right {
+@keyframes qwenpaw-channels-marquee-right {
   0% {
     transform: translateX(-50%);
   }
@@ -137,7 +141,7 @@ button {
   }
 }
 
-@keyframes copaw-channels-marquee-left {
+@keyframes qwenpaw-channels-marquee-left {
   0% {
     transform: translateX(0%);
   }
@@ -146,7 +150,7 @@ button {
   }
 }
 
-@keyframes copaw-dash-move-right {
+@keyframes qwenpaw-dash-move-right {
   0% {
     background-position: 0 0;
   }
@@ -155,7 +159,7 @@ button {
   }
 }
 
-@keyframes copaw-dash-move-left {
+@keyframes qwenpaw-dash-move-left {
   0% {
     background-position: 0 0;
   }
@@ -164,7 +168,7 @@ button {
   }
 }
 
-@keyframes copaw-dash-move-down {
+@keyframes qwenpaw-dash-move-down {
   0% {
     background-position: 0 0;
   }
@@ -173,7 +177,7 @@ button {
   }
 }
 
-@keyframes copaw-dash-move-up {
+@keyframes qwenpaw-dash-move-up {
   0% {
     background-position: 0 0;
   }
@@ -182,7 +186,7 @@ button {
   }
 }
 
-@keyframes copaw-hero-trim-path {
+@keyframes qwenpaw-hero-trim-path {
   0% {
     width: 0%;
   }

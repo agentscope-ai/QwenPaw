@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 
-from copaw.app.auth import AuthMiddleware, LOCAL_CLI_TOKEN_HEADER
+from qwenpaw.app.auth import AuthMiddleware, LOCAL_CLI_TOKEN_HEADER
 
 
 @pytest.fixture(name="test_app")
@@ -49,9 +49,9 @@ def test_localhost_requests_no_longer_skip_auth() -> None:
     )
 
     with (
-        patch("copaw.app.auth.is_auth_enabled", return_value=True),
+        patch("qwenpaw.app.auth.is_auth_enabled", return_value=True),
         patch(
-            "copaw.app.auth.has_registered_users",
+            "qwenpaw.app.auth.has_registered_users",
             return_value=True,
         ),
     ):
@@ -64,9 +64,9 @@ async def test_private_api_requires_auth_on_loopback(
 ) -> None:
     """Protected API routes should reject unauthenticated loopback callers."""
     with (
-        patch("copaw.app.auth.is_auth_enabled", return_value=True),
+        patch("qwenpaw.app.auth.is_auth_enabled", return_value=True),
         patch(
-            "copaw.app.auth.has_registered_users",
+            "qwenpaw.app.auth.has_registered_users",
             return_value=True,
         ),
     ):
@@ -82,12 +82,12 @@ async def test_private_api_accepts_valid_bearer_on_loopback(
 ) -> None:
     """Valid bearer tokens should still work for local callers."""
     with (
-        patch("copaw.app.auth.is_auth_enabled", return_value=True),
+        patch("qwenpaw.app.auth.is_auth_enabled", return_value=True),
         patch(
-            "copaw.app.auth.has_registered_users",
+            "qwenpaw.app.auth.has_registered_users",
             return_value=True,
         ),
-        patch("copaw.app.auth.verify_token", return_value="alice"),
+        patch("qwenpaw.app.auth.verify_token", return_value="alice"),
     ):
         async with loopback_client:
             response = await loopback_client.get(
@@ -104,13 +104,13 @@ async def test_private_api_accepts_local_cli_token_on_loopback(
 ) -> None:
     """Loopback CLI requests may use the dedicated local CLI token."""
     with (
-        patch("copaw.app.auth.is_auth_enabled", return_value=True),
+        patch("qwenpaw.app.auth.is_auth_enabled", return_value=True),
         patch(
-            "copaw.app.auth.has_registered_users",
+            "qwenpaw.app.auth.has_registered_users",
             return_value=True,
         ),
         patch(
-            "copaw.app.auth._load_auth_data",
+            "qwenpaw.app.auth._load_auth_data",
             return_value={
                 "local_cli_token": "cli-token",
                 "user": {"username": "alice"},
@@ -132,13 +132,13 @@ async def test_private_api_rejects_local_cli_token_off_loopback(
 ) -> None:
     """The local CLI token must not authenticate non-loopback callers."""
     with (
-        patch("copaw.app.auth.is_auth_enabled", return_value=True),
+        patch("qwenpaw.app.auth.is_auth_enabled", return_value=True),
         patch(
-            "copaw.app.auth.has_registered_users",
+            "qwenpaw.app.auth.has_registered_users",
             return_value=True,
         ),
         patch(
-            "copaw.app.auth._load_auth_data",
+            "qwenpaw.app.auth._load_auth_data",
             return_value={
                 "local_cli_token": "cli-token",
                 "user": {"username": "alice"},

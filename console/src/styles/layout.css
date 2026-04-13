@@ -7,7 +7,7 @@ body {
   background: #f9f8f4;
 }
 
-.copaw-layout {
+.qwenpaw-layout {
   background: #f9f8f4;
 }
 
@@ -23,12 +23,12 @@ html.dark-mode body {
 
 /* Ant Design layout background in dark mode */
 html.dark-mode .ant-layout,
-html.dark-mode .copaw-layout {
+html.dark-mode .qwenpaw-layout {
   background: #141414 !important;
 }
 
 html.dark-mode .ant-layout-content,
-html.dark-mode .copaw-layout-content {
+html.dark-mode .qwenpaw-layout-content {
   background: #141414 !important;
 }
 
@@ -38,116 +38,161 @@ html.dark-mode .page-content {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-/* Card components — @agentscope-ai/design uses copaw prefix */
-html.dark-mode .copaw-card,
+/* Card components — @agentscope-ai/design uses qwenpaw prefix */
+html.dark-mode .qwenpaw-card,
 html.dark-mode .ant-card {
   background: #1f1f1f !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-card-head,
+html.dark-mode .qwenpaw-card-head,
 html.dark-mode .ant-card-head {
   background: #1f1f1f !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-card-head-title,
+html.dark-mode .qwenpaw-card-head-title,
 html.dark-mode .ant-card-head-title {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 /* @agentscope-ai/design Card custom title (sparkPrefix-title inside card-wrapper) */
-html.dark-mode .copaw-card-wrapper .copaw-title,
-html.dark-mode .copaw-spark-title {
+html.dark-mode .qwenpaw-card-wrapper .qwenpaw-title,
+html.dark-mode .qwenpaw-spark-title {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-card-wrapper .copaw-info,
-html.dark-mode .copaw-spark-info {
+html.dark-mode .qwenpaw-card-wrapper .qwenpaw-info,
+html.dark-mode .qwenpaw-spark-info {
   color: rgba(255, 255, 255, 0.35) !important;
 }
 
-html.dark-mode .copaw-card-body,
+html.dark-mode .qwenpaw-card-body,
 html.dark-mode .ant-card-body {
   background: #1f1f1f !important;
 }
 
 /* Table components */
-html.dark-mode .copaw-table,
+html.dark-mode .qwenpaw-table,
 html.dark-mode .ant-table {
   background: #1f1f1f !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-table-wrapper,
+html.dark-mode .qwenpaw-table-wrapper,
 html.dark-mode .ant-table-wrapper {
   background: #1f1f1f !important;
 }
 
-html.dark-mode .copaw-table-thead > tr > th,
+html.dark-mode .qwenpaw-table-thead > tr > th,
 html.dark-mode .ant-table-thead > tr > th,
-html.dark-mode .copaw-table-thead > tr > td,
-html.dark-mode .ant-table-thead > tr > td {
+html.dark-mode .qwenpaw-table-thead > tr > td,
+html.dark-mode .ant-table-thead > tr > td,
+html.dark-mode
+  .qwenpaw-table-wrapper
+  .qwenpaw-table-container
+  .qwenpaw-table-thead
+  > tr
+  > th,
+html.dark-mode
+  .ant-table-wrapper
+  .ant-table-container
+  .ant-table-thead
+  > tr
+  > th,
+html.dark-mode
+  .qwenpaw-table-wrapper
+  .qwenpaw-table-container
+  .qwenpaw-table-thead
+  > tr
+  > td,
+html.dark-mode
+  .ant-table-wrapper
+  .ant-table-container
+  .ant-table-thead
+  > tr
+  > td {
   background: #262626 !important;
   color: rgba(255, 255, 255, 0.65) !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-html.dark-mode .copaw-table-tbody > tr > td,
+/* Sticky thead background (scroll.y tables) */
+html.dark-mode .qwenpaw-table-sticky-holder,
+html.dark-mode .ant-table-sticky-holder {
+  background: #262626 !important;
+}
+
+html.dark-mode .qwenpaw-table-sticky-holder .qwenpaw-table-thead > tr > th,
+html.dark-mode .ant-table-sticky-holder .ant-table-thead > tr > th,
+html.dark-mode .qwenpaw-table-sticky-holder .qwenpaw-table-thead > tr > td,
+html.dark-mode .ant-table-sticky-holder .ant-table-thead > tr > td {
+  background: #262626 !important;
+}
+
+/* Fix left/right sticky columns in thead */
+html.dark-mode .qwenpaw-table-thead > tr > th.qwenpaw-table-cell-fix-left,
+html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-left,
+html.dark-mode .qwenpaw-table-thead > tr > th.qwenpaw-table-cell-fix-right,
+html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-right {
+  background: #262626 !important;
+}
+
+html.dark-mode .qwenpaw-table-tbody > tr > td,
 html.dark-mode .ant-table-tbody > tr > td {
   background: #1f1f1f !important;
   color: rgba(255, 255, 255, 0.85) !important;
   border-bottom-color: rgba(255, 255, 255, 0.06) !important;
 }
 
-html.dark-mode .copaw-table-tbody > tr:hover > td,
+html.dark-mode .qwenpaw-table-tbody > tr:hover > td,
 html.dark-mode .ant-table-tbody > tr:hover > td {
   background: #2a2a2a !important;
 }
 
-html.dark-mode .copaw-table-tbody > tr.copaw-table-row-selected > td,
+html.dark-mode .qwenpaw-table-tbody > tr.qwenpaw-table-row-selected > td,
 html.dark-mode .ant-table-tbody > tr.ant-table-row-selected > td {
   background: rgba(97, 92, 237, 0.12) !important;
 }
 
 /* Table fixed columns shadow in dark mode */
-html.dark-mode .copaw-table-cell-fix-right,
+html.dark-mode .qwenpaw-table-cell-fix-right,
 html.dark-mode .ant-table-cell-fix-right {
   background: #1f1f1f !important;
 }
 
-html.dark-mode .copaw-table-cell-fix-right-first::after,
+html.dark-mode .qwenpaw-table-cell-fix-right-first::after,
 html.dark-mode .ant-table-cell-fix-right-first::after {
   box-shadow: inset -10px 0 8px -8px rgba(0, 0, 0, 0.45) !important;
 }
 
 /* Table pagination */
-html.dark-mode .copaw-pagination .copaw-pagination-item,
+html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item,
 html.dark-mode .ant-pagination .ant-pagination-item {
   background: #1f1f1f !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-html.dark-mode .copaw-pagination .copaw-pagination-item a,
+html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item a,
 html.dark-mode .ant-pagination .ant-pagination-item a {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
-html.dark-mode .copaw-pagination .copaw-pagination-item-active,
+html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item-active,
 html.dark-mode .ant-pagination .ant-pagination-item-active {
   background: #ff7f16 !important;
   border-color: #ff7f16 !important;
 }
 
-html.dark-mode .copaw-pagination .copaw-pagination-item-active a,
+html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item-active a,
 html.dark-mode .ant-pagination .ant-pagination-item-active a {
   color: #fff !important;
 }
 
-html.dark-mode .copaw-pagination .copaw-pagination-prev button,
-html.dark-mode .copaw-pagination .copaw-pagination-next button,
+html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-prev button,
+html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-next button,
 html.dark-mode .ant-pagination .ant-pagination-prev button,
 html.dark-mode .ant-pagination .ant-pagination-next button {
   background: #1f1f1f !important;
@@ -156,26 +201,26 @@ html.dark-mode .ant-pagination .ant-pagination-next button {
 }
 
 /* Table sorter icons */
-html.dark-mode .copaw-table-column-sorter,
+html.dark-mode .qwenpaw-table-column-sorter,
 html.dark-mode .ant-table-column-sorter {
   color: rgba(255, 255, 255, 0.3) !important;
 }
 
-html.dark-mode .copaw-table-column-sorter-up.active,
-html.dark-mode .copaw-table-column-sorter-down.active,
+html.dark-mode .qwenpaw-table-column-sorter-up.active,
+html.dark-mode .qwenpaw-table-column-sorter-down.active,
 html.dark-mode .ant-table-column-sorter-up.active,
 html.dark-mode .ant-table-column-sorter-down.active {
   color: #ff7f16 !important;
 }
 
 /* Checkbox in table */
-html.dark-mode .copaw-checkbox-inner,
+html.dark-mode .qwenpaw-checkbox-inner,
 html.dark-mode .ant-checkbox-inner {
   background: #2a2a2a !important;
   border-color: rgba(255, 255, 255, 0.2) !important;
 }
 
-html.dark-mode .copaw-checkbox-checked .copaw-checkbox-inner,
+html.dark-mode .qwenpaw-checkbox-checked .qwenpaw-checkbox-inner,
 html.dark-mode .ant-checkbox-checked .ant-checkbox-inner {
   background: #ff7f16 !important;
   border-color: #ff7f16 !important;
@@ -189,7 +234,7 @@ html.dark-mode h3 {
 }
 
 /* Input / Textarea */
-html.dark-mode .copaw-input,
+html.dark-mode .qwenpaw-input,
 html.dark-mode .ant-input {
   background: #2a2a2a !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
@@ -197,9 +242,9 @@ html.dark-mode .ant-input {
 }
 
 /* Disabled input */
-html.dark-mode .copaw-input[disabled],
+html.dark-mode .qwenpaw-input[disabled],
 html.dark-mode .ant-input[disabled],
-html.dark-mode .copaw-input-disabled,
+html.dark-mode .qwenpaw-input-disabled,
 html.dark-mode .ant-input-disabled {
   background: rgba(255, 255, 255, 0.04) !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
@@ -208,141 +253,141 @@ html.dark-mode .ant-input-disabled {
 }
 
 /* Disabled InputNumber */
-html.dark-mode .copaw-input-number-disabled,
+html.dark-mode .qwenpaw-input-number-disabled,
 html.dark-mode .ant-input-number-disabled,
-html.dark-mode .copaw-input-number-disabled .copaw-input-number-input,
+html.dark-mode .qwenpaw-input-number-disabled .qwenpaw-input-number-input,
 html.dark-mode .ant-input-number-disabled .ant-input-number-input {
   background: rgba(255, 255, 255, 0.04) !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
   color: rgba(255, 255, 255, 0.4) !important;
 }
 
-html.dark-mode .copaw-input::placeholder,
+html.dark-mode .qwenpaw-input::placeholder,
 html.dark-mode .ant-input::placeholder {
   color: rgba(255, 255, 255, 0.25) !important;
 }
 
-html.dark-mode .copaw-input-affix-wrapper,
+html.dark-mode .qwenpaw-input-affix-wrapper,
 html.dark-mode .ant-input-affix-wrapper {
   background: #2a2a2a !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
 /* Select */
-html.dark-mode .copaw-select-selector,
+html.dark-mode .qwenpaw-select-selector,
 html.dark-mode .ant-select-selector {
   background: #2a2a2a !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-select-selection-placeholder,
+html.dark-mode .qwenpaw-select-selection-placeholder,
 html.dark-mode .ant-select-selection-placeholder {
   color: rgba(255, 255, 255, 0.25) !important;
 }
 
-html.dark-mode .copaw-select-arrow,
+html.dark-mode .qwenpaw-select-arrow,
 html.dark-mode .ant-select-arrow {
   color: rgba(255, 255, 255, 0.3) !important;
 }
 
 /* Select dropdown */
-html.dark-mode .copaw-select-dropdown,
+html.dark-mode .qwenpaw-select-dropdown,
 html.dark-mode .ant-select-dropdown {
   background: #1f1f1f !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-html.dark-mode .copaw-select-item,
+html.dark-mode .qwenpaw-select-item,
 html.dark-mode .ant-select-item {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-select-item-option-active,
+html.dark-mode .qwenpaw-select-item-option-active,
 html.dark-mode .ant-select-item-option-active {
   background: rgba(97, 92, 237, 0.12) !important;
 }
 
-html.dark-mode .copaw-select-item-option-selected,
+html.dark-mode .qwenpaw-select-item-option-selected,
 html.dark-mode .ant-select-item-option-selected {
   background: rgba(97, 92, 237, 0.2) !important;
   color: #ff7f16 !important;
 }
 
 /* Form labels */
-html.dark-mode .copaw-form-item-label > label,
+html.dark-mode .qwenpaw-form-item-label > label,
 html.dark-mode .ant-form-item-label > label {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
-html.dark-mode .copaw-form-item-required::before,
+html.dark-mode .qwenpaw-form-item-required::before,
 html.dark-mode .ant-form-item-required::before {
   color: #ff4d4f !important;
 }
 
 /* InputNumber */
-html.dark-mode .copaw-input-number,
+html.dark-mode .qwenpaw-input-number,
 html.dark-mode .ant-input-number {
   background: #2a2a2a !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-input-number-input,
+html.dark-mode .qwenpaw-input-number-input,
 html.dark-mode .ant-input-number-input {
   background: #2a2a2a !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-input-number-handler-wrap,
+html.dark-mode .qwenpaw-input-number-handler-wrap,
 html.dark-mode .ant-input-number-handler-wrap {
   background: #2a2a2a !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-html.dark-mode .copaw-input-number-handler,
+html.dark-mode .qwenpaw-input-number-handler,
 html.dark-mode .ant-input-number-handler {
   color: rgba(255, 255, 255, 0.45) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 /* TimePicker */
-html.dark-mode .copaw-picker,
+html.dark-mode .qwenpaw-picker,
 html.dark-mode .ant-picker {
   background: #2a2a2a !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-picker-input > input,
+html.dark-mode .qwenpaw-picker-input > input,
 html.dark-mode .ant-picker-input > input {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-picker-suffix,
+html.dark-mode .qwenpaw-picker-suffix,
 html.dark-mode .ant-picker-suffix {
   color: rgba(255, 255, 255, 0.3) !important;
 }
 
-html.dark-mode .copaw-picker-dropdown,
+html.dark-mode .qwenpaw-picker-dropdown,
 html.dark-mode .ant-picker-dropdown {
   background: #1f1f1f !important;
 }
 
-html.dark-mode .copaw-picker-panel,
+html.dark-mode .qwenpaw-picker-panel,
 html.dark-mode .ant-picker-panel {
   background: #1f1f1f !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-html.dark-mode .copaw-picker-time-panel-cell-inner,
+html.dark-mode .qwenpaw-picker-time-panel-cell-inner,
 html.dark-mode .ant-picker-time-panel-cell-inner {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode
-  .copaw-picker-time-panel-cell-selected
-  .copaw-picker-time-panel-cell-inner,
+  .qwenpaw-picker-time-panel-cell-selected
+  .qwenpaw-picker-time-panel-cell-inner,
 html.dark-mode
   .ant-picker-time-panel-cell-selected
   .ant-picker-time-panel-cell-inner {
@@ -351,12 +396,12 @@ html.dark-mode
 }
 
 /* DatePicker / RangePicker calendar panel */
-html.dark-mode .copaw-picker-dropdown,
+html.dark-mode .qwenpaw-picker-dropdown,
 html.dark-mode .ant-picker-dropdown {
   background: transparent !important;
 }
 
-html.dark-mode .copaw-picker-panel-container,
+html.dark-mode .qwenpaw-picker-panel-container,
 html.dark-mode .ant-picker-panel-container {
   background: #1f1f1f !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -364,18 +409,18 @@ html.dark-mode .ant-picker-panel-container {
 }
 
 /* Header (month/year nav) */
-html.dark-mode .copaw-picker-header,
+html.dark-mode .qwenpaw-picker-header,
 html.dark-mode .ant-picker-header {
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-picker-header-view button,
+html.dark-mode .qwenpaw-picker-header-view button,
 html.dark-mode .ant-picker-header-view button,
-html.dark-mode .copaw-picker-prev-icon,
-html.dark-mode .copaw-picker-next-icon,
-html.dark-mode .copaw-picker-super-prev-icon,
-html.dark-mode .copaw-picker-super-next-icon,
+html.dark-mode .qwenpaw-picker-prev-icon,
+html.dark-mode .qwenpaw-picker-next-icon,
+html.dark-mode .qwenpaw-picker-super-prev-icon,
+html.dark-mode .qwenpaw-picker-super-next-icon,
 html.dark-mode .ant-picker-prev-icon,
 html.dark-mode .ant-picker-next-icon,
 html.dark-mode .ant-picker-super-prev-icon,
@@ -383,98 +428,99 @@ html.dark-mode .ant-picker-super-next-icon {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
-html.dark-mode .copaw-picker-header button:hover,
+html.dark-mode .qwenpaw-picker-header button:hover,
 html.dark-mode .ant-picker-header button:hover {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 /* Week day labels (Su Mo Tu ...) */
-html.dark-mode .copaw-picker-content th,
+html.dark-mode .qwenpaw-picker-content th,
 html.dark-mode .ant-picker-content th {
   color: rgba(255, 255, 255, 0.35) !important;
 }
 
 /* Normal date cells */
-html.dark-mode .copaw-picker-cell .copaw-picker-cell-inner,
+html.dark-mode .qwenpaw-picker-cell .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell .ant-picker-cell-inner {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
-html.dark-mode .copaw-picker-cell:hover .copaw-picker-cell-inner,
+html.dark-mode .qwenpaw-picker-cell:hover .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell:hover .ant-picker-cell-inner {
   background: rgba(97, 92, 237, 0.2) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 /* Outside-month cells */
-html.dark-mode .copaw-picker-cell-disabled .copaw-picker-cell-inner,
+html.dark-mode .qwenpaw-picker-cell-disabled .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-disabled .ant-picker-cell-inner,
-html.dark-mode .copaw-picker-cell-disabled,
+html.dark-mode .qwenpaw-picker-cell-disabled,
 html.dark-mode .ant-picker-cell-disabled {
   color: rgba(255, 255, 255, 0.2) !important;
 }
 
 /* Today marker */
-html.dark-mode .copaw-picker-cell-today .copaw-picker-cell-inner::before,
+html.dark-mode .qwenpaw-picker-cell-today .qwenpaw-picker-cell-inner::before,
 html.dark-mode .ant-picker-cell-today .ant-picker-cell-inner::before {
   border-color: #ff7f16 !important;
 }
 
 /* Selected start/end cell */
-html.dark-mode .copaw-picker-cell-selected .copaw-picker-cell-inner,
+html.dark-mode .qwenpaw-picker-cell-selected .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-selected .ant-picker-cell-inner,
-html.dark-mode .copaw-picker-cell-range-start .copaw-picker-cell-inner,
+html.dark-mode .qwenpaw-picker-cell-range-start .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-range-start .ant-picker-cell-inner,
-html.dark-mode .copaw-picker-cell-range-end .copaw-picker-cell-inner,
+html.dark-mode .qwenpaw-picker-cell-range-end .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-range-end .ant-picker-cell-inner {
   background: #ff7f16 !important;
   color: #fff !important;
 }
 
 /* Range in-between cells */
-html.dark-mode .copaw-picker-cell-in-range::before,
+html.dark-mode .qwenpaw-picker-cell-in-range::before,
 html.dark-mode .ant-picker-cell-in-range::before {
   background: rgba(97, 92, 237, 0.15) !important;
 }
 
-html.dark-mode .copaw-picker-cell-in-range .copaw-picker-cell-inner,
+html.dark-mode .qwenpaw-picker-cell-in-range .qwenpaw-picker-cell-inner,
 html.dark-mode .ant-picker-cell-in-range .ant-picker-cell-inner {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 /* Range hover preview */
-html.dark-mode .copaw-picker-cell-in-view.copaw-picker-cell-range-hover::before,
+html.dark-mode
+  .qwenpaw-picker-cell-in-view.qwenpaw-picker-cell-range-hover::before,
 html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover::before,
 html.dark-mode
-  .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-start::after,
+  .qwenpaw-picker-cell-in-view.qwenpaw-picker-cell-range-hover-start::after,
 html.dark-mode
   .ant-picker-cell-in-view.ant-picker-cell-range-hover-start::after,
 html.dark-mode
-  .copaw-picker-cell-in-view.copaw-picker-cell-range-hover-end::after,
+  .qwenpaw-picker-cell-in-view.qwenpaw-picker-cell-range-hover-end::after,
 html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover-end::after {
   border-color: #ff7f16 !important;
 }
 
 /* Panel footer (OK button area) */
-html.dark-mode .copaw-picker-footer,
+html.dark-mode .qwenpaw-picker-footer,
 html.dark-mode .ant-picker-footer {
   border-top-color: rgba(255, 255, 255, 0.08) !important;
   background: #1f1f1f !important;
 }
 
-html.dark-mode .copaw-picker-today-btn,
+html.dark-mode .qwenpaw-picker-today-btn,
 html.dark-mode .ant-picker-today-btn {
   color: #ff7f16 !important;
 }
 
 /* Divider between two panels in RangePicker */
-html.dark-mode .copaw-picker-panel + .copaw-picker-panel,
+html.dark-mode .qwenpaw-picker-panel + .qwenpaw-picker-panel,
 html.dark-mode .ant-picker-panel + .ant-picker-panel {
   border-left-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 /* Modal */
-html.dark-mode .copaw-modal-content,
+html.dark-mode .qwenpaw-modal-content,
 html.dark-mode .ant-modal-content {
   background: #1f1f1f !important;
   color: rgba(255, 255, 255, 0.85) !important;
@@ -482,35 +528,35 @@ html.dark-mode .ant-modal-content {
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 
-html.dark-mode .copaw-modal-header,
+html.dark-mode .qwenpaw-modal-header,
 html.dark-mode .ant-modal-header {
   background: #1f1f1f !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-html.dark-mode .copaw-modal-title,
+html.dark-mode .qwenpaw-modal-title,
 html.dark-mode .ant-modal-title {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-modal-close,
+html.dark-mode .qwenpaw-modal-close,
 html.dark-mode .ant-modal-close {
   color: rgba(255, 255, 255, 0.45) !important;
 }
 
-html.dark-mode .copaw-modal-close:hover,
+html.dark-mode .qwenpaw-modal-close:hover,
 html.dark-mode .ant-modal-close:hover {
   color: rgba(255, 255, 255, 0.85) !important;
   background: rgba(255, 255, 255, 0.08) !important;
 }
 
-html.dark-mode .copaw-modal-body,
+html.dark-mode .qwenpaw-modal-body,
 html.dark-mode .ant-modal-body {
   background: #1f1f1f !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-modal-footer,
+html.dark-mode .qwenpaw-modal-footer,
 html.dark-mode .ant-modal-footer {
   background: #1f1f1f !important;
   border-top-color: rgba(255, 255, 255, 0.08) !important;
@@ -518,144 +564,147 @@ html.dark-mode .ant-modal-footer {
 
 /* Modal.confirm — confirm dialog dark mode */
 html.dark-mode .ant-modal-confirm-content,
-html.dark-mode .copaw-modal-confirm-content {
+html.dark-mode .qwenpaw-modal-confirm-content {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .ant-modal-confirm-title,
-html.dark-mode .copaw-modal-confirm-title {
+html.dark-mode .qwenpaw-modal-confirm-title {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .ant-modal-confirm-body,
-html.dark-mode .copaw-modal-confirm-body {
+html.dark-mode .qwenpaw-modal-confirm-body {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .ant-modal-confirm-paragraph,
-html.dark-mode .copaw-modal-confirm-paragraph {
+html.dark-mode .qwenpaw-modal-confirm-paragraph {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 /* Form labels inside modal */
-html.dark-mode .copaw-modal-body .copaw-form-item-label > label,
-html.dark-mode .copaw-modal-body .ant-form-item-label > label,
+html.dark-mode .qwenpaw-modal-body .qwenpaw-form-item-label > label,
+html.dark-mode .qwenpaw-modal-body .ant-form-item-label > label,
 html.dark-mode .ant-modal-body .ant-form-item-label > label {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
 /* Extra description text inside modal */
-html.dark-mode .copaw-modal-body .copaw-form-item-extra,
+html.dark-mode .qwenpaw-modal-body .qwenpaw-form-item-extra,
 html.dark-mode .ant-modal-body .ant-form-item-extra {
   color: rgba(255, 255, 255, 0.35) !important;
 }
 
 /* Drawer */
-html.dark-mode .copaw-drawer-content,
+html.dark-mode .qwenpaw-drawer-content,
 html.dark-mode .ant-drawer-content {
   background: #1f1f1f !important;
 }
 
-html.dark-mode .copaw-drawer-header,
+html.dark-mode .qwenpaw-drawer-header,
 html.dark-mode .ant-drawer-header {
   background: #1f1f1f !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-html.dark-mode .copaw-drawer-title,
+html.dark-mode .qwenpaw-drawer-title,
 html.dark-mode .ant-drawer-title {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-drawer-close,
+html.dark-mode .qwenpaw-drawer-close,
 html.dark-mode .ant-drawer-close {
   color: rgba(255, 255, 255, 0.45) !important;
 }
 
-html.dark-mode .copaw-drawer-close:hover,
+html.dark-mode .qwenpaw-drawer-close:hover,
 html.dark-mode .ant-drawer-close:hover {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-drawer-body,
+html.dark-mode .qwenpaw-drawer-body,
 html.dark-mode .ant-drawer-body {
   background: #1f1f1f !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-drawer-footer,
+html.dark-mode .qwenpaw-drawer-footer,
 html.dark-mode .ant-drawer-footer {
   background: #1f1f1f !important;
   border-top-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 /* Form labels inside drawer */
-html.dark-mode .copaw-drawer-body .copaw-form-item-label > label,
-html.dark-mode .copaw-drawer-body .ant-form-item-label > label,
+html.dark-mode .qwenpaw-drawer-body .qwenpaw-form-item-label > label,
+html.dark-mode .qwenpaw-drawer-body .ant-form-item-label > label,
 html.dark-mode .ant-drawer-body .ant-form-item-label > label {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
 /* Tooltip info icon inside drawer (Form.Item tooltip only, not Alert icons) */
-html.dark-mode .copaw-drawer-body .copaw-form-item-label .anticon-info-circle,
-html.dark-mode .copaw-drawer-body .ant-form-item-label .anticon-info-circle,
+html.dark-mode
+  .qwenpaw-drawer-body
+  .qwenpaw-form-item-label
+  .anticon-info-circle,
+html.dark-mode .qwenpaw-drawer-body .ant-form-item-label .anticon-info-circle,
 html.dark-mode .ant-drawer-body .ant-form-item-label .anticon-info-circle {
   color: rgba(255, 255, 255, 0.3) !important;
 }
 
 /* Slider */
-html.dark-mode .copaw-slider-rail,
+html.dark-mode .qwenpaw-slider-rail,
 html.dark-mode .ant-slider-rail {
   background-color: rgba(255, 255, 255, 0.12) !important;
 }
 
-html.dark-mode .copaw-slider-track,
+html.dark-mode .qwenpaw-slider-track,
 html.dark-mode .ant-slider-track {
   background-color: #ff7f16 !important;
 }
 
-html.dark-mode .copaw-slider-mark-text,
+html.dark-mode .qwenpaw-slider-mark-text,
 html.dark-mode .ant-slider-mark-text {
   color: #ff7f16 !important;
 }
 
-html.dark-mode .copaw-form-item-label > label .copaw-form-item-tooltip,
+html.dark-mode .qwenpaw-form-item-label > label .qwenpaw-form-item-tooltip,
 html.dark-mode .ant-form-item-label > label .ant-form-item-tooltip {
   color: rgba(255, 255, 255, 0.45) !important;
 }
 
-html.dark-mode .copaw-slider-handle::after,
+html.dark-mode .qwenpaw-slider-handle::after,
 html.dark-mode .ant-slider-handle::after {
   box-shadow: 0 0 0 2px #ff7f16 !important;
   background-color: #1f1f1f !important;
 }
 
-html.dark-mode .copaw-slider-dot,
+html.dark-mode .qwenpaw-slider-dot,
 html.dark-mode .ant-slider-dot {
   border-color: rgba(255, 255, 255, 0.15) !important;
   background-color: #2a2a2a !important;
 }
 
 /* Tooltip popup (slider value) */
-html.dark-mode .copaw-tooltip-inner,
+html.dark-mode .qwenpaw-tooltip-inner,
 html.dark-mode .ant-tooltip-inner {
   background-color: #2a2a2a !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
-html.dark-mode .copaw-tooltip-arrow::before,
+html.dark-mode .qwenpaw-tooltip-arrow::before,
 html.dark-mode .ant-tooltip-arrow::before {
   background: #2a2a2a !important;
 }
 
 /* Tooltip global override — force opaque background in light mode */
-.copaw-tooltip-inner,
+.qwenpaw-tooltip-inner,
 .ant-tooltip-inner {
   background-color: rgba(0, 0, 0, 0.75) !important;
   color: #fff !important;
 }
 
-.copaw-tooltip-arrow::before,
+.qwenpaw-tooltip-arrow::before,
 .ant-tooltip-arrow::before {
   background: rgba(0, 0, 0, 0.75) !important;
 }
@@ -671,38 +720,38 @@ html.dark-mode [class*="chatDisabledOverlay"] :global(input[type="text"]) {
 }
 
 /* Sender area dark mode */
-html.dark-mode [class*="copaw-sender-content"],
+html.dark-mode [class*="qwenpaw-sender-content"],
 html.dark-mode [class*="sender-content"] {
   background: #2a2a2a !important;
 }
 
 /* Chat page bottom input area container */
-html.dark-mode .copaw-chat-anywhere-input,
+html.dark-mode .qwenpaw-chat-anywhere-input,
 html.dark-mode [class*="chat-anywhere-input"],
-html.dark-mode [class*="copaw-chat-anywhere-default-footer"],
+html.dark-mode [class*="qwenpaw-chat-anywhere-default-footer"],
 html.dark-mode [class*="chat-anywhere-footer"] {
   background: #141414 !important;
 }
 
 /* Chat input placeholder text in dark mode */
-html.dark-mode .copaw-sender textarea::placeholder,
-html.dark-mode .copaw-sender input::placeholder {
+html.dark-mode .qwenpaw-sender textarea::placeholder,
+html.dark-mode .qwenpaw-sender input::placeholder {
   color: rgba(255, 255, 255, 0.35) !important;
 }
 
 /* Chat input text color */
-html.dark-mode .copaw-sender textarea,
-html.dark-mode .copaw-sender input {
+html.dark-mode .qwenpaw-sender textarea,
+html.dark-mode .qwenpaw-sender input {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 /* Chat input action buttons (mic, attachment, send) */
-html.dark-mode .copaw-sender-actions button,
+html.dark-mode .qwenpaw-sender-actions button,
 html.dark-mode [class*="sender-actions"] button {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
-html.dark-mode .copaw-sender-actions button:hover,
+html.dark-mode .qwenpaw-sender-actions button:hover,
 html.dark-mode [class*="sender-actions"] button:hover {
   color: rgba(255, 255, 255, 0.85) !important;
 }
@@ -755,63 +804,63 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   background: #f9f8f4;
 }
 
-.copaw-bubble-list-wrapper {
+.qwenpaw-bubble-list-wrapper {
   background: #fff !important;
 }
 
-.copaw-chat-anywhere-input {
+.qwenpaw-chat-anywhere-input {
   background: #fff !important;
 }
 
-.copaw-chat-anywhere-message-list-welcome {
+.qwenpaw-chat-anywhere-message-list-welcome {
   background: #fff !important;
 }
 
 /* Chat bubble list max-width override */
-.copaw-chat-anywhere-message-list .copaw-bubble-list {
+.qwenpaw-chat-anywhere-message-list .qwenpaw-bubble-list {
   max-width: 960px !important;
 }
 
 /* Chat page background in dark mode */
-html.dark-mode .copaw-chat-anywhere,
-html.dark-mode .copaw-chat-anywhere-message-list,
-html.dark-mode .copaw-bubble-list-wrapper {
+html.dark-mode .qwenpaw-chat-anywhere,
+html.dark-mode .qwenpaw-chat-anywhere-message-list,
+html.dark-mode .qwenpaw-bubble-list-wrapper {
   background: #141414 !important;
 }
 
 /* Chat welcome message in dark mode */
-html.dark-mode .copaw-chat-anywhere-welcome-default {
+html.dark-mode .qwenpaw-chat-anywhere-welcome-default {
   background: #141414 !important;
 }
 
 /* Chat input area in dark mode */
-html.dark-mode .copaw-sender,
-html.dark-mode .copaw-sender-content {
+html.dark-mode .qwenpaw-sender,
+html.dark-mode .qwenpaw-sender-content {
   background: #2a2a2a !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
 /* Menu background in light mode */
-.copaw-menu,
+.qwenpaw-menu,
 .ant-menu {
   background: #f9f8f4 !important;
 }
 
 /* Menu selected item in light mode */
-.copaw-menu-item-selected,
+.qwenpaw-menu-item-selected,
 .ant-menu-item-selected {
   background: rgba(43, 18, 0, 0.08) !important;
   color: inherit !important;
 }
 
 /* Hide submenu arrow in light mode */
-.copaw-menu-submenu-arrow,
+.qwenpaw-menu-submenu-arrow,
 .ant-menu-submenu-arrow {
   display: none !important;
 }
 
 /* Group title (一级菜单) in light mode */
-.copaw-menu-submenu-title,
+.qwenpaw-menu-submenu-title,
 .ant-menu-submenu-title {
   font-family: "PingFang SC", sans-serif !important;
   font-size: 12px !important;
@@ -822,13 +871,13 @@ html.dark-mode .copaw-sender-content {
 }
 
 /* Remove submenu indent - align with parent in light mode */
-.copaw-menu-submenu .copaw-menu-item,
+.qwenpaw-menu-submenu .qwenpaw-menu-item,
 .ant-menu-submenu .ant-menu-item {
   padding-left: 12px !important;
 }
 
 /* Selected submenu item - keep text color unchanged in light mode */
-.copaw-menu-submenu .copaw-menu-item-selected,
+.qwenpaw-menu-submenu .qwenpaw-menu-item-selected,
 .ant-menu-submenu .ant-menu-item-selected {
   color: inherit !important;
 }
@@ -876,7 +925,7 @@ html.dark-mode .copaw-sender-content {
   padding: 0;
 }
 
-/* Welcome avatar: full tall SVG. Class is CoPaw-avatar (no "ant"). */
+/* Welcome avatar: full tall SVG. Class is qwenpaw-avatar (no "ant"). */
 [class*="chat-anywhere-welcome-default"] [class*="-avatar"],
 [class*="message-list-welcome"] [class*="welcome-default"] [class*="-avatar"] {
   width: 36px !important;
@@ -892,11 +941,11 @@ html.dark-mode .copaw-sender-content {
   object-position: center;
 }
 
-/* Move rightHeader to the leftmost position of the right header area (CoPaw chat) */
+/* Move rightHeader to the leftmost position of the right header area (qwenpaw chat) */
 [class*="chat-anywhere-default-header-right"],
 [class*="default-header-right"],
-[class*="copaw-chat-anywhere-default-header-right"],
-.copaw-chat-anywhere-default-header-right {
+[class*="qwenpaw-chat-anywhere-default-header-right"],
+.qwenpaw-chat-anywhere-default-header-right {
   display: flex !important;
   margin: 0 auto 0 0 !important;
   justify-content: flex-start !important;
@@ -913,9 +962,9 @@ html.dark-mode .copaw-sender-content {
 .ant-btn-primary:disabled,
 .ant-btn-primary[disabled],
 .ant-btn-primary.ant-btn-disabled,
-.copaw-btn-primary:disabled,
-.copaw-btn-primary[disabled],
-.copaw-btn-primary.copaw-btn-disabled {
+.qwenpaw-btn-primary:disabled,
+.qwenpaw-btn-primary[disabled],
+.qwenpaw-btn-primary.qwenpaw-btn-disabled {
   background-color: #f5f5f5 !important;
   background: #f5f5f5 !important;
   color: rgba(0, 0, 0, 0.25) !important;
@@ -927,9 +976,9 @@ html.dark-mode .copaw-sender-content {
 html.dark-mode .ant-btn-primary:disabled,
 html.dark-mode .ant-btn-primary[disabled],
 html.dark-mode .ant-btn-primary.ant-btn-disabled,
-html.dark-mode .copaw-btn-primary:disabled,
-html.dark-mode .copaw-btn-primary[disabled],
-html.dark-mode .copaw-btn-primary.copaw-btn-disabled {
+html.dark-mode .qwenpaw-btn-primary:disabled,
+html.dark-mode .qwenpaw-btn-primary[disabled],
+html.dark-mode .qwenpaw-btn-primary.qwenpaw-btn-disabled {
   background-color: rgba(255, 255, 255, 0.08) !important;
   background: rgba(255, 255, 255, 0.08) !important;
   color: rgba(255, 255, 255, 0.3) !important;
@@ -939,7 +988,7 @@ html.dark-mode .copaw-btn-primary.copaw-btn-disabled {
 
 /* Dark mode - default button */
 html.dark-mode .ant-btn-default,
-html.dark-mode .copaw-btn-default {
+html.dark-mode .qwenpaw-btn-default {
   color: rgba(255, 235, 218, 0.88) !important;
   background-color: #000000 !important;
   border: 1px solid #3a312a !important;
@@ -947,9 +996,9 @@ html.dark-mode .copaw-btn-default {
 
 /* Dark mode - danger button */
 html.dark-mode .ant-btn-dangerous,
-html.dark-mode .copaw-btn-dangerous,
+html.dark-mode .qwenpaw-btn-dangerous,
 html.dark-mode .ant-btn-danger,
-html.dark-mode .copaw-btn-danger {
+html.dark-mode .qwenpaw-btn-danger {
   background: rgba(129, 46, 46, 0.25) !important;
   color: #ff4d4f !important;
 }
@@ -958,29 +1007,29 @@ html.dark-mode .copaw-btn-danger {
 html.dark-mode .ant-btn-dangerous:disabled,
 html.dark-mode .ant-btn-dangerous[disabled],
 html.dark-mode .ant-btn-dangerous.ant-btn-disabled,
-html.dark-mode .copaw-btn-dangerous:disabled,
-html.dark-mode .copaw-btn-dangerous[disabled],
-html.dark-mode .copaw-btn-dangerous.copaw-btn-disabled,
+html.dark-mode .qwenpaw-btn-dangerous:disabled,
+html.dark-mode .qwenpaw-btn-dangerous[disabled],
+html.dark-mode .qwenpaw-btn-dangerous.qwenpaw-btn-disabled,
 html.dark-mode .ant-btn-danger:disabled,
 html.dark-mode .ant-btn-danger[disabled],
 html.dark-mode .ant-btn-danger.ant-btn-disabled,
-html.dark-mode .copaw-btn-danger:disabled,
-html.dark-mode .copaw-btn-danger[disabled],
-html.dark-mode .copaw-btn-danger.copaw-btn-disabled {
+html.dark-mode .qwenpaw-btn-danger:disabled,
+html.dark-mode .qwenpaw-btn-danger[disabled],
+html.dark-mode .qwenpaw-btn-danger.qwenpaw-btn-disabled {
   background: rgba(129, 46, 46, 0.32) !important;
   color: rgba(165, 50, 48, 0.8) !important;
 }
 
-html.dark-mode .copaw-empty-image,
+html.dark-mode .qwenpaw-empty-image,
 html.dark-mode .ant-empty-image {
   opacity: 0.2;
 }
 
-html.dark-mode .copaw-empty-description,
+html.dark-mode .qwenpaw-empty-description,
 html.dark-mode .ant-empty-description {
   color: rgba(255, 255, 255, 0.65) !important;
 }
 
-html.dark-mode .copaw-input-prefix {
+html.dark-mode .qwenpaw-input-prefix {
   color: rgba(255, 255, 255, 0.85) !important;
 }

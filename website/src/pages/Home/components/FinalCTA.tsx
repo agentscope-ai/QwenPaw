@@ -16,7 +16,7 @@ const sectionVariants = {
   },
 };
 
-export function CopawFinalCTA() {
+export function FinalCTA() {
   const { t } = useTranslation();
 
   return (
@@ -67,7 +67,7 @@ export function CopawFinalCTA() {
                 </h2>
               </div>
               <a
-                href="https://github.com/agentscope-ai/CoPaw/releases"
+                href="https://github.com/agentscope-ai/QwenPaw/releases"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-inter absolute bottom-5 left-5 z-10 inline-flex items-center gap-1.5 rounded-md bg-(--color-primary) px-3 py-1.5 text-xs font-normal text-[#6e3b10] transition hover:brightness-105 sm:bottom-6 sm:left-7 sm:text-sm md:bottom-7 md:left-8"

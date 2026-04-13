@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Card, Button, Modal } from "@agentscope-ai/design";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../../../api/types";
 import { ProviderConfigModal } from "../modals/ProviderConfigModal";
@@ -9,29 +9,20 @@ import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
 import { providerIcon } from "../providerIcon";
 
-// export const PROVIDER_IMG_MAP = {
-
-// }
-
 interface RemoteProviderCardProps {
   provider: ProviderInfo;
   activeModels: ActiveModelsInfo | null;
   onSaved: () => void;
-  isHover: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
 }
 
-export function RemoteProviderCard({
+export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   provider,
   activeModels,
   onSaved,
-  isHover,
-  onMouseEnter,
-  onMouseLeave,
 }: RemoteProviderCardProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const [isHover, setIsHover] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modelManageOpen, setModelManageOpen] = useState(false);
 
@@ -63,7 +54,7 @@ export function RemoteProviderCard({
 
   let isConfigured = false;
 
-  if (provider.id === "copaw-local") {
+  if (provider.id === "qwenpaw-local") {
     isConfigured = true;
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
@@ -106,8 +97,8 @@ export function RemoteProviderCard({
   return (
     <Card
       hoverable
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={() => setIsHover(true)}
+      onMouseLeave={() => setIsHover(false)}
       className={`${styles.providerCard} ${
         isAvailable ? styles.enabledCard : ""
       } ${isHover ? styles.hover : styles.normal}`}
@@ -231,4 +222,4 @@ export function RemoteProviderCard({
       />
     </Card>
   );
-}
+});

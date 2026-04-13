@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
+import type { ChatUpdateRequest } from "../../../api/types";
 import type { Session } from "./components/constants";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useTranslation } from "react-i18next";
@@ -42,7 +43,10 @@ export function useSessions() {
     };
   }, [selectedAgent]);
 
-  const updateSession = async (sessionId: string, values: Session) => {
+  const updateSession = async (
+    sessionId: string,
+    values: ChatUpdateRequest,
+  ) => {
     try {
       const result = await api.updateSession(sessionId, values);
       setSessions(sessions.map((s) => (s.id === sessionId ? result : s)));

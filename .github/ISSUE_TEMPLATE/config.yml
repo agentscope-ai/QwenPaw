@@ -5,8 +5,8 @@ blank_issues_enabled: true
 
 contact_links:
   - name: GitHub Discussions
-    url: https://github.com/agentscope-ai/CoPaw/discussions
-    about: Ask questions, share ideas, or discuss CoPaw here.
+    url: https://github.com/agentscope-ai/QwenPaw/discussions
+    about: Ask questions, share ideas, or discuss QwenPaw here.
   - name: View docs
-    url: https://copaw.agentscope.io/
-    about: CoPaw docs and guides.
+    url: https://qwenpaw.agentscope.io/
+    about: QwenPaw docs and guides.

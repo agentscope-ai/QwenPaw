@@ -27,22 +27,22 @@ const item = {
 const cards = [
   {
     key: "apps",
-    icon: "/explore-apps.svg",
+    icon: "https://img.alicdn.com/imgextra/i4/O1CN01f3kIzy1qpCv6YMPnc_!!6000000005544-55-tps-95-95.svg",
     href: "",
   },
   {
     key: "skills",
-    icon: "/support-skills.svg",
+    icon: "https://img.alicdn.com/imgextra/i1/O1CN01FZjjpn1c0uoErRfQI_!!6000000003539-55-tps-95-95.svg",
     href: "/docs/security",
   },
   {
     key: "control",
-    icon: "/under-control.svg",
+    icon: "https://img.alicdn.com/imgextra/i3/O1CN01zYweFi25bD3LD3QcW_!!6000000007544-55-tps-95-95.svg",
     href: "/docs/multi-agent",
   },
 ] as const;
 
-export function CopawWorksForYou() {
+export function WorksForYou() {
   const { t } = useTranslation();
 
   return (
@@ -53,12 +53,12 @@ export function CopawWorksForYou() {
         initial="hidden"
         whileInView="show"
         viewport={{ once: true, amount: 0.2 }}
-        aria-labelledby="copaw-works-heading"
+        aria-labelledby="qwenpaw-works-heading"
       >
         <div className="mx-auto max-w-7xl">
           <motion.div variants={item}>
             <h2
-              id="copaw-works-heading"
+              id="qwenpaw-works-heading"
               className="font-newsreader font-semibold text-3xl leading-[1.2] text-(--color-text) sm:text-[2rem] md:text-4xl"
             >
               {t("worksForYou.title")}
@@ -70,7 +70,7 @@ export function CopawWorksForYou() {
 
           <div className="relative mt-8 py-8 md:mt-12 md:py-12">
             <div
-              className="pointer-events-none absolute left-1/2 top-0 h-px w-screen -translate-x-1/2 animate-[copaw-dash-move-right_1s_linear_infinite]"
+              className="pointer-events-none absolute left-1/2 top-0 h-px w-screen -translate-x-1/2 animate-[qwenpaw-dash-move-right_1s_linear_infinite]"
               style={{
                 background:
                   "repeating-linear-gradient(to right, rgba(255,157,77,0.45) 0 8px, transparent 8px 16px)",
@@ -122,7 +122,7 @@ export function CopawWorksForYou() {
               })}
             </motion.div>
             <div
-              className="pointer-events-none absolute bottom-0 left-1/2 h-px w-screen -translate-x-1/2 animate-[copaw-dash-move-left_1s_linear_infinite]"
+              className="pointer-events-none absolute bottom-0 left-1/2 h-px w-screen -translate-x-1/2 animate-[qwenpaw-dash-move-left_1s_linear_infinite]"
               style={{
                 background:
                   "repeating-linear-gradient(to right, rgba(255,157,77,0.45) 0 8px, transparent 8px 16px)",

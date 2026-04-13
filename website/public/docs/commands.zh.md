@@ -258,22 +258,243 @@
 
 ---
 
+## 模型管理命令
+
+管理和切换 AI 模型的命令，无需通过 Agent 理解意图，直接执行。
+
+| 命令                             | 说明                   | 对话 |
+| -------------------------------- | ---------------------- | ---- |
+| `/model`                         | 显示当前使用的模型     | ✅   |
+| `/model -h` 或 `/model help`     | 显示帮助信息           | ✅   |
+| `/model list`                    | 列出所有可用模型       | ✅   |
+| `/model <provider>:<model>`      | 切换到指定模型         | ✅   |
+| `/model reset`                   | 重置为全局默认模型     | ✅   |
+| `/model info <provider>:<model>` | 显示指定模型的详细信息 | ✅   |
+
+---
+
+### `/model` - 显示当前模型
+
+显示当前 Agent 正在使用的模型。
+
+**用法：**
+
+```
+/model
+```
+
+**返回示例：**
+
+```
+**Current Model**
+
+Provider: `openai`
+Model: `gpt-4o` ✓
+
+Use `/model list` to see all available models.
+```
+
+---
+
+### `/model -h` 或 `/model help` - 显示帮助
+
+显示所有 `/model` 命令的帮助信息。
+
+**用法：**
+
+```
+/model -h
+/model --help
+/model help
+```
+
+**返回示例：**
+
+```
+**Model Management Commands**
+
+Manage and switch AI models for the current agent.
+
+**Available Commands:**
+
+`/model` - Show current active model
+`/model list` - List all available models
+`/model <provider>:<model>` - Switch to specified model
+`/model reset` - Reset to global default model
+`/model info <provider>:<model>` - Show model information
+`/model help` or `/model -h` - Show this help message
+
+**Examples:**
+
+`/model` - Show current model
+`/model list` - List all models
+`/model openai:gpt-4o` - Switch to GPT-4o
+`/model reset` - Reset to global default
+`/model info openai:gpt-4o` - Show GPT-4o information
+
+**Capability Indicators:**
+
+🖼️ - Supports image input
+🎥 - Supports video input
+```
+
+---
+
+### `/model list` - 列出所有模型
+
+显示所有已配置的 Provider 及其可用模型。当前激活的模型会标记为 **[ACTIVE]**。
+
+**用法：**
+
+```
+/model list
+```
+
+**返回示例：**
+
+```
+**Available Models**
+
+**OpenAI** (`openai`)
+  - `gpt-4o` 🖼️ **[ACTIVE]**
+  - `gpt-4o-mini` 🖼️
+  - `gpt-3.5-turbo`
+  - `my-custom-model` *(user-added)*
+
+**Anthropic** (`anthropic`)
+  - `claude-3-5-sonnet-20241022`
+  - `claude-3-opus-20240229`
+
+**Google** (`gemini`)
+  - `gemini-2.0-flash-exp` 🖼️🎥
+
+---
+Total: 3 provider(s), 8 model(s)
+
+Use `/model <provider>:<model>` to switch models.
+Example: `/model openai:gpt-4o`
+```
+
+**标识说明：**
+
+- 🖼️ - 支持图片输入
+- 🎥 - 支持视频输入
+- _(user-added)_ - 用户手动添加的模型（通过 `qwenpaw models add-model` 命令）
+
+---
+
+### `/model <provider>:<model>` - 切换模型
+
+将当前 Agent 切换到使用不同的模型。
+
+**用法：**
+
+```
+/model <provider>:<model>
+```
+
+**示例：**
+
+```
+/model openai:gpt-4o
+/model anthropic:claude-3-5-sonnet-20241022
+/model gemini:gemini-2.0-flash-exp
+```
+
+**返回示例：**
+
+```
+**Model Switched**
+
+Provider: `anthropic`
+Model: `claude-3-5-sonnet-20241022`
+
+The new model will be used for subsequent messages.
+```
+
+> 💡 **提示**：模型切换只影响当前 Agent，其他 Agent 继续使用各自配置的模型。
+
+---
+
+### `/model reset` - 重置为全局默认模型
+
+将当前 Agent 的模型重置为在 Web UI 中配置的全局默认模型。
+
+**用法：**
+
+```
+/model reset
+```
+
+**返回示例：**
+
+```
+**Model Reset**
+
+Agent model has been reset to global default:
+
+Provider: `openai`
+Model: `gpt-4o`
+
+The global default model will be used for subsequent messages.
+```
+
+> 💡 **提示**：使用此命令可以撤销 Agent 级别的模型覆盖设置。
+
+---
+
+### `/model info` - 显示模型信息
+
+显示指定模型的详细信息，包括能力和当前状态。
+
+**用法：**
+
+```
+/model info <provider>:<model>
+```
+
+**示例：**
+
+```
+/model info openai:gpt-4o
+/model info anthropic:claude-3-5-sonnet-20241022
+```
+
+**返回示例：**
+
+```
+**Model Information**
+
+**Provider:** `openai` (OpenAI)
+**Model ID:** `gpt-4o`
+**Model Name:** GPT-4o
+**Capabilities:** 🖼️ Image, 🎨 Multimodal
+**Probe Source:** documentation
+
+**Status:** ✓ Currently active
+
+---
+Use `/model openai:gpt-4o` to switch to this model.
+```
+
+---
+
 ## 系统控制命令
 
-控制和监控 CoPaw 运行状态的命令，无需通过 Agent 理解意图，直接执行。
+控制和监控 QwenPaw 运行状态的命令，无需通过 Agent 理解意图，直接执行。
 
-可在对话中发送 `/daemon <子命令>` 或短名（如 `/status`），也可在终端执行 `copaw daemon <子命令>`。
+可在对话中发送 `/daemon <子命令>` 或短名（如 `/status`），也可在终端执行 `qwenpaw daemon <子命令>`。
 
-| 命令                                | 说明                                                                       | 对话 | 终端 |
-| ----------------------------------- | -------------------------------------------------------------------------- | ---- | ---- |
-| `/stop`                             | 立即终止当前会话的运行中任务                                               | ✅   | ❌   |
-| `/stop session=<session_id>`        | 终止指定会话的任务                                                         | ✅   | ❌   |
-| `/daemon status` 或 `/status`       | 查看运行状态（配置、工作目录、记忆服务）                                   | ✅   | ✅   |
-| `/daemon restart` 或 `/restart`     | 零停机重载（对话中）；终端中打印说明                                       | ✅   | ✅   |
-| `/daemon reload-config`             | 重新读取并校验配置文件                                                     | ✅   | ✅   |
-| `/daemon version`                   | 版本号、工作目录与日志路径                                                 | ✅   | ✅   |
-| `/daemon logs` 或 `/daemon logs 50` | 查看最近 N 行日志（默认 100 行，最大 2000 行，来自工作目录下 `copaw.log`） | ✅   | ✅   |
-| `/daemon approve`                   | 批准待审的工具调用（工具审批场景）                                         | ✅   | ❌   |
+| 命令                                | 说明                                                                         | 对话 | 终端 |
+| ----------------------------------- | ---------------------------------------------------------------------------- | ---- | ---- |
+| `/stop`                             | 立即终止当前会话的运行中任务                                                 | ✅   | ❌   |
+| `/stop session=<session_id>`        | 终止指定会话的任务                                                           | ✅   | ❌   |
+| `/daemon status` 或 `/status`       | 查看运行状态（配置、工作目录、记忆服务）                                     | ✅   | ✅   |
+| `/daemon restart` 或 `/restart`     | 零停机重载（对话中）；终端中打印说明                                         | ✅   | ✅   |
+| `/daemon reload-config`             | 重新读取并校验配置文件                                                       | ✅   | ✅   |
+| `/daemon version`                   | 版本号、工作目录与日志路径                                                   | ✅   | ✅   |
+| `/daemon logs` 或 `/daemon logs 50` | 查看最近 N 行日志（默认 100 行，最大 2000 行，来自工作目录下 `qwenpaw.log`） | ✅   | ✅   |
+| `/daemon approve`                   | 批准待审的工具调用（工具审批场景）                                           | ✅   | ❌   |
 
 ---
 
@@ -300,7 +521,7 @@
 
 ```
 /status                    # 在对话中
-copaw daemon status        # 在终端
+qwenpaw daemon status        # 在终端
 ```
 
 ---
@@ -313,7 +534,7 @@ copaw daemon status        # 在终端
 
 ```
 /restart                   # 在对话中
-copaw daemon restart       # 在终端（仅打印说明）
+qwenpaw daemon restart       # 在终端（仅打印说明）
 ```
 
 > 💡 **提示**：修改频道或 MCP 配置后，先用 `/daemon reload-config` 验证配置正确性，再用 `/daemon restart` 使其生效。
@@ -328,34 +549,34 @@ copaw daemon restart       # 在终端（仅打印说明）
 
 ```
 /daemon reload-config           # 在对话中
-copaw daemon reload-config      # 在终端
+qwenpaw daemon reload-config      # 在终端
 ```
 
 ---
 
 ### `/daemon version` - 版本信息
 
-显示 CoPaw 版本号、工作目录路径、日志文件路径。
+显示 QwenPaw 版本号、工作目录路径、日志文件路径。
 
 **用法：**
 
 ```
 /daemon version            # 在对话中
-copaw daemon version       # 在终端
+qwenpaw daemon version       # 在终端
 ```
 
 ---
 
 ### `/daemon logs` - 查看日志
 
-查看工作目录下 `copaw.log` 的最近 N 行日志。默认 100 行，最大 2000 行。
+查看工作目录下 `qwenpaw.log` 的最近 N 行日志。默认 100 行，最大 2000 行。
 
 **用法：**
 
 ```
 /daemon logs               # 默认 100 行
 /daemon logs 50            # 指定 50 行
-copaw daemon logs -n 200   # 在终端指定 200 行
+qwenpaw daemon logs -n 200   # 在终端指定 200 行
 ```
 
 > 💡 **提示**：日志文件较大时，此命令只读取文件末尾最多 512KB 内容，确保响应速度。
@@ -381,16 +602,16 @@ copaw daemon logs -n 200   # 在终端指定 200 行
 所有 daemon 命令都支持在终端中使用（除 `/stop` 和 `/daemon approve` 仅在对话中有效）：
 
 ```bash
-copaw daemon status
-copaw daemon restart
-copaw daemon reload-config
-copaw daemon version
-copaw daemon logs -n 50
+qwenpaw daemon status
+qwenpaw daemon restart
+qwenpaw daemon reload-config
+qwenpaw daemon version
+qwenpaw daemon logs -n 50
 ```
 
 **多智能体支持：** 所有终端命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ```bash
-copaw daemon status --agent-id abc123
-copaw daemon version --agent-id abc123
+qwenpaw daemon status --agent-id abc123
+qwenpaw daemon version --agent-id abc123
 ```

@@ -76,6 +76,8 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   createdAt?: string | null;
   /** Whether the backend is still generating a response for this session. */
   generating?: boolean;
+  /** Whether the chat is pinned to the top. */
+  pinned?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +262,7 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     meta: chat.meta || {},
     status: chat.status ?? "idle",
     createdAt: chat.created_at ?? null,
+    pinned: chat.pinned ?? false,
   }) as ExtendedSession;
 
 /** Returns true when id is a pure numeric local timestamp (not a backend UUID). */
@@ -303,7 +306,7 @@ const resolveRealId = (
 // Per-session user message persistence (survives page refresh)
 // ---------------------------------------------------------------------------
 
-const STORAGE_PREFIX = "copaw_pending_user_msg_";
+const STORAGE_PREFIX = "qwenpaw_pending_user_msg_";
 
 function savePendingUserMessage(sessionId: string, text: string): void {
   try {
@@ -504,7 +507,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
       return next as IAgentScopeRuntimeWebUISession;
     });
-
+    if (this.preferredChatId) {
+      const preferredId = this.preferredChatId;
+      this.preferredChatId = null;
+      const idx = this.sessionList.findIndex((s) => s.id === preferredId);
+      if (idx > 0) {
+        const [preferred] = this.sessionList.splice(idx, 1);
+        this.sessionList.unshift(preferred);
+      }
+    }
     return [...this.sessionList];
   }
 

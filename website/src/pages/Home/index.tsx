@@ -1,17 +1,17 @@
 import { useEffect } from "react";
 import { useSiteConfig } from "@/config-context";
-import { CopawChannels } from "./components/Channels";
-import { CopawClientVoices } from "./components/ClientVoices";
-import { CopawContributors } from "./components/Contributors";
-import { CopawFAQ } from "./components/FAQ";
-import { CopawFinalCTA } from "./components/FinalCTA";
-import { CopawHero } from "./components/Hero";
-import { CopawQuickStart } from "./components/QuickStart";
-import { CopawWhatYouCanDo } from "./components/WhatYouCanDo";
-import { CopawWorksForYou } from "./components/WorksForYou";
-import { CopawWhy } from "./components/WhyCopaw";
+import { Channels } from "./components/Channels";
+import { ClientVoices } from "./components/ClientVoices";
+import { Contributors } from "./components/Contributors";
+import { FAQ } from "./components/FAQ";
+import { FinalCTA } from "./components/FinalCTA";
+import { Hero } from "./components/Hero";
+import { QuickStart } from "./components/QuickStart";
+import { WhatYouCanDo } from "./components/WhatYouCanDo";
+import { WorksForYou } from "./components/WorksForYou";
+import { Why } from "./components/Why";
 
-export function Home() {
+export default function Home() {
   const config = useSiteConfig();
   const docsBase = (config.docsPath ?? "/docs/").replace(/\/$/, "") || "/docs";
 
@@ -39,16 +39,16 @@ export function Home() {
 
   return (
     <main className="min-h-screen bg-(--bg) text-(--text)">
-      <CopawHero />
-      <CopawQuickStart docsBase={docsBase} />
-      <CopawChannels />
-      <CopawWhy />
-      <CopawWhatYouCanDo />
-      <CopawWorksForYou />
-      <CopawClientVoices />
-      <CopawFAQ />
-      <CopawContributors />
-      <CopawFinalCTA />
+      <Hero />
+      <QuickStart docsBase={docsBase} />
+      <Channels />
+      <Why />
+      <WhatYouCanDo />
+      <WorksForYou />
+      <ClientVoices />
+      <FAQ />
+      <Contributors />
+      <FinalCTA />
     </main>
   );
 }

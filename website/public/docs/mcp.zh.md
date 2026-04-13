@@ -1,14 +1,14 @@
 # MCP 与内置工具
 
-CoPaw 通过 **MCP（模型上下文协议）** 连接外部服务，并提供一组 **内置工具**，让智能体能够访问文件系统、执行命令、浏览网页等。
+QwenPaw 通过 **MCP（模型上下文协议）** 连接外部服务，并提供一组 **内置工具**，让智能体能够访问文件系统、执行命令、浏览网页等。
 
 ---
 
 ## 概念说明
 
-CoPaw 为智能体提供两类工具：
+QwenPaw 为智能体提供两类工具：
 
-1. **内置工具**：开箱即用，由 CoPaw 核心提供，如文件操作、命令执行、浏览器自动化等
+1. **内置工具**：开箱即用，由 QwenPaw 核心提供，如文件操作、命令执行、浏览器自动化等
 
    - 在"智能体 → 工具"页面管理
    - 可以单独启用/禁用
@@ -23,7 +23,7 @@ CoPaw 为智能体提供两类工具：
 
 ## MCP
 
-**MCP（模型上下文协议，Model Context Protocol）** 允许 CoPaw 连接到外部 MCP 服务器，扩展智能体访问文件系统、数据库、API 等外部资源的能力。
+**MCP（模型上下文协议，Model Context Protocol）** 允许 QwenPaw 连接到外部 MCP 服务器，扩展智能体访问文件系统、数据库、API 等外部资源的能力。
 
 ### 前置要求
 
@@ -46,13 +46,13 @@ node --version  # 检查版本
 3. 粘贴 MCP 客户端的 JSON 配置
 4. 点击 **创建** 完成导入
 
-![MCP](https://img.alicdn.com/imgextra/i4/O1CN01NiPCUF1OwFlsmdAyq_!!6000000001769-2-tps-3822-2064.png)
+![MCP](https://img.alicdn.com/imgextra/i1/O1CN01HrYuzS24mpUDOgB6m_!!6000000007434-2-tps-3822-2070.png)
 
 ---
 
 ### 配置格式
 
-CoPaw 支持三种 JSON 格式，选择其一即可：
+QwenPaw 支持三种 JSON 格式，选择其一即可：
 
 #### 格式 1：标准 mcpServers 格式（**推荐**）
 
@@ -210,13 +210,13 @@ MCP 支持三种传输协议，通常自动识别：
 
 ## 内置工具
 
-CoPaw 提供了一组开箱即用的内置工具，智能体可以直接调用这些工具完成各种任务。
+QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用这些工具完成各种任务。
 
 ---
 
 ### 工具管理
 
-![tool](https://img.alicdn.com/imgextra/i1/O1CN018LkcN11uamugiJryg_!!6000000006054-2-tps-3822-2064.png)
+![tool](https://img.alicdn.com/imgextra/i1/O1CN018oZy751gxmArrsFbC_!!6000000004209-2-tps-3822-2070.png)
 
 #### 启用和禁用工具
 

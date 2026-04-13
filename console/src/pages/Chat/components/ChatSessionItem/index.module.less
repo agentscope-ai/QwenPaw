@@ -206,6 +206,41 @@
   transition: opacity 0.2s;
 }
 
+.pinButton {
+  position: absolute;
+  right: 16px;
+  top: 14px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 10;
+
+  // Show on hover (when parent is hovered) or when pinned
+  .chatSessionItem:hover &,
+  &[data-pinned="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  // Pinned state - primary color
+  &[data-pinned="true"] {
+    color: var(--colorPrimary, #ff9d4d);
+  }
+}
+
+// Actions always positioned to the left of pin button
+.actions {
+  right: 48px;
+}
+
 /* Dark mode */
 :global(.dark-mode) {
   .chatSessionItem {
@@ -246,5 +281,13 @@
   .channelTag {
     color: rgba(255, 255, 255, 0.65);
     background: rgba(255, 255, 255, 0.1);
+  }
+
+  .pinButton {
+    color: rgba(255, 255, 255, 0.72);
+
+    &[data-pinned="true"] {
+      color: var(--colorPrimary, #ff9d4d);
+    }
   }
 }
