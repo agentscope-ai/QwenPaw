@@ -1,5 +1,8 @@
 name: PR Under Review Label
 
+# Automatically adds "Under Review" label when a maintainer (admin/maintain/write permission)
+# comments on or reviews a PR. Configure PAT_TOKEN secret for full fork PR support.
+
 on:
   issue_comment:
     types: [created]
@@ -21,8 +24,6 @@ jobs:
       - name: Add Under Review label
         uses: actions/github-script@v7
         with:
-          # Use PAT if available for better permissions on forked PRs
-          # Otherwise fallback to GITHUB_TOKEN (limited permissions on forks)
           github-token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             // Get commenter/reviewer information and PR details
@@ -109,21 +110,12 @@ jobs:
             }
 
             // Add label
-            try {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                labels: ['Under Review'],
-              });
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['Under Review'],
+            });
 
-              core.info(`Successfully added "Under Review" label to PR #${prNumber}`);
-            } catch (error) {
-              // Handle permission errors on forked PRs with certain event types
-              if (error.status === 403) {
-                core.warning(`Unable to add label due to permissions (likely a forked PR with review event). Configure PAT_TOKEN secret to fix this.`);
-                return;
-              }
-              throw error;
-            }
+            core.info(`Successfully added "Under Review" label to PR #${prNumber}`);
 
