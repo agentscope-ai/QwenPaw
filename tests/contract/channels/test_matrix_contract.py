@@ -30,16 +30,20 @@ class TestMatrixChannelContract(ChannelContractTest):
         """Provide a MatrixChannel instance for contract testing."""
         from qwenpaw.app.channels.matrix.channel import MatrixChannel
 
-        process = AsyncMock()
+        from qwenpaw.app.channels.matrix.channel import MatrixChannelConfig
 
-        # MatrixChannel requires homeserver and credentials
+        process = AsyncMock()
+        config = MatrixChannelConfig(
+            raw={
+                "enabled": True,
+                "homeserver": "https://matrix.example.com",
+                "access_token": "test_token_12345",
+                "bot_prefix": "[Test]",
+            },
+        )
         return MatrixChannel(
             process=process,
-            enabled=True,
-            homeserver="https://matrix.example.com",
-            user_id="@bot:example.com",
-            access_token="test_token_12345",
-            bot_prefix="[Test]",
+            config=config,
             show_tool_details=False,
             filter_tool_messages=True,
         )
