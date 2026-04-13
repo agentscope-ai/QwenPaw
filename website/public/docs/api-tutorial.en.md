@@ -44,25 +44,25 @@ Specify the Agent to interact with via the `X-Agent-Id` header:
 2. The Agent ID is typically displayed in the Agent selector
 3. The default Agent ID is `default`
 
-### Localhost Auto-Bypass Authentication
+### Protected API Authentication
 
 ⚠️ **Important Notice**:
 
-- **Requests from `localhost` (127.0.0.1 or ::1) automatically bypass Web authentication**
-- This is designed for local development and CLI tools (`qwenpaw`) convenience
-- Even if Web authentication is enabled, local requests do **NOT** require an `Authorization` token
-- If accessing from a **remote machine**, you must provide a valid authentication token
+- If Web Login Authentication is enabled, protected `/api/` endpoints require authentication even when called from `localhost`
+- Direct REST API clients should send `Authorization: Bearer <YOUR_TOKEN>`
+- The `qwenpaw` CLI preserves local usability by sending a dedicated loopback-only local CLI token internally
+- Remote callers must always provide a valid authentication token when authentication is enabled
 
 **Examples**:
 
 ```bash
-# Local request - No Authorization token needed
+# Authentication disabled - no Authorization token needed
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: default" \
   -d '{"input": [...]}'
 
-# Remote request - Authorization token required
+# Authentication enabled - Authorization token required
 curl -X POST http://your-server.com:8088/api/console/chat \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <YOUR_TOKEN>" \
@@ -70,7 +70,7 @@ curl -X POST http://your-server.com:8088/api/console/chat \
   -d '{"input": [...]}'
 ```
 
-> **Tip**: If [Web Login Authentication](./security#web-authentication) is enabled and you're accessing remotely, you'll need to provide an authentication token. See the [Web Authentication Token](#web-authentication-token-optional) section at the end of this document.
+> **Tip**: If [Web Login Authentication](./security#web-authentication) is enabled, use the login API to obtain a bearer token for direct REST calls. The local CLI token is managed by QwenPaw and should not be used as a general-purpose REST API token.
 
 ## Request Format
 
@@ -605,7 +605,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 
 ### Web Authentication Token (Optional)
 
-If [Web Login Authentication](./security#web-authentication) is enabled (`QWENPAW_AUTH_ENABLED=true`), all API requests require an authentication token.
+If [Web Login Authentication](./security#web-authentication) is enabled (`QWENPAW_AUTH_ENABLED=true`), protected API requests require an authentication token.
 
 #### Register Account
 
@@ -776,7 +776,7 @@ curl -X POST http://localhost:8088/api/console/chat \
   - Maximum: 100 years
 - **Format**: HMAC-SHA256 signed token
 - **Storage**: Store securely, do not hardcode in code
-- **Local Bypass**: Requests from `127.0.0.1` or `::1` automatically skip authentication
+- **Local CLI authentication**: the `qwenpaw` CLI can authenticate loopback requests with a dedicated local CLI token managed in `auth.json`; direct REST API callers should use bearer tokens
 - **Multiple Tokens**:
   - ⚠️ Each login creates a new token; old tokens are NOT automatically revoked
   - Multiple tokens can be used simultaneously if they are valid and not expired

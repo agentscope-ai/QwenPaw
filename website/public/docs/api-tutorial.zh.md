@@ -44,25 +44,25 @@ POST /api/console/chat
 2. Agent ID 通常显示在 Agent 选择器中
 3. 默认的 Agent ID 为 `default`
 
-### Localhost 自动免认证
+### 受保护 API 的认证
 
 ⚠️ **重要提示**：
 
-- **来自 `localhost` (127.0.0.1 或 ::1) 的请求会自动跳过 Web 认证**
-- 这是为了方便本地开发和 CLI 工具（`qwenpaw`）使用
-- 即使启用了 Web 认证，本地请求也**不需要**提供 `Authorization` 令牌
-- 如果从**远程机器**访问，则必须提供有效的认证令牌
+- 如果启用了 Web 登录认证，受保护的 `/api/` 接口即使来自 `localhost` 也需要认证
+- 直接调用 REST API 的客户端应发送 `Authorization: Bearer <YOUR_TOKEN>`
+- `qwenpaw` CLI 会在本地回环请求中使用专用的本地 CLI 令牌自动完成认证
+- 从远程机器访问时，只要启用了认证，就必须提供有效的认证令牌
 
 **示例**：
 
 ```bash
-# 本地请求 - 不需要 Authorization 令牌
+# 未启用认证 - 不需要 Authorization 令牌
 curl -X POST http://localhost:8088/api/console/chat \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: default" \
   -d '{"input": [...]}'
 
-# 远程请求 - 需要 Authorization 令牌
+# 已启用认证 - 需要 Authorization 令牌
 curl -X POST http://your-server.com:8088/api/console/chat \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <YOUR_TOKEN>" \
@@ -70,7 +70,7 @@ curl -X POST http://your-server.com:8088/api/console/chat \
   -d '{"input": [...]}'
 ```
 
-> **提示**：如果启用了 [Web 登录认证](./security#Web-登录认证)并从远程访问，需要提供身份验证令牌。详见文档末尾的 [Web 认证令牌](#web-认证令牌可选) 部分。
+> **提示**：如果启用了 [Web 登录认证](./security#Web-登录认证)，直接调用 REST API 时请先通过登录接口获取 Bearer 令牌。本地 CLI 令牌由 QwenPaw 自动管理，不应作为通用 REST API 令牌使用。
 
 ## 请求格式
 
@@ -605,7 +605,7 @@ curl -X POST http://localhost:8088/api/console/chat \
 
 ### Web 认证令牌（可选）
 
-如果启用了 [Web 登录认证](./security#Web-登录认证)（`QWENPAW_AUTH_ENABLED=true`），所有 API 请求都需要提供身份验证令牌。
+如果启用了 [Web 登录认证](./security#Web-登录认证)（`QWENPAW_AUTH_ENABLED=true`），受保护的 API 请求都需要提供身份验证令牌。
 
 #### 注册账号
 
@@ -776,7 +776,7 @@ curl -X POST http://localhost:8088/api/console/chat \
   - 最长：100 年
 - **格式**：HMAC-SHA256 签名令牌
 - **存储**：建议安全存储，不要硬编码在代码中
-- **本地免认证**：来自 `127.0.0.1` 或 `::1` 的请求自动跳过认证
+- **本地 CLI 认证**：`qwenpaw` CLI 可以在回环请求中使用由 `auth.json` 管理的专用本地 CLI 令牌完成认证；直接调用 REST API 的客户端应使用 Bearer 令牌
 - **多令牌共存**：
   - ⚠️ 每次登录都会创建新令牌，旧令牌不会自动失效
   - 只要令牌未过期且签名有效，多个令牌可以同时使用
