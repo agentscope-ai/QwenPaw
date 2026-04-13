@@ -114,7 +114,6 @@
 
 .marketCardHeader {
   display: flex;
-  flex-direction: row;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -164,15 +163,18 @@
   font-size: 11px;
   color: #999;
   flex-shrink: 0;
+  width: 100%;
 }
 
 .exampleTags {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .exampleTag {
+  display: block;
   font-size: 11px;
   padding: 2px 8px;
   border: 1px solid #d9d9d9;
@@ -181,6 +183,8 @@
   color: #666;
   cursor: pointer;
   transition: all 0.2s ease;
+  text-align: left;
+  word-break: break-all;
 
   &:hover {
     border-color: #615ced;

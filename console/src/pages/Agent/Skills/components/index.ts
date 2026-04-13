@@ -17,6 +17,11 @@ export { ImportHubModal } from "./ImportHubModal";
 export { PoolTransferModal } from "./PoolTransferModal";
 export { SkillFilterDropdown, TAG_PREFIX } from "./SkillFilterDropdown";
 
+export {
+  SUPPORTED_SKILL_URL_PREFIXES,
+  isSupportedSkillUrl,
+} from "@/constants/skill";
+
 export interface SkillMarket {
   key: string;
   name: string;
@@ -97,7 +102,3 @@ export const skillMarkets: SkillMarket[] = [
     ],
   },
 ];
-
-export function isSupportedSkillUrl(url: string): boolean {
-  return skillMarkets.some((market) => url.startsWith(market.urlPrefix));
-}

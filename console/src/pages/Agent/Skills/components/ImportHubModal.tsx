@@ -101,7 +101,6 @@ export function ImportHubModal({
                   target="_blank"
                   rel="noopener noreferrer"
                   className={styles.marketName}
-                  onClick={(e) => e.stopPropagation()}
                   title={market.homepage}
                 >
                   {market.name}
@@ -111,7 +110,6 @@ export function ImportHubModal({
                   target="_blank"
                   rel="noopener noreferrer"
                   className={styles.marketArrow}
-                  onClick={(e) => e.stopPropagation()}
                   title={market.homepage}
                 >
                   <ExportOutlined />
@@ -130,7 +128,7 @@ export function ImportHubModal({
                         onClick={() => handleUrlChange(example.url)}
                         title={example.url}
                       >
-                        {example.label}
+                        {example.url}
                       </button>
                     ))}
                   </div>
