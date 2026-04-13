@@ -35,7 +35,8 @@ async def get_agent_for_request(
     1. agent_id parameter (explicit override)
     2. request.state.agent_id (from agent-scoped router)
     3. X-Agent-Id header (from frontend)
-    4. Active agent from config
+    4. agent_id query parameter (e.g. SSE / EventSource)
+    5. Active agent from config
 
     Args:
         request: FastAPI request object
@@ -59,6 +60,10 @@ async def get_agent_for_request(
     # Check X-Agent-Id header
     if not target_agent_id:
         target_agent_id = request.headers.get("X-Agent-Id")
+
+    # Query param (e.g. EventSource cannot set custom headers)
+    if not target_agent_id:
+        target_agent_id = request.query_params.get("agent_id")
 
     # Load config once for fallback and validation
     config = None

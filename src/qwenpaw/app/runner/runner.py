@@ -23,6 +23,9 @@ from dotenv import load_dotenv
 from .command_dispatch import (
     _get_last_user_text,
     _is_command,
+    ensure_plan_mode_enabled,
+    is_plan_with_inline_description,
+    rewrite_msgs_strip_plan_prefix,
     run_command_path,
 )
 from .query_error_dump import write_query_error_dump
@@ -35,6 +38,7 @@ from ...agents.utils.file_handling import (
     read_text_file_with_encoding_fallback,
 )
 from ...config.config import load_agent_config
+from ...plan import set_plan_gate
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -85,6 +89,16 @@ class AgentRunner(Runner):
         self._workspace: Any = None  # Workspace instance for control commands
         self.memory_manager: BaseMemoryManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
+        self._plan_notebook = None
+
+    def set_plan_notebook(self, plan_notebook) -> None:
+        """Set workspace-level PlanNotebook instance."""
+        self._plan_notebook = plan_notebook
+
+    @property
+    def plan_notebook(self):
+        """Access the workspace-level PlanNotebook (may be None)."""
+        return self._plan_notebook
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -362,6 +376,28 @@ class AgentRunner(Runner):
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
 
+        if query and is_plan_with_inline_description(query):
+            if not await ensure_plan_mode_enabled(self):
+                err = Msg(
+                    name="Friday",
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "**Plan**\n\n"
+                                "Could not enable plan mode for `/plan …`. "
+                                "Check AgentScope plan support and logs."
+                            ),
+                        ),
+                    ],
+                )
+                yield err, True
+                return
+            msgs = rewrite_msgs_strip_plan_prefix(msgs)
+            query = _get_last_user_text(msgs)
+            set_plan_gate(self._plan_notebook)
+
         (
             approval_response,
             approval_consumed,
@@ -466,6 +502,7 @@ class AgentRunner(Runner):
                 },
                 workspace_dir=self.workspace_dir,
                 task_tracker=self._task_tracker,
+                plan_notebook=self._plan_notebook,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
@@ -519,11 +556,14 @@ class AgentRunner(Runner):
                 yield skill_response, True
                 return
 
+            load_kwargs = {"agent": agent}
+            if self._plan_notebook is not None:
+                load_kwargs["plan_notebook"] = self._plan_notebook
             try:
                 await self.session.load_session_state(
                     session_id=session_id,
                     user_id=user_id,
-                    agent=agent,
+                    **load_kwargs,
                 )
             except KeyError as e:
                 logger.warning(
@@ -587,10 +627,13 @@ class AgentRunner(Runner):
             raise converted from e
         finally:
             if agent is not None and session_state_loaded:
+                save_kwargs = {"agent": agent}
+                if self._plan_notebook is not None:
+                    save_kwargs["plan_notebook"] = self._plan_notebook
                 await self.session.save_session_state(
                     session_id=session_id,
                     user_id=user_id,
-                    agent=agent,
+                    **save_kwargs,
                 )
 
             if self._chat_manager is not None and chat is not None:

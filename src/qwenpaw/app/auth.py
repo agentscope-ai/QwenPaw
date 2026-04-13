@@ -421,6 +421,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/"):
             return True
 
+        # Plan SSE: EventSource cannot send Authorization; a short-lived
+        # ticket (validated in stream_plan_updates) is passed instead.
+        if (
+            request.method == "GET"
+            and path == "/api/plan/stream"
+            and request.query_params.get("ticket")
+        ):
+            return True
+
         # Allow localhost requests without auth (CLI runs locally)
         client_host = request.client.host if request.client else ""
         return client_host in ("127.0.0.1", "::1")

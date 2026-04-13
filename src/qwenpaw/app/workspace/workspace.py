@@ -128,6 +128,100 @@ class Workspace:
             self._config = load_agent_config(self.agent_id)
         return self._config
 
+    @property
+    def plan_notebook(self):
+        """Get workspace-level PlanNotebook instance (may be None)."""
+        return self._service_manager.services.get("plan_notebook")
+
+    def _init_plan_notebook(self, ws, _):
+        """Create PlanNotebook based on agent config and wire to runner."""
+        from ...plan.factory import create_plan_notebook
+        from ...plan.broadcast import broadcast_plan_update
+        from ...plan.schemas import plan_to_response
+
+        config = ws._config
+        if config is None or not config.plan.enabled:
+            return None
+
+        notebook = create_plan_notebook(
+            config=config.plan,
+            agent_id=ws.agent_id,
+            working_dir=ws.workspace_dir,
+        )
+        if notebook is None:
+            return None
+
+        agent_id = ws.agent_id
+
+        def _plan_change_hook(_notebook, plan):
+            try:
+                if plan is not None:
+                    payload = plan_to_response(plan).model_dump()
+                else:
+                    payload = None
+                broadcast_plan_update(agent_id, payload)
+            except Exception:
+                logger.warning(
+                    "Failed to broadcast plan update",
+                    exc_info=True,
+                )
+
+        notebook.register_plan_change_hook(
+            "copaw_broadcast",
+            _plan_change_hook,
+        )
+
+        runner = ws._service_manager.services.get("runner")
+        if runner is not None:
+            runner.set_plan_notebook(notebook)
+
+        logger.info("Plan mode enabled for agent '%s'", ws.agent_id)
+        return notebook
+
+    async def activate_plan_notebook(self) -> bool:
+        """Create and wire PlanNotebook dynamically (no restart).
+
+        Call this after plan config has been persisted with
+        ``enabled=True``.  Returns ``True`` if activation succeeded
+        (or was already active), ``False`` otherwise.
+        """
+        if self.plan_notebook is not None:
+            return True
+
+        self._config = load_agent_config(self.agent_id)
+
+        notebook = self._init_plan_notebook(self, None)
+        if notebook is None:
+            return False
+
+        self._service_manager.services["plan_notebook"] = notebook
+        return True
+
+    async def deactivate_plan_notebook(self) -> None:
+        """Remove the PlanNotebook without restarting."""
+        nb = self._service_manager.services.get("plan_notebook")
+        if nb is None:
+            return
+        try:
+            rm = getattr(nb, "remove_plan_change_hook", None)
+            if callable(rm):
+                rm("copaw_broadcast")
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "Plan notebook hook removal skipped",
+                exc_info=True,
+            )
+        self._service_manager.services["plan_notebook"] = None
+
+        runner = self._service_manager.services.get("runner")
+        if runner is not None:
+            runner.set_plan_notebook(None)
+
+        logger.info(
+            "Plan mode deactivated for agent '%s'",
+            self.agent_id,
+        )
+
     def set_manager(self, manager) -> None:
         """Set reference to MultiAgentManager for /daemon restart.
 
@@ -162,6 +256,17 @@ class Workspace:
                 },
                 stop_method="stop",
                 priority=10,
+                concurrent_init=False,
+            ),
+        )
+
+        # Priority 15: Plan notebook (after runner, before core services)
+        sm.register(
+            ServiceDescriptor(
+                name="plan_notebook",
+                service_class=None,
+                post_init=self._init_plan_notebook,
+                priority=15,
                 concurrent_init=False,
             ),
         )

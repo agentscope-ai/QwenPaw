@@ -13,7 +13,7 @@ from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
 from agentscope.memory import InMemoryMemory
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit
 from anyio import ClosedResourceError
 from pydantic import BaseModel
@@ -52,6 +52,11 @@ from .tools import (
     create_memory_search_tool,
 )
 from .utils import process_file_and_media_blocks_in_message
+from ..app.runner.command_dispatch import (
+    is_bare_plan_command,
+    is_plan_with_inline_description,
+    rewrite_msgs_strip_plan_prefix,
+)
 from ..constant import (
     WORKING_DIR,
 )
@@ -97,6 +102,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
+        plan_notebook: Any | None = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -160,6 +166,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             memory=InMemoryMemory(),
             formatter=formatter,
             max_iters=running_config.max_iters,
+            plan_notebook=plan_notebook,
         )
 
         # Setup memory manager
@@ -702,6 +709,28 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         try:
             return await super()._reasoning(tool_choice=tool_choice)
         except Exception as e:
+            # --- Context overflow recovery ---
+            if self._is_context_overflow_error(e):
+                n_trunc = self._emergency_truncate_tool_results()
+                if n_trunc > 0:
+                    logger.warning(
+                        "_reasoning: context overflow (%s). "
+                        "Truncated %d tool-result block(s), "
+                        "retrying.",
+                        e,
+                        n_trunc,
+                    )
+                    return await super()._reasoning(
+                        tool_choice=tool_choice,
+                    )
+                logger.error(
+                    "_reasoning: context overflow but nothing to "
+                    "truncate, giving up: %s",
+                    e,
+                )
+                raise
+
+            # --- Media error recovery ---
             if not self._is_bad_request_or_media_error(e):
                 raise
 
@@ -709,8 +738,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             if n_stripped == 0:
                 raise
 
-            # If the model is marked as multimodal but still
-            # errored, the capability flag may be wrong.
             if get_active_model_supports_multimodal():
                 logger.warning(
                     "Model marked multimodal but "
@@ -720,7 +747,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
             logger.warning(
                 "_reasoning failed (%s). "
-                "Stripped %d media block(s) from memory, retrying.",
+                "Stripped %d media block(s) from memory, "
+                "retrying.",
                 e,
                 n_stripped,
             )
@@ -757,27 +785,55 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             try:
                 msg = await super()._summarizing()
             except Exception as e:
-                if not self._is_bad_request_or_media_error(e):
-                    raise
+                recovered = False
 
-                n_stripped = self._strip_media_blocks_from_memory()
-                if n_stripped == 0:
-                    raise
+                # --- Context overflow recovery ---
+                if self._is_context_overflow_error(e):
+                    n_trunc = self._emergency_truncate_tool_results()
+                    if n_trunc > 0:
+                        logger.warning(
+                            "_summarizing: context overflow "
+                            "(%s). Truncated %d block(s), "
+                            "retrying.",
+                            e,
+                            n_trunc,
+                        )
+                        msg = await super()._summarizing()
+                        recovered = True
+                    else:
+                        logger.error(
+                            "_summarizing: context overflow but "
+                            "nothing to truncate, giving up: %s",
+                            e,
+                        )
+                        raise
 
-                if get_active_model_supports_multimodal():
+                if not recovered:
+                    # --- Media error recovery ---
+                    if not self._is_bad_request_or_media_error(
+                        e,
+                    ):
+                        raise
+
+                    n_stripped = self._strip_media_blocks_from_memory()
+                    if n_stripped == 0:
+                        raise
+
+                    if get_active_model_supports_multimodal():
+                        logger.warning(
+                            "Model marked multimodal but "
+                            "rejected media. "
+                            "Capability flag may be wrong.",
+                        )
+
                     logger.warning(
-                        "Model marked multimodal but "
-                        "rejected media. "
-                        "Capability flag may be wrong.",
+                        "_summarizing failed (%s). "
+                        "Stripped %d media block(s) from "
+                        "memory, retrying.",
+                        e,
+                        n_stripped,
                     )
-
-                logger.warning(
-                    "_summarizing failed (%s). "
-                    "Stripped %d media block(s) from memory, retrying.",
-                    e,
-                    n_stripped,
-                )
-                msg = await super()._summarizing()
+                    msg = await super()._summarizing()
         finally:
             self._in_summarizing = False
 
@@ -895,6 +951,100 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         ]
         return any(kw in error_str for kw in keywords)
 
+    @staticmethod
+    def _is_context_overflow_error(exc: Exception) -> bool:
+        """Return True when the error indicates prompt/context size limits.
+
+        Network timeouts are not treated as overflow; truncating memory
+        does not fix connectivity issues.
+        """
+        error_str = str(exc).lower()
+        keywords = [
+            "buffer overflow",
+            "context length",
+            "context_length",
+            "maximum context",
+            "too many tokens",
+            "request too large",
+            "payload too large",
+        ]
+        return any(kw in error_str for kw in keywords)
+
+    _OVERFLOW_KEEP_RECENT = 8
+    _OVERFLOW_MAX_CHARS = 300
+    _OVERFLOW_NOTE = "\n... [truncated to reduce context]"
+
+    def _emergency_truncate_tool_results(self) -> int:
+        """Truncate large tool-result outputs in older memory
+        messages to recover from a context overflow error.
+
+        Keeps the most recent ``_OVERFLOW_KEEP_RECENT`` messages
+        untouched and truncates ``tool_result`` outputs that
+        exceed ``_OVERFLOW_MAX_CHARS`` in all earlier messages.
+
+        Returns:
+            Number of blocks truncated.
+        """
+        pairs = list(self.memory.content)
+        total = len(pairs)
+        keep = min(self._OVERFLOW_KEEP_RECENT, total)
+        cutoff = total - keep
+        if cutoff <= 0:
+            return 0
+
+        truncated = 0
+        for idx, (msg, _marks) in enumerate(pairs):
+            if idx >= cutoff:
+                break
+            if not isinstance(msg.content, list):
+                continue
+            truncated += self._truncate_tool_blocks(
+                msg.content,
+            )
+        return truncated
+
+    def _truncate_tool_blocks(self, blocks: list) -> int:
+        """Truncate oversized tool_result blocks in *blocks* list.
+
+        Returns the number of individual outputs truncated.
+        """
+        limit = self._OVERFLOW_MAX_CHARS
+        note = self._OVERFLOW_NOTE
+        count = 0
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_result":
+                continue
+            out = block.get("output")
+            if isinstance(out, str) and len(out) > limit:
+                block["output"] = out[:limit] + note
+                count += 1
+            elif isinstance(out, list):
+                count += self._truncate_text_items(
+                    out,
+                    limit,
+                    note,
+                )
+        return count
+
+    @staticmethod
+    def _truncate_text_items(
+        items: list,
+        limit: int,
+        note: str,
+    ) -> int:
+        """Truncate oversized text entries in a list of dicts."""
+        count = 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            txt = item.get("text", "")
+            if isinstance(txt, str) and len(txt) > limit:
+                item["text"] = txt[:limit] + note
+                count += 1
+        return count
+
     _MEDIA_PLACEHOLDER = (
         "[Media content removed - model does not support this media type]"
     )
@@ -955,6 +1105,53 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         return total_stripped
 
+    def _assistant_plan_status_msg(self) -> Msg:
+        """Assistant message for bare ``/plan`` outside the HTTP runner."""
+        from ..plan.schemas import plan_to_response
+
+        if not self._agent_config.plan.enabled:
+            body = (
+                "**Plan**\n\n"
+                "Plan mode is disabled. Enable it in agent settings, "
+                "or use `/plan` from the web console."
+            )
+        elif getattr(self, "plan_notebook", None) is None:
+            body = (
+                "**Plan**\n\n"
+                "Plan mode is enabled in configuration but no plan "
+                "notebook is attached to this agent instance."
+            )
+        else:
+            nb = self.plan_notebook
+            if nb.current_plan is None:
+                body = (
+                    "**Plan mode is on.**\n\n"
+                    "- No active plan yet.\n"
+                    "- Use `/plan <description>` or the Plan panel.\n"
+                )
+            else:
+                p = plan_to_response(nb.current_plan)
+                lines = [
+                    "**Current plan**",
+                    f"- **{p.name}** (state: `{p.state}`)",
+                ]
+                if p.description:
+                    desc = p.description
+                    if len(desc) > 280:
+                        desc = desc[:277] + "..."
+                    lines.append(f"- {desc}")
+                lines.append("")
+                lines.append("**Subtasks:**")
+                for st in p.subtasks:
+                    lines.append(f"  - [{st.state}] {st.name}")
+                body = "\n".join(lines)
+
+        return Msg(
+            name=self.name,
+            role="assistant",
+            content=[TextBlock(type="text", text=body)],
+        )
+
     # pylint: disable=protected-access
     async def reply(
         self,
@@ -990,6 +1187,40 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         query = (
             last_msg.get_text_content() if isinstance(last_msg, Msg) else None
         )
+
+        if query and is_bare_plan_command(query):
+            plan_reply = self._assistant_plan_status_msg()
+            await self.print(plan_reply)
+            return plan_reply
+
+        if isinstance(msg, list):
+            was_list = True
+            work_msgs: list[Msg] = list(msg)
+        else:
+            was_list = False
+            work_msgs = [msg] if isinstance(msg, Msg) else []
+        if query and is_plan_with_inline_description(query):
+            if not self._agent_config.plan.enabled:
+                need_plan = Msg(
+                    name=self.name,
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "**Plan**\n\n"
+                                "Enable plan mode in agent settings before "
+                                "using `/plan <description>`."
+                            ),
+                        ),
+                    ],
+                )
+                await self.print(need_plan)
+                return need_plan
+            work_msgs = rewrite_msgs_strip_plan_prefix(work_msgs)
+            msg = work_msgs if was_list else work_msgs[0]
+            last_msg = work_msgs[-1]
+            query = last_msg.get_text_content()
 
         if self.command_handler.is_command(query):
             logger.info(f"Received command: {query}")

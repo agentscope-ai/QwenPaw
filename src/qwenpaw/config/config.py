@@ -48,6 +48,7 @@ class BaseChannelConfig(BaseModel):
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
     require_mention: bool = False
+    plan_status_in_messages: bool = False
 
 
 class IMessageChannelConfig(BaseChannelConfig):
@@ -650,6 +651,29 @@ class AgentProfileRef(BaseModel):
     )
 
 
+class PlanConfig(BaseModel):
+    """Configuration for AgentScope plan module."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description="Whether plan mode is enabled",
+    )
+    max_subtasks: int | None = Field(
+        default=None,
+        description="Max subtasks per plan (None = unlimited)",
+    )
+    storage_type: Literal["memory", "file"] = Field(
+        default="memory",
+        description="Plan storage backend",
+    )
+    storage_path: str | None = Field(
+        default=None,
+        description="Path for file-based storage (auto-derived if None)",
+    )
+
+
 class AgentProfileConfig(BaseModel):
     """Complete Agent Profile configuration (stored in workspace/agent.json).
 
@@ -708,6 +732,10 @@ class AgentProfileConfig(BaseModel):
     security: Optional["SecurityConfig"] = Field(
         default=None,
         description="Security configuration for this agent",
+    )
+    plan: PlanConfig = Field(
+        default_factory=PlanConfig,
+        description="Plan mode configuration",
     )
 
 

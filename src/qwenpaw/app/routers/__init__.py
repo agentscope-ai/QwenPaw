@@ -21,6 +21,7 @@ from .auth import router as auth_router
 from .messages import router as messages_router
 from .files import router as files_router
 from .settings import router as settings_router
+from .plan import router as plan_router
 
 router = APIRouter()
 
@@ -43,6 +44,7 @@ router.include_router(token_usage_router)
 router.include_router(auth_router)
 router.include_router(files_router)
 router.include_router(settings_router)
+router.include_router(plan_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

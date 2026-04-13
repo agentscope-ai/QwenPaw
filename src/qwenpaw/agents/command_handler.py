@@ -2,6 +2,12 @@
 """Agent command handler for system commands.
 
 This module handles system commands like /compact, /new, /clear, etc.
+
+Note:
+    ``/plan`` is **not** listed in ``SYSTEM_COMMANDS`` because
+    ``/plan <description>`` must reach the LLM as a normal message
+    (after rewriting).  Bare ``/plan`` is handled in
+    ``app.runner.command_dispatch`` together with the agent runner.
 """
 import json
 import logging
