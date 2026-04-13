@@ -56,7 +56,7 @@ jobs:
 
             // Ignore PR author self-comments
             if (commenter === prAuthor) {
-              core.info(`@${commenter} is the PR author, skipping self-action`);
+              core.info(`@${commenter} is the PR author, skipping self-comment`);
               return;
             }
 
