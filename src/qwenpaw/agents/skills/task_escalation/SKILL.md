@@ -1,6 +1,6 @@
 ---
 name: task_escalation
-description: 面向小模型的升级求助策略，指导 Agent 何时直接回答、何时先简短尝试、何时优先通过 list_agents 和 chat_with_agent 向更强 Agent 求助。
+description: 面向小模型的求助策略，指导 Agent 何时直接回答、何时先简短尝试、何时优先通过 list_agents 和 chat_with_agent 向更强 Agent 求助。
 metadata:
   builtin_skill_version: "1.0"
   qwenpaw:
