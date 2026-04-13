@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """Task tracker for background runs: streaming, reconnect, multi-subscriber.
 
-run_key is ChatSpec.id (chat_id). Per run: task, queues, event buffer.
-Reconnects get buffer replay + new events. Cleanup when task completes.
+For internal streaming runs, ``run_key`` is typically ``ChatSpec.id``
+(chat_id). For externally-managed tasks (registered via
+:meth:`TaskTracker.register_external_task`), ``run_key`` is an opaque
+identifier chosen by the caller (e.g. a UUID prefixed with ``"ext-"``).
+Per run: task, queues, event buffer. Reconnects get buffer replay + new
+events. Cleanup when task completes.
 """
 from __future__ import annotations
 
@@ -128,8 +132,10 @@ class TaskTracker:
     async def unregister_external_task(self, run_key: str) -> None:
         """Mark an externally-managed task as done and remove it.
 
-        Idempotent — safe to call even if *run_key* was never registered
-        or was already unregistered.
+        Sends the sentinel value to any subscriber queues so their
+        :meth:`stream_from_queue` consumers terminate cleanly instead of
+        hanging. Idempotent — safe to call even if *run_key* was never
+        registered or was already unregistered.
 
         Args:
             run_key: Unique identifier previously passed to
@@ -139,6 +145,9 @@ class TaskTracker:
             state = self._runs.pop(run_key, None)
             if state is None:
                 return
+            # Notify any subscriber queues so consumers exit cleanly.
+            for q in state.queues:
+                q.put_nowait(_SENTINEL)
             if not state.task.done():
                 state.task.set_result(None)
             logger.debug("Unregistered external task: %s", run_key)

@@ -58,8 +58,11 @@ def _import_module_directly(module_name: str, file_path: str) -> ModuleType:
 
 _SRC = Path(__file__).resolve().parents[3] / "src"
 
+# Use a test-unique module name so the isolated import does not shadow
+# the real ``qwenpaw.app.runner.task_tracker`` in ``sys.modules`` for
+# other tests that run in the same pytest session.
 _task_tracker_mod = _import_module_directly(
-    "qwenpaw.app.runner.task_tracker",
+    "_test_issue_3275_task_tracker",
     str(_SRC / "qwenpaw" / "app" / "runner" / "task_tracker.py"),
 )
 TaskTracker = _task_tracker_mod.TaskTracker
@@ -308,6 +311,31 @@ async def test_unregister_external_task_is_idempotent():
 
 
 @pytest.mark.asyncio
+async def test_unregister_external_task_notifies_subscribers():
+    """``unregister_external_task`` sends the sentinel to any attached
+    subscriber queues so consumers do not hang.
+    """
+    tracker = TaskTracker()
+    await tracker.register_external_task("ext-001")
+
+    # Attach a subscriber queue directly (mirrors what attach() does).
+    # Use the internal API to seed a queue for the external task.
+    async with tracker.lock:
+        state = tracker._runs["ext-001"]  # pylint: disable=protected-access
+        subscriber: asyncio.Queue = asyncio.Queue()
+        state.queues.append(subscriber)
+
+    await tracker.unregister_external_task("ext-001")
+
+    # The subscriber should have received the sentinel (None) and not
+    # hang if a consumer tries to drain it.
+    item = await asyncio.wait_for(subscriber.get(), timeout=1.0)
+    assert (
+        item is None
+    ), "Subscriber should receive the sentinel after unregister"
+
+
+@pytest.mark.asyncio
 async def test_register_external_task_duplicate_is_safe():
     """Registering the same run_key twice is idempotent."""
     tracker = TaskTracker()
@@ -422,25 +450,20 @@ async def test_registered_external_task_delays_graceful_stop():
             len(cleanup_tasks) == 1
         ), "Expected delayed cleanup task to be scheduled"
 
+        # Capture the cleanup task so we can await it deterministically
+        # instead of relying on a fixed sleep.
+        (cleanup_task,) = cleanup_tasks
+
         # Simulate the background task completing (unregister it).
         await old_ws.task_tracker.unregister_external_task("ext-bg-001")
 
-        # Wait for delayed cleanup to finish.
-        await asyncio.sleep(1.0)
+        # Deterministically wait for delayed cleanup to finish.
+        await cleanup_task
 
         # Now the workspace should have been stopped by the cleanup task.
         assert (
             old_ws.stopped is True
         ), "Workspace should be stopped after external task completes"
-
-        # Clean up
-        for task in list(cleanup_tasks):
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
 
 @pytest.mark.asyncio
@@ -479,15 +502,9 @@ async def test_internal_tracked_task_delays_shutdown():
         assert stopped_immediately is False
         assert len(cleanup_tasks) == 1
 
-        await completion_event.wait()
-        await asyncio.sleep(0.5)
+        # Capture and await the cleanup task directly — no fixed sleep.
+        (cleanup_task,) = cleanup_tasks
+        await cleanup_task
 
+        assert completion_event.is_set()
         assert old_ws.stopped is True
-
-        for task in list(cleanup_tasks):
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):
-                    pass

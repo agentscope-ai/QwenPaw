@@ -134,7 +134,7 @@ class DynamicMultiAgentRunner:
 
             # Register this task with the workspace's TaskTracker so
             # _graceful_stop_old_instance() can see it during reload.
-            run_key = f"ext-{uuid.uuid4().hex[:12]}"
+            run_key = f"ext-{uuid.uuid4().hex}"
             await workspace.task_tracker.register_external_task(run_key)
 
             # Delegate to the actual runner's stream_query generator
@@ -173,7 +173,7 @@ class DynamicMultiAgentRunner:
             workspace = await self._get_workspace(request)
             runner = workspace.runner
 
-            run_key = f"ext-{uuid.uuid4().hex[:12]}"
+            run_key = f"ext-{uuid.uuid4().hex}"
             await workspace.task_tracker.register_external_task(run_key)
 
             async for item in runner.query_handler(request, *args, **kwargs):
