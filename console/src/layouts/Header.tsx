@@ -1,4 +1,5 @@
-import { Layout, Space, Badge, Spin, Tooltip } from "antd";
+import { Layout, Space, Badge, Spin } from "antd";
+import { BookOpen, FileText, CircleHelp, Github } from "lucide-react";
 import LanguageSwitcher from "../components/LanguageSwitcher/index";
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useTranslation } from "react-i18next";
@@ -182,36 +183,35 @@ export default function Header() {
             </Badge>
           )}
         </div>
-        <Space size="middle">
-          <Tooltip title={t("header.changelog")}>
-            <Button
-              type="text"
-              onClick={() => handleNavClick(getReleaseNotesUrl(i18n.language))}
-            >
-              {t("header.changelog")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("header.docs")}>
-            <Button
-              type="text"
-              onClick={() => handleNavClick(getDocsUrl(i18n.language))}
-            >
-              {t("header.docs")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("header.faq")}>
-            <Button
-              type="text"
-              onClick={() => handleNavClick(getFaqUrl(i18n.language))}
-            >
-              {t("header.faq")}
-            </Button>
-          </Tooltip>
-          <Tooltip title={t("header.github")}>
-            <Button type="text" onClick={() => handleNavClick(GITHUB_URL)}>
-              {t("header.github")}
-            </Button>
-          </Tooltip>
+        <Space size={24} align="center">
+          <span
+            className={styles.navLink}
+            onClick={() => handleNavClick(getReleaseNotesUrl(i18n.language))}
+          >
+            <FileText size={16} strokeWidth={1.5} />
+            {t("header.changelog")}
+          </span>
+          <span
+            className={styles.navLink}
+            onClick={() => handleNavClick(getDocsUrl(i18n.language))}
+          >
+            <BookOpen size={16} strokeWidth={1.5} />
+            {t("header.docs")}
+          </span>
+          <span
+            className={styles.navLink}
+            onClick={() => handleNavClick(getFaqUrl(i18n.language))}
+          >
+            <CircleHelp size={16} strokeWidth={1.5} />
+            {t("header.faq")}
+          </span>
+          <span
+            className={styles.navLink}
+            onClick={() => handleNavClick(GITHUB_URL)}
+          >
+            <Github size={16} strokeWidth={1.5} />
+            {t("header.github")}
+          </span>
           <div className={styles.headerDivider} />
           <LanguageSwitcher />
           <ThemeToggleButton />
