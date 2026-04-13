@@ -258,6 +258,25 @@
 
 ---
 
+## Skill 聊天命令
+
+提供以下命令，在聊天中可以访问 skill 状态，并强制 Agent 使用某个
+skill。
+
+- `/skills` 会以精简格式列出当前频道可用的 skill。
+- `/<skill_name>` 会显示该 skill 的详细信息，包括 description 和本地
+  path。
+- `/<skill_name> <input>` 会使 Agent 强制调用 `skill_name`，解决 input
+ （通常是个任务）。
+- `/[skill_name]` 也支持以上操作，可作为另一种写法。
+
+说明：
+
+- `skill_name` 以 `/skills` 里显示的技能命令名为准。
+- 这些斜杠命令只对当前频道中已启用且路由到该频道的 skill 生效。
+
+---
+
 ## 模型管理命令
 
 管理和切换 AI 模型的命令，无需通过 Agent 理解意图，直接执行。
