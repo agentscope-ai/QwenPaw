@@ -34,19 +34,23 @@ jobs:
               commenterType = context.payload.comment.user.type;
               prNumber = context.payload.issue.number;
               prAuthor = context.payload.issue.user.login;
+              core.info(`Event: issue_comment`);
             } else if (context.eventName === 'pull_request_review') {
               commenter = context.payload.review.user.login;
               commenterType = context.payload.review.user.type;
               prNumber = context.payload.pull_request.number;
               prAuthor = context.payload.pull_request.user.login;
+              const reviewState = context.payload.review.state;
+              core.info(`Event: pull_request_review, state: ${reviewState}`);
             } else if (context.eventName === 'pull_request_review_comment') {
               commenter = context.payload.comment.user.login;
               commenterType = context.payload.comment.user.type;
               prNumber = context.payload.pull_request.number;
               prAuthor = context.payload.pull_request.user.login;
+              core.info(`Event: pull_request_review_comment`);
             }
 
-            core.info(`Processing comment from @${commenter} (type: ${commenterType}) on PR #${prNumber} by @${prAuthor}`);
+            core.info(`Processing from @${commenter} (type: ${commenterType}) on PR #${prNumber} by @${prAuthor}`);
 
             // Ignore bots
             if (commenterType === 'Bot' || commenter.endsWith('[bot]')) {
