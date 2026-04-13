@@ -254,7 +254,12 @@ def is_encrypted(value: str) -> bool:
 PROVIDER_SECRET_FIELDS: frozenset[str] = frozenset({"api_key"})
 
 # Fields that should be encrypted when persisting auth.json.
-AUTH_SECRET_FIELDS: frozenset[str] = frozenset({"jwt_secret"})
+AUTH_SECRET_FIELDS: frozenset[str] = frozenset(
+    {
+        "jwt_secret",
+        "local_cli_token",
+    },
+)
 
 
 def encrypt_dict_fields(

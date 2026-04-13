@@ -220,7 +220,8 @@ def _load_auth_data() -> dict:
     set to ``True`` when the file exists but cannot be read/parsed so
     that callers can fail closed instead of silently bypassing auth.
 
-    Encrypted fields (``jwt_secret``) are transparently decrypted.
+    Encrypted fields (``jwt_secret`` and ``local_cli_token``) are
+    transparently decrypted.
     Legacy plaintext values trigger an automatic re-encryption.
     """
     if AUTH_FILE.is_file():
@@ -254,7 +255,8 @@ def _load_auth_data() -> dict:
 def _save_auth_data(data: dict) -> None:
     """Save ``auth.json`` to ``SECRET_DIR`` with restrictive permissions.
 
-    Sensitive fields (``jwt_secret``) are encrypted before writing.
+    Sensitive fields (``jwt_secret`` and ``local_cli_token``) are encrypted
+    before writing.
     """
     _prepare_secret_parent(AUTH_FILE)
     encrypted_data = encrypt_dict_fields(data, AUTH_SECRET_FIELDS)
