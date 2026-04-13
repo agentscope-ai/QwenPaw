@@ -176,7 +176,6 @@ export function RemoteModelManageModal({
   const { message } = useAppMessage();
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [discovering, setDiscovering] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
