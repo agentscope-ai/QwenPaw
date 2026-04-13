@@ -952,12 +952,11 @@ export function RemoteModelManageModal({
                   notFoundContent={
                     loadingDiscoveredModels
                       ? t("common.loading")
-                        : t("models.modelDiscoveryUnavailableHint")
+                      : t("models.modelDiscoveryUnavailableHint")
                   }
                 >
                   <Input />
                 </AutoComplete>
-
               </Form.Item>
               <Form.Item
                 name="name"

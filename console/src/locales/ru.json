@@ -709,7 +709,7 @@
     "addModelTitle": "Добавить модель в {{provider}}",
     "modelIdLabel": "ID модели",
     "modelIdPlaceholder": "например: gpt-4o, gemini-2.0-flash",
-      "modelDiscoveryUnavailableHint": "Доступные модели не найдены. Возможно, этот провайдер не поддерживает получение списка моделей, поэтому введите ID модели вручную.",
+    "modelDiscoveryUnavailableHint": "Доступные модели не найдены. Возможно, этот провайдер не поддерживает получение списка моделей, поэтому введите ID модели вручную.",
     "modelNameLabel": "Название модели",
     "modelNameRequired": "Пожалуйста, введите название модели",
     "modelNamePlaceholder": "например: GPT-4o, Gemini 2.0 Flash",
