@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      pull-requests: write
 
     steps:
       - name: Add Under Review label
