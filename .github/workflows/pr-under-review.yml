@@ -14,7 +14,6 @@ jobs:
     if: github.event.issue.pull_request || github.event.pull_request
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write
       issues: write
 
     steps:
@@ -59,21 +58,7 @@ jobs:
               return;
             }
 
-            // Check if label already exists first
-            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-            });
-
-            const hasLabel = labels.some(label => label.name === 'Under Review');
-
-            if (hasLabel) {
-              core.info(`PR #${prNumber} already has "Under Review" label, skipping`);
-              return;
-            }
-
-            // Get commenter's permission level
+            // Check commenter's permission level first to avoid unnecessary API calls
             core.info(`Checking permissions for @${commenter}`);
 
             let permission;
@@ -100,16 +85,32 @@ jobs:
             // Check if user has admin, maintain, or write permission
             const allowedPermissions = ['admin', 'maintain', 'write'];
 
-            if (allowedPermissions.includes(permission.permission)) {
-              // Add label
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                labels: ['Under Review'],
-              });
-
-              core.info(`Successfully added "Under Review" label to PR #${prNumber}`);
-            } else {
-              core.info(`@${commenter} has insufficient permissions (${permission.permission}), skipping label addition`);
+            if (!allowedPermissions.includes(permission.permission)) {
+              core.info(`@${commenter} has insufficient permissions (${permission.permission}), skipping`);
+              return;
             }
+
+            // Check if label already exists before adding
+            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+
+            const hasLabel = labels.some(label => label.name === 'Under Review');
+
+            if (hasLabel) {
+              core.info(`PR #${prNumber} already has "Under Review" label, skipping`);
+              return;
+            }
+
+            // Add label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['Under Review'],
+            });
+
+            core.info(`Successfully added "Under Review" label to PR #${prNumber}`);
+
