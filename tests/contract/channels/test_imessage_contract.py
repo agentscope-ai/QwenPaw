@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 from tests.contract.channels import ChannelContractTest
 
 if TYPE_CHECKING:
-    from src.copaw.app.channels.base import BaseChannel
+    from qwenpaw.app.channels.base import BaseChannel
 
 
 class TestIMessageChannelContract(ChannelContractTest):
@@ -28,7 +28,7 @@ class TestIMessageChannelContract(ChannelContractTest):
 
     def create_instance(self) -> "BaseChannel":
         """Provide an IMessageChannel instance for contract testing."""
-        from src.copaw.app.channels.imessage.channel import IMessageChannel
+        from qwenpaw.app.channels.imessage.channel import IMessageChannel
 
         process = AsyncMock()
 

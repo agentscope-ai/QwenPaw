@@ -22,7 +22,7 @@ import pytest
 from tests.contract.channels import ChannelContractTest
 
 if TYPE_CHECKING:
-    from src.copaw.app.channels.base import BaseChannel
+    from qwenpaw.app.channels.base import BaseChannel
 
 
 class TestDingTalkChannelContract(ChannelContractTest):
@@ -51,7 +51,7 @@ class TestDingTalkChannelContract(ChannelContractTest):
 
         Uses mocks to avoid requiring real DingTalk credentials.
         """
-        from src.copaw.app.channels.dingtalk.channel import DingTalkChannel
+        from qwenpaw.app.channels.dingtalk.channel import DingTalkChannel
 
         process = AsyncMock()
 

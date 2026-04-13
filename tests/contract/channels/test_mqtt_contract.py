@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 from tests.contract.channels import ChannelContractTest
 
 if TYPE_CHECKING:
-    from src.copaw.app.channels.base import BaseChannel
+    from qwenpaw.app.channels.base import BaseChannel
 
 
 class TestMQTTChannelContract(ChannelContractTest):
@@ -28,7 +28,7 @@ class TestMQTTChannelContract(ChannelContractTest):
 
     def create_instance(self) -> "BaseChannel":
         """Provide a MQTTChannel instance for contract testing."""
-        from src.copaw.app.channels.mqtt.channel import MQTTChannel
+        from qwenpaw.app.channels.mqtt.channel import MQTTChannel
 
         process = AsyncMock()
 

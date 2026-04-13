@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 from tests.contract.channels import ChannelContractTest
 
 if TYPE_CHECKING:
-    from src.copaw.app.channels.base import BaseChannel
+    from qwenpaw.app.channels.base import BaseChannel
 
 
 class TestDiscordChannelContract(ChannelContractTest):
@@ -28,7 +28,7 @@ class TestDiscordChannelContract(ChannelContractTest):
 
     def create_instance(self) -> "BaseChannel":
         """Provide a DiscordChannel instance for contract testing."""
-        from src.copaw.app.channels.discord_.channel import DiscordChannel
+        from qwenpaw.app.channels.discord_.channel import DiscordChannel
 
         process = AsyncMock()
 

@@ -16,7 +16,7 @@ import pytest
 from tests.contract.channels import ChannelContractTest
 
 if TYPE_CHECKING:
-    from src.copaw.app.channels.base import BaseChannel
+    from qwenpaw.app.channels.base import BaseChannel
 
 
 def create_mock_process_handler():
@@ -46,7 +46,7 @@ class TestConsoleChannelContract(ChannelContractTest):
 
     def create_instance(self) -> "BaseChannel":
         """Provide a ConsoleChannel instance for contract testing."""
-        from src.copaw.app.channels.console.channel import ConsoleChannel
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
 
         process = create_mock_process_handler()
         return ConsoleChannel(
@@ -78,7 +78,7 @@ def test_all_channel_subclasses_have_contract_tests():
     Run periodically in CI to ensure completeness.
     """
     import inspect
-    from src.copaw.app.channels.base import BaseChannel
+    from qwenpaw.app.channels.base import BaseChannel
 
     # Get all concrete ChannelContractTest implementations
     tested_classes = set()
