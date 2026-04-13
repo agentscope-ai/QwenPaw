@@ -227,7 +227,7 @@ export function ImportHubModal({
 
       <div className={styles.divider}>
         {t("skills.orChooseFromSources", {
-          defaultValue: "or choose from popular sources",
+          defaultValue: "or choose from supported Skill marketplaces",
         })}
       </div>
 
