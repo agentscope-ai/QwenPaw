@@ -20,7 +20,7 @@ const defaultConfig = {
     description:
       "I am a helpful assistant that can help you with your questions.",
     avatar:
-      "https://gw.alicdn.com/imgextra/i2/O1CN01AhpakO1sQ8TLGlBox_!!6000000005760-55-tps-175-235.svg",
+      "https://gw.alicdn.com/imgextra/i2/O1CN01xRQe2y1iZA7ZBP06g_!!6000000004426-55-tps-175-235.svg",
     prompts: [
       {
         value: "Let's start a new journey!",

@@ -125,14 +125,21 @@ export const providerApi = {
       },
     ),
 
-  discoverModels: (providerId: string, body?: TestProviderRequest) =>
-    request<DiscoverModelsResponse>(
+  discoverModels: (
+    providerId: string,
+    body?: TestProviderRequest,
+    save: boolean = true,
+  ) => {
+    const url = new URL(
       `/models/${encodeURIComponent(providerId)}/discover`,
-      {
-        method: "POST",
-        body: body ? JSON.stringify(body) : undefined,
-      },
-    ),
+      window.location.origin,
+    );
+    url.searchParams.set("save", save.toString());
+    return request<DiscoverModelsResponse>(url.pathname + url.search, {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  },
 
   probeMultimodal: (providerId: string, modelId: string) =>
     request<ProbeMultimodalResponse>(

@@ -847,19 +847,30 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     async def fetch_provider_models(
         self,
         provider_id: str,
+        save: bool = True,
     ) -> List[ModelInfo]:
-        """Fetch the list of available models from a provider and update."""
+        """Fetch the list of available models from a provider.
+
+        Args:
+            provider_id: The ID of the provider to fetch models from.
+            save: If True, save the discovered models to the provider
+                configuration. Defaults to True.
+
+        Returns:
+            List of ModelInfo objects representing available models.
+        """
         provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return []
         try:
             models = await provider.fetch_models()
-            provider.extra_models = models
-            self._save_provider(
-                provider,
-                is_builtin=provider_id in self.builtin_providers,
-            )
+            if save:
+                provider.extra_models = models
+                self._save_provider(
+                    provider,
+                    is_builtin=provider_id in self.builtin_providers,
+                )
             return models
         except Exception as e:
             logger.warning(
