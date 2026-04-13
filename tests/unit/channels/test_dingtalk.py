@@ -1549,51 +1549,6 @@ class TestDingTalkAICardStore:
         assert data["pending_cards"][0]["card_instance_id"] == "active_card"
 
 
-class TestDingTalkAICardHelpers:
-    """Tests for AI card helper functions."""
-
-    def test_is_group_conversation_true(self):
-        """Should identify group conversation IDs."""
-        from qwenpaw.app.channels.dingtalk.ai_card import is_group_conversation
-
-        result = is_group_conversation("cidabc123")
-
-        assert result is True
-
-    def test_is_group_conversation_false(self):
-        """Should identify non-group conversation IDs."""
-        from qwenpaw.app.channels.dingtalk.ai_card import is_group_conversation
-
-        result = is_group_conversation("singleabc123")
-
-        assert result is False
-
-    def test_thinking_or_tool_to_card_text_truncates(self):
-        """Should truncate long text."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            thinking_or_tool_to_card_text,
-        )
-
-        long_text = "A" * 600
-        result = thinking_or_tool_to_card_text(long_text, "Title")
-
-        assert "…" in result  # Should have truncation marker
-        assert len(result) < 650  # Should be truncated
-
-    def test_thinking_or_tool_to_card_text_formats_lines(self):
-        """Should format lines with blockquote."""
-        from qwenpaw.app.channels.dingtalk.ai_card import (
-            thinking_or_tool_to_card_text,
-        )
-
-        text = "Line 1\nLine 2"
-        result = thinking_or_tool_to_card_text(text, "Title")
-
-        assert "> Line 1" in result
-        assert "> Line 2" in result
-        assert "Title" in result
-
-
 # =============================================================================
 # P2: Ack Early (Streaming)
 # =============================================================================

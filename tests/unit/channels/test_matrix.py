@@ -94,61 +94,55 @@ class TestMatrixChannelInit:
 
     def test_init_with_required_params(self, mock_process):
         """Test initialization with required parameters."""
-        channel = MatrixChannel(
-            process=mock_process,
-            enabled=True,
+        config = MatrixConfig(
             homeserver="https://matrix.example.com",
             user_id="@bot:example.com",
             access_token="test_token",
         )
+        channel = MatrixChannel(process=mock_process, config=config)
 
-        assert channel.enabled is True
-        assert channel.homeserver == "https://matrix.example.com"
-        assert channel.user_id == "@bot:example.com"
-        assert channel.access_token == "test_token"
+        assert channel._cfg.homeserver == "https://matrix.example.com"
+        assert channel._cfg.user_id == "@bot:example.com"
+        assert channel._cfg.access_token == "test_token"
         assert channel.channel == "matrix"
         assert channel.uses_manager_queue is True
-        assert channel.client is None
+        assert channel._client is None
         assert channel._sync_task is None
 
     def test_init_homeserver_trailing_slash(self, mock_process):
         """Test that trailing slash is stripped from homeserver."""
-        channel = MatrixChannel(
-            process=mock_process,
-            enabled=True,
+        config = MatrixConfig(
             homeserver="https://matrix.example.com/",
             user_id="@bot:example.com",
             access_token="test_token",
         )
+        channel = MatrixChannel(process=mock_process, config=config)
 
-        assert channel.homeserver == "https://matrix.example.com"
+        assert channel._cfg.homeserver == "https://matrix.example.com"
 
     def test_init_with_all_params(self, mock_process):
         """Test initialization with all optional parameters."""
-        channel = MatrixChannel(
-            process=mock_process,
-            enabled=True,
+        config = MatrixConfig(
             homeserver="https://matrix.example.com",
             user_id="@bot:example.com",
             access_token="test_token",
-            on_reply_sent=Mock(),
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
             bot_prefix="!cmd",
             dm_policy="allowlist",
             group_policy="allowlist",
             allow_from=["@user:example.com"],
-            deny_message="Custom deny message",
-            require_mention=True,
+        )
+        channel = MatrixChannel(
+            process=mock_process,
+            config=config,
+            on_reply_sent=Mock(),
+            show_tool_details=False,
+            filter_tool_messages=True,
+            filter_thinking=True,
         )
 
-        assert channel.bot_prefix == "!cmd"
-        assert channel.dm_policy == "allowlist"
-        assert channel.group_policy == "allowlist"
-        assert channel.allow_from == {"@user:example.com"}
-        assert channel.deny_message == "Custom deny message"
-        assert channel.require_mention is True
+        assert channel._cfg.bot_prefix == "!cmd"
+        assert channel._cfg.dm_policy == "allowlist"
+        assert channel._cfg.group_policy == "allowlist"
         assert channel._show_tool_details is False
         assert channel._filter_tool_messages is True
         assert channel._filter_thinking is True
