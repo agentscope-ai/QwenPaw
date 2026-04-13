@@ -679,13 +679,21 @@ class WecomChannel(BaseChannel):
         Returns the ack frame body dict, or raises on timeout / error.
         """
         req_id = generate_req_id(cmd)
-        loop = asyncio.get_event_loop()
+        loop = self._loop or asyncio.get_running_loop()
         fut: asyncio.Future[Any] = loop.create_future()
         self._upload_ack_futures[req_id] = fut
         try:
-            await self._client._ws_manager.send(
-                {"cmd": cmd, "headers": {"req_id": req_id}, "body": body},
-            )
+            if self._ws_loop and self._ws_loop.is_running():
+                send_coro = self._client._ws_manager.send(
+                    {"cmd": cmd, "headers": {"req_id": req_id}, "body": body},
+                )
+                await asyncio.wrap_future(
+                    asyncio.run_coroutine_threadsafe(send_coro, self._ws_loop)
+                )
+            else:
+                await self._client._ws_manager.send(
+                    {"cmd": cmd, "headers": {"req_id": req_id}, "body": body},
+                )
             ack = await asyncio.wait_for(
                 asyncio.shield(fut),
                 timeout=_UPLOAD_ACK_TIMEOUT,
@@ -883,12 +891,23 @@ class WecomChannel(BaseChannel):
             return
         try:
             sid = stream_id or generate_req_id("stream")
-            await self._client.reply_stream(
-                frame,
-                stream_id=sid,
-                content=text,
-                finish=True,
-            )
+            if self._ws_loop and self._ws_loop.is_running():
+                reply_coro = self._client.reply_stream(
+                    frame,
+                    stream_id=sid,
+                    content=text,
+                    finish=True,
+                )
+                await asyncio.wrap_future(
+                    asyncio.run_coroutine_threadsafe(reply_coro, self._ws_loop)
+                )
+            else:
+                await self._client.reply_stream(
+                    frame,
+                    stream_id=sid,
+                    content=text,
+                    finish=True,
+                )
         except Exception:
             logger.exception("wecom _send_text_via_frame failed")
 
