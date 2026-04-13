@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Button, Modal } from "@agentscope-ai/design";
 import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
@@ -15,14 +15,6 @@ import {
 import { isSupportedSkillUrl, skillMarkets, type SkillMarket } from "./index";
 import styles from "./ImportHubModal.module.less";
 
-type ValidationStatus = "default" | "validating" | "valid" | "invalid";
-
-interface ValidationState {
-  status: ValidationStatus;
-  message?: string;
-  source?: string;
-}
-
 interface ImportHubModalProps {
   open: boolean;
   importing: boolean;
@@ -32,183 +24,33 @@ interface ImportHubModalProps {
   hint?: string;
 }
 
-function detectSource(url: string): SkillMarket | undefined {
+function getSource(url: string): SkillMarket | undefined {
   return skillMarkets.find((market) =>
     url.toLowerCase().startsWith(market.urlPrefix.toLowerCase()),
   );
 }
 
-async function validateSkillUrl(url: string): Promise<ValidationState> {
+function validateUrl(url: string): { ok: true; source: string } | { ok: false; message: string } {
   if (!url.trim()) {
-    return { status: "default" };
+    return { ok: false, message: "" };
   }
 
   try {
     new URL(url);
   } catch {
-    return {
-      status: "invalid",
-      message: "Invalid URL format",
-    };
+    return { ok: false, message: "Invalid URL format" };
   }
 
-  const source = detectSource(url);
+  const source = getSource(url);
   if (!source) {
-    return {
-      status: "invalid",
-      message: "Unsupported source",
-    };
+    return { ok: false, message: "Unsupported source" };
   }
 
   if (!isSupportedSkillUrl(url)) {
-    return {
-      status: "invalid",
-      message: "URL format not supported",
-    };
+    return { ok: false, message: "URL format not supported" };
   }
 
-  return { status: "valid", source: source.name };
-}
-
-function ValidationStatus({ validation }: { validation: ValidationState }) {
-  const { t } = useTranslation();
-
-  if (validation.status === "default") {
-    return <div className={styles.validationStatus} />;
-  }
-
-  if (validation.status === "validating") {
-    return (
-      <div
-        className={`${styles.validationStatus} ${styles.validating}`}
-        aria-live="polite"
-      >
-        <Spin size="small" />
-        {t("skills.validatingUrl", { defaultValue: "Validating URL..." })}
-      </div>
-    );
-  }
-
-  if (validation.status === "valid") {
-    return (
-      <div className={`${styles.validationStatus} ${styles.valid}`}>
-        <CheckCircleOutlined />
-        {t("skills.urlValid", {
-          defaultValue: "Valid URL from {{source}}",
-          source: validation.source,
-        })}
-      </div>
-    );
-  }
-
-  return (
-    <div className={`${styles.validationStatus} ${styles.invalid}`}>
-      <CloseCircleOutlined />
-      {validation.message ||
-        t("skills.invalidUrl", { defaultValue: "Invalid URL" })}
-    </div>
-  );
-}
-
-interface SourceCardProps {
-  market: SkillMarket;
-  isActive: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-}
-
-function SourceCard({ market, isActive, onClick, disabled }: SourceCardProps) {
-  const exampleCount = market.examples.length;
-
-  return (
-    <div
-      className={`${styles.sourceCard} ${isActive ? styles.active : ""} ${
-        disabled ? styles.disabled : ""
-      }`}
-      onClick={disabled ? undefined : onClick}
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      onKeyDown={(e) => {
-        if (!disabled && e.key === "Enter") {
-          onClick();
-        }
-      }}
-      aria-expanded={isActive}
-      aria-label={market.name}
-    >
-      <a
-        href={market.homepage}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={styles.externalLink}
-        onClick={(e) => e.stopPropagation()}
-        title={market.homepage}
-        aria-label={`${market.name} homepage`}
-      >
-        <ExportOutlined />
-      </a>
-      <div className={styles.sourceCardName}>{market.name}</div>
-      <div className={styles.sourceCardMeta}>
-        {exampleCount > 0 && (
-          <>
-            {exampleCount} {"examples"}
-            <DownOutlined className={styles.sourceCardArrow} />
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-interface ExamplesPanelProps {
-  market: SkillMarket;
-  onSelect: (url: string) => void;
-}
-
-function ExamplesPanel({ market, onSelect }: ExamplesPanelProps) {
-  const { t } = useTranslation();
-
-  if (market.examples.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className={styles.examplesPanel}>
-      <div className={styles.examplesHeader}>
-        <PaperClipOutlined />
-        {t("skills.examplesFrom", {
-          defaultValue: "Examples from {{source}}",
-          source: market.name,
-        })}
-      </div>
-      <div className={styles.examplesList}>
-        {market.examples.map((example, idx) => (
-          <button
-            key={idx}
-            className={styles.exampleItem}
-            onClick={() => onSelect(example.url)}
-            title={t("skills.clickToFill", {
-              defaultValue: "Click to fill in URL",
-            })}
-            type="button"
-          >
-            <LinkOutlined className={styles.exampleItemIcon} />
-            <span
-              style={{
-                flex: 1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {example.url}
-            </span>
-            <span className={styles.exampleItemLabel}>{example.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+  return { ok: true, source: source.name };
 }
 
 export function ImportHubModal({
@@ -221,67 +63,68 @@ export function ImportHubModal({
 }: ImportHubModalProps) {
   const { t } = useTranslation();
   const [importUrl, setImportUrl] = useState("");
-  const [validation, setValidation] = useState<ValidationState>({
-    status: "default",
-  });
-  const [activeMarket, setActiveMarket] = useState<string | null>(skillMarkets[0]?.key || null);
+  const [urlError, setUrlError] = useState("");
+  const [validSource, setValidSource] = useState("");
+  const [activeMarket, setActiveMarket] = useState<string | null>(
+    skillMarkets[0]?.key || null,
+  );
 
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     if (importing) return;
     setImportUrl("");
-    setValidation({ status: "default" });
+    setUrlError("");
+    setValidSource("");
     setActiveMarket(skillMarkets[0]?.key || null);
     onCancel();
-  }, [importing, onCancel]);
+  };
 
-  const handleUrlChange = useCallback(async (value: string) => {
+  const handleUrlChange = (value: string) => {
     setImportUrl(value);
-    if (!value.trim()) {
-      setValidation({ status: "default" });
-      return;
+    const result = validateUrl(value);
+    if (result.ok) {
+      setUrlError("");
+      setValidSource(result.source);
+    } else {
+      setUrlError(result.message);
+      setValidSource("");
     }
-    setValidation({ status: "validating" });
-    const result = await validateSkillUrl(value);
-    setValidation(result);
-  }, []);
+  };
 
-  const handlePaste = useCallback(async () => {
+  const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
       handleUrlChange(text);
-    } catch {
-      // ignore paste errors
-    }
-  }, [handleUrlChange]);
+    } catch {}
+  };
 
-  const handleClear = useCallback(() => {
+  const handleClear = () => {
     setImportUrl("");
-    setValidation({ status: "default" });
-  }, []);
+    setUrlError("");
+    setValidSource("");
+  };
 
-  const handleSelectExample = useCallback(
-    (url: string) => {
-      handleUrlChange(url);
-    },
-    [handleUrlChange],
-  );
-
-  const toggleMarket = useCallback((key: string) => {
+  const toggleMarket = (key: string) => {
     setActiveMarket((prev) => (prev === key ? null : key));
-  }, []);
+  };
 
-  const handleConfirm = useCallback(async () => {
+  const handleConfirm = async () => {
     if (importing) return;
     const trimmed = importUrl.trim();
     if (!trimmed) return;
-    if (validation.status !== "valid") return;
+    const result = validateUrl(trimmed);
+    if (!result.ok) return;
     await onConfirm(trimmed);
-  }, [importUrl, importing, validation.status, onConfirm]);
+  };
 
-  const canImport = validation.status === "valid" && !importing;
+  const canImport = !!validSource && !importing;
 
-  const inputStateClass =
-    validation.status === "default" ? "" : styles[validation.status];
+  const inputStateClass = urlError
+    ? styles.invalid
+    : validSource
+      ? styles.valid
+      : "";
+
+  const activeMarketData = skillMarkets.find((m) => m.key === activeMarket);
 
   return (
     <Modal
@@ -324,10 +167,7 @@ export function ImportHubModal({
       )}
 
       <div className={styles.urlInputSection}>
-        <div
-          className={`${styles.inputWrapper} ${inputStateClass}`}
-          style={{ marginBottom: 0 }}
-        >
+        <div className={`${styles.inputWrapper} ${inputStateClass}`}>
           <LinkOutlined className={styles.urlInputIcon} />
           <input
             className={styles.urlInput}
@@ -359,7 +199,28 @@ export function ImportHubModal({
             <CopyOutlined />
           </button>
         </div>
-        <ValidationStatus validation={validation} />
+
+        <div className={styles.validationStatus}>
+          {validSource ? (
+            <span className={styles.valid}>
+              <CheckCircleOutlined />
+              {t("skills.urlValid", {
+                defaultValue: "Valid URL from {{source}}",
+                source: validSource,
+              })}
+            </span>
+          ) : urlError ? (
+            <span className={styles.invalid}>
+              <CloseCircleOutlined />
+              {urlError}
+            </span>
+          ) : importing ? (
+            <span className={styles.validating}>
+              <Spin size="small" />
+              {t("common.loading")}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className={styles.divider}>
@@ -370,21 +231,73 @@ export function ImportHubModal({
 
       <div className={styles.sourcesGrid}>
         {skillMarkets.map((market: SkillMarket) => (
-          <SourceCard
+          <div
             key={market.key}
-            market={market}
-            isActive={activeMarket === market.key}
-            onClick={() => toggleMarket(market.key)}
-            disabled={importing}
-          />
+            className={`${styles.sourceCard} ${activeMarket === market.key ? styles.active : ""} ${importing ? styles.disabled : ""}`}
+            onClick={importing ? undefined : () => toggleMarket(market.key)}
+            role="button"
+            tabIndex={importing ? -1 : 0}
+            onKeyDown={(e) => {
+              if (!importing && e.key === "Enter") {
+                toggleMarket(market.key);
+              }
+            }}
+            aria-expanded={activeMarket === market.key}
+            aria-label={market.name}
+          >
+            <a
+              href={market.homepage}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.externalLink}
+              onClick={(e) => e.stopPropagation()}
+              title={market.homepage}
+              aria-label={`${market.name} homepage`}
+            >
+              <ExportOutlined />
+            </a>
+            <div className={styles.sourceCardName}>{market.name}</div>
+            <div className={styles.sourceCardMeta}>
+              {market.examples.length > 0 && (
+                <>
+                  {market.examples.length} examples
+                  <DownOutlined
+                    className={`${styles.sourceCardArrow} ${activeMarket === market.key ? styles.active : ""}`}
+                  />
+                </>
+              )}
+            </div>
+          </div>
         ))}
       </div>
 
-      {activeMarket && (
-        <ExamplesPanel
-          market={skillMarkets.find((m) => m.key === activeMarket)!}
-          onSelect={handleSelectExample}
-        />
+      {activeMarketData && activeMarketData.examples.length > 0 && (
+        <div className={styles.examplesPanel}>
+          <div className={styles.examplesHeader}>
+            <PaperClipOutlined />
+            {t("skills.examplesFrom", {
+              defaultValue: "Examples from {{source}}",
+              source: activeMarketData.name,
+            })}
+          </div>
+          <div className={styles.examplesList}>
+            {activeMarketData.examples.map((example, idx) => (
+              <button
+                key={idx}
+                className={styles.exampleItem}
+                onClick={() => handleUrlChange(example.url)}
+                title={t("skills.clickToFill", {
+                  defaultValue: "Click to fill in URL",
+                })}
+                type="button"
+              >
+                <LinkOutlined className={styles.exampleItemIcon} />
+                <span className={styles.exampleUrl}>{example.url}</span>
+                <span className={styles.exampleItemLabel}>{example.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
     </Modal>
   );
