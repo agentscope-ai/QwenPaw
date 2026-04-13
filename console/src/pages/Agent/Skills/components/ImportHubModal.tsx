@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { Button, Modal, Spin } from "@agentscope-ai/design";
+import { Button, Modal } from "@agentscope-ai/design";
+import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   ExportOutlined,
@@ -52,7 +53,6 @@ async function validateSkillUrl(url: string): Promise<ValidationState> {
   }
 
   try {
-    // eslint-disable-next-line no-new
     new URL(url);
   } catch {
     return {
@@ -132,7 +132,9 @@ function SourceCard({ market, isActive, onClick, disabled }: SourceCardProps) {
 
   return (
     <div
-      className={`${styles.sourceCard} ${isActive ? styles.active : ""} ${disabled ? styles.disabled : ""}`}
+      className={`${styles.sourceCard} ${isActive ? styles.active : ""} ${
+        disabled ? styles.disabled : ""
+      }`}
       onClick={disabled ? undefined : onClick}
       role="button"
       tabIndex={disabled ? -1 : 0}
@@ -202,7 +204,14 @@ function ExamplesPanel({ market, onSelect }: ExamplesPanelProps) {
             type="button"
           >
             <LinkOutlined className={styles.exampleItemIcon} />
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span
+              style={{
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {example.url}
             </span>
             <span className={styles.exampleItemLabel}>{example.label}</span>
@@ -252,6 +261,7 @@ export function ImportHubModal({
       const text = await navigator.clipboard.readText();
       handleUrlChange(text);
     } catch {
+      // ignore paste errors
     }
   }, [handleUrlChange]);
 
@@ -298,9 +308,7 @@ export function ImportHubModal({
         <div className={styles.modalFooter}>
           <Button
             className={styles.cancelButton}
-            onClick={
-              importing && cancelImport ? cancelImport : handleClose
-            }
+            onClick={importing && cancelImport ? cancelImport : handleClose}
           >
             {t(
               importing && cancelImport
