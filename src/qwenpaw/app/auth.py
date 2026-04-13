@@ -41,8 +41,11 @@ logger = logging.getLogger(__name__)
 
 AUTH_FILE = SECRET_DIR / "auth.json"
 
-# Token validity: 7 days
+# Token validity: 7 days (default)
 TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
+
+# Maximum token validity: 100 years (for "permanent" tokens)
+TOKEN_EXPIRY_MAX = 100 * 365 * 24 * 3600
 
 # Paths that do NOT require authentication
 _PUBLIC_PATHS: frozenset[str] = frozenset(
@@ -118,16 +121,35 @@ def _get_jwt_secret() -> str:
     return secret
 
 
-def create_token(username: str) -> str:
-    """Create an HMAC-signed token: ``base64(payload).signature``."""
+def create_token(username: str, expiry_seconds: Optional[int] = None) -> str:
+    """Create an HMAC-signed token: ``base64(payload).signature``.
+
+    Args:
+        username: The username to encode in the token.
+        expiry_seconds: Custom expiry time in seconds.
+            Use -1 or 0 for permanent tokens.
+            Defaults to TOKEN_EXPIRY_SECONDS (7 days).
+    """
     import base64
 
+    if expiry_seconds is None:
+        expiry_seconds = TOKEN_EXPIRY_SECONDS
+    elif expiry_seconds <= 0:
+        # Permanent token: 100 years
+        expiry_seconds = TOKEN_EXPIRY_MAX
+    else:
+        # Cap at maximum allowed expiry
+        expiry_seconds = min(expiry_seconds, TOKEN_EXPIRY_MAX)
+
     secret = _get_jwt_secret()
+    # Generate unique token ID (jti) for revocation support
+    token_id = secrets.token_hex(16)
     payload = json.dumps(
         {
             "sub": username,
-            "exp": int(time.time()) + TOKEN_EXPIRY_SECONDS,
+            "exp": int(time.time()) + expiry_seconds,
             "iat": int(time.time()),
+            "jti": token_id,  # JWT ID for individual revocation
         },
     )
     payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode()
@@ -140,7 +162,10 @@ def create_token(username: str) -> str:
 
 
 def verify_token(token: str) -> Optional[str]:
-    """Verify *token*, return username if valid, ``None`` otherwise."""
+    """Verify *token*, return username if valid, ``None`` otherwise.
+
+    Also checks if the token has been revoked (appears in the revocation list).
+    """
     import base64
 
     try:
@@ -159,6 +184,12 @@ def verify_token(token: str) -> Optional[str]:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64))
         if payload.get("exp", 0) < time.time():
             return None
+
+        # Check if token is revoked
+        jti = payload.get("jti")
+        if jti and _is_token_revoked(jti):
+            return None
+
         return payload.get("sub")
     except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
         logger.debug("Token verification failed: %s", exc)
@@ -220,6 +251,71 @@ def _save_auth_data(data: dict) -> None:
     _chmod_best_effort(AUTH_FILE, 0o600)
 
 
+# ---------------------------------------------------------------------------
+# Token revocation (blacklist management)
+# ---------------------------------------------------------------------------
+
+
+def _is_token_revoked(jti: str) -> bool:
+    """Check if a token ID (jti) is in the revocation list."""
+    data = _load_auth_data()
+    revoked = data.get("revoked_tokens", [])
+    return jti in revoked
+
+
+def _add_to_revocation_list(jti: str, exp: int) -> None:
+    """Add a token ID to the revocation list with its expiry time."""
+    data = _load_auth_data()
+    if data.get("_auth_load_error"):
+        return
+
+    if "revoked_tokens" not in data:
+        data["revoked_tokens"] = []
+
+    # Store as dict with expiry time for future cleanup
+    if jti not in data["revoked_tokens"]:
+        data["revoked_tokens"].append(jti)
+
+    # Also track expiry times for cleanup
+    if "revoked_tokens_meta" not in data:
+        data["revoked_tokens_meta"] = {}
+    data["revoked_tokens_meta"][jti] = exp
+
+    _save_auth_data(data)
+
+
+def _clean_expired_revocations() -> None:
+    """
+    Remove expired tokens from the revocation list to prevent unbounded growth.
+    """
+    data = _load_auth_data()
+    if data.get("_auth_load_error"):
+        return
+
+    revoked = data.get("revoked_tokens", [])
+    meta = data.get("revoked_tokens_meta", {})
+    current_time = int(time.time())
+
+    # Remove expired tokens
+    cleaned_revoked = []
+    cleaned_meta = {}
+
+    for jti in revoked:
+        exp = meta.get(jti, 0)
+        if exp > current_time:
+            cleaned_revoked.append(jti)
+            cleaned_meta[jti] = exp
+
+    if len(cleaned_revoked) < len(revoked):
+        data["revoked_tokens"] = cleaned_revoked
+        data["revoked_tokens_meta"] = cleaned_meta
+        _save_auth_data(data)
+        logger.info(
+            "Cleaned %d expired tokens from revocation list",
+            len(revoked) - len(cleaned_revoked),
+        )
+
+
 def is_auth_enabled() -> bool:
     """Check whether authentication is enabled via environment variable.
 
@@ -243,8 +339,17 @@ def has_registered_users() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def register_user(username: str, password: str) -> Optional[str]:
+def register_user(
+    username: str,
+    password: str,
+    expiry_seconds: Optional[int] = None,
+) -> Optional[str]:
     """Register the single user account.
+
+    Args:
+        username: The username to register.
+        password: The password to register.
+        expiry_seconds: Custom token expiry time in seconds.
 
     Returns a token on success, ``None`` if a user already exists.
     """
@@ -267,7 +372,7 @@ def register_user(username: str, password: str) -> Optional[str]:
 
     _save_auth_data(data)
     logger.info("User '%s' registered", username)
-    return create_token(username)
+    return create_token(username, expiry_seconds)
 
 
 def auto_register_from_env() -> None:
@@ -306,12 +411,19 @@ def update_credentials(
     current_password: str,
     new_username: Optional[str] = None,
     new_password: Optional[str] = None,
+    expiry_seconds: Optional[int] = None,
 ) -> Optional[str]:
     """Update the registered user's username and/or password.
 
     Requires the current password for verification.  Returns a new
     token on success (because the username may have changed), or
     ``None`` if verification fails.
+
+    Args:
+        current_password: The current password for verification.
+        new_username: The new username (optional).
+        new_password: The new password (optional).
+        expiry_seconds: Custom token expiry time in seconds.
     """
     data = _load_auth_data()
     user = data.get("user")
@@ -336,7 +448,7 @@ def update_credentials(
     data["user"] = user
     _save_auth_data(data)
     logger.info("Credentials updated for user '%s'", user["username"])
-    return create_token(user["username"])
+    return create_token(user["username"], expiry_seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -344,8 +456,18 @@ def update_credentials(
 # ---------------------------------------------------------------------------
 
 
-def authenticate(username: str, password: str) -> Optional[str]:
-    """Authenticate *username* / *password*.  Returns a token if valid."""
+def authenticate(
+    username: str,
+    password: str,
+    expiry_seconds: Optional[int] = None,
+) -> Optional[str]:
+    """Authenticate *username* / *password*.  Returns a token if valid.
+
+    Args:
+        username: The username to authenticate.
+        password: The password to verify.
+        expiry_seconds: Custom token expiry time in seconds.
+    """
     data = _load_auth_data()
     user = data.get("user")
     if not user:
@@ -359,8 +481,72 @@ def authenticate(username: str, password: str) -> Optional[str]:
         and stored_salt
         and verify_password(password, stored_hash, stored_salt)
     ):
-        return create_token(username)
+        return create_token(username, expiry_seconds)
     return None
+
+
+def revoke_token(token: str) -> bool:
+    """Revoke a single token by adding its jti to the blacklist.
+
+    Args:
+        token: The token string to revoke.
+
+    Returns True on success, False on failure.
+    """
+    import base64
+
+    try:
+        # Extract jti and exp from token
+        parts = token.split(".", 1)
+        if len(parts) != 2:
+            return False
+
+        payload_b64 = parts[0]
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        jti = payload.get("jti")
+        exp = payload.get("exp", 0)
+
+        if not jti:
+            logger.warning("Token has no jti, cannot revoke individually")
+            return False
+
+        _add_to_revocation_list(jti, exp)
+        logger.info("Token %s revoked", jti[:8])
+
+        # Clean up expired tokens periodically
+        _clean_expired_revocations()
+
+        return True
+    except Exception as exc:
+        logger.error("Failed to revoke token: %s", exc)
+        return False
+
+
+def revoke_all_tokens() -> bool:
+    """Revoke all existing tokens by rotating the JWT secret.
+
+    This will invalidate all tokens that were issued before this call.
+    Also clears the revocation list since all tokens are invalid anyway.
+    Returns True on success, False on failure.
+    """
+    try:
+        data = _load_auth_data()
+        if data.get("_auth_load_error"):
+            return False
+
+        # Rotate JWT secret to invalidate all existing tokens
+        data["jwt_secret"] = secrets.token_hex(32)
+
+        # Clear revocation list since all tokens are now invalid
+        data["revoked_tokens"] = []
+        data["revoked_tokens_meta"] = {}
+
+        _save_auth_data(data)
+        logger.info("All tokens revoked (JWT secret rotated)")
+        return True
+    except Exception as exc:
+        logger.error("Failed to revoke tokens: %s", exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
