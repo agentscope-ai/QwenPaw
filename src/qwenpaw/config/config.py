@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 import os
 import json
+import re
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any
+from typing import Optional, Union, Dict, List, Literal, Any, Set
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 import shortuuid
@@ -26,6 +27,14 @@ from ..constant import (
 )
 from ..providers.models import ModelSlotConfig
 
+# Agent ID validation: lowercase alphanumeric, hyphens, underscores.
+_AGENT_ID_PATTERN = re.compile(
+    r"^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0-9]$",
+)
+_AGENT_ID_MIN_LENGTH = 2
+_AGENT_ID_MAX_LENGTH = 64
+_RESERVED_AGENT_IDS = frozenset({"default"})
+
 
 def generate_short_agent_id() -> str:
     """Generate a 6-character short UUID for agent identification.
@@ -34,6 +43,59 @@ def generate_short_agent_id() -> str:
         6-character short UUID string
     """
     return shortuuid.ShortUUID().random(length=6)
+
+
+def sanitize_agent_id(raw: str) -> str:
+    """Normalize raw agent ID input: strip whitespace and lowercase.
+
+    Args:
+        raw: Raw user input for agent ID.
+
+    Returns:
+        Sanitized agent ID string.
+    """
+    return raw.strip().lower()
+
+
+def validate_agent_id(
+    agent_id: str,
+    existing_ids: Set[str],
+) -> None:
+    """Validate a custom agent ID.
+
+    Checks length, character set, reserved words, and uniqueness.
+
+    Args:
+        agent_id: The sanitized agent ID to validate.
+        existing_ids: Set of already-registered agent IDs.
+
+    Raises:
+        ValueError: If the ID is invalid.
+    """
+    if len(agent_id) < _AGENT_ID_MIN_LENGTH:
+        raise ValueError(
+            f"Agent ID must be at least {_AGENT_ID_MIN_LENGTH} characters, "
+            f"got {len(agent_id)}.",
+        )
+    if len(agent_id) > _AGENT_ID_MAX_LENGTH:
+        raise ValueError(
+            f"Agent ID must be at most {_AGENT_ID_MAX_LENGTH} characters, "
+            f"got {len(agent_id)}.",
+        )
+    if not _AGENT_ID_PATTERN.match(agent_id):
+        raise ValueError(
+            f"Agent ID '{agent_id}' contains invalid characters. "
+            "Only lowercase letters, digits, hyphens, and underscores "
+            "are allowed. Cannot start or end with '-' or '_'.",
+        )
+    if agent_id in _RESERVED_AGENT_IDS:
+        raise ValueError(
+            f"Agent ID '{agent_id}' is reserved and cannot be used.",
+        )
+    if agent_id in existing_ids:
+        raise ValueError(
+            f"Agent ID '{agent_id}' already exists.",
+        )
 
 
 class BaseChannelConfig(BaseModel):

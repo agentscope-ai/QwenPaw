@@ -123,6 +123,21 @@ export function AgentModal({
             <Input disabled />
           </Form.Item>
         )}
+        {!editingAgent && (
+          <Form.Item
+            name="id"
+            label={t("agent.idLabel")}
+            help={t("agent.idHelp")}
+            rules={[
+              {
+                pattern: /^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$/,
+                message: t("agent.idPattern"),
+              },
+            ]}
+          >
+            <Input placeholder={t("agent.idPlaceholder")} />
+          </Form.Item>
+        )}
         <Form.Item
           name="name"
           label={t("agent.name")}

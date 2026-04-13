@@ -83,6 +83,8 @@
     "loadConfigFailed": "エージェント設定の読み込みに失敗しました",
     "saveFailed": "エージェントの保存に失敗しました",
     "idRequired": "エージェント ID を入力してください",
+    "idLabel": "エージェント ID（任意）",
+    "idHelp": "空欄のままにすると自動生成されます。小文字、数字、ハイフン、アンダースコアのみ使用可能。",
     "idPattern": "ID は小文字、数字、アンダースコア、ハイフンのみ使用できます",
     "idPlaceholder": "例：my-agent",
     "nameRequired": "エージェント名を入力してください",

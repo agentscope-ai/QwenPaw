@@ -23,6 +23,8 @@ from ...config.config import (
     load_agent_config,
     save_agent_config,
     generate_short_agent_id,
+    sanitize_agent_id,
+    validate_agent_id,
 )
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
@@ -59,13 +61,30 @@ class ReorderAgentsRequest(BaseModel):
 
 
 class CreateAgentRequest(BaseModel):
-    """Request model for creating a new agent (id is auto-generated)."""
+    """Request model for creating a new agent.
 
+    The ``id`` field is optional.  When provided the server uses it as
+    the agent identifier (after lowercasing); when omitted a random
+    short UUID is generated automatically.
+    """
+
+    id: str | None = None
     name: str
     description: str = ""
     workspace_dir: str | None = None
     language: str = "en"
     skill_names: list[str] | None = None
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def sanitize_id(cls, value: str | None) -> str | None:
+        """Strip whitespace and lowercase the custom ID."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            sanitized = sanitize_agent_id(value)
+            return sanitized if sanitized else None
+        return value
 
     @field_validator("workspace_dir", mode="before")
     @classmethod
@@ -244,6 +263,23 @@ async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _generate_unique_id(existing_ids: set[str]) -> str:
+    """Generate a unique random short agent ID.
+
+    Raises:
+        HTTPException: If a unique ID could not be generated.
+    """
+    max_attempts = 10
+    for _ in range(max_attempts):
+        candidate_id = generate_short_agent_id()
+        if candidate_id not in existing_ids:
+            return candidate_id
+    raise HTTPException(
+        status_code=500,
+        detail="Failed to generate unique agent ID after 10 attempts",
+    )
+
+
 @router.post(
     "",
     response_model=AgentProfileRef,
@@ -254,22 +290,26 @@ async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
 async def create_agent(
     request: CreateAgentRequest = Body(...),
 ) -> AgentProfileRef:
-    """Create a new agent with auto-generated ID."""
+    """Create a new agent.
+
+    When ``request.id`` is provided, it is used as the agent identifier
+    (validated for URL-safe characters, length, reserved words, and
+    uniqueness).  Otherwise a random short UUID is generated.
+    """
     config = load_config()
+    existing_ids = set(config.agents.profiles.keys())
 
-    max_attempts = 10
-    new_id = None
-    for _ in range(max_attempts):
-        candidate_id = generate_short_agent_id()
-        if candidate_id not in config.agents.profiles:
-            new_id = candidate_id
-            break
-
-    if new_id is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate unique agent ID after 10 attempts",
-        )
+    if request.id:
+        try:
+            validate_agent_id(request.id, existing_ids)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=str(e),
+            ) from e
+        new_id = request.id
+    else:
+        new_id = _generate_unique_id(existing_ids)
 
     workspace_dir = Path(
         request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
