@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button, Modal } from "@agentscope-ai/design";
 import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
@@ -24,31 +24,26 @@ interface ImportHubModalProps {
   hint?: string;
 }
 
-function getSource(url: string): SkillMarket | undefined {
-  return skillMarkets.find((market) =>
-    url.toLowerCase().startsWith(market.urlPrefix.toLowerCase()),
-  );
-}
-
-function validateUrl(
-  url: string,
-): { ok: true; source: string } | { ok: false; message: string } {
-  if (!url.trim()) {
+function validateUrl(url: string): { ok: true; source: string } | { ok: false; message: string } {
+  const trimmed = url.trim();
+  if (!trimmed) {
     return { ok: false, message: "" };
   }
 
   try {
-    new URL(url);
+    new URL(trimmed);
   } catch {
     return { ok: false, message: "Invalid URL format" };
   }
 
-  const source = getSource(url);
+  const source = skillMarkets.find((m) =>
+    trimmed.toLowerCase().startsWith(m.urlPrefix.toLowerCase()),
+  );
   if (!source) {
     return { ok: false, message: "Unsupported source" };
   }
 
-  if (!isSupportedSkillUrl(url)) {
+  if (!isSupportedSkillUrl(trimmed)) {
     return { ok: false, message: "URL format not supported" };
   }
 
@@ -65,66 +60,30 @@ export function ImportHubModal({
 }: ImportHubModalProps) {
   const { t } = useTranslation();
   const [importUrl, setImportUrl] = useState("");
-  const [urlError, setUrlError] = useState("");
-  const [validSource, setValidSource] = useState("");
   const [activeMarket, setActiveMarket] = useState<string | null>(
     skillMarkets[0]?.key || null,
   );
 
+  const validation = useMemo(() => validateUrl(importUrl), [importUrl]);
+  const canImport = validation.ok && !importing;
+
   const handleClose = () => {
     if (importing) return;
     setImportUrl("");
-    setUrlError("");
-    setValidSource("");
     setActiveMarket(skillMarkets[0]?.key || null);
     onCancel();
   };
 
-  const handleUrlChange = (value: string) => {
-    setImportUrl(value);
-    const result = validateUrl(value);
-    if (result.ok) {
-      setUrlError("");
-      setValidSource(result.source);
-    } else {
-      setUrlError(result.message);
-      setValidSource("");
-    }
-  };
-
-  const handlePaste = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      handleUrlChange(text);
-    } catch {}
-  };
-
-  const handleClear = () => {
-    setImportUrl("");
-    setUrlError("");
-    setValidSource("");
-  };
-
-  const toggleMarket = (key: string) => {
-    setActiveMarket((prev) => (prev === key ? null : key));
-  };
-
   const handleConfirm = async () => {
-    if (importing) return;
-    const trimmed = importUrl.trim();
-    if (!trimmed) return;
-    const result = validateUrl(trimmed);
-    if (!result.ok) return;
-    await onConfirm(trimmed);
+    if (importing || !validation.ok) return;
+    await onConfirm(importUrl.trim());
   };
 
-  const canImport = !!validSource && !importing;
-
-  const inputStateClass = urlError
-    ? styles.invalid
-    : validSource
+  const inputStateClass = validation.ok
     ? styles.valid
-    : "";
+    : validation.message
+      ? styles.invalid
+      : "";
 
   const activeMarketData = skillMarkets.find((m) => m.key === activeMarket);
 
@@ -144,11 +103,7 @@ export function ImportHubModal({
             className={styles.cancelButton}
             onClick={importing && cancelImport ? cancelImport : handleClose}
           >
-            {t(
-              importing && cancelImport
-                ? "skills.cancelImport"
-                : "common.cancel",
-            )}
+            {t(importing && cancelImport ? "skills.cancelImport" : "common.cancel")}
           </Button>
           <Button
             className={styles.importButton}
@@ -163,9 +118,7 @@ export function ImportHubModal({
       }
     >
       {hint && (
-        <p style={{ margin: "0 0 12px", fontSize: 13, color: "#666" }}>
-          {hint}
-        </p>
+        <p style={{ margin: "0 0 12px", fontSize: 13, color: "#666" }}>{hint}</p>
       )}
 
       <div className={styles.urlInputSection}>
@@ -174,44 +127,49 @@ export function ImportHubModal({
           <input
             className={styles.urlInput}
             value={importUrl}
-            onChange={(e) => handleUrlChange(e.target.value)}
-            placeholder={t("skills.enterSkillUrl") || "https://..."}
+            onChange={(e) => setImportUrl(e.target.value)}
+            placeholder={t("skills.enterSkillUrl")}
             disabled={importing}
-            aria-label={t("skills.enterSkillUrl") || "Skill URL"}
+            aria-label={t("skills.enterSkillUrl")}
             type="text"
           />
           {importUrl && (
             <button
               className={styles.iconButton}
-              onClick={handleClear}
-              title="Clear"
+              onClick={() => setImportUrl("")}
+              title={t("common.clear")}
               type="button"
-              aria-label="Clear URL"
+              aria-label={t("common.clear")}
             >
               <CloseOutlined />
             </button>
           )}
           <button
             className={styles.iconButton}
-            onClick={handlePaste}
-            title="Paste from clipboard"
+            onClick={async () => {
+              try {
+                const text = await navigator.clipboard.readText();
+                setImportUrl(text);
+              } catch {}
+            }}
+            title={t("common.paste")}
             type="button"
-            aria-label="Paste from clipboard"
+            aria-label={t("common.paste")}
           >
             <CopyOutlined />
           </button>
         </div>
 
         <div className={styles.validationStatus}>
-          {validSource ? (
+          {validation.ok ? (
             <span className={styles.valid}>
               <CheckCircleOutlined />
-              {t("skills.urlValid", { source: validSource })}
+              {t("skills.urlValid", { source: validation.source })}
             </span>
-          ) : urlError ? (
+          ) : validation.message ? (
             <span className={styles.invalid}>
               <CloseCircleOutlined />
-              {urlError}
+              {validation.message}
             </span>
           ) : importing ? (
             <span className={styles.validating}>
@@ -231,12 +189,12 @@ export function ImportHubModal({
             className={`${styles.sourceCard} ${
               activeMarket === market.key ? styles.active : ""
             } ${importing ? styles.disabled : ""}`}
-            onClick={importing ? undefined : () => toggleMarket(market.key)}
+            onClick={importing ? undefined : () => setActiveMarket((prev) => (prev === market.key ? null : market.key))}
             role="button"
             tabIndex={importing ? -1 : 0}
             onKeyDown={(e) => {
               if (!importing && e.key === "Enter") {
-                toggleMarket(market.key);
+                setActiveMarket((prev) => (prev === market.key ? null : market.key));
               }
             }}
             aria-expanded={activeMarket === market.key}
@@ -281,7 +239,7 @@ export function ImportHubModal({
               <button
                 key={idx}
                 className={styles.exampleItem}
-                onClick={() => handleUrlChange(example.url)}
+                onClick={() => setImportUrl(example.url)}
                 title={t("skills.clickToFill")}
                 type="button"
               >
