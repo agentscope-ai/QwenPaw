@@ -21,8 +21,11 @@ jobs:
       - name: Add Under Review label
         uses: actions/github-script@v7
         with:
+          # Use PAT if available for better permissions on forked PRs
+          # Otherwise fallback to GITHUB_TOKEN (limited permissions on forks)
+          github-token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
-            // Get commenter information and PR number
+            // Get commenter/reviewer information and PR details
             let commenter;
             let commenterType;
             let prNumber;
@@ -45,7 +48,7 @@ jobs:
               prAuthor = context.payload.pull_request.user.login;
             }
 
-            core.info(`Processing comment from @${commenter} (type: ${commenterType}) on PR #${prNumber} by @${prAuthor}`);
+            core.info(`Processing from @${commenter} (type: ${commenterType}) on PR #${prNumber} by @${prAuthor}`);
 
             // Ignore bots
             if (commenterType === 'Bot' || commenter.endsWith('[bot]')) {
@@ -55,11 +58,11 @@ jobs:
 
             // Ignore PR author self-comments
             if (commenter === prAuthor) {
-              core.info(`@${commenter} is the PR author, skipping self-comment`);
+              core.info(`@${commenter} is the PR author, skipping self-action`);
               return;
             }
 
-            // Check commenter's permission level first to avoid unnecessary API calls
+            // Check commenter's permission level
             core.info(`Checking permissions for @${commenter}`);
 
             let permission;
@@ -106,12 +109,21 @@ jobs:
             }
 
             // Add label
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              labels: ['Under Review'],
-            });
+            try {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                labels: ['Under Review'],
+              });
 
-            core.info(`Successfully added "Under Review" label to PR #${prNumber}`);
+              core.info(`Successfully added "Under Review" label to PR #${prNumber}`);
+            } catch (error) {
+              // Handle permission errors on forked PRs with certain event types
+              if (error.status === 403) {
+                core.warning(`Unable to add label due to permissions (likely a forked PR with review event). Configure PAT_TOKEN secret to fix this.`);
+                return;
+              }
+              throw error;
+            }
 
