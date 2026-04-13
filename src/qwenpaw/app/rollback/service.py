@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -68,6 +69,7 @@ class SnapshotService:
         self.history_file = self.rollback_dir / "history.json"
         self.lock_file = self.rollback_dir / "workspace.lock"
         self._lock_key = str(self.workspace_dir)
+        self._git_error_logged = False
         self._git_env = {
             **os.environ,
             "GIT_CONFIG_GLOBAL": "",
@@ -137,13 +139,23 @@ class SnapshotService:
         cmd: list[str],
     ) -> tuple[int, str, str]:
         """Run a subprocess and return (code, stdout, stderr)."""
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=self._git_env,
-            cwd=str(self.workspace_dir),
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self._git_env,
+                cwd=str(self.workspace_dir),
+            )
+        except (FileNotFoundError, OSError) as exc:
+            if not self._git_error_logged:
+                logger.warning(
+                    "Rollback disabled for %s because git is unavailable: %s",
+                    self.workspace_dir,
+                    exc,
+                )
+                self._git_error_logged = True
+            return 127, "", str(exc)
         stdout, stderr = await process.communicate()
         return (
             process.returncode or 0,
@@ -243,7 +255,8 @@ class SnapshotService:
             "diff",
             "--cached",
             "--no-ext-diff",
-            "--name-only",
+            "--find-renames",
+            "--name-status",
             base_hash,
             "--",
             ".",
@@ -251,7 +264,33 @@ class SnapshotService:
         if code != 0:
             logger.warning("Failed to get patch diff: %s", stderr)
             return []
-        return [item.strip() for item in stdout.splitlines() if item.strip()]
+        return self._parse_changed_paths(stdout)
+
+    @staticmethod
+    def _parse_changed_paths(diff_output: str) -> list[str]:
+        """Return rollback-relevant paths from git name-status output."""
+        paths: list[str] = []
+        seen: set[str] = set()
+
+        for line in diff_output.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            status = parts[0]
+            candidates = parts[1:]
+            if status.startswith(("R", "C")) and len(candidates) >= 2:
+                chosen = candidates[:2]
+            elif candidates:
+                chosen = candidates[:1]
+            else:
+                continue
+
+            for path in chosen:
+                if path not in seen:
+                    seen.add(path)
+                    paths.append(path)
+
+        return paths
 
     async def _files_match_tree_locked(
         self,
@@ -355,26 +394,68 @@ class SnapshotService:
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Failed to load rollback history: %s", exc)
             return []
-        return [RollbackEntry.from_dict(entry) for entry in payload]
+        if not isinstance(payload, list):
+            logger.warning(
+                "Rollback history is not a list, ignoring: %s",
+                self.history_file,
+            )
+            return []
+
+        valid_entries: list[RollbackEntry] = []
+        invalid_count = 0
+        for entry in payload:
+            if not isinstance(entry, dict):
+                invalid_count += 1
+                continue
+            try:
+                valid_entries.append(RollbackEntry.from_dict(entry))
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "Skipping invalid rollback history entry in %s: %s",
+                    self.history_file,
+                    exc,
+                )
+                invalid_count += 1
+
+        if invalid_count:
+            logger.warning(
+                "Skipped %s invalid rollback history entr%s in %s",
+                invalid_count,
+                "y" if invalid_count == 1 else "ies",
+                self.history_file,
+            )
+        return valid_entries
 
     async def _save_history_locked(
         self,
         history: list[RollbackEntry],
     ) -> None:
         self.history_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_path: Path | None = None
         try:
-            with open(
-                self.history_file,
+            with tempfile.NamedTemporaryFile(
                 "w",
+                dir=self.history_file.parent,
+                prefix=f".{self.history_file.stem}_",
+                suffix=self.history_file.suffix,
+                delete=False,
                 encoding="utf-8",
             ) as handle:
                 json.dump(
                     [entry.to_dict() for entry in history],
                     handle,
                     indent=2,
+                    ensure_ascii=False,
                 )
+                handle.flush()
+                os.fsync(handle.fileno())
+                temp_path = Path(handle.name)
+            temp_path.replace(self.history_file)
         except OSError as exc:
             logger.warning("Failed to save rollback history: %s", exc)
+        finally:
+            if temp_path is not None and temp_path.exists():
+                temp_path.unlink(missing_ok=True)
 
     @staticmethod
     def _latest_applied(

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name
+# pylint: disable=redefined-outer-name,protected-access
 
 import asyncio
 from pathlib import Path
@@ -100,6 +100,26 @@ def test_snapshot_service_revert_overwrite_and_new_file(temp_workspace):
     assert not created.exists()
 
 
+def test_undo_restores_renamed_file(temp_workspace):
+    svc = SnapshotService(temp_workspace)
+    source = temp_workspace / "a.txt"
+    source.write_text("payload", encoding="utf-8")
+    before_hash = _run(svc.track())
+
+    target = temp_workspace / "b.txt"
+    source.rename(target)
+    entry = _run(svc.record_history_if_changed("sess1", before_hash))
+
+    assert entry is not None
+    assert sorted(entry.files) == ["a.txt", "b.txt"]
+
+    status, _ = _run(svc.undo_latest())
+
+    assert status == "ok"
+    assert source.read_text(encoding="utf-8") == "payload"
+    assert not target.exists()
+
+
 def test_record_history_if_changed_creates_linear_entry(temp_workspace):
     svc = SnapshotService(temp_workspace)
     file_path = temp_workspace / "note.txt"
@@ -181,6 +201,44 @@ def test_undo_and_redo_follow_linear_history(temp_workspace):
     assert target.read_text(encoding="utf-8") == "state3"
 
 
+def test_undo_redo_can_interleave(temp_workspace):
+    svc = SnapshotService(temp_workspace)
+    target = temp_workspace / "story.txt"
+    target.write_text("state1", encoding="utf-8")
+
+    before_hash = _run(svc.track())
+    target.write_text("state2", encoding="utf-8")
+    assert (
+        _run(svc.record_history_if_changed("sess1", before_hash)) is not None
+    )
+
+    before_hash = _run(svc.track())
+    target.write_text("state3", encoding="utf-8")
+    assert (
+        _run(svc.record_history_if_changed("sess1", before_hash)) is not None
+    )
+
+    status, _ = _run(svc.undo_latest())
+    assert status == "ok"
+    assert target.read_text(encoding="utf-8") == "state2"
+
+    status, _ = _run(svc.redo_latest())
+    assert status == "ok"
+    assert target.read_text(encoding="utf-8") == "state3"
+
+    status, _ = _run(svc.undo_latest())
+    assert status == "ok"
+    assert target.read_text(encoding="utf-8") == "state2"
+
+    status, _ = _run(svc.undo_latest())
+    assert status == "ok"
+    assert target.read_text(encoding="utf-8") == "state1"
+
+    status, _ = _run(svc.redo_latest())
+    assert status == "ok"
+    assert target.read_text(encoding="utf-8") == "state2"
+
+
 def test_undo_is_blocked_when_workspace_diverges(temp_workspace):
     svc = SnapshotService(temp_workspace)
     target = temp_workspace / "note.txt"
@@ -222,3 +280,36 @@ def test_undo_ignores_unrelated_workspace_noise(temp_workspace):
 
     assert status == "ok"
     assert target.read_text(encoding="utf-8") == "v1"
+
+
+def test_load_history_skips_invalid_entries(temp_workspace):
+    svc = SnapshotService(temp_workspace)
+    svc.rollback_dir.mkdir(parents=True, exist_ok=True)
+    svc.history_file.write_text(
+        '[{"id":"ok","session_id":"s","before_hash":"a","after_hash":"b",'
+        '"files":["x.txt"],"created_at":1.0,"status":"applied"},'
+        '"bad-entry",'
+        '{"id":"broken"}]',
+        encoding="utf-8",
+    )
+
+    history = _run(svc._load_history_locked())
+
+    assert len(history) == 1
+    assert history[0].id == "ok"
+
+
+def test_track_returns_none_when_git_is_unavailable(
+    temp_workspace,
+    monkeypatch,
+):
+    svc = SnapshotService(temp_workspace)
+    test_file = temp_workspace / "test.txt"
+    test_file.write_text("payload", encoding="utf-8")
+
+    async def fake_run_command(_cmd):
+        return 127, "", "git missing"
+
+    monkeypatch.setattr(svc, "_run_command", fake_run_command)
+
+    assert _run(svc.track()) is None

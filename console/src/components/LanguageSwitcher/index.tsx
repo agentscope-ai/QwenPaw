@@ -7,7 +7,7 @@ import {
   SparkChinese02Line,
   SparkEnglish02Line,
   SparkJapanLine,
-  SparkUsdLine,
+  SparkRusLine,
 } from "@agentscope-ai/icons";
 
 export default function LanguageSwitcher() {
@@ -53,7 +53,7 @@ export default function LanguageSwitcher() {
     en: <SparkEnglish02Line />,
     zh: <SparkChinese02Line />,
     ja: <SparkJapanLine />,
-    ru: <SparkUsdLine />,
+    ru: <SparkRusLine />,
   };
 
   return (

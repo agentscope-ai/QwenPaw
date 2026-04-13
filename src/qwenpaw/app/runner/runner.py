@@ -69,6 +69,8 @@ def _is_approval(text: str) -> bool:
 
 
 class AgentRunner(Runner):
+    _workspace_run_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(
         self,
         agent_id: str = "default",
@@ -110,6 +112,33 @@ class AgentRunner(Runner):
             workspace: Workspace instance
         """
         self._workspace = workspace
+
+    def _get_workspace_run_lock(self) -> asyncio.Lock:
+        """Return the per-workspace execution lock."""
+        workspace_key = str(
+            (self.workspace_dir if self.workspace_dir else WORKING_DIR)
+            .expanduser()
+            .resolve(),
+        )
+        lock = self._workspace_run_locks.get(workspace_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._workspace_run_locks[workspace_key] = lock
+        return lock
+
+    async def _capture_before_hash(
+        self,
+        snapshot_svc: SnapshotService,
+    ) -> str | None:
+        """Best-effort pre-run snapshot capture."""
+        try:
+            return await snapshot_svc.track()
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Rollback: failed to capture pre-run snapshot",
+                exc_info=True,
+            )
+            return None
 
     async def _record_rollback_if_changed(
         self,
@@ -570,19 +599,20 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            before_hash = await snapshot_svc.track()
-            try:
-                async for msg, last in stream_printing_messages(
-                    agents=[agent],
-                    coroutine_task=agent(msgs),
-                ):
-                    yield msg, last
-            finally:
-                await self._record_rollback_if_changed(
-                    snapshot_svc=snapshot_svc,
-                    session_id=session_id,
-                    before_hash=before_hash,
-                )
+            async with self._get_workspace_run_lock():
+                before_hash = await self._capture_before_hash(snapshot_svc)
+                try:
+                    async for msg, last in stream_printing_messages(
+                        agents=[agent],
+                        coroutine_task=agent(msgs),
+                    ):
+                        yield msg, last
+                finally:
+                    await self._record_rollback_if_changed(
+                        snapshot_svc=snapshot_svc,
+                        session_id=session_id,
+                        before_hash=before_hash,
+                    )
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
