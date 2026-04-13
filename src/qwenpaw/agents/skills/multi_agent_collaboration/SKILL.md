@@ -272,7 +272,7 @@ qwenpaw agents chat \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
   --mode stream \
-  --text-file ./agent_request.txt
+  --text "<your_message>"
 ```
 
 ### JSON 输出
@@ -282,7 +282,7 @@ qwenpaw agents chat \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
   --json-output \
-  --text-file ./agent_request.txt
+  --text "<your_message>"
 ```
 
 ---
@@ -303,8 +303,7 @@ qwenpaw agents chat \
 **必填参数**（实时模式）：
 - `--from-agent`：发起方agent ID
 - `--to-agent`：目标agent ID
-- `--text-file`：从文件读取消息内容（推荐）
-- `--text`：内联消息内容（适合短消息）
+- `--text`：消息内容
 
 **后台任务参数**（新增）：
 - `--background`：后台任务模式
@@ -350,7 +349,7 @@ qwenpaw agents chat \
 qwenpaw agents chat --background \
   --from-agent scheduler \
   --to-agent data_analyst \
-  --text-file ./analysis_request.txt
+  --text "<your_message>"
 ```
 
 **输出**：

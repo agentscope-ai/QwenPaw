@@ -300,8 +300,8 @@ def format_background_submission_text(
             f"[SESSION: {session_id}]",
             "",
             "Task submitted successfully.",
-            "Check status with: qwenpaw agents chat --background "
-            f"--task-id {task_id}",
+            "Check status with:  chat_with_agent(background=True, "
+            f"task_id='{task_id}')",
         ],
     )
 
@@ -357,9 +357,9 @@ async def list_agents(
     return _tool_text_response(_json_text(result))
 
 
-async def chat_with_agent(
-    to_agent: str,
-    text: str,
+async def chat_with_agent(  # pylint: disable=too-many-return-statements
+    to_agent: Optional[str] = None,
+    text: Optional[str] = None,
     session_id: Optional[str] = None,
     mode: str = "final",
     background: bool = False,
@@ -370,6 +370,7 @@ async def chat_with_agent(
     from_agent: Optional[str] = None,
 ) -> ToolResponse:
     """Send a message to another configured agent via the local API."""
+    # TODO: move background task check to a separate tool
     if background and task_id:
         result = await asyncio.to_thread(
             get_agent_chat_task_status,
@@ -383,6 +384,11 @@ async def chat_with_agent(
             else format_background_status_text(task_id, result)
         )
         return _tool_text_response(text_output)
+
+    if not to_agent or not text:
+        return _tool_text_response(
+            "ERROR: 'to_agent' and 'text' are required for chat",
+        )
 
     final_session_id, request_payload, _ = build_agent_chat_request(
         to_agent,
