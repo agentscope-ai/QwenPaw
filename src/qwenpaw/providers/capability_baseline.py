@@ -96,7 +96,7 @@ class ExpectedCapabilityRegistry:
         """Register a single baseline entry."""
         self._data[(cap.provider_id, cap.model_id)] = cap
 
-    def _load_baseline(self) -> None:
+    def _load_baseline(self) -> None:  # pylint: disable=too-many-statements
         """Load baseline data for built-in providers."""
 
         # ---------------------------------------------------------------
@@ -583,21 +583,42 @@ class ExpectedCapabilityRegistry:
                     note="MiniMax models are text-only",
                 ),
             )
+        # ---------------------------------------------------------------
+        # 13. OpenCode (OpenCode Zen)
+        #     https://opencode.ai/docs/zen
+        # ---------------------------------------------------------------
+        _oc_doc = "https://opencode.ai/docs/zen"
+        for mid in (
+            "big-pickle",
+            "nemotron-3-super-free",
+        ):
+            self._register(
+                ExpectedCapability(
+                    provider_id="opencode",
+                    model_id=mid,
+                    expected_image=False,
+                    expected_video=False,
+                    doc_url=_oc_doc,
+                    note=(
+                        "OpenCode Zen aggregates heterogeneous providers; "
+                        "capability varies by model, probe to determine."
+                    ),
+                ),
+            )
+        # ---------------------------------------------------------------
+        # 14. Ollama — no predefined models (dynamic discovery)
+        # ---------------------------------------------------------------
 
         # ---------------------------------------------------------------
-        # 13. Ollama — no predefined models (dynamic discovery)
+        # 15. LM Studio — no predefined models (dynamic discovery)
         # ---------------------------------------------------------------
 
         # ---------------------------------------------------------------
-        # 14. LM Studio — no predefined models (dynamic discovery)
+        # 16. llama.cpp — models discovered via local scan
         # ---------------------------------------------------------------
 
         # ---------------------------------------------------------------
-        # 15. llama.cpp — models discovered via local scan
-        # ---------------------------------------------------------------
-
-        # ---------------------------------------------------------------
-        # 16. MLX (Apple Silicon) — models discovered via local scan
+        # 17. MLX (Apple Silicon) — models discovered via local scan
         # ---------------------------------------------------------------
 
 

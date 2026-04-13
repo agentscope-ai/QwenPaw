@@ -994,6 +994,8 @@
   padding: 10px 16px;
   border-bottom: 1px solid #f5f5f5;
   transition: background 0.15s;
+  flex-wrap: wrap;
+  gap: 8px;
 
   &:last-child {
     border-bottom: none;
@@ -1064,6 +1066,16 @@
   font-size: 14px;
   font-weight: 500;
   color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelListItemTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
 }
 
 .modelListItemId {
@@ -1080,7 +1092,9 @@
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  margin-left: 12px;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .modelListItemStatusButton {

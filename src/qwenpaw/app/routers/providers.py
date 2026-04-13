@@ -27,8 +27,8 @@ from ..utils import schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
+from ...providers.openrouter_provider import OpenRouterProvider
 from ...providers.models import ModelSlotConfig
-
 
 logger = logging.getLogger(__name__)
 
@@ -631,3 +631,221 @@ async def set_active_model(
             model=body.model,
         ),
     )
+
+
+# =============================================================================
+# OpenRouter-specific endpoints for model discovery with filtering
+# =============================================================================
+
+
+class FilterModelsRequest(BaseModel):
+    """Request model for filtering OpenRouter models."""
+
+    providers: List[str] = Field(
+        default_factory=list,
+        description="Filter by provider/series (e.g., ['openai', 'google'])",
+    )
+    input_modalities: List[str] = Field(
+        default_factory=list,
+        description="Required input modalities (e.g., ['image'])",
+    )
+    output_modalities: List[str] = Field(
+        default_factory=list,
+        description="Required output modalities (e.g., ['text'])",
+    )
+    max_prompt_price: Optional[float] = Field(
+        default=None,
+        description="Maximum prompt price per 1M tokens (e.g., 0.000001)",
+    )
+
+
+class SeriesResponse(BaseModel):
+    """Response model for available series/providers."""
+
+    series: List[str] = Field(
+        default_factory=list,
+        description="Provider series (e.g., ['openai', 'google'])",
+    )
+
+
+class DiscoverExtendedResponse(BaseModel):
+    """Response model for extended model discovery."""
+
+    success: bool = Field(..., description="Whether discovery succeeded")
+    models: List[dict] = Field(
+        default_factory=list,
+        description="Discovered models with extended metadata",
+    )
+    providers: List[str] = Field(
+        default_factory=list,
+        description="Available provider series",
+    )
+    total_count: int = Field(
+        default=0,
+        description="Total number of models discovered",
+    )
+
+
+class FilterModelsResponse(BaseModel):
+    """Response model for filtered models."""
+
+    success: bool = Field(..., description="Whether filtering succeeded")
+    models: List[dict] = Field(
+        default_factory=list,
+        description="Filtered models with extended metadata",
+    )
+    total_count: int = Field(
+        default=0,
+        description="Total number of models matching filters",
+    )
+
+
+@router.get(
+    "/openrouter/series",
+    response_model=SeriesResponse,
+    summary="Get available OpenRouter provider series",
+)
+async def get_openrouter_series(
+    manager: ProviderManager = Depends(get_provider_manager),
+) -> SeriesResponse:
+    """Get list of available provider/series from OpenRouter."""
+    provider = manager.get_provider("openrouter")
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail="OpenRouter provider not found",
+        )
+
+    if not isinstance(provider, OpenRouterProvider):
+        raise HTTPException(
+            status_code=400,
+            detail="Provider is not an OpenRouter provider",
+        )
+
+    try:
+        series = await provider.get_available_providers()
+        return SeriesResponse(series=series)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch series: {str(exc)}",
+        ) from exc
+
+
+@router.post(
+    "/openrouter/discover-extended",
+    response_model=DiscoverExtendedResponse,
+    summary="Discover OpenRouter models with extended metadata",
+)
+async def discover_openrouter_extended(
+    manager: ProviderManager = Depends(get_provider_manager),
+    body: Optional[DiscoverModelsRequest] = Body(default=None),
+) -> DiscoverExtendedResponse:
+    """Discover available models from OpenRouter with full metadata."""
+    provider = manager.get_provider("openrouter")
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail="OpenRouter provider not found",
+        )
+
+    if not isinstance(provider, OpenRouterProvider):
+        raise HTTPException(
+            status_code=400,
+            detail="Provider is not an OpenRouter provider",
+        )
+
+    if body and body.api_key:
+        manager.update_provider("openrouter", {"api_key": body.api_key})
+
+    try:
+        models = await provider.fetch_extended_models()
+        providers = await provider.get_available_providers()
+
+        models_dict = [
+            {
+                "id": m.id,
+                "name": m.name,
+                "provider": m.provider,
+                "input_modalities": m.input_modalities,
+                "output_modalities": m.output_modalities,
+                "pricing": m.pricing,
+            }
+            for m in models
+        ]
+
+        return DiscoverExtendedResponse(
+            success=True,
+            models=models_dict,
+            providers=providers,
+            total_count=len(models_dict),
+        )
+    except Exception:
+        return DiscoverExtendedResponse(
+            success=False,
+            models=[],
+            providers=[],
+            total_count=0,
+        )
+
+
+@router.post(
+    "/openrouter/models/filter",
+    response_model=FilterModelsResponse,
+    summary="Filter OpenRouter models by criteria",
+)
+async def filter_openrouter_models(
+    manager: ProviderManager = Depends(get_provider_manager),
+    body: FilterModelsRequest = Body(...),
+) -> FilterModelsResponse:
+    """Filter OpenRouter models by provider, modalities, and price."""
+    provider = manager.get_provider("openrouter")
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail="OpenRouter provider not found",
+        )
+
+    if not isinstance(provider, OpenRouterProvider):
+        raise HTTPException(
+            status_code=400,
+            detail="Provider is not an OpenRouter provider",
+        )
+
+    try:
+        models = await provider.fetch_extended_models()
+
+        filtered_models = provider.filter_models(
+            models=models,
+            providers=body.providers if body.providers else None,
+            input_modalities=(
+                body.input_modalities if body.input_modalities else None
+            ),
+            output_modalities=(
+                body.output_modalities if body.output_modalities else None
+            ),
+            max_prompt_price=body.max_prompt_price,
+        )
+
+        models_dict = [
+            {
+                "id": m.id,
+                "name": m.name,
+                "provider": m.provider,
+                "input_modalities": m.input_modalities,
+                "output_modalities": m.output_modalities,
+                "pricing": m.pricing,
+            }
+            for m in filtered_models
+        ]
+
+        return FilterModelsResponse(
+            success=True,
+            models=models_dict,
+            total_count=len(models_dict),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to filter models: {str(exc)}",
+        ) from exc
