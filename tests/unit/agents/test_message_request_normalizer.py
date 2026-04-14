@@ -10,7 +10,6 @@ from qwenpaw.agents.utils.message_request_normalizer import (
     _clone_messages,
     _strip_media_blocks_in_place,
     normalize_messages_for_model_request,
-    normalize_messages_for_openai_compatible,
 )
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 
@@ -332,23 +331,6 @@ def test_normalize_returns_new_message_instances(text_message):
 
     assert normalized[0] is not msgs[0]
     assert normalized[0].content is not msgs[0].content
-
-
-# -----------------------------------------------------------------------------
-# normalize_messages_for_openai_compatible tests (alias)
-# -----------------------------------------------------------------------------
-
-
-def test_openai_compatible_alias_works(image_message):
-    """Test that the OpenAI-compatible alias works correctly."""
-    msgs = [image_message]
-    normalized = normalize_messages_for_openai_compatible(
-        msgs,
-        supports_multimodal=False,
-    )
-
-    assert normalized[0].content[0]["type"] == "text"
-    assert normalized[0].content[0]["text"] == MEDIA_UNSUPPORTED_PLACEHOLDER
 
 
 # -----------------------------------------------------------------------------

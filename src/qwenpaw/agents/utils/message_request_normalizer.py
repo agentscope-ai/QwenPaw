@@ -97,19 +97,6 @@ def normalize_messages_for_model_request(
     return normalized
 
 
-def normalize_messages_for_openai_compatible(
-    msgs: list[Msg],
-    *,
-    supports_multimodal: bool,
-) -> list[Msg]:
-    """Backward-compatible alias kept for older OpenAI-specific callers."""
-    return normalize_messages_for_model_request(
-        msgs,
-        supports_multimodal=supports_multimodal,
-    )
-
-
 __all__ = [
     "normalize_messages_for_model_request",
-    "normalize_messages_for_openai_compatible",
 ]
