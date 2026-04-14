@@ -238,12 +238,13 @@ docker pull agentscope/qwenpaw:latest
 docker run -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
   agentscope/qwenpaw:latest
 ```
 
 Для пользователей в Китае также доступен Alibaba Cloud Container Registry (ACR): `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw` (те же теги).
 
-Затем откройте консоль в браузере: **http://127.0.0.1:8088/**. Конфигурация, память и навыки сохраняются в томе `qwenpaw-data`; настройки моделей и API-ключи сохраняются в томе `qwenpaw-secrets`. Для передачи API-ключей (например, `DASHSCOPE_API_KEY`) добавьте `-e VAR=value` или `--env-file .env` в команду `docker run`.
+Затем откройте консоль в браузере: **http://127.0.0.1:8088/**. Конфигурация, память и навыки сохраняются в томе `qwenpaw-data`; настройки моделей и API-ключи сохраняются в томе `qwenpaw-secrets`; архивы резервных копий сохраняются в томе `qwenpaw-backups`. Для передачи API-ключей (например, `DASHSCOPE_API_KEY`) добавьте `-e VAR=value` или `--env-file .env` в команду `docker run`.
 
 > **Подключение к Ollama или другим сервисам на хост-машине из контейнера**
 >
@@ -255,6 +256,7 @@ docker run -p 127.0.0.1:8088:8088 \
 >   --add-host=host.docker.internal:host-gateway \
 >   -v qwenpaw-data:/app/working \
 >   -v qwenpaw-secrets:/app/working.secret \
+>   -v qwenpaw-backups:/app/working.backups \
 >   agentscope/qwenpaw:latest
 > ```
 > Затем в QwenPaw **Настройки → Модели** измените Base URL на `http://host.docker.internal:<порт>` — например, для Ollama используйте `http://host.docker.internal:11434`, для LM Studio — `http://host.docker.internal:1234/v1`.
@@ -264,6 +266,7 @@ docker run -p 127.0.0.1:8088:8088 \
 > docker run --network=host \
 >   -v qwenpaw-data:/app/working \
 >   -v qwenpaw-secrets:/app/working.secret \
+>   -v qwenpaw-backups:/app/working.backups \
 >   agentscope/qwenpaw:latest
 > ```
 > Не требуется сопоставление портов (`-p`), контейнер напрямую использует сеть хоста. Обратите внимание, что все порты контейнера будут доступны на хосте, что может вызвать конфликты с уже используемыми портами.
