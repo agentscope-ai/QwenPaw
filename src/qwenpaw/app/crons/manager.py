@@ -22,7 +22,6 @@ from .heartbeat import (
     parse_heartbeat_every,
     run_heartbeat_once,
 )
-from .dream import run_dream_once
 from .models import CronJobSpec, CronJobState
 from .repo.base import BaseJobRepository
 
@@ -129,8 +128,8 @@ class CronManager:
                     )
                 except Exception as e:  # pylint: disable=broad-except
                     logger.error(
-                        f"Failed to schedule dream-based memory optimization job for "
-                        f"agent {self._agent_id}: error={repr(e)}",
+                        f"Failed to schedule dream-based memory optimization"
+                        f"for  agent {self._agent_id}: error={repr(e)}",
                     )
 
             self._started = True
@@ -214,7 +213,8 @@ class CronManager:
                 logger.info("heartbeat disabled, job removed")
 
     async def reschedule_dream(self) -> None:
-        """Reschedule the dream-based memory optimization job based on configuration.
+        """Reschedule the dream-based memory optimization job based on
+        configuration.
 
         Note: CronManager should always be started during workspace
         initialization, so this method assumes self._started is True.
@@ -253,16 +253,19 @@ class CronManager:
                         replace_existing=True,
                     )
                     logger.info(
-                        f"Dream-based memory optimization job rescheduled for "
-                        f"agent {self._agent_id}: cron={dream_cron}",
+                        "Dream-based memory optimization job rescheduled"
+                        f"for agent {self._agent_id}: cron={dream_cron}",
                     )
                 except Exception as e:  # pylint: disable=broad-except
                     logger.error(
-                        f"Failed to reschedule dream-based memory optimization job for"
-                        f"agent {self._agent_id}: error={repr(e)}",
+                        "Failed to reschedule dream-based memory  "
+                        f"optimization for agent {self._agent_id}: "
+                        f"error={repr(e)}",
                     )
             else:
-                logger.info("dream-based memory optimization disabled, job removed")
+                logger.info(
+                    "dream-based memory optimization disabled, job removed",
+                )
 
     async def run_job(self, job_id: str) -> None:
         """Trigger a job to run in the background (fire-and-forget).
@@ -426,22 +429,11 @@ class CronManager:
     async def _dream_callback(self) -> None:
         """Run one dream-based memory optimization task."""
         try:
-            # Get workspace_dir from runner if available
-            workspace_dir = None
-            if hasattr(self._runner, "workspace_dir"):
-                workspace_dir = self._runner.workspace_dir
-
-            await run_dream_once(
-                runner=self._runner,
-                channel_manager=self._channel_manager,
-                agent_id=self._agent_id,
-                workspace_dir=workspace_dir,
-            )
-        except asyncio.CancelledError:
-            logger.info("dream-based memory optimization cancelled")
-            raise
-        except Exception:  # pylint: disable=broad-except
-            logger.exception("dream-based memory optimization run failed")
+            # Add dream task as background async task, similar to summary tasks
+            self._runner.memory_manager.add_async_dream_task()
+            logger.debug("Dream task added to background queue successfully")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error(f"Failed to schedule dream task: {e}", exc_info=True)
 
     async def _execute_once(self, job: CronJobSpec) -> None:
         rt = self._rt.get(job.id)

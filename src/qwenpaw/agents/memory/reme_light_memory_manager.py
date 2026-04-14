@@ -2,15 +2,18 @@
 # pylint: disable=too-many-branches
 # mypy: ignore-errors
 """ReMeLight-backed memory manager for agents."""
+import asyncio
 import importlib.metadata
 import json
 import logging
 import os
 import platform
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
 
@@ -435,3 +438,201 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         return self._reme.get_in_memory_memory(
             as_token_counter=get_token_counter(agent_config),
         )
+
+    # ------------------------------------------------------------------
+    # Dream-based memory optimization
+    # ------------------------------------------------------------------
+
+    async def dream_memory(self, **kwargs) -> None:
+        """
+        Run one dream-based memory optimization: execute dream task as
+        agent query.
+        """
+        logger.info("running dream-based memory optimization")
+
+        self.dream_path = Path(self.working_dir).absolute() / "dream"
+        self.dream_path.mkdir(parents=True, exist_ok=True)
+
+        self._prepare_model_formatter()
+
+        # Load agent config to get model configuration
+        agent_config = load_agent_config(self.agent_id)
+
+        set_current_workspace_dir(Path(self.working_dir))
+        recent_max_bytes = (
+            agent_config.running.tool_result_compact.recent_max_bytes
+        )
+        set_current_recent_max_bytes(recent_max_bytes)
+
+        # Determine language based on agent config
+        language = getattr(agent_config, "language", "zh")
+
+        # Get current date in YYYY-MM-DD format
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Build the dream prompt with working directory and current date
+        query_text = self._get_dream_prompt(
+            language,
+            current_date,
+        )
+
+        if not query_text.strip():
+            logger.debug("dream optimization skipped: empty query")
+            return
+
+        # Ensure model and formatter are prepared
+        self._prepare_model_formatter()
+
+        # Create a minimal ReActAgent for dream functionality
+        dream_agent = ReActAgent(
+            name="DreamOptimizer",
+            model=self.chat_model,
+            sys_prompt="You are a Dream Memory Organizer specialized"
+            " in optimizing long-term memory files.",
+            toolkit=self.summary_toolkit,
+            formatter=self.formatter,
+        )
+
+        # Build request message
+        user_msg = Msg(
+            name="dream",
+            role="user",
+            content=[TextBlock(type="text", text=query_text)],
+        )
+
+        # Run the dream agent with the query
+        async def _run_dream_agent() -> None:
+            try:
+                response = await dream_agent.reply(user_msg)
+                logger.debug(
+                    f"Dream agent response: {response.get_text_content()}",
+                )
+            except Exception as e:
+                logger.error(f"Dream agent failed: {e}")
+                raise
+
+        try:
+            await asyncio.wait_for(
+                _run_dream_agent(),
+                timeout=300,
+            )  # 5 minutes timeout
+            logger.info(
+                "dream-based memory optimization completed successfully",
+            )
+        except asyncio.TimeoutError:
+            logger.warning("dream-based memory optimization timed out")
+        except Exception as e:
+            logger.error("dream-based memory optimization failed: %s", repr(e))
+            raise
+
+    def _get_dream_prompt(
+        self,
+        language: str = "zh",
+        current_date: str = "",
+    ) -> str:
+        """Get the dream prompt based on language."""
+        prompts = {
+            "zh": (
+                "现在进入梦境状态，对长期记忆进行安全优化整理。请严格按照以下步骤操作，"
+                "确保所有变更都有备份且可回滚。\n\n【核心概念】\n"
+                "- DREAM.md：这是你自主管理的长期记忆沉淀文件，包含经过提炼的核心业务决策、用户偏好和高价值经验\n"
+                "- MEMORY.md：这是用户可直接编辑的参考文件，包含初始配置和用户手动添加的记忆\n"
+                "- 你的任务是维护和优化 DREAM.md，而不是直接修改 MEMORY.md\n\n"
+                "【梦境优化原则】\n"
+                "1. 极简去冗：严禁记录流水账、Bug修复细节或单次任务。"
+                "仅保留“核心业务决策”、“确认的用户偏好”与“高价值可复用经验”。\n"
+                "2. 状态覆写：若发现状态变更（如技术栈更改、配置更新），"
+                "必须用新状态替换旧状态，严禁新旧矛盾信息并存。\n"
+                "3. 归纳整合：主动将零碎的相似规则提炼、合并为通用性强的独立条目。"
+                "\n4. 废弃剔除：主动删除已被证伪的假设或不再适用的陈旧条目。\n\n"
+                "【安全操作流程】\n"
+                "⚠️ 重要：所有操作必须在 `dream/` 目录下进行，严禁直接修改根目录文件！\n\n"
+                f"当前日期: {current_date}\n\n"
+                "步骤 1 [环境准备]：\n"
+                "- 检查是否存在 `dream/` 目录，如果不存在则创建\n"
+                "- 读取现有的 `dream/DREAM.md` 文件作为当前记忆基准（如果不存在则从模板创建）\n"
+                "- 读取当天的日志文件 `memory/YYYY-MM-DD.md`\n"
+                "- 可选：读取根目录的 `MEMORY.md` 作为用户参考信息\n\n"
+                "步骤 2 [备份创建]：\n"
+                "- 将当前 `dream/DREAM.md` 的内容备份到 "
+                "`dream/DREAM_backup_YYYYMMDD_HHMMSS.md`\n\n"
+                "步骤 3 [梦境提纯]：\n"
+                "- 在梦境中对比新旧内容，严格按照【梦境优化原则】进行去重、替换、剔除和合并\n"
+                "- 生成一份全新的记忆内容，并保存到 `dream/DREAM_new.md`\n\n"
+                "步骤 4 [验证与提交]：\n"
+                "- 仔细检查 `dream/DREAM_new.md` 的内容是否符合优化原则\n"
+                "- 确认无误后，将 `dream/DREAM_new.md` 重命名为 `dream/DREAM.md`\n"
+                "- 记录操作日志到 `dream/dream_log_YYYYMMDD_HHMMSS.md`\n\n"
+                "步骤 5 [苏醒汇报]：\n"
+                "从梦境中苏醒后，在对话中向我简短汇报：\n"
+                "1) 新增/沉淀了哪些核心记忆\n"
+                "2) 修正/删除了哪些过期内容\n"
+                "3) 备份文件的位置和名称\n"
+                "4) 最终的 DREAM.md 是否成功更新"
+            ),
+            "en": (
+                "Enter dream state for safe memory optimization. Please "
+                "strictly follow the steps below to ensure all changes are "
+                "backed up and can be rolled back.\n\n"
+                "[Core Concepts]\n"
+                "- DREAM.md: This is your autonomously managed long-term "
+                "memory consolidation file, containing distilled core "
+                "business decisions, user preferences, and "
+                "high-value experiences\n"
+                "- MEMORY.md: This is a user-editable reference file "
+                "containing initial configuration and manually added "
+                "memories\n"
+                "- Your task is to maintain and optimize DREAM.md, NOT "
+                "to directly modify MEMORY.md\n\n"
+                "[Dream Optimization Principles]\n"
+                "1. Extreme Minimalism: Strictly forbid recording daily "
+                "routines, specific bug-fix details, or one-off tasks. "
+                "Retain ONLY 'core business decisions', 'confirmed user"
+                " preferences', and 'high-value reusable experiences'.\n"
+                "2. State Overwrite: If a state change is detected (e.g., "
+                "tech stack changes, config updates), you MUST replace the "
+                "old state with the new one. Contradictory old and new "
+                "information must not coexist.\n"
+                "3. Inductive Consolidation: Proactively distill and merge "
+                "fragmented, similar rules into highly universal, independent "
+                "entries.\n"
+                "4. Deprecation: Proactively delete hypotheses that have been "
+                "proven false or outdated entries that no longer apply.\n\n"
+                "[Safe Operation Procedure]\n"
+                "⚠️ Important: All operations MUST be performed in the "
+                "`dream/` directory! Never modify root directory files "
+                "directly!\n\n"
+                f"Current date: {current_date}\n\n"
+                "Step 1 [Environment Setup]:\n"
+                "- Check if `dream/` directory exists, create it if not\n"
+                "- Read existing `dream/DREAM.md` file as current memory"
+                " baseline (create from template if it doesn't exist)\n"
+                "- Read today's log file `memory/YYYY-MM-DD.md`\n"
+                "- Optional: Read root directory `MEMORY.md` as user "
+                "reference information\n\n"
+                "Step 2 [Backup Creation]:\n"
+                "- Backup current `dream/DREAM.md` content to "
+                "`dream/DREAM_backup_YYYYMMDD_HHMMSS.md`\n\n"
+                "Step 3 [Dream Purification]:\n"
+                "- Compare old and new content in your dream state, strictly "
+                "following [Dream Optimization Principles] to deduplicate, "
+                "replace, remove, and merge\n"
+                "- Generate entirely new memory content and save it to "
+                "`dream/DREAM_new.md`\n\n"
+                "Step 4 [Validation and Commit]:\n"
+                "- Carefully review `dream/DREAM_new.md` content for "
+                "compliance with principles\n"
+                "- If confirmed correct, rename `dream/DREAM_new.md` to "
+                "`dream/DREAM.md`\n"
+                "- Record operation log to "
+                "`dream/dream_log_YYYYMMDD_HHMMSS.md`\n\n"
+                "Step 5 [Awake Report]:\n"
+                "After waking from your dream, briefly report to me in the "
+                "chat:\n"
+                "1) What core memories were newly added/consolidated\n"
+                "2) What outdated content was corrected/deleted\n"
+                "3) Backup file locations and names\n"
+                "4) Whether the final DREAM.md was successfully updated"
+            ),
+        }
+        return prompts.get(language, prompts["en"])

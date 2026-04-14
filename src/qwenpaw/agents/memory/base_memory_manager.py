@@ -53,6 +53,8 @@ class BaseMemoryManager(ABC):
 
         # Initialize list to track background summarization tasks
         self.summary_tasks: list[asyncio.Task] = []
+        # Initialize list to track background dream optimization tasks
+        self.dream_tasks: list[asyncio.Task] = []
 
     @abstractmethod
     async def start(self) -> None:
@@ -111,6 +113,17 @@ class BaseMemoryManager(ABC):
 
         Returns:
             Comprehensive summary string.
+        """
+
+    @abstractmethod
+    async def dream_memory(self, **kwargs) -> None:
+        """Run one dream-based memory optimization task.
+
+        This method performs dream-based memory optimization by executing
+        an agent query with specific instructions for memory file optimization.
+
+        Args:
+            **kwargs: Additional keyword arguments for the dream task.
         """
 
     def add_async_summary_task(self, messages: list[Msg], **kwargs):
@@ -223,3 +236,84 @@ class BaseMemoryManager(ABC):
         Returns:
             In-memory memory instance.
         """
+
+    def add_async_dream_task(self, **kwargs):
+        """Add an asynchronous dream optimization task.
+
+        This method manages the dream_tasks list, cleaning up completed tasks
+        and creating a new background task for dream-based memory optimization.
+        """
+        # Clean up completed dream tasks
+        remaining_tasks = []
+        for task in self.dream_tasks:
+            if task.done():
+                if task.cancelled():
+                    logger.warning("Dream task was cancelled.")
+                    continue
+                exc = task.exception()
+                if exc is not None:
+                    logger.error(f"Dream task failed: {exc}")
+                else:
+                    result = task.result()
+                    logger.info(f"Dream task completed: {result}")
+            else:
+                remaining_tasks.append(task)
+        self.dream_tasks = remaining_tasks
+
+        # Create new dream task
+        task = asyncio.create_task(
+            self.dream_memory(**kwargs),
+        )
+        self.dream_tasks.append(task)
+
+    async def await_dream_tasks(self) -> str:
+        """
+        Wait for all background dream tasks to complete and collect results.
+
+        Blocks until all pending dream tasks in the task list have completed,
+        canceled, or failed. Collects status information from each task and
+        clears the task list after processing.
+
+        Returns:
+            str: A concatenated string of status messages, including:
+                - Completion confirmations with results
+                - Cancellation notices
+                - Error messages for failed tasks
+        """
+        result = ""
+        for task in self.dream_tasks:
+            if task.done():
+                # Task has already completed, check its status
+                if task.cancelled():
+                    logger.warning("Dream task was cancelled.")
+                    result += "Dream task was cancelled.\n"
+                else:
+                    # Check if the task raised an exception
+                    exc = task.exception()
+                    if exc is not None:
+                        logger.error(f"Dream task failed: {exc}")
+                        result += f"Dream task failed: {exc}\n"
+                    else:
+                        # Task completed successfully, collect result
+                        task_result = task.result()
+                        logger.info(f"Dream task completed: {task_result}")
+                        result += f"Dream task completed: {task_result}\n"
+
+            else:
+                # Task is still running, wait for it to complete
+                try:
+                    task_result = await task
+                    logger.info(f"Dream task completed: {task_result}")
+                    result += f"Dream task completed: {task_result}\n"
+
+                except asyncio.CancelledError:
+                    logger.warning("Dream task was cancelled while waiting.")
+                    result += "Dream task was cancelled.\n"
+
+                except Exception as e:
+                    logger.exception(f"Dream task failed: {e}")
+                    result += f"Dream task failed: {e}\n"
+
+        # Clear the task list after processing all tasks
+        self.dream_tasks.clear()
+        return result

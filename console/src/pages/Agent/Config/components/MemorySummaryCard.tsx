@@ -26,9 +26,7 @@ export function MemorySummaryCard() {
         name={["memory_summary", "dream_cron"]}
         tooltip={t("agentConfig.dreamCronTooltip")}
       >
-        <Input
-          placeholder={t("agentConfig.dreamCronPlaceholder")}
-        />
+        <Input placeholder={t("agentConfig.dreamCronPlaceholder")} />
       </Form.Item>
 
       <Form.Item

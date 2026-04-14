@@ -571,22 +571,21 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
 
 
 def get_dream_cron(agent_id: Optional[str] = None) -> str:
-    """Return dream-based memory optimization job cron expression for the agent.
+    """Return dream-based memory optimization job cron expression for
+    the agent.
 
     Args:
         agent_id: Agent ID to load config from. If None, tries to load from
                   root config.agents.defaults (legacy behavior).
 
     Returns:
-        str: Cron expression for dream-based memory optimization job, or empty string
-          if disabled.
+        str: Cron expression for dream-based memory optimization job, or empty
+             string if disabled.
     """
     if agent_id is not None:
         try:
             agent_config = load_agent_config(agent_id)
-            return (
-                agent_config.running.memory_summary.dream_cron
-            )
+            return agent_config.running.memory_summary.dream_cron
         except Exception:
             return ""
     # Legacy: return empty string if no agent_id provided
