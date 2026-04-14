@@ -73,10 +73,10 @@
 ### 常见问题
 
 **Q: 应用启动后窗口白屏，无法正常显示？**
-A: 这通常是因为系统缺少 **Microsoft WebView2** 运行时（部分 Windows 10 系统未预装）。
-请前往微软官网下载并安装：
+A: 这通常是因为系统缺少或损坏了 **Microsoft WebView2** 运行时（少数 Windows 10 设备未预装，个别设备也可能需要修复/重装）。
+请前往微软官网下载并安装或修复：
 [Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
-安装完成后重启应用即可。
+安装完成后重启应用即可；如果仍有问题，请先运行 "QwenPaw Desktop (Debug)" 查看终端输出。
 
 **Q: 应用启动后没有反应？**
 A: 使用 "QwenPaw Desktop (Debug)" 模式启动，查看终端输出的错误信息

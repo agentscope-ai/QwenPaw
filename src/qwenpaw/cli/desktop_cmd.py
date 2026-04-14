@@ -25,6 +25,35 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+WEBVIEW2_RUNTIME_DOWNLOAD_URL = (
+    "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
+)
+_WEBVIEW2_TROUBLESHOOT_SUFFIX = (
+    "Install or repair WebView2 Runtime and try again.\n\n"
+    f"Download: {WEBVIEW2_RUNTIME_DOWNLOAD_URL}\n\n"
+    "If the issue persists, run "
+    "'QwenPaw Desktop (Debug)' and "
+    "attach the terminal output."
+)
+WEBVIEW2_RUNTIME_GUID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+WINDOWS_WEBVIEW2_REGISTRY_LOCATIONS = (
+    (
+        "HKEY_LOCAL_MACHINE",
+        (
+            "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\"
+            f"{WEBVIEW2_RUNTIME_GUID}"
+        ),
+    ),
+    (
+        "HKEY_LOCAL_MACHINE",
+        f"SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_RUNTIME_GUID}",
+    ),
+    (
+        "HKEY_CURRENT_USER",
+        f"Software\\Microsoft\\EdgeUpdate\\Clients\\{WEBVIEW2_RUNTIME_GUID}",
+    ),
+)
+
 
 class WebViewAPI:
     """API exposed to the webview for handling external links."""
@@ -34,6 +63,110 @@ class WebViewAPI:
         if not url.startswith(("http://", "https://")):
             return
         webbrowser.open(url)
+
+
+def _parse_version_string(version: str | None) -> tuple[int, ...] | None:
+    """Parse dotted numeric version strings like 123.0.2420.65."""
+    if not version:
+        return None
+    parts = version.strip().split(".")
+    if not parts or any(not part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def _read_windows_registry_value(
+    root_name: str,
+    sub_key: str,
+    value_name: str,
+) -> str | None:
+    """Read a string value from the Windows registry."""
+    if sys.platform != "win32":
+        return None
+
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    try:
+        root = getattr(winreg, root_name)
+        with winreg.OpenKey(root, sub_key) as key:
+            value, reg_type = winreg.QueryValueEx(key, value_name)
+    except (AttributeError, OSError):
+        return None
+
+    if reg_type != winreg.REG_SZ or not isinstance(value, str):
+        return None
+
+    value = value.strip()
+    return value or None
+
+
+def _detect_windows_webview2_runtime_version() -> str | None:
+    """Return the installed WebView2 Runtime version on Windows."""
+    if sys.platform != "win32":
+        return None
+
+    for root_name, sub_key in WINDOWS_WEBVIEW2_REGISTRY_LOCATIONS:
+        version = _read_windows_registry_value(root_name, sub_key, "pv")
+        parsed = _parse_version_string(version)
+        if parsed and any(parsed):
+            return version
+
+    return None
+
+
+def _show_windows_message_box(title: str, message: str) -> None:
+    """Display a native Windows error dialog when launched silently."""
+    if sys.platform != "win32":
+        return
+
+    try:
+        import ctypes
+
+        mb_iconerror = 0x00000010
+        mb_setforeground = 0x00010000
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            message,
+            title,
+            mb_iconerror | mb_setforeground,
+        )
+    except Exception:
+        pass
+
+
+def _abort_desktop_launch(message: str) -> None:
+    """Exit the desktop launcher with a visible, actionable error."""
+    logger.error(message)
+    click.echo(f"Error: {message}", err=True)
+    _show_windows_message_box("QwenPaw Desktop", message)
+    raise SystemExit(1)
+
+
+def _ensure_desktop_webview_available() -> None:
+    """Fail fast if the desktop webview backend is unavailable."""
+    if webview is None:
+        _abort_desktop_launch(
+            "pywebview is not available in this QwenPaw Desktop environment. "
+            "Please reinstall QwenPaw Desktop.",
+        )
+
+    if sys.platform != "win32":
+        return
+
+    runtime_version = _detect_windows_webview2_runtime_version()
+    if runtime_version:
+        logger.info(f"Detected WebView2 Runtime {runtime_version}")
+        return
+
+    _abort_desktop_launch(
+        "Microsoft Edge WebView2 Runtime was not detected. "
+        "QwenPaw Desktop requires WebView2 on Windows and "
+        "may otherwise fall back to an unsupported legacy "
+        "renderer that shows a blank window. " + _WEBVIEW2_TROUBLESHOOT_SUFFIX,
+    )
 
 
 def _find_free_port(host: str = "127.0.0.1") -> int:
@@ -79,6 +212,30 @@ def _stream_reader(in_stream, out_stream) -> None:
             pass
 
 
+def _start_desktop_window(url: str) -> None:
+    """Create and start the embedded desktop window."""
+    if webview is None:
+        raise RuntimeError("pywebview is not available")
+
+    api = WebViewAPI()
+    webview.create_window(
+        "QwenPaw Desktop",
+        url,
+        width=1280,
+        height=800,
+        text_select=True,
+        js_api=api,
+    )
+
+    start_kwargs = {"private_mode": False}
+    if sys.platform == "win32":
+        # Force WebView2 so we fail fast instead of silently falling back
+        # to MSHTML / IE, which cannot render the Vite-built frontend.
+        start_kwargs["gui"] = "edgechromium"
+
+    webview.start(**start_kwargs)
+
+
 @click.command("desktop")
 @click.option(
     "--host",
@@ -108,6 +265,7 @@ def desktop_cmd(
     """
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
+    _ensure_desktop_webview_available()
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
@@ -171,22 +329,28 @@ def desktop_cmd(
             logger.info("Waiting for HTTP ready...")
             if _wait_for_http(host, port):
                 logger.info("HTTP ready, creating webview window...")
-                api = WebViewAPI()
-                webview.create_window(
-                    "QwenPaw Desktop",
-                    url,
-                    width=1280,
-                    height=800,
-                    text_select=True,
-                    js_api=api,
-                )
-                logger.info(
-                    "Calling webview.start() (blocks until closed)...",
-                )
-                webview.start(
-                    private_mode=False,
-                )  # blocks until user closes the window
-                logger.info("webview.start() returned (window closed).")
+                try:
+                    logger.info(
+                        "Calling webview.start() (blocks until closed)...",
+                    )
+                    _start_desktop_window(url)
+                    logger.info("webview.start() returned (window closed).")
+                except Exception:
+                    logger.exception("Failed to start embedded desktop window")
+                    if sys.platform == "win32":
+                        _abort_desktop_launch(
+                            "Failed to start the embedded "
+                            "desktop window.\n\n"
+                            "On Windows this usually means "
+                            "the WebView2 Runtime is missing "
+                            "or damaged. " + _WEBVIEW2_TROUBLESHOOT_SUFFIX,
+                        )
+                    else:
+                        _abort_desktop_launch(
+                            "Failed to start the embedded desktop window. "
+                            "Run with '--log-level debug' and inspect the "
+                            "terminal output for details.",
+                        )
             else:
                 logger.error("Server did not become ready in time.")
                 click.echo(

@@ -73,10 +73,10 @@ After installation, you'll see **two launch shortcuts**:
 ### Common Issues
 
 **Q: The app window is blank/white screen and cannot display properly?**
-A: This is usually because the system is missing the **Microsoft WebView2** runtime (some Windows 10 systems do not have it pre-installed).
-Download and install it from the Microsoft website:
+A: This is usually because the system is missing or has a damaged **Microsoft WebView2** runtime (a small number of Windows 10 devices don't have it pre-installed, and some devices need a repair/reinstall).
+Download and install or repair it from the Microsoft website:
 [Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
-Restart the application after installation.
+Restart the application afterwards. If the problem persists, launch "QwenPaw Desktop (Debug)" and inspect the terminal output.
 
 **Q: Application doesn't respond after launch?**
 A: Use "QwenPaw Desktop (Debug)" mode to view terminal output for error messages
