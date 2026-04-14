@@ -85,12 +85,11 @@ def resolve_calling_agent_id(from_agent: Optional[str] = None) -> str:
     1. Explicit ``from_agent`` argument
     2. Current runtime agent context
     """
-    normalized_from_agent = normalize_id(from_agent)
-    if normalized_from_agent:
-        return normalized_from_agent
+    if from_agent:
+        return from_agent
     from ...app.agent_context import get_current_agent_id
 
-    return normalize_id(get_current_agent_id()) or ""
+    return get_current_agent_id()
 
 
 def resolve_agent_session_id(
@@ -173,21 +172,18 @@ def extract_agent_ids(agent_list_data: Dict[str, Any]) -> set[str]:
     for agent in agents:
         if not isinstance(agent, dict):
             continue
-        agent_id = normalize_id(agent.get("id"))
-        if agent_id:
+        agent_id = agent.get("id")
+        if isinstance(agent_id, str) and agent_id:
             agent_ids.add(agent_id)
     return agent_ids
 
 
 def agent_exists(
-    to_agent: Optional[str],
+    to_agent: str,
     base_url: Optional[str] = None,
 ) -> bool:
     """Check whether the target agent exists in the configured agent list."""
-    normalized_to_agent = normalize_id(to_agent)
-    if not normalized_to_agent:
-        return False
-    return normalized_to_agent in extract_agent_ids(list_agents_data(base_url))
+    return to_agent in extract_agent_ids(list_agents_data(base_url))
 
 
 def build_agent_chat_request(
@@ -197,7 +193,6 @@ def build_agent_chat_request(
     from_agent: Optional[str] = None,
 ) -> tuple[str, Dict[str, Any], bool]:
     """Build the inter-agent chat payload and resolve the final session ID."""
-    to_agent = normalize_id(to_agent) or ""
     caller_agent_id = resolve_calling_agent_id(from_agent)
     final_session_id = resolve_agent_session_id(
         caller_agent_id,
@@ -218,8 +213,7 @@ def build_agent_chat_request(
 
 
 def _request_headers(to_agent: Optional[str]) -> Dict[str, str]:
-    normalized_to_agent = normalize_id(to_agent)
-    return {"X-Agent-Id": normalized_to_agent} if normalized_to_agent else {}
+    return {"X-Agent-Id": to_agent} if to_agent else {}
 
 
 def stream_agent_chat(
@@ -410,6 +404,7 @@ async def chat_with_agent(  # pylint: disable=too-many-return-statements
     to_agent = normalize_id(to_agent)
     from_agent = normalize_id(from_agent)
     session_id = normalize_id(session_id)
+    task_id = normalize_id(task_id)
 
     # TODO: move background task check to a separate tool
     if background and task_id:

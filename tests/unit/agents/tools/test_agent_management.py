@@ -132,24 +132,6 @@ def test_build_agent_chat_request_reuses_session_id_when_provided():
     assert prefix_added is True
 
 
-def test_build_agent_chat_request_normalizes_to_and_from_agent_ids():
-    (
-        session_id,
-        payload,
-        prefix_added,
-    ) = agent_management.build_agent_chat_request(
-        '  "bot_b"  ',
-        "Need a summary",
-        from_agent="  'bot_a'  ",
-    )
-
-    assert session_id.startswith("bot_a:to:bot_b:")
-    assert payload["input"][0]["content"][0]["text"].startswith(
-        "[Agent bot_a requesting] ",
-    )
-    assert prefix_added is True
-
-
 def test_list_agents_data_uses_shared_client(monkeypatch):
     fake_client = _FakeClient(
         get_response=_FakeResponse(
@@ -175,8 +157,8 @@ def test_extract_agent_ids_normalizes_values():
     result = agent_management.extract_agent_ids(
         {
             "agents": [
-                {"id": '  "bot_a"  '},
-                {"id": " 'bot_b' "},
+                {"id": "bot_a"},
+                {"id": "bot_b"},
                 {"id": None},
                 "invalid",
             ],
@@ -327,6 +309,11 @@ async def test_chat_with_agent_uses_to_thread_for_final_mode(monkeypatch):
         "resolve_calling_agent_id",
         lambda _from_agent=None: "auto_bot",
     )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: True,
+    )
 
     response = await agent_management.chat_with_agent(
         to_agent="bot_b",
@@ -364,6 +351,11 @@ async def test_chat_with_agent_normalizes_agent_ids(monkeypatch):
         fake_collect_final,
     )
     monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: True,
+    )
 
     response = await agent_management.chat_with_agent(
         to_agent='  "bot_b"  ',
