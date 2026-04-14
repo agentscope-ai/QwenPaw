@@ -16,6 +16,10 @@ import type {
   TestModelRequest,
   DiscoverModelsResponse,
   ProbeMultimodalResponse,
+  SeriesResponse,
+  DiscoverExtendedResponse,
+  FilterModelsRequest,
+  FilterModelsResponse,
 } from "../types";
 
 function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
@@ -148,4 +152,21 @@ export const providerApi = {
       )}/probe-multimodal`,
       { method: "POST" },
     ),
+
+  /* ---- OpenRouter specific endpoints ---- */
+
+  getOpenRouterSeries: () =>
+    request<SeriesResponse>("/models/openrouter/series"),
+
+  discoverOpenRouterExtended: (body?: TestProviderRequest) =>
+    request<DiscoverExtendedResponse>("/models/openrouter/discover-extended", {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  filterOpenRouterModels: (body: FilterModelsRequest) =>
+    request<FilterModelsResponse>("/models/openrouter/models/filter", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
