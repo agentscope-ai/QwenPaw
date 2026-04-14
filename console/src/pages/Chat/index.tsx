@@ -812,9 +812,7 @@ export default function ChatPage() {
         },
       },
       customToolRenderConfig:
-        Object.keys(toolRenderConfig).length > 0
-          ? toolRenderConfig
-          : undefined,
+        Object.keys(toolRenderConfig).length > 0 ? toolRenderConfig : undefined,
       actions: {
         list: [
           {
@@ -831,7 +829,15 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps, toolRenderConfig]);
+  }, [
+    customFetch,
+    copyResponse,
+    handleFileUpload,
+    t,
+    isDark,
+    multimodalCaps,
+    toolRenderConfig,
+  ]);
 
   return (
     <div
