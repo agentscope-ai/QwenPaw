@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """Plugin API for plugin developers."""
 
-from typing import Any, Callable, Dict, List, Type
+from typing import Any, Callable, Dict, Type
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 class PluginApi:
     """Plugin API - Interface for plugin developers.
@@ -33,10 +34,6 @@ class PluginApi:
         self.manifest = manifest or {}
         self._registry = None
 
-        # Track registered resources for unregister_all()
-        self._registered_startup_hooks: List[str] = []
-        self._registered_shutdown_hooks: List[str] = []
-        self._registered_js_tool_renderers: List[str] = []
     def set_registry(self, registry):
         """Set registry reference (called by loader).
 

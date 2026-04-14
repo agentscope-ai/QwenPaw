@@ -4,16 +4,16 @@ static files."""
 
 import logging
 import mimetypes
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
 
 def _get_plugin_loader(request: Request):
     loader = getattr(request.app.state, "plugin_loader", None)
@@ -23,6 +23,7 @@ def _get_plugin_loader(request: Request):
 
 
 # ── Routes ───────────────────────────────────────────────────────────────
+
 
 @router.get(
     "",
@@ -37,7 +38,7 @@ async def list_plugins(request: Request):
     loader = _get_plugin_loader(request)
     result = []
 
-    for plugin_id, record in loader._loaded_plugins.items():
+    for plugin_id, record in loader.get_all_loaded_plugins().items():
         manifest = record.manifest
         ui_meta = manifest.meta.get("ui", {})
         has_ui = bool(ui_meta.get("enabled", False))
@@ -67,9 +68,7 @@ async def list_plugins(request: Request):
             plugin_info["ui"] = {
                 "entry": f"/api/plugins/{manifest.id}/files/{entry}",
                 "css": (
-                    f"/api/plugins/{manifest.id}/files/{css}"
-                    if css
-                    else ""
+                    f"/api/plugins/{manifest.id}/files/{css}" if css else ""
                 ),
                 "js_tool_renderers": js_tool_renderers,
             }
@@ -96,7 +95,7 @@ async def serve_plugin_ui_file(
     """
 
     loader = _get_plugin_loader(request)
-    record = loader._loaded_plugins.get(plugin_id)
+    record = loader.get_loaded_plugin(plugin_id)
 
     if record is None:
         raise HTTPException(404, f"Plugin '{plugin_id}' not found")
