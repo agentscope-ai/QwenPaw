@@ -85,7 +85,8 @@ def _supports_multimodal_for_current_model() -> bool:
         return get_active_model_supports_multimodal()
     except Exception:  # pragma: no cover - config lookup safety
         logger.debug(
-            "Falling back to multimodal=True during OpenAI normalization",
+            "Falling back to multimodal=True during request-time "
+            "message normalization",
             exc_info=True,
         )
         return True

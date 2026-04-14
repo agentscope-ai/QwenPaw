@@ -232,7 +232,6 @@ def test_strip_media_blocks_handles_tool_result_with_media(
 def test_strip_media_blocks_handles_mixed_content(mixed_content_message):
     """Test that mixed content has only media blocks removed."""
     msgs = [mixed_content_message]
-    original_content = mixed_content_message.content.copy()
     count = _strip_media_blocks_in_place(msgs)
 
     assert count == 2  # image + video
@@ -398,7 +397,9 @@ def test_normalize_conversation_with_multiple_messages():
     assert normalized[0].content[0]["text"] == "Hello"
 
     # Second message: unchanged
-    assert normalized[1].content == [{"type": "text", "text": "I see the image"}]
+    assert normalized[1].content == [
+        {"type": "text", "text": "I see the image"},
+    ]
 
     # Third message: video replaced with placeholder
     assert len(normalized[2].content) == 1

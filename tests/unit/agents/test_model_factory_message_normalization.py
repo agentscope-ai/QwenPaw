@@ -113,7 +113,7 @@ def test_openai_formatter_normalizes_on_copy(monkeypatch) -> None:
 
 
 def test_anthropic_formatter_normalizes_on_copy(monkeypatch) -> None:
-    """Test that Anthropic formatter normalizes messages with media stripped."""
+    """Test Anthropic formatter normalizes messages with media stripped."""
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -165,7 +165,9 @@ def test_multimodal_support_preserves_media(monkeypatch) -> None:
     assert original[0].content[0]["type"] == "image"
 
 
-def test_force_strip_media_flag_overrides_multimodal_support(monkeypatch) -> None:
+def test_force_strip_media_flag_overrides_multimodal_support(
+    monkeypatch,
+) -> None:
     """Test that _qwenpaw_force_strip_media flag forces media stripping."""
     monkeypatch.setattr(
         model_factory,
@@ -226,7 +228,7 @@ def test_anthropic_flag_detected(monkeypatch) -> None:
     (
         _normalized,
         is_anthropic,
-        is_gemini,
+        _is_gemini,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         AnthropicChatFormatter,
@@ -251,7 +253,7 @@ def test_gemini_flag_detected(monkeypatch) -> None:
 
     (
         _normalized,
-        is_anthropic,
+        _is_anthropic,
         is_gemini,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
