@@ -2,6 +2,7 @@
 # pylint: disable=redefined-outer-name,unused-argument
 import mimetypes
 import os
+import sys
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -27,12 +28,12 @@ from ..constant import (
 )
 from ..__version__ import __version__
 from ..utils.logging import setup_logger, add_project_file_handler
+from ..utils.system_info import summarize_python_environment
 from .auth import AuthMiddleware
 from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
-from ..utils.console_static import resolve_console_static_dir
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
 from .multi_agent_manager import MultiAgentManager
@@ -506,8 +507,12 @@ def read_root():
 
 @app.get("/api/version")
 def get_version():
-    """Return the current application version."""
-    return {"version": __version__}
+    """Return the current application version and server Python runtime."""
+    return {
+        "version": __version__,
+        "python_executable": sys.executable,
+        "python_environment": summarize_python_environment(),
+    }
 
 
 app.include_router(api_router, prefix="/api")

@@ -1,15 +1,26 @@
 # -*- coding: utf-8 -*-
-"""Conservative filesystem repairs for ``copaw doctor fix`` (backup, allowlist, atomic write).
+"""Conservative filesystem repairs for ``qwenpaw doctor fix``.
 
-Includes ``reconcile-workspace-skills``, which calls the same
-``reconcile_workspace_manifest`` as the app (CLI-only, no server).
+Backup, allowlist, atomic write. Includes ``reconcile-workspace-skills``,
+which calls the same ``reconcile_workspace_manifest`` as the app (CLI-only,
+no server).
 
-``rebuild-console-npm`` runs ``npm ci && npm run build`` under ``console/`` in a
-source checkout and copies ``console/dist`` into ``src/copaw/console/`` (needs
-network for npm).
+``rebuild-console-npm`` runs ``npm ci && npm run build`` under ``console/``
+in a source checkout and copies ``console/dist`` into
+``src/qwenpaw/console/`` (needs network for npm).
+
+``validate-all-jobs-json`` reuses
+:func:`~qwenpaw.cli.doctor_checks.check_cron_jobs_files` (read-only); exits
+non-zero on FAIL (for CI).
+
+``doctor fix --non-interactive`` allows only :data:`NONINTERACTIVE_FIX_IDS`
+(safe + read-only validation + workspace skill reconcile); rejects risky ids
+even with ``-y``.
 """
 from __future__ import annotations
 
+# pylint: disable=too-many-branches,too-many-statements
+# pylint: disable=too-many-return-statements
 import json
 import os
 import secrets
@@ -28,15 +39,28 @@ from ..agents.skills_manager import (
 )
 from ..app.crons.models import JobsFile, ScheduleSpec
 from ..config import load_config
-from ..config.config import AgentProfileConfig, build_fallback_agent_profile_config
-from ..config.utils import _normalize_working_dir_bound_paths, strict_validate_config_file
+from ..config.config import (
+    AgentProfileConfig,
+    build_fallback_agent_profile_config,
+)
+from ..config.utils import (
+    _normalize_working_dir_bound_paths,
+    read_last_api,
+    strict_validate_config_file,
+)
 from ..constant import JOBS_FILE, WORKING_DIR
-from ..utils.console_static import find_copaw_source_repo_root
+from ..utils.console_static import find_qwenpaw_source_repo_root
+from .doctor_checks import check_cron_jobs_files
 
 SAFE_FIX_IDS = frozenset({"ensure-working-dir", "ensure-workspace-dirs"})
-# Sync workspace ``skill.json`` with ``skills/`` (same as app reconcile); no --yes.
+# Read-only: validate every workspace + legacy jobs.json (no writes; no
+# --yes).
+READONLY_FIX_IDS = frozenset({"validate-all-jobs-json"})
+# Sync workspace ``skill.json`` with ``skills/`` (same as app reconcile);
+# no --yes.
 SYNC_FIX_IDS = frozenset({"reconcile-workspace-skills"})
-# Mutating fixes: require --yes (may create agent.json / jobs.json or rewrite jobs).
+# Mutating fixes: require --yes (may create agent.json / jobs.json or rewrite
+# jobs).
 RISKY_FIX_IDS = frozenset(
     {
         "seed-missing-agent-json",
@@ -46,7 +70,9 @@ RISKY_FIX_IDS = frozenset(
         "rebuild-console-npm",
     },
 )
-ALL_FIX_IDS = SAFE_FIX_IDS | SYNC_FIX_IDS | RISKY_FIX_IDS
+ALL_FIX_IDS = SAFE_FIX_IDS | READONLY_FIX_IDS | SYNC_FIX_IDS | RISKY_FIX_IDS
+# Subset allowed with ``doctor fix --non-interactive`` (CI / upgrade scripts).
+NONINTERACTIVE_FIX_IDS = SAFE_FIX_IDS | READONLY_FIX_IDS | SYNC_FIX_IDS
 
 BACKUP_SUBDIR = "doctor-fix-backups"
 
@@ -121,7 +147,7 @@ def _normalize_cron_fields_in_jobs_dict(data: dict[str, Any]) -> bool:
 
 
 def _workspace_agent_json_valid(path: Path) -> bool:
-    """Match :func:`copaw.cli.doctor_checks.check_agent_json_profiles` criteria."""
+    """Same validity criteria as ``check_agent_json_profiles``."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -170,18 +196,56 @@ def _backup_one_file(session_files: Path, path: Path, wd: Path) -> None:
         marker.write_text("", encoding="utf-8")
 
 
+def _effective_cli_api_host_port(
+    host_override: str | None,
+    port_override: int | None,
+) -> tuple[str, int]:
+    """Match ``main.cli`` host/port resolution for backup audit metadata."""
+    host, port = host_override, port_override
+    if host is None or port is None:
+        last = read_last_api()
+        if last:
+            host = host or last[0]
+            port = port or last[1]
+    return host or "127.0.0.1", port or 8088
+
+
 def _write_meta(
     session_dir: Path,
     argv: list[str],
     fix_ids: list[str],
     backed_paths: list[str],
+    *,
+    working_dir: str,
+    dry_run: bool,
+    yes: bool,
+    no_backup: bool,
+    non_interactive: bool,
+    cli_api_host: str | None,
+    cli_api_port: int | None,
 ) -> None:
+    cfg = load_config()
+    ch, cp = _effective_cli_api_host_port(cli_api_host, cli_api_port)
     meta = {
-        "copaw_version": __version__,
+        "qwenpaw_version": __version__,
         "utc": datetime.now(timezone.utc).isoformat(),
         "argv": argv,
         "fix_ids": fix_ids,
         "backed_up_files_relative": backed_paths,
+        "working_dir": working_dir,
+        "dry_run": dry_run,
+        "yes": yes,
+        "no_backup": no_backup,
+        "non_interactive": non_interactive,
+        "config_last_api": {
+            "host": cfg.last_api.host,
+            "port": cfg.last_api.port,
+        },
+        "cli_resolved_api": {
+            "host": ch,
+            "port": cp,
+            "base_url": f"http://{ch}:{cp}",
+        },
         "restore_hint": (
             "Copy files from the 'files/' subtree back to your working dir "
             "with the same relative paths."
@@ -207,7 +271,9 @@ def _parse_only(only: str | None) -> list[str]:
     ids = [x.strip() for x in only.split(",") if x.strip()]
     bad = [x for x in ids if x not in ALL_FIX_IDS]
     if bad:
-        raise ValueError(f"unknown fix id(s): {bad!r}; known: {sorted(ALL_FIX_IDS)}")
+        raise ValueError(
+            f"unknown fix id(s): {bad!r}; known: {sorted(ALL_FIX_IDS)}",
+        )
     return ids
 
 
@@ -216,16 +282,18 @@ def _plan_fixes(
     wd: Path,
     yes: bool,
     *,
+    dry_run: bool = False,
     no_backup: bool = False,
 ) -> tuple[list[str], list[PlannedFix]]:
     """Return (skip_messages, planned operations)."""
     if fix_ids:
         for fid in fix_ids:
-            if fid in RISKY_FIX_IDS and not yes:
+            if fid in RISKY_FIX_IDS and not yes and not dry_run:
                 raise ValueError(
-                    f"fix {fid!r} requires --yes after reviewing "
-                    "`copaw doctor fix --dry-run` (may modify files or run "
-                    "external tools such as npm).",
+                    f"fix {fid!r} requires --yes (-y) to apply "
+                    "(may modify files or run external tools such as npm). "
+                    "Use `qwenpaw doctor fix --dry-run --only ...` to preview "
+                    "the plan without -y.",
                 )
 
     needs_existing_wd = bool(
@@ -239,10 +307,14 @@ def _plan_fixes(
             "normalize-jobs-cron",
         },
     )
-    if needs_existing_wd and not wd.is_dir() and "ensure-working-dir" not in fix_ids:
+    if (
+        needs_existing_wd
+        and not wd.is_dir()
+        and "ensure-working-dir" not in fix_ids
+    ):
         raise ValueError(
             f"working directory {wd} does not exist; include "
-            "ensure-working-dir in --only or run `copaw doctor fix` without "
+            "ensure-working-dir in --only or run `qwenpaw doctor fix` without "
             "--only (safe fixes include it when needed).",
         )
 
@@ -254,7 +326,8 @@ def _plan_fixes(
             parent = wd.parent
             if not parent.is_dir():
                 raise ValueError(
-                    f"refusing to create {wd}: parent directory does not exist: {parent}",
+                    f"refusing to create {wd}: parent directory does not "
+                    f"exist: {parent}",
                 )
             if not os.access(parent, os.W_OK):
                 raise ValueError(
@@ -283,6 +356,18 @@ def _plan_fixes(
                 f"config-dependent fixes skipped: load_config failed: {exc}",
             )
             cfg = None
+
+    if "validate-all-jobs-json" in fix_ids:
+        if cfg is None:
+            skip_msgs.append(
+                "validate-all-jobs-json: skipped (root config invalid or "
+                "load_config failed)",
+            )
+        else:
+            ok, det = check_cron_jobs_files(cfg)
+            skip_msgs.append(
+                f"validate-all-jobs-json: {'OK' if ok else 'FAIL'} — {det}",
+            )
 
     if cfg is not None and "ensure-workspace-dirs" in fix_ids:
         for agent_id, ref in cfg.agents.profiles.items():
@@ -374,7 +459,8 @@ def _plan_fixes(
             planned.append(
                 PlannedFix(
                     "reset-invalid-agent-json",
-                    f"replace invalid {agent_json} with root config defaults (backup first)",
+                    f"replace invalid {agent_json} with root config defaults "
+                    "(backup first)",
                     (agent_json,),
                     _reset,
                 ),
@@ -382,7 +468,9 @@ def _plan_fixes(
 
     if cfg is not None and "write-empty-jobs-json" in fix_ids:
         empty = JobsFile(version=1, jobs=[])
-        body = json.dumps(empty.model_dump(), ensure_ascii=False, indent=2) + "\n"
+        body = (
+            json.dumps(empty.model_dump(), ensure_ascii=False, indent=2) + "\n"
+        )
         JobsFile.model_validate(json.loads(body))
 
         for agent_id in cfg.agents.profiles:
@@ -434,7 +522,8 @@ def _plan_fixes(
             planned.append(
                 PlannedFix(
                     "reconcile-workspace-skills",
-                    f"reconcile skill.json with skills/ for agent {agent_id!r} ({wsp})",
+                    f"reconcile skill.json with skills/ for agent "
+                    f"{agent_id!r} ({wsp})",
                     backup_paths,
                     _rec,
                 ),
@@ -487,7 +576,11 @@ def _plan_fixes(
                 + "\n"
             )
 
-            def _write_norm(jpath: Path = jp, text: str = body, root: Path = wd) -> None:
+            def _write_norm(
+                jpath: Path = jp,
+                text: str = body,
+                root: Path = wd,
+            ) -> None:
                 if not path_allowed_for_write(jpath, root):
                     raise RuntimeError(f"path not allowed: {jpath}")
                 _atomic_write_text(jpath, text)
@@ -502,21 +595,22 @@ def _plan_fixes(
             )
 
     if "rebuild-console-npm" in fix_ids:
-        repo = find_copaw_source_repo_root()
+        repo = find_qwenpaw_source_repo_root()
         if repo is None:
             skip_msgs.append(
-                "rebuild-console-npm: only in a CoPaw source checkout "
-                "(./console/package.json + ./console/package-lock.json + ./src/copaw/)",
+                "rebuild-console-npm: only in a QwenPaw source checkout "
+                "(./console/package.json + ./console/package-lock.json + "
+                "./src/qwenpaw/)",
             )
         elif not shutil.which("npm"):
             skip_msgs.append("rebuild-console-npm: npm not found on PATH")
         else:
             console = repo / "console"
             dist = console / "dist"
-            dst = repo / "src" / "copaw" / "console"
+            dst = repo / "src" / "qwenpaw" / "console"
             desc = (
-                f"npm ci + npm run build in {console}, then copy {dist} -> {dst} "
-                "(bundles web UI for editable installs)"
+                f"npm ci + npm run build in {console}, then copy {dist} -> "
+                f"{dst} (bundles web UI for editable installs)"
             )
 
             def _rebuild_console(
@@ -530,14 +624,15 @@ def _plan_fixes(
                     raise RuntimeError(f"missing console directory: {cdir}")
                 if not (cdir / "package-lock.json").is_file():
                     raise RuntimeError(
-                        f"missing {cdir / 'package-lock.json'} (npm ci needs a lockfile)",
+                        f"missing {cdir / 'package-lock.json'} "
+                        "(npm ci needs a lockfile)",
                     )
                 if (
                     not skip_prev_backup
                     and target.exists()
                     and any(target.iterdir())
                 ):
-                    bkp_root = r / ".copaw-doctor-fix-backups"
+                    bkp_root = r / ".qwenpaw-doctor-fix-backups"
                     sid = _utc_session_id()
                     bkp = bkp_root / sid
                     prev = bkp / "previous-console-bundle"
@@ -547,7 +642,7 @@ def _plan_fixes(
                     shutil.copytree(target, prev)
                     bkp.mkdir(parents=True, exist_ok=True)
                     meta = {
-                        "copaw_version": __version__,
+                        "qwenpaw_version": __version__,
                         "previous_bundle": str(prev),
                     }
                     (bkp / "meta.json").write_text(
@@ -566,9 +661,13 @@ def _plan_fixes(
                     check=True,
                     env=os.environ.copy(),
                 )
-                if not dist_dir.is_dir() or not (dist_dir / "index.html").is_file():
+                if (
+                    not dist_dir.is_dir()
+                    or not (dist_dir / "index.html").is_file()
+                ):
                     raise RuntimeError(
-                        f"after npm run build, expected {dist_dir / 'index.html'}",
+                        f"after npm run build, expected "
+                        f"{dist_dir / 'index.html'}",
                     )
                 if target.exists():
                     shutil.rmtree(target)
@@ -599,8 +698,14 @@ def run_doctor_fix(
     echo_err: Callable[[str], None],
     confirm_fn: Callable[[str], bool] | None,
     argv: list[str] | None = None,
+    cli_api_host: str | None = None,
+    cli_api_port: int | None = None,
+    non_interactive: bool = False,
 ) -> int:
-    """Run planned fixes. Returns 0 on success or user abort without writes; 1 on error."""
+    """Run planned fixes.
+
+    Returns 0 on success or user abort without writes; 1 on error.
+    """
     wd = _working_dir_resolved(working_dir or WORKING_DIR)
     argv = argv if argv is not None else sys.argv
 
@@ -610,11 +715,21 @@ def run_doctor_fix(
         echo_err(str(exc))
         return 1
 
+    if non_interactive:
+        disallowed = sorted(set(fix_ids) - NONINTERACTIVE_FIX_IDS)
+        if disallowed:
+            echo_err(
+                "--non-interactive allows only "
+                f"{sorted(NONINTERACTIVE_FIX_IDS)}; disallowed: {disallowed}",
+            )
+            return 1
+
     try:
         skip_msgs, planned = _plan_fixes(
             fix_ids,
             wd,
             yes=yes,
+            dry_run=dry_run,
             no_backup=no_backup,
         )
     except ValueError as exc:
@@ -624,7 +739,17 @@ def run_doctor_fix(
     for msg in skip_msgs:
         echo(f"  (note) {msg}")
 
+    validate_failed = any(
+        m.startswith("validate-all-jobs-json: FAIL") for m in skip_msgs
+    )
+
     if not planned:
+        if any(m.startswith("validate-all-jobs-json:") for m in skip_msgs):
+            echo(
+                "(read-only jobs.json validation complete; no file changes "
+                "planned.)",
+            )
+            return 1 if validate_failed else 0
         echo("Nothing to do (already satisfied).")
         return 0
 
@@ -634,7 +759,7 @@ def run_doctor_fix(
 
     if dry_run:
         echo("(dry-run: no files modified)")
-        return 0
+        return 1 if validate_failed else 0
 
     if no_backup:
         echo_err(
@@ -642,7 +767,8 @@ def run_doctor_fix(
             "something goes wrong.",
         )
 
-    if not yes:
+    skip_confirm = yes or non_interactive
+    if not skip_confirm:
         fn = confirm_fn or (lambda _m: False)
         if not fn("Apply these changes?"):
             echo("Aborted (no changes written).")
@@ -689,7 +815,9 @@ def run_doctor_fix(
         for p in rest_ops:
             for path in p.paths_to_backup:
                 if not path_allowed_for_write(path, wd):
-                    raise RuntimeError(f"refusing to touch disallowed path: {path}")
+                    raise RuntimeError(
+                        f"refusing to touch disallowed path: {path}",
+                    )
                 if session_files is not None and path.is_file():
                     _backup_one_file(session_files, path, wd)
                     backed_rels.append(str(_relative_under_wd(path, wd)))
@@ -702,8 +830,20 @@ def run_doctor_fix(
         return 1
 
     if session_dir is not None and session_files is not None:
-        _write_meta(session_dir, list(argv), all_applied_ids, backed_rels)
+        _write_meta(
+            session_dir,
+            list(argv),
+            all_applied_ids,
+            backed_rels,
+            working_dir=str(wd),
+            dry_run=dry_run,
+            yes=yes,
+            no_backup=no_backup,
+            non_interactive=non_interactive,
+            cli_api_host=cli_api_host,
+            cli_api_port=cli_api_port,
+        )
         echo(f"Backup session: {session_dir}")
 
     echo("Done.")
-    return 0
+    return 1 if validate_failed else 0

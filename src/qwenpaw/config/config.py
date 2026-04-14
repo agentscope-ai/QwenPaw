@@ -1177,9 +1177,11 @@ def build_fallback_agent_profile_config(
     agent_id: str,
     config: "Config",
 ) -> AgentProfileConfig:
-    """Build the same profile as when ``agent.json`` is missing (no disk read/write).
+    """Build the same profile as when ``agent.json``
+    is missing (no disk read/write).
 
-    Used by :func:`load_agent_config` and ``copaw doctor fix`` so defaults stay in sync.
+    Used by :func:`load_agent_config` and ``qwenpaw doctor fix``
+    so defaults stay in sync.
     """
     if agent_id not in config.agents.profiles:
         raise ValueError(f"Agent '{agent_id}' not found in config")
@@ -1198,9 +1200,7 @@ def build_fallback_agent_profile_config(
         ),
         mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
         tools=(
-            config.tools
-            if hasattr(config, "tools") and config.tools
-            else None
+            config.tools if hasattr(config, "tools") and config.tools else None
         ),
         security=(
             config.security
@@ -1214,7 +1214,8 @@ def build_fallback_agent_profile_config(
         ),
         llm_routing=(
             config.agents.llm_routing
-            if hasattr(config.agents, "llm_routing") and config.agents.llm_routing
+            if hasattr(config.agents, "llm_routing")
+            and config.agents.llm_routing
             else AgentsLLMRoutingConfig()
         ),
         system_prompt_files=(

@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Read-only diagnostics for `copaw doctor` (no config or disk mutations)."""
+"""Read-only diagnostics for `qwenpaw doctor` (no config or disk mutations)."""
 from __future__ import annotations
 
+# pylint: disable=too-many-branches,too-many-statements
+# pylint: disable=too-many-return-statements
 import asyncio
+import importlib
 import importlib.util
 import json
 import os
@@ -15,7 +18,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..__version__ import __version__
-from ..agents.skills_manager import get_workspace_skills_dir, read_skill_manifest
+from ..agents.skills_manager import (
+    get_workspace_skills_dir,
+    read_skill_manifest,
+)
 from ..app.crons.models import JobsFile
 from ..config.config import (
     AgentProfileConfig,
@@ -41,18 +47,26 @@ from ..constant import (
     JOBS_FILE,
     MEMORY_DIR,
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV,
+    PROJECT_NAME,
     SECRET_DIR,
     WORKING_DIR,
+    EnvVarLoader,
 )
+from ..utils.logging import LOG_NAMESPACE
+from ..utils.system_info import summarize_python_environment
 from ..providers.provider import Provider
 
 
-# Log file opened on app startup (see ``copaw.app._app`` lifespan).
-COPAW_APP_LOG_NAME = "copaw.log"
+# Log file opened on app startup (see ``qwenpaw.app._app`` lifespan).
+APP_LOG_BASENAME = f"{LOG_NAMESPACE}.log"
+
+# Built-in local llama.cpp provider id; legacy configs may still use
+# copaw-local.
+_QWENPAW_LOCAL_PROVIDER_IDS = frozenset({"qwenpaw-local", "copaw-local"})
 
 
 def _resolve_existing_path_anchor(path: Path) -> Path | None:
-    """First existing path walking up from *path* (for ``stat`` / ``disk_usage``)."""
+    """First existing ancestor of *path* (for ``stat`` / ``disk_usage``)."""
     cur = path.expanduser()
     try:
         cur = cur.resolve(strict=False)
@@ -71,22 +85,23 @@ def _resolve_existing_path_anchor(path: Path) -> Path | None:
     return None
 
 
-def check_copaw_log_writable() -> tuple[bool, str]:
-    """``copaw app`` appends to ``WORKING_DIR / copaw.log`` during startup."""
-    log_path = WORKING_DIR / COPAW_APP_LOG_NAME
+def check_app_log_writable() -> tuple[bool, str]:
+    """``qwenpaw app`` appends to the app log under ``WORKING_DIR``."""
+    log_path = WORKING_DIR / APP_LOG_BASENAME
     try:
         with open(log_path, "a", encoding="utf-8"):
             pass
     except OSError as exc:
         return (
             False,
-            f"cannot append to {log_path} (required when starting `copaw app`): {exc}",
+            f"cannot append to {log_path} "
+            f"(required when starting `qwenpaw app`): {exc}",
         )
     return True, str(log_path)
 
 
 def check_agent_workspace_writable(cfg: Config) -> tuple[bool, str]:
-    """Existing agent workspace directories must be writable for runtime state."""
+    """Existing agent workspace dirs must be writable for runtime state."""
     problems: list[str] = []
     checked = 0
     for agent_id, ref in cfg.agents.profiles.items():
@@ -104,7 +119,7 @@ def check_agent_workspace_writable(cfg: Config) -> tuple[bool, str]:
 
 
 def startup_extra_volume_disk_notes(cfg: Config | None) -> list[str]:
-    """Low free space on volumes other than ``WORKING_DIR`` that hold persistence."""
+    """Low free space on volumes other than ``WORKING_DIR`` (persistence)."""
     notes: list[str] = []
     try:
         wd_dev = WORKING_DIR.stat().st_dev
@@ -138,41 +153,49 @@ def startup_extra_volume_disk_notes(cfg: Config | None) -> list[str]:
         free_gib = du.free / (1024**3)
         if free_gib < low_gib:
             notes.append(
-                f"persistence path on another volume ({anchor}): {free_gib:.2f} GiB free "
-                f"(below {low_gib} GiB) — writes may fail even if working_dir volume is healthy.",
+                f"persistence path on another volume ({anchor}): "
+                f"{free_gib:.2f} GiB free (below {low_gib} GiB) — "
+                "writes may fail even if working_dir volume is healthy.",
             )
     return notes
 
 
-def _active_python_environment_summary() -> str:
-    """Short label for the venv/conda context of this Python (CoPaw CLI)."""
-    ve = (os.environ.get("VIRTUAL_ENV") or "").strip()
-    if ve:
-        return f"{ve}"
-    cenv = (os.environ.get("CONDA_DEFAULT_ENV") or "").strip()
-    cpfx = (os.environ.get("CONDA_PREFIX") or "").strip()
-    if cenv and cpfx:
-        return f"conda {cenv} ({cpfx})"
-    base = getattr(sys, "base_prefix", sys.prefix)
-    if sys.prefix != base:
-        return f"venv (sys.prefix={sys.prefix})"
-    return "system interpreter (no virtualenv in effect)"
+def environment_summary_lines(
+    *,
+    server_python_environment: str | None = None,
+    server_python_note: str | None = None,
+) -> list[str]:
+    """One line per fact; safe to paste into bug reports.
 
-
-def environment_summary_lines() -> list[str]:
-    """One line per fact; safe to paste into bug reports."""
+    *server_python_environment* describes the **HTTP API process** (running
+    ``qwenpaw app``), when ``GET /api/version`` returned
+    ``python_environment``. Doctor's own interpreter uses
+    ``doctor_python_environment``.
+    """
     py_ver = sys.version.split()[0]
+    doctor_env = summarize_python_environment()
     lines = [
-        f"python: {py_ver}",
-        f"copaw: {__version__}",
+        f"python version: {py_ver}",
+        f"qwenpaw version: {__version__}",
         f"platform: {platform.system()} {platform.machine()}",
-        f"copaw_environment: {_active_python_environment_summary()}",
-        f"doctor_environment: {sys.executable}",
-        f"working_dir: {WORKING_DIR}",
+        f"doctor_python_environment: {doctor_env}",
     ]
-    copaw_wd = os.getenv("COPAW_WORKING_DIR")
-    if copaw_wd:
-        lines.append(f"COPAW_WORKING_DIR (env): {copaw_wd}")
+    if server_python_environment is not None:
+        lines.append(
+            f"qwenpaw_python_environment: {server_python_environment}",
+        )
+    else:
+        lines.append(
+            "qwenpaw_python_environment: "
+            + (server_python_note or "(unknown)"),
+        )
+    lines.append(f"working_dir: {WORKING_DIR}")
+    wd_qp = os.getenv("QWENPAW_WORKING_DIR")
+    wd_legacy = os.getenv("COPAW_WORKING_DIR")
+    if wd_qp:
+        lines.append(f"QWENPAW_WORKING_DIR (env): {wd_qp}")
+    elif wd_legacy:
+        lines.append(f"COPAW_WORKING_DIR (env, legacy): {wd_legacy}")
     lines.append(f"sqlite library: {sqlite3.sqlite_version}")
     try:
         ver_tuple = tuple(
@@ -191,7 +214,8 @@ def environment_summary_lines() -> list[str]:
         lines.append(f"disk free (working dir volume): {free_gib:.2f} GiB")
         if free_gib < 0.5:
             lines.append(
-                "Note: very low free space — risk of failed writes and corrupted state.",
+                "Note: very low free space — risk of failed writes and "
+                "corrupted state.",
             )
     except OSError:
         lines.append("disk free: (could not stat working dir volume)")
@@ -207,9 +231,9 @@ def load_raw_config_dict() -> dict[str, Any] | None:
 
 
 def scan_unknown_config_keys(raw: dict[str, Any]) -> list[str]:
-    """Shallow unknown keys vs current Pydantic models (read-only; never delete).
+    """Shallow unknown keys vs Pydantic models (read-only; never delete).
 
-    ``channels.*`` extras may still be valid (plugins); we flag with a note.
+    ``channels.*`` extras may still be valid (plugins); we add a note.
     """
     found: list[str] = []
 
@@ -265,8 +289,8 @@ def scan_unknown_config_keys(raw: dict[str, Any]) -> list[str]:
 def legacy_single_agent_workspace_note(cfg: Config) -> str | None:
     """Align with ``migrate_legacy_workspace_to_default_agent`` preconditions.
 
-    When this applies, ``copaw app`` may run an automatic migration; doctor only
-    informs — it does not migrate.
+    When this applies, ``qwenpaw app`` may run an automatic migration;
+    doctor only informs — it does not migrate.
     """
     profiles = cfg.agents.profiles
     if len(profiles) != 1 or "default" not in profiles:
@@ -280,14 +304,14 @@ def legacy_single_agent_workspace_note(cfg: Config) -> str | None:
     return (
         "Only `default` is listed and workspace "
         f"`{agent_json}` is missing — the same situation "
-        "`copaw app` uses to trigger legacy → multi-agent workspace migration. "
-        "Start `copaw app` once (or see docs / `copaw init`). "
+        "`qwenpaw app` uses to trigger legacy → multi-agent workspace "
+        "migration. Start `qwenpaw app` once (or see docs / `qwenpaw init`). "
         "Doctor does not change config or files."
     )
 
 
 def check_agent_profile_workspaces(cfg: Config) -> tuple[bool, str]:
-    """Each ``agents.profiles`` entry should have a directory and ``agent.json``."""
+    """Each profile needs a workspace dir and ``agent.json``."""
     problems: list[str] = []
     for agent_id, ref in cfg.agents.profiles.items():
         wd = Path(ref.workspace_dir).expanduser()
@@ -302,21 +326,23 @@ def check_agent_profile_workspaces(cfg: Config) -> tuple[bool, str]:
     if problems:
         return False, "\n".join(problems)
     n = len(cfg.agents.profiles)
-    return True, f"{n} agent profile(s); each workspace contains agent.json"
+    return (
+        True,
+        f"{n} agent profile(s); each workspace contains agent.json",
+    )
 
-
-# --- OpenClaw-inspired read-only checks (cron, security hints, memory, hygiene) ---
 
 _LARGE_PROMPT_BYTES = 350 * 1024
-# Disabled: long-lived lock carrier files (e.g. .skill.json.lock) often stay on
-# disk with old mtime while locks are still meaningful — too many false positives.
+# Disabled: long-lived lock carrier files (e.g. .skill.json.lock) often stay
+# on disk with old mtime while locks are still meaningful — too many false
+# positives.
 # _STALE_LOCK_SECS = 86400
 _TOOL_RESULT_MANY = 400
 _DIALOG_MANY = 200
 
 
 def check_cron_jobs_files(cfg: Config) -> tuple[bool, str]:
-    """Validate each agent workspace ``jobs.json`` and optional legacy root file."""
+    """Validate each workspace ``jobs.json`` and optional legacy root file."""
     problems: list[str] = []
     validated_paths: list[tuple[str, Path, int]] = []
 
@@ -350,10 +376,11 @@ def check_cron_jobs_files(cfg: Config) -> tuple[bool, str]:
     if problems:
         return False, "\n".join(problems)
     if not validated_paths:
-        return True, "no jobs.json under agent workspaces (OK if you do not use cron)"
-    summary = "; ".join(
-        f"{aid}: {n} job(s)" for aid, _p, n in validated_paths
-    )
+        return (
+            True,
+            "no jobs.json under agent workspaces (OK if you do not use cron)",
+        )
+    summary = "; ".join(f"{aid}: {n} job(s)" for aid, _p, n in validated_paths)
     return True, f"{len(validated_paths)} file(s) OK — {summary}"
 
 
@@ -372,7 +399,7 @@ def _ms_playwright_browser_cache_roots() -> list[Path]:
 
 
 def _playwright_chromium_bundle_present() -> bool:
-    """Best-effort: Playwright ``playwright install chromium`` cache directory."""
+    """Best-effort: ``playwright install chromium`` browser cache directory."""
     for root in _ms_playwright_browser_cache_roots():
         try:
             if not root.is_dir():
@@ -402,36 +429,42 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
         return notes
 
     try:
-        from playwright.async_api import async_playwright  # noqa: F401
+        importlib.import_module("playwright.async_api")
     except ImportError:
         notes.append(
-            "playwright is installed but async_api failed to import — reinstall "
-            "the playwright package for this Python.",
+            "playwright is installed but async_api failed to import — "
+            "reinstall the playwright package for this Python.",
         )
         return notes
 
-    use_default = os.environ.get("COPAW_BROWSER_USE_DEFAULT", "1").strip().lower()
+    use_default = (
+        EnvVarLoader.get_str("QWENPAW_BROWSER_USE_DEFAULT", "1")
+        .strip()
+        .lower()
+    )
     if use_default in ("0", "false", "no", "off"):
         notes.append(
-            "COPAW_BROWSER_USE_DEFAULT is off — browser_use will not prefer the "
-            "OS default Chrome/Edge path; bundled or scanned Chromium paths apply.",
+            "QWENPAW_BROWSER_USE_DEFAULT is off — browser_use will not "
+            "prefer the OS default Chrome/Edge path; bundled or scanned "
+            "Chromium paths apply.",
         )
 
     if is_running_in_container():
         notes.append(
             "Container environment: use headless browser_use unless you add "
             "display forwarding; install Chromium in the image or run "
-            f"'{sys.executable}' -m playwright install chromium if launches fail.",
+            f"'{sys.executable}' -m playwright install chromium "
+            "if launches fail.",
         )
 
     exe = get_playwright_chromium_executable_path()
     if not exe and sys.platform != "darwin":
         if not _playwright_chromium_bundle_present():
             notes.append(
-                "No system Chrome/Chromium path found and no Playwright chromium "
-                "cache detected — run "
-                f"'{sys.executable}' -m playwright install chromium' or install "
-                "Chrome/Edge, or set "
+                "No system Chrome/Chromium path found and no Playwright "
+                "chromium cache detected — run "
+                f"'{sys.executable}' -m playwright install chromium' or "
+                "install Chrome/Edge, or set "
                 f"{PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV}.",
             )
     elif not exe and sys.platform == "darwin":
@@ -439,15 +472,16 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
             notes.append(
                 "No Chrome/Edge/Chromium on PATH — browser_use falls back to "
                 "WebKit on macOS; install Chrome/Edge or run "
-                f"'{sys.executable}' -m playwright install chromium' if you need "
-                "Chromium specifically.",
+                f"'{sys.executable}' -m playwright install chromium' if you "
+                "need Chromium specifically.",
             )
 
     if sys.platform.startswith("linux") and not is_running_in_container():
         if not (os.environ.get("DISPLAY") or "").strip():
             notes.append(
-                "DISPLAY is unset — headed browser_use (visible window) may fail; "
-                "use the default headless mode or configure X11/Wayland.",
+                "DISPLAY is unset — headed browser_use (visible window) "
+                "may fail; use the default headless mode or configure "
+                "X11/Wayland.",
             )
 
     if cfg is not None:
@@ -457,13 +491,14 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
             try:
                 if ud.is_file():
                     notes.append(
-                        f"{agent_id}: {ud} exists as a file — remove or rename it "
-                        "so browser_use can use a profile directory.",
+                        f"{agent_id}: {ud} exists as a file — remove or "
+                        "rename it so browser_use can use a profile "
+                        "directory.",
                     )
                 elif ud.is_dir() and not os.access(ud, os.W_OK):
                     notes.append(
-                        f"{agent_id}: {ud} is not writable — persistent browser "
-                        "profiles may fail.",
+                        f"{agent_id}: {ud} is not writable — persistent "
+                        "browser profiles may fail.",
                     )
             except OSError:
                 pass
@@ -472,7 +507,7 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
 
 
 def security_baseline_notes(cfg: Config) -> list[str]:
-    """Non-fatal security posture hints (aligned with OpenClaw ``doctor:security``)."""
+    """Non-fatal security hints."""
     notes: list[str] = []
     if not cfg.security.tool_guard.enabled:
         notes.append(
@@ -512,11 +547,14 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
             continue
         emb = ac.running.embedding_config
         ms = ac.running.memory_summary
-        if ms.force_memory_search and not _embedding_has_credentials(emb.api_key):
+        if ms.force_memory_search and not _embedding_has_credentials(
+            emb.api_key,
+        ):
             notes.append(
-                f"{agent_id}: running.memory_summary.force_memory_search is on "
-                "but no embedding API key is set in running.embedding_config.api_key "
-                "and no common OPENAI_/DASHSCOPE_/ANTHROPIC_ API key env was found.",
+                f"{agent_id}: running.memory_summary.force_memory_search "
+                "is on but no embedding API key is set in "
+                "running.embedding_config.api_key and no common "
+                "OPENAI_/DASHSCOPE_/ANTHROPIC_ API key env was found.",
             )
     return notes
 
@@ -560,8 +598,8 @@ def workspace_hygiene_notes(cfg: Config) -> list[str]:
                 continue
             if n > many:
                 notes.append(
-                    f"{agent_id}: {label}/ has {n} entries — cleanup or archival "
-                    "may improve performance.",
+                    f"{agent_id}: {label}/ has {n} entries — cleanup or "
+                    "archival may improve performance.",
                 )
         # Stale *.lock scan disabled — see _STALE_LOCK_SECS comment above.
         # stale = 0
@@ -578,7 +616,8 @@ def workspace_hygiene_notes(cfg: Config) -> list[str]:
         # if stale > 0:
         #     notes.append(
         #         f"{agent_id}: {stale}+ stale *.lock file(s) under workspace "
-        #         "(older than 24h) — possible crashed process; safe to inspect.",
+        #         "(older than 24h) — possible crashed process; "
+        #         "safe to inspect.",
         #     )
 
     if MEMORY_DIR.is_dir():
@@ -588,13 +627,13 @@ def workspace_hygiene_notes(cfg: Config) -> list[str]:
             mcount = 0
         if mcount > 5000:
             notes.append(
-                f"global memory tree {MEMORY_DIR} has many files ({mcount}+) — "
-                "expect slower indexing or backup size.",
+                f"global memory tree {MEMORY_DIR} has many files "
+                f"({mcount}+) — expect slower indexing or backup size.",
             )
     return notes
 
 
-# --- CoPaw-specific profile checks (agent.json, channels, MCP, skills, providers) ---
+# --- QwenPaw checks (agent.json, channels, MCP, skills, providers) ---
 
 
 def _read_workspace_agent_json(ref: AgentProfileRef) -> dict[str, Any] | None:
@@ -615,7 +654,7 @@ def _read_workspace_agent_json(ref: AgentProfileRef) -> dict[str, Any] | None:
 
 
 def check_agent_json_profiles(cfg: Config) -> tuple[bool, str]:
-    """Validate ``agent.json`` with ``AgentProfileConfig`` (read-only; no ``load_agent_config``)."""
+    """Validate ``agent.json`` with ``AgentProfileConfig`` (read-only)."""
     problems: list[str] = []
     n_ok = 0
     for agent_id, ref in cfg.agents.profiles.items():
@@ -640,11 +679,11 @@ def check_agent_json_profiles(cfg: Config) -> tuple[bool, str]:
 
 
 def check_enabled_agents_load_agent_config(cfg: Config) -> tuple[bool, str]:
-    """Dry-run :func:`~copaw.config.config.load_agent_config` for enabled profiles only.
+    """Dry-run :func:`~qwenpaw.config.config.load_agent_config` for enabled.
 
-    Matches agents started by ``MultiAgentManager.start_all_configured_agents``.
-    When ``agent.json`` is missing, we do **not** call ``load_agent_config`` (that
-    would write a fallback file on disk); we report FAIL for enabled agents instead.
+    Matches ``MultiAgentManager.start_all_configured_agents``. When
+    ``agent.json`` is missing, we do **not** call ``load_agent_config`` (that
+    would write a fallback on disk); we report FAIL for enabled agents.
     """
     problems: list[str] = []
     ok_n = 0
@@ -658,8 +697,9 @@ def check_enabled_agents_load_agent_config(cfg: Config) -> tuple[bool, str]:
         if not path.is_file():
             problems.append(
                 f"{agent_id}: enabled but missing {path} — at startup "
-                "`load_agent_config` would create a fallback agent.json on disk; "
-                "ensure the file exists or use `copaw doctor fix` where applicable.",
+                "`load_agent_config` would create a fallback agent.json on "
+                "disk; ensure the file exists or use `qwenpaw doctor fix` "
+                "where applicable.",
             )
             continue
         try:
@@ -697,7 +737,7 @@ def _effective_channels_mcp(
 
 
 def enabled_channel_notes(cfg: Config) -> list[str]:
-    """Static checks for built-in channels with ``enabled`` and empty credentials."""
+    """Static checks for enabled channels with missing credentials."""
     notes: list[str] = []
     for agent_id, ref in cfg.agents.profiles.items():
         raw = _read_workspace_agent_json(ref)
@@ -711,34 +751,48 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
             if name == "console":
                 continue
             if name == "discord" and not (sub.bot_token or "").strip():
-                notes.append(f"{agent_id}: discord enabled but bot_token is empty")
+                notes.append(
+                    f"{agent_id}: discord enabled but bot_token is empty",
+                )
             elif name == "dingtalk":
-                if not (sub.client_id or "").strip() or not (
-                    sub.client_secret or ""
-                ).strip():
+                if (
+                    not (sub.client_id or "").strip()
+                    or not (sub.client_secret or "").strip()
+                ):
                     notes.append(
-                        f"{agent_id}: dingtalk enabled but client_id/client_secret incomplete",
+                        f"{agent_id}: dingtalk enabled but "
+                        "client_id/client_secret incomplete",
                     )
             elif name == "feishu":
-                if not (sub.app_id or "").strip() or not (
-                    sub.app_secret or ""
-                ).strip():
+                if (
+                    not (sub.app_id or "").strip()
+                    or not (sub.app_secret or "").strip()
+                ):
                     notes.append(
-                        f"{agent_id}: feishu enabled but app_id/app_secret incomplete",
+                        f"{agent_id}: feishu enabled but "
+                        "app_id/app_secret incomplete",
                     )
             elif name == "qq":
-                if not (sub.app_id or "").strip() or not (
-                    sub.client_secret or ""
-                ).strip():
+                if (
+                    not (sub.app_id or "").strip()
+                    or not (sub.client_secret or "").strip()
+                ):
                     notes.append(
-                        f"{agent_id}: qq enabled but app_id/client_secret incomplete",
+                        f"{agent_id}: qq enabled but "
+                        "app_id/client_secret incomplete",
                     )
             elif name == "telegram" and not (sub.bot_token or "").strip():
-                notes.append(f"{agent_id}: telegram enabled but bot_token is empty")
+                notes.append(
+                    f"{agent_id}: telegram enabled but bot_token is empty",
+                )
             elif name == "mattermost":
-                if not (sub.url or "").strip() or not (sub.bot_token or "").strip():
+                if (
+                    not (sub.url or "").strip()
+                    or not (sub.bot_token or "").strip()
+                ):
                     notes.append(
-                        f"{agent_id}: mattermost enabled but url/bot_token incomplete",
+                        f"{agent_id}: mattermost enabled but "
+                        "url/bot_token incomplete",
                     )
             elif name == "mqtt" and not (sub.host or "").strip():
                 notes.append(f"{agent_id}: mqtt enabled but host is empty")
@@ -749,7 +803,8 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
                     or not (sub.access_token or "").strip()
                 ):
                     notes.append(
-                        f"{agent_id}: matrix enabled but homeserver/user_id/access_token incomplete",
+                        f"{agent_id}: matrix enabled but "
+                        "homeserver/user_id/access_token incomplete",
                     )
             elif name == "voice":
                 if (
@@ -758,12 +813,17 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
                     or not (sub.phone_number or "").strip()
                 ):
                     notes.append(
-                        f"{agent_id}: voice enabled but Twilio fields incomplete",
+                        f"{agent_id}: voice enabled but Twilio fields "
+                        "incomplete",
                     )
             elif name == "wecom":
-                if not (sub.bot_id or "").strip() or not (sub.secret or "").strip():
+                if (
+                    not (sub.bot_id or "").strip()
+                    or not (sub.secret or "").strip()
+                ):
                     notes.append(
-                        f"{agent_id}: wecom enabled but bot_id/secret incomplete",
+                        f"{agent_id}: wecom enabled but "
+                        "bot_id/secret incomplete",
                     )
             elif name == "xiaoyi":
                 if (
@@ -772,7 +832,8 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
                     or not (sub.agent_id or "").strip()
                 ):
                     notes.append(
-                        f"{agent_id}: xiaoyi enabled but ak/sk/agent_id incomplete",
+                        f"{agent_id}: xiaoyi enabled but "
+                        "ak/sk/agent_id incomplete",
                     )
             elif name == "weixin":
                 tok = (sub.bot_token or "").strip()
@@ -783,17 +844,20 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
                     p = Path(fp).expanduser()
                     if not p.is_file():
                         notes.append(
-                            f"{agent_id}: weixin enabled but bot_token_file missing: {p}",
+                            f"{agent_id}: weixin enabled but "
+                            f"bot_token_file missing: {p}",
                         )
                 else:
                     notes.append(
-                        f"{agent_id}: weixin enabled but bot_token and bot_token_file unset",
+                        f"{agent_id}: weixin enabled but bot_token and "
+                        "bot_token_file unset",
                     )
             elif name == "imessage":
                 dbp = Path(sub.db_path).expanduser()
                 if not dbp.is_file():
                     notes.append(
-                        f"{agent_id}: imessage enabled but chat.db not found at {dbp}",
+                        f"{agent_id}: imessage enabled but chat.db not "
+                        f"found at {dbp}",
                     )
         extra = getattr(ch, "__pydantic_extra__", None) or {}
         for key, val in extra.items():
@@ -830,7 +894,8 @@ def _mcp_client_problems(mcp: MCPConfig | None, label: str) -> list[str]:
             exe = cmd0[0]
             if not shutil.which(exe):
                 problems.append(
-                    f"{label} MCP {cid!r}: stdio executable {exe!r} not found on PATH",
+                    f"{label} MCP {cid!r}: stdio executable {exe!r} "
+                    "not found on PATH",
                 )
         elif client.transport in ("streamable_http", "sse"):
             u = (client.url or "").strip()
@@ -840,13 +905,14 @@ def _mcp_client_problems(mcp: MCPConfig | None, label: str) -> list[str]:
                 )
             elif not _url_looks_httpish(u):
                 problems.append(
-                    f"{label} MCP {cid!r}: url does not look like http(s)://…",
+                    f"{label} MCP {cid!r}: url does not look like "
+                    "http(s)://…",
                 )
     return problems
 
 
 def mcp_client_notes(cfg: Config) -> list[str]:
-    """Enabled MCP clients: PATH / URL sanity (root + per-agent ``agent.json`` mcp)."""
+    """MCP client PATH / URL sanity (root + per-agent ``agent.json`` mcp)."""
     notes: list[str] = []
     notes.extend(_mcp_client_problems(cfg.mcp, "root"))
     for agent_id, ref in cfg.agents.profiles.items():
@@ -862,7 +928,7 @@ def mcp_client_notes(cfg: Config) -> list[str]:
 
 
 def skill_layout_notes(cfg: Config) -> list[str]:
-    """Enabled skills in skill.json vs on-disk directories under the workspace."""
+    """Enabled skills in skill.json vs on-disk workspace directories."""
     notes: list[str] = []
     for agent_id, ref in cfg.agents.profiles.items():
         wd = Path(ref.workspace_dir).expanduser()
@@ -881,13 +947,14 @@ def skill_layout_notes(cfg: Config) -> list[str]:
             d = root / str(sname)
             if not d.is_dir():
                 notes.append(
-                    f"{agent_id}: skill {sname!r} enabled in skill.json but directory missing: {d}",
+                    f"{agent_id}: skill {sname!r} enabled in skill.json but "
+                    f"directory missing: {d}",
                 )
     return notes
 
 
 def provider_overview_notes() -> list[str]:
-    """Custom providers with missing required fields (async provider registry)."""
+    """Custom providers missing required fields (async registry)."""
     from ..providers.provider_manager import ProviderManager
 
     async def _run() -> list[str]:
@@ -910,39 +977,46 @@ def provider_overview_notes() -> list[str]:
 
 
 def active_llm_local_failure_hint(provider: Provider, provider_id: str) -> str:
-    """Short hint when ``check_model_connection`` failed for a local-oriented provider."""
+    """Hint when ``check_model_connection`` failed (local provider)."""
     if provider_id == "ollama":
         base = (getattr(provider, "base_url", None) or "").strip()
         if not base:
-            base = (os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").strip()
+            base = (
+                os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434"
+            ).strip()
         return (
-            f"Hint: start Ollama (e.g. `ollama serve`) and ensure the model is "
-            f"available (`ollama pull …`). OpenAI-compatible API is usually "
-            f"{base.rstrip('/')}/v1 ."
+            "Hint: start Ollama (e.g. `ollama serve`) and ensure the model "
+            "is available (`ollama pull …`). OpenAI-compatible API is "
+            f"usually {base.rstrip('/')}/v1 ."
         )
     if provider_id == "lmstudio":
-        base = (getattr(provider, "base_url", None) or "").strip() or "http://127.0.0.1:1234/v1"
+        base = (
+            getattr(provider, "base_url", None) or ""
+        ).strip() or "http://127.0.0.1:1234/v1"
         return (
-            f"Hint: open LM Studio, load a model, and enable the local server. "
+            "Hint: open LM Studio, load a model, and enable the local server. "
             f"Typical base URL: {base.rstrip('/')}"
         )
-    if provider_id == "copaw-local":
+    if provider_id in _QWENPAW_LOCAL_PROVIDER_IDS:
         return (
-            "Hint: CoPaw Local uses llama.cpp. Start the local server from the CoPaw "
-            "console or install the llama.cpp binary from there. "
-            "Run `copaw doctor --deep` to see llama.cpp install and server status."
+            f"Hint: {PROJECT_NAME} Local uses llama.cpp. Start the local "
+            f"server from the {PROJECT_NAME} console or install the llama.cpp "
+            "binary from there. Run `qwenpaw doctor --deep` to see llama.cpp "
+            "install and server status."
         )
     if getattr(provider, "is_local", False):
-        base = (getattr(provider, "base_url", None) or "").strip() or "your configured base_url"
+        base = (
+            getattr(provider, "base_url", None) or ""
+        ).strip() or "your configured base_url"
         return (
-            f"Hint: this provider is marked local — ensure the inference HTTP server "
-            f"is running and matches {base}."
+            "Hint: this provider is marked local — ensure the inference HTTP "
+            f"server is running and matches {base}."
         )
     return ""
 
 
-def copaw_local_llm_deep_notes() -> list[str]:
-    """Read-only llama.cpp install + server snapshot (for ``--deep`` + ``copaw-local``)."""
+def qwenpaw_local_llm_deep_notes() -> list[str]:
+    """Read-only llama.cpp install + server snapshot (``--deep`` / local)."""
     try:
         from ..local_models.manager import LocalModelManager
     except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -984,15 +1058,19 @@ def copaw_local_llm_deep_notes() -> list[str]:
 
 
 def _slot_is_set(slot: Any) -> bool:
-    return bool(getattr(slot, "provider_id", None) and getattr(slot, "model", None))
+    return bool(
+        getattr(slot, "provider_id", None) and getattr(slot, "model", None),
+    )
 
 
 def _resolve_agent_effective_model_slot(
     agent_cfg: AgentProfileConfig,
     active_slot: Any | None,
 ) -> tuple[Any | None, str]:
-    """Resolve which provider/model an agent will use for its default chat model."""
-    if agent_cfg.active_model is not None and _slot_is_set(agent_cfg.active_model):
+    """Resolve provider/model for the agent default chat model."""
+    if agent_cfg.active_model is not None and _slot_is_set(
+        agent_cfg.active_model,
+    ):
         return agent_cfg.active_model, "agent.active_model"
 
     routing = agent_cfg.llm_routing
@@ -1019,7 +1097,7 @@ async def check_enabled_agents_model_connections(
     timeout: float,
     deep: bool,
 ) -> tuple[bool, list[str], list[str]]:
-    """Test each enabled agent's effective model connectivity (like UI 'test connection').
+    """Test enabled agents' model connectivity (UI-style test).
 
     Returns (all_ok, per_agent_lines, extra_notes).
     """
@@ -1038,7 +1116,9 @@ async def check_enabled_agents_model_connections(
             ac = load_agent_config(agent_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             all_ok = False
-            lines.append(f"{agent_id}: FAIL — load_agent_config failed ({exc})")
+            lines.append(
+                f"{agent_id}: FAIL — load_agent_config failed ({exc})",
+            )
             continue
 
         slot, source = _resolve_agent_effective_model_slot(ac, active_slot)
@@ -1064,26 +1144,33 @@ async def check_enabled_agents_model_connections(
                 all_ok = False
                 lines.append(f"{agent_id}: FAIL — {pid}: base_url is not set")
                 continue
-        if getattr(provider, "require_api_key", False) and not (
-            getattr(provider, "api_key", "") or ""
-        ).strip():
+        if (
+            getattr(provider, "require_api_key", False)
+            and not (getattr(provider, "api_key", "") or "").strip()
+        ):
             all_ok = False
-            lines.append(f"{agent_id}: FAIL — {pid}: API key is required but not set")
+            lines.append(
+                f"{agent_id}: FAIL — {pid}: API key is required but not set",
+            )
             continue
 
-        if deep and pid == "copaw-local":
+        if deep and pid in _QWENPAW_LOCAL_PROVIDER_IDS:
             # Only add once (same underlying llama.cpp runtime).
             if not any("llama.cpp" in n for n in notes):
-                notes.extend(copaw_local_llm_deep_notes())
+                notes.extend(qwenpaw_local_llm_deep_notes())
 
         if not getattr(provider, "support_connection_check", True):
             lines.append(
-                f"{agent_id}: OK — {pid} / {model} (live check skipped for this provider)",
+                f"{agent_id}: OK — {pid} / {model} "
+                "(live check skipped for this provider)",
             )
             continue
 
         try:
-            ok, msg = await provider.check_model_connection(model, timeout=timeout)
+            ok, msg = await provider.check_model_connection(
+                model,
+                timeout=timeout,
+            )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             ok, msg = False, str(exc)
         if ok:
@@ -1093,7 +1180,11 @@ async def check_enabled_agents_model_connections(
         all_ok = False
         detail = f": {msg}" if msg else ""
         body = f"{pid} / {model} unreachable{detail}"
-        if getattr(provider, "is_local", False) or pid in ("ollama", "lmstudio", "copaw-local"):
+        if getattr(provider, "is_local", False) or pid in (
+            "ollama",
+            "lmstudio",
+            *_QWENPAW_LOCAL_PROVIDER_IDS,
+        ):
             hint = active_llm_local_failure_hint(provider, pid)
             if hint:
                 body = f"{body}\n{hint}"
@@ -1105,21 +1196,22 @@ async def check_enabled_agents_model_connections(
 
 
 def console_static_diagnostic_notes() -> list[str]:
-    """Extra context for the web console bundle (paths, mtime, source-tree npm fix)."""
+    """Web console bundle context (paths, mtime, npm rebuild hint)."""
     from datetime import datetime, timezone
 
     from ..utils.console_static import (
         CONSOLE_STATIC_ENV,
-        find_copaw_source_repo_root,
+        find_qwenpaw_source_repo_root,
         resolve_console_static_dir,
     )
 
     notes: list[str] = []
-    env_dir = (os.environ.get(CONSOLE_STATIC_ENV) or "").strip()
+    env_dir = EnvVarLoader.get_str("QWENPAW_CONSOLE_STATIC_DIR", "").strip()
     if env_dir:
         notes.append(
-            f"{CONSOLE_STATIC_ENV} is set — the app serves console files from that "
-            f"path ({env_dir}), not from the package or repo defaults.",
+            f"{CONSOLE_STATIC_ENV} is set — the app serves console files "
+            f"from that path ({env_dir}), not from the package or repo "
+            "defaults.",
         )
     static = Path(resolve_console_static_dir())
     idx = static / "index.html"
@@ -1132,7 +1224,8 @@ def console_static_diagnostic_notes() -> list[str]:
         except OSError:
             mtime = "(unknown)"
         notes.append(
-            f"resolved static dir: {static} — index.html present (mtime {mtime})",
+            f"resolved static dir: {static} — index.html present "
+            f"(mtime {mtime})",
         )
     else:
         notes.append(
@@ -1145,18 +1238,19 @@ def console_static_diagnostic_notes() -> list[str]:
         + (npm if npm else "not found (install Node.js or fix PATH)"),
     )
 
-    repo = find_copaw_source_repo_root()
+    repo = find_qwenpaw_source_repo_root()
     if repo is not None:
         notes.append(
-            f"source checkout detected at {repo} — bundle console into the package with "
-            "`copaw doctor fix -y --only rebuild-console-npm` "
-            "(`npm ci && npm run build` in console/, then copy to src/copaw/console/).",
+            f"source checkout detected at {repo} — if you changed the web "
+            "console under `console/`, you could rebuild the bundled UI with "
+            "`qwenpaw doctor fix -y --only rebuild-console-npm`.",
         )
     else:
         notes.append(
-            "source checkout not detected (normal for wheel installs) — use a git "
-            "checkout to run the npm bundle fix, or point COPAW_CONSOLE_STATIC_DIR at "
-            "a directory that contains index.html.",
+            "source checkout not detected (normal for wheel installs) — use "
+            "a git checkout to run the npm bundle fix, or point "
+            "QWENPAW_CONSOLE_STATIC_DIR (or legacy COPAW_CONSOLE_STATIC_DIR) "
+            "at a directory that contains index.html.",
         )
     return notes
 
@@ -1174,7 +1268,7 @@ def api_target_mismatch_note(cfg: Config, cli_base: str) -> str | None:
     if got == expected:
         return None
     return (
-        f"CLI targets {got!r} but config last_api is {eff_host!r}:{eff_port} — "
-        "use the same host/port as the running server, or update last_api in config."
+        f"CLI targets {got!r} but config last_api is "
+        f"{eff_host!r}:{eff_port} — use the same host/port as the running "
+        "server, or update last_api in config."
     )
-

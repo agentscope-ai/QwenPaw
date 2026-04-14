@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
-"""`copaw doctor` — read-only checks; `copaw doctor fix` — conservative repairs with backup."""
+"""`qwenpaw doctor` — read-only checks.
+
+`qwenpaw doctor fix` — conservative repairs with backup.
+"""
 from __future__ import annotations
 
+# pylint: disable=too-many-branches,too-many-statements
 import asyncio
 import json
 import os
@@ -15,10 +19,14 @@ from ..__version__ import __version__
 from ..app.auth import has_registered_users, is_auth_enabled
 from ..config import load_config
 from ..config.utils import strict_validate_config_file
-from ..constant import WORKING_DIR
+from ..constant import PROJECT_NAME, WORKING_DIR
 from ..providers.provider import Provider
 from ..providers.provider_manager import ProviderManager
-from ..utils.console_static import CONSOLE_STATIC_ENV, resolve_console_static_dir
+from ..utils.console_static import (
+    CONSOLE_STATIC_ENV,
+    resolve_console_static_dir,
+)
+from ..utils.system_info import summarize_python_environment
 from .doctor_checks import (
     active_llm_local_failure_hint,
     api_target_mismatch_note,
@@ -26,7 +34,7 @@ from .doctor_checks import (
     check_agent_json_profiles,
     check_agent_profile_workspaces,
     check_agent_workspace_writable,
-    check_copaw_log_writable,
+    check_app_log_writable,
     check_cron_jobs_files,
     check_enabled_agents_load_agent_config,
     check_enabled_agents_model_connections,
@@ -41,13 +49,92 @@ from .doctor_checks import (
     scan_unknown_config_keys,
     security_baseline_notes,
     skill_layout_notes,
-    copaw_local_llm_deep_notes,
+    qwenpaw_local_llm_deep_notes,
     startup_extra_volume_disk_notes,
     workspace_hygiene_notes,
 )
 from .doctor_connectivity import collect_deep_channel_connectivity_notes
 from .doctor_registry import DoctorRunContext, run_extension_contributions
 from .http import resolve_base_url
+
+
+def _doctor_fix_hint(message: str) -> None:
+    """One-line actionable hint after a FAIL (stderr)."""
+    click.echo(f"Hint: {message}", err=True)
+
+
+def _same_python_executable(a: str, b: str) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        try:
+            return Path(a).resolve() == Path(b).resolve()
+        except OSError:
+            return a == b
+
+
+def _fetch_running_server_python(
+    base: str,
+    timeout: float,
+) -> tuple[str | None, str | None, str | None]:
+    """Return env summary, python exe, and note from GET /api/version."""
+    url = f"{base.rstrip('/')}/api/version"
+    try:
+        resp = httpx.get(url, timeout=timeout)
+    except httpx.RequestError as exc:
+        return None, None, f"(not available: {exc})"
+    if resp.status_code != 200:
+        return (
+            None,
+            None,
+            f"(not available: HTTP {resp.status_code} from {url})",
+        )
+    try:
+        body = resp.json()
+    except json.JSONDecodeError:
+        return None, None, "(not available: /api/version is not JSON)"
+    if not isinstance(body, dict):
+        return None, None, "(not available: unexpected /api/version payload)"
+    raw_env = body.get("python_environment")
+    raw_exe = body.get("python_executable")
+    env_s = raw_env.strip() if isinstance(raw_env, str) else ""
+    exe_s = raw_exe.strip() if isinstance(raw_exe, str) else ""
+    if env_s:
+        return env_s, exe_s or None, None
+    return (
+        None,
+        None,
+        "(running app did not report python_environment — update and "
+        "restart `qwenpaw app` so the listener picks up the new API)",
+    )
+
+
+def _doctor_server_python_mismatch_note(
+    doctor_exe: str,
+    doctor_env: str,
+    server_env: str | None,
+    server_exe: str | None,
+) -> str | None:
+    """Warn when doctor CLI Python differs from the HTTP server (if known)."""
+    if server_env is None:
+        return None
+    if server_exe and doctor_exe:
+        if not _same_python_executable(doctor_exe, server_exe):
+            return (
+                "This `qwenpaw doctor` is not using the same Python "
+                "executable as the running `qwenpaw app` — diagnostics and "
+                "package versions may not match the server. doctor: "
+                f"{doctor_exe!r}; server: {server_exe!r}"
+            )
+        return None
+    if doctor_env.strip() != server_env.strip():
+        return (
+            "Doctor Python environment label differs from the running "
+            f"`qwenpaw app` (doctor: {doctor_env!r}; server: "
+            f"{server_env!r}). "
+            "Use the same venv when debugging if possible."
+        )
+    return None
 
 
 def _provider_is_configured(provider: Provider) -> tuple[bool, str]:
@@ -76,8 +163,10 @@ def _check_console_static_files() -> tuple[bool, str]:
     return (
         False,
         f"index.html missing under {static_dir}\n"
-        "        Build: `npm ci && npm run build` in the `console/` directory, "
-        f"or set {CONSOLE_STATIC_ENV} to a directory that contains index.html.",
+        "        Build: `npm ci && npm run build` in the `console/` "
+        "directory, "
+        f"or set {CONSOLE_STATIC_ENV} to a directory that contains "
+        "index.html.",
     )
 
 
@@ -88,15 +177,18 @@ def _check_web_auth(base: str) -> tuple[bool, str]:
         return (
             False,
             "enabled but no account registered yet.\n"
-            f"        1) Start `copaw app`, open {base}/ in a browser.\n"
-            "        2) Complete registration (single user) on the login page.\n"
-            "        For automation, set COPAW_AUTH_USERNAME and "
-            "COPAW_AUTH_PASSWORD — the server creates the user on startup.",
+            f"        1) Start `qwenpaw app`, open {base}/ in a browser.\n"
+            "        2) Complete registration (single user) on the login "
+            "page.\n"
+            "        For automation, set QWENPAW_AUTH_USERNAME and "
+            "QWENPAW_AUTH_PASSWORD (legacy COPAW_* names still work) — the "
+            "server creates the user on startup.",
         )
     return (
         True,
-        f"enabled — open {base}/ and sign in; the console stores your session. "
-        "API clients must send Authorization: Bearer <token> from login.",
+        f"enabled — open {base}/ and sign in; the console stores your "
+        "session. API clients must send Authorization: Bearer <token> "
+        "from login.",
     )
 
 
@@ -117,12 +209,16 @@ def _classify_console_root_response(resp: httpx.Response) -> tuple[bool, str]:
             if "Web Console is not available" in msg:
                 return (
                     False,
-                    "server is running but the console bundle is not installed — "
-                    "build `console/` or set "
-                    f"{CONSOLE_STATIC_ENV}, then restart `copaw app`.",
+                    "server is running but the console bundle is not "
+                    "installed — build `console/` or set "
+                    f"{CONSOLE_STATIC_ENV}, then restart "
+                    "`qwenpaw app`.",
                 )
         return False, "HTTP GET / returned JSON instead of the console page"
-    return False, f"unexpected GET / response (content-type: {ct or 'unknown'})"
+    return (
+        False,
+        f"unexpected GET / response (content-type: {ct or 'unknown'})",
+    )
 
 
 async def _check_active_llm(
@@ -138,7 +234,7 @@ async def _check_active_llm(
     ):
         return (
             False,
-            "no active LLM slot — run `copaw models list` and configure "
+            "no active LLM slot — run `qwenpaw models list` and configure "
             "an active model",
             [],
         )
@@ -150,8 +246,9 @@ async def _check_active_llm(
         return False, f"{slot.provider_id}: {reason}", []
 
     deep_notes: list[str] = []
-    if deep and (slot.provider_id or "").strip() == "copaw-local":
-        deep_notes = copaw_local_llm_deep_notes()
+    pid = (slot.provider_id or "").strip()
+    if deep and pid in ("qwenpaw-local", "copaw-local"):
+        deep_notes = qwenpaw_local_llm_deep_notes()
 
     if not getattr(provider, "support_connection_check", True):
         return (
@@ -170,6 +267,7 @@ async def _check_active_llm(
         if getattr(provider, "is_local", False) or slot.provider_id in (
             "ollama",
             "lmstudio",
+            "qwenpaw-local",
             "copaw-local",
         ):
             hint = active_llm_local_failure_hint(provider, slot.provider_id)
@@ -179,19 +277,91 @@ async def _check_active_llm(
     return True, f"{slot.provider_id} / {slot.model} (reachable)", deep_notes
 
 
+_DOCTOR_FIX_ONLY_HELP = (
+    "Comma-separated fix ids: ensure-working-dir, ensure-workspace-dirs, "
+    "validate-all-jobs-json, reconcile-workspace-skills, "
+    "seed-missing-agent-json, reset-invalid-agent-json, "
+    "write-empty-jobs-json, normalize-jobs-cron, rebuild-console-npm. "
+    "Default: safe fixes only (first two). "
+    "reconcile-workspace-skills syncs each workspace skill.json with skills/ "
+    "(no --yes required)."
+)
+
+
+def _run_doctor_fix_cli(
+    ctx: click.Context,
+    *,
+    dry_run: bool,
+    yes: bool,
+    non_interactive: bool,
+    only: str | None,
+    no_backup: bool,
+    backup_dir: Path | None,
+) -> None:
+    """Shared implementation for ``doctor fix``."""
+    from .doctor_fix_runner import run_doctor_fix
+
+    def echo_err(message: str) -> None:
+        click.echo(click.style(message, fg="red"), err=True)
+
+    cli_host, cli_port = _cli_api_host_port_from_ctx(ctx)
+    code = run_doctor_fix(
+        dry_run=dry_run,
+        yes=yes,
+        only=only,
+        no_backup=no_backup,
+        backup_dir=backup_dir,
+        working_dir=None,
+        echo=click.echo,
+        echo_err=echo_err,
+        confirm_fn=click.confirm,
+        cli_api_host=cli_host,
+        cli_api_port=cli_port,
+        non_interactive=non_interactive,
+    )
+    if code != 0:
+        sys.exit(code)
+
+
+def _cli_api_host_port_from_ctx(
+    ctx: click.Context,
+) -> tuple[str | None, int | None]:
+    """Read ``--host`` / ``--port`` from root CLI context (``main.cli``)."""
+    cur: click.Context | None = ctx
+    while cur.parent is not None:
+        cur = cur.parent
+    obj = cur.obj if cur is not None else None
+    if isinstance(obj, dict):
+        return obj.get("host"), obj.get("port")
+    return None, None
+
+
 def run_doctor_checks(
     ctx: click.Context,
     timeout: float,
     llm_timeout: float,
     deep: bool,
 ) -> None:
-    """Run read-only ``copaw doctor`` checks (no disk mutations)."""
+    """Run read-only ``qwenpaw doctor`` checks (no disk mutations)."""
     base = resolve_base_url(ctx, None).rstrip("/")
     failed = False
 
+    srv_env, srv_exe, srv_note = _fetch_running_server_python(base, timeout)
+
     click.echo("=== Environment ===")
-    for line in environment_summary_lines():
+    for line in environment_summary_lines(
+        server_python_environment=srv_env,
+        server_python_note=srv_note,
+    ):
         click.echo(f"  {line}")
+    mismatch = _doctor_server_python_mismatch_note(
+        sys.executable,
+        summarize_python_environment(),
+        srv_env,
+        srv_exe,
+    )
+    if mismatch:
+        click.echo(click.style("Note:", fg="yellow") + f" {mismatch}")
 
     click.echo("\n=== Config ===")
     config_ok, detail = strict_validate_config_file()
@@ -200,6 +370,11 @@ def run_doctor_checks(
     else:
         failed = True
         click.echo(click.style("FAIL", fg="red") + f"\n{detail}", err=True)
+        _doctor_fix_hint(
+            "fix the root `config.json` fields shown above. "
+            "For workspace repairs after it validates, see "
+            "`qwenpaw doctor fix --dry-run --help` and `--only`.",
+        )
 
     raw_cfg = load_raw_config_dict()
     if raw_cfg is not None:
@@ -209,10 +384,16 @@ def run_doctor_checks(
             click.echo(
                 click.style("Note:", fg="yellow")
                 + " keys present on disk that are not on the current schema "
-                "(informational only; doctor does not remove or rewrite them):",
+                + "(informational only; doctor does not remove or rewrite "
+                "them):",
             )
             for item in unknown:
                 click.echo(f"  - {item}")
+            _doctor_fix_hint(
+                "Fix: edit `config.json` manually to remove obsolete keys "
+                "(`qwenpaw doctor` and `doctor fix` do not strip unknown keys "
+                "yet).",
+            )
 
     if config_ok:
         cfg = load_config()
@@ -232,6 +413,12 @@ def run_doctor_checks(
                 click.style("FAIL", fg="red") + f" — {ws_detail}",
                 err=True,
             )
+            _doctor_fix_hint(
+                "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
+                "--only ensure-working-dir,ensure-workspace-dirs`. Apply: run "
+                "the plan without `--dry-run` (add `-y` to skip the "
+                "confirmation prompt).",
+            )
 
         click.echo("Profiles (agent.json)")
         aj_ok, aj_detail = check_agent_json_profiles(cfg)
@@ -243,6 +430,12 @@ def run_doctor_checks(
                 click.style("FAIL", fg="red") + f" — {aj_detail}",
                 err=True,
             )
+            _doctor_fix_hint(
+                "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
+                "--only seed-missing-agent-json,reset-invalid-agent-json`. "
+                "Apply: run the plan without `--dry-run` (risky writes need "
+                "adding `-y` to skip the confirmation prompt).",
+            )
 
         click.echo("Config load (enabled)")
         acl_ok, acl_detail = check_enabled_agents_load_agent_config(cfg)
@@ -253,6 +446,12 @@ def run_doctor_checks(
             click.echo(
                 click.style("FAIL", fg="red") + f" — {acl_detail}",
                 err=True,
+            )
+            _doctor_fix_hint(
+                "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
+                "--only seed-missing-agent-json,reset-invalid-agent-json`. "
+                "Apply: run the plan without `--dry-run` (risky writes need "
+                "adding `-y` to skip the confirmation prompt).",
             )
 
         click.echo("\n=== Channels (enabled) ===")
@@ -279,8 +478,9 @@ def run_doctor_checks(
         if not ext_nonempty:
             click.echo(
                 click.style("OK", fg="green")
-                + " — no extension notes (register via copaw.doctor entry points "
-                "or register_doctor_contribution)",
+                + " — no extension notes (register via qwenpaw.doctor entry "
+                "points or register_doctor_contribution; legacy "
+                "copaw.doctor is still loaded)",
             )
         else:
             for contrib_id, lines in ext_nonempty:
@@ -341,7 +541,8 @@ def run_doctor_checks(
         sec_notes = security_baseline_notes(cfg)
         if sec_notes:
             click.echo(
-                click.style("Note:", fg="yellow") + " review security posture:",
+                click.style("Note:", fg="yellow")
+                + " review security posture:",
             )
             for line in sec_notes:
                 click.echo(f"  - {line}")
@@ -376,49 +577,41 @@ def run_doctor_checks(
             click.echo(click.style("OK", fg="green") + f" — {cj_detail}")
         else:
             failed = True
-            click.echo(click.style("FAIL", fg="red") + f" — {cj_detail}", err=True)
+            click.echo(
+                click.style("FAIL", fg="red") + f" — {cj_detail}",
+                err=True,
+            )
+            _doctor_fix_hint(
+                "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
+                "--only validate-all-jobs-json` (read-only), or the same "
+                "command with `write-empty-jobs-json,normalize-jobs-cron` in "
+                "`--only`. "
+                "Apply: for those write ids, run the plan without `--dry-run` "
+                "(risky writes need adding `-y` to skip the confirmation "
+                "prompt).",
+            )
     else:
-        click.echo("\n=== Agents ===")
-        click.echo("Workspaces")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
-        click.echo("Profiles (agent.json)")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
-        click.echo("Config load (enabled)")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
-        click.echo("\n=== Channels (enabled) ===")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
-        click.echo("\n=== Doctor extensions ===")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
+        click.echo("\n=== Skipped (root config invalid) ===")
+        _skipped_when_cfg_invalid = (
+            "Agents (workspaces, profiles, enabled agent.json load), "
+            "Channels (enabled), Doctor extensions, MCP clients, Skills, "
+            "Security (baseline), Memory / embedding, Workspace hygiene, and "
+            "Cron (jobs.json)"
         )
         if deep:
-            click.echo("\n=== Channels (connectivity, --deep) ===")
-            click.echo(
-                click.style("SKIP", fg="yellow")
-                + " — fix root config validation first",
+            _skipped_when_cfg_invalid = (
+                "Agents (workspaces, profiles, enabled agent.json load), "
+                "Channels (enabled and --deep connectivity), "
+                "Doctor extensions, "
+                "MCP clients, Skills, Security (baseline), Memory / "
+                "embedding, "
+                "Workspace hygiene, and Cron (jobs.json)"
             )
-        click.echo("\n=== MCP clients ===")
         click.echo(
             click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
-        click.echo("\n=== Skills ===")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
+            + " — not run because root `config.json` failed validation above: "
+            + _skipped_when_cfg_invalid
+            + ". Fix the config file, then re-run `qwenpaw doctor`.",
         )
         click.echo("\n=== Browser (browser_use / Playwright) ===")
         br_skip = browser_automation_notes(None)
@@ -430,26 +623,6 @@ def run_doctor_checks(
                 click.style("OK", fg="green")
                 + " — no browser automation warnings",
             )
-        click.echo("\n=== Security (baseline) ===")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
-        click.echo("\n=== Memory / embedding ===")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
-        click.echo("\n=== Workspace hygiene ===")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
-        click.echo("\n=== Cron (jobs.json) ===")
-        click.echo(
-            click.style("SKIP", fg="yellow")
-            + " — fix root config validation first",
-        )
 
     click.echo("\n=== Working directory ===")
     wd_ok, detail = _check_working_dir()
@@ -458,9 +631,13 @@ def run_doctor_checks(
     else:
         failed = True
         click.echo(click.style("FAIL", fg="red") + f" — {detail}", err=True)
-        click.echo(
-            "Hint: set COPAW_WORKING_DIR or run `copaw init`.",
-            err=True,
+        _doctor_fix_hint(
+            "Fix: set `QWENPAW_WORKING_DIR` (or legacy `COPAW_WORKING_DIR`) "
+            "or run `qwenpaw init`. "
+            "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
+            "--only ensure-working-dir` if the parent path exists and is "
+            "writable. Apply: run the plan `without --dry-run` (add `-y` to "
+            "skip the confirmation prompt).",
         )
 
     click.echo("\n=== Startup paths ===")
@@ -469,17 +646,24 @@ def run_doctor_checks(
             click.style("SKIP", fg="yellow") + " — working directory not OK",
         )
     else:
-        log_ok, log_detail = check_copaw_log_writable()
+        log_ok, log_detail = check_app_log_writable()
         if log_ok:
             click.echo(
                 click.style("OK", fg="green")
-                + f" — copaw.log appendable ({log_detail})",
+                + f" — {PROJECT_NAME.lower()}.log appendable ({log_detail})",
             )
         else:
             failed = True
             click.echo(
                 click.style("FAIL", fg="red") + f"\n{log_detail}",
                 err=True,
+            )
+            _doctor_fix_hint(
+                "Fix: ensure the data directory is writable. "
+                "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
+                "--only ensure-working-dir` if the directory is missing and "
+                "the parent allows creating it. Apply: run the plan `without "
+                "--dry-run` (add `-y` to skip the confirmation prompt).",
             )
         if config_ok:
             cfg_sp = load_config()
@@ -494,11 +678,17 @@ def run_doctor_checks(
                     click.style("FAIL", fg="red") + f"\n{ws_w_detail}",
                     err=True,
                 )
+                _doctor_fix_hint(
+                    "fix filesystem permissions on the listed workspace paths "
+                    "(doctor fix does not chmod); ensure the right user owns "
+                    "the data dir.",
+                )
             vol_notes = startup_extra_volume_disk_notes(cfg_sp)
         else:
             click.echo(
                 click.style("SKIP", fg="yellow")
-                + " — agent workspace writability (fix root config validation first)",
+                + ' — agent workspace writability (see "Skipped (root config '
+                'invalid)" above)',
             )
             vol_notes = startup_extra_volume_disk_notes(None)
         for line in vol_notes:
@@ -511,6 +701,14 @@ def run_doctor_checks(
     else:
         failed = True
         click.echo(click.style("FAIL", fg="red") + f"\n{detail}", err=True)
+        _doctor_fix_hint(
+            f"Fix: build `console/` or set {CONSOLE_STATIC_ENV}. From a git "
+            "checkout — "
+            "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
+            "--only rebuild-console-npm`. "
+            "Apply: run `without --dry-run` and include `-y` (runs npm; "
+            "copies dist → bundled console).",
+        )
     for line in console_static_diagnostic_notes():
         click.echo(click.style("Note:", fg="yellow") + f" {line}")
 
@@ -534,7 +732,8 @@ def run_doctor_checks(
         else:
             click.echo(
                 click.style("OK", fg="green")
-                + " — no custom provider configuration warnings",
+                + " — no custom provider "
+                + "configuration warnings",
             )
 
     click.echo("\n=== Active LLM ===")
@@ -545,7 +744,14 @@ def run_doctor_checks(
         click.echo(click.style("OK", fg="green") + f" — {llm_detail}")
     else:
         failed = True
-        click.echo(click.style("FAIL", fg="red") + f" — {llm_detail}", err=True)
+        click.echo(
+            click.style("FAIL", fg="red") + f" — {llm_detail}",
+            err=True,
+        )
+        _doctor_fix_hint(
+            "`qwenpaw models list` / console model settings — not a "
+            "filesystem fix.",
+        )
     for line in llm_notes:
         click.echo(click.style("Note:", fg="yellow") + f" {line}")
 
@@ -559,11 +765,15 @@ def run_doctor_checks(
             ),
         )
         if aok:
-            click.echo(click.style("OK", fg="green") + " — all enabled agents reachable")
+            click.echo(
+                click.style("OK", fg="green")
+                + " — all enabled agents reachable",
+            )
         else:
             failed = True
             click.echo(
-                click.style("FAIL", fg="red") + " — some enabled agents unreachable",
+                click.style("FAIL", fg="red")
+                + " — some enabled agents unreachable",
                 err=True,
             )
         for ln in lines:
@@ -598,7 +808,7 @@ def run_doctor_checks(
             err=True,
         )
         click.echo(
-            f"Hint: start the server with `copaw app` (default {base}).",
+            f"Hint: start the server with `qwenpaw app` (default {base}).",
             err=True,
         )
     else:
@@ -673,7 +883,9 @@ def run_doctor_checks(
                     err=True,
                 )
             else:
-                root_ok, root_detail = _classify_console_root_response(root_resp)
+                root_ok, root_detail = _classify_console_root_response(
+                    root_resp,
+                )
                 if root_ok:
                     click.echo(
                         click.style("OK", fg="green")
@@ -709,15 +921,17 @@ def run_doctor_checks(
     default=15.0,
     type=float,
     show_default=True,
-    help="Timeout in seconds for the active LLM ping (streaming completion).",
+    help=(
+        "Timeout in seconds for the active LLM ping (streaming completion)."
+    ),
 )
 @click.option(
     "--deep",
     is_flag=True,
     help=(
         "Run extra checks: enabled-channel reachability (non-fatal notes; "
-        "uses --timeout) and, when the active model is copaw-local, llama.cpp "
-        "install/server status notes."
+        "uses --timeout) and, when the active model is qwenpaw-local, "
+        "llama.cpp install/server status notes."
     ),
 )
 @click.pass_context
@@ -727,7 +941,10 @@ def doctor_cmd(
     llm_timeout: float,
     deep: bool,
 ) -> None:
-    """Local sanity checks. Subcommand ``fix`` applies conservative repairs (with backup)."""
+    """Local sanity checks.
+
+    Subcommand ``fix`` applies conservative repairs (with backup).
+    """
     if ctx.invoked_subcommand is None:
         run_doctor_checks(ctx, timeout, llm_timeout, deep)
 
@@ -745,21 +962,25 @@ def doctor_cmd(
     "--yes",
     "-y",
     is_flag=True,
-    help="Apply changes without confirmation (still creates backups unless --no-backup).",
+    help=(
+        "Apply changes without confirmation (still creates backups unless "
+        "--no-backup)."
+    ),
+)
+@click.option(
+    "--non-interactive",
+    is_flag=True,
+    help=(
+        "Allow only safe, read-only validation, and workspace skill sync fix "
+        "ids; skip confirmation. Rejects risky ids (npm rebuild, agent.json "
+        "reset, jobs rewrites, etc.) even with -y."
+    ),
 )
 @click.option(
     "--only",
     default=None,
     metavar="IDS",
-    help=(
-        "Comma-separated fix ids: ensure-working-dir, ensure-workspace-dirs, "
-        "reconcile-workspace-skills, seed-missing-agent-json, "
-        "reset-invalid-agent-json, write-empty-jobs-json, normalize-jobs-cron, "
-        "rebuild-console-npm. "
-        "Default: safe fixes only (first two). "
-        "reconcile-workspace-skills syncs each workspace skill.json with skills/ "
-        "(no --yes required)."
-    ),
+    help=_DOCTOR_FIX_ONLY_HELP,
 )
 @click.option(
     "--no-backup",
@@ -770,30 +991,31 @@ def doctor_cmd(
     "--backup-dir",
     type=click.Path(path_type=Path, file_okay=False),
     default=None,
-    help="Must be inside the working directory; default is the working directory root.",
+    help=(
+        "Must be inside the working directory; default is the working "
+        "directory root."
+    ),
 )
 @click.pass_context
 def doctor_fix_cli(
     ctx: click.Context,
     dry_run: bool,
     yes: bool,
+    non_interactive: bool,
     only: str | None,
     no_backup: bool,
     backup_dir: Path | None,
 ) -> None:
-    """Apply conservative filesystem fixes (default backup under doctor-fix-backups/)."""
-    from .doctor_fix_runner import run_doctor_fix
+    """Apply conservative filesystem fixes.
 
-    code = run_doctor_fix(
+    Default backup under doctor-fix-backups/.
+    """
+    _run_doctor_fix_cli(
+        ctx,
         dry_run=dry_run,
         yes=yes,
+        non_interactive=non_interactive,
         only=only,
         no_backup=no_backup,
         backup_dir=backup_dir,
-        working_dir=None,
-        echo=click.echo,
-        echo_err=lambda m: click.echo(click.style(m, fg="red"), err=True),
-        confirm_fn=(lambda m: click.confirm(m)) if not yes else None,
     )
-    if code != 0:
-        sys.exit(code)

@@ -72,8 +72,9 @@ qwenpaw = "qwenpaw.cli.main:cli"
 copaw = "qwenpaw.cli.main:cli"
 
 # Optional doctor plugins: callable (DoctorRunContext) -> list[str]
-# [project.entry-points."copaw.doctor"]
+# [project.entry-points."qwenpaw.doctor"]
 # my_pkg = "my_pkg.doctor:doctor_notes"
+# Legacy group "copaw.doctor" is still loaded when present.
 
 [project.optional-dependencies]
 dev = [

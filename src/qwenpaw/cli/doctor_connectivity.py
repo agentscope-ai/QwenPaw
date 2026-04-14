@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Optional ``--deep`` network reachability checks for enabled channels.
 
-Failures are reported as non-fatal notes (firewalls and offline use are common).
-Built-in probes live here; custom channels can override
-:class:`~copaw.app.channels.base.BaseChannel`.doctor_connectivity_notes.
+Failures are reported as non-fatal notes (firewalls and offline use are
+common). Built-in probes live here; custom channels can override
+:class:`~qwenpaw.app.channels.base.BaseChannel`.doctor_connectivity_notes.
 """
 from __future__ import annotations
 
@@ -65,7 +65,11 @@ def _probe_mqtt(agent_id: str, cfg: MQTTConfig, timeout: float) -> list[str]:
     return []
 
 
-def _probe_mattermost(agent_id: str, cfg: MattermostConfig, timeout: float) -> list[str]:
+def _probe_mattermost(
+    agent_id: str,
+    cfg: MattermostConfig,
+    timeout: float,
+) -> list[str]:
     url = (cfg.url or "").strip().rstrip("/")
     if not url:
         return []
@@ -76,7 +80,11 @@ def _probe_mattermost(agent_id: str, cfg: MattermostConfig, timeout: float) -> l
     return []
 
 
-def _probe_matrix(agent_id: str, cfg: MatrixConfig, timeout: float) -> list[str]:
+def _probe_matrix(
+    agent_id: str,
+    cfg: MatrixConfig,
+    timeout: float,
+) -> list[str]:
     hs = (cfg.homeserver or "").strip().rstrip("/")
     if not hs:
         return []
@@ -87,7 +95,11 @@ def _probe_matrix(agent_id: str, cfg: MatrixConfig, timeout: float) -> list[str]
     return []
 
 
-def _probe_telegram(agent_id: str, _cfg: TelegramConfig, timeout: float) -> list[str]:
+def _probe_telegram(
+    agent_id: str,
+    _cfg: TelegramConfig,
+    timeout: float,
+) -> list[str]:
     err = _http_get_ok("https://api.telegram.org", timeout)
     if err:
         return [f"{agent_id}: telegram: reach api.telegram.org — {err}"]
@@ -101,7 +113,11 @@ def _probe_discord(agent_id: str, _cfg: Any, timeout: float) -> list[str]:
     return []
 
 
-def _probe_onebot(agent_id: str, cfg: OneBotConfig, timeout: float) -> list[str]:
+def _probe_onebot(
+    agent_id: str,
+    cfg: OneBotConfig,
+    timeout: float,
+) -> list[str]:
     host = (cfg.ws_host or "127.0.0.1").strip()
     port = int(cfg.ws_port or 6199)
     if host in ("0.0.0.0", ""):
@@ -115,7 +131,11 @@ def _probe_onebot(agent_id: str, cfg: OneBotConfig, timeout: float) -> list[str]
     return []
 
 
-def _probe_feishu(agent_id: str, cfg: FeishuConfig, timeout: float) -> list[str]:
+def _probe_feishu(
+    agent_id: str,
+    cfg: FeishuConfig,
+    timeout: float,
+) -> list[str]:
     base = (
         "https://open.feishu.cn"
         if getattr(cfg, "domain", "feishu") == "feishu"
@@ -127,7 +147,11 @@ def _probe_feishu(agent_id: str, cfg: FeishuConfig, timeout: float) -> list[str]
     return []
 
 
-def _probe_dingtalk(agent_id: str, _cfg: DingTalkConfig, timeout: float) -> list[str]:
+def _probe_dingtalk(
+    agent_id: str,
+    _cfg: DingTalkConfig,
+    timeout: float,
+) -> list[str]:
     err = _http_get_ok("https://oapi.dingtalk.com/", timeout)
     if err:
         return [f"{agent_id}: dingtalk: reach oapi.dingtalk.com — {err}"]
@@ -141,21 +165,33 @@ def _probe_qq(agent_id: str, _cfg: QQConfig, timeout: float) -> list[str]:
     return []
 
 
-def _probe_wecom(agent_id: str, _cfg: WecomConfig, timeout: float) -> list[str]:
+def _probe_wecom(
+    agent_id: str,
+    _cfg: WecomConfig,
+    timeout: float,
+) -> list[str]:
     err = _tcp_check("qyapi.weixin.qq.com", 443, timeout)
     if err:
         return [f"{agent_id}: wecom: TCP qyapi.weixin.qq.com:443 — {err}"]
     return []
 
 
-def _probe_voice(agent_id: str, _cfg: VoiceChannelConfig, timeout: float) -> list[str]:
+def _probe_voice(
+    agent_id: str,
+    _cfg: VoiceChannelConfig,
+    timeout: float,
+) -> list[str]:
     err = _http_get_ok("https://api.twilio.com/", timeout)
     if err:
         return [f"{agent_id}: voice (Twilio): reach api.twilio.com — {err}"]
     return []
 
 
-def _probe_xiaoyi(agent_id: str, cfg: XiaoYiConfig, timeout: float) -> list[str]:
+def _probe_xiaoyi(
+    agent_id: str,
+    cfg: XiaoYiConfig,
+    timeout: float,
+) -> list[str]:
     raw = (cfg.ws_url or "").strip()
     if not raw:
         return []
@@ -170,7 +206,11 @@ def _probe_xiaoyi(agent_id: str, cfg: XiaoYiConfig, timeout: float) -> list[str]
     return []
 
 
-def _probe_weixin(agent_id: str, cfg: WeixinConfig, timeout: float) -> list[str]:
+def _probe_weixin(
+    agent_id: str,
+    cfg: WeixinConfig,
+    timeout: float,
+) -> list[str]:
     base = (cfg.base_url or "").strip().rstrip("/")
     if base:
         err = _http_get_ok(base + "/", timeout)
@@ -204,7 +244,11 @@ def _channel_enabled(sub: Any) -> bool:
     return bool(getattr(sub, "enabled", False))
 
 
-def collect_deep_channel_connectivity_notes(cfg: Config, timeout: float) -> list[str]:
+# pylint: disable-next=too-many-branches
+def collect_deep_channel_connectivity_notes(
+    cfg: Config,
+    timeout: float,
+) -> list[str]:
     """Run reachability probes for each enabled channel (per agent profile)."""
     notes: list[str] = []
     reg = get_channel_registry()
@@ -231,9 +275,12 @@ def collect_deep_channel_connectivity_notes(cfg: Config, timeout: float) -> list
                         sub,
                         timeout=timeout,
                     )
-                except Exception as exc:  # pylint: disable=broad-exception-caught
+                except (
+                    Exception
+                ) as exc:  # pylint: disable=broad-exception-caught
                     custom_lines = [
-                        f"{agent_id}: {name}: doctor_connectivity_notes error: {exc}",
+                        f"{agent_id}: {name}: "
+                        f"doctor_connectivity_notes error: {exc}",
                     ]
             if custom_lines:
                 notes.extend(custom_lines)
@@ -245,7 +292,9 @@ def collect_deep_channel_connectivity_notes(cfg: Config, timeout: float) -> list
             try:
                 notes.extend(probe(agent_id, sub, timeout))
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                notes.append(f"{agent_id}: {name}: connectivity probe error: {exc}")
+                notes.append(
+                    f"{agent_id}: {name}: connectivity probe error: {exc}",
+                )
 
         extra = getattr(ch, "__pydantic_extra__", None) or {}
         for key, val in extra.items():
@@ -260,16 +309,22 @@ def collect_deep_channel_connectivity_notes(cfg: Config, timeout: float) -> list
             if cls is None:
                 notes.append(
                     f"{agent_id}: plugin channel {key!r} enabled — "
-                    "not in registry; add a BaseChannel subclass or skip --deep",
+                    "not in registry; add a BaseChannel subclass "
+                    "or skip --deep",
                 )
                 continue
             try:
                 notes.extend(
-                    cls.doctor_connectivity_notes(agent_id, val, timeout=timeout),
+                    cls.doctor_connectivity_notes(
+                        agent_id,
+                        val,
+                        timeout=timeout,
+                    ),
                 )
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 notes.append(
-                    f"{agent_id}: {key}: doctor_connectivity_notes error: {exc}",
+                    f"{agent_id}: {key}: doctor_connectivity_notes error: "
+                    f"{exc}",
                 )
 
     return notes
