@@ -28,8 +28,7 @@ export function useAgentConfig() {
       ]);
       form.setFieldsValue({
         ...config,
-        auto_continue_on_text_only:
-          config.auto_continue_on_text_only ?? false,
+        auto_continue_on_text_only: config.auto_continue_on_text_only ?? false,
       });
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
