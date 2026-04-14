@@ -78,7 +78,7 @@ class AgentConfigWatcher:
             self._poll_loop(),
             name=f"agent_config_watcher_{self._agent_id}",
         )
-        logger.info(
+        logger.debug(
             f"AgentConfigWatcher started for agent {self._agent_id} "
             f"(poll={self._poll_interval}s, path={self._config_path})",
         )

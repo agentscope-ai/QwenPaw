@@ -35,7 +35,7 @@ class ChatManager:
         """
         self._repo = repo
         self._lock = asyncio.Lock()
-        logger.info(
+        logger.debug(
             f"ChatManager created with repo path: {repo.path}",
         )
 

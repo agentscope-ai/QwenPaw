@@ -136,7 +136,7 @@ class StdIOStatefulClient(StatefulClientBase):
                     # Mark as connected and signal ready
                     self.is_connected = True
                     self._ready_event.set()
-                    logger.info(f"MCP client connected: {self.name}")
+                    logger.debug(f"MCP client connected: {self.name}")
 
                     # Wait for reload or stop signal
                     while (
@@ -453,7 +453,7 @@ class HttpStatefulClient(StatefulClientBase):
                     # Mark as connected and signal ready
                     self.is_connected = True
                     self._ready_event.set()
-                    logger.info(f"MCP client connected: {self.name}")
+                    logger.debug(f"MCP client connected: {self.name}")
 
                     # Wait for reload or stop signal
                     while (

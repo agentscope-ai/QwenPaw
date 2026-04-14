@@ -6,6 +6,7 @@ including lazy loading, lifecycle management, and hot reloading.
 """
 import asyncio
 import logging
+import time
 from typing import Dict, Set
 
 from agentscope_runtime.engine.schemas.exception import (
@@ -26,20 +27,27 @@ class MultiAgentManager:
     - Lifecycle management: Start, stop, reload workspaces
     - Thread-safe: Uses async lock for concurrent access
     - Hot reload: Reload individual workspaces without affecting others
+    - Parallel startup: Multiple agents start concurrently via
+      fine-grained locking (lock released during slow workspace init)
     """
 
     def __init__(self):
         """Initialize multi-agent manager."""
         self.agents: Dict[str, Workspace] = {}
         self._lock = asyncio.Lock()
+        self._pending_starts: Dict[str, asyncio.Event] = {}
         self._cleanup_tasks: Set[asyncio.Task] = set()
         logger.debug("MultiAgentManager initialized")
 
     async def get_agent(self, agent_id: str) -> Workspace:
-        """Get agent workspace by ID (lazy loading).
+        """Get agent workspace by ID (lazy loading with dedup).
 
         If workspace doesn't exist in memory, it will be created and started.
-        Thread-safe using async lock.
+        Multiple concurrent callers for the same agent_id are coordinated:
+        the first caller creates the workspace while others wait.
+
+        The lock is only held briefly for dict checks/mutations, not during
+        the slow workspace startup, allowing parallel agent initialization.
 
         Args:
             agent_id: Agent ID to retrieve
@@ -50,43 +58,81 @@ class MultiAgentManager:
         Raises:
             ConfigurationException: If agent ID not found in configuration
         """
+        # Fast path: already loaded (no lock)
+        if agent_id in self.agents:
+            logger.debug(f"Returning cached agent: {agent_id}")
+            return self.agents[agent_id]
+
+        should_start = False
+        event = None
+        agent_ref = None
+
         async with self._lock:
-            # Return existing agent if already loaded
+            # Re-check under lock
             if agent_id in self.agents:
                 logger.debug(f"Returning cached agent: {agent_id}")
                 return self.agents[agent_id]
 
-            # Load configuration to get agent reference
-            config = load_config()
+            if agent_id in self._pending_starts:
+                # Another task is already starting this agent; wait for it
+                event = self._pending_starts[agent_id]
+            else:
+                # We are the first caller — validate config and claim startup
+                config = load_config()
+                if agent_id not in config.agents.profiles:
+                    raise ConfigurationException(
+                        config_key="agent",
+                        message=(
+                            f"Agent '{agent_id}' not found in configuration. "
+                            f"Available agents: "
+                            f"{list(config.agents.profiles.keys())}"
+                        ),
+                    )
+                agent_ref = config.agents.profiles[agent_id]
+                event = asyncio.Event()
+                self._pending_starts[agent_id] = event
+                should_start = True
 
-            if agent_id not in config.agents.profiles:
-                raise ConfigurationException(
-                    config_key="agent",
-                    message=(
-                        f"Agent '{agent_id}' not found in configuration. "
-                        f"Available agents: "
-                        f"{list(config.agents.profiles.keys())}"
-                    ),
-                )
-
-            agent_ref = config.agents.profiles[agent_id]
-
-            # Create and start new workspace
-            logger.info(f"Creating new workspace: {agent_id}")
-            instance = Workspace(
-                agent_id=agent_id,
-                workspace_dir=agent_ref.workspace_dir,
+        if not should_start:
+            # Wait for the in-progress startup to finish
+            await event.wait()
+            if agent_id in self.agents:
+                logger.debug(f"Returning cached agent: {agent_id}")
+                return self.agents[agent_id]
+            raise ConfigurationException(
+                config_key="agent",
+                message=f"Agent '{agent_id}' failed to initialize",
             )
 
-            try:
-                await instance.start()
-                instance.set_manager(self)  # Set manager reference
+        # We are the starter — create outside the lock for parallelism
+        t0 = time.perf_counter()
+        logger.debug(f"Creating new workspace: {agent_id}")
+        instance = Workspace(
+            agent_id=agent_id,
+            workspace_dir=agent_ref.workspace_dir,
+        )
+
+        try:
+            await instance.start()
+            instance.set_manager(self)
+
+            async with self._lock:
                 self.agents[agent_id] = instance
-                logger.info(f"Workspace created and started: {agent_id}")
-                return instance
-            except Exception as e:
-                logger.error(f"Failed to start workspace {agent_id}: {e}")
-                raise
+                self._pending_starts.pop(agent_id, None)
+
+            elapsed = time.perf_counter() - t0
+            event.set()
+            logger.debug(
+                f"Workspace created and started: {agent_id} "
+                f"({elapsed:.3f}s)",
+            )
+            return instance
+        except Exception as e:
+            async with self._lock:
+                self._pending_starts.pop(agent_id, None)
+            event.set()
+            logger.error(f"Failed to start workspace {agent_id}: {e}")
+            raise
 
     async def _graceful_stop_old_instance(
         self,
@@ -410,6 +456,10 @@ class MultiAgentManager:
         Only agents with enabled=True will be started.
         Disabled agents are skipped to save resources.
 
+        Agents are started truly in parallel: get_agent() only holds the
+        manager lock briefly for dict checks, releasing it during the slow
+        workspace initialization.
+
         Returns:
             dict[str, bool]: Mapping of agent_id to success status
         """
@@ -428,7 +478,7 @@ class MultiAgentManager:
 
         total_agents = len(config.agents.profiles)
         disabled_count = total_agents - len(agent_ids)
-        logger.info(
+        logger.debug(
             f"Starting {len(agent_ids)} enabled agent(s) "
             f"({disabled_count} disabled)",
         )
@@ -436,9 +486,9 @@ class MultiAgentManager:
         async def start_single_agent(agent_id: str) -> tuple[str, bool]:
             """Start a single agent with error handling."""
             try:
-                logger.info(f"Starting agent: {agent_id}")
-                await self.preload_agent(agent_id)
-                logger.info(f"Agent started successfully: {agent_id}")
+                logger.debug(f"Starting agent: {agent_id}")
+                await self.get_agent(agent_id)
+                logger.debug(f"Agent started successfully: {agent_id}")
                 return (agent_id, True)
             except Exception as e:
                 logger.error(
@@ -447,7 +497,7 @@ class MultiAgentManager:
                 )
                 return (agent_id, False)
 
-        # Start all agents concurrently
+        # Truly parallel: get_agent releases lock during workspace startup
         results = await asyncio.gather(
             *[start_single_agent(agent_id) for agent_id in agent_ids],
             return_exceptions=False,

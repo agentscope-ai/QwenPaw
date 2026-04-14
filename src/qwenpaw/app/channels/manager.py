@@ -540,7 +540,7 @@ class ChannelManager:
         self._workspace = workspace
         for ch in self.channels:
             ch.set_workspace(workspace, self._command_registry)
-        logger.info(
+        logger.debug(
             f"Injected workspace into {len(self.channels)} channels",
         )
 
