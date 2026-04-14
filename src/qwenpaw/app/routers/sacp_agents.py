@@ -2,7 +2,7 @@
 """SACP Agent Registry CRUD API.
 
 Provides REST endpoints for managing SACP agent configurations.
-Agents are stored in ~/.copaw/sacp_agents.json.
+Agents are stored in ~/.qwenpaw/sacp_agents.json.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Path as PathParam, Response
 from pydantic import BaseModel
 
-from copaw.meetings.models.sacp_agent import (
+from qwenpaw.meetings.models.sacp_agent import (
     SACPAgentConfig,
     SACPAgentsStorage,
     CreateSACPAgentRequest,
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sacp-agents", tags=["sacp-agents"])
 
-STORAGE_PATH = Path.home() / ".copaw" / "sacp_agents.json"
+STORAGE_PATH = Path.home() / ".qwenpaw" / "sacp_agents.json"
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ async def update_settings(
             now = _now()
 
             # For each agent in config, ensure it exists in storage
-            # All agents in config.agents.profiles are internal CoPaw agents
+            # All agents in config.agents.profiles are internal qwenpaw agents
             for agent_id, _agent_ref in config.agents.profiles.items():
                 existing = None
                 for agent in storage.agents:

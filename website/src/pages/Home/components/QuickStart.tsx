@@ -21,7 +21,8 @@ import {
   AliyunIcon,
 } from "@/components/Icon";
 import { sectionStyles } from "@/lib/utils";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const SyntaxHighlighter = require("react-syntax-highlighter").Prism as any;
 
 type InstallMethod = "pip" | "script" | "docker" | "cloud" | "desktop";
 type ScriptPlatform = "mac" | "windows";

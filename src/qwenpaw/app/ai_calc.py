@@ -3,7 +3,7 @@ import logging
 from functools import lru_cache
 from typing import Any, Optional
 
-from copaw.agents.model_factory import create_model_and_formatter
+from qwenpaw.agents.model_factory import create_model_and_formatter
 
 logger = logging.getLogger(__name__)
 

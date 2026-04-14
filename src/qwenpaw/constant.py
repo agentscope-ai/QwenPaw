@@ -10,16 +10,16 @@ if _env_path.exists():
 
 
 def _get_env(key: str, default: str = "") -> str:
-    """Look up an env var with automatic COPAW_ legacy fallback.
+    """Look up an env var with automatic qwenpaw_ legacy fallback.
 
     Primary key is always used as-is.  When the primary key starts with
-    ``QWENPAW_``, the corresponding ``COPAW_`` variant is transparently
+    ``QWENPAW_``, the corresponding ``qwenpaw_`` variant is transparently
     checked as a fallback so that existing deployments keep working.
     """
     if key in os.environ:
         return os.environ[key]
     if key.startswith("QWENPAW_"):
-        legacy_key = "COPAW_" + key[len("QWENPAW_") :]
+        legacy_key = "qwenpaw_" + key[len("QWENPAW_") :]
         if legacy_key in os.environ:
             return os.environ[legacy_key]
     return default
@@ -27,7 +27,7 @@ def _get_env(key: str, default: str = "") -> str:
 
 class EnvVarLoader:
     """Utility to load and parse environment variables with type safety
-    and defaults.  Pass QWENPAW_* keys; COPAW_* legacy variants are
+    and defaults.  Pass QWENPAW_* keys; qwenpaw_* legacy variants are
     checked automatically as a fallback inside _get_env.
     """
 
@@ -87,12 +87,12 @@ class EnvVarLoader:
 
 
 # WORKING_DIR priority:
-# 1. ~/.copaw exists (legacy installation) → use it as-is
-# 2. QWENPAW_WORKING_DIR / COPAW_WORKING_DIR env var is set → use it
+# 1. ~/.qwenpaw exists (legacy installation) → use it as-is
+# 2. QWENPAW_WORKING_DIR / qwenpaw_WORKING_DIR env var is set → use it
 # 3. Default → ~/.qwenpaw
-_legacy_copaw_dir = Path("~/.copaw").expanduser()
-if _legacy_copaw_dir.exists():
-    WORKING_DIR = _legacy_copaw_dir.resolve()
+_legacy_qwenpaw_dir = Path("~/.qwenpaw").expanduser()
+if _legacy_qwenpaw_dir.exists():
+    WORKING_DIR = _legacy_qwenpaw_dir.resolve()
 else:
     WORKING_DIR = (
         Path(_get_env("QWENPAW_WORKING_DIR", "~/.qwenpaw"))
@@ -132,10 +132,10 @@ BUILTIN_QA_AGENT_SKILL_NAMES: tuple[str, ...] = (
     "QA_source_index",
 )
 
-# CoPaw-era builtin QA; may remain in config.json — disabled when the current
+# qwenpaw-era builtin QA; may remain in config.json — disabled when the current
 # ``BUILTIN_QA_AGENT_ID`` profile is first created (see ``migration``), not
 # every startup, so users can re-enable this id if they want.
-LEGACY_QA_AGENT_ID = "CoPaw_QA_Agent_0.1beta1"
+LEGACY_QA_AGENT_ID = "qwenpaw_QA_Agent_0.1beta1"
 
 TOKEN_USAGE_FILE = EnvVarLoader.get_str(
     "QWENPAW_TOKEN_USAGE_FILE",

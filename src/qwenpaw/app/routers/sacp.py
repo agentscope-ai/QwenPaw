@@ -2,7 +2,7 @@
 """SACP (Simple Agent Communication Protocol) API endpoints.
 
 Provides chat and health check interfaces for agent communication.
-Supports both internal CoPaw agents (via MultiAgentManager) and
+Supports both internal qwenpaw agents (via MultiAgentManager) and
 external SACP agents (via HTTP).
 """
 
@@ -17,8 +17,8 @@ import httpx
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from copaw.app.multi_agent_manager import MultiAgentManager
-from copaw.meetings.models import SACPAgentConfig
+from qwenpaw.app.multi_agent_manager import MultiAgentManager
+from qwenpaw.meetings.models import SACPAgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
 
 def _get_agent_storage():
     """Load agent storage for external agent configuration."""
-    from copaw.app.routers.sacp_agents import _load_storage
+    from qwenpaw.app.routers.sacp_agents import _load_storage
 
     return _load_storage()
 
@@ -113,7 +113,7 @@ async def _call_internal_agent(
     multi_agent_manager,
     agent: SACPAgentConfig,
 ) -> dict:
-    """Call an internal CoPaw agent via channel callback mechanism.
+    """Call an internal qwenpaw agent via channel callback mechanism.
 
     通过 channel_manager.send_text() 发送消息，绑定回调接收响应，
     异步等待响应完成。

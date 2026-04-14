@@ -96,7 +96,7 @@ def _reconstruct_meeting(
     # which would regenerate paths with new timestamps, making existing
     # docs unreachable
     if doc_paths:
-        from copaw.meetings.models import MeetingDocument
+        from qwenpaw.meetings.models import MeetingDocument
 
         if doc_paths.get("goals"):
             manager.goals_doc = MeetingDocument(

@@ -26,9 +26,9 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     RunStatus,
 )
 
-from copaw.app.channels.base import BaseChannel, ProcessHandler, OnReplySent
-from copaw.app.channels.schema import ChannelType
-from copaw.config.config import SACPChannelConfig
+from qwenpaw.app.channels.base import BaseChannel, ProcessHandler, OnReplySent
+from qwenpaw.app.channels.schema import ChannelType
+from qwenpaw.config.config import SACPChannelConfig
 
 logger = logging.getLogger(__name__)
 

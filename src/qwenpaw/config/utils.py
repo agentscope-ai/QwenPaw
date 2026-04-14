@@ -39,14 +39,14 @@ logger = logging.getLogger(__name__)
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
-    """Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+    """Normalize legacy ~/.qwenpaw-bound paths to current WORKING_DIR.
 
     This keeps QWENPAW_WORKING_DIR effective even if user config files contain
-    older hard-coded paths like "~/.copaw/media" or
-    "/Users/x/.copaw/workspaces/...".
+    older hard-coded paths like "~/.qwenpaw/media" or
+    "/Users/x/.qwenpaw/workspaces/...".
     Only rewrites known working-dir-bound keys.
     """
-    legacy_root_tilde = "~/.copaw"
+    legacy_root_tilde = "~/.qwenpaw"
     legacy_root_abs = str(Path(legacy_root_tilde).expanduser().resolve())
     new_root_abs = str(WORKING_DIR)
 

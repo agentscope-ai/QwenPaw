@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unit test configuration for CoPaw test suite."""
+"""Unit test configuration for qwenpaw test suite."""
 
 import sys
 from types import SimpleNamespace

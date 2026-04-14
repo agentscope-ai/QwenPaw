@@ -16,7 +16,7 @@ class HealthStatus(str, Enum):
 
 
 class SACPAgentConfig(BaseModel):
-    """SACP Agent Configuration — stored in ~/.copaw/sacp_agents.json."""
+    """SACP Agent Configuration — stored in ~/.qwenpaw/sacp_agents.json."""
 
     id: str = Field(..., description="唯一标识符 (UUID)")
     name: str = Field(..., description="Agent 显示名称")
@@ -145,7 +145,7 @@ class SACPAgentHealthCheckResult(BaseModel):
 
 
 class SACPAgentsStorage(BaseModel):
-    """Root structure of ~/.copaw/sacp_agents.json."""
+    """Root structure of ~/.qwenpaw/sacp_agents.json."""
 
     version: str = Field(default="1.0", description="存储格式版本")
     global_internal_auth_key: Optional[str] = Field(

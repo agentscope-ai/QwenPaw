@@ -11,8 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from copaw.app.ai_calc import summarize_speech
-from copaw.constant import WORKING_DIR
+from qwenpaw.app.ai_calc import summarize_speech
+from qwenpaw.constant import WORKING_DIR
 from .models import (
     MeetingConfig,
     MeetingDocument,

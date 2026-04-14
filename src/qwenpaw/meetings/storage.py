@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from copaw.constant import WORKING_DIR
+from qwenpaw.constant import WORKING_DIR
 
 if TYPE_CHECKING:
     from .models.config import MeetingDocument

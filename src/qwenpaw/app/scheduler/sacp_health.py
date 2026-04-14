@@ -17,7 +17,7 @@ from typing import Optional
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from copaw.meetings.models.sacp_agent import (
+from qwenpaw.meetings.models.sacp_agent import (
     SACPAgentConfig,
     SACPAgentsStorage,
     HealthStatus,
@@ -25,7 +25,7 @@ from copaw.meetings.models.sacp_agent import (
 
 logger = logging.getLogger(__name__)
 
-STORAGE_PATH = Path.home() / ".copaw" / "sacp_agents.json"
+STORAGE_PATH = Path.home() / ".qwenpaw" / "sacp_agents.json"
 
 
 # ---------------------------------------------------------------------------

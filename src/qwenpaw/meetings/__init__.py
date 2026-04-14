@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CoPaw Multi-Agent Meeting System.
+"""qwenpaw Multi-Agent Meeting System.
 
 A module that enables multiple agents to collaborate in meeting scenarios,
 simulating real meeting discussions for complex decision-making tasks.

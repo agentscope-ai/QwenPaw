@@ -72,11 +72,11 @@ def _unlock(f) -> None:
 class SACPAgentsRepository:
     """JSON file-based repository for SACP agents.
 
-    Reads from / writes to ``~/.copaw/sacp_agents.json``.
+    Reads from / writes to ``~/.qwenpaw/sacp_agents.json``.
     """
 
     def __init__(self) -> None:
-        self._storage_path: Path = Path.home() / ".copaw" / "sacp_agents.json"
+        self._storage_path: Path = Path.home() / ".qwenpaw" / "sacp_agents.json"
 
     # -------------------------------------------------------------------------
     # Core persistence

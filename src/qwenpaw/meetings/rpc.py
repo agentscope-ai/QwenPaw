@@ -57,7 +57,7 @@ class SACPClient:
             Base URL for internal agents (e.g., http://127.0.0.1:8088/api)
         """
         try:
-            from copaw.config.utils import read_last_api
+            from qwenpaw.config.utils import read_last_api
 
             result = read_last_api()
             if result:
