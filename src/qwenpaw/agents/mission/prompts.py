@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Prompt templates for the Ralph Loop.
+"""Prompt templates for Mission Mode.
 
 The worker prompt is adapted from the Ralph project
 (https://github.com/snarktank/ralph) by snarktank, MIT License.
@@ -12,7 +12,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 MASTER_PROMPT = """\
-You are now in **Ralph Loop** mode — an autonomous iterative controller.
+You are now in **Mission Mode** — an autonomous iterative controller.
 Your job is to complete a complex task by delegating work to *worker sessions*
 in **parallel batches**, verifying results, and continuing until done.
 

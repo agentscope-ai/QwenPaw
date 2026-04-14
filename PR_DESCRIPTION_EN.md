@@ -1,6 +1,6 @@
 ## Description
 
-Implement Ralph Loop — an autonomous iterative agent system for complex, long-running tasks.
+Implement Mission Mode — an autonomous iterative agent system for complex, long-running tasks.
 
 Inspired by [snarktank/ralph](https://github.com/snarktank/ralph) (MIT License), Anthropic's [Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) design patterns, and Claude Code's verification agent mechanism.
 
@@ -9,7 +9,7 @@ Core philosophy: **code-level control + prompt guidance + independent verificati
 **Related Issue:** N/A
 
 **Security Considerations:**
-- In Phase 2, Ralph disables the master agent's implementation tools (shell/write/edit) via the Toolkit group mechanism, preventing self-implementation
+- In Phase 2, Mission Mode disables the master agent's implementation tools (shell/write/edit) via the Toolkit group mechanism, preventing self-implementation
 - Verifier agent is strictly read-only — prohibited from modifying any project files
 
 ## Type of Change
@@ -38,13 +38,13 @@ Core philosophy: **code-level control + prompt guidance + independent verificati
 
 | File | Description |
 |---|---|
-| `src/qwenpaw/agents/ralph/__init__.py` | Module init with snarktank/ralph copyright notice |
-| `src/qwenpaw/agents/ralph/handler.py` | `/mission` command parser, session-bound state initialization |
-| `src/qwenpaw/agents/ralph/prompts.py` | Master/Worker/Verifier prompt templates |
-| `src/qwenpaw/agents/ralph/ralph_runner.py` | Two-phase execution engine: code-level iteration loop + Toolkit group tool restriction |
-| `src/qwenpaw/agents/ralph/state.py` | File-based state management (prd.json, progress.txt, loop_config.json, task.md) |
-| `src/qwenpaw/app/runner/ralph_dispatch.py` | Runner integration layer with session-scoped automatic follow-up routing |
-| `src/qwenpaw/cli/ralph_cmd.py` | CLI entry points (`qwenpaw mission start/status/list`) |
+| `src/qwenpaw/agents/mission/__init__.py` | Module init with snarktank/ralph copyright notice |
+| `src/qwenpaw/agents/mission/handler.py` | `/mission` command parser, session-bound state initialization |
+| `src/qwenpaw/agents/mission/prompts.py` | Master/Worker/Verifier prompt templates |
+| `src/qwenpaw/agents/mission/mission_runner.py` | Two-phase execution engine: code-level iteration loop + Toolkit group tool restriction |
+| `src/qwenpaw/agents/mission/state.py` | File-based state management (prd.json, progress.txt, loop_config.json, task.md) |
+| `src/qwenpaw/app/runner/mission_dispatch.py` | Runner integration layer with session-scoped automatic follow-up routing |
+| `src/qwenpaw/cli/mission_cmd.py` | CLI entry points (`qwenpaw mission start/status/list`) |
 
 ### Modified Files (7)
 
@@ -65,19 +65,19 @@ User: /mission Implement user authentication
         │                          write loop_config.json (phase=prd_generation)
         │                          inject MASTER_PROMPT into agent messages
         ▼
-   ralph_dispatch.py ──▶ return {ralph_phase:1, loop_dir, max_iterations}
+   mission_dispatch.py ──▶ return {mission_phase:1, loop_dir, max_iterations}
         │
         ▼
-   runner.py ── detect ralph_phase_info ──▶ dispatch to ralph_runner
+   runner.py ── detect mission_info ──▶ dispatch to mission_runner
         │
         ▼
-   ralph_runner.py
-        ├── Phase 1 (run_ralph_phase1)
+   mission_runner.py
+        ├── Phase 1 (run_mission_phase1)
         │     Agent generates prd.json → code validates schema → report to user
         │     User confirms → agent writes current_phase=execution_confirmed
         │     Code detects signal → seamless transition to Phase 2
         │
-        └── Phase 2 (run_ralph_phase2)
+        └── Phase 2 (run_mission_phase2)
               Code: set_phase2_tool_restrictions() — disable impl tools
               Code: for-loop (max_iterations)
                 Master dispatches current batch:
@@ -117,8 +117,8 @@ Each story follows this completion flow:
 
 | Dimension | Implementation |
 |---|---|
-| Iteration loop | `for` loop in `ralph_runner.py`; agent stops → code checks prd.json → injects continuation |
-| Tool restriction | Phase 2 disables shell/write/edit via `Toolkit.update_tool_groups("ralph_impl", active=False)` |
+| Iteration loop | `for` loop in `mission_runner.py`; agent stops → code checks prd.json → injects continuation |
+| Tool restriction | Phase 2 disables shell/write/edit via `Toolkit.update_tool_groups("mission_impl", active=False)` |
 | PRD validation | `validate_prd()` checks schema before Phase 1→2 transition |
 | Max iterations | Hard code limit, not LLM self-discipline |
 | Phase transition | Agent writes loop_config signal → code detects and executes transition |

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Ralph Loop execution engine.
+"""Mission Mode execution engine.
 
-Encapsulates the full Ralph Loop lifecycle:
+Encapsulates the full Mission Mode lifecycle:
 
 1. **Phase 1 — PRD generation**: The agent explores the codebase and writes
    ``prd.json``.  All tools are available.  Phase ends when the agent
@@ -18,7 +18,7 @@ Encapsulates the full Ralph Loop lifecycle:
       loop back to (a).
 
 This module is called from ``runner.py`` and is the *only* place that
-knows about Ralph phases and iteration logic.  ``handler.py`` remains a
+knows about mission phases and iteration logic.  ``handler.py`` remains a
 thin command parser; ``prompts.py`` remains a prompt library.
 
 Copyright notice
@@ -40,7 +40,7 @@ from .state import read_loop_config, read_prd, write_loop_config
 logger = logging.getLogger(__name__)
 
 # ── Tool-group name used for implementation tools ────────────────────────
-RALPH_IMPL_GROUP = "ralph_impl"
+MISSION_IMPL_GROUP = "mission_impl"
 
 # Tools that are *implementation* tools — only workers should use them in
 # Phase 2.  Everything NOT in this set stays in the "basic" group and is
@@ -114,40 +114,40 @@ def migrate_tools_to_group(agent: Any) -> None:
     ``reply()`` in Phase 2.  Idempotent — safe to call multiple times.
     """
     toolkit = agent.toolkit
-    if RALPH_IMPL_GROUP in toolkit.groups:
+    if MISSION_IMPL_GROUP in toolkit.groups:
         return
 
     toolkit.add_tool_group(
-        RALPH_IMPL_GROUP,
+        MISSION_IMPL_GROUP,
         description=(
             "Implementation tools (shell, write, edit).  "
-            "Deactivated during Ralph Loop Phase 2 — the master agent "
-            "must delegate all implementation work to workers."
+            "Deactivated during Mission Mode Phase 2 — the master "
+            "agent must delegate all work to workers."
         ),
         active=True,
     )
 
     for tool_name in IMPLEMENTATION_TOOLS:
         if tool_name in toolkit.tools:
-            toolkit.tools[tool_name].group = RALPH_IMPL_GROUP
+            toolkit.tools[tool_name].group = MISSION_IMPL_GROUP
 
 
 def set_phase2_tool_restrictions(agent: Any) -> None:
     """Deactivate implementation tools for Phase 2 (controller-only mode)."""
     migrate_tools_to_group(agent)
-    agent.toolkit.update_tool_groups([RALPH_IMPL_GROUP], active=False)
+    agent.toolkit.update_tool_groups([MISSION_IMPL_GROUP], active=False)
     logger.info(
-        "Ralph Phase 2: deactivated tool group '%s' — master is now "
-        "controller-only",
-        RALPH_IMPL_GROUP,
+        "Mission Phase 2: deactivated tool group '%s' — master "
+        "is now controller-only",
+        MISSION_IMPL_GROUP,
     )
 
 
 def restore_tools(agent: Any) -> None:
     """Re-activate implementation tools (cleanup / Phase 1)."""
-    if RALPH_IMPL_GROUP in agent.toolkit.groups:
-        agent.toolkit.update_tool_groups([RALPH_IMPL_GROUP], active=True)
-        logger.info("Ralph: restored tool group '%s'", RALPH_IMPL_GROUP)
+    if MISSION_IMPL_GROUP in agent.toolkit.groups:
+        agent.toolkit.update_tool_groups([MISSION_IMPL_GROUP], active=True)
+        logger.info("Mission: restored tool group '%s'", MISSION_IMPL_GROUP)
 
 
 # ── Phase helpers ────────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ def _completion_summary(prd: dict[str, Any]) -> str:
     stories = prd.get("userStories", [])
     passed = sum(1 for s in stories if s.get("passes"))
     total = len(stories)
-    lines = [f"**Ralph Loop Complete** — {passed}/{total} stories passed ✅\n"]
+    lines = [f"**Mission Complete** — {passed}/{total} stories passed ✅\n"]
     for s in stories:
         mark = "✅" if s.get("passes") else "❌"
         lines.append(f"  {mark} {s['id']}: {s['title']}")
@@ -180,7 +180,7 @@ def _remaining_summary(
     remaining = [s for s in stories if not s.get("passes")]
     passed = len(stories) - len(remaining)
     return (
-        f"[Ralph Loop — iteration {iteration}/{max_iter}] "
+        f"[Mission — iteration {iteration}/{max_iter}] "
         f"{passed}/{len(stories)} stories passed. "
         f"{len(remaining)} remaining:\n"
         + "\n".join(f"  ⬜ {s['id']}: {s['title']}" for s in remaining)
@@ -198,7 +198,7 @@ def _remaining_summary(
 # ── Main execution ───────────────────────────────────────────────────────
 
 
-async def run_ralph_phase1(
+async def run_mission_phase1(
     agent: Any,
     msgs: list,
     loop_dir: Path,
@@ -221,8 +221,8 @@ async def run_ralph_phase1(
     # Check if agent signaled Phase 2 confirmation
     cfg = read_loop_config(loop_dir)
     if cfg.get("current_phase") == "execution_confirmed":
-        logger.info("Ralph: agent confirmed PRD, transitioning to Phase 2")
-        async for msg, last in run_ralph_phase2(
+        logger.info("Mission: agent confirmed PRD, transitioning to Phase 2")
+        async for msg, last in run_mission_phase2(
             agent=agent,
             msgs=[],
             loop_dir=loop_dir,
@@ -252,7 +252,7 @@ async def run_ralph_phase1(
             ), True
 
 
-async def run_ralph_phase2(
+async def run_mission_phase2(
     agent: Any,
     msgs: list,
     loop_dir: Path,
@@ -273,7 +273,7 @@ async def run_ralph_phase2(
     try:
         for iteration in range(1, max_iterations + 1):
             logger.info(
-                "Ralph Phase 2: iteration %d/%d",
+                "Mission Phase 2: iteration %d/%d",
                 iteration,
                 max_iterations,
             )
@@ -290,7 +290,7 @@ async def run_ralph_phase2(
 
             if not stories:
                 logger.warning(
-                    "Ralph Phase 2: prd.json has no stories — aborting loop",
+                    "Mission Phase 2: prd.json has no stories — aborting",
                 )
                 yield Msg(
                     name="system",
@@ -343,12 +343,12 @@ async def run_ralph_phase2(
                 TextBlock(
                     type="text",
                     text=(
-                        f"⚠️ **Ralph Loop reached max iterations**"
+                        f"⚠️ **Mission reached max iterations**"
                         f" ({max_iterations}). "
                         f"{passed}/{len(stories)} stories passed."
-                        f"\n\nYou can resume with `/ralph status`"
+                        f"\n\nYou can check with `/mission status`"
                         " to see what remains, then start a new"
-                        " loop or manually complete the work."
+                        " mission or manually complete the work."
                     ),
                 ),
             ],

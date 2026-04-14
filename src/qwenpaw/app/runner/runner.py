@@ -26,9 +26,9 @@ from .command_dispatch import (
     run_command_path,
 )
 from .query_error_dump import write_query_error_dump
-from .ralph_dispatch import (
-    maybe_handle_ralph_command,
-    detect_active_ralph_phase,
+from .mission_dispatch import (
+    maybe_handle_mission_command,
+    detect_active_mission_phase,
 )
 from .session import SafeJSONSession
 from .utils import build_env_context
@@ -511,11 +511,11 @@ class AgentRunner(Runner):
                     f"session_id={session_id}",
                 )
 
-            # Ralph Loop: /ralph or /long-task
+            # Mission Mode: /mission
             _ws = self.workspace_dir or WORKING_DIR
-            ralph_phase_info: dict | None = None
+            mission_info: dict | None = None
 
-            ralph_result = await maybe_handle_ralph_command(
+            mission_result = await maybe_handle_mission_command(
                 query=query,
                 msgs=msgs,
                 workspace_dir=_ws,
@@ -523,31 +523,29 @@ class AgentRunner(Runner):
                 rewrite_fn=self._rewrite_last_message_text,
                 session_id=session_id,
             )
-            if isinstance(ralph_result, Msg):
-                yield ralph_result, True
+            if isinstance(mission_result, Msg):
+                yield mission_result, True
                 return
-            if isinstance(ralph_result, dict):
-                ralph_phase_info = ralph_result
+            if isinstance(mission_result, dict):
+                mission_info = mission_result
 
-            # Active Ralph loop: auto-route follow-up messages
-            if ralph_phase_info is None:
-                ralph_phase_info = detect_active_ralph_phase(
+            # Active mission: auto-route follow-up messages
+            if mission_info is None:
+                mission_info = detect_active_mission_phase(
                     _ws,
                     session_id=session_id,
                 )
-                if ralph_phase_info is not None:
-                    # Inject a lightweight context refresher so the agent
-                    # stays on track even across session boundaries.
-                    loop_dir = ralph_phase_info["loop_dir"]
+                if mission_info is not None:
+                    loop_dir = mission_info["loop_dir"]
                     refresher = (
-                        f"[Ralph Loop active — loop dir: `{loop_dir}`]\n"
-                        f"You are in Ralph Loop Phase 1 (PRD review). "
+                        f"[Mission active — dir: `{loop_dir}`]\n"
+                        f"You are in Mission Phase 1 (PRD review). "
                         f"The user's message follows.\n"
                         f"If the user is confirming the PRD, update "
                         f"`{loop_dir}/loop_config.json` setting "
                         f"`current_phase` to `execution_confirmed`.\n"
-                        f"If the user requests changes, modify prd.json.\n"
-                        f"---\n"
+                        f"If the user requests changes, modify "
+                        f"prd.json.\n---\n"
                     )
                     original = query or ""
                     self._rewrite_last_message_text(
@@ -556,7 +554,7 @@ class AgentRunner(Runner):
                     )
 
             # Skill info (/<name> without input) is display-only
-            if ralph_phase_info is None:
+            if mission_info is None:
                 skill_response = self._maybe_inject_skill(
                     query,
                     msgs,
@@ -585,22 +583,22 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            # --- Execution: Ralph Loop (phased) or standard -------
-            if ralph_phase_info is not None:
-                from ...agents.ralph.ralph_runner import (
-                    run_ralph_phase1,
-                    run_ralph_phase2,
+            # --- Execution: Mission Mode (phased) or standard -----
+            if mission_info is not None:
+                from ...agents.mission.mission_runner import (
+                    run_mission_phase1,
+                    run_mission_phase2,
                 )
 
-                phase = ralph_phase_info["ralph_phase"]
-                loop_dir = Path(ralph_phase_info["loop_dir"])
-                max_iters = ralph_phase_info.get(
+                phase = mission_info["mission_phase"]
+                loop_dir = Path(mission_info["loop_dir"])
+                max_iters = mission_info.get(
                     "max_iterations",
                     20,
                 )
 
                 if phase == 1:
-                    async for msg, last in run_ralph_phase1(
+                    async for msg, last in run_mission_phase1(
                         agent=agent,
                         msgs=msgs,
                         loop_dir=loop_dir,
@@ -608,7 +606,7 @@ class AgentRunner(Runner):
                     ):
                         yield msg, last
                 else:
-                    async for msg, last in run_ralph_phase2(
+                    async for msg, last in run_mission_phase2(
                         agent=agent,
                         msgs=msgs,
                         loop_dir=loop_dir,

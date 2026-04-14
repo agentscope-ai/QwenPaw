@@ -1,6 +1,6 @@
 ## 描述
 
-实现 Ralph Loop——面向复杂长周期任务的自治迭代 Agent 系统。
+实现 Mission Mode——面向复杂长周期任务的自治迭代 Agent 系统。
 
 灵感来源于 [snarktank/ralph](https://github.com/snarktank/ralph)（MIT 许可证）、Anthropic 发布的 [Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) 设计模式，以及 Claude Code 的 verification agent 机制。
 
@@ -9,7 +9,7 @@
 **Related Issue:** N/A
 
 **Security Considerations:**
-- Ralph 在 Phase 2 通过 Toolkit group 机制禁用 master agent 的实现类工具（shell/write/edit），防止 master 越界自行实现
+- Mission Mode 在 Phase 2 通过 Toolkit group 机制禁用 master agent 的实现类工具（shell/write/edit），防止 master 越界自行实现
 - Verifier agent 被严格限制为只读——禁止修改任何项目文件
 
 ## Type of Change
@@ -38,13 +38,13 @@
 
 | 文件 | 说明 |
 |---|---|
-| `src/qwenpaw/agents/ralph/__init__.py` | 模块初始化，含 snarktank/ralph 版权声明 |
-| `src/qwenpaw/agents/ralph/handler.py` | `/mission` 命令解析器，会话绑定状态初始化 |
-| `src/qwenpaw/agents/ralph/prompts.py` | Master/Worker/Verifier prompt 模板 |
-| `src/qwenpaw/agents/ralph/ralph_runner.py` | 两阶段执行引擎：代码级迭代循环 + Toolkit group 工具限制 |
-| `src/qwenpaw/agents/ralph/state.py` | 文件化状态管理（prd.json, progress.txt, loop_config.json, task.md） |
-| `src/qwenpaw/app/runner/ralph_dispatch.py` | Runner 集成层，支持会话级自动跟踪路由 |
-| `src/qwenpaw/cli/ralph_cmd.py` | CLI 入口（`qwenpaw mission start/status/list`） |
+| `src/qwenpaw/agents/mission/__init__.py` | 模块初始化，含 snarktank/ralph 版权声明 |
+| `src/qwenpaw/agents/mission/handler.py` | `/mission` 命令解析器，会话绑定状态初始化 |
+| `src/qwenpaw/agents/mission/prompts.py` | Master/Worker/Verifier prompt 模板 |
+| `src/qwenpaw/agents/mission/mission_runner.py` | 两阶段执行引擎：代码级迭代循环 + Toolkit group 工具限制 |
+| `src/qwenpaw/agents/mission/state.py` | 文件化状态管理（prd.json, progress.txt, loop_config.json, task.md） |
+| `src/qwenpaw/app/runner/mission_dispatch.py` | Runner 集成层，支持会话级自动跟踪路由 |
+| `src/qwenpaw/cli/mission_cmd.py` | CLI 入口（`qwenpaw mission start/status/list`） |
 
 ### 修改文件（7 个）
 
@@ -65,19 +65,19 @@
         │                      写入 loop_config.json (phase=prd_generation)
         │                      注入 MASTER_PROMPT 到 agent 消息
         ▼
-   ralph_dispatch.py ──▶ 返回 {ralph_phase:1, loop_dir, max_iterations}
+   mission_dispatch.py ──▶ 返回 {mission_phase:1, loop_dir, max_iterations}
         │
         ▼
-   runner.py ── 检测到 ralph_phase_info ──▶ 分发到 ralph_runner
+   runner.py ── 检测到 mission_info ──▶ 分发到 mission_runner
         │
         ▼
-   ralph_runner.py
-        ├── Phase 1 (run_ralph_phase1)
+   mission_runner.py
+        ├── Phase 1 (run_mission_phase1)
         │     Agent 生成 prd.json → 代码校验 schema → 报告给用户
         │     用户确认后 agent 写 current_phase=execution_confirmed
         │     代码检测到 → 无缝过渡到 Phase 2
         │
-        └── Phase 2 (run_ralph_phase2)
+        └── Phase 2 (run_mission_phase2)
               代码级: set_phase2_tool_restrictions() 禁用实现类工具
               代码级: for 循环 (max_iterations)
                 Master 调度当前 batch:
@@ -117,8 +117,8 @@
 
 | 维度 | 实现 |
 |---|---|
-| 迭代循环 | `ralph_runner.py` 中 `for` 循环，agent 停 → 代码检查 prd.json → 注入续行消息 |
-| 工具限制 | Phase 2 通过 `Toolkit.update_tool_groups("ralph_impl", active=False)` 禁用 shell/write/edit |
+| 迭代循环 | `mission_runner.py` 中 `for` 循环，agent 停 → 代码检查 prd.json → 注入续行消息 |
+| 工具限制 | Phase 2 通过 `Toolkit.update_tool_groups("mission_impl", active=False)` 禁用 shell/write/edit |
 | PRD 校验 | `validate_prd()` 在 Phase 1→2 转换前校验 schema |
 | 最大轮次 | 代码硬限制，非 LLM 自律 |
 | 阶段转换 | agent 写 loop_config 信号 → 代码检测并执行转换 |

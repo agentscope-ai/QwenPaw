@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Ralph Loop state-file management.
+"""Mission Mode state-file management.
 
 State file layout follows the snarktank/ralph convention:
 
-    {workspace_dir}/ralph_loops/{loop_id}/
+    {workspace_dir}/missions/{loop_id}/
     ├── loop_config.json  # environment metadata (git, paths)
     ├── prd.json          # task list (worker updates ``passes``)
     ├── progress.txt      # append-only iteration log
@@ -116,11 +116,11 @@ def detect_git_context(workspace_dir: Path) -> dict[str, Any]:
 
 
 def create_loop_dir(workspace_dir: Path) -> Path:
-    """Create a new ralph loop directory and return its path."""
-    loop_id = f"ralph-{_ts()}"
-    loop_dir = workspace_dir / "ralph_loops" / loop_id
+    """Create a new mission directory and return its path."""
+    loop_id = f"mission-{_ts()}"
+    loop_dir = workspace_dir / "missions" / loop_id
     loop_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Created ralph loop dir: %s", loop_dir)
+    logger.info("Created mission dir: %s", loop_dir)
     return loop_dir
 
 
@@ -188,15 +188,15 @@ def get_all_passed(prd: dict[str, Any]) -> bool:
 
 
 def get_latest_loop_dir(workspace_dir: Path) -> Path | None:
-    """Return the most-recently-created ralph loop directory, or None."""
-    base = workspace_dir / "ralph_loops"
+    """Return the most-recently-created mission directory, or None."""
+    base = workspace_dir / "missions"
     if not base.exists():
         return None
     dirs = sorted(
         (
             d
             for d in base.iterdir()
-            if d.is_dir() and d.name.startswith("ralph-")
+            if d.is_dir() and d.name.startswith("mission-")
         ),
         key=lambda d: d.name,
         reverse=True,
@@ -205,13 +205,13 @@ def get_latest_loop_dir(workspace_dir: Path) -> Path | None:
 
 
 def list_loop_dirs(workspace_dir: Path) -> list[dict[str, Any]]:
-    """Return summary info for all ralph loops in a workspace."""
-    base = workspace_dir / "ralph_loops"
+    """Return summary info for all missions in a workspace."""
+    base = workspace_dir / "missions"
     if not base.exists():
         return []
     result = []
     for d in sorted(base.iterdir(), reverse=True):
-        if not d.is_dir() or not d.name.startswith("ralph-"):
+        if not d.is_dir() or not d.name.startswith("mission-"):
             continue
         prd = read_prd(d)
         cfg = read_loop_config(d)

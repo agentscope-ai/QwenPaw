@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Ralph Loop message handler.
+"""Mission Mode message handler.
 
-Detects ``/ralph`` (alias ``/long-task``) in the user query, sets up state
-files, and rewrites the user message so the main agent enters Ralph Loop
-mode.
+Detects ``/mission`` in the user query, sets up state files, and rewrites
+the user message so the main agent enters Mission Mode.
 
 Returns:
     - ``str`` for info sub-commands (status, list, help) — displayed to
       the user immediately.
-    - ``dict`` for a new loop start — contains ``ralph_phase``,
+    - ``dict`` for a new mission start — contains ``mission_phase``,
       ``loop_dir``, ``max_iterations`` so the runner can delegate to
-      :mod:`~qwenpaw.agents.ralph.ralph_runner`.
+      :mod:`~qwenpaw.agents.mission.mission_runner`.
 """
 from __future__ import annotations
 
@@ -33,21 +32,21 @@ from .state import (
 
 logger = logging.getLogger(__name__)
 
-RALPH_COMMANDS = frozenset({"/mission"})
+MISSION_COMMANDS = frozenset({"/mission"})
 
 # Defaults
 _DEFAULT_MAX_ITERATIONS = 20
 
 
-def is_ralph_command(query: str | None) -> bool:
-    """Return True if the query starts with a ralph trigger command."""
+def is_mission_command(query: str | None) -> bool:
+    """Return True if the query starts with a mission trigger command."""
     if not query or not isinstance(query, str):
         return False
     token = query.strip().split(None, 1)[0].lower()
-    return token in RALPH_COMMANDS
+    return token in MISSION_COMMANDS
 
 
-def _parse_ralph_args(query: str) -> dict[str, Any]:
+def _parse_mission_args(query: str) -> dict[str, Any]:
     """Parse ``/mission [task text] [--verify CMD] [--max-iterations N]``."""
     parts = query.strip().split(None, 1)
     raw = parts[1] if len(parts) > 1 else ""
@@ -79,7 +78,7 @@ def _parse_ralph_args(query: str) -> dict[str, Any]:
     return args
 
 
-async def handle_ralph_command(  # pylint: disable=too-many-return-statements
+async def handle_mission_command(  # pylint: disable=too-many-return-statements
     query: str,
     msgs: list,
     workspace_dir: Path,
@@ -94,7 +93,7 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
         ``dict`` — phase info when a new loop is created
             and Phase 1 should begin.
     """
-    args = _parse_ralph_args(query)
+    args = _parse_mission_args(query)
     task_text = args["task_text"]
 
     # --- Sub-commands that return info without starting a loop -----------
@@ -205,7 +204,7 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
     write_loop_config(loop_dir, loop_config)
 
     logger.info(
-        "Ralph loop %s: loop_dir=%s, git_installed=%s, is_repo=%s",
+        "Mission %s: loop_dir=%s, git_installed=%s, is_repo=%s",
         loop_dir.name,
         loop_dir,
         git_ctx["git_installed"],
@@ -237,7 +236,7 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
     rewrite_fn(msgs, full_prompt)
 
     return {
-        "ralph_phase": 1,
+        "mission_phase": 1,
         "loop_dir": str(loop_dir),
         "max_iterations": max_iterations,
     }
