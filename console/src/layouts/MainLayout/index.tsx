@@ -110,7 +110,7 @@ export default function MainLayout() {
                   <Route path="/sessions" element={<SessionsPage />} />
                   <Route path="/cron-jobs" element={<CronJobsPage />} />
                   <Route path="/heartbeat" element={<HeartbeatPage />} />
-              <Route path="/meetings" element={<MeetingsPage />} />
+                  <Route path="/meetings" element={<MeetingsPage />} />
                   <Route path="/skills" element={<SkillsPage />} />
                   <Route path="/skill-pool" element={<SkillPoolPage />} />
                   <Route path="/tools" element={<ToolsPage />} />
@@ -126,7 +126,7 @@ export default function MainLayout() {
                     path="/voice-transcription"
                     element={<VoiceTranscriptionPage />}
                   />
-              <Route path="/sacp-agents" element={<AgentSACPPage />} />
+                  <Route path="/sacp-agents" element={<AgentSACPPage />} />
                 </Routes>
               </Suspense>
             </ChunkErrorBoundary>
