@@ -234,12 +234,12 @@ class TestAddCopawFileHandler:
 class TestLogConstants:
     """Test module-level constants."""
 
-    def test_log_namespace_is_copaw(self):
-        """S级: LOG_NAMESPACE is 'copaw'."""
-        assert LOG_NAMESPACE == "copaw"
+    def test_log_namespace_is_qwenpaw(self):
+        """S级: LOG_NAMESPACE is 'qwenpaw'."""
+        assert LOG_NAMESPACE == "qwenpaw"
 
     def test_log_namespace_used_by_setup(self):
         """S级: setup_logger uses LOG_NAMESPACE."""
         # Get the logger that setup_logger would configure
         logger = logging.getLogger(LOG_NAMESPACE)
-        assert logger.name == "copaw"
+        assert logger.name == "qwenpaw"
