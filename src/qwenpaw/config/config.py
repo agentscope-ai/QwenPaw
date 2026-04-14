@@ -1081,6 +1081,30 @@ def build_qa_agent_tools_config() -> ToolsConfig:
     return ToolsConfig(builtin_tools=builtin_tools)
 
 
+def build_local_agent_tools_config() -> ToolsConfig:
+    """Tools preset for local collaborative agents.
+
+    Only inter-agent coordination tools are enabled by default so a local
+    small model can escalate planning work instead of attempting everything
+    alone.
+    """
+    allow = frozenset(
+        {
+            "list_agents",
+            "chat_with_agent",
+            "execute_shell_command",
+            "read_file",
+            "write_file",
+            "edit_file",
+        },
+    )
+    builtin_tools = {
+        name: tc.model_copy(update={"enabled": name in allow})
+        for name, tc in _default_builtin_tools().items()
+    }
+    return ToolsConfig(builtin_tools=builtin_tools)
+
+
 class ToolGuardRuleConfig(BaseModel):
     """A single user-defined guard rule (stored in config.json)."""
 

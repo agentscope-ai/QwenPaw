@@ -12,6 +12,7 @@ from ..config.config import (
     HeartbeatConfig,
     MCPConfig,
     ToolsConfig,
+    build_local_agent_tools_config,
     build_qa_agent_tools_config,
 )
 from ..constant import BUILTIN_QA_AGENT_NAME, BUILTIN_QA_AGENT_SKILL_NAMES
@@ -26,6 +27,7 @@ SUPPORTED_AGENT_TEMPLATES = (
 )
 
 DEFAULT_TEMPLATE_NAME = "Default Agent"
+LOCAL_TEMPLATE_SKILL_NAMES = ("make_plan",)
 QA_TEMPLATE_DESCRIPTION = (
     "Builtin Q&A helper for QwenPaw setup, local config under "
     "QWENPAW_WORKING_DIR, and documentation. Prefer reading files "
@@ -93,8 +95,7 @@ def build_agent_template(
             id=agent_id,
             name=name or "Local Agent",
             description=(
-                description
-                or "An agent running on local deployed models."
+                description or "An agent running on local deployed models."
             ),
             workspace_dir=str(workspace_dir),
             template_id=template_id,
@@ -102,11 +103,11 @@ def build_agent_template(
             channels=ChannelConfig(),
             mcp=MCPConfig(),
             heartbeat=HeartbeatConfig(),
-            tools=ToolsConfig(),
+            tools=build_local_agent_tools_config(),
         )
         return AgentTemplateBuildResult(
             agent_config=agent_config,
-            initial_skill_names=(),
+            initial_skill_names=LOCAL_TEMPLATE_SKILL_NAMES,
             md_template_id=get_workspace_md_template_id(template_id),
         )
 

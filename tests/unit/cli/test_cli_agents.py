@@ -336,5 +336,12 @@ def test_agents_create_local_template_uses_local_md_template(
     assert '"id": "local-copy"' in result.output
     assert saved["agent_config"][1].name == "Local Copy"
     assert saved["agent_config"][1].template_id == "local"
-    assert saved["workspace_init"][1] == ["extra-skill"]
+    assert saved["workspace_init"][1] == ["make_plan", "extra-skill"]
     assert saved["workspace_init"][2] == "local"
+    builtin_tools = saved["agent_config"][1].tools.builtin_tools
+    assert builtin_tools["list_agents"].enabled is True
+    assert builtin_tools["chat_with_agent"].enabled is True
+    assert builtin_tools["read_file"].enabled is True
+    assert builtin_tools["write_file"].enabled is True
+    assert builtin_tools["edit_file"].enabled is True
+    assert builtin_tools["execute_shell_command"].enabled is True
