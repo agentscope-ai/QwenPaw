@@ -550,6 +550,7 @@ QwenPaw needs an LLM provider to work. You can set it up in three ways:
 | Zhipu Coding Plan (BigModel) | `zhipu-cn-codingplan`   | `https://open.bigmodel.cn/api/coding/paas/v4`       | _(any)_        |
 | Zhipu (Z.AI)                 | `zhipu-intl`            | `https://api.z.ai/api/paas/v4`                      | _(any)_        |
 | Zhipu Coding Plan (Z.AI)     | `zhipu-intl-codingplan` | `https://api.z.ai/api/coding/paas/v4`               | _(any)_        |
+| OpenCode                     | `opencode`              | `https://opencode.ai/zen/v1`                        | _(any)_        |
 | Custom                       | `custom`                | _(you set it)_                                      | _(any)_        |
 
 For each provider you need to set:
