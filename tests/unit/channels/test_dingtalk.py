@@ -121,6 +121,39 @@ def mock_http_session() -> MockAiohttpSession:
     return MockAiohttpSession()
 
 
+def _make_oauth_sdk(token: str = "token_123") -> AsyncMock:
+    """Return a mock _oauth_sdk whose get_access_token_async returns token."""
+    sdk = AsyncMock()
+    body = MagicMock()
+    body.access_token = token
+    response = MagicMock()
+    response.body = body
+    sdk.get_access_token_async = AsyncMock(return_value=response)
+    return sdk
+
+
+def _make_robot_sdk() -> AsyncMock:
+    """Return a mock _robot_sdk with commonly-used async methods."""
+    sdk = AsyncMock()
+    sdk.org_group_send_with_options_async = AsyncMock(return_value=MagicMock())
+    sdk.batch_send_otowith_options_async = AsyncMock(return_value=MagicMock())
+    sdk.robot_message_file_download_with_options_async = AsyncMock(
+        return_value=MagicMock(),
+    )
+    return sdk
+
+
+def _make_card_sdk() -> AsyncMock:
+    """Return a mock _card_sdk with commonly-used async methods."""
+    sdk = AsyncMock()
+    sdk.create_card_with_options_async = AsyncMock(return_value=MagicMock())
+    sdk.deliver_card_with_options_async = AsyncMock(return_value=MagicMock())
+    sdk.streaming_update_with_options_async = AsyncMock(
+        return_value=MagicMock(),
+    )
+    return sdk
+
+
 # =============================================================================
 # P0: Initialization and Configuration
 # =============================================================================
@@ -492,22 +525,13 @@ class TestDingTalkTokenCache:
     async def test_get_access_token_fetches_when_empty(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Should fetch new token when cache is empty."""
         from qwenpaw.app.channels.dingtalk.constants import (
             DINGTALK_TOKEN_TTL_SECONDS,
         )
 
-        dingtalk_channel._http = mock_http_session
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={
-                "accessToken": "new_token_123",
-                "expireIn": 7200,
-            },
-        )
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("new_token_123")
 
         token = await dingtalk_channel._get_access_token()
 
@@ -542,23 +566,13 @@ class TestDingTalkTokenCache:
     async def test_get_access_token_refreshes_when_expired(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Should fetch new token when cached token is expired."""
-        dingtalk_channel._http = mock_http_session
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("refreshed_token")
         dingtalk_channel._token_value = "old_token"
         dingtalk_channel._token_expires_at = (
             asyncio.get_running_loop().time() - 100
         )  # Expired
-
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={
-                "accessToken": "refreshed_token",
-                "expireIn": 7200,
-            },
-        )
 
         token = await dingtalk_channel._get_access_token()
 
@@ -568,37 +582,23 @@ class TestDingTalkTokenCache:
     async def test_get_access_token_handles_api_error(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Should handle API error gracefully."""
-        dingtalk_channel._http = mock_http_session
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={
-                "errcode": 40001,
-                "errmsg": "invalid credential",
-            },
+        sdk = AsyncMock()
+        sdk.get_access_token_async = AsyncMock(
+            side_effect=Exception("invalid credential"),
         )
+        dingtalk_channel._oauth_sdk = sdk
 
-        with pytest.raises(ChannelError, match="accessToken not found"):
+        with pytest.raises(ChannelError, match="get accessToken failed"):
             await dingtalk_channel._get_access_token()
 
     async def test_get_access_token_thread_safe(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Token fetching should be thread-safe (using asyncio.Lock)."""
-        dingtalk_channel._http = mock_http_session
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={
-                "accessToken": "token_123",
-                "expireIn": 7200,
-            },
-        )
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
 
         # Simulate concurrent calls
         tokens = await asyncio.gather(
@@ -809,24 +809,10 @@ class TestDingTalkSendMethods:
     async def test_send_via_open_api_group_success(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Send via Open API for group chat."""
-        dingtalk_channel._http = mock_http_session
-
-        # First call: get access token
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-
-        # Second call: send group message
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/robot/groupMessages/send",
-            response_status=200,
-            response_json={"errcode": 0, "errmsg": "ok"},
-        )
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        dingtalk_channel._robot_sdk = _make_robot_sdk()
 
         result = await dingtalk_channel._send_via_open_api(
             body="Hello group",
@@ -836,28 +822,16 @@ class TestDingTalkSendMethods:
         )
 
         assert result is True
+        sdk = dingtalk_channel._robot_sdk
+        sdk.org_group_send_with_options_async.assert_called_once()
 
     async def test_send_via_open_api_dm_success(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Send via Open API for direct message."""
-        dingtalk_channel._http = mock_http_session
-
-        # First call: get access token
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-
-        # Second call: send DM
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend",
-            response_status=200,
-            response_json={"errcode": 0, "errmsg": "ok"},
-        )
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        dingtalk_channel._robot_sdk = _make_robot_sdk()
 
         result = await dingtalk_channel._send_via_open_api(
             body="Hello DM",
@@ -867,21 +841,16 @@ class TestDingTalkSendMethods:
         )
 
         assert result is True
+        sdk = dingtalk_channel._robot_sdk
+        sdk.batch_send_otowith_options_async.assert_called_once()
 
     async def test_send_via_open_api_dm_no_staff_id_fails(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """DM should fail without sender_staff_id."""
-        dingtalk_channel._http = mock_http_session
-
-        # Token is fetched first, then staff_id check happens
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        dingtalk_channel._robot_sdk = _make_robot_sdk()
 
         result = await dingtalk_channel._send_via_open_api(
             body="Hello DM",
@@ -990,11 +959,11 @@ class TestDingTalkOpenAPIFallback:
     async def test_try_open_api_fallback_with_stored_webhook(
         self,
         dingtalk_channel_with_workspace,
-        mock_http_session,
     ):
         """Fallback should use stored webhook entry for metadata."""
         channel = dingtalk_channel_with_workspace
-        channel._http = mock_http_session
+        channel._oauth_sdk = _make_oauth_sdk("token_123")
+        channel._robot_sdk = _make_robot_sdk()
 
         # Store webhook entry
         channel._session_webhook_store["dingtalk:sw:storedkey"] = {
@@ -1003,18 +972,6 @@ class TestDingTalkOpenAPIFallback:
             "conversation_type": "group",
             "sender_staff_id": "stored_staff",
         }
-
-        # Mock token and send
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/robot/groupMessages/send",
-            response_status=200,
-            response_json={"errcode": 0},
-        )
 
         result = await channel._try_open_api_fallback(
             text="Fallback message",
@@ -1334,16 +1291,10 @@ class TestDingTalkMediaUpload:
         mock_http_session,
     ):
         """Successfully upload media file."""
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
         dingtalk_channel._http = mock_http_session
 
-        # First call: get token
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-
-        # Second call: upload media
+        # Upload media via HTTP (oapi endpoint)
         mock_http_session.expect_post(
             url="https://oapi.dingtalk.com/media/upload",
             response_status=200,
@@ -1367,14 +1318,8 @@ class TestDingTalkMediaUpload:
         mock_http_session,
     ):
         """Handle media upload API error."""
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
         dingtalk_channel._http = mock_http_session
-
-        # Token call
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
 
         # Upload call returns error
         mock_http_session.expect_post(
@@ -1397,14 +1342,8 @@ class TestDingTalkMediaUpload:
         mock_http_session,
     ):
         """Handle media upload HTTP error."""
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
         dingtalk_channel._http = mock_http_session
-
-        # Token call
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
 
         # Upload call returns HTTP error
         mock_http_session.expect_post(
@@ -1912,7 +1851,6 @@ class TestDingTalkAICardMethods:
     async def test_create_ai_card_success(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Successfully create AI card."""
         # Configure channel for AI card
@@ -1921,28 +1859,8 @@ class TestDingTalkAICardMethods:
         dingtalk_channel.card_template_key = "content"
         dingtalk_channel.robot_code = "robot_123"
         dingtalk_channel.card_auto_layout = True
-        dingtalk_channel._http = mock_http_session
-
-        # Mock create card response
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/card/instances",
-            response_status=200,
-            response_json={"success": True},
-        )
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/card/instances/deliver",
-            response_status=200,
-            response_json={
-                "result": [
-                    {"success": True, "spaceId": "space_123"},
-                ],
-            },
-        )
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        dingtalk_channel._card_sdk = _make_card_sdk()
 
         card = await dingtalk_channel._create_ai_card(
             conversation_id="cid_test_123",
@@ -1956,35 +1874,14 @@ class TestDingTalkAICardMethods:
     async def test_create_ai_card_group_conversation(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Create AI card for group conversation."""
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_id = "template_123"
         dingtalk_channel.card_template_key = "content"
         dingtalk_channel.robot_code = "robot_123"
-        dingtalk_channel._http = mock_http_session
-
-        # Token call
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        # Create call
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/card/instances",
-            response_status=200,
-            response_json={"success": True},
-        )
-        # Deliver call
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/card/instances/deliver",
-            response_status=200,
-            response_json={
-                "result": {"deliverResults": [{"success": True}]},
-            },
-        )
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        dingtalk_channel._card_sdk = _make_card_sdk()
 
         card = await dingtalk_channel._create_ai_card(
             conversation_id="cid_group_123",
@@ -1996,28 +1893,14 @@ class TestDingTalkAICardMethods:
     async def test_create_ai_card_dm_requires_staff_id(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """DM card creation requires sender_staff_id."""
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_id = "template_123"
         dingtalk_channel.card_template_key = "content"
         dingtalk_channel.robot_code = "robot_123"
-        dingtalk_channel._http = mock_http_session
-
-        # Token call
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        # Create call
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/card/instances",
-            response_status=200,
-            response_json={"success": True},
-        )
-        # DM without sender_staff_id should raise error
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        dingtalk_channel._card_sdk = _make_card_sdk()
 
         with pytest.raises(ChannelError, match="missing sender_staff_id"):
             await dingtalk_channel._create_ai_card(
@@ -2028,24 +1911,17 @@ class TestDingTalkAICardMethods:
     async def test_create_ai_card_api_error(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Handle API error when creating card."""
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_id = "template_123"
         dingtalk_channel.robot_code = "robot_123"
-        dingtalk_channel._http = mock_http_session
-
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        card_sdk = _make_card_sdk()
+        card_sdk.create_card_with_options_async = AsyncMock(
+            side_effect=Exception("invalid_template"),
         )
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/card/instances",
-            response_status=400,
-            response_json={"error": "invalid_template"},
-        )
+        dingtalk_channel._card_sdk = card_sdk
 
         with pytest.raises(ChannelError, match="create ai card failed"):
             await dingtalk_channel._create_ai_card(
@@ -2056,7 +1932,6 @@ class TestDingTalkAICardMethods:
     async def test_stream_ai_card_success(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Successfully stream content to AI card."""
         from qwenpaw.app.channels.dingtalk.ai_card import (
@@ -2066,18 +1941,7 @@ class TestDingTalkAICardMethods:
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
-        dingtalk_channel._http = mock_http_session
-
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        mock_http_session.expect_put(
-            url="https://api.dingtalk.com/v1.0/card/streaming",
-            response_status=200,
-            response_json={"success": True},
-        )
+        dingtalk_channel._card_sdk = _make_card_sdk()
 
         card = ActiveAICard(
             card_instance_id="card_test_123",
@@ -2085,8 +1949,8 @@ class TestDingTalkAICardMethods:
             conversation_id="cid_test",
             account_id="user123",
             store_path="/tmp",
-            created_at=1234567890,
-            last_updated=1234567890,
+            created_at=int(time.time() * 1000),
+            last_updated=0,
             state=PROCESSING,
         )
 
@@ -2101,7 +1965,6 @@ class TestDingTalkAICardMethods:
     async def test_stream_ai_card_finalize(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Finalize AI card streaming."""
         from qwenpaw.app.channels.dingtalk.ai_card import (
@@ -2111,18 +1974,7 @@ class TestDingTalkAICardMethods:
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
-        dingtalk_channel._http = mock_http_session
-
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        mock_http_session.expect_put(
-            url="https://api.dingtalk.com/v1.0/card/streaming",
-            response_status=200,
-            response_json={"success": True},
-        )
+        dingtalk_channel._card_sdk = _make_card_sdk()
 
         card = ActiveAICard(
             card_instance_id="card_test_123",
@@ -2130,8 +1982,8 @@ class TestDingTalkAICardMethods:
             conversation_id="cid_test",
             account_id="user123",
             store_path="/tmp",
-            created_at=1234567890,  # Fixed time to avoid token refresh
-            last_updated=1234567890,
+            created_at=int(time.time() * 1000),
+            last_updated=0,
             last_streamed_content="Previous content",
             state=PROCESSING,
         )
@@ -2184,9 +2036,9 @@ class TestDingTalkAICardMethods:
     async def test_stream_ai_card_token_refresh(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
-        """Refresh token on 401 response."""
+        """Refresh token on 401 response from SDK."""
+        from Tea.exceptions import TeaException
         from qwenpaw.app.channels.dingtalk.ai_card import (
             ActiveAICard,
             PROCESSING,
@@ -2194,30 +2046,17 @@ class TestDingTalkAICardMethods:
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
-        dingtalk_channel._http = mock_http_session
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("new_token_2")
 
-        # First call returns 401, second succeeds
-        # Need 2 token calls: one for preemptive refresh, one for 401 retry
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "new_token_1", "expireIn": 7200},
+        # First streaming call raises 401, second succeeds
+        card_sdk = _make_card_sdk()
+        exc_401 = TeaException(
+            {"data": {"statusCode": 401}, "message": "Unauthorized"},
         )
-        mock_http_session.expect_put(
-            url="https://api.dingtalk.com/v1.0/card/streaming",
-            response_status=401,
-            response_json={"error": "Unauthorized"},
+        card_sdk.streaming_update_with_options_async = AsyncMock(
+            side_effect=[exc_401, None],
         )
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "new_token_2", "expireIn": 7200},
-        )
-        mock_http_session.expect_put(
-            url="https://api.dingtalk.com/v1.0/card/streaming",
-            response_status=200,
-            response_json={"success": True},
-        )
+        dingtalk_channel._card_sdk = card_sdk
 
         card = ActiveAICard(
             card_instance_id="card_test_123",
@@ -2225,13 +2064,10 @@ class TestDingTalkAICardMethods:
             conversation_id="cid_test",
             account_id="user123",
             store_path="/tmp",
-            created_at=0,  # Old creation time to force token refresh
-            last_updated=1234567890,
+            created_at=int(time.time() * 1000),
+            last_updated=0,
             state=PROCESSING,
         )
-
-        # Mock token time check by setting created_at far in past (> 300s)
-        card.created_at = 1234567890
 
         result = await dingtalk_channel._stream_ai_card(
             card,
@@ -2244,7 +2080,6 @@ class TestDingTalkAICardMethods:
     async def test_finish_ai_card_success(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Successfully finish AI card."""
         from qwenpaw.app.channels.dingtalk.ai_card import (
@@ -2254,18 +2089,7 @@ class TestDingTalkAICardMethods:
 
         dingtalk_channel.message_type = "card"
         dingtalk_channel.card_template_key = "content"
-        dingtalk_channel._http = mock_http_session
-
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        mock_http_session.expect_put(
-            url="https://api.dingtalk.com/v1.0/card/streaming",
-            response_status=200,
-            response_json={"success": True},
-        )
+        dingtalk_channel._card_sdk = _make_card_sdk()
 
         async with dingtalk_channel._active_cards_lock:
             dingtalk_channel._active_cards["cid_test"] = ActiveAICard(
@@ -2274,10 +2098,8 @@ class TestDingTalkAICardMethods:
                 conversation_id="cid_test",
                 account_id="user123",
                 store_path="/tmp",
-                created_at=int(
-                    time.time() * 1000,
-                ),  # Current time to avoid token refresh
-                last_updated=1234567890,
+                created_at=int(time.time() * 1000),
+                last_updated=0,
                 state=PROCESSING,
             )
 
@@ -2568,22 +2390,20 @@ class TestDingTalkFileDownload:
         """Successfully fetch and download media."""
         dingtalk_channel._http = mock_http_session
         dingtalk_channel._media_dir = tmp_path
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
 
-        # Get download URL
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
+        # Mock robot SDK download URL response
+        robot_sdk = _make_robot_sdk()
+        body = MagicMock()
+        body.download_url = "https://cdn.example.com/file.pdf"
+        sdk_response = MagicMock()
+        sdk_response.body = body
+        robot_sdk.robot_message_file_download_with_options_async = AsyncMock(
+            return_value=sdk_response,
         )
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/robot/messageFiles/download",
-            response_status=200,
-            response_json={
-                "result": {"downloadUrl": "https://cdn.example.com/file.pdf"},
-            },
-        )
+        dingtalk_channel._robot_sdk = robot_sdk
 
-        # Download file
+        # Download file via HTTP
         mock_http_session.expect_get(
             url="https://cdn.example.com/file.pdf",
             response_status=200,
@@ -2603,23 +2423,19 @@ class TestDingTalkFileDownload:
     async def test_get_message_file_download_url(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Get download URL for message file."""
-        dingtalk_channel._http = mock_http_session
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
 
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
+        robot_sdk = _make_robot_sdk()
+        body = MagicMock()
+        body.download_url = "https://cdn.example.com/file.pdf"
+        sdk_response = MagicMock()
+        sdk_response.body = body
+        robot_sdk.robot_message_file_download_with_options_async = AsyncMock(
+            return_value=sdk_response,
         )
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/robot/messageFiles/download",
-            response_status=200,
-            response_json={
-                "result": {"downloadUrl": "https://cdn.example.com/file.pdf"},
-            },
-        )
+        dingtalk_channel._robot_sdk = robot_sdk
 
         result = await dingtalk_channel._get_message_file_download_url(
             download_code="dl_code_123",
@@ -2870,6 +2686,8 @@ class TestDingTalkSendMethodsExtended:
     ):
         """Send with fallback to Open API when webhook fails."""
         dingtalk_channel._http = mock_http_session
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        dingtalk_channel._robot_sdk = _make_robot_sdk()
 
         # Store webhook entry
         dingtalk_channel._session_webhook_store["dingtalk:sw:test"] = {
@@ -2879,25 +2697,11 @@ class TestDingTalkSendMethodsExtended:
             "sender_staff_id": "",
         }
 
-        # First call: webhook fails
+        # Webhook call fails
         mock_http_session.expect_post(
             url="https://oapi.dingtalk.com/robot/send",
             response_status=400,
             response_json={"errcode": 40014, "errmsg": "invalid session"},
-        )
-
-        # Second call: get token for Open API
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-
-        # Third call: Open API send
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/robot/groupMessages/send",
-            response_status=200,
-            response_json={"errcode": 0, "errmsg": "ok"},
         )
 
         await dingtalk_channel.send(
@@ -2919,7 +2723,7 @@ class TestDingTalkSendMethodsExtended:
 
         # Patch logger.warning to capture the call
         with patch(
-            "copaw.app.channels.dingtalk.channel.logger.warning",
+            "qwenpaw.app.channels.dingtalk.channel.logger.warning",
         ) as mock_warning:
             await dingtalk_channel.send(
                 to_handle="unknown_handle",
@@ -3084,6 +2888,7 @@ class TestDingTalkMediaPartSending:
     ):
         """Send video with pic_media_id for cover image."""
         dingtalk_channel._http = mock_http_session
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
 
         # Mock the video download
         mock_http_session.expect_get(
@@ -3091,13 +2896,7 @@ class TestDingTalkMediaPartSending:
             response_status=200,
             response_data=b"fake video content",
         )
-        # Mock token endpoint for media upload
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        # Mock media upload endpoint
+        # Mock media upload endpoint (oapi uses HTTP not SDK)
         mock_http_session.expect_post(
             url="https://oapi.dingtalk.com/media/upload",
             response_status=200,
@@ -3598,21 +3397,10 @@ class TestDingTalkAdditionalCoverage:
     async def test_try_open_api_fallback_with_meta(
         self,
         dingtalk_channel,
-        mock_http_session,
     ):
         """Open API fallback using meta directly."""
-        dingtalk_channel._http = mock_http_session
-
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/oauth2/accessToken",
-            response_status=200,
-            response_json={"accessToken": "token_123", "expireIn": 7200},
-        )
-        mock_http_session.expect_post(
-            url="https://api.dingtalk.com/v1.0/robot/groupMessages/send",
-            response_status=200,
-            response_json={"errcode": 0},
-        )
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        dingtalk_channel._robot_sdk = _make_robot_sdk()
 
         result = await dingtalk_channel._try_open_api_fallback(
             text="Test message",
