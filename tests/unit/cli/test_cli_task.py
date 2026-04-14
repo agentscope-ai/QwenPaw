@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for the ``copaw task`` headless CLI command."""
+"""Tests for the ``qwenpaw task`` headless CLI command."""
 from __future__ import annotations
 
 import json
@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from copaw.cli.main import cli
-from copaw.cli.task_cmd import _read_instruction
+from qwenpaw.cli.main import cli
+from qwenpaw.cli.task_cmd import _read_instruction
 
 
 # ── _read_instruction ────────────────────────────────────────────────
@@ -53,7 +53,7 @@ def test_task_command_registered_in_cli() -> None:
 
 def test_task_rejects_empty_instruction(monkeypatch) -> None:
     monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         MagicMock(),
     )
     result = CliRunner().invoke(cli, ["task", "-i", "   "])
@@ -68,15 +68,15 @@ def test_task_rejects_empty_instruction(monkeypatch) -> None:
 
 
 def test_model_flag_overrides_agent_config(monkeypatch) -> None:
-    from copaw.config.config import AgentProfileConfig
+    from qwenpaw.config.config import AgentProfileConfig
 
     fake_config = AgentProfileConfig(id="default", name="Default")
     monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         lambda _aid: fake_config,
     )
     monkeypatch.setattr(
-        "copaw.cli.task_cmd._run_task",
+        "qwenpaw.cli.task_cmd._run_task",
         AsyncMock(
             return_value={"status": "success", "response": "", "usage": {}},
         ),
@@ -93,15 +93,15 @@ def test_model_flag_overrides_agent_config(monkeypatch) -> None:
 
 
 def test_model_flag_without_slash(monkeypatch) -> None:
-    from copaw.config.config import AgentProfileConfig
+    from qwenpaw.config.config import AgentProfileConfig
 
     fake_config = AgentProfileConfig(id="default", name="Default")
     monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         lambda _aid: fake_config,
     )
     monkeypatch.setattr(
-        "copaw.cli.task_cmd._run_task",
+        "qwenpaw.cli.task_cmd._run_task",
         AsyncMock(
             return_value={"status": "success", "response": "", "usage": {}},
         ),
@@ -118,13 +118,13 @@ def test_model_flag_without_slash(monkeypatch) -> None:
 
 
 def test_output_dir_writes_result_json(monkeypatch, tmp_path) -> None:
-    from copaw.config.config import AgentProfileConfig
+    from qwenpaw.config.config import AgentProfileConfig
 
     out_dir = tmp_path / "results"
 
     fake_config = AgentProfileConfig(id="default", name="Default")
     monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         lambda _aid: fake_config,
     )
 
@@ -145,7 +145,7 @@ def test_output_dir_writes_result_json(monkeypatch, tmp_path) -> None:
             )
         return result
 
-    monkeypatch.setattr("copaw.cli.task_cmd._run_task", _fake_run_task)
+    monkeypatch.setattr("qwenpaw.cli.task_cmd._run_task", _fake_run_task)
 
     result = CliRunner().invoke(
         cli,
@@ -168,14 +168,14 @@ def test_output_dir_writes_result_json(monkeypatch, tmp_path) -> None:
     ["error", "timeout"],
 )
 def test_exit_code_one_on_failure(monkeypatch, status) -> None:
-    from copaw.config.config import AgentProfileConfig
+    from qwenpaw.config.config import AgentProfileConfig
 
     monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         lambda _aid: AgentProfileConfig(id="default", name="Default"),
     )
     monkeypatch.setattr(
-        "copaw.cli.task_cmd._run_task",
+        "qwenpaw.cli.task_cmd._run_task",
         AsyncMock(
             return_value={
                 "status": status,
@@ -191,10 +191,10 @@ def test_exit_code_one_on_failure(monkeypatch, status) -> None:
 
 def test_stdout_json_and_default_context(monkeypatch) -> None:
     """Happy-path: valid JSON on stdout, exit 0, no headless overrides."""
-    from copaw.config.config import AgentProfileConfig
+    from qwenpaw.config.config import AgentProfileConfig
 
     monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         lambda _aid: AgentProfileConfig(id="default", name="Default"),
     )
 
@@ -209,7 +209,7 @@ def test_stdout_json_and_default_context(monkeypatch) -> None:
             "usage": {},
         }
 
-    monkeypatch.setattr("copaw.cli.task_cmd._run_task", _fake_run_task)
+    monkeypatch.setattr("qwenpaw.cli.task_cmd._run_task", _fake_run_task)
 
     result = CliRunner().invoke(cli, ["task", "-i", "hello"])
     assert result.exit_code == 0
@@ -236,7 +236,7 @@ class _FakeActingBase:
 
 
 def _build_guarded_agent(request_context: dict):
-    from copaw.agents.tool_guard_mixin import ToolGuardMixin
+    from qwenpaw.agents.tool_guard_mixin import ToolGuardMixin
 
     class _GuardInstance(ToolGuardMixin, _FakeActingBase):
         pass
@@ -265,7 +265,7 @@ async def test_tool_guard_not_bypassed_without_flag():
 
     tool_call = {"id": "tc_2", "name": "execute_shell_command", "input": {}}
     with patch(
-        "copaw.security.tool_guard.engine.get_guard_engine",
+        "qwenpaw.security.tool_guard.engine.get_guard_engine",
     ) as mock_engine_fn:
         mock_engine = MagicMock()
         mock_engine.enabled = True
@@ -274,7 +274,7 @@ async def test_tool_guard_not_bypassed_without_flag():
         mock_engine.guard.return_value = None
         mock_engine_fn.return_value = mock_engine
 
-        with patch("copaw.app.approvals.get_approval_service"):
+        with patch("qwenpaw.app.approvals.get_approval_service"):
             result = await agent._acting(  # pylint: disable=protected-access
                 tool_call,
             )
@@ -294,7 +294,7 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
     (no longer embedded in ``request_context``), and neither flag
     pollutes environment variables.
     """
-    from copaw.config.config import AgentProfileConfig
+    from qwenpaw.config.config import AgentProfileConfig
 
     skills_dir = tmp_path / "my_skills"
     skill_sub = skills_dir / "e2e-skill"
@@ -310,7 +310,7 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
     )
     (tmp_path / "workspace").mkdir()
     monkeypatch.setattr(
-        "copaw.config.config.load_agent_config",
+        "qwenpaw.config.config.load_agent_config",
         lambda _aid: fake_config,
     )
 
@@ -321,9 +321,9 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
         captured["request_context"] = dict(ctx)
         captured["skills_dir"] = kwargs.get("skills_dir")
         captured["env_tool_guard"] = os.environ.get(
-            "COPAW_TOOL_GUARD_ENABLED",
+            "QWENPAW_TOOL_GUARD_ENABLED",
         )
-        captured["env_skills_dir"] = os.environ.get("COPAW_SKILLS_DIR")
+        captured["env_skills_dir"] = os.environ.get("QWENPAW_SKILLS_DIR")
         captured["guard_bypassed"] = (
             ctx.get("_headless_tool_guard", "true").lower() == "false"
         )
@@ -334,7 +334,7 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
             "usage": {},
         }
 
-    monkeypatch.setattr("copaw.cli.task_cmd._run_task", _spy_run_task)
+    monkeypatch.setattr("qwenpaw.cli.task_cmd._run_task", _spy_run_task)
 
     result = CliRunner().invoke(
         cli,
@@ -370,8 +370,8 @@ def test_e2e_cli_no_guard_and_skills_dir(monkeypatch, tmp_path):
 
 def test_isolated_workspace_creates_overlay(tmp_path):
     """Overlay workspace symlinks skills and pre-populates manifest."""
-    from copaw.cli.task_cmd import _isolated_skills_workspace
-    from copaw.agents.skills_manager import resolve_effective_skills
+    from qwenpaw.cli.task_cmd import _isolated_skills_workspace
+    from qwenpaw.agents.skills_manager import resolve_effective_skills
 
     skills_dir = tmp_path / "ext_skills"
     (skills_dir / "alpha").mkdir(parents=True)
@@ -413,7 +413,7 @@ def test_isolated_workspace_creates_overlay(tmp_path):
 
 def test_isolated_workspace_none_without_skills_dir(tmp_path):
     """Without skills_dir the context manager yields base_workspace as-is."""
-    from copaw.cli.task_cmd import _isolated_skills_workspace
+    from qwenpaw.cli.task_cmd import _isolated_skills_workspace
 
     base_ws = tmp_path / "ws"
     base_ws.mkdir()
@@ -424,7 +424,7 @@ def test_isolated_workspace_none_without_skills_dir(tmp_path):
 
 def test_isolated_workspace_does_not_pollute_real_workspace(tmp_path):
     """Real workspace must have zero new files after overlay teardown."""
-    from copaw.cli.task_cmd import _isolated_skills_workspace
+    from qwenpaw.cli.task_cmd import _isolated_skills_workspace
 
     skills_dir = tmp_path / "skills_src"
     (skills_dir / "s1").mkdir(parents=True)

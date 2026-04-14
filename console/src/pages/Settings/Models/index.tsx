@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button, Input } from "@agentscope-ai/design";
-import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
   LoadingState,
@@ -91,19 +91,16 @@ function ModelsPage() {
                       placeholder={t("models.searchPlaceholder")}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      onPressEnter={() => {}}
                       className={styles.searchInput}
                       prefix={<SearchOutlined />}
                       allowClear
                     />
                     <Button
-                      type="primary"
-                      icon={<SearchOutlined />}
+                      icon={<SyncOutlined />}
                       onClick={() => fetchAll()}
                       className={styles.searchBtn}
-                    >
-                      {t("models.search")}
-                    </Button>
+                      title={t("common.refresh")}
+                    />
                   </div>
                   <Button
                     type="primary"

@@ -95,7 +95,7 @@ jobs:
             const isBugRelated = titleContainsBug || hasBugLabel;
 
             // Check if issue uses bug report template
-            const usedBugTemplate = issueBody.includes('## CoPaw Version') ||
+            const usedBugTemplate = issueBody.includes('## QwenPaw Version') ||
                                     issueBody.includes('## Environment') ||
                                     issueBody.includes('## Steps to Reproduce');
 
@@ -108,8 +108,8 @@ jobs:
             if (hasChinese) {
               // Bilingual response with logo
               comment = `<div align="center">\n\n`;
-              comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
-              comment += `## 欢迎来到 CoPaw! 🐾 Welcome to CoPaw!\n\n`;
+              comment += `<img src="https://img.alicdn.com/imgextra/i2/O1CN01eSmIfy1hJImze8NN8_!!6000000004256-2-tps-1858-1858.png" width="80" height="80" />\n\n`;
+              comment += `## 欢迎来到 QwenPaw! 🐾 Welcome to QwenPaw!\n\n`;
               comment += `</div>\n\n`;
 
               if (hasValidIssueCount) {
@@ -129,7 +129,7 @@ jobs:
                 comment += `### 📋 关于 Bug Report 模板 / About Bug Report Template\n\n`;
                 comment += `我们注意到你的 issue 似乎与 bug 相关，但没有使用 Bug Report 模板。为了帮助我们更快地定位和修复问题，请确保你的 bug report 包含以下信息：\n`;
                 comment += `We noticed your issue seems to be bug-related, but doesn't use the Bug Report template. To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
-                comment += `- ✅ **CoPaw 版本 / Version** (使用 \`copaw --version\` 查看)\n`;
+                comment += `- ✅ **QwenPaw 版本 / Version** (使用 \`qwenpaw --version\` 查看)\n`;
                 comment += `- ✅ **操作系统 / OS** (macOS/Linux/Windows 及版本)\n`;
                 comment += `- ✅ **复现步骤 / Steps to Reproduce** (详细的步骤)\n`;
                 comment += `- ✅ **实际结果 vs 预期结果 / Actual vs Expected**\n`;
@@ -138,35 +138,35 @@ jobs:
                 comment += `You can edit your issue to add this information. Missing information may require maintainers to ask follow-up questions.\n\n`;
               }
 
-              comment += `我们会尽快查看你的 issue。感谢你对 CoPaw 的支持！\n`;
-              comment += `We'll review your issue soon. Thank you for supporting CoPaw!\n\n`;
+              comment += `我们会尽快查看你的 issue。感谢你对 QwenPaw 的支持！\n`;
+              comment += `We'll review your issue soon. Thank you for supporting QwenPaw!\n\n`;
 
               // Internationalization reminder
               comment += `---\n\n`;
               comment += `> **🌍 关于国际化 / About Internationalization**\n`;
               comment += `> \n`;
-              comment += `> CoPaw 是一个国际化的开源社区。我们建议使用英文提交 issue，这样可以让更多的开发者参与讨论和贡献。\n`;
+              comment += `> QwenPaw 是一个国际化的开源社区。我们建议使用英文提交 issue，这样可以让更多的开发者参与讨论和贡献。\n`;
               comment += `> \n`;
-              comment += `> CoPaw is an international open-source community. We recommend using English for issues so that more developers worldwide can participate in discussions and contributions.\n\n`;
+              comment += `> QwenPaw is an international open-source community. We recommend using English for issues so that more developers worldwide can participate in discussions and contributions.\n\n`;
 
               // Star reminder at the end
               if (!hasStarred) {
                 comment += `> [!TIP]\n`;
-                comment += `> **⭐ 如果你觉得 CoPaw 有帮助，请给我们一个 Star！**\n`;
+                comment += `> **⭐ 如果你觉得 QwenPaw 有帮助，请给我们一个 Star！**\n`;
                 comment += `> \n`;
-                comment += `> **⭐ If you find CoPaw useful, please give us a Star!**\n`;
+                comment += `> **⭐ If you find QwenPaw useful, please give us a Star!**\n`;
                 comment += `> \n`;
                 comment += `> <div align="center">\n`;
                 comment += `> \n`;
-                comment += `> [![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)\n`;
+                comment += `> <a href="https://github.com/agentscope-ai/QwenPaw"><img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" alt="Star QwenPaw" width="600" /></a>\n`;
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;
                 comment += `> **掌握最新动态 / Staying ahead**\n`;
                 comment += `> \n`;
-                comment += `> 在 GitHub 上 Star CoPaw，第一时间收到新版本发布通知。\n`;
+                comment += `> 在 GitHub 上 Star QwenPaw，第一时间收到新版本发布通知。\n`;
                 comment += `> \n`;
-                comment += `> Star CoPaw on GitHub and be instantly notified of new releases.\n`;
+                comment += `> Star QwenPaw on GitHub and be instantly notified of new releases.\n`;
                 comment += `> \n`;
                 comment += `> 你的 star 将帮助更多开发者发现这个项目！🐾\n`;
                 comment += `> \n`;
@@ -176,8 +176,8 @@ jobs:
             } else {
               // English only with logo
               comment = `<div align="center">\n\n`;
-              comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
-              comment += `## Welcome to CoPaw! 🐾\n\n`;
+              comment += `<img src="https://img.alicdn.com/imgextra/i2/O1CN01eSmIfy1hJImze8NN8_!!6000000004256-2-tps-1858-1858.png" width="80" height="80" />\n\n`;
+              comment += `## Welcome to QwenPaw! 🐾\n\n`;
               comment += `</div>\n\n`;
 
               if (hasValidIssueCount) {
@@ -193,7 +193,7 @@ jobs:
               if (needBugTemplateReminder) {
                 comment += `### 📋 About Bug Report Template\n\n`;
                 comment += `We noticed your issue seems to be bug-related, but doesn't use the Bug Report template. To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
-                comment += `- ✅ **CoPaw Version** (use \`copaw --version\`)\n`;
+                comment += `- ✅ **QwenPaw Version** (use \`qwenpaw --version\`)\n`;
                 comment += `- ✅ **Operating System** (macOS/Linux/Windows and version)\n`;
                 comment += `- ✅ **Steps to Reproduce** (detailed steps)\n`;
                 comment += `- ✅ **Actual vs Expected Behavior**\n`;
@@ -201,23 +201,23 @@ jobs:
                 comment += `You can edit your issue to add this information. Missing information may require us to ask follow-up questions, which can delay the fix.\n\n`;
               }
 
-              comment += `We'll review your issue soon. Thank you for supporting CoPaw!\n\n`;
+              comment += `We'll review your issue soon. Thank you for supporting QwenPaw!\n\n`;
 
               // Star reminder at the end
               if (!hasStarred) {
                 comment += `---\n\n`;
                 comment += `> [!TIP]\n`;
-                comment += `> **⭐ If you find CoPaw useful, please give us a Star!**\n`;
+                comment += `> **⭐ If you find QwenPaw useful, please give us a Star!**\n`;
                 comment += `> \n`;
                 comment += `> <div align="center">\n`;
                 comment += `> \n`;
-                comment += `> [![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)\n`;
+                comment += `> <a href="https://github.com/agentscope-ai/QwenPaw"><img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" alt="Star QwenPaw" width="600" /></a>\n`;
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;
                 comment += `> **Staying ahead**\n`;
                 comment += `> \n`;
-                comment += `> Star CoPaw on GitHub and be instantly notified of new releases.\n`;
+                comment += `> Star QwenPaw on GitHub and be instantly notified of new releases.\n`;
                 comment += `> \n`;
                 comment += `> Your star helps more developers discover this project! 🐾`;
               }

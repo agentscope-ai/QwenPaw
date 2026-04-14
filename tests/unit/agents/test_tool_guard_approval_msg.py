@@ -5,7 +5,7 @@
 def test_approval_msg_contains_approval_request_block():
     """The denied_text Msg must include an approval_request block
     so the stream adapter can convert it to MCP_APPROVAL_REQUEST."""
-    from copaw.agents.tool_guard_mixin import build_approval_blocks
+    from qwenpaw.agents.tool_guard_mixin import build_approval_blocks
 
     tool_call = {
         "id": "call_123",
@@ -34,7 +34,7 @@ def test_approval_msg_contains_approval_request_block():
 
 def test_approval_msg_text_block_has_risk_info():
     """The text block should contain severity and findings info."""
-    from copaw.agents.tool_guard_mixin import build_approval_blocks
+    from qwenpaw.agents.tool_guard_mixin import build_approval_blocks
 
     tool_call = {
         "id": "call_456",

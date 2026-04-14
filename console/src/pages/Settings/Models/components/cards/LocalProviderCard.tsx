@@ -16,7 +16,6 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
   onSaved,
 }: LocalProviderCardProps) {
   const { t } = useTranslation();
-  const [isHover, setIsHover] = useState(false);
   const [modelManageOpen, setModelManageOpen] = useState(false);
 
   const totalCount = provider.models.length + provider.extra_models.length;
@@ -26,14 +25,7 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
     : t("models.unavailable");
 
   return (
-    <Card
-      hoverable
-      onMouseEnter={() => setIsHover(true)}
-      onMouseLeave={() => setIsHover(false)}
-      className={`${styles.providerCard} ${
-        statusReady ? styles.enabledCard : ""
-      } ${isHover ? styles.hover : styles.normal}`}
-    >
+    <Card hoverable className={styles.providerCard}>
       {/* Card Header with Icon and Status */}
       <div className={styles.cardHeaderRow}>
         <img
@@ -83,22 +75,19 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
         </div>
       </div>
 
-      {/* Actions - only show on hover */}
-      {isHover && (
-        <div className={styles.cardActions}>
-          <Button
-            type="default"
-            size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              setModelManageOpen(true);
-            }}
-            className={styles.actionBtn}
-          >
-            {t("models.models")}
-          </Button>
-        </div>
-      )}
+      <div className={styles.cardActions}>
+        <Button
+          type="default"
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            setModelManageOpen(true);
+          }}
+          className={styles.actionBtn}
+        >
+          {t("models.models")}
+        </Button>
+      </div>
 
       <ModelManageModal
         provider={provider}

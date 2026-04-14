@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for _extract_approval_response from frontend buttons."""
-from copaw.app.runner.runner import _extract_approval_response
+from qwenpaw.app.runner.runner import _extract_approval_response
 
 
 def test_extract_approval_response_from_data_content():

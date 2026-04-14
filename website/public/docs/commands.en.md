@@ -258,6 +258,26 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 ---
 
+## Skill Chat Commands
+
+These commands let you inspect skill status in chat and force the agent to use
+a specific skill.
+
+- `/skills` lists skills available in the current channel in a compact format.
+- `/<skill_name>` shows detailed information for that skill, including its
+  description and local path.
+- `/<skill_name> <input>` forces the agent to use `skill_name` to solve the
+  input, usually a task.
+- `/[skill_name]` is also supported as an alternate form.
+
+Notes:
+
+- `skill_name` must match the skill command name shown in `/skills`.
+- These slash commands only work for skills that are enabled and routed to the
+  current channel.
+
+---
+
 ## Model Management Commands
 
 Commands for managing and switching AI models. These commands execute directly without going through the Agent.
@@ -379,7 +399,7 @@ Example: `/model openai:gpt-4o`
 
 - 🖼️ - Supports image input
 - 🎥 - Supports video input
-- _(user-added)_ - User-added model (via `copaw models add-model` command)
+- _(user-added)_ - User-added model (via `qwenpaw models add-model` command)
 
 ---
 
@@ -481,20 +501,20 @@ Use `/model openai:gpt-4o` to switch to this model.
 
 ## System Control Commands
 
-Commands for controlling and monitoring CoPaw's runtime status. These commands execute directly without going through the Agent.
+Commands for controlling and monitoring QwenPaw's runtime status. These commands execute directly without going through the Agent.
 
-Send `/daemon <subcommand>` or short names (e.g., `/status`) in chat, or run `copaw daemon <subcommand>` from the terminal.
+Send `/daemon <subcommand>` or short names (e.g., `/status`) in chat, or run `qwenpaw daemon <subcommand>` from the terminal.
 
-| Command                             | Description                                                                             | Chat | Terminal |
-| ----------------------------------- | --------------------------------------------------------------------------------------- | ---- | -------- |
-| `/stop`                             | Immediately terminate the running task in current session                               | ✅   | ❌       |
-| `/stop session=<session_id>`        | Terminate task in specified session                                                     | ✅   | ❌       |
-| `/daemon status` or `/status`       | Show runtime status (config, working directory, memory service)                         | ✅   | ✅       |
-| `/daemon restart` or `/restart`     | Zero-downtime reload (chat); prints instructions (terminal)                             | ✅   | ✅       |
-| `/daemon reload-config`             | Re-read and validate configuration file                                                 | ✅   | ✅       |
-| `/daemon version`                   | Version number, working directory, and log path                                         | ✅   | ✅       |
-| `/daemon logs` or `/daemon logs 50` | View last N lines of log (default 100, max 2000, from `copaw.log` in working directory) | ✅   | ✅       |
-| `/daemon approve`                   | Approve pending tool execution (tool-guard scenario)                                    | ✅   | ❌       |
+| Command                             | Description                                                                               | Chat | Terminal |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- | ---- | -------- |
+| `/stop`                             | Immediately terminate the running task in current session                                 | ✅   | ❌       |
+| `/stop session=<session_id>`        | Terminate task in specified session                                                       | ✅   | ❌       |
+| `/daemon status` or `/status`       | Show runtime status (config, working directory, memory service)                           | ✅   | ✅       |
+| `/daemon restart` or `/restart`     | Zero-downtime reload (chat); prints instructions (terminal)                               | ✅   | ✅       |
+| `/daemon reload-config`             | Re-read and validate configuration file                                                   | ✅   | ✅       |
+| `/daemon version`                   | Version number, working directory, and log path                                           | ✅   | ✅       |
+| `/daemon logs` or `/daemon logs 50` | View last N lines of log (default 100, max 2000, from `qwenpaw.log` in working directory) | ✅   | ✅       |
+| `/daemon approve`                   | Approve pending tool execution (tool-guard scenario)                                      | ✅   | ❌       |
 
 ---
 
@@ -521,7 +541,7 @@ Display current runtime status, including configuration, working directory, and 
 
 ```
 /status                    # In chat
-copaw daemon status        # From terminal
+qwenpaw daemon status        # From terminal
 ```
 
 ---
@@ -534,7 +554,7 @@ When used in chat, performs zero-downtime reload: reloads channels, cron, and MC
 
 ```
 /restart                   # In chat
-copaw daemon restart       # From terminal (prints instructions only)
+qwenpaw daemon restart       # From terminal (prints instructions only)
 ```
 
 > 💡 **Tip**: After modifying channel or MCP configuration, use `/daemon reload-config` first to verify correctness, then use `/daemon restart` to apply changes.
@@ -549,34 +569,34 @@ Re-read and validate the configuration file, but does not reload runtime compone
 
 ```
 /daemon reload-config           # In chat
-copaw daemon reload-config      # From terminal
+qwenpaw daemon reload-config      # From terminal
 ```
 
 ---
 
 ### /daemon version - Version Information
 
-Display CoPaw version number, working directory path, and log file path.
+Display QwenPaw version number, working directory path, and log file path.
 
 **Usage:**
 
 ```
 /daemon version            # In chat
-copaw daemon version       # From terminal
+qwenpaw daemon version       # From terminal
 ```
 
 ---
 
 ### /daemon logs - View Logs
 
-View the last N lines of `copaw.log` in the working directory. Default 100 lines, maximum 2000 lines.
+View the last N lines of `qwenpaw.log` in the working directory. Default 100 lines, maximum 2000 lines.
 
 **Usage:**
 
 ```
 /daemon logs               # Default 100 lines
 /daemon logs 50            # Specify 50 lines
-copaw daemon logs -n 200   # From terminal, specify 200 lines
+qwenpaw daemon logs -n 200   # From terminal, specify 200 lines
 ```
 
 > 💡 **Tip**: For large log files, this command only reads the last 512KB from the end of the file to ensure fast response times.
@@ -602,16 +622,16 @@ Quickly approve pending tool execution. When tool execution requires manual appr
 All daemon commands support terminal usage (except `/stop` and `/daemon approve` which only work in chat):
 
 ```bash
-copaw daemon status
-copaw daemon restart
-copaw daemon reload-config
-copaw daemon version
-copaw daemon logs -n 50
+qwenpaw daemon status
+qwenpaw daemon restart
+qwenpaw daemon reload-config
+qwenpaw daemon version
+qwenpaw daemon logs -n 50
 ```
 
 **Multi-agent support:** All terminal commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
-copaw daemon status --agent-id abc123
-copaw daemon version --agent-id abc123
+qwenpaw daemon status --agent-id abc123
+qwenpaw daemon version --agent-id abc123
 ```

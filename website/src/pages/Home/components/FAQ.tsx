@@ -35,7 +35,7 @@ const itemVariants = {
   },
 };
 
-export function CopawFAQ() {
+export function FAQ() {
   const { t, i18n } = useTranslation();
   const [activeCategory, setActiveCategory] =
     useState<FaqCategory>("quickStart");
@@ -93,7 +93,7 @@ export function CopawFAQ() {
                 <li>{t("homeFaq.quickStart.update.li1")}</li>
                 <li>
                   {t("homeFaq.quickStart.update.li2Prefix")}{" "}
-                  <code>pip install --upgrade copaw</code>
+                  <code>pip install --upgrade qwenpaw</code>
                 </li>
                 <li>{t("homeFaq.quickStart.update.li3")}</li>
                 <li>{t("homeFaq.quickStart.update.li4")}</li>
@@ -104,7 +104,7 @@ export function CopawFAQ() {
                     <li>
                       {t("homeFaq.quickStart.update.li5bPrefix")}{" "}
                       <a
-                        href="https://github.com/agentscope-ai/CoPaw/releases"
+                        href="https://github.com/agentscope-ai/QwenPaw/releases"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-(--color-primary) no-underline transition hover:brightness-110"
@@ -117,6 +117,7 @@ export function CopawFAQ() {
                   </ul>
                 </li>
               </ul>
+              <p className="mt-2">{t("homeFaq.quickStart.update.p2")}</p>
             </>
           ),
         },
@@ -127,10 +128,10 @@ export function CopawFAQ() {
             <>
               <p>
                 {t("homeFaq.quickStart.initialize.p1")}{" "}
-                <code>copaw init --defaults</code>
+                <code>qwenpaw init --defaults</code>
               </p>
               <p>
-                {t("homeFaq.quickStart.initialize.p2")} <code>copaw app</code>
+                {t("homeFaq.quickStart.initialize.p2")} <code>qwenpaw app</code>
               </p>
               <p className="mt-2">
                 {t("homeFaq.quickStart.initialize.p3Prefix")}{" "}
@@ -147,7 +148,7 @@ export function CopawFAQ() {
             <>
               {t("homeFaq.quickStart.upgrade.p1")}{" "}
               <a
-                href="https://github.com/agentscope-ai/CoPaw/releases"
+                href="https://github.com/agentscope-ai/QwenPaw/releases"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-(--color-primary) no-underline transition hover:brightness-110"
@@ -189,9 +190,9 @@ export function CopawFAQ() {
               <p className="mt-2">{t("homeFaq.features.models.p3")}</p>
               <p className="mt-2">
                 {t("homeFaq.features.models.p4Prefix")}{" "}
-                <code>copaw models</code> {t("homeFaq.features.models.p4Mid")}{" "}
+                <code>qwenpaw models</code> {t("homeFaq.features.models.p4Mid")}{" "}
                 <Link
-                  to="/docs/cli#copaw-models"
+                  to="/docs/cli#qwenpaw-models"
                   className="text-(--color-primary) no-underline transition hover:brightness-110"
                 >
                   {t("homeFaq.features.models.cliLink")}
@@ -342,7 +343,7 @@ export function CopawFAQ() {
                 <li>
                   {t("homeFaq.troubleshooting.help.s2Prefix")}{" "}
                   <a
-                    href="https://github.com/agentscope-ai/CoPaw/issues"
+                    href="https://github.com/agentscope-ai/QwenPaw/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-(--color-primary) no-underline transition hover:brightness-110"
@@ -350,7 +351,7 @@ export function CopawFAQ() {
                     {t("homeFaq.troubleshooting.help.githubIssues")}
                   </a>{" "}
                   {t("homeFaq.troubleshooting.help.s2Mid")}{" "}
-                  <code>copaw_query_error_qzbx1mv1.json</code>
+                  <code>qwenpaw_query_error_qzbx1mv1.json</code>
                   {t("homeFaq.troubleshooting.help.s2Suffix")}
                 </li>
               </ol>
@@ -374,12 +375,12 @@ export function CopawFAQ() {
       initial="hidden"
       whileInView="show"
       viewport={{ once: true, amount: 0.2 }}
-      aria-labelledby="copaw-faq-heading"
+      aria-labelledby="qwenpaw-faq-heading"
     >
       <div className="mx-auto max-w-7xl">
         <div className="grid gap-8 md:grid-cols-[40%_60%] md:gap-12">
           <motion.div variants={itemVariants}>
-            <h2 id="copaw-faq-heading" className={sectionStyles.title}>
+            <h2 id="qwenpaw-faq-heading" className={sectionStyles.title}>
               {t("homeFaq.title")}
             </h2>
             <p

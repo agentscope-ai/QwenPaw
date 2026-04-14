@@ -18,7 +18,7 @@ const container = {
   },
 };
 
-export function CopawHero() {
+export function Hero() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage === "zh";
   const [isHovered, setIsHovered] = useState(false);
@@ -57,7 +57,7 @@ export function CopawHero() {
   }, [showIdle, idlePlayedOnce]);
 
   const scrollToQuickStart = () => {
-    const section = document.getElementById("copaw-quickstart");
+    const section = document.getElementById("qwenpaw-quickstart");
     if (!section) return;
     section.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -72,7 +72,7 @@ export function CopawHero() {
     <>
       <motion.section
         className="relative text-center"
-        aria-labelledby="copaw-hero-heading"
+        aria-labelledby="qwenpaw-hero-heading"
         variants={container}
         initial="hidden"
         animate="visible"
@@ -94,7 +94,7 @@ export function CopawHero() {
             />
           </div>
           <h1
-            id="copaw-hero-heading"
+            id="qwenpaw-hero-heading"
             className="font-newsreader font-semibold leading-[1.1] tracking-[-0.02em] text-(--color-text) sm:leading-[1.08] text-[32px] md:text-[48px] md:leading-[1.06]"
           >
             <span className="font-newsreader font-medium whitespace-pre-wrap">
@@ -120,15 +120,8 @@ export function CopawHero() {
                 isZh ? "font-medium" : "font-normal"
               }`}
             >
-              <span className="relative">
+              <span className="relative text-(--color-primary)">
                 {t("hero.titleright")}
-                <span
-                  className="absolute bottom-0 left-0 h-[2px] w-0 animate-[copaw-hero-trim-path_0.8s_ease-out_forwards] [animation-delay:1s]"
-                  style={{
-                    background:
-                      "repeating-linear-gradient(to right, var(--color-primary) 0 8px, transparent 8px 16px)",
-                  }}
-                />
               </span>
             </span>
             <span className="mt-1 block font-newsreader text-[0.92em] font-medium text-(--color-text-secondary) sm:mt-1.5 sm:text-[1em]">
@@ -178,8 +171,8 @@ export function CopawHero() {
               }}
             >
               <img
-                src="https://img.alicdn.com/imgextra/i1/O1CN01cIH6fF1g0h4zuKzOZ_!!6000000004080-2-tps-2270-1419.png"
-                alt="CoPaw console preview"
+                src="https://img.alicdn.com/imgextra/i1/O1CN01BLYCfm1Qyf5WcMDDf_!!6000000002045-2-tps-1924-1202.png"
+                alt="QwenPaw console preview"
                 className="block h-auto max-h-full w-full rounded-t-[8px] object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)] md:h-full md:object-cover"
                 loading="lazy"
               />

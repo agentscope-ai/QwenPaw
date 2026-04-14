@@ -10,14 +10,14 @@ from agentscope_runtime.engine.schemas.exception import (
     ModelNotFoundException,
 )
 
-import copaw.providers.provider_manager as provider_manager_module
-from copaw.exceptions import ProviderError
-from copaw.providers.anthropic_provider import AnthropicProvider
-from copaw.providers.models import ModelSlotConfig
-from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.provider import ModelInfo
-from copaw.providers.provider_manager import ProviderManager
-from copaw.local_models.llamacpp import LlamaCppServerSetupResult
+import qwenpaw.providers.provider_manager as provider_manager_module
+from qwenpaw.exceptions import ProviderError
+from qwenpaw.providers.anthropic_provider import AnthropicProvider
+from qwenpaw.providers.models import ModelSlotConfig
+from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
 
 
 LEGACY_PROVIDER = {
@@ -83,7 +83,7 @@ LEGACY_PROVIDER = {
 
 @pytest.fixture
 def isolated_secret_dir(monkeypatch, tmp_path):
-    secret_dir = tmp_path / ".copaw.secret"
+    secret_dir = tmp_path / ".qwenpaw.secret"
     monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
     return secret_dir
 
@@ -206,9 +206,9 @@ async def test_resume_local_model_restores_server_and_runtime_state(
     isolated_secret_dir,
 ) -> None:
     manager = ProviderManager()
-    model_id = "AgentScope/CoPaw-flash-2B-Q4_K_M"
+    model_id = "AgentScope/QwenPaw-Flash-2B-Q4_K_M"
     manager.update_provider(
-        "copaw-local",
+        "qwenpaw-local",
         {
             "base_url": "http://127.0.0.1:9000/v1",
             "extra_models": [
@@ -220,7 +220,7 @@ async def test_resume_local_model_restores_server_and_runtime_state(
         },
     )
     manager.active_model = ModelSlotConfig(
-        provider_id="copaw-local",
+        provider_id="qwenpaw-local",
         model=model_id,
     )
     manager.save_active_model(manager.active_model)
@@ -256,7 +256,7 @@ async def test_resume_local_model_restores_server_and_runtime_state(
 
     await manager._resume_local_model(local_manager)
 
-    provider = manager.get_provider("copaw-local")
+    provider = manager.get_provider("qwenpaw-local")
 
     assert local_manager.restored_model_id == model_id
     assert provider is not None

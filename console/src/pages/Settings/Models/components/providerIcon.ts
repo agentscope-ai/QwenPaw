@@ -30,13 +30,17 @@ export const providerIcon = (provider: string) => {
       return "https://img.alicdn.com/imgextra/i1/O1CN01TUkzVC1clAoPa2ix8_!!6000000003640-2-tps-520-520.png";
     case "siliconflow-intl":
       return "https://img.alicdn.com/imgextra/i1/O1CN01TUkzVC1clAoPa2ix8_!!6000000003640-2-tps-520-520.png";
-    case "copaw-local":
+    case "qwenpaw-local":
       return "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png";
     case "zhipu-cn":
     case "zhipu-intl":
     case "zhipu-cn-codingplan":
     case "zhipu-intl-codingplan":
       return "https://img.alicdn.com/imgextra/i2/O1CN01TFZcQz23xX7qacIEv_!!6000000007322-2-tps-640-640.png";
+    case "openrouter":
+      return "https://gw.alicdn.com/imgextra/i4/O1CN01oX74jS1ciQR9xBtZ2_!!6000000003634-2-tps-252-252.png";
+    case "opencode":
+      return "https://gw.alicdn.com/imgextra/i1/O1CN01d3RfoB28G5dbN4i97_!!6000000007904-2-tps-30-30.png";
     default:
       return "https://gw.alicdn.com/imgextra/i4/O1CN01IWnlOw1lebfpiFrIL_!!6000000004844-0-tps-100-100.jpg";
   }

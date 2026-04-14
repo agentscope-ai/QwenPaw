@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Modal } from "@agentscope-ai/design";
+import { Button, Modal, Tooltip } from "@agentscope-ai/design";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { BuiltinImportSpec } from "../../../../api/types";
@@ -52,6 +52,7 @@ export function ImportBuiltinModal({
         <div className={styles.bulkActions}>
           <Button
             size="small"
+            type="primary"
             onClick={() => setSelectedNames(sources.map((item) => item.name))}
           >
             {t("agent.selectAll")}
@@ -82,7 +83,9 @@ export function ImportBuiltinModal({
                     <CheckOutlined />
                   </span>
                 )}
-                <div className={styles.pickerCardTitle}>{item.name}</div>
+                <Tooltip title={item.name}>
+                  <div className={styles.pickerCardTitle}>{item.name}</div>
+                </Tooltip>
                 <div className={styles.pickerCardMeta}>
                   {t("skillPool.sourceVersion")}: {item.version_text || "-"}
                 </div>
