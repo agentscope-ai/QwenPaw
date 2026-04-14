@@ -2,9 +2,7 @@
 """Model wrapper that records token usage from LLM responses."""
 
 import json
-import os
 from datetime import date
-from logging import getLogger
 from typing import Any, AsyncGenerator, Literal, Type
 
 from agentscope.model import ChatModelBase
@@ -14,9 +12,6 @@ from pydantic import BaseModel
 
 from .manager import get_token_usage_manager
 
-
-logger = getLogger(__name__)
-DEBUG_LLM_MESSAGES = os.getenv("DEBUG_LLM_MESSAGES", "0") == "1"
 
 class TokenRecordingModelWrapper(ChatModelBase):
     """Wraps a ChatModelBase to record token usage on each call."""
@@ -72,27 +67,6 @@ class TokenRecordingModelWrapper(ChatModelBase):
         structured_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-
-        if DEBUG_LLM_MESSAGES:
-            logger.info(
-                "LLM request:\n%s",
-                json.dumps(
-                    {
-                        "messages": messages,
-                        "tools": tools,
-                        "tool_choice": tool_choice,
-                        "structured_model": (
-                            structured_model.__name__
-                            if structured_model is not None
-                            else None
-                        ),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                    default=str,
-                ),
-            )
-
         result = await self._model(
             messages=messages,
             tools=tools,
