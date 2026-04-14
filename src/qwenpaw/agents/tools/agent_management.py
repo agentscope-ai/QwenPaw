@@ -53,6 +53,13 @@ def _json_text(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
 
 
+def normalize_id(id_to_normalize: Optional[str]) -> Optional[str]:
+    """Trim surrounding whitespace and quotes from an ID."""
+    if id_to_normalize is None:
+        return None
+    return id_to_normalize.strip().strip("\"'").strip()
+
+
 def create_agent_api_client(
     base_url: Optional[str],
     default_timeout: float = DEFAULT_AGENT_API_TIMEOUT,
@@ -78,11 +85,12 @@ def resolve_calling_agent_id(from_agent: Optional[str] = None) -> str:
     1. Explicit ``from_agent`` argument
     2. Current runtime agent context
     """
-    if from_agent:
-        return from_agent
+    normalized_from_agent = normalize_id(from_agent)
+    if normalized_from_agent:
+        return normalized_from_agent
     from ...app.agent_context import get_current_agent_id
 
-    return get_current_agent_id()
+    return normalize_id(get_current_agent_id()) or ""
 
 
 def resolve_agent_session_id(
@@ -155,6 +163,33 @@ def list_agents_data(
         return response.json()
 
 
+def extract_agent_ids(agent_list_data: Dict[str, Any]) -> set[str]:
+    """Extract configured agent IDs from the /agents payload."""
+    agents = agent_list_data.get("agents", [])
+    if not isinstance(agents, list):
+        return set()
+
+    agent_ids = set()
+    for agent in agents:
+        if not isinstance(agent, dict):
+            continue
+        agent_id = normalize_id(agent.get("id"))
+        if agent_id:
+            agent_ids.add(agent_id)
+    return agent_ids
+
+
+def agent_exists(
+    to_agent: Optional[str],
+    base_url: Optional[str] = None,
+) -> bool:
+    """Check whether the target agent exists in the configured agent list."""
+    normalized_to_agent = normalize_id(to_agent)
+    if not normalized_to_agent:
+        return False
+    return normalized_to_agent in extract_agent_ids(list_agents_data(base_url))
+
+
 def build_agent_chat_request(
     to_agent: str,
     text: str,
@@ -162,6 +197,7 @@ def build_agent_chat_request(
     from_agent: Optional[str] = None,
 ) -> tuple[str, Dict[str, Any], bool]:
     """Build the inter-agent chat payload and resolve the final session ID."""
+    to_agent = normalize_id(to_agent) or ""
     caller_agent_id = resolve_calling_agent_id(from_agent)
     final_session_id = resolve_agent_session_id(
         caller_agent_id,
@@ -182,7 +218,8 @@ def build_agent_chat_request(
 
 
 def _request_headers(to_agent: Optional[str]) -> Dict[str, str]:
-    return {"X-Agent-Id": to_agent} if to_agent else {}
+    normalized_to_agent = normalize_id(to_agent)
+    return {"X-Agent-Id": normalized_to_agent} if normalized_to_agent else {}
 
 
 def stream_agent_chat(
@@ -370,6 +407,10 @@ async def chat_with_agent(  # pylint: disable=too-many-return-statements
     from_agent: Optional[str] = None,
 ) -> ToolResponse:
     """Send a message to another configured agent via the local API."""
+    to_agent = normalize_id(to_agent)
+    from_agent = normalize_id(from_agent)
+    session_id = normalize_id(session_id)
+
     # TODO: move background task check to a separate tool
     if background and task_id:
         result = await asyncio.to_thread(
@@ -389,6 +430,10 @@ async def chat_with_agent(  # pylint: disable=too-many-return-statements
         return _tool_text_response(
             "ERROR: 'to_agent' and 'text' are required for chat",
         )
+
+    target_exists = await asyncio.to_thread(agent_exists, to_agent, base_url)
+    if not target_exists:
+        return _tool_text_response(f"Agent [{to_agent}] not exists")
 
     final_session_id, request_payload, _ = build_agent_chat_request(
         to_agent,

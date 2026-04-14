@@ -132,6 +132,24 @@ def test_build_agent_chat_request_reuses_session_id_when_provided():
     assert prefix_added is True
 
 
+def test_build_agent_chat_request_normalizes_to_and_from_agent_ids():
+    (
+        session_id,
+        payload,
+        prefix_added,
+    ) = agent_management.build_agent_chat_request(
+        '  "bot_b"  ',
+        "Need a summary",
+        from_agent="  'bot_a'  ",
+    )
+
+    assert session_id.startswith("bot_a:to:bot_b:")
+    assert payload["input"][0]["content"][0]["text"].startswith(
+        "[Agent bot_a requesting] ",
+    )
+    assert prefix_added is True
+
+
 def test_list_agents_data_uses_shared_client(monkeypatch):
     fake_client = _FakeClient(
         get_response=_FakeResponse(
@@ -151,6 +169,21 @@ def test_list_agents_data_uses_shared_client(monkeypatch):
     result = agent_management.list_agents_data("http://127.0.0.1:8088")
 
     assert result["agents"][0]["id"] == "default"
+
+
+def test_extract_agent_ids_normalizes_values():
+    result = agent_management.extract_agent_ids(
+        {
+            "agents": [
+                {"id": '  "bot_a"  '},
+                {"id": " 'bot_b' "},
+                {"id": None},
+                "invalid",
+            ],
+        },
+    )
+
+    assert result == {"bot_a", "bot_b"}
 
 
 def test_resolve_agent_api_base_url_uses_last_api(monkeypatch):
@@ -195,6 +228,7 @@ def test_collect_final_agent_chat_response_keeps_last_sse_payload(monkeypatch):
         30,
     )
 
+    assert result is not None
     assert agent_management.extract_agent_text_content(result) == "second"
 
 
@@ -302,3 +336,66 @@ async def test_chat_with_agent_uses_to_thread_for_final_mode(monkeypatch):
     assert calls
     assert calls[-1][0] is agent_management.collect_final_agent_chat_response
     assert "reply from peer" in response.content[0].get("text", "")
+
+
+async def test_chat_with_agent_normalizes_agent_ids(monkeypatch):
+    captured = {}
+
+    def fake_collect_final(_base_url, request_payload, to_agent, _timeout):
+        captured["to_agent"] = to_agent
+        captured["session_id"] = request_payload["session_id"]
+        captured["text"] = request_payload["input"][0]["content"][0]["text"]
+        return {
+            "output": [
+                {
+                    "content": [
+                        {"type": "text", "text": "reply from peer"},
+                    ],
+                },
+            ],
+        }
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response",
+        fake_collect_final,
+    )
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+
+    response = await agent_management.chat_with_agent(
+        to_agent='  "bot_b"  ',
+        text="Need help",
+        from_agent="  'bot_a'  ",
+    )
+
+    assert captured["to_agent"] == "bot_b"
+    assert captured["session_id"].startswith("bot_a:to:bot_b:")
+    assert captured["text"].startswith("[Agent bot_a requesting] ")
+    assert "reply from peer" in response.content[0].get("text", "")
+
+
+async def test_chat_with_agent_returns_clear_error_when_agent_missing(
+    monkeypatch,
+):
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: False,
+    )
+
+    response = await agent_management.chat_with_agent(
+        to_agent='  "missing_bot"  ',
+        text="Need help",
+    )
+
+    assert (
+        response.content[0].get("text", "")
+        == "Agent [missing_bot] not exists"
+    )
