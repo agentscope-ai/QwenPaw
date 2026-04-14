@@ -918,6 +918,8 @@ def import_builtin_skills(
             )
             if "config" in existing:
                 entry["config"] = existing.get("config")
+            if "tags" in existing:
+                entry["tags"] = existing.get("tags")
             skills[skill_name] = entry
 
         return {
@@ -1262,6 +1264,8 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
         )
         if "config" in existing:
             entry["config"] = existing["config"]
+        if "tags" in existing:
+            entry["tags"] = existing["tags"]
         payload["skills"][skill_name] = entry
         return entry
 
