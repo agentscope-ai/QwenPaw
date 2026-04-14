@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 """Plugin API for plugin developers."""
 
-from typing import Any, Callable, Dict, Type
+from typing import Any, Callable, Dict, List, Type
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 class PluginApi:
     """Plugin API - Interface for plugin developers.
 
     This class provides the API that plugins use to register their
-    capabilities.
+    capabilities.  It also tracks every registration so that
+    ``unregister_all()`` can cleanly remove them during dynamic
+    unloading.
     """
 
     def __init__(
@@ -32,6 +33,10 @@ class PluginApi:
         self.manifest = manifest or {}
         self._registry = None
 
+        # Track registered resources for unregister_all()
+        self._registered_startup_hooks: List[str] = []
+        self._registered_shutdown_hooks: List[str] = []
+        self._registered_tool_renderers: List[str] = []
     def set_registry(self, registry):
         """Set registry reference (called by loader).
 
@@ -113,6 +118,7 @@ class PluginApi:
                 callback=callback,
                 priority=priority,
             )
+            self._registered_startup_hooks.append(hook_name)
             logger.info(
                 f"Plugin '{self.plugin_id}' registered startup hook "
                 f"'{hook_name}' (priority={priority})",
@@ -145,6 +151,7 @@ class PluginApi:
                 callback=callback,
                 priority=priority,
             )
+            self._registered_shutdown_hooks.append(hook_name)
             logger.info(
                 f"Plugin '{self.plugin_id}' registered shutdown hook "
                 f"'{hook_name}' (priority={priority})",
@@ -172,6 +179,56 @@ class PluginApi:
                 f"Plugin '{self.plugin_id}' registered control command "
                 f"'{handler.command_name}' (priority={priority_level})",
             )
+
+    def register_tool_renderer(
+        self,
+        tool_name: str,
+        component_name: str,
+    ):
+        """Register a tool renderer mapping.
+
+        Declares that the frontend component ``component_name`` (exported
+        by this plugin's UI JS module) should be used to render the output
+        of the backend tool ``tool_name``.
+
+        Args:
+            tool_name: Backend tool name (e.g. "view_image")
+            component_name: JS component name exported by the plugin's
+                UI module (e.g. "ViewImageCard")
+
+        Example:
+            >>> api.register_tool_renderer("view_image", "ViewImageCard")
+        """
+        if self._registry:
+            self._registry.register_tool_renderer(
+                plugin_id=self.plugin_id,
+                tool_name=tool_name,
+                component_name=component_name,
+            )
+            self._registered_tool_renderers.append(tool_name)
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered tool renderer "
+                f"'{tool_name}' -> '{component_name}'",
+            )
+
+    def unregister_all(self) -> None:
+        """Remove all registrations made by this plugin.
+
+        Delegates to ``PluginRegistry.unregister_all_by_plugin`` which
+        handles every category in one call.  This is the primary method
+        used during dynamic plugin unloading.
+        """
+        if self._registry:
+            summary = self._registry.unregister_all_by_plugin(self.plugin_id)
+            logger.info(
+                f"Plugin '{self.plugin_id}' unregistered all resources: "
+                f"{summary}",
+            )
+
+        # Clear local tracking lists
+        self._registered_startup_hooks.clear()
+        self._registered_shutdown_hooks.clear()
+        self._registered_tool_renderers.clear()
 
     @property
     def runtime(self):

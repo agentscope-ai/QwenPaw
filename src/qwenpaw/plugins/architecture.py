@@ -1,9 +1,58 @@
 # -*- coding: utf-8 -*-
 """Plugin architecture definitions."""
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from .api import PluginApi
+
+
+class BasePlugin(ABC):
+    """Abstract base class for all plugins.
+
+    Every plugin must export a ``plugin`` object that is an instance of a
+    class derived from ``BasePlugin``.  The loader calls ``register`` on
+    startup and ``unregister`` before the plugin is unloaded, giving the
+    plugin a chance to clean up resources it registered.
+
+    Example::
+
+        class MyPlugin(BasePlugin):
+            def register(self, api: PluginApi) -> None:
+                api.register_tool_renderer("view_image", "ViewImageCard")
+
+            def unregister(self, api: PluginApi) -> None:
+                # Optional: custom cleanup beyond automatic unregister_all()
+                pass
+
+        plugin = MyPlugin()
+    """
+
+    @abstractmethod
+    def register(self, api: "PluginApi") -> None:
+        """Called when the plugin is loaded.
+
+        Use the *api* object to register providers, hooks, tool renderers,
+        and other capabilities.
+
+        Args:
+            api: The plugin API instance bound to this plugin.
+        """
+
+    def unregister(self, api: "PluginApi") -> None:
+        """Called when the plugin is about to be unloaded.
+
+        Override this to perform custom cleanup.  The framework will
+        **always** call ``api.unregister_all()`` after this method returns,
+        so you only need to override it if you have resources outside the
+        plugin registry to release (e.g. background tasks, open files).
+
+        Args:
+            api: The plugin API instance bound to this plugin.
+        """
 
 
 @dataclass
@@ -51,4 +100,5 @@ class PluginRecord:
     source_path: Path
     enabled: bool
     instance: Optional[Any] = None
+    api: Optional["PluginApi"] = None
     diagnostics: List[str] = field(default_factory=list)

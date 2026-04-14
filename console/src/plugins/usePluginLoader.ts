@@ -5,25 +5,29 @@
  *
  * ### How it works
  *
- * 1. `GET /api/plugins` → list of plugins with `ui` metadata.
+ * 1. `GET /api/plugins` → list of plugins with `ui` metadata, including
+ *    `tool_renderers` mapping (tool_name → component_name) registered by
+ *    the backend `plugin.py` via `api.register_tool_renderer(...)`.
  * 2. For each plugin whose `has_ui === true`:
  *    a. Inject `<link rel="stylesheet">` for the plugin's CSS (if any).
  *    b. Fetch + Blob-URL-import the plugin's JS entry module.
- *    c. Call the module's default export `register(host)`, where `host`
- *       provides `registerToolRenderer(toolName, Component)` and the
- *       shared dependencies (React, antd, etc.).
+ *    c. Call the module's default export `register(host)` which returns
+ *       an object mapping component names to React components.
+ *    d. Use the backend `tool_renderers` mapping to look up each
+ *       component by name and register it in `toolRenderConfig`.
  * 3. Return `{ toolRenderConfig, loading, error }`.
  *
  * ### Plugin JS module contract
  *
  * ```js
  * export default function register(host) {
- *   const { React, antd } = host;
+ *   const { React } = host;
  *   const h = React.createElement;
  *
  *   function MyCard(props) { return h("div", null, "Hello!"); }
  *
- *   host.registerToolRenderer("my_tool", MyCard);
+ *   // Return components by name — the backend decides which tool uses which.
+ *   return { MyCard };
  * }
  * ```
  */
@@ -50,7 +54,11 @@ export type ToolRenderConfig = Record<string, React.FC<any>>;
 
 /**
  * The `host` object passed to each plugin's `register(host)` function.
- * Plugins use it to access shared dependencies and register their renderers.
+ * Plugins use it to access shared dependencies (React, antd, etc.).
+ *
+ * The `register` function should **return** an object whose keys are
+ * component names and values are React components.  The backend
+ * `tool_renderers` mapping decides which tool uses which component.
  */
 export interface PluginHost {
   /** React library (same instance as the host app). */
@@ -67,14 +75,6 @@ export interface PluginHost {
   getApiUrl: (path: string) => string;
   /** Get the current auth token. */
   getApiToken: () => string;
-  /**
-   * Register a React component to render a specific tool's output.
-   *
-   * @param toolName - The backend tool name (e.g. "view_image").
-   * @param component - A React function component that receives
-   *   `{ data: IAgentScopeRuntimeMessage }` as props.
-   */
-  registerToolRenderer: (toolName: string, component: React.FC<any>) => void;
 }
 
 interface PluginLoaderResult {
@@ -105,9 +105,15 @@ function injectCSS(pluginId: string, cssUrl: string): void {
  * `import()` it.  This avoids CORS issues when the frontend dev server
  * and the backend run on different origins.
  */
+/**
+ * The return type of a plugin's `register(host)` function: an object
+ * mapping component names to React components.
+ */
+type PluginComponentMap = Record<string, React.FC<any>>;
+
 async function loadPluginModule(
   entryUrl: string,
-): Promise<(host: PluginHost) => void> {
+): Promise<(host: PluginHost) => PluginComponentMap> {
   const response = await fetch(entryUrl);
   if (!response.ok) {
     throw new Error(
@@ -138,12 +144,10 @@ async function loadPluginModule(
 
 /**
  * Build a `PluginHost` object that plugins receive in their `register(host)`
- * call.  The `config` map is mutated by `registerToolRenderer`.
+ * call.  Provides shared dependencies only — component registration is
+ * handled by the loader based on the backend `tool_renderers` mapping.
  */
-function createPluginHost(
-  pluginId: string,
-  config: ToolRenderConfig,
-): PluginHost {
+function createPluginHost(): PluginHost {
   const externals = window.__QWENPAW__;
 
   return {
@@ -154,19 +158,6 @@ function createPluginHost(
     apiBaseUrl: externals.apiBaseUrl,
     getApiUrl: externals.getApiUrl,
     getApiToken: externals.getApiToken,
-    registerToolRenderer(toolName: string, component: React.FC<any>) {
-      if (typeof component !== "function") {
-        console.warn(
-          `[plugin:${pluginId}] registerToolRenderer("${toolName}", …): ` +
-            `expected a function, got ${typeof component}`,
-        );
-        return;
-      }
-      config[toolName] = component;
-      console.info(
-        `[plugin:${pluginId}] Registered tool renderer: ${toolName}`,
-      );
-    },
   };
 }
 
@@ -214,9 +205,28 @@ export function usePluginLoader(): PluginLoaderResult {
                 resolvePluginUrl(ui.entry),
               );
 
-              // 3. Call register(host) — the plugin registers its renderers
-              const host = createPluginHost(plugin.id, config);
-              registerFn(host);
+              // 3. Call register(host) — get exported components
+              const host = createPluginHost();
+              const exportedComponents = registerFn(host) || {};
+
+              // 4. Use backend tool_renderers mapping to wire components
+              const toolRenderers = ui.tool_renderers || {};
+              for (const [toolName, componentName] of Object.entries(
+                toolRenderers,
+              )) {
+                const component = exportedComponents[componentName];
+                if (typeof component === "function") {
+                  config[toolName] = component;
+                  console.info(
+                    `[plugin:${plugin.id}] Mapped tool "${toolName}" -> component "${componentName}"`,
+                  );
+                } else {
+                  console.warn(
+                    `[plugin:${plugin.id}] tool_renderers declares "${toolName}" -> "${componentName}", ` +
+                      `but register() did not return a component named "${componentName}"`,
+                  );
+                }
+              }
             } catch (err) {
               const message = `Plugin "${plugin.id}" failed to load: ${err}`;
               console.error(`[plugin] ${message}`);

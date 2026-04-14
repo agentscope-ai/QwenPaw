@@ -175,12 +175,13 @@ class PluginLoader:
                     "Plugin must implement 'register(api)' method",
                 )
 
-            # Create plugin record
+            # Create plugin record (keep api reference for unloading)
             record = PluginRecord(
                 manifest=manifest,
                 source_path=source_path,
                 enabled=True,
                 instance=plugin_def,
+                api=api,
                 diagnostics=[],
             )
 
@@ -238,3 +239,50 @@ class PluginLoader:
             Dictionary of plugin_id -> PluginRecord
         """
         return self._loaded_plugins.copy()
+
+    async def unload_plugin(self, plugin_id: str) -> bool:
+        """Dynamically unload a plugin.
+
+        Calls the plugin's ``unregister(api)`` method (if it exists),
+        then removes all registrations from the registry and cleans up
+        the loaded-module reference.
+
+        Args:
+            plugin_id: Plugin identifier
+
+        Returns:
+            True if the plugin was found and unloaded successfully
+        """
+        record = self._loaded_plugins.get(plugin_id)
+        if record is None:
+            logger.warning(f"Plugin '{plugin_id}' is not loaded")
+            return False
+
+        plugin_def = record.instance
+        api = record.api
+
+        # 1. Call plugin's unregister() for custom cleanup
+        if plugin_def is not None and hasattr(plugin_def, "unregister"):
+            try:
+                result = plugin_def.unregister(api)
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                logger.error(
+                    f"Plugin '{plugin_id}' unregister() raised: {exc}",
+                    exc_info=True,
+                )
+
+        # 2. Remove all registrations from the registry
+        if api is not None:
+            api.unregister_all()
+
+        # 3. Remove from loaded plugins
+        del self._loaded_plugins[plugin_id]
+
+        # 4. Clean up sys.modules entry
+        module_name = f"plugin_{plugin_id.replace('-', '_')}"
+        sys.modules.pop(module_name, None)
+
+        logger.info(f"✓ Unloaded plugin '{plugin_id}' successfully")
+        return True

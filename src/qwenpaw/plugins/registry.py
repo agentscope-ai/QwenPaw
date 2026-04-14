@@ -66,6 +66,8 @@ class PluginRegistry:
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        # plugin_id → { tool_name → component_name }
+        self._tool_renderers: Dict[str, Dict[str, str]] = {}
         self._runtime_helpers = None
 
         self._initialized = True
@@ -251,3 +253,166 @@ class PluginRegistry:
             List of ControlCommandRegistration
         """
         return self._control_commands.copy()
+
+    def register_tool_renderer(
+        self,
+        plugin_id: str,
+        tool_name: str,
+        component_name: str,
+    ):
+        """Register a tool renderer mapping.
+
+        Maps a backend tool name to a frontend component name exported
+        by the plugin's UI module.
+
+        Args:
+            plugin_id: Plugin identifier
+            tool_name: Backend tool name (e.g. "view_image")
+            component_name: JS component name exported by the plugin
+                (e.g. "ViewImageCard")
+        """
+        if plugin_id not in self._tool_renderers:
+            self._tool_renderers[plugin_id] = {}
+
+        self._tool_renderers[plugin_id][tool_name] = component_name
+        logger.info(
+            f"Registered tool renderer '{tool_name}' -> '{component_name}' "
+            f"from plugin '{plugin_id}'",
+        )
+
+    def get_tool_renderers(
+        self,
+        plugin_id: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """Get tool renderer mappings.
+
+        Args:
+            plugin_id: If provided, return only renderers for this plugin.
+                Otherwise return all renderers merged (later plugins
+                override earlier ones for the same tool name).
+
+        Returns:
+            Dictionary of tool_name -> component_name
+        """
+        if plugin_id is not None:
+            return self._tool_renderers.get(plugin_id, {}).copy()
+
+        merged: Dict[str, str] = {}
+        for renderers in self._tool_renderers.values():
+            merged.update(renderers)
+        return merged
+
+    # ── Unregister methods (for dynamic unloading) ───────────────────────
+
+    def unregister_startup_hooks_by_plugin(self, plugin_id: str) -> int:
+        """Remove all startup hooks registered by a specific plugin.
+
+        Args:
+            plugin_id: Plugin identifier
+
+        Returns:
+            Number of hooks removed
+        """
+        before = len(self._startup_hooks)
+        self._startup_hooks = [
+            h for h in self._startup_hooks if h.plugin_id != plugin_id
+        ]
+        removed = before - len(self._startup_hooks)
+        if removed:
+            logger.info(
+                f"Unregistered {removed} startup hook(s) "
+                f"from plugin '{plugin_id}'",
+            )
+        return removed
+
+    def unregister_shutdown_hooks_by_plugin(self, plugin_id: str) -> int:
+        """Remove all shutdown hooks registered by a specific plugin.
+
+        Args:
+            plugin_id: Plugin identifier
+
+        Returns:
+            Number of hooks removed
+        """
+        before = len(self._shutdown_hooks)
+        self._shutdown_hooks = [
+            h for h in self._shutdown_hooks if h.plugin_id != plugin_id
+        ]
+        removed = before - len(self._shutdown_hooks)
+        if removed:
+            logger.info(
+                f"Unregistered {removed} shutdown hook(s) "
+                f"from plugin '{plugin_id}'",
+            )
+        return removed
+
+    def unregister_control_commands_by_plugin(self, plugin_id: str) -> int:
+        """Remove all control commands registered by a specific plugin.
+
+        Args:
+            plugin_id: Plugin identifier
+
+        Returns:
+            Number of commands removed
+        """
+        before = len(self._control_commands)
+        self._control_commands = [
+            c for c in self._control_commands if c.plugin_id != plugin_id
+        ]
+        removed = before - len(self._control_commands)
+        if removed:
+            logger.info(
+                f"Unregistered {removed} control command(s) "
+                f"from plugin '{plugin_id}'",
+            )
+        return removed
+
+    def unregister_tool_renderers_by_plugin(self, plugin_id: str) -> int:
+        """Remove all tool renderer mappings registered by a specific plugin.
+
+        Args:
+            plugin_id: Plugin identifier
+
+        Returns:
+            Number of renderers removed
+        """
+        renderers = self._tool_renderers.pop(plugin_id, {})
+        if renderers:
+            logger.info(
+                f"Unregistered {len(renderers)} tool renderer(s) "
+                f"from plugin '{plugin_id}'",
+            )
+        return len(renderers)
+
+    def unregister_all_by_plugin(self, plugin_id: str) -> Dict[str, int]:
+        """Remove **all** registrations belonging to a specific plugin.
+
+        This is the primary method used during dynamic plugin unloading.
+
+        Args:
+            plugin_id: Plugin identifier
+
+        Returns:
+            Dictionary summarising how many items were removed per category
+        """
+        summary = {
+            "startup_hooks": self.unregister_startup_hooks_by_plugin(
+                plugin_id,
+            ),
+            "shutdown_hooks": self.unregister_shutdown_hooks_by_plugin(
+                plugin_id,
+            ),
+            "control_commands": self.unregister_control_commands_by_plugin(
+                plugin_id,
+            ),
+            "tool_renderers": self.unregister_tool_renderers_by_plugin(
+                plugin_id,
+            ),
+        }
+        total = sum(summary.values())
+        if total:
+            logger.info(
+                f"Unregistered all resources from plugin '{plugin_id}': "
+                f"{summary}",
+            )
+        return summary
