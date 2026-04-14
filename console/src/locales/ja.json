@@ -1088,11 +1088,8 @@
       "deny": {
         "description": "保留中のツール操作を拒否"
       },
-      "ralph": {
-        "description": "Ralph Loopを開始 — 反復型の長時間タスク実行"
-      },
-      "longTask": {
-        "description": "/ralph のエイリアス — 反復型の長時間タスク実行"
+      "mission": {
+        "description": "ミッションモードを開始 — 複雑なタスクの自動実行"
       }
     },
     "attachments": {

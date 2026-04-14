@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CLI entry for Ralph Loop — ``qwenpaw ralph``."""
+"""CLI entry for Mission Mode — ``qwenpaw mission``."""
 from __future__ import annotations
 
 import click
@@ -7,12 +7,12 @@ import click
 from .http import client, print_json, resolve_base_url
 
 
-@click.group("ralph")
-def ralph_group():
-    """Ralph Loop — iterative long-task execution."""
+@click.group("mission")
+def mission_group():
+    """Mission Mode — autonomous iterative agent for complex tasks."""
 
 
-@ralph_group.command("start")
+@mission_group.command("start")
 @click.argument("task", nargs=-1, required=True)
 @click.option("--agent", default="default", help="Agent ID to use.")
 @click.option(
@@ -28,13 +28,13 @@ def ralph_group():
 )
 @click.option("--base-url", default=None, help="Server base URL.")
 @click.pass_context
-def ralph_start(ctx, task, agent, verify, max_iterations, base_url):
-    """Start a Ralph loop with a task description.
+def mission_start(ctx, task, agent, verify, max_iterations, base_url):
+    """Start a mission with a task description.
 
-    Example: qwenpaw ralph start "Add authentication to the API"
+    Example: qwenpaw mission start "Add authentication to the API"
     """
     task_text = " ".join(task)
-    parts = [f"/ralph {task_text}"]
+    parts = [f"/mission {task_text}"]
     if verify:
         parts.append(f"--verify {verify}")
     if max_iterations != 20:
@@ -44,7 +44,7 @@ def ralph_start(ctx, task, agent, verify, max_iterations, base_url):
     url = resolve_base_url(ctx, base_url)
     payload = {
         "text": query,
-        "session_id": f"ralph:{agent}",
+        "session_id": f"mission:{agent}",
         "user_id": "cli",
         "agent_id": agent,
     }
@@ -52,16 +52,16 @@ def ralph_start(ctx, task, agent, verify, max_iterations, base_url):
     print_json(resp)
 
 
-@ralph_group.command("status")
+@mission_group.command("status")
 @click.option("--agent", default="default", help="Agent ID.")
 @click.option("--base-url", default=None, help="Server base URL.")
 @click.pass_context
-def ralph_status(ctx, agent, base_url):
-    """Show current Ralph loop status."""
+def mission_status(ctx, agent, base_url):
+    """Show current mission status."""
     url = resolve_base_url(ctx, base_url)
     payload = {
-        "text": "/ralph status",
-        "session_id": f"ralph:{agent}",
+        "text": "/mission status",
+        "session_id": f"mission:{agent}",
         "user_id": "cli",
         "agent_id": agent,
     }
@@ -69,16 +69,16 @@ def ralph_status(ctx, agent, base_url):
     print_json(resp)
 
 
-@ralph_group.command("list")
+@mission_group.command("list")
 @click.option("--agent", default="default", help="Agent ID.")
 @click.option("--base-url", default=None, help="Server base URL.")
 @click.pass_context
-def ralph_list(ctx, agent, base_url):
-    """List all Ralph loops."""
+def mission_list(ctx, agent, base_url):
+    """List all missions."""
     url = resolve_base_url(ctx, base_url)
     payload = {
-        "text": "/ralph list",
-        "session_id": f"ralph:{agent}",
+        "text": "/mission list",
+        "session_id": f"mission:{agent}",
         "user_id": "cli",
         "agent_id": agent,
     }

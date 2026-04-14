@@ -33,7 +33,7 @@ from .state import (
 
 logger = logging.getLogger(__name__)
 
-RALPH_COMMANDS = frozenset({"/ralph", "/long-task"})
+RALPH_COMMANDS = frozenset({"/mission"})
 
 # Defaults
 _DEFAULT_MAX_ITERATIONS = 20
@@ -48,7 +48,7 @@ def is_ralph_command(query: str | None) -> bool:
 
 
 def _parse_ralph_args(query: str) -> dict[str, Any]:
-    """Parse ``/ralph [task text] [--verify CMD] [--max-iterations N]``."""
+    """Parse ``/mission [task text] [--verify CMD] [--max-iterations N]``."""
     parts = query.strip().split(None, 1)
     raw = parts[1] if len(parts) > 1 else ""
 
@@ -87,7 +87,7 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
     rewrite_fn: Any,
     session_id: str = "",
 ) -> str | dict[str, Any]:
-    """Process a ``/ralph`` command.
+    """Process a ``/mission`` command.
 
     Returns:
         ``str`` — display text for info sub-commands.
@@ -102,7 +102,7 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
     if task_text.strip().lower() == "status":
         loop_dir = get_latest_loop_dir(workspace_dir)
         if loop_dir is None:
-            return "**Ralph Loop**: No active loops found."
+            return "**Mission Mode**: No active missions found."
         prd = read_prd(loop_dir)
         cfg = read_loop_config(loop_dir)
         stories = prd.get("userStories", [])
@@ -113,7 +113,7 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
             if cfg.get("is_git_repo"):
                 git_label += f", repo (branch `{cfg.get('branch_name', '?')}`)"
         lines = [
-            f"**Ralph Loop Status** — `{loop_dir.name}`",
+            f"**Mission Status** — `{loop_dir.name}`",
             f"- Project: {prd.get('project', 'N/A')}",
             f"- Progress: {passed}/{len(stories)} stories passed",
             f"- Loop dir (work dir): `{loop_dir}`",
@@ -127,8 +127,8 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
     if task_text.strip().lower() == "list":
         loops = list_loop_dirs(workspace_dir)
         if not loops:
-            return "**Ralph Loop**: No loops found."
-        lines = ["**Ralph Loops**\n"]
+            return "**Mission Mode**: No missions found."
+        lines = ["**Missions**\n"]
         for lp in loops:
             mark = "✅" if lp["all_passed"] else "🔄"
             branch_hint = f" `{lp['branch']}`" if lp.get("branch") else ""
@@ -144,11 +144,11 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
 
     if not task_text or len(task_text.strip()) < 5:
         return (
-            "**Ralph Loop**\n\n"
+            "**Mission Mode**\n\n"
             "Usage:\n"
-            "- `/ralph <task description>` — start a new loop\n"
-            "- `/ralph status` — show current loop progress\n"
-            "- `/ralph list` — list all loops\n\n"
+            "- `/mission <task description>` — start a new mission\n"
+            "- `/mission status` — show current mission progress\n"
+            "- `/mission list` — list all missions\n\n"
             "Options:\n"
             "- `--verify <command>` — verification command (e.g. `pytest`)\n"
             "- `--max-iterations <n>` — max iterations (default 20)\n\n"
@@ -171,14 +171,14 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
     ]
     if any(kw in task_lower for kw in meta_keywords):
         return (
-            "**Ralph Loop**\n\n"
-            "It looks like you're asking a question about Ralph Loop itself, "
-            "rather than describing a task to execute.\n\n"
-            "Ralph Loop is for executing complex tasks. Examples:\n"
-            "- `/ralph 实现用户认证系统，包含JWT和测试`\n"
-            "- `/ralph Add a notification system with bell icon`\n"
-            "- `/ralph 重构数据库层，使用 repository 模式`\n\n"
-            "For info: `/ralph status` or `/ralph list`"
+            "**Mission Mode**\n\n"
+            "It looks like you're asking a question about "
+            "Mission Mode itself, rather than describing a task.\n\n"
+            "Mission Mode is for executing complex tasks. Examples:\n"
+            "- `/mission 实现用户认证系统，包含JWT和测试`\n"
+            "- `/mission Add a notification system with bell icon`\n"
+            "- `/mission 重构数据库层，使用 repository 模式`\n\n"
+            "For info: `/mission status` or `/mission list`"
         )
 
     # --- Set up state files and start loop --------------------------------
@@ -222,7 +222,7 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
     )
 
     full_prompt = (
-        f"Starting Ralph Loop: `{loop_dir.name}`.\n\n"
+        f"Starting Mission Mode: `{loop_dir.name}`.\n\n"
         f"Task description (also saved in `{loop_dir}/task.md`):\n"
         f"> {task_text}\n\n"
         f"{master_prompt}\n\n"

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Ralph Loop dispatch for the runner.
+"""Mission Mode dispatch for the runner.
 
-Integration layer between ``runner.py`` and the Ralph Loop engine:
+Integration layer between ``runner.py`` and the Mission Mode engine:
 
-- Detects ``/ralph`` or ``/long-task`` in the user query.
+- Detects ``/mission`` in the user query.
 - Delegates command parsing to :mod:`~qwenpaw.agents.ralph.handler`.
-- Detects an active Ralph loop awaiting user input (Phase 1 follow-up).
+- Detects an active mission awaiting user input (Phase 1 follow-up).
 """
 from __future__ import annotations
 
@@ -35,13 +35,13 @@ async def maybe_handle_ralph_command(
     rewrite_fn: Callable[[list, str], None],
     session_id: str = "",
 ) -> Msg | dict[str, Any] | None:
-    """Handle ``/ralph`` or ``/long-task`` if the query matches.
+    """Handle ``/mission`` if the query matches.
 
     Returns:
         ``Msg`` for info sub-commands (caller should yield & return).
         ``dict`` with ``{"ralph_phase": 1, "loop_dir": ..., ...}``
-            if the caller should enter Ralph Phase 1 execution.
-        ``None`` if the query is not a ralph command.
+            if the caller should enter Mission Phase 1 execution.
+        ``None`` if the query is not a mission command.
     """
     if not query or not is_ralph_command(query):
         return None
@@ -72,21 +72,21 @@ def detect_active_ralph_phase(
     workspace_dir: Path,
     session_id: str = "",
 ) -> dict[str, Any] | None:
-    """Check if there is an active Ralph loop for *this session*.
+    """Check if there is an active mission for *this session*.
 
     When Phase 1 has completed (prd.json exists, current_phase is still
     ``"prd_generation"``), the user's next message should be routed back
-    through the Ralph agent — the agent itself decides whether the user
+    through the Mission agent — the agent itself decides whether the user
     is confirming, requesting changes, or asking questions.
 
     Session binding: only returns a match when ``session_id`` matches the
     one stored in loop_config.  This prevents unrelated sessions from
-    being accidentally captured by an active loop.
+    being accidentally captured by an active mission.
 
     Returns:
         ``dict`` with ``{"ralph_phase": 1 or 2, "loop_dir": ..., ...}``
-            when an active loop needs the agent to process user input.
-        ``None`` if no active Ralph loop for this session.
+            when an active mission needs the agent to process user input.
+        ``None`` if no active mission for this session.
     """
     loop_dir = get_latest_loop_dir(workspace_dir)
     if loop_dir is None:

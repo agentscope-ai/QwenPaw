@@ -709,14 +709,9 @@ export default function ChatPage() {
         description: t("chat.commands.deny.description"),
       },
       {
-        command: "/ralph",
-        value: "ralph",
-        description: t("chat.commands.ralph.description"),
-      },
-      {
-        command: "/long-task",
-        value: "long-task",
-        description: t("chat.commands.longTask.description"),
+        command: "/mission",
+        value: "mission",
+        description: t("chat.commands.mission.description"),
       },
     ];
 

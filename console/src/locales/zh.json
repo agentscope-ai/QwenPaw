@@ -1148,11 +1148,8 @@
       "deny": {
         "description": "拒绝待执行的工具操作"
       },
-      "ralph": {
-        "description": "启动 Ralph Loop 迭代式长任务执行"
-      },
-      "longTask": {
-        "description": "/ralph 的别名 — 迭代式长任务执行"
+      "mission": {
+        "description": "启动任务模式 — 自动分解、实现、验证复杂任务"
       }
     },
     "attachments": {
