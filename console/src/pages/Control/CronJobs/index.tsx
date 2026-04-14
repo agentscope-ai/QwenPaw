@@ -158,7 +158,7 @@ function CronJobsPage() {
         cron: cronExpression,
       },
     };
-    
+
     if (processedValues.task_type === "text") {
       // Remove request object entirely for text tasks
       delete processedValues.request;
