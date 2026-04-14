@@ -396,6 +396,5 @@ async def test_chat_with_agent_returns_clear_error_when_agent_missing(
     )
 
     assert (
-        response.content[0].get("text", "")
-        == "Agent [missing_bot] not exists"
+        response.content[0].get("text", "") == "Agent [missing_bot] not exists"
     )

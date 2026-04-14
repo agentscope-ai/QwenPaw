@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Model wrapper that records token usage from LLM responses."""
 
-import json
 from datetime import date
 from typing import Any, AsyncGenerator, Literal, Type
 
