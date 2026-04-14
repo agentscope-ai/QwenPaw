@@ -85,10 +85,11 @@ class BaseChannel(ABC):
         *,
         timeout: float,
     ) -> list[str]:
-        """Optional ``copaw doctor --deep`` reachability checks for this channel.
+        """Optional ``copaw doctor --deep`` reachability checks.
 
-        Override in custom channels. Default: no extra checks (built-in channels
-        use shared probes in ``doctor_connectivity`` unless this returns notes).
+        Override in custom channels. Default: no extra checks
+        (built-in channels use shared probes in ``doctor_connectivity``
+        unless this returns notes).
 
         Args:
             agent_id: Profile id from ``agents.profiles``.

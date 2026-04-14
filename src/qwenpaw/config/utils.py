@@ -530,12 +530,16 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         return Config()
 
 
-def strict_validate_config_file(config_path: Optional[Path] = None) -> tuple[bool, str]:
+def strict_validate_config_file(
+    config_path: Optional[Path] = None,
+) -> tuple[bool, str]:
     """Validate *config_path* strictly for diagnostics (no auto-repair).
 
     Returns:
-        ``(True, summary)`` if the file is missing (defaults OK), readable, and valid.
-        ``(False, error)`` if the file is unreadable or fails :class:`Config` validation.
+        ``(True, summary)`` if the file is missing (defaults OK),
+        readable, and valid.
+        ``(False, error)`` if the file is unreadable or
+        fails :class:`Config` validation.
     """
     if config_path is None:
         config_path = get_config_path()
