@@ -241,11 +241,7 @@ async def put_agent_language(
             workspace.workspace_dir,
             md_template_id=get_workspace_md_template_id(
                 agent_config.template_id
-                or (
-                    "qa"
-                    if agent_id == BUILTIN_QA_AGENT_ID
-                    else None
-                ),
+                or ("qa" if agent_id == BUILTIN_QA_AGENT_ID else None),
             ),
             only_if_missing=False,
         )

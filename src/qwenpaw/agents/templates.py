@@ -17,9 +17,11 @@ from ..config.config import (
 from ..constant import BUILTIN_QA_AGENT_NAME, BUILTIN_QA_AGENT_SKILL_NAMES
 
 DEFAULT_AGENT_TEMPLATE = "default"
+LOCAL_AGENT_TEMPLATE = "local"
 QA_AGENT_TEMPLATE = "qa"
 SUPPORTED_AGENT_TEMPLATES = (
     DEFAULT_AGENT_TEMPLATE,
+    LOCAL_AGENT_TEMPLATE,
     QA_AGENT_TEMPLATE,
 )
 
@@ -48,8 +50,8 @@ def list_supported_agent_templates() -> tuple[str, ...]:
 
 def get_workspace_md_template_id(template_id: str | None) -> str | None:
     """Map an agent template id to the workspace markdown template id."""
-    if template_id == QA_AGENT_TEMPLATE:
-        return QA_AGENT_TEMPLATE
+    if template_id in {LOCAL_AGENT_TEMPLATE, QA_AGENT_TEMPLATE}:
+        return template_id
     return None
 
 
@@ -67,10 +69,33 @@ def build_agent_template(
     resolved_language = language or fallback_language or "zh"
 
     if template_id == DEFAULT_AGENT_TEMPLATE:
+        assert name is not None, "Default template requires a name"
         agent_config = AgentProfileConfig(
             id=agent_id,
-            name=name or DEFAULT_TEMPLATE_NAME,
+            name=name,
             description=description or "",
+            workspace_dir=str(workspace_dir),
+            template_id=template_id,
+            language=resolved_language,
+            channels=ChannelConfig(),
+            mcp=MCPConfig(),
+            heartbeat=HeartbeatConfig(),
+            tools=ToolsConfig(),
+        )
+        return AgentTemplateBuildResult(
+            agent_config=agent_config,
+            initial_skill_names=(),
+            md_template_id=get_workspace_md_template_id(template_id),
+        )
+
+    if template_id == LOCAL_AGENT_TEMPLATE:
+        agent_config = AgentProfileConfig(
+            id=agent_id,
+            name=name or "Local Agent",
+            description=(
+                description
+                or "An agent running on local deployed models."
+            ),
             workspace_dir=str(workspace_dir),
             template_id=template_id,
             language=resolved_language,
@@ -106,5 +131,5 @@ def build_agent_template(
 
     raise ValueError(
         f"Unsupported template: {template_id!r}. "
-        f"Expected one of {SUPPORTED_AGENT_TEMPLATES}."
+        f"Expected one of {SUPPORTED_AGENT_TEMPLATES}.",
     )

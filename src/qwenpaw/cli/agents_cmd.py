@@ -489,8 +489,7 @@ def create_cmd(
             effective_template,
             agent_id=new_id,
             workspace_dir=resolved_workspace_dir,
-            fallback_language=getattr(config.agents, "language", None)
-            or "zh",
+            fallback_language=getattr(config.agents, "language", None) or "zh",
             name=name,
             description=description,
             language=language,
