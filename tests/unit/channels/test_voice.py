@@ -309,11 +309,11 @@ class TestVoiceChannelLifecycle:
         voice_channel._config = config
 
         with patch(
-            "copaw.tunnel.CloudflareTunnelDriver",
+            "qwenpaw.tunnel.CloudflareTunnelDriver",
             return_value=mock_tunnel_manager,
         ):
             with patch(
-                "copaw.config.utils.read_last_api",
+                "qwenpaw.config.utils.read_last_api",
                 return_value=("127.0.0.1", 8088),
             ):
                 await voice_channel.start()
@@ -346,11 +346,11 @@ class TestVoiceChannelLifecycle:
         )
 
         with patch(
-            "copaw.tunnel.CloudflareTunnelDriver",
+            "qwenpaw.tunnel.CloudflareTunnelDriver",
             return_value=mock_tunnel_manager,
         ):
             with patch(
-                "copaw.config.utils.read_last_api",
+                "qwenpaw.config.utils.read_last_api",
                 return_value=("127.0.0.1", 8088),
             ):
                 # Should not raise
@@ -378,11 +378,11 @@ class TestVoiceChannelLifecycle:
         )
 
         with patch(
-            "copaw.tunnel.CloudflareTunnelDriver",
+            "qwenpaw.tunnel.CloudflareTunnelDriver",
             return_value=mock_tunnel_manager,
         ):
             with patch(
-                "copaw.config.utils.read_last_api",
+                "qwenpaw.config.utils.read_last_api",
                 return_value=("127.0.0.1", 8088),
             ):
                 # Should not raise

@@ -162,7 +162,8 @@ class MatrixChannelConfig:
 
     def __init__(self, raw: dict[str, Any]) -> None:
         self.enabled: bool = raw.get("enabled", True)
-        self.homeserver: str = raw.get("homeserver", "")
+        self.homeserver: str = raw.get("homeserver", "").rstrip("/")
+        self.user_id: str = raw.get("user_id", "")
         self.access_token: str = raw.get("access_token", "")
         # username/password fallback (rarely used in hiclaw)
         self.username: str = raw.get("username", "")
@@ -252,6 +253,61 @@ class MatrixChannel(BaseChannel):
         self._dm_room_cache: Dict[str, Dict[str, Any]] = {}
         # Shared HTTP client for media downloads (created in start())
         self._http_client: Optional[httpx.AsyncClient] = None
+
+    # ------------------------------------------------------------------
+    # Config attribute proxies (for test convenience and external access)
+    # ------------------------------------------------------------------
+
+    @property
+    def enabled(self) -> bool:
+        return self._cfg.enabled
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        if hasattr(self, "_cfg"):
+            self._cfg.enabled = value
+
+    @property
+    def dm_policy(self) -> str:
+        return self._cfg.dm_policy
+
+    @dm_policy.setter
+    def dm_policy(self, value: str) -> None:
+        if hasattr(self, "_cfg"):
+            self._cfg.dm_policy = value
+
+    @property
+    def group_policy(self) -> str:
+        return self._cfg.group_policy
+
+    @group_policy.setter
+    def group_policy(self, value: str) -> None:
+        if hasattr(self, "_cfg"):
+            self._cfg.group_policy = value
+
+    @property
+    def client(self) -> Optional["AsyncClient"]:
+        return self._client
+
+    @client.setter
+    def client(self, value: Optional["AsyncClient"]) -> None:
+        self._client = value
+
+    @property
+    def homeserver(self) -> str:
+        return self._cfg.homeserver
+
+    @property
+    def user_id(self) -> Optional[str]:
+        return self._user_id or getattr(self._cfg, "user_id", None)
+
+    @user_id.setter
+    def user_id(self, value: Optional[str]) -> None:
+        self._user_id = value
+
+    @property
+    def access_token(self) -> str:
+        return self._cfg.access_token
 
     # ------------------------------------------------------------------
     # Debounce key — serialize by room_id (avoid concurrent session access)
@@ -1041,6 +1097,25 @@ class MatrixChannel(BaseChannel):
             d = Path.home() / ".qwenpaw" / "media"
         d.mkdir(parents=True, exist_ok=True)
         return d
+
+    def _mxc_to_http(self, mxc_url: str) -> str:
+        """Convert an mxc:// URL to an HTTP download URL with access token.
+
+        Returns the original URL unchanged if it is not an mxc:// URL or if
+        the format is invalid.
+        """
+        if not mxc_url:
+            return mxc_url
+        if not mxc_url.startswith("mxc://"):
+            return mxc_url
+        rest = mxc_url[6:]  # strip "mxc://"
+        if "/" not in rest:
+            return mxc_url
+        server, media_id = rest.split("/", 1)
+        return (
+            f"{self._cfg.homeserver}/_matrix/media/v3/download"
+            f"/{server}/{media_id}?access_token={self._cfg.access_token}"
+        )
 
     async def _download_mxc(
         self,

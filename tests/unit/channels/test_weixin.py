@@ -1357,7 +1357,7 @@ class TestWeixinLifecycle:
         weixin_channel.bot_token = "existing_token"
 
         with patch(
-            "copaw.app.channels.weixin.channel.ILinkClient",
+            "qwenpaw.app.channels.weixin.channel.ILinkClient",
             return_value=mock_ilink_client,
         ):
             await weixin_channel.start()
@@ -1383,7 +1383,7 @@ class TestWeixinLifecycle:
         weixin_channel._bot_token_file = temp_token_dir / "weixin_bot_token"
 
         with patch(
-            "copaw.app.channels.weixin.channel.ILinkClient",
+            "qwenpaw.app.channels.weixin.channel.ILinkClient",
             return_value=mock_ilink_client,
         ):
             await weixin_channel.start()
@@ -1410,7 +1410,7 @@ class TestWeixinLifecycle:
         weixin_channel._bot_token_file = token_file
 
         with patch(
-            "copaw.app.channels.weixin.channel.ILinkClient",
+            "qwenpaw.app.channels.weixin.channel.ILinkClient",
             return_value=mock_ilink_client,
         ):
             await weixin_channel.start()

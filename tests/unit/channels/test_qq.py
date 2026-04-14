@@ -1702,7 +1702,7 @@ class TestWSConnectOnce:
         mock_websocket.WebSocketConnectionClosedException = Exception
 
         with patch(
-            "copaw.app.channels.qq.channel._get_channel_url_sync",
+            "qwenpaw.app.channels.qq.channel._get_channel_url_sync",
             return_value="wss://gateway",
         ):
             result = qq_channel._ws_connect_once(state, mock_websocket)
@@ -1745,7 +1745,7 @@ class TestWSConnectOnce:
         mock_websocket.WebSocketConnectionClosedException = Exception
 
         with patch(
-            "copaw.app.channels.qq.channel._get_channel_url_sync",
+            "qwenpaw.app.channels.qq.channel._get_channel_url_sync",
             return_value="wss://gateway",
         ) as mock_get_url:
             qq_channel._ws_connect_once(state, mock_websocket)
@@ -1957,8 +1957,8 @@ class TestSendImages:
         # guild not supported, no exception
 
     @pytest.mark.asyncio
-    @patch("copaw.app.channels.qq.channel._upload_media_async")
-    @patch("copaw.app.channels.qq.channel._send_media_message_async")
+    @patch("qwenpaw.app.channels.qq.channel._upload_media_async")
+    @patch("qwenpaw.app.channels.qq.channel._send_media_message_async")
     async def test_upload_and_send(
         self,
         mock_send_media,
@@ -1979,7 +1979,7 @@ class TestSendImages:
         mock_send_media.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("copaw.app.channels.qq.channel._upload_media_async")
+    @patch("qwenpaw.app.channels.qq.channel._upload_media_async")
     async def test_upload_failure_skips(self, mock_upload, qq_channel):
         """Upload failure should skip sending."""
         mock_upload.return_value = None
@@ -1998,7 +1998,7 @@ class TestSendMessageAsync:
     """Tests for _send_message_async function."""
 
     @pytest.mark.asyncio
-    @patch("copaw.app.channels.qq.channel._api_request_async")
+    @patch("qwenpaw.app.channels.qq.channel._api_request_async")
     async def test_plain_text(self, mock_api):
         """Should send plain text message."""
         from qwenpaw.app.channels.qq.channel import _send_message_async
@@ -2022,7 +2022,7 @@ class TestSendMessageAsync:
         assert body["msg_id"] == "m1"
 
     @pytest.mark.asyncio
-    @patch("copaw.app.channels.qq.channel._api_request_async")
+    @patch("qwenpaw.app.channels.qq.channel._api_request_async")
     async def test_markdown(self, mock_api):
         """Should send markdown message."""
         from qwenpaw.app.channels.qq.channel import _send_message_async
@@ -2043,7 +2043,7 @@ class TestSendMessageAsync:
         assert body["msg_type"] == 2
 
     @pytest.mark.asyncio
-    @patch("copaw.app.channels.qq.channel._api_request_async")
+    @patch("qwenpaw.app.channels.qq.channel._api_request_async")
     async def test_channel_no_msg_seq(self, mock_api):
         """Channel messages should not include msg_seq."""
         from qwenpaw.app.channels.qq.channel import _send_message_async

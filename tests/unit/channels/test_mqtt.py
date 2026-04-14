@@ -431,7 +431,7 @@ class TestMQTTChannelLifecycle:
     async def test_start_success(self, mqtt_channel, mock_mqtt_client):
         """start() should successfully create and connect MQTT client."""
         with patch(
-            "copaw.app.channels.mqtt.channel.mqtt.Client",
+            "qwenpaw.app.channels.mqtt.channel.mqtt.Client",
             return_value=mock_mqtt_client,
         ):
             await mqtt_channel.start()
@@ -460,7 +460,7 @@ class TestMQTTChannelLifecycle:
         mqtt_channel.tls_keyfile = "/path/to/client.key"
 
         with patch(
-            "copaw.app.channels.mqtt.channel.mqtt.Client",
+            "qwenpaw.app.channels.mqtt.channel.mqtt.Client",
             return_value=mock_mqtt_client,
         ):
             await mqtt_channel.start()
@@ -477,7 +477,7 @@ class TestMQTTChannelLifecycle:
         mqtt_channel.password = ""
 
         with patch(
-            "copaw.app.channels.mqtt.channel.mqtt.Client",
+            "qwenpaw.app.channels.mqtt.channel.mqtt.Client",
             return_value=mock_mqtt_client,
         ):
             await mqtt_channel.start()
@@ -493,7 +493,7 @@ class TestMQTTChannelLifecycle:
         )
 
         with patch(
-            "copaw.app.channels.mqtt.channel.mqtt.Client",
+            "qwenpaw.app.channels.mqtt.channel.mqtt.Client",
             return_value=mock_mqtt_client,
         ):
             # Should not raise

@@ -1689,7 +1689,7 @@ class TestFeishuChannelDownloadImageResource:
         mock_builder.build.return_value = mock_request
 
         with patch(
-            "copaw.app.channels.feishu.channel.GetMessageResourceRequest",
+            "qwenpaw.app.channels.feishu.channel.GetMessageResourceRequest",
         ) as mock_class:
             mock_class.builder.return_value = mock_builder
             yield mock_class, mock_request
@@ -1860,7 +1860,7 @@ class TestFeishuChannelDownloadFileResource:
         mock_builder.build.return_value = mock_request
 
         with patch(
-            "copaw.app.channels.feishu.channel.GetMessageResourceRequest",
+            "qwenpaw.app.channels.feishu.channel.GetMessageResourceRequest",
         ) as mock_class:
             mock_class.builder.return_value = mock_builder
             yield mock_class, mock_request
@@ -2037,9 +2037,9 @@ class TestFeishuChannelUploadImage:
         mock_request_builder.build.return_value = mock_request
 
         with patch(
-            "copaw.app.channels.feishu.channel.CreateImageRequestBody",
+            "qwenpaw.app.channels.feishu.channel.CreateImageRequestBody",
         ) as mock_body_class, patch(
-            "copaw.app.channels.feishu.channel.CreateImageRequest",
+            "qwenpaw.app.channels.feishu.channel.CreateImageRequest",
         ) as mock_request_class:
             mock_body_class.builder.return_value = mock_body_builder
             mock_request_class.builder.return_value = mock_request_builder
@@ -2156,9 +2156,9 @@ class TestFeishuChannelUploadFile:
         mock_request_builder.build.return_value = mock_request
 
         with patch(
-            "copaw.app.channels.feishu.channel.CreateFileRequestBody",
+            "qwenpaw.app.channels.feishu.channel.CreateFileRequestBody",
         ) as mock_body_class, patch(
-            "copaw.app.channels.feishu.channel.CreateFileRequest",
+            "qwenpaw.app.channels.feishu.channel.CreateFileRequest",
         ) as mock_request_class:
             mock_body_class.builder.return_value = mock_body_builder
             mock_request_class.builder.return_value = mock_request_builder
@@ -2365,9 +2365,9 @@ class TestFeishuChannelSendMessage:
         mock_request_builder.build.return_value = mock_request
 
         with patch(
-            "copaw.app.channels.feishu.channel.CreateMessageRequestBody",
+            "qwenpaw.app.channels.feishu.channel.CreateMessageRequestBody",
         ) as mock_body_class, patch(
-            "copaw.app.channels.feishu.channel.CreateMessageRequest",
+            "qwenpaw.app.channels.feishu.channel.CreateMessageRequest",
         ) as mock_request_class:
             mock_body_class.builder.return_value = mock_body_builder
             mock_request_class.builder.return_value = mock_request_builder

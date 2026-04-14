@@ -445,7 +445,7 @@ class TestXiaoYiChannelWebSocketConnection:
     ):
         """_connect should establish WebSocket connection with auth headers."""
         with patch(
-            "copaw.app.channels.xiaoyi.channel.generate_auth_headers",
+            "qwenpaw.app.channels.xiaoyi.channel.generate_auth_headers",
             return_value=mock_auth_headers,
         ):
             with patch("aiohttp.ClientSession", return_value=mock_session):
@@ -464,7 +464,7 @@ class TestXiaoYiChannelWebSocketConnection:
     ):
         """_connect should send init message after connection."""
         with patch(
-            "copaw.app.channels.xiaoyi.channel.generate_auth_headers",
+            "qwenpaw.app.channels.xiaoyi.channel.generate_auth_headers",
             return_value=mock_auth_headers,
         ):
             with patch("aiohttp.ClientSession", return_value=mock_session):
@@ -485,7 +485,7 @@ class TestXiaoYiChannelWebSocketConnection:
     ):
         """_connect should start heartbeat and receive loops."""
         with patch(
-            "copaw.app.channels.xiaoyi.channel.generate_auth_headers",
+            "qwenpaw.app.channels.xiaoyi.channel.generate_auth_headers",
             return_value=mock_auth_headers,
         ):
             with patch("aiohttp.ClientSession", return_value=mock_session):
@@ -506,7 +506,7 @@ class TestXiaoYiChannelWebSocketConnection:
         )
 
         with patch(
-            "copaw.app.channels.xiaoyi.channel.generate_auth_headers",
+            "qwenpaw.app.channels.xiaoyi.channel.generate_auth_headers",
             return_value=mock_auth_headers,
         ):
             with patch("aiohttp.ClientSession", return_value=mock_session):
