@@ -159,18 +159,27 @@ function CronJobsPage() {
       },
     };
 
-    // Parse request input JSON
-    if (values.request?.input && typeof values.request.input === "string") {
-      try {
-        processedValues = {
-          ...processedValues,
-          request: {
-            ...values.request,
-            input: JSON.parse(values.request.input as any),
-          },
-        };
-      } catch (error) {
-        console.error("❌ Failed to parse request.input JSON:", error);
+    if (processedValues.task_type === "text") {
+      // Remove request object entirely for text tasks
+      delete processedValues.request;
+    } else if (processedValues.task_type === "agent") {
+      //Ensure request object exists
+      if (!processedValues.request) {
+        processedValues.request = {};
+      }
+
+      // Parse request input JSON
+      if (
+        processedValues.request?.input &&
+        typeof processedValues.request.input === "string"
+      ) {
+        try {
+          processedValues.request.input = JSON.parse(
+            processedValues.request.input,
+          );
+        } catch (error) {
+          console.error("❌ Failed to parse request.input JSON:", error);
+        }
       }
     }
 
