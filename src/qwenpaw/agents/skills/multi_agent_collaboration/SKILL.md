@@ -1,8 +1,8 @@
 ---
 name: multi_agent_collaboration
-description: Use this skill when another agent's expertise/context is needed, or when the user explicitly asks to involve another agent. | 当需要其他 agent 的专长/上下文，或用户明确要求调用其他 agent 时使用。
+description: Use this skill when another agent's expertise/context is needed, or when the user explicitly asks to involve another agent. First list agents, then use qwenpaw agents chat for two-way communication with replies. | 当需要其他 agent 的专长/上下文，或用户明确要求调用其他 agent 时使用；先查 agent，再用 qwenpaw agents chat 双向通信（有回复）
 metadata:
-  builtin_skill_version: "1.4"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🤝"
 ---
@@ -31,47 +31,37 @@ metadata:
 1. **如果用户明确要求调用其他 agent，优先按要求执行**
 2. **否则，能自己做，就不要调用**
 3. **调用前先查 agent，不要猜 ID**
-4. **需要上下文续聊时，必须传 `session_id`**
+4. **需要上下文续聊时，必须传 `--session-id`**
 5. **不要回调消息来源 agent**
-6. **优先使用 `list_agents` 和 `chat_with_agent` 两个内建工具，不要默认走命令行**
 
 ---
 
-## 首选方式
-
-本 skill 默认直接调用以下两个内建工具：
-- `list_agents()`
-- `chat_with_agent(...)`
-
-只有在人工调试、手动验证接口、或需要向用户展示 CLI 示例时，才使用 `qwenpaw agents ...` 命令。
-
-## 最常用工具
+## 最常用命令
 
 ### 1) 先查询可用 agents
 
-```text
-list_agents()
+```bash
+qwenpaw agents list
 ```
 
 ### 2) 发起新对话（实时模式）
 
-```text
-chat_with_agent(
-  to_agent="<target_agent>",
-  text="[Agent <your_agent> requesting] ...",
-)
+```bash
+qwenpaw agents chat \
+  --from-agent <your_agent> \
+  --to-agent <target_agent> \
+  --text "[Agent <your_agent> requesting] ..."
 ```
 
 ### 3) 发起复杂任务（后台模式）
 
 **复杂任务**包括：数据分析、报告生成、批量处理、外部API调用等。
 
-```text
-chat_with_agent(
-  to_agent="<target_agent>",
-  text="[Agent <your_agent> requesting] ...",
-  background=True,
-)
+```bash
+qwenpaw agents chat --background \
+  --from-agent <your_agent> \
+  --to-agent <target_agent> \
+  --text "[Agent <your_agent> requesting] ..."
 ```
 
 **输出**：
@@ -82,8 +72,8 @@ chat_with_agent(
 
 ### 4) 查询后台任务状态
 
-```text
-chat_with_agent(background=True, task_id="<task_id>")
+```bash
+qwenpaw agents chat --background --task-id <task_id>
 ```
 
 **重要**：不要频繁查询！提交任务后：
@@ -96,18 +86,18 @@ chat_with_agent(background=True, task_id="<task_id>")
 
 ### 5) 继续已有对话
 
-```text
-chat_with_agent(
-  to_agent="<target_agent>",
-  text="[Agent <your_agent> requesting] ...",
-  session_id="<session_id>",
-)
+```bash
+qwenpaw agents chat \
+  --from-agent <your_agent> \
+  --to-agent <target_agent> \
+  --session-id "<session_id>" \
+  --text "[Agent <your_agent> requesting] ..."
 ```
 
 **重点**:
-- 不传 `session_id` = 新对话
-- 传 `session_id` = 续聊（保留上下文）
-- 复杂任务用 `background=True`，提交后记录 task_id
+- 不传 `--session-id` = 新对话
+- 传 `--session-id` = 续聊（保留上下文）
+- 复杂任务用 `--background`，提交后记录 task_id
 
 ---
 
@@ -117,8 +107,8 @@ chat_with_agent(
 
 | 任务类型 | 使用模式 | 命令 |
 |---------|---------|------|
-| 简单快速查询 | 实时模式 | `chat_with_agent(...)` |
-| 复杂任务（数据分析、批量处理等） | 后台模式 | `chat_with_agent(background=True, ...)` |
+| 简单快速查询 | 实时模式 | `qwenpaw agents chat` |
+| 复杂任务（数据分析、批量处理等） | 后台模式 | `qwenpaw agents chat --background` |
 
 **复杂任务示例**：
 - 分析大量数据或日志文件
@@ -137,22 +127,22 @@ chat_with_agent(
 
 ```
 1. 判断是否需要其他 agent，或用户是否明确要求调用
-2. 调用 `list_agents()`
-3. 调用 `chat_with_agent` 发起对话
+2. qwenpaw agents list
+3. qwenpaw agents chat 发起对话
 4. 从输出中记录 [SESSION: ...]
-5. 后续需要上下文时带上 session_id
+5. 后续需要上下文时带上 --session-id
 ```
 
 ### 后台模式工作流
 
 ```
 1. 判断任务是否复杂（数据分析、报告生成等）
-2. 调用 `list_agents()`
-3. 调用 `chat_with_agent(background=True, ...)` 提交任务
+2. qwenpaw agents list
+3. qwenpaw agents chat --background 提交任务
 4. 从输出中记录 [TASK_ID: ...]
 5. 继续处理其他工作
 6. 等待合理时间（30-60秒）后查询状态
-7. 在 `chat_with_agent` 工具中使用 `background` 和 `task_id` 参数查询结果
+7. 使用 --background --task-id 查询结果
 ```
 
 ---
@@ -161,17 +151,10 @@ chat_with_agent(
 
 ### 必填参数
 
-`chat_with_agent` 默认提供：
-- `to_agent`
-- `text`
-
-### 工具优先级
-
-默认按下面顺序选择：
-1. 调用 `list_agents()` 查询目标 agent
-2. 调用 `chat_with_agent(...)` 发起、续接或查询后台任务
-3. 仅在人工调试或向用户展示命令时，再引用 CLI
-
+`qwenpaw agents chat` 必须同时提供：
+- `--from-agent`
+- `--to-agent`
+- `--text`
 
 ### 身份前缀
 
@@ -189,7 +172,7 @@ chat_with_agent(
 [SESSION: your_agent:to:target_agent:...]
 ```
 
-后续续聊必须复制这个 session_id 并作为 `session_id` 参数传入。
+后续续聊必须复制这个 session_id 传入 `--session-id`。
 
 ---
 
@@ -197,31 +180,32 @@ chat_with_agent(
 
 ### 用户明确要求调用其他 agent
 
-```text
-先用 `list_agents()` 确认目标 agent，然后调用：
-chat_with_agent(
-  to_agent="finance_bot",
-  text="[Agent scheduler_bot requesting] User explicitly asked to consult finance_bot. 请回答当前待处理的财务任务。",
-)
+```bash
+qwenpaw agents list
+
+qwenpaw agents chat \
+  --from-agent scheduler_bot \
+  --to-agent finance_bot \
+  --text "[Agent scheduler_bot requesting] User explicitly asked to consult finance_bot. 请回答当前待处理的财务任务。"
 ```
 
 ### 新对话
 
-```text
-chat_with_agent(
-  to_agent="finance_bot",
-  text="[Agent scheduler_bot requesting] 今天有哪些待处理的财务任务？",
-)
+```bash
+qwenpaw agents chat \
+  --from-agent scheduler_bot \
+  --to-agent finance_bot \
+  --text "[Agent scheduler_bot requesting] 今天有哪些待处理的财务任务？"
 ```
 
 ### 续聊
 
-```text
-chat_with_agent(
-  to_agent="finance_bot",
-  text="[Agent scheduler_bot requesting] 展开第2项",
-  session_id="scheduler_bot:to:finance_bot:1710912345:a1b2c3d4",
-)
+```bash
+qwenpaw agents chat \
+  --from-agent scheduler_bot \
+  --to-agent finance_bot \
+  --session-id "scheduler_bot:to:finance_bot:1710912345:a1b2c3d4" \
+  --text "[Agent scheduler_bot requesting] 展开第2项"
 ```
 
 ---
@@ -232,8 +216,8 @@ chat_with_agent(
 
 不要猜 agent ID，先执行：
 
-```text
-list_agents()
+```bash
+qwenpaw agents list
 ```
 
 ### 错误 2：想续聊但没传 session-id
@@ -246,10 +230,7 @@ list_agents()
 
 ---
 
-## CLI 仅用于人工调试
-
-以下命令仅用于人工调试、手动验证接口或展示命令示例。
-默认不要让 agent 通过 shell 调用这些命令替代工具。
+## 可选命令
 
 ### 查看已有会话
 
@@ -257,22 +238,14 @@ list_agents()
 qwenpaw chats list --agent-id <your_agent>
 ```
 
-### 人工调试时查看 agent 列表
-
-```bash
-qwenpaw agents list
-```
-
-### CLI 调试用法
-
-当你需要人工调试或手动验证接口时，仍可使用 CLI：
+### 流式输出
 
 ```bash
 qwenpaw agents chat \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
   --mode stream \
-  --text "<your_message>"
+  --text "[Agent <your_agent> requesting] ..."
 ```
 
 ### JSON 输出
@@ -282,7 +255,7 @@ qwenpaw agents chat \
   --from-agent <your_agent> \
   --to-agent <target_agent> \
   --json-output \
-  --text "<your_message>"
+  --text "[Agent <your_agent> requesting] ..."
 ```
 
 ---
@@ -298,8 +271,6 @@ qwenpaw agents chat \
 
 ### qwenpaw agents chat
 
-这是人工调试入口；agent 默认不应通过 shell 调它。
-
 **必填参数**（实时模式）：
 - `--from-agent`：发起方agent ID
 - `--to-agent`：目标agent ID
@@ -311,16 +282,11 @@ qwenpaw agents chat \
 
 **可选参数**：
 - `--session-id`：复用会话上下文（从之前的输出中复制）
+- `--new-session`：强制创建新会话（即使传了session-id）
 - `--mode`：stream（流式）或 final（完整，默认）
 - `--timeout`：超时时间（秒，默认300）
 - `--json-output`：输出完整JSON而非纯文本
 - `--base-url`：覆盖API地址
-
-对于 agent 内部调用，优先使用：
-- `list_agents()`
-- `chat_with_agent(...)`
-
-其中工具参数名分别是 `session_id`、`background`、`task_id`。
 
 ---
 
@@ -343,13 +309,13 @@ qwenpaw agents chat \
 
 ### 后台任务示例
 
-#### 提交复杂任务（CLI 调试）
+#### 提交复杂任务
 
 ```bash
 qwenpaw agents chat --background \
   --from-agent scheduler \
   --to-agent data_analyst \
-  --text "<your_message>"
+  --text "[Agent scheduler requesting] 分析 /data/logs/2026-03-26.log 中的用户行为，生成详细报告"
 ```
 
 **输出**：
