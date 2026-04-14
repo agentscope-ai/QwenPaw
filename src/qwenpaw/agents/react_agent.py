@@ -762,6 +762,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             )
             return await super()._reasoning(tool_choice=tool_choice)
 
+    # pylint: disable=too-many-branches
     async def _summarizing(self) -> Msg:
         """Override summarizing with proactive media filtering,
         passive fallback, and tool_use block filtering.
