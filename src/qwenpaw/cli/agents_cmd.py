@@ -365,14 +365,14 @@ def agents_group() -> None:
     \b
     Commands:
       list    List all configured agents
-            create  Create a new local agent
       chat    Communicate with another agent
+      create  Create a new local agent
 
     \b
     Examples:
       qwenpaw agents list
-            qwenpaw agents create --name "Research Bot"
       qwenpaw agents chat --from-agent bot_a --to-agent bot_b --text "..."
+      qwenpaw agents create --name "Research Bot"
     """
 
 
