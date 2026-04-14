@@ -481,6 +481,18 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
+    auto_continue_on_text_only: bool = Field(
+        default=True,
+        description=(
+            "When the model returns a text-only assistant message (no tool "
+            "calls), inject one follow-up hint and run one extra reasoning "
+            "pass with the same tool_choice as the current step (typically "
+            "'auto'), so the model can either emit tool calls or finish with "
+            "text. Does not use tool_choice='required' (that would force "
+            "tools and prevent a natural summary when the task is done)."
+        ),
+    )
+
     llm_retry_enabled: bool = Field(
         default=LLM_MAX_RETRIES > 0,
         description="Whether to auto-retry transient LLM API errors",
