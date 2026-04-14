@@ -624,29 +624,6 @@ def _ensure_heartbeat_file(workspace_dir: Path, language: str) -> None:
         file.write(heartbeat_content.strip())
 
 
-def _copy_builtin_skills(workspace_dir: Path) -> None:
-    """Copy builtin skills into a new workspace when missing."""
-    builtin_skills_dir = (
-        Path(__file__).parent.parent.parent / "agents" / "skills"
-    )
-    if not builtin_skills_dir.exists():
-        return
-
-    target_skills_dir = get_workspace_skills_dir(workspace_dir)
-    target_skills_dir.mkdir(parents=True, exist_ok=True)
-
-    for skill_dir in builtin_skills_dir.iterdir():
-        if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
-            continue
-        target_skill_dir = target_skills_dir / skill_dir.name
-        if target_skill_dir.exists():
-            continue
-        try:
-            shutil.copytree(skill_dir, target_skill_dir)
-        except Exception as e:
-            logger.warning("Failed to copy skill %s: %s", skill_dir.name, e)
-
-
 def _install_initial_skills(
     workspace_dir: Path,
     skill_names: list[str] | None,
@@ -685,7 +662,7 @@ def _initialize_agent_workspace(
     skill_names: list[str] | None = None,
     builtin_qa_md_seed: bool = False,
 ) -> None:
-    """Initialize agent workspace (similar to qwenpaw init --defaults)."""
+    """Initialize agent workspace with only explicitly requested skills."""
     from ...config import load_config as load_global_config
 
     (workspace_dir / "sessions").mkdir(exist_ok=True)
@@ -701,7 +678,6 @@ def _initialize_agent_workspace(
         builtin_qa_md_seed=builtin_qa_md_seed,
     )
     _ensure_heartbeat_file(workspace_dir, language)
-    _copy_builtin_skills(workspace_dir)
     _install_initial_skills(workspace_dir, skill_names)
 
     jobs_file = workspace_dir / "jobs.json"

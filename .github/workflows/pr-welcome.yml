@@ -146,7 +146,7 @@ jobs:
             if (hasChinese) {
               // Bilingual response with logo
               comment = `<div align="center">\n\n`;
-              comment += `<img src="https://qwenpaw.agentscope.io/qwenpaw_ip.svg" width="80" height="80" />\n\n`;
+              comment += `<img src="https://img.alicdn.com/imgextra/i2/O1CN01eSmIfy1hJImze8NN8_!!6000000004256-2-tps-1858-1858.png" width="80" height="80" />\n\n`;
               comment += `## 欢迎来到 QwenPaw! 🐾 Welcome to QwenPaw!\n\n`;
               comment += `</div>\n\n`;
 
@@ -237,7 +237,7 @@ jobs:
             } else {
               // English only with logo
               comment = `<div align="center">\n\n`;
-              comment += `<img src="https://qwenpaw.agentscope.io/qwenpaw_ip.svg" width="80" height="80" />\n\n`;
+              comment += `<img src="https://img.alicdn.com/imgextra/i2/O1CN01eSmIfy1hJImze8NN8_!!6000000004256-2-tps-1858-1858.png" width="80" height="80" />\n\n`;
               comment += `## Welcome to QwenPaw! 🐾\n\n`;
               comment += `</div>\n\n`;
 
