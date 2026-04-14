@@ -106,7 +106,7 @@ def test_agents_create_uses_explicit_agent_id(monkeypatch, tmp_path) -> None:
     )
     monkeypatch.setattr(
         "qwenpaw.cli.agents_cmd._initialize_new_agent_workspace",
-        lambda workspace_dir, skill_names, md_template_id=None: saved.setdefault(
+        lambda workspace_dir, skill_names, md_template_id=None: saved.setdefault(  # noqa: E501
             "workspace_init",
             (workspace_dir, skill_names, md_template_id),
         ),
@@ -246,7 +246,7 @@ def test_agents_create_qa_template_uses_template_defaults(
     )
     monkeypatch.setattr(
         "qwenpaw.cli.agents_cmd._initialize_new_agent_workspace",
-        lambda workspace_dir, skill_names, md_template_id=None: saved.setdefault(
+        lambda workspace_dir, skill_names, md_template_id=None: saved.setdefault(  # noqa: E501
             "workspace_init",
             (workspace_dir, skill_names, md_template_id),
         ),
@@ -308,7 +308,7 @@ def test_agents_create_local_template_uses_local_md_template(
     )
     monkeypatch.setattr(
         "qwenpaw.cli.agents_cmd._initialize_new_agent_workspace",
-        lambda workspace_dir, skill_names, md_template_id=None: saved.setdefault(
+        lambda workspace_dir, skill_names, md_template_id=None: saved.setdefault(  # noqa: E501
             "workspace_init",
             (workspace_dir, skill_names, md_template_id),
         ),

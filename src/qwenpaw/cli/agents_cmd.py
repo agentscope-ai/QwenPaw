@@ -449,7 +449,10 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
     "--template",
     type=click.Choice(SUPPORTED_AGENT_TEMPLATES, case_sensitive=False),
     default=None,
-    help="Create agent from builtin template: default or qa.",
+    help=(
+        "Create agent from builtin template: "
+        f"{', '.join(SUPPORTED_AGENT_TEMPLATES)}."
+    ),
 )
 @click.option(
     "--skill",
@@ -470,6 +473,7 @@ def create_cmd(
     config = load_config()
     template = _normalize_optional_text(template)
     name = _normalize_optional_text(name)
+    agent_id = _normalize_optional_text(agent_id)
     description = _normalize_optional_text(description)
     language = _normalize_optional_text(language)
 

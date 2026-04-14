@@ -30,6 +30,7 @@ from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_AGENT_NAME = "Default Agent"
 _DEFAULT_AGENT_DESCRIPTION = "Default QwenPaw agent"
 
 # Workspace items to migrate: (name, is_directory)
@@ -664,6 +665,7 @@ def _do_ensure_default_agent() -> None:
         logger.info("Creating default agent...")
         template_result = build_agent_template(
             DEFAULT_AGENT_TEMPLATE,
+            name=_DEFAULT_AGENT_NAME,
             agent_id="default",
             workspace_dir=default_workspace,
             fallback_language=config.agents.language or "zh",
