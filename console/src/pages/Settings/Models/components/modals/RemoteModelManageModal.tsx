@@ -38,6 +38,7 @@ import type {
   ProviderInfo,
   SeriesResponse,
   ModelInfo,
+  ExtendedModelInfo,
 } from "../../../../../api/types";
 
 import api from "../../../../../api";
@@ -284,7 +285,9 @@ export function RemoteModelManageModal({
   const isOpenRouter = provider.id === "openrouter";
   const [showFilters, setShowFilters] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<string[]>([]);
-  const [discoveredModels, setDiscoveredModels] = useState<any[]>([]);
+  const [discoveredModels, setDiscoveredModels] = useState<ExtendedModelInfo[]>(
+    [],
+  );
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
   const [selectedInputModality, setSelectedInputModality] = useState<
     string | null
@@ -395,9 +398,6 @@ export function RemoteModelManageModal({
         message.success(
           t("models.probeSupported", {
             types: parts.join(", "),
-            defaultValue: t("models.probeSupported", {
-              types: parts.join(", "),
-            }),
           }),
         );
       } else {
@@ -468,7 +468,7 @@ export function RemoteModelManageModal({
 
     setLoadingFilters(true);
     try {
-      const filterBody: Record<string, any> = {};
+      const filterBody: Record<string, unknown> = {};
       if (selectedSeries.length > 0) {
         filterBody.providers = selectedSeries;
       }
@@ -492,7 +492,7 @@ export function RemoteModelManageModal({
     }
   };
 
-  const handleAddFilteredModel = async (model: any) => {
+  const handleAddFilteredModel = async (model: ExtendedModelInfo) => {
     setSaving(true);
     try {
       await api.addModel(provider.id, { id: model.id, name: model.name });
@@ -506,18 +506,43 @@ export function RemoteModelManageModal({
     }
   };
 
-  const all_models = [
-    ...(provider.models ?? []),
-    ...(provider.extra_models ?? []),
-  ];
+  useEffect(() => {
+    if (!adding) {
+      setDiscoveredModels([]);
+      return;
+    }
+    setLoadingDiscoveredModels(true);
+    api
+      .discoverModels(provider.id, undefined, false)
+      .then((result) => {
+        const sorted = result.models
+          .slice()
+          .sort((a, b) => a.id.localeCompare(b.id));
+        setDiscoveredModels(sorted as unknown as ExtendedModelInfo[]);
+      })
+      .catch(() => setDiscoveredModels([]))
+      .finally(() => setLoadingDiscoveredModels(false));
+  }, [adding, provider.id]);
+
+  useEffect(() => {
+    if (!isOpenRouter || !adding) return;
+    setAdding(false);
+    form.resetFields();
+  }, [adding, form, isOpenRouter]);
 
   const filteredModels = useMemo(() => {
+    const all_models = [
+      ...(provider.models ?? []),
+      ...(provider.extra_models ?? []),
+    ];
     const q = modelSearchQuery.trim().toLowerCase();
     if (!q) return all_models;
     return all_models.filter(
       (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
     );
-  }, [all_models, modelSearchQuery]);
+  }, [provider.models, provider.extra_models, modelSearchQuery]);
+
+  const colors = tagColors(isDark);
 
   return (
     <Modal
@@ -557,9 +582,7 @@ export function RemoteModelManageModal({
                       style={{
                         fontSize: 11,
                         marginRight: 4,
-                        ...(isDeletable
-                          ? tagColors(isDark).userAdded
-                          : tagColors(isDark).builtin),
+                        ...(isDeletable ? colors.userAdded : colors.builtin),
                       }}
                     >
                       {isDeletable ? (
@@ -769,7 +792,7 @@ export function RemoteModelManageModal({
                   <div style={{ fontWeight: 500, marginBottom: 4 }}>
                     {t("models.discovered") || "Available Models:"}
                   </div>
-                  {discoveredModels.map((model: any) => (
+                  {discoveredModels.map((model) => (
                     <div
                       key={model.id}
                       style={{
