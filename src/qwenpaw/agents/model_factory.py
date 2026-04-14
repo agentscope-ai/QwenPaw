@@ -33,7 +33,9 @@ except ImportError:  # pragma: no cover - compatibility fallback
     GeminiChatFormatter = None
     GeminiChatModel = None
 
-from .utils.tool_message_utils import _sanitize_tool_messages
+from .utils.message_request_normalizer import (
+    normalize_messages_for_model_request,
+)
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.retry_chat_model import (
@@ -73,6 +75,49 @@ _SUPPORTED_VIDEO_EXTENSIONS: dict[str, str] = {
     ".avi": "video/x-msvideo",
     ".mkv": "video/x-matroska",
 }
+
+
+def _supports_multimodal_for_current_model() -> bool:
+    """Best-effort lookup of current model multimodal support."""
+    try:
+        from .prompt import get_active_model_supports_multimodal
+
+        return get_active_model_supports_multimodal()
+    except Exception:  # pragma: no cover - config lookup safety
+        logger.debug(
+            "Falling back to multimodal=True during OpenAI normalization",
+            exc_info=True,
+        )
+        return True
+
+
+def _normalize_messages_for_formatter(
+    msgs: list,
+    base_formatter_class: Type[FormatterBase],
+    formatter_instance: FormatterBase | None = None,
+) -> tuple[list, bool, bool]:
+    """Return normalized messages and formatter-family flags.
+
+    The returned booleans are
+    ``(is_anthropic_formatter, is_gemini_formatter)``.
+    All formatters receive a copied, normalized message list so
+    request-time repair does not mutate stored history.
+    """
+    is_anthropic_formatter = AnthropicChatFormatter is not None and (
+        issubclass(base_formatter_class, AnthropicChatFormatter)
+    )
+    is_gemini_formatter = GeminiChatFormatter is not None and (
+        issubclass(base_formatter_class, GeminiChatFormatter)
+    )
+    supports_multimodal = _supports_multimodal_for_current_model()
+    if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
+        supports_multimodal = False
+    normalized_msgs = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=supports_multimodal,
+    )
+
+    return normalized_msgs, is_anthropic_formatter, is_gemini_formatter
 
 
 # TODO: remove after agentscope anthropic formatter updated
@@ -481,11 +526,19 @@ def _create_file_block_support_formatter(
             ``extra_content`` on tool_use blocks (e.g. Gemini
             thought_signature) is carried through to the API request.
             """
-            msgs = _sanitize_tool_messages(msgs)
+            (
+                normalized_msgs,
+                is_anthropic_formatter,
+                _is_gemini_formatter,
+            ) = _normalize_messages_for_formatter(
+                msgs,
+                base_formatter_class,
+                self,
+            )
 
             reasoning_contents = {}
             extra_contents: dict[str, Any] = {}
-            for msg in msgs:
+            for msg in normalized_msgs:
                 if msg.role != "assistant":
                     continue
                 for block in msg.get_content_blocks():
@@ -503,7 +556,7 @@ def _create_file_block_support_formatter(
 
             # Convert file:// URLs to paths for all media blocks,
             # TODO: remove this after AgentScope updated
-            for msg in msgs:
+            for msg in normalized_msgs:
                 for block in msg.get_content_blocks():
                     if block.get("type") in ("image", "audio", "video"):
                         source = block.get("source")
@@ -518,35 +571,26 @@ def _create_file_block_support_formatter(
             # For Anthropic, fully override formatting to handle
             # media blocks (top-level & inside tool_result output).
             # TODO: remove after agentscope anthropic formatter updated
-            if AnthropicChatFormatter is not None and issubclass(
-                base_formatter_class,
-                AnthropicChatFormatter,
-            ):
-                messages = _format_anthropic_messages(msgs)
+            if is_anthropic_formatter:
+                messages = _format_anthropic_messages(normalized_msgs)
             else:
                 # Gemini handles video natively; for others
                 # (OpenAI) we inject it via placeholders.
-                _needs_video = not (
-                    GeminiChatFormatter is not None
-                    and issubclass(
-                        base_formatter_class,
-                        GeminiChatFormatter,
-                    )
-                )
+                _needs_video = not _is_gemini_formatter
                 video_subs: dict[str, dict] = {}
                 if _needs_video:
                     video_subs = _substitute_video_blocks(
-                        msgs,
+                        normalized_msgs,
                     )
 
-                messages = await super()._format(msgs)
+                messages = await super()._format(normalized_msgs)
 
                 if video_subs:
                     _replace_video_placeholders(
                         messages,
                         video_subs,
                     )
-                    _restore_video_blocks(msgs, video_subs)
+                    _restore_video_blocks(normalized_msgs, video_subs)
 
                 if _needs_video and getattr(
                     self,
@@ -554,7 +598,7 @@ def _create_file_block_support_formatter(
                     False,
                 ):
                     messages = _promote_tool_result_videos(
-                        msgs,
+                        normalized_msgs,
                         messages,
                     )
 
@@ -571,7 +615,9 @@ def _create_file_block_support_formatter(
                 # thinking-only messages (no content/tool_calls), so we
                 # predict survivors and collect reasoning only for those.
                 aligned_reasoning = []
-                for m in (msg for msg in msgs if msg.role == "assistant"):
+                for m in (
+                    msg for msg in normalized_msgs if msg.role == "assistant"
+                ):
                     is_thinking_only = (
                         isinstance(m.content, list)
                         and m.content
