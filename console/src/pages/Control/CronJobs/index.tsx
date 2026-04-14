@@ -173,7 +173,7 @@ function CronJobsPage() {
         try {
           processedValues.request.input = JSON.parse(processedValues.request.input);
         } catch (error) {
-        console.error("❌ Failed to parse request.input JSON:", error);
+          console.error("❌ Failed to parse request.input JSON:", error);
         }
       }
     }
