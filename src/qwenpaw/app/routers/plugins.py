@@ -55,11 +55,14 @@ async def list_plugins(request: Request):
             entry = ui_meta.get("entry", "ui/index.js")
             css = ui_meta.get("css", "")
 
-            # Prefer tool_renderers registered via api.register_tool_renderer()
-            # in plugin.py; fall back to static declaration in plugin.json.
-            tool_renderers = loader.registry.get_tool_renderers(plugin_id)
-            if not tool_renderers:
-                tool_renderers = ui_meta.get("tool_renderers", {})
+            # Prefer js_tool_renderers registered via
+            # api.register_js_tool_renderer() in plugin.py; fall back to
+            # static declaration in plugin.json.
+            js_tool_renderers = loader.registry.get_js_tool_renderers(
+                plugin_id,
+            )
+            if not js_tool_renderers:
+                js_tool_renderers = ui_meta.get("js_tool_renderers", {})
 
             plugin_info["ui"] = {
                 "entry": f"/api/plugins/{manifest.id}/files/{entry}",
@@ -68,7 +71,7 @@ async def list_plugins(request: Request):
                     if css
                     else ""
                 ),
-                "tool_renderers": tool_renderers,
+                "js_tool_renderers": js_tool_renderers,
             }
 
         result.append(plugin_info)

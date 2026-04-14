@@ -67,7 +67,7 @@ class PluginRegistry:
         self._shutdown_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
         # plugin_id → { tool_name → component_name }
-        self._tool_renderers: Dict[str, Dict[str, str]] = {}
+        self._js_tool_renderers: Dict[str, Dict[str, str]] = {}
         self._runtime_helpers = None
 
         self._initialized = True
@@ -254,15 +254,15 @@ class PluginRegistry:
         """
         return self._control_commands.copy()
 
-    def register_tool_renderer(
+    def register_js_tool_renderer(
         self,
         plugin_id: str,
         tool_name: str,
         component_name: str,
     ):
-        """Register a tool renderer mapping.
+        """Register a JS tool renderer mapping.
 
-        Maps a backend tool name to a frontend component name exported
+        Maps a backend tool name to a frontend JS component name exported
         by the plugin's UI module.
 
         Args:
@@ -271,20 +271,20 @@ class PluginRegistry:
             component_name: JS component name exported by the plugin
                 (e.g. "ViewImageCard")
         """
-        if plugin_id not in self._tool_renderers:
-            self._tool_renderers[plugin_id] = {}
+        if plugin_id not in self._js_tool_renderers:
+            self._js_tool_renderers[plugin_id] = {}
 
-        self._tool_renderers[plugin_id][tool_name] = component_name
+        self._js_tool_renderers[plugin_id][tool_name] = component_name
         logger.info(
-            f"Registered tool renderer '{tool_name}' -> '{component_name}' "
-            f"from plugin '{plugin_id}'",
+            f"Registered JS tool renderer '{tool_name}' -> "
+            f"'{component_name}' from plugin '{plugin_id}'",
         )
 
-    def get_tool_renderers(
+    def get_js_tool_renderers(
         self,
         plugin_id: Optional[str] = None,
     ) -> Dict[str, str]:
-        """Get tool renderer mappings.
+        """Get JS tool renderer mappings.
 
         Args:
             plugin_id: If provided, return only renderers for this plugin.
@@ -295,10 +295,10 @@ class PluginRegistry:
             Dictionary of tool_name -> component_name
         """
         if plugin_id is not None:
-            return self._tool_renderers.get(plugin_id, {}).copy()
+            return self._js_tool_renderers.get(plugin_id, {}).copy()
 
         merged: Dict[str, str] = {}
-        for renderers in self._tool_renderers.values():
+        for renderers in self._js_tool_renderers.values():
             merged.update(renderers)
         return merged
 
@@ -367,8 +367,8 @@ class PluginRegistry:
             )
         return removed
 
-    def unregister_tool_renderers_by_plugin(self, plugin_id: str) -> int:
-        """Remove all tool renderer mappings registered by a specific plugin.
+    def unregister_js_tool_renderers_by_plugin(self, plugin_id: str) -> int:
+        """Remove all JS tool renderer mappings registered by a plugin.
 
         Args:
             plugin_id: Plugin identifier
@@ -376,10 +376,10 @@ class PluginRegistry:
         Returns:
             Number of renderers removed
         """
-        renderers = self._tool_renderers.pop(plugin_id, {})
+        renderers = self._js_tool_renderers.pop(plugin_id, {})
         if renderers:
             logger.info(
-                f"Unregistered {len(renderers)} tool renderer(s) "
+                f"Unregistered {len(renderers)} JS tool renderer(s) "
                 f"from plugin '{plugin_id}'",
             )
         return len(renderers)
@@ -405,7 +405,7 @@ class PluginRegistry:
             "control_commands": self.unregister_control_commands_by_plugin(
                 plugin_id,
             ),
-            "tool_renderers": self.unregister_tool_renderers_by_plugin(
+            "js_tool_renderers": self.unregister_js_tool_renderers_by_plugin(
                 plugin_id,
             ),
         }

@@ -36,7 +36,7 @@ class PluginApi:
         # Track registered resources for unregister_all()
         self._registered_startup_hooks: List[str] = []
         self._registered_shutdown_hooks: List[str] = []
-        self._registered_tool_renderers: List[str] = []
+        self._registered_js_tool_renderers: List[str] = []
     def set_registry(self, registry):
         """Set registry reference (called by loader).
 
@@ -180,16 +180,16 @@ class PluginApi:
                 f"'{handler.command_name}' (priority={priority_level})",
             )
 
-    def register_tool_renderer(
+    def register_js_tool_renderer(
         self,
         tool_name: str,
         component_name: str,
     ):
-        """Register a tool renderer mapping.
+        """Register a JS tool renderer mapping.
 
-        Declares that the frontend component ``component_name`` (exported
-        by this plugin's UI JS module) should be used to render the output
-        of the backend tool ``tool_name``.
+        Declares that the frontend JS component ``component_name``
+        (exported by this plugin's UI module) should be used to render
+        the output of the backend tool ``tool_name``.
 
         Args:
             tool_name: Backend tool name (e.g. "view_image")
@@ -197,17 +197,17 @@ class PluginApi:
                 UI module (e.g. "ViewImageCard")
 
         Example:
-            >>> api.register_tool_renderer("view_image", "ViewImageCard")
+            >>> api.register_js_tool_renderer("view_image", "ViewImageCard")
         """
         if self._registry:
-            self._registry.register_tool_renderer(
+            self._registry.register_js_tool_renderer(
                 plugin_id=self.plugin_id,
                 tool_name=tool_name,
                 component_name=component_name,
             )
-            self._registered_tool_renderers.append(tool_name)
+            self._registered_js_tool_renderers.append(tool_name)
             logger.info(
-                f"Plugin '{self.plugin_id}' registered tool renderer "
+                f"Plugin '{self.plugin_id}' registered JS tool renderer "
                 f"'{tool_name}' -> '{component_name}'",
             )
 
@@ -228,7 +228,7 @@ class PluginApi:
         # Clear local tracking lists
         self._registered_startup_hooks.clear()
         self._registered_shutdown_hooks.clear()
-        self._registered_tool_renderers.clear()
+        self._registered_js_tool_renderers.clear()
 
     @property
     def runtime(self):

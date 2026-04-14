@@ -10,11 +10,11 @@ export interface PluginUIInfo {
   /** Absolute URL to the plugin's CSS file (empty string if none). */
   css: string;
   /**
-   * Mapping from backend tool name → exported component name.
+   * Mapping from backend tool name → exported JS component name.
    *
    * Example: `{ "weather_search": "WeatherCard" }`
    */
-  tool_renderers: Record<string, string>;
+  js_tool_renderers: Record<string, string>;
 }
 
 /**

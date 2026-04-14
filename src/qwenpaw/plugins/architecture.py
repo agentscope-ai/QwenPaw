@@ -22,7 +22,7 @@ class BasePlugin(ABC):
 
         class MyPlugin(BasePlugin):
             def register(self, api: PluginApi) -> None:
-                api.register_tool_renderer("view_image", "ViewImageCard")
+                api.register_js_tool_renderer("view_image", "ViewImageCard")
 
             def unregister(self, api: PluginApi) -> None:
                 # Optional: custom cleanup beyond automatic unregister_all()
@@ -35,8 +35,8 @@ class BasePlugin(ABC):
     def register(self, api: "PluginApi") -> None:
         """Called when the plugin is loaded.
 
-        Use the *api* object to register providers, hooks, tool renderers,
-        and other capabilities.
+        Use the *api* object to register providers, hooks, JS tool
+        renderers, and other capabilities.
 
         Args:
             api: The plugin API instance bound to this plugin.
