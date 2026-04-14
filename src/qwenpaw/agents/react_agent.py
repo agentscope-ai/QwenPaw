@@ -974,12 +974,14 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 continue
 
             new_content = []
+            stripped_this_message = 0
             for block in msg.content:
                 if (
                     isinstance(block, dict)
                     and block.get("type") in media_types
                 ):
                     total_stripped += 1
+                    stripped_this_message += 1
                     continue
 
                 if (
@@ -998,12 +1000,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                     ]
                     stripped_count = original_len - len(block["output"])
                     total_stripped += stripped_count
+                    stripped_this_message += stripped_count
                     if stripped_count > 0 and not block["output"]:
                         block["output"] = MEDIA_UNSUPPORTED_PLACEHOLDER
 
                 new_content.append(block)
 
-            if not new_content and total_stripped > 0:
+            if not new_content and stripped_this_message > 0:
                 new_content.append(
                     {
                         "type": "text",
