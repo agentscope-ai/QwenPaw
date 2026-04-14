@@ -576,6 +576,7 @@
     "feishuChina": "Feishu (China)",
     "feishuInternational": "Lark (International)",
     "weixinSetupGuide": "WeChat personal account Bot (iLink protocol). On first start without a Bot Token, a QR code login URL will be printed; scan to authorize. The token is saved locally for future use.",
+    "weixinContextTokenLimit": "⚠️ WeChat iLink platform limitation: each user message's context_token allows a maximum of 10 reply messages. This is a hard limit enforced by the platform and cannot be bypassed. It is recommended to disable thinking and tool output to avoid exceeding the limit and causing message send failures.",
     "weixinBotToken": "Bot Token",
     "weixinBotTokenTooltip": "Bearer token obtained after QR code login. Leave empty to trigger QR code login on startup.",
     "weixinBotTokenPlaceholder": "Auto-filled after QR login, or paste manually",

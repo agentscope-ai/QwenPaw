@@ -514,6 +514,7 @@
     "feishuChina": "Feishu（中国）",
     "feishuInternational": "Lark（海外）",
     "weixinSetupGuide": "WeChat個人アカウントBot（iLinkプロトコル）。Bot Tokenが未設定の場合、起動時にQRコードURLを表示します。スキャンして認証してください。Tokenはローカルに保存されます。",
+    "weixinContextTokenLimit": "⚠️ WeChat iLinkプラットフォームの制限：各ユーザーメッセージのcontext_tokenで返信できるメッセージは最大10件です。これはプラットフォーム側のハード制限であり、回避できません。制限超過による送信失敗を避けるため、思考およびツール出力を無効にすることをお勧めします。",
     "weixinBotToken": "Bot Token",
     "weixinBotTokenTooltip": "QRコードログイン後に取得したBearerトークン。空の場合は起動時にQRコードログインが案内されます。",
     "weixinBotTokenPlaceholder": "QRログイン後に自動入力、または手動で貼り付け",
