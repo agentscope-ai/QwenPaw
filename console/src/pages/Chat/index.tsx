@@ -8,6 +8,7 @@ import { Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
+import { usePluginLoader } from "../../plugins/usePluginLoader";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -408,6 +409,8 @@ export default function ChatPage() {
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const { selectedAgent } = useAgentStore();
+  const { toolRenderConfig } = usePluginLoader();
+  console.log("[ChatPage] toolRenderConfig:", toolRenderConfig);
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
@@ -808,6 +811,10 @@ export default function ChatPage() {
           });
         },
       },
+      customToolRenderConfig:
+        Object.keys(toolRenderConfig).length > 0
+          ? toolRenderConfig
+          : undefined,
       actions: {
         list: [
           {
@@ -824,7 +831,7 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
+  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps, toolRenderConfig]);
 
   return (
     <div
