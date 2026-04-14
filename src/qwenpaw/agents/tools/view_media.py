@@ -114,10 +114,12 @@ def _validate_media_path(
 
 
 async def view_image(image_path: str) -> ToolResponse:
-    """Load an image into the LLM context so the model can see it.
+    """Load an image file into the LLM context so the model can see it.
 
-    Accepts a local file path **or** an HTTP(S) URL.  Online URLs are
-    passed directly to the model without downloading.
+    Use this after desktop_screenshot, browser_use, or any tool that
+    produces an image file path.  Also accepts an HTTP(S) URL for
+    online images — the URL is passed directly to the model without
+    downloading.
 
     Args:
         image_path (`str`):
@@ -171,10 +173,11 @@ async def view_image(image_path: str) -> ToolResponse:
 
 
 async def view_video(video_path: str) -> ToolResponse:
-    """Load a video into the LLM context so the model can see it.
+    """Load a video file into the LLM context so the model can see it.
 
-    Accepts a local file path **or** an HTTP(S) URL.  Online URLs are
-    passed directly to the model without downloading.
+    Use this when the user asks about a video file or when another
+    tool produces a video file path.  Also accepts an HTTP(S) URL —
+    the URL is passed directly to the model without downloading.
 
     Args:
         video_path (`str`):
