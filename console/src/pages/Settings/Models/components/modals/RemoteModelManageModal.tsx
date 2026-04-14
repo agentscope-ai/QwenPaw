@@ -550,7 +550,7 @@ export function RemoteModelManageModal({
       open={open}
       onCancel={handleClose}
       footer={null}
-      width={720}
+      width={800}
       destroyOnHidden
     >
       <Input

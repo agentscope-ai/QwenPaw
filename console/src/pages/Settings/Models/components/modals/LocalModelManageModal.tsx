@@ -767,7 +767,7 @@ export function LocalModelManageModal({
       open={open}
       onCancel={handleClose}
       footer={null}
-      width={600}
+      width={800}
       destroyOnHidden
     >
       {(loadingLocal || loadingStatus || loadingLocalConfig) &&
