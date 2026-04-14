@@ -154,6 +154,7 @@ export interface TestProviderRequest {
   base_url?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
+  include_extended?: boolean;
 }
 
 export interface TestModelRequest {
@@ -173,4 +174,39 @@ export interface ProbeMultimodalResponse {
   supports_multimodal: boolean;
   image_message: string;
   video_message: string;
+}
+
+/* ---- OpenRouter extended model types ---- */
+
+export interface ExtendedModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  input_modalities: string[];
+  output_modalities: string[];
+  pricing: Record<string, string>;
+}
+
+export interface FilterModelsRequest {
+  providers?: string[];
+  input_modalities?: string[];
+  output_modalities?: string[];
+  max_prompt_price?: number;
+}
+
+export interface SeriesResponse {
+  series: string[];
+}
+
+export interface DiscoverExtendedResponse {
+  success: boolean;
+  models: ExtendedModelInfo[];
+  providers: string[];
+  total_count: number;
+}
+
+export interface FilterModelsResponse {
+  success: boolean;
+  models: ExtendedModelInfo[];
+  total_count: number;
 }

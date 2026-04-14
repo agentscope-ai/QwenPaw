@@ -15,10 +15,13 @@ from concurrent import futures
 import json
 import logging
 from pathlib import Path
+import signal
+import socket
 import subprocess
 import sys
 import time
 from typing import Any, Optional
+from urllib import request as urllib_request
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
@@ -114,6 +117,10 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "user_data_dir": user_data_dir,
         "connected_via_cdp": False,
         "cdp_url": None,
+        "launch_mode": None,
+        "owned_browser_process": False,
+        "browser_pid": None,
+        "browser_process": None,
     }
 
 
@@ -142,7 +149,10 @@ def _touch_activity(state: dict) -> None:
 def _is_browser_running(state: dict) -> bool:
     """Check if browser is currently running (sync or async mode)."""
     if _USE_SYNC_PLAYWRIGHT:
-        return state.get("_sync_browser") is not None
+        return (
+            state.get("_sync_context") is not None
+            or state.get("_sync_browser") is not None
+        )
     return state.get("browser") is not None or state.get("context") is not None
 
 
@@ -169,6 +179,10 @@ def _reset_browser_state(state: dict) -> None:
     state["headless"] = True
     state["connected_via_cdp"] = False
     state["cdp_url"] = None
+    state["launch_mode"] = None
+    state["owned_browser_process"] = False
+    state["browser_pid"] = None
+    state["browser_process"] = None
 
 
 async def _idle_watchdog(
@@ -181,8 +195,9 @@ async def _idle_watchdog(
     opened during agent tasks but never explicitly closed.
     """
     try:
+        check_interval = max(1.0, min(60.0, idle_seconds / 2))
         while True:
-            await asyncio.sleep(60)  # check every minute
+            await asyncio.sleep(check_interval)
             if not _is_browser_running(state):
                 return
             idle = time.monotonic() - state.get("last_activity_time", 0.0)
@@ -360,6 +375,178 @@ def _sync_browser_close(state: dict):
             pass
 
 
+def _resolve_chromium_launch_target() -> tuple[Optional[str], Optional[str]]:
+    """Return (browser_kind, executable_path) for Chromium-family launches."""
+    use_default = not is_running_in_container() and EnvVarLoader.get_bool(
+        "QWENPAW_BROWSER_USE_DEFAULT",
+        True,
+    )
+    default_kind, default_path = (
+        get_system_default_browser() if use_default else (None, None)
+    )
+    if default_kind == "chromium" and default_path:
+        return default_kind, default_path
+    if default_kind == "webkit":
+        return default_kind, None
+    return default_kind, _chromium_executable_path()
+
+
+def _find_free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        return int(sock.getsockname()[1])
+
+
+async def _wait_for_cdp_ready(
+    port: int,
+    timeout: float = 15.0,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    last_error: Optional[Exception] = None
+    url = f"http://127.0.0.1:{port}/json/version"
+    while time.monotonic() < deadline:
+        try:
+            with urllib_request.urlopen(url, timeout=1.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            last_error = exc
+            await asyncio.sleep(0.2)
+    raise RuntimeError(
+        f"Timed out waiting for Chrome CDP endpoint on port {port}: {last_error}",
+    )
+
+
+async def _start_managed_cdp_browser(
+    state: dict,
+    cdp_port: int = 0,
+    ensure_pages: bool = False,
+) -> None:
+    default_kind, exe = _resolve_chromium_launch_target()
+    if not exe:
+        if default_kind == "webkit" or sys.platform == "darwin":
+            raise RuntimeError(
+                "Managed CDP mode requires "
+                "Chrome/Chromium/Edge. Safari/WebKit "
+                "is not supported.",
+            )
+        raise RuntimeError(
+            "Managed CDP mode requires a Chrome/Chromium executable, "
+            "but none was found.",
+        )
+
+    chosen_cdp_port = cdp_port or _find_free_local_port()
+    proc = _start_managed_chromium_process(
+        executable_path=exe,
+        user_data_dir=state["user_data_dir"],
+        headless=state["headless"],
+        cdp_port=chosen_cdp_port,
+    )
+    try:
+        await _wait_for_cdp_ready(chosen_cdp_port)
+        async_playwright = _ensure_playwright_async()
+        pw = await async_playwright().start()
+        browser = await pw.chromium.connect_over_cdp(
+            f"http://127.0.0.1:{chosen_cdp_port}",
+        )
+        contexts = browser.contexts
+        context = contexts[0] if contexts else await browser.new_context()
+        _attach_context_listeners(state, context)
+        state["playwright"] = pw
+        state["browser"] = browser
+        state["context"] = context
+        state["connected_via_cdp"] = True
+        state["cdp_url"] = f"http://127.0.0.1:{chosen_cdp_port}"
+        state["launch_mode"] = "managed_cdp"
+        state["owned_browser_process"] = True
+        state["browser_pid"] = proc.pid
+        state["browser_process"] = proc
+        if ensure_pages:
+            for page in context.pages:
+                page_id = _next_page_id(state)
+                _register_page(state, page, page_id)
+                if state["current_page_id"] is None:
+                    state["current_page_id"] = page_id
+            if not state["pages"]:
+                page = await context.new_page()
+                page_id = _next_page_id(state)
+                _register_page(state, page, page_id)
+                state["current_page_id"] = page_id
+    except Exception:
+        try:
+            if proc.poll() is None:
+                proc.kill()
+                await asyncio.to_thread(proc.wait, 5)
+        except Exception:
+            pass
+        raise
+
+
+def _start_managed_chromium_process(
+    executable_path: str,
+    user_data_dir: str,
+    headless: bool,
+    cdp_port: int,
+) -> subprocess.Popen:
+    Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+    args = [
+        executable_path,
+        f"--remote-debugging-port={cdp_port}",
+        f"--user-data-dir={user_data_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-sync",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-features=Translate,MediaRouter,AutomationControlled",
+        "--disable-session-crashed-bubble",
+        "--hide-crash-restore-bubble",
+        "--password-store=basic",
+    ]
+    args.extend(_chromium_launch_args())
+    if headless:
+        args.extend(["--headless=new", "--disable-gpu"])
+
+    popen_kwargs: dict[str, Any] = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "stdin": subprocess.DEVNULL,
+        "cwd": str(Path(user_data_dir).parent),
+    }
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    return subprocess.Popen(args, **popen_kwargs)
+
+
+async def _stop_owned_browser_process(state: dict) -> bool:
+    proc = state.get("browser_process")
+    if proc is None:
+        return False
+
+    if proc.poll() is not None:
+        return True
+
+    try:
+        if sys.platform == "win32":
+            proc.terminate()
+        else:
+            proc.send_signal(signal.SIGTERM)
+        await asyncio.to_thread(proc.wait, 5)
+        return True
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+            await asyncio.to_thread(proc.wait, 5)
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
 def _parse_json_param(value: str, default: Any = None):
     """Parse optional JSON string param (e.g. fields, paths, values)."""
     if not value or not isinstance(value, str):
@@ -467,19 +654,24 @@ def _next_page_id(state: dict) -> str:
     return f"page_{state['page_counter']}"
 
 
+def _register_page(state: dict, page, page_id: str) -> None:
+    """Initialize state and listeners for a page."""
+    state["refs"][page_id] = {}
+    state["console_logs"][page_id] = []
+    state["network_requests"][page_id] = []
+    state["pending_dialogs"][page_id] = []
+    state["pending_file_choosers"][page_id] = []
+    _attach_page_listeners(state, page, page_id)
+    state["pages"][page_id] = page
+
+
 def _attach_context_listeners(state: dict, context) -> None:
     """When the page opens a new tab (e.g. target=_blank, window.open),
     register it and set as current."""
 
     def on_page(page):
         new_id = _next_page_id(state)
-        state["refs"][new_id] = {}
-        state["console_logs"][new_id] = []
-        state["network_requests"][new_id] = []
-        state["pending_dialogs"][new_id] = []
-        state["pending_file_choosers"][new_id] = []
-        _attach_page_listeners(state, page, new_id)
-        state["pages"][new_id] = page
+        _register_page(state, page, new_id)
         state["current_page_id"] = new_id
         logger.debug(
             "New tab opened by page, registered as page_id=%s",
@@ -532,81 +724,24 @@ async def _ensure_browser(
             state["_sync_playwright"] = pw
             state["_sync_browser"] = browser
             state["_sync_context"] = context
+            state["connected_via_cdp"] = False
+            state["cdp_url"] = None
+            state["owned_browser_process"] = False
+            state["browser_pid"] = None
+            state["browser_process"] = None
+            state["launch_mode"] = "playwright"
         else:
-            # Standard mode: use async Playwright
-            async_playwright = _ensure_playwright_async()
-            pw = await async_playwright().start()
-            # Prefer OS default browser when available (e.g. user's default Chrome/Safari).
-            use_default = (
-                not is_running_in_container()
-                and EnvVarLoader.get_bool(
-                    "QWENPAW_BROWSER_USE_DEFAULT",
-                    True,
+            try:
+                await _start_managed_cdp_browser(
+                    state,
+                    ensure_pages=True,
                 )
-            )
-            default_kind, default_path = (
-                get_system_default_browser() if use_default else (None, None)
-            )
-            exe: Optional[str] = None
-            if default_kind == "chromium" and default_path:
-                exe = default_path
-            elif default_kind != "webkit":
-                exe = _chromium_executable_path()
-            if exe:
-                # System Chrome/Edge/Chromium: use persistent context when workspace
-                # dir is available, otherwise fall back to a plain new_context.
-                user_data_dir = state["user_data_dir"]
-                if user_data_dir:
-                    Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-                    extra_args = _chromium_launch_args()
-                    context = await pw.chromium.launch_persistent_context(
-                        user_data_dir=user_data_dir,
-                        headless=state["headless"],
-                        executable_path=exe,
-                        args=extra_args if extra_args else [],
-                    )
-                    _attach_context_listeners(state, context)
-                    state["playwright"] = pw
-                    state[
-                        "browser"
-                    ] = None  # not needed for persistent context
-                    state["context"] = context
-                else:
-                    launch_kwargs: dict[str, Any] = {
-                        "headless": state["headless"],
-                    }
-                    extra_args = _chromium_launch_args()
-                    if extra_args:
-                        launch_kwargs["args"] = extra_args
-                    launch_kwargs["executable_path"] = exe
-                    pw_browser = await pw.chromium.launch(**launch_kwargs)
-                    context = await pw_browser.new_context()
-                    _attach_context_listeners(state, context)
-                    state["playwright"] = pw
-                    state["browser"] = pw_browser
-                    state["context"] = context
-            elif default_kind == "webkit" or sys.platform == "darwin":
-                # macOS: default Safari or no Chromium → use WebKit (no persistent ctx)
-                pw_browser = await pw.webkit.launch(
-                    headless=state["headless"],
+            except Exception:
+                await _action_start(
+                    state,
+                    headed=not state["headless"],
+                    private_mode=True,
                 )
-                context = await pw_browser.new_context()
-                _attach_context_listeners(state, context)
-                state["playwright"] = pw
-                state["browser"] = pw_browser
-                state["context"] = context
-            else:
-                # Windows/Linux without system Chromium → Playwright's bundled Chromium
-                launch_kwargs = {"headless": state["headless"]}
-                extra_args = _chromium_launch_args()
-                if extra_args:
-                    launch_kwargs["args"] = extra_args
-                pw_browser = await pw.chromium.launch(**launch_kwargs)
-                context = await pw_browser.new_context()
-                _attach_context_listeners(state, context)
-                state["playwright"] = pw
-                state["browser"] = pw_browser
-                state["context"] = context
         state["_last_browser_error"] = None
         _touch_activity(state)
         _start_idle_watchdog(state)
@@ -643,6 +778,7 @@ async def _action_start(
     state: dict,
     headed: bool = False,
     cdp_port: int = 0,
+    private_mode: bool = False,
 ) -> ToolResponse:
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
@@ -650,12 +786,12 @@ async def _action_start(
             state["_sync_browser"] is not None
             or state["_sync_context"] is not None
         )
-        current_headless = not state.get("_sync_headless", True)
+        current_headless = bool(state.get("_sync_headless", True))
     else:
         browser_exists = (
             state["browser"] is not None or state["context"] is not None
         )
-        current_headless = state["headless"]
+        current_headless = bool(state["headless"])
 
     # If user asks for visible window (headed=True)
     # but browser is already running headless, restart with headed
@@ -693,9 +829,7 @@ async def _action_start(
     state["headless"] = not headed
 
     if cdp_port:
-        import socket as _socket
-
-        with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _s:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
             if _s.connect_ex(("127.0.0.1", cdp_port)) == 0:
                 return _tool_response(
                     json.dumps(
@@ -713,7 +847,13 @@ async def _action_start(
                 )
 
     try:
-        if _USE_SYNC_PLAYWRIGHT:
+        if not _USE_SYNC_PLAYWRIGHT and not bool(private_mode):
+            await _start_managed_cdp_browser(
+                state,
+                cdp_port=cdp_port,
+                ensure_pages=True,
+            )
+        elif _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
             pw, browser, context = await loop.run_in_executor(
                 _get_executor(),
@@ -723,24 +863,16 @@ async def _action_start(
             state["_sync_browser"] = browser
             state["_sync_context"] = context
             state["_sync_headless"] = not headed
+            state["connected_via_cdp"] = False
+            state["cdp_url"] = None
+            state["owned_browser_process"] = False
+            state["browser_pid"] = None
+            state["browser_process"] = None
+            state["launch_mode"] = "playwright"
         else:
             async_playwright = _ensure_playwright_async()
             pw = await async_playwright().start()
-            use_default = (
-                not is_running_in_container()
-                and EnvVarLoader.get_bool(
-                    "QWENPAW_BROWSER_USE_DEFAULT",
-                    True,
-                )
-            )
-            default_kind, default_path = (
-                get_system_default_browser() if use_default else (None, None)
-            )
-            exe: Optional[str] = None
-            if default_kind == "chromium" and default_path:
-                exe = default_path
-            elif default_kind != "webkit":
-                exe = _chromium_executable_path()
+            default_kind, exe = _resolve_chromium_launch_target()
             extra_args = list(_chromium_launch_args())
             if cdp_port:
                 extra_args.append(f"--remote-debugging-port={cdp_port}")
@@ -793,6 +925,12 @@ async def _action_start(
                 state["playwright"] = pw
                 state["browser"] = pw_browser
                 state["context"] = context
+            state["connected_via_cdp"] = False
+            state["cdp_url"] = None
+            state["owned_browser_process"] = False
+            state["browser_pid"] = None
+            state["browser_process"] = None
+            state["launch_mode"] = "playwright"
         _touch_activity(state)
         _start_idle_watchdog(state)
         msg = (
@@ -804,10 +942,20 @@ async def _action_start(
             "ok": True,
             "message": msg,
             "tip": "Enable browser-related skills in the agent config for a better experience.",
+            "launch_mode": state.get("launch_mode"),
+            "owned_browser_process": state.get("owned_browser_process", False),
+            "private_mode": bool(private_mode),
         }
-        if cdp_port:
-            result["cdp_url"] = f"http://localhost:{cdp_port}"
-            result["message"] = msg + f" with CDP port {cdp_port}"
+        if state.get("browser_pid"):
+            result["browser_pid"] = state["browser_pid"]
+        cdp_url = state.get("cdp_url") or (
+            f"http://localhost:{cdp_port}" if cdp_port else None
+        )
+        if cdp_url:
+            result["cdp_url"] = cdp_url
+            result["message"] = (
+                msg + f" with CDP port {cdp_url.rsplit(':', 1)[-1]}"
+            )
         return _tool_response(
             json.dumps(result, ensure_ascii=False, indent=2),
         )
@@ -834,9 +982,11 @@ async def _action_stop(state: dict) -> ToolResponse:
             ),
         )
 
-    # CDP-connected mode: just disconnect Playwright; leave Chrome process running.
+    # CDP-connected mode: just disconnect Playwright; optionally stop owned Chrome process.
     if state.get("connected_via_cdp"):
         cdp_url = state.get("cdp_url") or ""
+        owned = bool(state.get("owned_browser_process"))
+        pid = state.get("browser_pid")
         try:
             if state["context"] is not None:
                 try:
@@ -853,13 +1003,23 @@ async def _action_stop(state: dict) -> ToolResponse:
                     await state["playwright"].stop()
                 except Exception:
                     pass
+            stopped = False
+            if owned:
+                stopped = await _stop_owned_browser_process(state)
         finally:
             _reset_browser_state(state)
+        message = (
+            f"Disconnected from Chrome and stopped owned browser process (pid={pid})"
+            if owned
+            else f"Disconnected from Chrome (process still running: {cdp_url})"
+        )
         return _tool_response(
             json.dumps(
                 {
                     "ok": True,
-                    "message": f"Disconnected from Chrome (process still running: {cdp_url})",
+                    "message": message,
+                    "owned_browser_process": owned,
+                    "browser_stopped": stopped if owned else False,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -959,12 +1119,7 @@ async def _action_open(state: dict, url: str, page_id: str) -> ToolResponse:
             # Standard async mode
             page = await state["context"].new_page()
 
-        state["refs"][page_id] = {}
-        state["console_logs"][page_id] = []
-        state["network_requests"][page_id] = []
-        state["pending_dialogs"][page_id] = []
-        state["pending_file_choosers"][page_id] = []
-        _attach_page_listeners(state, page, page_id)
+        _register_page(state, page, page_id)
 
         if _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
@@ -2584,12 +2739,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             else:
                 page = await state["context"].new_page()
             new_id = _next_page_id(state)
-            state["refs"][new_id] = {}
-            state["console_logs"][new_id] = []
-            state["network_requests"][new_id] = []
-            state["pending_dialogs"][new_id] = []
-            _attach_page_listeners(state, page, new_id)
-            state["pages"][new_id] = page
+            _register_page(state, page, new_id)
             state["current_page_id"] = new_id
             return _tool_response(
                 json.dumps(
@@ -2818,10 +2968,8 @@ _CDP_SCAN_PORT_MAX = 10000
 
 def _fetch_cdp_json(port: int) -> list:
     """Fetch CDP /json endpoint synchronously. Raises on failure."""
-    import urllib.request
-
     url = f"http://localhost:{port}/json"
-    with urllib.request.urlopen(url, timeout=1) as resp:  # noqa: S310
+    with urllib_request.urlopen(url, timeout=1) as resp:  # noqa: S310
         return json.loads(resp.read())
 
 
@@ -2939,18 +3087,20 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
         state["context"] = context
         state["connected_via_cdp"] = True
         state["cdp_url"] = cdp_url
+        state["launch_mode"] = "external_cdp"
+        state["owned_browser_process"] = False
+        state["browser_pid"] = None
+        state["browser_process"] = None
         # Register existing pages
         for page in context.pages:
-            page_id = f"page_{state['page_counter']}"
-            state["page_counter"] += 1
-            state["pages"][page_id] = page
+            page_id = _next_page_id(state)
+            _register_page(state, page, page_id)
             if state["current_page_id"] is None:
                 state["current_page_id"] = page_id
         if not state["pages"]:
             page = await context.new_page()
-            page_id = f"page_{state['page_counter']}"
-            state["page_counter"] += 1
-            state["pages"][page_id] = page
+            page_id = _next_page_id(state)
+            _register_page(state, page, page_id)
             state["current_page_id"] = page_id
         _touch_activity(state)
         _start_idle_watchdog(state)
@@ -3018,6 +3168,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
     frame_selector: str = "",
     headed: bool = False,
     cdp_port: int = 0,
+    private_mode: bool = False,
     cdp_url: str = "",
     port: int = 0,
     port_min: int = 0,
@@ -3150,9 +3301,14 @@ async def browser_use(  # pylint: disable=R0911,R0912
             When True with action=start, launch a visible browser window
             (non-headless). User can see the real browser. Default False.
         cdp_port (int):
-            When > 0 with action=start, Chrome is launched with
-            --remote-debugging-port=N so external tools (or connect_cdp) can
-            attach. Default 0 (internal Playwright-managed port, not exposed).
+            When > 0 with action=start, use the specified CDP port. When 0,
+            QwenPaw chooses a free local port automatically for managed CDP.
+        private_mode (bool):
+            When True with action=start, force direct Playwright management
+            instead of managed CDP. Use this when the user explicitly does not
+            want the browser to be connectable by other local tools/workspaces
+            via CDP. Default False. By default, QwenPaw prefers managed CDP for
+            both headless and headed starts.
         cdp_url (str):
             CDP base URL, e.g. "http://localhost:9222". Required for
             action=connect_cdp.
@@ -3191,7 +3347,12 @@ async def browser_use(  # pylint: disable=R0911,R0912
 
     try:
         if action == "start":
-            return await _action_start(state, headed=headed, cdp_port=cdp_port)
+            return await _action_start(
+                state,
+                headed=headed,
+                cdp_port=cdp_port,
+                private_mode=private_mode,
+            )
         if action == "stop":
             return await _action_stop(state)
         if action == "connect_cdp":

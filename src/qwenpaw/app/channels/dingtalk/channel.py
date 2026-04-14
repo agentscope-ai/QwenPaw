@@ -728,13 +728,25 @@ class DingTalkChannel(BaseChannel):
             None,
         )
 
+    @staticmethod
+    def _is_base64_url(url: str) -> bool:
+        """True when *url* is a ``data:…;base64,`` URI."""
+        return (
+            isinstance(url, str)
+            and url.startswith("data:")
+            and "base64," in url
+        )
+
     def _parts_to_single_text(
         self,
         parts: List[OutgoingContentPart],
         bot_prefix: str = "",
     ) -> str:
-        """Build one reply text from parts
-        (same logic as send_content_parts body).
+        """Build one reply text from parts.
+
+        Base64 data-URIs are replaced with a short
+        placeholder to avoid exceeding DingTalk's
+        message size limit.
         """
         text_parts: List[str] = []
         for p in parts:
@@ -744,9 +756,17 @@ class DingTalkChannel(BaseChannel):
             elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
                 text_parts.append(p.refusal or "")
             elif t == ContentType.IMAGE and getattr(p, "image_url", None):
-                text_parts.append(f"[Image: {p.image_url}]")
+                url = p.image_url
+                if self._is_base64_url(url):
+                    text_parts.append("[Image]")
+                else:
+                    text_parts.append(f"[Image: {url}]")
             elif t == ContentType.VIDEO and getattr(p, "video_url", None):
-                text_parts.append(f"[Video: {p.video_url}]")
+                url = p.video_url
+                if self._is_base64_url(url):
+                    text_parts.append("[Video]")
+                else:
+                    text_parts.append(f"[Video: {url}]")
             elif t == ContentType.FILE and (
                 getattr(p, "file_url", None) or getattr(p, "file_id", None)
             ):
@@ -755,7 +775,10 @@ class DingTalkChannel(BaseChannel):
                     "file_id",
                     None,
                 )
-                text_parts.append(f"[File: {url_or_id}]")
+                if self._is_base64_url(url_or_id or ""):
+                    text_parts.append("[File]")
+                else:
+                    text_parts.append(f"[File: {url_or_id}]")
             elif t == ContentType.AUDIO and getattr(p, "data", None):
                 text_parts.append("[Audio]")
         body = "\n".join(text_parts) if text_parts else ""
@@ -1978,6 +2001,53 @@ class DingTalkChannel(BaseChannel):
             )
             raise
 
+    async def _deliver_media_parts(
+        self,
+        parts: list,
+        webhook: Optional[str],
+        to_handle: str,
+        meta: Dict[str, Any],
+    ) -> None:
+        """Send media parts separately.
+
+        AI Card only carries text; images, files,
+        videos and audio must be delivered via
+        webhook upload or Open API.
+        """
+        _types = (
+            ContentType.IMAGE,
+            ContentType.FILE,
+            ContentType.VIDEO,
+            ContentType.AUDIO,
+        )
+        for part in parts:
+            pt = getattr(part, "type", None)
+            if pt not in _types:
+                continue
+            sent = False
+            if webhook:
+                sent = await self._send_media_part_via_webhook(
+                    webhook,
+                    part,
+                )
+            if not sent:
+                resolver = getattr(
+                    self,
+                    "_resolve_open_api_params_from_handle",
+                )
+                params = await resolver(
+                    to_handle,
+                    meta,
+                )
+                cid = params["conversation_id"]
+                if cid:
+                    await self._send_media_part_via_open_api(
+                        part,
+                        conversation_id=cid,
+                        conversation_type=params["conversation_type"],
+                        sender_staff_id=params["sender_staff_id"],
+                    )
+
     async def _process_dingtalk_core(  # noqa: C901
         self,
         request: Any,
@@ -2105,6 +2175,14 @@ class DingTalkChannel(BaseChannel):
                             )
                         else:
                             accumulated_parts.extend(parts)
+                    # AI Card carries text only; deliver
+                    # media parts (images etc.) separately.
+                    await self._deliver_media_parts(
+                        parts,
+                        session_webhook,
+                        to_handle,
+                        reply_meta,
+                    )
                 elif use_multi and parts and session_webhook:
                     if body.strip():
                         await self._send_via_session_webhook(

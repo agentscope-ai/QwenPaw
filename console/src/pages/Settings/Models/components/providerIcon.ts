@@ -37,6 +37,10 @@ export const providerIcon = (provider: string) => {
     case "zhipu-cn-codingplan":
     case "zhipu-intl-codingplan":
       return "https://img.alicdn.com/imgextra/i2/O1CN01TFZcQz23xX7qacIEv_!!6000000007322-2-tps-640-640.png";
+    case "openrouter":
+      return "https://gw.alicdn.com/imgextra/i4/O1CN01oX74jS1ciQR9xBtZ2_!!6000000003634-2-tps-252-252.png";
+    case "opencode":
+      return "https://gw.alicdn.com/imgextra/i1/O1CN01d3RfoB28G5dbN4i97_!!6000000007904-2-tps-30-30.png";
     default:
       return "https://gw.alicdn.com/imgextra/i4/O1CN01IWnlOw1lebfpiFrIL_!!6000000004844-0-tps-100-100.jpg";
   }
