@@ -26,7 +26,6 @@ SUPPORTED_AGENT_TEMPLATES = (
     QA_AGENT_TEMPLATE,
 )
 
-DEFAULT_TEMPLATE_NAME = "Default Agent"
 LOCAL_TEMPLATE_SKILL_NAMES = ("make_plan",)
 QA_TEMPLATE_DESCRIPTION = (
     "Builtin Q&A helper for QwenPaw setup, local config under "
