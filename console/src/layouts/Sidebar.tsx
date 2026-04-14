@@ -231,6 +231,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.tokenUsage"),
     },
     {
+      key: "agent-stats",
+      icon: <SparkDataLine size={18} />,
+      path: "/agent-stats",
+      label: t("nav.agentStats"),
+    },
+    {
       key: "voice-transcription",
       icon: <SparkMicLine size={18} />,
       path: "/voice-transcription",
@@ -353,6 +359,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {
           key: "token-usage",
           label: collapsed ? null : t("nav.tokenUsage"),
+          icon: <SparkDataLine size={16} />,
+        },
+        {
+          key: "agent-stats",
+          label: collapsed ? null : t("nav.agentStats"),
           icon: <SparkDataLine size={16} />,
         },
         {

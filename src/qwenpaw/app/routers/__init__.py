@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """API routers."""
+
 from fastapi import APIRouter
 
 from .agent import router as agent_router
@@ -17,6 +18,7 @@ from ..crons.api import router as cron_router
 from ..runner.api import router as runner_router
 from .console import router as console_router
 from .token_usage import router as token_usage_router
+from .agent_stats import router as agent_stats_router
 from .auth import router as auth_router
 from .messages import router as messages_router
 from .files import router as files_router
@@ -41,6 +43,7 @@ router.include_router(tools_router)
 router.include_router(workspace_router)
 router.include_router(envs_router)
 router.include_router(token_usage_router)
+router.include_router(agent_stats_router)
 router.include_router(auth_router)
 router.include_router(files_router)
 router.include_router(settings_router)
