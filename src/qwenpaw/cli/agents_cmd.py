@@ -3,13 +3,28 @@
 # pylint:disable=too-many-branches,too-many-statements
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional, Dict, Any
 
 import click
 import httpx
 
 from ..agents.tools import agent_management as agent_tools
+from ..agents.templates import (
+    DEFAULT_AGENT_TEMPLATE,
+    build_agent_template,
+    list_supported_agent_templates,
+)
+from ..config import load_config, save_config
+from ..config.config import (
+    AgentProfileRef,
+    generate_short_agent_id,
+    save_agent_config,
+)
+from ..constant import WORKING_DIR
 from .http import print_json, resolve_base_url
+
+SUPPORTED_AGENT_TEMPLATES = list_supported_agent_templates()
 
 
 def _extract_text_content(response_data: Dict[str, Any]) -> str:
@@ -271,6 +286,78 @@ def _check_task_status(
         raise click.Abort()
 
 
+def _normalized_agent_order(config) -> list[str]:
+    """Return a deduplicated agent order covering every configured agent."""
+    profile_ids = list(config.agents.profiles.keys())
+    ordered_ids: list[str] = []
+
+    for agent_id in config.agents.agent_order:
+        if agent_id in config.agents.profiles and agent_id not in ordered_ids:
+            ordered_ids.append(agent_id)
+
+    for agent_id in profile_ids:
+        if agent_id not in ordered_ids:
+            ordered_ids.append(agent_id)
+
+    return ordered_ids
+
+
+def _generate_agent_id(config, agent_id: Optional[str]) -> str:
+    """Return a user-provided agent ID or generate a unique one."""
+    if agent_id:
+        if agent_id in config.agents.profiles:
+            raise click.ClickException(
+                f"Agent '{agent_id}' already exists.",
+            )
+        return agent_id
+
+    max_attempts = 10
+    for _ in range(max_attempts):
+        candidate_id = generate_short_agent_id()
+        if candidate_id not in config.agents.profiles:
+            return candidate_id
+
+    raise click.ClickException(
+        "Failed to generate unique agent ID after 10 attempts.",
+    )
+
+
+def _build_agent_workspace_dir(
+    agent_id: str,
+    workspace_dir: Optional[str],
+) -> Path:
+    """Resolve the agent workspace path."""
+    if workspace_dir is not None:
+        workspace_dir = workspace_dir.strip() or None
+
+    return Path(
+        workspace_dir or f"{WORKING_DIR}/workspaces/{agent_id}",
+    ).expanduser()
+
+
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    """Strip surrounding whitespace from optional CLI text inputs."""
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _initialize_new_agent_workspace(
+    workspace_dir: Path,
+    skill_names: list[str],
+    md_template_id: str | None = None,
+) -> None:
+    """Initialize a new agent workspace using shared server logic."""
+    from ..app.routers.agents import _initialize_agent_workspace
+
+    _initialize_agent_workspace(
+        workspace_dir,
+        skill_names=skill_names,
+        md_template_id=md_template_id,
+    )
+
+
 @click.group("agents")
 def agents_group() -> None:
     """Manage agents and inter-agent communication.
@@ -278,11 +365,13 @@ def agents_group() -> None:
     \b
     Commands:
       list    List all configured agents
+            create  Create a new local agent
       chat    Communicate with another agent
 
     \b
     Examples:
       qwenpaw agents list
+            qwenpaw agents create --name "Research Bot"
       qwenpaw agents chat --from-agent bot_a --to-agent bot_b --text "..."
     """
 
@@ -323,6 +412,115 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
     """
     base_url = resolve_base_url(ctx, base_url)
     print_json(agent_tools.list_agents_data(base_url))
+
+
+@agents_group.command("create")
+@click.option(
+    "--name",
+    required=True,
+    help="Human-readable agent name.",
+)
+@click.option(
+    "--agent-id",
+    default=None,
+    help=("Explicit agent ID. If omitted, a random unique ID is generated."),
+)
+@click.option(
+    "--description",
+    default=None,
+    show_default=False,
+    help="Optional agent description.",
+)
+@click.option(
+    "--workspace-dir",
+    default=None,
+    help=(
+        "Optional workspace directory. "
+        "Defaults to WORKING_DIR/workspaces/<id>."
+    ),
+)
+@click.option(
+    "--language",
+    default=None,
+    show_default=False,
+    help="Agent language stored in the profile config.",
+)
+@click.option(
+    "--template",
+    type=click.Choice(SUPPORTED_AGENT_TEMPLATES, case_sensitive=False),
+    default=None,
+    help="Create agent from builtin template: default or qa.",
+)
+@click.option(
+    "--skill",
+    "skills",
+    multiple=True,
+    help="Initial skill to install. Repeat to add multiple skills.",
+)
+def create_cmd(
+    name: Optional[str],
+    agent_id: Optional[str],
+    description: Optional[str],
+    workspace_dir: Optional[str],
+    language: Optional[str],
+    template: Optional[str],
+    skills: tuple[str, ...],
+) -> None:
+    """Create a new local agent configuration and workspace."""
+    config = load_config()
+    template = _normalize_optional_text(template)
+    name = _normalize_optional_text(name)
+    description = _normalize_optional_text(description)
+    language = _normalize_optional_text(language)
+
+    if not name:
+        raise click.ClickException("--name is required.")
+
+    new_id = _generate_agent_id(config, agent_id)
+    resolved_workspace_dir = _build_agent_workspace_dir(
+        new_id,
+        workspace_dir,
+    )
+    resolved_workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    effective_template = template or DEFAULT_AGENT_TEMPLATE
+    try:
+        template_result = build_agent_template(
+            effective_template,
+            agent_id=new_id,
+            workspace_dir=resolved_workspace_dir,
+            fallback_language=getattr(config.agents, "language", None)
+            or "zh",
+            name=name,
+            description=description,
+            language=language,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    agent_config = template_result.agent_config
+    template_skill_names = list(template_result.initial_skill_names)
+    md_template_id = template_result.md_template_id
+
+    requested_skills = list(dict.fromkeys([*template_skill_names, *skills]))
+    _initialize_new_agent_workspace(
+        resolved_workspace_dir,
+        skill_names=requested_skills,
+        md_template_id=md_template_id,
+    )
+
+    agent_ref = AgentProfileRef(
+        id=new_id,
+        workspace_dir=str(resolved_workspace_dir),
+        enabled=True,
+    )
+    config.agents.profiles[new_id] = agent_ref
+    config.agents.agent_order = _normalized_agent_order(config)
+
+    save_config(config)
+    save_agent_config(new_id, agent_config)
+
+    print_json(agent_ref.model_dump())
 
 
 @agents_group.command("chat")

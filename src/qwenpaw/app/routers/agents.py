@@ -5,7 +5,6 @@ Provides RESTful API for managing multiple agent instances.
 """
 import json
 import logging
-import shutil
 from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
@@ -26,7 +25,7 @@ from ...config.config import (
 )
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
-from ...agents.utils import copy_builtin_qa_md_files
+from ...agents.utils import copy_workspace_md_files
 from ...agents.skills_manager import SkillPoolService, get_workspace_skills_dir
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
@@ -560,34 +559,18 @@ async def list_agent_memory(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-def _seed_workspace_md_files(
+def _apply_workspace_md_templates(
     workspace_dir: Path,
     language: str,
     *,
-    builtin_qa_md_seed: bool,
+    md_template_id: str | None,
 ) -> None:
-    """Seed workspace markdown files for a new agent."""
-    if builtin_qa_md_seed:
-        try:
-            copy_builtin_qa_md_files(language, workspace_dir)
-        except Exception as e:
-            logger.warning("Failed to seed builtin QA md files: %s", e)
-        return
-
-    md_files_dir = (
-        Path(__file__).parent.parent.parent / "agents" / "md_files" / language
+    """Copy common and template-specific markdown files for a workspace."""
+    copy_workspace_md_files(
+        language,
+        workspace_dir,
+        md_template_id=md_template_id,
     )
-    if not md_files_dir.exists():
-        return
-
-    for md_file in md_files_dir.glob("*.md"):
-        target_file = workspace_dir / md_file.name
-        if target_file.exists():
-            continue
-        try:
-            shutil.copy2(md_file, target_file)
-        except Exception as e:
-            logger.warning("Failed to copy %s: %s", md_file.name, e)
 
 
 def _ensure_heartbeat_file(workspace_dir: Path, language: str) -> None:
@@ -660,7 +643,7 @@ def _install_initial_skills(
 def _initialize_agent_workspace(
     workspace_dir: Path,
     skill_names: list[str] | None = None,
-    builtin_qa_md_seed: bool = False,
+    md_template_id: str | None = None,
 ) -> None:
     """Initialize agent workspace with only explicitly requested skills."""
     from ...config import load_config as load_global_config
@@ -672,10 +655,10 @@ def _initialize_agent_workspace(
     config = load_global_config()
     language = config.agents.language or "zh"
 
-    _seed_workspace_md_files(
+    _apply_workspace_md_templates(
         workspace_dir,
         language,
-        builtin_qa_md_seed=builtin_qa_md_seed,
+        md_template_id=md_template_id,
     )
     _ensure_heartbeat_file(workspace_dir, language)
     _install_initial_skills(workspace_dir, skill_names)

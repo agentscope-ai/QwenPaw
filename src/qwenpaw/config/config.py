@@ -681,6 +681,10 @@ class AgentProfileConfig(BaseModel):
         default="",
         description="Path to agent's workspace (optional, for reference)",
     )
+    template_id: Optional[str] = Field(
+        default=None,
+        description="Builtin template used when this agent was created",
+    )
 
     # Agent-specific configurations
     channels: Optional["ChannelConfig"] = Field(
