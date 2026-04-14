@@ -58,6 +58,13 @@
 
 ## 新闻
 
+[2026-04-14] 我们发布了 v1.1.1！完整更新说明见 [v1.1.1 发布说明](https://qwenpaw.agentscope.io/release-notes)。
+
+- [v1.1.1] 新增：OpenRouter 和 OpenCode 模型供应商；添加模型时模型 ID 自动补全，所有供应商默认开启模型发现；内置 `list_agents` 和 `chat_with_agent` Agent 协作工具；Matrix 频道重写，支持端到端加密（E2EE）、提及处理和消息历史；飞书引用消息处理；钉钉扫码认证；扩展 Shell 命令安全守卫规则；RESTful API 教程文档。
+- [v1.1.1] 优化：钉钉频道迁移至阿里云官方 SDK；多模态探测统一化；模型切换时保留媒体记忆；浏览器默认启动策略改为托管 CDP；模型管理重设计；Agent 配置标签页化；技能选择优化。
+- [v1.1.1] 修复：QQ 频道 `stop()` 不再阻塞 8 秒；Windows 本地模型下载失败；vLLM `tool_choice` 兼容。
+- [v1.1.1] 贡献者：感谢新贡献者：@maplefeng-a、@lhpqaq、@jilin6627-spec。
+
 [2026-04-12] **CoPaw 正式更名为 QwenPaw**：这是一次品牌名称焕新，也是我们迈向下一阶段开源的重要一步。
 
 新的名字，更好地体现了我们正在构建的开源生态，以及我们持续推进的整体开源方向：
