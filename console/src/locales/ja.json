@@ -891,6 +891,8 @@
     "maxItersPlaceholder": "最大反復回数を入力",
     "maxItersRequired": "最大反復回数は必須です",
     "maxItersMin": "最大反復回数は1以上である必要があります",
+    "autoContinueOnTextOnly": "テキストのみのステップで自動継続",
+    "autoContinueOnTextOnlyTooltip": "推論ステップがツール呼び出しなしのテキストのみで終わった場合、ヒントを挿入し同じツール方針でもう1回推論します。多段階タスクの途中停止を減らします。オフにすると従来どおりです。有効時はトークン消費が増える場合があります。",
     "maxInputLength": "最大入力長",
     "maxInputLengthTooltip": "モデルのコンテキストウィンドウの最大入力長（トークン数）",
     "maxInputLengthPlaceholder": "最大入力長を入力",

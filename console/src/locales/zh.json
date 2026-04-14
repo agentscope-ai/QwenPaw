@@ -948,6 +948,8 @@
     "maxItersPlaceholder": "请输入最大迭代次数",
     "maxItersRequired": "最大迭代次数为必填项",
     "maxItersMin": "最大迭代次数必须大于等于 1",
+    "autoContinueOnTextOnly": "纯文本步骤自动续跑",
+    "autoContinueOnTextOnlyTooltip": "当某轮推理只输出文字、未调用任何工具时，注入提示并额外进行一轮推理（工具策略与当前步相同），减少多步任务「无声中断」。关闭则与旧版行为一致。开启后可能增加 token 消耗。",
     "maxInputLength": "最大输入长度",
     "maxInputLengthTooltip": "模型上下文窗口的最大输入长度（token 数）",
     "maxInputLengthPlaceholder": "请输入最大输入长度",

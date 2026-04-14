@@ -482,7 +482,7 @@ class AgentsRunningConfig(BaseModel):
     )
 
     auto_continue_on_text_only: bool = Field(
-        default=True,
+        default=False,
         description=(
             "When the model returns a text-only assistant message (no tool "
             "calls), inject one follow-up hint and run one extra reasoning "

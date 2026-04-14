@@ -664,17 +664,34 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
+    _AUTO_CONTINUE_MAX_EXTRA = 2
+    _AUTO_CONTINUE_TAIL_CHARS = 600
+
     _AUTO_CONTINUE_HINT = (
         "<system-hint>"
-        "Your previous response contained only text without any tool calls. "
-        "If you still have pending actions to complete the user's task, "
-        "please make the appropriate tool call(s) now. "
-        "If the task is genuinely complete, provide a brief summary.\n"
-        "你的上一条回复只有文字、没有调用任何工具。"
-        "如果用户的任务尚未完成，请立即发起对应的工具调用。"
-        "如果任务确已完成，请给出简要总结。"
+        "Your previous assistant turn had text only (no tool calls). "
+        "Use the trailing excerpt in <previous-assistant-tail> (if present) "
+        "plus the conversation to decide in this **reasoning** step: if the "
+        "user's task still needs tools, emit tool_use now; if it is fully "
+        "done, reply with a short text only (no tools). "
+        "Do not stop with plans or code fences alone when tools are still "
+        "needed.\n"
+        "上轮助手仅文字、未调工具。请结合上下文与 <previous-assistant-tail> "
+        "（若有）在本轮推理中判断：仍需执行则立刻 tool；已完结则简短收尾。"
+        "需要操作时勿只输出计划或代码块。"
         "</system-hint>"
     )
+
+    @staticmethod
+    def _auto_continue_tail_context(msg: Msg, max_chars: int) -> str:
+        """Assistant text suffix for hint (fixed cut, not sentence NLP)."""
+        raw = msg.get_text_content() if msg is not None else ""
+        text = (raw or "").strip()
+        if not text:
+            return ""
+        if len(text) <= max_chars:
+            return text
+        return text[-max_chars:].lstrip()
 
     async def _auto_continue_if_text_only(
         self,
@@ -683,13 +700,13 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
     ) -> Msg:
         """Nudge the model when it returns text-only mid-task.
 
-        Injects one bilingual hint and runs **one** extra ``_reasoning`` pass
-        using the **same** ``tool_choice`` as the current step (usually
-        ``\"auto\"``).  We intentionally do **not** set
-        ``tool_choice=\"required\"``: that would force a tool call and
-        contradict the hint that allows a brief text-only summary when the
-        task is already complete.  The hint uses ``_MemoryMark.HINT`` so
-        ``ReActAgent._reasoning`` includes it and cleans it up afterward.
+        Injects a bilingual hint (with a trailing excerpt of the assistant
+        text for self-review) and runs up to ``_AUTO_CONTINUE_MAX_EXTRA``
+        extra ``_reasoning`` passes until a tool_use appears or the cap is
+        hit—so one text-only stall cannot exhaust the mechanism in a single
+        shot.  Same ``tool_choice`` as the step (usually ``\"auto\"``); we do
+        not set ``\"required\"`` so a genuinely finished task can still end in
+        text only.
         """
         from agentscope.agent._react_agent import _MemoryMark
 
@@ -704,22 +721,40 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         tc: Literal["auto", "none", "required"] = (
             tool_choice if tool_choice is not None else "auto"
         )
-        logger.info(
-            "Auto-continue: text-only response; injecting hint and one extra "
-            "_reasoning pass with tool_choice=%r",
-            tc,
-        )
-        hint_msg = Msg("user", self._AUTO_CONTINUE_HINT, "user")
-        await self.memory.add(hint_msg, marks=_MemoryMark.HINT)
-
-        try:
-            msg = await super()._reasoning(tool_choice=tc)
-        except Exception:
-            logger.warning(
-                "Auto-continue extra _reasoning failed; "
-                "keeping prior response",
-                exc_info=True,
+        extra = 0
+        while extra < self._AUTO_CONTINUE_MAX_EXTRA:
+            if msg.has_content_blocks("tool_use"):
+                break
+            extra += 1
+            tail = self._auto_continue_tail_context(
+                msg,
+                self._AUTO_CONTINUE_TAIL_CHARS,
             )
+            hint_body = self._AUTO_CONTINUE_HINT
+            if tail:
+                hint_body += (
+                    "\n\n<previous-assistant-tail>\n"
+                    f"{tail}\n"
+                    "</previous-assistant-tail>"
+                )
+            logger.info(
+                "Auto-continue: text-only (%d/%d); hint + _reasoning "
+                "tool_choice=%r",
+                extra,
+                self._AUTO_CONTINUE_MAX_EXTRA,
+                tc,
+            )
+            hint_msg = Msg("user", hint_body, "user")
+            await self.memory.add(hint_msg, marks=_MemoryMark.HINT)
+            try:
+                msg = await super()._reasoning(tool_choice=tc)
+            except Exception:
+                logger.warning(
+                    "Auto-continue extra _reasoning failed; "
+                    "keeping prior response",
+                    exc_info=True,
+                )
+                break
 
         return msg
 
