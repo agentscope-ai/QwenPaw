@@ -1366,29 +1366,41 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
 
         # --- Skill hint injection (KV cache friendly) ---
-        # Prepend semantic routing hint to user message without
-        # changing the tool list or system prompt.
+        # Add hint as a system message with mark="hint" in memory.
+        # This way:
+        #   - LLM sees the hint (it's in memory → included in messages)
+        #   - Frontend does NOT display it (system role not rendered)
+        #   - User message is NOT modified (no copy needed)
+        #   - After reply, hint is deleted from memory (no accumulation)
+        hint_injected = False
         if query and msg is not None:
             hint = self._build_skill_hint(query)
             if hint:
-                target = msg[-1] if isinstance(msg, list) else msg
-                if isinstance(target, Msg):
-                    content = target.content
-                    if isinstance(content, str):
-                        target.content = hint + content
-                    elif isinstance(content, list):
-                        # Prepend hint as a TextBlock
-                        from agentscope.message import TextBlock
+                hint_msg = Msg(
+                    name="system",
+                    role="system",
+                    content=hint,
+                )
+                await self.memory.add(hint_msg, marks="skill_hint")
+                hint_injected = True
 
-                        target.content = [
-                            TextBlock(type="text", text=hint),
-                        ] + list(content)
-
-        with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            return await super().reply(
-                msg=msg,
-                structured_model=structured_model,
-            )
+        try:
+            with apply_skill_config_env_overrides(workspace_dir, channel_name):
+                result = await super().reply(
+                    msg=msg,
+                    structured_model=structured_model,
+                )
+            return result
+        finally:
+            # Always clean up hint from memory after reply completes
+            if hint_injected:
+                try:
+                    await self.memory.delete_by_mark("skill_hint")
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to clean up skill hint from memory: %s",
+                        exc,
+                    )
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
