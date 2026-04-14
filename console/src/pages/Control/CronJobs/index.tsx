@@ -169,9 +169,14 @@ function CronJobsPage() {
       }
 
       // Parse request input JSON
-      if (processedValues.request?.input && typeof processedValues.request.input === "string") {
+      if (
+        processedValues.request?.input &&
+        typeof processedValues.request.input === "string"
+      ) {
         try {
-          processedValues.request.input = JSON.parse(processedValues.request.input);
+          processedValues.request.input = JSON.parse(
+            processedValues.request.input,
+          );
         } catch (error) {
           console.error("❌ Failed to parse request.input JSON:", error);
         }
