@@ -3,8 +3,8 @@
 .PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-sa coverage-html clean
 
 # Python path
-PYTHON := ./venv/bin/python
-PYTEST := ./venv/bin/pytest
+PYTHON := python
+PYTEST := python -m pytest
 
 # Default: run all tests
 test:
