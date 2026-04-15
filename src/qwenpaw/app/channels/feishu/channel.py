@@ -101,6 +101,17 @@ else:
         )
         _declare_namespace_patched = True
 
+
+class _EventLoopProxy:
+    """Resolve ``lark_oapi.ws.client.loop`` to the calling thread's loop."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return getattr(asyncio.get_running_loop(), name)
+        except RuntimeError:
+            return getattr(asyncio.get_event_loop(), name)
+
+
 try:
     import lark_oapi as lark
     from lark_oapi.api.contact.v3 import GetUserRequest
@@ -114,9 +125,14 @@ try:
         CreateMessageReactionRequest,
         CreateMessageReactionRequestBody,
         Emoji,
+        GetMessageRequest,
         GetMessageResourceRequest,
         P2ImMessageReceiveV1,
     )
+
+    import lark_oapi.ws.client as _ws_mod
+
+    _ws_mod.loop = _EventLoopProxy()
 except ImportError:  # pragma: no cover - optional dependency may be missing
     lark = None  # type: ignore[assignment]
     GetUserRequest = None  # type: ignore[assignment]
@@ -129,6 +145,7 @@ except ImportError:  # pragma: no cover - optional dependency may be missing
     CreateMessageReactionRequest = None  # type: ignore[assignment]
     CreateMessageReactionRequestBody = None  # type: ignore[assignment]
     Emoji = None  # type: ignore[assignment]
+    GetMessageRequest = None  # type: ignore[assignment]
     GetMessageResourceRequest = None  # type: ignore[assignment]
     P2ImMessageReceiveV1 = None  # type: ignore[assignment]
 finally:
@@ -805,6 +822,24 @@ class FeishuChannel(BaseChannel):
             else:
                 text_parts.append(f"[{msg_type}]")
 
+            # Handle quoted (replied-to) message if present.
+            # Feishu provides two IDs for reply chains:
+            #   - parent_id: the message this one directly replies to
+            #   - root_id:   the root of the entire reply tree
+            # We use parent_id because the user's intent is to reference
+            # the message they directly replied to, not the root of the
+            # thread.  Both IDs are identical when replying to the root
+            # message.  The logic is the same for group and p2p chats.
+            parent_id = str(
+                getattr(message, "parent_id", "") or "",
+            ).strip()
+            if parent_id:
+                await self._process_quoted_message(
+                    parent_id,
+                    text_parts,
+                    content_parts,
+                )
+
             text = "\n".join(text_parts).strip() if text_parts else ""
             if text:
                 content_parts.insert(
@@ -984,6 +1019,195 @@ class FeishuChannel(BaseChannel):
         except Exception:
             logger.exception("feishu _download_file_resource failed")
             return None
+
+    async def _fetch_quoted_message_content(
+        self,
+        parent_id: str,
+    ) -> Optional[Tuple[str, str]]:
+        """Fetch the quoted (replied-to) message via Get Message API.
+
+        Args:
+            parent_id: The message_id of the parent (quoted) message.
+
+        Returns:
+            A tuple of (msg_type, content_json) on success, or None on
+            failure.  ``content_json`` is the raw JSON string from the
+            message body (same format as ``message.content`` in events).
+        """
+        if not self._client or not parent_id:
+            return None
+        try:
+            req = GetMessageRequest.builder().message_id(parent_id).build()
+            resp = await self._client.im.v1.message.aget(req)
+            if not resp.success():
+                logger.info(
+                    "feishu fetch quoted message failed: "
+                    "parent_id=%s code=%s msg=%s",
+                    parent_id[:20],
+                    getattr(resp, "code", ""),
+                    getattr(resp, "msg", ""),
+                )
+                return None
+            items = (resp.data.items or []) if resp.data else []
+            if not items:
+                logger.info(
+                    "feishu fetch quoted message: empty items parent_id=%s",
+                    parent_id[:20],
+                )
+                return None
+            quoted_msg = items[0]
+            msg_type = getattr(quoted_msg, "msg_type", "") or ""
+            body = getattr(quoted_msg, "body", None)
+            content = getattr(body, "content", "") or "" if body else ""
+            return (msg_type, content)
+        except Exception:
+            logger.exception(
+                "feishu _fetch_quoted_message_content failed parent_id=%s",
+                parent_id[:20] if parent_id else "",
+            )
+            return None
+
+    async def _process_quoted_message(
+        self,
+        parent_id: str,
+        text_parts: List[str],
+        content_parts: List[Any],
+    ) -> None:
+        """Fetch and process the quoted (replied-to) message.
+
+        Inserts quoted text at the beginning of ``text_parts`` and appends
+        quoted media to ``content_parts``, following the same pattern as
+        the WeCom channel.
+
+        Args:
+            parent_id: The message_id of the quoted message.
+            text_parts: Mutable list of text strings to prepend quoted text.
+            content_parts: Mutable list of content parts to append media.
+        """
+        result = await self._fetch_quoted_message_content(parent_id)
+        if not result:
+            return
+        quoted_msg_type, quoted_content = result
+        logger.info(
+            "feishu quoted message: parent_id=%s type=%s",
+            parent_id[:20],
+            quoted_msg_type,
+        )
+
+        if quoted_msg_type == "text":
+            quoted_text = extract_json_key(quoted_content, "text")
+            if quoted_text:
+                text_parts.insert(0, f"[quoted message: {quoted_text}]")
+
+        elif quoted_msg_type == "post":
+            quoted_text = extract_post_text(quoted_content)
+            if quoted_text:
+                text_parts.insert(0, f"[quoted message: {quoted_text}]")
+            for img_key in extract_post_image_keys(quoted_content):
+                url_or_path = await self._download_image_resource(
+                    parent_id,
+                    img_key,
+                )
+                if url_or_path:
+                    content_parts.append(
+                        ImageContent(
+                            type=ContentType.IMAGE,
+                            image_url=url_or_path,
+                        ),
+                    )
+                else:
+                    text_parts.insert(0, "[quoted image: download failed]")
+            for file_key in extract_post_media_file_keys(quoted_content):
+                url_or_path = await self._download_file_resource(
+                    parent_id,
+                    file_key,
+                )
+                if url_or_path:
+                    content_parts.append(
+                        FileContent(
+                            type=ContentType.FILE,
+                            file_url=url_or_path,
+                        ),
+                    )
+                else:
+                    text_parts.insert(0, "[quoted media: download failed]")
+
+        elif quoted_msg_type == "image":
+            image_key = extract_json_key(
+                quoted_content,
+                "image_key",
+                "file_key",
+                "imageKey",
+                "fileKey",
+            )
+            if image_key:
+                url_or_path = await self._download_image_resource(
+                    parent_id,
+                    image_key,
+                )
+                if url_or_path:
+                    content_parts.append(
+                        ImageContent(
+                            type=ContentType.IMAGE,
+                            image_url=url_or_path,
+                        ),
+                    )
+                else:
+                    text_parts.insert(0, "[quoted image: download failed]")
+            else:
+                text_parts.insert(0, "[quoted image: missing key]")
+
+        elif quoted_msg_type in ("file", "media", "audio"):
+            file_key = extract_json_key(
+                quoted_content,
+                "file_key",
+                "fileKey",
+            )
+            file_name = extract_json_key(
+                quoted_content,
+                "file_name",
+                "fileName",
+            )
+            hint_map = {
+                "file": "file.bin",
+                "media": "video.mp4",
+                "audio": "audio.opus",
+            }
+            hint = file_name or hint_map.get(quoted_msg_type, "file.bin")
+            if file_key:
+                url_or_path = await self._download_file_resource(
+                    parent_id,
+                    file_key,
+                    filename_hint=hint,
+                )
+                if url_or_path:
+                    if quoted_msg_type == "audio":
+                        content_parts.append(
+                            AudioContent(
+                                type=ContentType.AUDIO,
+                                data=url_or_path,
+                            ),
+                        )
+                    else:
+                        content_parts.append(
+                            FileContent(
+                                type=ContentType.FILE,
+                                file_url=url_or_path,
+                            ),
+                        )
+                else:
+                    text_parts.insert(
+                        0,
+                        f"[quoted {quoted_msg_type}: download failed]",
+                    )
+            else:
+                text_parts.insert(
+                    0,
+                    f"[quoted {quoted_msg_type}: missing key]",
+                )
+
+        else:
+            text_parts.insert(0, f"[quoted {quoted_msg_type} message]")
 
     def _receive_id_store_path(self) -> Path:
         """
@@ -1757,68 +1981,8 @@ class FeishuChannel(BaseChannel):
                 receive_id_type,
             )
 
-    def _create_ws_client(self) -> Any:
-        """Create a fresh ``lark.ws.Client`` with loop-isolated internals.
-
-        The SDK uses a module-level ``loop`` for ``create_task`` calls,
-        which causes cross-loop errors when multiple agents run in
-        separate threads.  We patch ``_connect`` and
-        ``_receive_message_loop`` to swap in the running loop before
-        delegating to the originals.
-        """
-        event_handler = (
-            lark.EventDispatcherHandler.builder(
-                self.encrypt_key,
-                self.verification_token,
-            )
-            .register_p2_im_message_receive_v1(self._on_message_sync)
-            .build()
-        )
-        client = lark.ws.Client(
-            self.app_id,
-            self.app_secret,
-            event_handler=event_handler,
-            log_level=lark.LogLevel.INFO,
-            domain=(
-                lark.LARK_DOMAIN
-                if self.domain == "lark"
-                else lark.FEISHU_DOMAIN
-            ),
-        )
-
-        _original_connect = client._connect
-        _original_recv_loop = client._receive_message_loop
-
-        async def _patched_connect() -> None:
-            import lark_oapi.ws.client as _ws_mod
-
-            saved, _ws_mod.loop = _ws_mod.loop, asyncio.get_running_loop()
-            try:
-                await _original_connect()
-            finally:
-                _ws_mod.loop = saved
-
-        async def _patched_receive_message_loop() -> None:
-            import lark_oapi.ws.client as _ws_mod
-
-            saved, _ws_mod.loop = _ws_mod.loop, asyncio.get_running_loop()
-            try:
-                await _original_recv_loop()
-            finally:
-                _ws_mod.loop = saved
-
-        client._connect = _patched_connect
-        client._receive_message_loop = _patched_receive_message_loop
-        return client
-
     def _run_ws_forever(self) -> None:
-        """Run WebSocket with automatic reconnection (exponential backoff).
-
-        Each iteration creates a fresh event loop and ``ws.Client``, then
-        drives the connection directly (``_connect`` → ``_ping_loop`` →
-        ``_select``) instead of calling the SDK's ``start()`` which relies
-        on a shared module-level ``loop``.
-        """
+        """Run WebSocket with exponential-backoff reconnection."""
         retry_delay = FEISHU_WS_INITIAL_RETRY_DELAY
 
         while not self._stop_event.is_set() and not self._closed:
@@ -1826,7 +1990,27 @@ class FeishuChannel(BaseChannel):
             asyncio.set_event_loop(self._ws_loop)
             connection_started = False
             try:
-                self._ws_client = self._create_ws_client()
+                event_handler = (
+                    lark.EventDispatcherHandler.builder(
+                        self.encrypt_key,
+                        self.verification_token,
+                    )
+                    .register_p2_im_message_receive_v1(
+                        self._on_message_sync,
+                    )
+                    .build()
+                )
+                self._ws_client = lark.ws.Client(
+                    self.app_id,
+                    self.app_secret,
+                    event_handler=event_handler,
+                    log_level=lark.LogLevel.INFO,
+                    domain=(
+                        lark.LARK_DOMAIN
+                        if self.domain == "lark"
+                        else lark.FEISHU_DOMAIN
+                    ),
+                )
 
                 async def _select() -> None:
                     while True:

@@ -12,7 +12,8 @@ from ...config import (
 )
 from ...config.config import load_agent_config, save_agent_config
 from ...agents.memory.agent_md_manager import AgentMdManager
-from ...agents.utils import copy_builtin_qa_md_files, copy_md_files
+from ...agents.templates import get_workspace_md_template_id
+from ...agents.utils import copy_workspace_md_files
 from ...constant import BUILTIN_QA_AGENT_ID
 from ..agent_context import get_agent_for_request
 
@@ -235,22 +236,15 @@ async def put_agent_language(
 
     copied_files: list[str] = []
     if old_language != language:
-        # Builtin QA: persona from md_files/qa/; MEMORY/HEARTBEAT from lang
-        # pack; never BOOTSTRAP (remove if wrongly copied earlier).
-        if agent_id == BUILTIN_QA_AGENT_ID:
-            copied_files = copy_builtin_qa_md_files(
-                language,
-                workspace.workspace_dir,
-                only_if_missing=False,
-            )
-        else:
-            copied_files = (
-                copy_md_files(
-                    language,
-                    workspace_dir=workspace.workspace_dir,
-                )
-                or []
-            )
+        copied_files = copy_workspace_md_files(
+            language,
+            workspace.workspace_dir,
+            md_template_id=get_workspace_md_template_id(
+                agent_config.template_id
+                or ("qa" if agent_id == BUILTIN_QA_AGENT_ID else None),
+            ),
+            only_if_missing=False,
+        )
 
     return {
         "language": language,

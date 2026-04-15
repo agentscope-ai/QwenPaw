@@ -68,11 +68,13 @@ function TokenUsagePage() {
 
   const byDateDataSource: ByDateRow[] = useMemo(() => {
     if (!data?.by_date) return [];
-    return Object.entries(data.by_date).map(([dt, stats]) => ({
-      ...stats,
-      key: dt,
-      date: dt,
-    }));
+    return Object.entries(data.by_date)
+      .map(([dt, stats]) => ({
+        ...stats,
+        key: dt,
+        date: dt,
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
   }, [data?.by_date]);
 
   const byModelColumns: ColumnsType<ByModelRow> = useMemo(

@@ -258,6 +258,26 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 ---
 
+## Skill Chat Commands
+
+These commands let you inspect skill status in chat and force the agent to use
+a specific skill.
+
+- `/skills` lists skills available in the current channel in a compact format.
+- `/<skill_name>` shows detailed information for that skill, including its
+  description and local path.
+- `/<skill_name> <input>` forces the agent to use `skill_name` to solve the
+  input, usually a task.
+- `/[skill_name]` is also supported as an alternate form.
+
+Notes:
+
+- `skill_name` must match the skill command name shown in `/skills`.
+- These slash commands only work for skills that are enabled and routed to the
+  current channel.
+
+---
+
 ## Model Management Commands
 
 Commands for managing and switching AI models. These commands execute directly without going through the Agent.
@@ -615,3 +635,224 @@ qwenpaw daemon logs -n 50
 qwenpaw daemon status --agent-id abc123
 qwenpaw daemon version --agent-id abc123
 ```
+
+---
+
+## Mission Mode - Autonomous Execution for Complex Tasks
+
+Mission Mode is an autonomous execution mode designed for **long-running, complex tasks**, inspired by [Claude Code](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) and [Ralph Loop](https://github.com/snarktank/ralph). It decomposes large tasks into multiple user stories and completes them through a **master agent → worker agents → verifier agents** pipeline, ensuring quality and reliability.
+
+### Core Features
+
+- 📋 **Two-Phase Design**: Phase 1 generates PRD (Product Requirements Document), Phase 2 executes autonomously
+- 🔒 **Code-Level Control**: Master agent's implementation tools are disabled, can only dispatch workers to prevent context pollution
+- ✅ **Independent Verification**: Each story is verified by a dedicated verifier agent to ensure all acceptance criteria are met
+- 🔄 **Auto-Iteration**: Failed stories are automatically retried until all complete or max iterations reached
+- 🌐 **Multi-Language**: Error messages automatically switch between Chinese and English based on agent config
+
+### Use Cases
+
+**✅ Suitable for Mission Mode:**
+
+- Building complete feature modules (e.g., user authentication system, file manager)
+- Refactoring large codebases (e.g., migrating to a new framework)
+- Batch tasks (e.g., adding unit tests to multiple components)
+- Tasks requiring multiple iterations and verification
+
+**❌ Not suitable for Mission Mode:**
+
+- Simple code changes (e.g., fixing a single bug)
+- Tasks requiring real-time interaction (e.g., debugging)
+- Exploratory tasks (e.g., "research best practices")
+
+### Basic Usage
+
+#### Start a Mission
+
+```bash
+/mission <task description>
+```
+
+**Example:**
+
+```
+/mission Create a CLI TODO app in Python with add, delete, list, and mark-complete features, saving data to local JSON file
+```
+
+**Optional Parameters:**
+
+- `--max-iterations N`: Set max Phase 2 iterations (range 1-100, default 20)
+- `--verify <command>`: Custom verification command (e.g., `pytest`)
+
+```
+/mission Create Web API --max-iterations 30 --verify "pytest tests/"
+```
+
+#### Phase 1: PRD Generation
+
+The agent will:
+
+1. Explore the codebase and understand existing structure
+2. Decompose the task into multiple user stories
+3. Generate `prd.json` file with acceptance criteria for each story
+
+**PRD Example:**
+
+```json
+{
+  "project": "todo-cli-app",
+  "description": "Command-line TODO application",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add Task Feature",
+      "description": "As a user, I want to add new tasks...",
+      "acceptanceCriteria": [
+        "Command 'todo add <task>' successfully adds task",
+        "Task is saved to todos.json file"
+      ],
+      "priority": 1,
+      "passes": false
+    }
+  ]
+}
+```
+
+#### Phase 2: Confirm and Execute
+
+**Confirm PRD:**
+
+After reviewing the PRD, send a confirmation message to enter Phase 2:
+
+```
+Confirm, start execution
+```
+
+**Or, if modifications are needed:**
+
+```
+Please split US-001 into two stories: one for adding and one for persistence
+```
+
+The agent will modify the PRD and wait for confirmation again.
+
+**Phase 2 Execution Flow:**
+
+1. **Master Dispatch**: Dispatches worker agents for each story
+2. **Worker Implementation**: Creates/modifies files, runs tests
+3. **Verifier Validation**: Independent agent verifies all acceptance criteria
+4. **Update PRD**: Passed stories are marked `passes: true`
+5. **Auto-Iteration**: Failed stories are re-dispatched until all complete
+
+#### Check Progress
+
+```bash
+/mission status
+```
+
+**Output Example:**
+
+```
+**Mission Status** — mission-20260415-123456
+- Session: e2e-abc123
+- Phase: execution
+- Project: todo-cli-app
+- Progress: 2/4 stories passed
+- Loop dir: ~/.copaw/workspaces/default/missions/mission-20260415-123456
+
+  ✅ US-001: Add Task Feature
+  ✅ US-002: List Tasks Feature
+  ⬜ US-003: Delete Task Feature
+  ⬜ US-004: Mark Complete Feature
+```
+
+#### List All Missions
+
+```bash
+/mission list
+```
+
+### Working Directory Structure
+
+Each mission creates a working directory under `~/.copaw/workspaces/default/missions/mission-<timestamp>/`:
+
+```
+mission-20260415-123456/
+├── prd.json              # Product Requirements Document
+├── loop_config.json      # Configuration and state
+├── task.md               # Original task description
+├── progress.txt          # Progress log (Codebase Patterns)
+└── <implementation files>
+```
+
+### Important Notes
+
+1. **Session Isolation**: Each session's missions are independent and won't interfere with each other
+2. **PRD Schema Validation**: Phase 2 startup enforces PRD format validation to ensure schema compliance
+3. **Tool Restrictions**: In Phase 2, master agent **cannot** directly use `edit_file`, `browser_use` and other implementation tools, must delegate to workers
+4. **Iteration Limit**: Automatically stops after reaching `--max-iterations` to avoid infinite loops
+5. **Git Support**: If working directory is a Git repo, agent will automatically commit changes (optional)
+6. **⚠️ Tool Guard Bypass**:
+   - **Worker and verifier agents automatically bypass the security tool guard** (disabled via `--background` mode)
+   - This is necessary because background sessions cannot respond to `/approve` interactive prompts
+   - The master agent itself will also bypass the guard
+   - **Security Warning**: All worker operations occur within `missions/<mission-xxx>/` directory, but it is still recommended to **only use Mission Mode in fully trusted codebases**
+   - Sensitive operations (e.g., deleting files, executing shell commands) will execute directly without manual approval
+
+### Advanced Usage
+
+#### Custom Verification Command
+
+```
+/mission Add unit tests --verify "npm test"
+```
+
+Verification phase will run `npm test` to check if tests pass.
+
+#### Increase Iterations (Complex Tasks)
+
+```
+/mission Refactor entire auth module --max-iterations 50
+```
+
+#### Mid-Execution Intervention
+
+During Phase 2, you can send messages to interact with master agent:
+
+```
+Pause - US-003 implementation has issues, please fix before continuing
+```
+
+### Troubleshooting
+
+**Issue: PRD format incorrect**
+
+```
+⚠️ **Cannot enter Phase 2**: prd.json format errors:
+  - Missing required field: userStories
+
+Please fix the PRD format before confirming.
+```
+
+**Solution**: Check `prd.json`, ensure it contains `userStories` array with required fields for each story.
+
+**Issue: Max iterations reached**
+
+```
+⚠️ **Mission reached max iterations** (20). 2/4 stories passed.
+```
+
+**Solutions**:
+
+1. Use `/mission status` to check remaining stories
+2. Increase `--max-iterations` and restart
+3. Or manually complete remaining work
+
+### Comparison with Other Modes
+
+| Mode             | Use Case                  | Agent Behavior                 | Tool Access              |
+| ---------------- | ------------------------- | ------------------------------ | ------------------------ |
+| **Normal Chat**  | Simple tasks, quick fixes | Single agent executes directly | All tools available      |
+| **Mission Mode** | Complex, long-term tasks  | Master dispatches workers      | Master has limited tools |
+
+---

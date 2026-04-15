@@ -77,6 +77,30 @@ class BaseChannel(ABC):
     # If True, manager creates a queue and consumer loop for this channel.
     uses_manager_queue: bool = True
 
+    @classmethod
+    def doctor_connectivity_notes(
+        cls,
+        agent_id: str,
+        config: Any,
+        *,
+        timeout: float,
+    ) -> list[str]:
+        """Optional ``copaw doctor --deep`` reachability checks.
+
+        Override in custom channels. Default: no extra checks
+        (built-in channels use shared probes in ``doctor_connectivity``
+        unless this returns notes).
+
+        Args:
+            agent_id: Profile id from ``agents.profiles``.
+            config: Channel subsection (Pydantic model or dict for extras).
+            timeout: Seconds for TCP/HTTP probes.
+
+        Returns:
+            Informational lines (empty if OK / skipped).
+        """
+        return []
+
     def __init__(
         self,
         process: ProcessHandler,

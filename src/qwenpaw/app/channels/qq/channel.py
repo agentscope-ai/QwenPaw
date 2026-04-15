@@ -664,6 +664,7 @@ class QQChannel(BaseChannel):
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws_thread: Optional[threading.Thread] = None
+        self._ws: Any = None
         self._stop_event = threading.Event()
         self._account_id = "default"
         self._token_cache: Optional[Dict[str, Any]] = None
@@ -1475,6 +1476,7 @@ class QQChannel(BaseChannel):
             logger.warning("qq ws connect failed: %s", e)
             return True
 
+        self._ws = ws
         hb = _HeartbeatController(ws, self._stop_event, state)
         try:
             while not self._stop_event.is_set():
@@ -1492,9 +1494,13 @@ class QQChannel(BaseChannel):
                     break
         except websocket.WebSocketConnectionClosedException:
             pass
+        except OSError:
+            if not self._stop_event.is_set():
+                raise
         except Exception as e:
             logger.exception("qq ws loop: %s", e)
         finally:
+            self._ws = None
             hb.stop()
             try:
                 ws.close()
@@ -1563,8 +1569,15 @@ class QQChannel(BaseChannel):
         if not self.enabled:
             return
         self._stop_event.set()
+        ws = self._ws
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
         if self._ws_thread:
-            self._ws_thread.join(timeout=8)
+            self._ws_thread.join(timeout=2)
+            self._ws_thread = None
         if self._http is not None:
             await self._http.close()
             self._http = None

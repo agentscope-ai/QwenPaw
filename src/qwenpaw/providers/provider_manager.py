@@ -23,18 +23,19 @@ from .gemini_provider import GeminiProvider
 from .models import ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
+from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
     Provider,
     ProviderInfo,
 )
+from .openrouter_provider import OpenRouterProvider
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
     decrypt_dict_fields,
     encrypt_dict_fields,
     is_encrypted,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,13 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
 ]
 
 ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
     ModelInfo(
         id="qwen3.5-plus",
         name="Qwen3.5 Plus",
@@ -253,6 +261,8 @@ OPENAI_MODELS: List[ModelInfo] = [
         probe_source="documentation",
     ),
 ]
+
+OPENCODE_MODELS: List[ModelInfo] = []
 
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(
@@ -543,6 +553,16 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_OPENCODE = OpenAIProvider(
+    id="opencode",
+    name="OpenCode",
+    base_url="https://opencode.ai/zen/v1",
+    api_key_prefix="",
+    models=OPENCODE_MODELS,
+    freeze_url=True,
+    require_api_key=False,
+)
+
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
     id="azure-openai",
     name="Azure OpenAI",
@@ -617,7 +637,6 @@ PROVIDER_GEMINI = GeminiProvider(
     models=GEMINI_MODELS,
     chat_model="GeminiChatModel",
     freeze_url=True,
-    support_model_discovery=True,
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -629,7 +648,16 @@ PROVIDER_OLLAMA = OllamaProvider(
     generate_kwargs={"max_tokens": None},
 )
 
-PROVIDER_LMSTUDIO = OpenAIProvider(
+PROVIDER_OPENROUTER = OpenRouterProvider(
+    id="openrouter",
+    name="OpenRouter",
+    base_url="https://openrouter.ai/api/v1",
+    api_key_prefix="sk-or-v1-",
+    models=[],
+    freeze_url=True,
+)
+
+PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
     name="LM Studio",
     is_local=True,
@@ -647,7 +675,6 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     api_key_prefix="sk-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
     require_api_key=True,
 )
 
@@ -658,7 +685,6 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     api_key_prefix="sk-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
     require_api_key=True,
 )
 
@@ -723,6 +749,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_KIMI_INTL)
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
+        self._add_builtin(PROVIDER_OPENROUTER)
+        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_ZHIPU_CN)
         self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
         self._add_builtin(PROVIDER_ZHIPU_INTL)
@@ -847,19 +875,30 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     async def fetch_provider_models(
         self,
         provider_id: str,
+        save: bool = True,
     ) -> List[ModelInfo]:
-        """Fetch the list of available models from a provider and update."""
+        """Fetch the list of available models from a provider.
+
+        Args:
+            provider_id: The ID of the provider to fetch models from.
+            save: If True, save the discovered models to the provider
+                configuration. Defaults to True.
+
+        Returns:
+            List of ModelInfo objects representing available models.
+        """
         provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return []
         try:
             models = await provider.fetch_models()
-            provider.extra_models = models
-            self._save_provider(
-                provider,
-                is_builtin=provider_id in self.builtin_providers,
-            )
+            if save:
+                provider.extra_models = models
+                self._save_provider(
+                    provider,
+                    is_builtin=provider_id in self.builtin_providers,
+                )
             return models
         except Exception as e:
             logger.warning(
@@ -1155,8 +1194,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     )
                 except Exception as enc_err:
                     logger.debug(
-                        "Deferred plaintext→encrypted migration for"
-                        " provider '%s': %s",
+                        "Deferred plaintext→encrypted migration"
+                        " for provider '%s': %s",
                         provider_id,
                         enc_err,
                     )
@@ -1189,6 +1228,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id = str(data.get("id", ""))
         chat_model = str(data.get("chat_model", ""))
 
+        if provider_id == "openrouter":
+            return OpenRouterProvider.model_validate(data)
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
         if provider_id == "gemini" or chat_model == "GeminiChatModel":
@@ -1455,15 +1496,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because llama.cpp is not "
-                "installed.",
+                "Skipping local model restore because"
+                " llama.cpp is not installed.",
             )
             return
 
         if not local_manager.is_model_downloaded(model_id):
             logger.warning(
-                "Skipping local model restore because model is not "
-                "downloaded: %s",
+                "Skipping local model restore because"
+                " model is not downloaded: %s",
                 model_id,
             )
             return
@@ -1524,10 +1565,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             is_custom=False,  # Mark as non-custom (like builtin, cannot be
             # deleted)
             require_api_key=metadata.get("require_api_key", True),
-            support_model_discovery=metadata.get(
-                "support_model_discovery",
-                False,
-            ),
             meta=metadata.get("meta", {}),  # Pass meta from plugin
         )
 
@@ -1547,8 +1584,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                         "generate_kwargs"
                     ]
                 logger.info(
-                    f"✓ Loaded saved config for plugin provider:"
-                    f" {provider_id}",
+                    f"✓ Loaded saved config for"
+                    f" plugin provider: {provider_id}",
                 )
             except Exception as e:
                 logger.warning(

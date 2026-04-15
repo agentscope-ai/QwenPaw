@@ -16,8 +16,10 @@ from google.genai import types as genai_types
 from qwenpaw.providers.multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
+    _IMAGE_PROBE_PROMPT,
     _PROBE_VIDEO_URL,
     _is_media_keyword_error,
+    evaluate_image_probe_answer,
 )
 from qwenpaw.providers.provider import ModelInfo, Provider
 
@@ -187,41 +189,18 @@ class GeminiProvider(Provider):
                             data=image_bytes,
                         ),
                     ),
-                    genai_types.Part(
-                        text=(
-                            "What is the single dominant color of this "
-                            "image? Reply with ONLY the color name, "
-                            "nothing else."
-                        ),
-                    ),
+                    genai_types.Part(text=_IMAGE_PROBE_PROMPT),
                 ],
                 config=genai_types.GenerateContentConfig(
                     max_output_tokens=20,
                 ),
             )
-            answer = (response.text or "").lower().strip()
-            if any(kw in answer for kw in ("red", "红")):
-                result = True, f"Image supported (answer={answer!r})"
-                elapsed = time.monotonic() - start_time
-                logger.info(
-                    "Image probe done: model=%s result=%s %.2fs",
-                    model_id,
-                    result[0],
-                    elapsed,
-                )
-                return result
-            result = (
-                False,
-                f"Model did not recognise image (answer={answer!r})",
-            )
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Image probe done: model=%s result=%s %.2fs",
+            answer = response.text or ""
+            return evaluate_image_probe_answer(
+                answer,
                 model_id,
-                result[0],
-                elapsed,
+                start_time,
             )
-            return result
         except genai_errors.APIError as e:
             elapsed = time.monotonic() - start_time
             logger.warning(

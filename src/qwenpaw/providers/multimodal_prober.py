@@ -99,3 +99,63 @@ def _is_media_keyword_error(exc: Exception) -> bool:
         "does not support",
     ]
     return any(kw in error_str for kw in keywords)
+
+
+# Shared prompt for image color-probe across all providers.
+_IMAGE_PROBE_PROMPT = (
+    "What is the single dominant color of this image? "
+    "Reply with ONLY the color name, nothing else."
+)
+
+# Red-family keywords the probe image (solid red) should elicit.
+_RED_KW = ("red", "scarlet", "crimson", "vermilion", "maroon", "红")
+
+
+def evaluate_image_probe_answer(
+    answer: str,
+    model_id: str,
+    start_time: float,
+    reasoning: str = "",
+) -> tuple[bool, str]:
+    """Shared evaluation for image color-probe answers.
+
+    Args:
+        answer: The model's primary text answer (auto-lowercased).
+        model_id: Model identifier (for logging).
+        start_time: ``time.monotonic()`` when the probe started.
+        reasoning: Optional reasoning/thinking text (auto-lowercased)
+            for models that put analysis in a separate field.
+
+    Returns:
+        ``(supported, message)`` tuple.
+    """
+    import time as _time  # deferred to keep module-level imports light
+
+    answer = answer.lower().strip()
+    reasoning = reasoning.lower().strip()
+
+    if any(kw in answer for kw in _RED_KW):
+        elapsed = _time.monotonic() - start_time
+        logger.info(
+            "Image probe done: model=%s result=True %.2fs",
+            model_id,
+            elapsed,
+        )
+        return True, f"Image supported (answer={answer!r})"
+
+    if reasoning and any(kw in reasoning for kw in _RED_KW):
+        elapsed = _time.monotonic() - start_time
+        logger.info(
+            "Image probe done: model=%s result=True %.2fs",
+            model_id,
+            elapsed,
+        )
+        return True, f"Image supported (reasoning, answer={answer!r})"
+
+    elapsed = _time.monotonic() - start_time
+    logger.info(
+        "Image probe done: model=%s result=False %.2fs",
+        model_id,
+        elapsed,
+    )
+    return False, f"Model did not recognise image (answer={answer!r})"

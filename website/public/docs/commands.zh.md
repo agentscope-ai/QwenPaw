@@ -258,6 +258,25 @@
 
 ---
 
+## Skill 聊天命令
+
+提供以下命令，在聊天中可以访问 skill 状态，并强制 Agent 使用某个
+skill。
+
+- `/skills` 会以精简格式列出当前频道可用的 skill。
+- `/<skill_name>` 会显示该 skill 的详细信息，包括 description 和本地
+  path。
+- `/<skill_name> <input>` 会使 Agent 强制调用 `skill_name`，解决 input
+  （通常是个任务）。
+- `/[skill_name]` 也支持以上操作，可作为另一种写法。
+
+说明：
+
+- `skill_name` 以 `/skills` 里显示的技能命令名为准。
+- 这些斜杠命令只对当前频道中已启用且路由到该频道的 skill 生效。
+
+---
+
 ## 模型管理命令
 
 管理和切换 AI 模型的命令，无需通过 Agent 理解意图，直接执行。
@@ -615,3 +634,224 @@ qwenpaw daemon logs -n 50
 qwenpaw daemon status --agent-id abc123
 qwenpaw daemon version --agent-id abc123
 ```
+
+---
+
+## Mission Mode - 复杂任务自主执行
+
+Mission Mode 是一个专为**长期、复杂任务**设计的自主执行模式，灵感来自 [Claude Code](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) 和 [Ralph Loop](https://github.com/snarktank/ralph)。它将大型任务拆解为多个用户故事（user stories），并通过 **master agent → worker agents → verifier agents** 的流水线完成，确保质量和可靠性。
+
+### 核心特性
+
+- 📋 **两阶段设计**：Phase 1 生成 PRD（产品需求文档），Phase 2 自动执行
+- 🔒 **代码级控制**：Master agent 禁用实现工具，只能调度 worker，防止上下文污染
+- ✅ **独立验证**：每个 story 由专门的 verifier agent 验证，确保通过所有验收标准
+- 🔄 **自动迭代**：未通过的 story 自动重试，直到所有 story 完成或达到最大迭代次数
+- 🌐 **多语言支持**：自动根据 agent 配置返回中文或英文错误消息
+
+### 适用场景
+
+**✅ 适合 Mission Mode 的任务：**
+
+- 构建完整的功能模块（如用户认证系统、文件管理器）
+- 重构大型代码库（如迁移到新框架）
+- 批量任务（如为多个组件添加单元测试）
+- 需要多次迭代验证的任务
+
+**❌ 不适合 Mission Mode 的任务：**
+
+- 简单的代码修改（如修改一个 bug）
+- 需要实时交互的任务（如调试）
+- 探索性任务（如"研究最佳实践"）
+
+### 基本用法
+
+#### 启动 Mission
+
+```bash
+/mission <任务描述>
+```
+
+**示例：**
+
+```
+/mission 创建一个命令行 TODO 应用，使用 Python，支持添加、删除、列出和标记完成任务，数据保存到本地 JSON 文件
+```
+
+**可选参数：**
+
+- `--max-iterations N`: 设置 Phase 2 最大迭代次数（范围 1-100，默认 20）
+- `--verify <command>`: 自定义验证命令（如 `pytest`）
+
+```
+/mission 创建 Web API --max-iterations 30 --verify "pytest tests/"
+```
+
+#### Phase 1: PRD 生成
+
+Agent 会：
+
+1. 探索代码库，理解现有结构
+2. 将任务拆解为多个用户故事
+3. 生成 `prd.json` 文件，包含每个 story 的验收标准
+
+**PRD 示例：**
+
+```json
+{
+  "project": "todo-cli-app",
+  "description": "命令行 TODO 应用",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "添加任务功能",
+      "description": "As a user, I want to add new tasks...",
+      "acceptanceCriteria": [
+        "命令 'todo add <task>' 可成功添加任务",
+        "任务保存到 todos.json 文件"
+      ],
+      "priority": 1,
+      "passes": false
+    }
+  ]
+}
+```
+
+#### Phase 2: 确认并执行
+
+**确认 PRD：**
+
+查看 PRD 后，发送确认消息进入 Phase 2：
+
+```
+确认，开始执行
+```
+
+**或者，如果需要修改：**
+
+```
+请把 US-001 拆分为两个 story，分别处理添加和持久化
+```
+
+Agent 会修改 PRD，再次等待确认。
+
+**Phase 2 执行流程：**
+
+1. **Master 调度**：分派 worker agent 执行每个 story
+2. **Worker 实现**：创建/修改文件，运行测试
+3. **Verifier 验证**：独立 agent 验证是否通过所有验收标准
+4. **更新 PRD**：通过的 story 标记 `passes: true`
+5. **自动迭代**：未通过的 story 重新分派，直到全部完成
+
+#### 查看进度
+
+```bash
+/mission status
+```
+
+**输出示例：**
+
+```
+**Mission Status** — mission-20260415-123456
+- Session: e2e-abc123
+- Phase: execution
+- Project: todo-cli-app
+- Progress: 2/4 stories passed
+- Loop dir: ~/.copaw/workspaces/default/missions/mission-20260415-123456
+
+  ✅ US-001: 添加任务功能
+  ✅ US-002: 列出任务功能
+  ⬜ US-003: 删除任务功能
+  ⬜ US-004: 标记完成功能
+```
+
+#### 列出所有 Mission
+
+```bash
+/mission list
+```
+
+### 工作目录结构
+
+每个 mission 在 `~/.copaw/workspaces/default/missions/mission-<timestamp>/` 下创建工作目录：
+
+```
+mission-20260415-123456/
+├── prd.json              # 产品需求文档
+├── loop_config.json      # 配置和状态
+├── task.md               # 原始任务描述
+├── progress.txt          # 进度日志（Codebase Patterns）
+└── <实现产出的文件>
+```
+
+### 注意事项
+
+1. **Session 隔离**：每个 session 的 mission 相互独立，不会互相干扰
+2. **PRD 格式校验**：Phase 2 启动前会强制校验 PRD 格式，确保符合 schema
+3. **工具限制**：Phase 2 中，master agent **不能**直接使用 `edit_file`、`browser_use` 等实现工具，只能通过 worker 完成
+4. **迭代上限**：达到 `--max-iterations` 后自动停止，避免无限循环
+5. **Git 支持**：如果工作目录是 Git 仓库，agent 会自动 commit 变更（可选）
+6. **⚠️ 工具安全护栏绕过**：
+   - **Worker 和 verifier agents 会自动绕过安全护栏**（通过 `--background` 模式自动禁用）
+   - 这是因为后台 session 无法响应 `/approve` 交互提示
+   - Master agent 也会绕过护栏保护
+   - **安全提示**：所有 worker 操作都在 `missions/<mission-xxx>/` 目录下进行，但仍建议**仅在完全信任的代码仓库中使用 Mission Mode**
+   - 敏感操作（如删除文件、执行 shell 命令）会直接执行，无需人工审批
+
+### 高级用法
+
+#### 自定义验证命令
+
+```
+/mission 添加单元测试 --verify "npm test"
+```
+
+验证阶段会运行 `npm test` 检查是否通过。
+
+#### 增加迭代次数（复杂任务）
+
+```
+/mission 重构整个认证模块 --max-iterations 50
+```
+
+#### 中途介入
+
+Phase 2 执行过程中，可以随时发送消息与 master agent 交互：
+
+```
+暂停一下，US-003 的实现有问题，请修复后再继续
+```
+
+### 故障排查
+
+**问题：PRD 格式不正确**
+
+```
+⚠️ **无法进入 Phase 2**: prd.json 格式错误:
+  - Missing required field: userStories
+
+请修正 PRD 格式后再确认。
+```
+
+**解决**：检查 `prd.json`，确保包含 `userStories` 数组，每个 story 有必需字段。
+
+**问题：达到最大迭代次数**
+
+```
+⚠️ **Mission reached max iterations** (20). 2/4 stories passed.
+```
+
+**解决**：
+
+1. 使用 `/mission status` 查看剩余 story
+2. 增加 `--max-iterations` 重新启动
+3. 或手动完成剩余工作
+
+### 与其他模式的对比
+
+| 模式             | 适用场景           | Agent 行为          | 工具使用        |
+| ---------------- | ------------------ | ------------------- | --------------- |
+| **普通对话**     | 简单任务、快速修改 | 单 agent 直接执行   | 所有工具可用    |
+| **Mission Mode** | 复杂、长期任务     | Master 调度 workers | Master 限制工具 |
+
+---

@@ -530,6 +530,46 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         return Config()
 
 
+def strict_validate_config_file(
+    config_path: Optional[Path] = None,
+) -> tuple[bool, str]:
+    """Validate *config_path* strictly for diagnostics (no auto-repair).
+
+    Returns:
+        ``(True, summary)`` if the file is missing (defaults OK),
+        readable, and valid.
+        ``(False, error)`` if the file is unreadable or
+        fails :class:`Config` validation.
+    """
+    if config_path is None:
+        config_path = get_config_path()
+    if not config_path.is_file():
+        return True, f"(no file) defaults — {config_path}"
+
+    data = _read_config_data(config_path)
+    if data is None:
+        return False, f"unreadable or invalid JSON — {config_path}"
+
+    data = _normalize_working_dir_bound_paths(data)
+    if "last_api_host" in data or "last_api_port" in data:
+        la = data.setdefault("last_api", {})
+        if "host" not in la and "last_api_host" in data:
+            la["host"] = data.get("last_api_host")
+        if "port" not in la and "last_api_port" in data:
+            la["port"] = data.get("last_api_port")
+
+    try:
+        Config.model_validate(data)
+    except ValidationError as exc:
+        lines = [f"{config_path}:"]
+        for err in exc.errors():
+            loc = ".".join(str(x) for x in err.get("loc", ()))
+            msg = err.get("msg", "")
+            lines.append(f"  {loc}: {msg}")
+        return False, "\n".join(lines)
+    return True, str(config_path)
+
+
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     """Save the config to the file."""
     if config_path is None:
@@ -568,6 +608,28 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
         return HeartbeatConfig()
     hb = config.agents.defaults.heartbeat
     return hb if hb is not None else HeartbeatConfig()
+
+
+def get_dream_cron(agent_id: Optional[str] = None) -> str:
+    """Return dream-based memory optimization job cron expression for
+    the agent.
+
+    Args:
+        agent_id: Agent ID to load config from. If None, tries to load from
+                  root config.agents.defaults (legacy behavior).
+
+    Returns:
+        str: Cron expression for dream-based memory optimization job, or empty
+             string if disabled.
+    """
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            return agent_config.running.memory_summary.dream_cron
+        except Exception:
+            return ""
+    # Legacy: return empty string if no agent_id provided
+    return ""
 
 
 def update_last_dispatch(

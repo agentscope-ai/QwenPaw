@@ -1596,7 +1596,6 @@ def install_skill_from_hub(
     bundle_url: str,
     version: str = "",
     enable: bool = False,
-    overwrite: bool = False,
     target_name: str | None = None,
     cancel_checker: Any | None = None,
 ) -> HubInstallResult:
@@ -1626,7 +1625,6 @@ def install_skill_from_hub(
         created = skill_service.create_skill(
             name=name,
             content=content,
-            overwrite=overwrite,
             references=references,
             scripts=scripts,
             extra_files=extra_files,

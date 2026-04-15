@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Modal, Form } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
@@ -21,6 +28,22 @@ import { useSkillFilter } from "../../Agent/Skills/useSkillFilter";
 export type PoolMode = "broadcast" | "create" | "edit";
 
 const SKILL_POOL_ZIP_MAX_MB = 100;
+
+type BroadcastConflict =
+  | {
+      skill_name: string;
+      workspace_id: string;
+      workspace_name: string;
+      reason: "conflict";
+    }
+  | {
+      skill_name: string;
+      workspace_id: string;
+      workspace_name: string;
+      reason: "builtin_upgrade";
+      current_version_text: string;
+      source_version_text: string;
+    };
 
 export function useSkillPool() {
   const { t } = useTranslation();
@@ -61,6 +84,18 @@ export function useSkillPool() {
     () => filteredSkills.slice().sort((a, b) => a.name.localeCompare(b.name)),
     [filteredSkills],
   );
+
+  const confirmOverwrite = (title: string, content: ReactNode) =>
+    new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title,
+        content,
+        okText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
 
   const allCategories = useMemo(() => {
     const cats = new Set<string>();
@@ -250,120 +285,119 @@ export function useSkillPool() {
     targetWorkspaceIds: string[],
   ) => {
     try {
+      const conflicts: BroadcastConflict[] = [];
       for (const skillName of broadcastSkillNames) {
-        let renameMap: Record<string, string> = {};
-
-        while (true) {
-          try {
-            await api.downloadSkillPoolSkill({
-              skill_name: skillName,
-              targets: targetWorkspaceIds.map((workspace_id) => ({
-                workspace_id,
-                target_name: renameMap[workspace_id] || undefined,
-              })),
-            });
-            break;
-          } catch (error) {
-            if (handleScanError(error, t)) return;
-            const detail = parseErrorDetail(error);
-            const conflicts = Array.isArray(detail?.conflicts)
-              ? detail.conflicts
-              : [];
-            if (!conflicts.length) {
-              throw error;
-            }
-
-            const builtinUpgrades = conflicts.filter(
-              (c: { reason?: string }) => c.reason === "builtin_upgrade",
-            );
-            const regularConflicts = conflicts.filter(
-              (c: { reason?: string }) => c.reason !== "builtin_upgrade",
-            );
-
-            let needsOverwrite = false;
-            if (builtinUpgrades.length > 0) {
-              const confirmed = await new Promise<boolean>((resolve) => {
-                Modal.confirm({
-                  title: t("skills.builtinUpgradeTitle"),
-                  content: t("skills.builtinUpgradeContent", {
-                    name: skillName,
-                  }),
-                  okText: t("common.confirm"),
-                  cancelText: t("common.cancel"),
-                  onOk: () => resolve(true),
-                  onCancel: () => resolve(false),
-                });
-              });
-              if (!confirmed) return;
-              needsOverwrite = true;
-            }
-
-            if (regularConflicts.length > 0) {
-              const renameItems = regularConflicts
-                .map(
-                  (c: { workspace_id?: string; suggested_name?: string }) => {
-                    if (!c.workspace_id || !c.suggested_name) {
-                      return null;
-                    }
-                    const w = workspaces.find(
-                      (ws) => ws.agent_id === c.workspace_id,
-                    );
-                    const workspaceLabel = getAgentDisplayName(
-                      {
-                        id: c.workspace_id,
-                        name: w?.agent_name ?? "",
-                      },
-                      t,
-                    );
-                    return {
-                      key: c.workspace_id,
-                      label: workspaceLabel,
-                      suggested_name: c.suggested_name,
-                    };
-                  },
-                )
-                .filter(
-                  (
-                    item,
-                  ): item is {
-                    key: string;
-                    label: string;
-                    suggested_name: string;
-                  } => item !== null,
-                );
-
-              if (!renameItems.length && !needsOverwrite) {
-                throw error;
-              }
-
-              if (renameItems.length) {
-                const nextRenameMap = await showConflictRenameModal(
-                  renameItems.map((item) => ({
-                    ...item,
-                    suggested_name: renameMap[item.key] || item.suggested_name,
-                  })),
-                );
-                if (!nextRenameMap) return;
-                renameMap = { ...renameMap, ...nextRenameMap };
-              }
-            }
-
-            if (!needsOverwrite && !regularConflicts.length) {
-              throw error;
-            }
-
-            if (needsOverwrite) {
-              await api.downloadSkillPoolSkill({
-                skill_name: skillName,
-                targets: targetWorkspaceIds.map((workspace_id) => ({
-                  workspace_id,
-                  target_name: renameMap[workspace_id] || undefined,
-                })),
-                overwrite: true,
-              });
-              break;
-            }
+        try {
+          await api.downloadSkillPoolSkill({
+            skill_name: skillName,
+            targets: targetWorkspaceIds.map((workspace_id) => ({
+              workspace_id,
+            })),
+            preview_only: true,
+          });
+        } catch (error) {
+          if (handleScanError(error, t)) return;
+          const detail = parseErrorDetail(error);
+          const returnedConflicts = Array.isArray(detail?.conflicts)
+            ? detail.conflicts
+            : [];
+          if (!returnedConflicts.length) {
+            throw error;
           }
+          conflicts.push(
+            ...returnedConflicts.map((conflict) => ({
+              skill_name: conflict.skill_name || skillName,
+              workspace_id: conflict.workspace_id || "",
+              workspace_name:
+                conflict.workspace_name ||
+                getAgentDisplayName(
+                  {
+                    id: conflict.workspace_id || "",
+                    name:
+                      workspaces.find(
+                        (workspace) =>
+                          workspace.agent_id === conflict.workspace_id,
+                      )?.agent_name ?? "",
+                  },
+                  t,
+                ),
+              reason:
+                conflict.reason === "builtin_upgrade"
+                  ? ("builtin_upgrade" as const)
+                  : ("conflict" as const),
+              current_version_text: conflict.current_version_text || "",
+              source_version_text: conflict.source_version_text || "",
+            })),
+          );
+        }
+      }
+      if (conflicts.length > 0) {
+        const allBuiltinUpgrades = conflicts.every(
+          (conflict) => conflict.reason === "builtin_upgrade",
+        );
+        const confirmed = await confirmOverwrite(
+          allBuiltinUpgrades
+            ? t("skills.builtinUpgradeTitle")
+            : t("skillPool.overwriteConfirm"),
+          <div style={{ display: "grid", gap: 8 }}>
+            <div>
+              {allBuiltinUpgrades
+                ? t("skillPool.builtinOverwriteTargetsContent")
+                : t("skillPool.overwriteTargetsContent")}
+            </div>
+            {conflicts.map((conflict) => (
+              <div
+                key={`${conflict.skill_name}-${conflict.workspace_id || ""}`}
+              >
+                <strong>{conflict.skill_name}</strong>
+                {"  "}
+                <span>{conflict.workspace_name}</span>
+                {conflict.reason === "builtin_upgrade" ? (
+                  <>
+                    {"  "}
+                    {t("skillPool.currentVersion")}:{" "}
+                    {conflict.current_version_text || "-"}
+                    {"  ->  "}
+                    {t("skillPool.sourceVersion")}:{" "}
+                    {conflict.source_version_text || "-"}
+                  </>
+                ) : null}
+              </div>
+            ))}
+          </div>,
+        );
+        if (!confirmed) return;
+      }
+      for (const skillName of broadcastSkillNames) {
+        const overwriteTargetIds = new Set(
+          conflicts
+            .filter((conflict) => conflict.skill_name === skillName)
+            .map((conflict) => conflict.workspace_id)
+            .filter((workspaceId): workspaceId is string =>
+              Boolean(workspaceId),
+            ),
+        );
+        const cleanTargetIds = targetWorkspaceIds.filter(
+          (workspaceId) => !overwriteTargetIds.has(workspaceId),
+        );
+
+        if (cleanTargetIds.length > 0) {
+          await api.downloadSkillPoolSkill({
+            skill_name: skillName,
+            targets: cleanTargetIds.map((workspace_id) => ({
+              workspace_id,
+            })),
+          });
+        }
+
+        if (overwriteTargetIds.size > 0) {
+          await api.downloadSkillPoolSkill({
+            skill_name: skillName,
+            targets: Array.from(overwriteTargetIds).map((workspace_id) => ({
+              workspace_id,
+            })),
+            overwrite: true,
+          });
         }
       }
       message.success(t("skillPool.broadcastSuccess"));
@@ -482,7 +516,7 @@ export function useSkillPool() {
 
     if (!skillName || !skillContent.trim()) return;
 
-    try {
+    const persistPoolSkill = async (overwrite = false) => {
       const result =
         mode === "edit"
           ? await api.saveSkillPoolSkill({
@@ -490,6 +524,7 @@ export function useSkillPool() {
               content: skillContent,
               source_name: activeSkill?.name,
               config: parsedConfig,
+              overwrite,
             })
           : await api
               .createSkillPoolSkill({
@@ -530,9 +565,35 @@ export function useSkillPool() {
         api.getSkillScanner,
         t,
       );
+    };
+
+    try {
+      await persistPoolSkill();
     } catch (error) {
       if (handleScanError(error, t)) return;
       const detail = parseErrorDetail(error);
+      if (mode === "edit" && detail?.reason === "conflict") {
+        const confirmed = await confirmOverwrite(
+          t("skillPool.overwriteConfirm"),
+          <div style={{ display: "grid", gap: 8 }}>
+            <div>{t("skills.overwriteExistingList")}</div>
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              <li>{skillName}</li>
+            </ul>
+          </div>,
+        );
+        if (!confirmed) return;
+        try {
+          await persistPoolSkill(true);
+        } catch (retryError) {
+          message.error(
+            retryError instanceof Error
+              ? retryError.message
+              : t("common.save") + " failed",
+          );
+        }
+        return;
+      }
       if (detail?.suggested_name) {
         const renameMap = await showConflictRenameModal([
           {
@@ -599,7 +660,6 @@ export function useSkillPool() {
     while (true) {
       try {
         const result = await api.uploadSkillPoolZip(file, {
-          overwrite: false,
           rename_map: renameMap,
         });
         if (result.count > 0) {
@@ -656,7 +716,6 @@ export function useSkillPool() {
       setImporting(true);
       const result = await api.importPoolSkillFromHub({
         bundle_url: url,
-        overwrite: false,
         target_name: targetName,
       });
       message.success(`${t("common.create")}: ${result.name}`);
