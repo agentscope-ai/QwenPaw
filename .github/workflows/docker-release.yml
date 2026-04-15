@@ -31,6 +31,36 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Verify complete vLLM tool_choice fix
+        shell: bash
+        run: |
+          echo "Verifying all 4 files have the vLLM tool_choice=auto fix..."
+          
+          # List of files that must contain the fix
+          files=(
+            "src/qwenpaw/agents/tool_guard_mixin.py"
+            "src/qwenpaw/agents/react_agent.py"
+            "src/qwenpaw/agents/routing_chat_model.py"
+            "src/qwenpaw/token_usage/model_wrapper.py"
+          )
+          
+          missing_fix=0
+          for file in "${files[@]}"; do
+            if ! grep -q 'if.*tool_choice.*==.*"auto"' "$file" || ! grep -q 'tool_choice.*=.*None' "$file"; then
+              echo "❌ ERROR: $file does NOT contain the vLLM tool_choice=auto fix!"
+              missing_fix=1
+            else
+              echo "✅ OK: $file contains the fix"
+            fi
+          done
+          
+          if [ $missing_fix -ne 0 ]; then
+            echo "❌ Fix verification FAILED - some files are missing the fix"
+            exit 1
+          else
+            echo "✅ Fix verification PASSED - all 4 files contain the complete fix"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
