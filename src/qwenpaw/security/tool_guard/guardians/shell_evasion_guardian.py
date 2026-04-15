@@ -181,7 +181,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            "Command contains locale quoting ($\"...\") which can hide characters",
+            'Command contains locale quoting ($"...") which can hide characters',
             command,
         )
 
@@ -358,7 +358,9 @@ def _check_comment_quote_desync(command: str) -> GuardFinding | None:
                     "Command contains quote characters inside a # comment"
                     " which can desync quote tracking",
                     command,
-                    matched=command[i : (line_end if line_end != -1 else i + 40)],
+                    matched=command[
+                        i : (line_end if line_end != -1 else i + 40)
+                    ],
                 )
             # Skip rest of comment line
             if line_end == -1:
@@ -398,7 +400,9 @@ def _check_quoted_newline(command: str) -> GuardFinding | None:
                     " #-prefixed line, which can hide arguments from"
                     " line-based permission checks",
                     command,
-                    matched=command[max(0, i - 10) : min(len(command), line_end + 10)],
+                    matched=command[
+                        max(0, i - 10) : min(len(command), line_end + 10)
+                    ],
                 )
 
     return None
