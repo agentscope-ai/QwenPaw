@@ -61,6 +61,46 @@ interface CommandSuggestion {
   description: string;
 }
 
+function messageRequestsHistoryClear(message: unknown): boolean {
+  if (!message || typeof message !== "object") return false;
+  const metadata = (message as Record<string, unknown>).metadata;
+  if (!metadata || typeof metadata !== "object") return false;
+
+  const meta = metadata as Record<string, unknown>;
+  if (meta.clear_history === true) return true;
+
+  const nested = meta.metadata;
+  return (
+    !!nested &&
+    typeof nested === "object" &&
+    (nested as Record<string, unknown>).clear_history === true
+  );
+}
+
+function payloadRequestsHistoryClear(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return false;
+
+  const record = payload as Record<string, unknown>;
+  const candidates: unknown[] = [];
+
+  if (record.object === "message") {
+    candidates.push(record);
+  }
+
+  if (record.object === "response" && Array.isArray(record.output)) {
+    candidates.push(...record.output);
+  }
+
+  return candidates.some(messageRequestsHistoryClear);
+}
+
+function payloadCompletesResponse(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") return false;
+
+  const record = payload as Record<string, unknown>;
+  return record.object === "response" && record.status === "completed";
+}
+
 function renderSuggestionLabel(command: string, description: string) {
   return (
     <div className={styles.suggestionLabel}>
@@ -433,10 +473,19 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const pendingClearHistoryRef = useRef(false);
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
+
+  const scheduleHistoryClear = useCallback(() => {
+    queueMicrotask(() => {
+      if (!pendingClearHistoryRef.current) return;
+      pendingClearHistoryRef.current = false;
+      chatRef.current?.messages.removeAllMessages();
+    });
+  }, []);
 
   // Tell sessionApi which session to put first in getSessionList, so the library's
   // useMount auto-selects the correct session without an extra getSession round-trip.
@@ -777,6 +826,16 @@ export default function ChatPage() {
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
+        responseParser: (chunk: string) => {
+          const payload = JSON.parse(chunk) as Record<string, unknown>;
+          if (payloadRequestsHistoryClear(payload)) {
+            pendingClearHistoryRef.current = true;
+            if (payloadCompletesResponse(payload)) {
+              scheduleHistoryClear();
+            }
+          }
+          return payload as any;
+        },
         replaceMediaURL: (url: string) => {
           return toDisplayUrl(url);
         },
@@ -824,7 +883,15 @@ export default function ChatPage() {
         replace: true,
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
-  }, [customFetch, copyResponse, handleFileUpload, t, isDark, multimodalCaps]);
+  }, [
+    customFetch,
+    copyResponse,
+    handleFileUpload,
+    t,
+    isDark,
+    multimodalCaps,
+    scheduleHistoryClear,
+  ]);
 
   return (
     <div
