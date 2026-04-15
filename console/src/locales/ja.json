@@ -415,7 +415,7 @@
     "runtimeMaxConcurrency": "最大同時実行数",
     "runtimeTimeoutSeconds": "タイムアウト（秒）",
     "runtimeMisfireGraceSeconds": "遅延許容時間（秒）",
-    "idTooltip": "このジョブの一意識別子。小文字・数字・ハイフン・アンダースコアが使用できます。",
+    "idTooltip": "タスクの作成時にシステムによって生成され、編集不可の一意のUUID。",
     "nameTooltip": "このジョブを識別するためのわかりやすい名前。",
     "cronTooltip": "タスクの実行タイミングを定義します",
     "cronExample": "よく使う例: '0 9 * * *' = 毎日9時 | '*/30 * * * *' = 30分ごと | '0 */2 * * *' = 2時間ごと | '0 0 * * 0' = 日曜0時",

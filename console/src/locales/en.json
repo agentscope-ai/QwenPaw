@@ -473,7 +473,7 @@
     "runtimeMaxConcurrency": "Max Concurrency",
     "runtimeTimeoutSeconds": "Timeout (seconds)",
     "runtimeMisfireGraceSeconds": "Misfire Grace (seconds)",
-    "idTooltip": "Unique identifier for this job. Use lowercase letters, numbers, hyphens, and underscores.",
+    "idTooltip": "System-generated, non-editable, unique UUID assigned at task creation.",
     "nameTooltip": "A friendly name to help you identify this job.",
     "cronTooltip": "Define when the task should run",
     "cronExample": "Common examples: '0 9 * * *' = 9 AM daily | '*/30 * * * *' = every 30 min | '0 */2 * * *' = every 2 hours | '0 0 * * 0' = Sunday midnight",

@@ -9,7 +9,6 @@ from typing import Any
 from agentscope.model import ChatModelBase
 from openai import AsyncOpenAI
 
-from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 
 
@@ -51,26 +50,16 @@ class OllamaProvider(OpenAIProvider):
             timeout=timeout,
         )
 
-    async def add_model(
-        self,
-        model_info: ModelInfo,
-        target: str = "models",
-        timeout: float = 36000,
-    ) -> tuple[bool, str]:
-        raise NotImplementedError(
-            "Please add models directly in Ollama or use "
-            "`ollama pull <model>` CLI command.",
-        )
-
-    async def delete_model(
+    async def check_model_connection(
         self,
         model_id: str,
-        timeout: float = 60,
+        timeout: float = 5,
     ) -> tuple[bool, str]:
-        raise NotImplementedError(
-            "Please delete models directly in Ollama or use "
-            "`ollama rm <model>` CLI command.",
-        )
+        """Check if a specific model is reachable/usable"""
+        models = await self.fetch_models(timeout=timeout)
+        if any(model.id == model_id for model in models):
+            return True, ""
+        return False, f"Model '{model_id}' not found"
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat

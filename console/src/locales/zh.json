@@ -438,7 +438,7 @@
     "runtimeMaxConcurrency": "最大并发数",
     "runtimeTimeoutSeconds": "超时时间（秒）",
     "runtimeMisfireGraceSeconds": "错过执行宽限期（秒）",
-    "idTooltip": "任务的唯一标识符。建议使用小写字母、数字、连字符和下划线。",
+    "idTooltip": "任务的唯一标识符（UUID）由系统在创建时自动分配，不可修改。",
     "nameTooltip": "任务的友好名称，便于识别。",
     "cronTooltip": "定义任务执行时间",
     "cronExample": "常用示例：'0 9 * * *' = 每天9点 | '*/30 * * * *' = 每30分钟 | '0 */2 * * *' = 每2小时 | '0 0 * * 0' = 每周日0点",
