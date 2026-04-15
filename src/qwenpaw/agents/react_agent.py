@@ -717,10 +717,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         assistant text for self-review) and runs up to
         ``_AUTO_CONTINUE_MAX_EXTRA`` extra ``_reasoning`` passes until a
         tool_use appears or the cap is
-        hit—so one text-only stall cannot exhaust the mechanism in a single
-        shot.  Same ``tool_choice`` as the step (usually ``\"auto\"``); we do
-        not set ``\"required\"`` so a genuinely finished task can still end in
-        text only.
+        hit.  Uses the original ``tool_choice`` unchanged (no switching).
+        If an extra pass still returns text-only, keep the prior response to
+        avoid repeated duplicated answers.
         """
         running = self._agent_config.running
         if not running.auto_continue_on_text_only:
@@ -728,9 +727,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         if msg is None or msg.has_content_blocks("tool_use"):
             return msg
 
-        tc: Literal["auto", "none", "required"] = (
-            "auto" if tool_choice in (None, "none") else tool_choice
-        )
         extra = 0
         while extra < self._AUTO_CONTINUE_MAX_EXTRA:
             if msg.has_content_blocks("tool_use"):
@@ -752,12 +748,12 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 "tool_choice=%r",
                 extra,
                 self._AUTO_CONTINUE_MAX_EXTRA,
-                tc,
+                tool_choice,
             )
             hint_msg = Msg("user", hint_body, "user")
             await self.memory.add(hint_msg, marks=_MemoryMark.HINT)
             try:
-                msg = await super()._reasoning(tool_choice=tc)
+                next_msg = await super()._reasoning(tool_choice=tool_choice)
             except Exception:
                 logger.warning(
                     "Auto-continue extra _reasoning failed; "
@@ -765,6 +761,14 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                     exc_info=True,
                 )
                 break
+            if next_msg.has_content_blocks("tool_use"):
+                msg = next_msg
+                continue
+            logger.info(
+                "Auto-continue extra _reasoning still text-only; "
+                "keeping prior response",
+            )
+            break
 
         return msg
 
