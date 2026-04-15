@@ -9,6 +9,7 @@ import pytest
 
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import Provider
 from qwenpaw.providers.provider_manager import (
     _KIMI_MODELS,
     _create_builtin_providers,
@@ -16,7 +17,7 @@ from qwenpaw.providers.provider_manager import (
 )
 
 
-def _find_provider(provider_id: str) -> OpenAIProvider:
+def _find_provider(provider_id: str) -> Provider:
     for p in _create_builtin_providers():
         if p.id == provider_id:
             return p
