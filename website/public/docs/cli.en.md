@@ -117,10 +117,6 @@ fills missing values from **`last_api` in `config.json`** (updated when
 `127.0.0.1:8088`. If checks target the wrong port, pass `--port` explicitly or
 update `last_api`.
 
-**Side effects:** `doctor` may open the app log in append mode to verify
-writability (this can create an empty log file if missing). Model checks send
-minimal real requests to your configured providers (possible usage / billing).
-
 **`doctor fix`** applies conservative repairs under the working directory
 only.
 

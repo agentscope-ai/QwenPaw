@@ -86,18 +86,39 @@ def _resolve_existing_path_anchor(path: Path) -> Path | None:
 
 
 def check_app_log_writable() -> tuple[bool, str]:
-    """``qwenpaw app`` appends to the app log under ``WORKING_DIR``."""
+    """Check log-path writability."""
     log_path = WORKING_DIR / APP_LOG_BASENAME
-    try:
-        with open(log_path, "a", encoding="utf-8"):
-            pass
-    except OSError as exc:
+    if log_path.exists():
+        if not log_path.is_file():
+            return (
+                False,
+                f"log path exists but is not a regular file: {log_path}",
+            )
+        if os.access(log_path, os.W_OK):
+            return True, f"{log_path} (existing file is writable)"
         return (
             False,
-            f"cannot append to {log_path} "
-            f"(required when starting `qwenpaw app`): {exc}",
+            f"cannot write to existing log file {log_path} "
+            "(required when starting `qwenpaw app`)",
         )
-    return True, str(log_path)
+
+    parent = log_path.parent
+    if not parent.is_dir():
+        return (
+            False,
+            f"log directory does not exist: {parent} "
+            "(required when starting `qwenpaw app`)",
+        )
+    if os.access(parent, os.W_OK | os.X_OK):
+        return (
+            True,
+            f"{log_path} (not present; parent directory appears writable)",
+        )
+    return (
+        False,
+        f"log file does not exist and parent directory is not writable: "
+        f"{parent}",
+    )
 
 
 def check_agent_workspace_writable(cfg: Config) -> tuple[bool, str]:
@@ -168,7 +189,7 @@ def environment_summary_lines(
     """One line per fact; safe to paste into bug reports.
 
     *server_python_environment* describes the **HTTP API process** (running
-    ``qwenpaw app``), when ``GET /api/version`` returned
+    ``qwenpaw app``), when ``GET /api/doctor/runtime`` returned
     ``python_environment``. Doctor's own interpreter uses
     ``doctor_python_environment``.
     """

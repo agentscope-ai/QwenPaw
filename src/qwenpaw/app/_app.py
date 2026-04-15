@@ -507,9 +507,16 @@ def read_root():
 
 @app.get("/api/version")
 def get_version():
-    """Return the current application version and server Python runtime."""
+    """Return the current application version (public-safe payload)."""
     return {
         "version": __version__,
+    }
+
+
+@app.get("/api/doctor/runtime")
+def get_doctor_runtime():
+    """Return server runtime diagnostics for authenticated troubleshooting."""
+    return {
         "python_executable": sys.executable,
         "python_environment": summarize_python_environment(),
     }

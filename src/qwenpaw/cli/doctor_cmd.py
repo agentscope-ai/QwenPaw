@@ -77,35 +77,57 @@ def _fetch_running_server_python(
     base: str,
     timeout: float,
 ) -> tuple[str | None, str | None, str | None]:
-    """Return env summary, python exe, and note from GET /api/version."""
-    url = f"{base.rstrip('/')}/api/version"
-    try:
-        resp = httpx.get(url, timeout=timeout)
-    except httpx.RequestError as exc:
-        return None, None, f"(not available: {exc})"
-    if resp.status_code != 200:
+    """Return env sum, python exe, and note from runtime diagnostics API."""
+    runtime_url = f"{base.rstrip('/')}/api/doctor/runtime"
+
+    def _extract_env_and_exe(
+        body: object,
+        source_url: str,
+    ) -> tuple[str | None, str | None, str | None]:
+        if not isinstance(body, dict):
+            return (
+                None,
+                None,
+                f"(not available: unexpected payload from {source_url})",
+            )
+        raw_env = body.get("python_environment")
+        raw_exe = body.get("python_executable")
+        env_s = raw_env.strip() if isinstance(raw_env, str) else ""
+        exe_s = raw_exe.strip() if isinstance(raw_exe, str) else ""
+        if env_s:
+            return env_s, exe_s or None, None
         return (
             None,
             None,
-            f"(not available: HTTP {resp.status_code} from {url})",
+            f"(not available: {source_url} did not report "
+            "python_environment)",
         )
+
     try:
-        body = resp.json()
-    except json.JSONDecodeError:
-        return None, None, "(not available: /api/version is not JSON)"
-    if not isinstance(body, dict):
-        return None, None, "(not available: unexpected /api/version payload)"
-    raw_env = body.get("python_environment")
-    raw_exe = body.get("python_executable")
-    env_s = raw_env.strip() if isinstance(raw_env, str) else ""
-    exe_s = raw_exe.strip() if isinstance(raw_exe, str) else ""
-    if env_s:
-        return env_s, exe_s or None, None
+        runtime_resp = httpx.get(runtime_url, timeout=timeout)
+    except httpx.RequestError as exc:
+        return None, None, f"(not available: {exc})"
+    if runtime_resp.status_code == 200:
+        try:
+            return _extract_env_and_exe(runtime_resp.json(), runtime_url)
+        except json.JSONDecodeError:
+            return (
+                None,
+                None,
+                "(not available: /api/doctor/runtime is not JSON)",
+            )
+    if runtime_resp.status_code in (401, 403):
+        return (
+            None,
+            None,
+            "(not available: /api/doctor/runtime requires authentication for "
+            "remote requests)",
+        )
+
     return (
         None,
         None,
-        "(running app did not report python_environment — update and "
-        "restart `qwenpaw app` so the listener picks up the new API)",
+        f"(not available: HTTP {runtime_resp.status_code} from {runtime_url})",
     )
 
 
@@ -650,7 +672,7 @@ def run_doctor_checks(
         if log_ok:
             click.echo(
                 click.style("OK", fg="green")
-                + f" — {PROJECT_NAME.lower()}.log appendable ({log_detail})",
+                + f" — {PROJECT_NAME.lower()}.log appendable",
             )
         else:
             failed = True
