@@ -27,7 +27,7 @@ class RoutingDecision:
 
 
 class RoutingPolicy:
-    """Select a route using the configured default mode."""
+    """Select a route using deterministic request-shape heuristics first."""
 
     def __init__(self, cfg: AgentsLLMRoutingConfig):
         self.cfg = cfg
@@ -38,8 +38,36 @@ class RoutingPolicy:
         text: str = "",
         channel: str = "",
         tools_available: bool = True,
+        tool_choice: Literal["auto", "none", "required"] | str | None = None,
+        structured_output_requested: bool = False,
+        has_non_text_user_content: bool = False,
+        has_recent_tool_context: bool = False,
     ) -> RoutingDecision:
         del text, channel, tools_available
+
+        if structured_output_requested:
+            return RoutingDecision(
+                route="cloud",
+                reasons=["structured_output"],
+            )
+
+        if has_non_text_user_content:
+            return RoutingDecision(
+                route="cloud",
+                reasons=["user_content:non_text"],
+            )
+
+        if tool_choice == "required":
+            return RoutingDecision(
+                route="cloud",
+                reasons=["tool_choice:required"],
+            )
+
+        if has_recent_tool_context:
+            return RoutingDecision(
+                route="cloud",
+                reasons=["recent_tool_context"],
+            )
 
         if getattr(self.cfg, "mode", "local_first") == "cloud_first":
             return RoutingDecision(
@@ -89,15 +117,14 @@ class RoutingChatModel(ChatModelBase):
         structured_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        text = " ".join(
-            message["content"]
-            for message in messages
-            if message.get("role") == "user"
-            and isinstance(message.get("content"), str)
-        )
+        text = _collect_user_text(messages)
         decision = self.policy.decide(
             text=text,
             tools_available=tools is not None,
+            tool_choice=tool_choice,
+            structured_output_requested=structured_model is not None,
+            has_non_text_user_content=_has_non_text_user_content(messages),
+            has_recent_tool_context=_has_recent_tool_context(messages),
         )
         endpoint = (
             self.local_endpoint
@@ -120,3 +147,72 @@ class RoutingChatModel(ChatModelBase):
             structured_model=structured_model,
             **kwargs,
         )
+
+
+def _collect_user_text(messages: list[dict]) -> str:
+    parts: list[str] = []
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        parts.extend(_extract_text_segments(message.get("content")))
+    return " ".join(part for part in parts if part).strip()
+
+
+def _extract_text_segments(content: Any) -> list[str]:
+    if isinstance(content, str):
+        return [content]
+
+    if not isinstance(content, list):
+        return []
+
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text" and isinstance(block.get("text"), str):
+            parts.append(block["text"])
+    return parts
+
+
+def _has_non_text_user_content(messages: list[dict]) -> bool:
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if content in (None, ""):
+            continue
+        if isinstance(content, str):
+            continue
+        if isinstance(content, list):
+            if any(_is_non_text_block(block) for block in content):
+                return True
+            continue
+        return True
+    return False
+
+
+def _has_recent_tool_context(messages: list[dict]) -> bool:
+    for message in reversed(messages):
+        role = message.get("role")
+        if role == "user":
+            return False
+        if role == "tool":
+            return True
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            return True
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") in {"tool_use", "tool_result"}:
+                return True
+    return False
+
+
+def _is_non_text_block(block: Any) -> bool:
+    if not isinstance(block, dict):
+        return True
+    return block.get("type") != "text"

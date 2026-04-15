@@ -193,6 +193,34 @@ def test_force_strip_media_flag_overrides_multimodal_support(
     assert normalized[0].content[0]["text"] == MEDIA_UNSUPPORTED_PLACEHOLDER
 
 
+def test_routing_formatter_preserves_media_even_if_active_model_is_text_only(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: False,
+    )
+
+    original = _media_messages()
+    formatter_instance = SimpleNamespace(
+        _qwenpaw_routing_preserve_media=True,
+    )
+
+    (
+        normalized,
+        _is_anthropic,
+        _is_gemini,
+    ) = model_factory._normalize_messages_for_formatter(
+        original,
+        OpenAIChatFormatter,
+        formatter_instance,
+    )
+
+    assert normalized[0].content[0]["type"] == "image"
+    assert normalized[2].content[0]["output"][0]["type"] == "image"
+
+
 def test_formatter_flags_returned_correctly() -> None:
     """Test that formatter family flags are returned correctly."""
     msgs = [Msg(name="user", role="user", content="Hello")]

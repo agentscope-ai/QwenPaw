@@ -359,37 +359,71 @@ def build_bootstrap_guidance(
     )
 
 
-def _get_active_model_info():
-    """Resolve the active model's ModelInfo and model name.
-
-    Tries agent-specific model first, then falls back to global.
-
-    Returns:
-        A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
-        when the active model cannot be resolved.
-    """
+def _resolve_active_and_routing_config():
+    """Resolve active slot and routing config for the current request."""
     try:
         from ..app.agent_context import get_current_agent_id
         from ..config.config import load_agent_config
+        from ..config.utils import load_config
         from ..providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
 
-        # Try to get agent-specific model first
         active = None
+        routing_cfg = None
         try:
             agent_id = get_current_agent_id()
             agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
+            if getattr(agent_config, "active_model", None):
                 active = agent_config.active_model
+            routing_cfg = getattr(agent_config, "llm_routing", None)
         except Exception:
             pass
 
-        # Fallback to global active model
+        if routing_cfg is None:
+            routing_cfg = load_config().agents.llm_routing
+
         if not active:
             active = manager.get_active_model()
 
-        if not active:
+        return manager, active, routing_cfg
+    except Exception:
+        return None, None, None
+
+
+def _resolve_multimodal_slot():
+    """Resolve the slot whose multimodal capability matters for this request.
+
+    When routing is enabled, multimodal user input is intentionally sent to the
+    cloud slot, so multimodal capability checks should key off that slot rather
+    than the active local/default slot.
+    """
+    manager, active, routing_cfg = _resolve_active_and_routing_config()
+    if manager is None:
+        return None, None
+
+    if (
+        routing_cfg is not None
+        and routing_cfg.enabled
+        and routing_cfg.cloud
+        and routing_cfg.cloud.provider_id
+        and routing_cfg.cloud.model
+    ):
+        return manager, routing_cfg.cloud
+
+    return manager, active
+
+
+def _get_active_model_info():
+    """Resolve the effective ModelInfo and model name for the current request.
+
+    Returns:
+        A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
+        when the effective model cannot be resolved.
+    """
+    try:
+        manager, active = _resolve_multimodal_slot()
+        if manager is None or not active:
             return None, None
 
         provider = manager.get_provider(active.provider_id)
@@ -405,11 +439,23 @@ def _get_active_model_info():
 
 
 def get_active_model_supports_multimodal() -> bool:
-    """Check if the current active model supports multimodal input."""
+    """Check if the effective model path supports multimodal input.
+
+    In routing mode this reflects the cloud slot, because non-text inputs are
+    intentionally routed there. Unknown capability is treated as allowed so the
+    agent does not proactively strip media or disable media tools.
+    """
     model_info, _ = _get_active_model_info()
     if model_info is None:
         return False
-    return bool(model_info.supports_multimodal)
+    if model_info.supports_multimodal is not None:
+        return bool(model_info.supports_multimodal)
+    if (
+        model_info.supports_image is not None
+        or model_info.supports_video is not None
+    ):
+        return bool(model_info.supports_image or model_info.supports_video)
+    return True
 
 
 def build_multimodal_hint() -> str:

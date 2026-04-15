@@ -36,8 +36,10 @@ except ImportError:  # pragma: no cover - compatibility fallback
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
 )
+from ..config.config import AgentsLLMRoutingConfig
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
+from ..providers.models import ModelSlotConfig
 from ..providers.retry_chat_model import (
     RetryChatModel,
     RetryConfig,
@@ -111,6 +113,8 @@ def _normalize_messages_for_formatter(
         issubclass(base_formatter_class, GeminiChatFormatter)
     )
     supports_multimodal = _supports_multimodal_for_current_model()
+    if getattr(formatter_instance, "_qwenpaw_routing_preserve_media", False):
+        supports_multimodal = True
     if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
         supports_multimodal = False
     normalized_msgs = normalize_messages_for_model_request(
@@ -798,6 +802,113 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _has_configured_slot(slot: ModelSlotConfig | None) -> bool:
+    return bool(slot and slot.provider_id and slot.model)
+
+
+def _create_model_instance_for_provider(
+    model_slot: ModelSlotConfig,
+    *,
+    manager: ProviderManager,
+) -> Tuple[ChatModelBase, Type[ChatModelBase]]:
+    provider = manager.get_provider(model_slot.provider_id)
+    if provider is None:
+        raise ProviderError(
+            message=f"Provider '{model_slot.provider_id}' not found.",
+        )
+
+    model = provider.get_chat_model_instance(model_slot.model)
+    return model, provider.get_chat_model_cls()
+
+
+def _wrap_model_with_retry(
+    provider_id: str,
+    model: ChatModelBase,
+    *,
+    retry_config: RetryConfig | None = None,
+    rate_limit_config: RateLimitConfig | None = None,
+) -> ChatModelBase:
+    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+    return RetryChatModel(
+        wrapped_model,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+    )
+
+
+def _create_routing_endpoint(
+    model_slot: ModelSlotConfig,
+    *,
+    manager: ProviderManager,
+    retry_config: RetryConfig | None = None,
+    rate_limit_config: RateLimitConfig | None = None,
+):
+    from .routing_chat_model import RoutingEndpoint
+
+    provider_id = model_slot.provider_id
+    model, chat_model_class = _create_model_instance_for_provider(
+        model_slot,
+        manager=manager,
+    )
+    formatter = _create_formatter_instance(chat_model_class)
+    wrapped_model = _wrap_model_with_retry(
+        provider_id,
+        model,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+    )
+
+    return RoutingEndpoint(
+        provider_id=provider_id,
+        model_name=model_slot.model,
+        model=wrapped_model,
+        formatter=formatter,
+        formatter_family=_get_formatter_for_chat_model(chat_model_class),
+    )
+
+
+def _create_routing_model_and_formatter(
+    local_slot: ModelSlotConfig,
+    cloud_slot: ModelSlotConfig,
+    routing_cfg: AgentsLLMRoutingConfig,
+    *,
+    manager: ProviderManager,
+    retry_config: RetryConfig | None = None,
+    rate_limit_config: RateLimitConfig | None = None,
+) -> Tuple[ChatModelBase, FormatterBase]:
+    from .routing_chat_model import RoutingChatModel
+
+    local_endpoint = _create_routing_endpoint(
+        local_slot,
+        manager=manager,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+    )
+    cloud_endpoint = _create_routing_endpoint(
+        cloud_slot,
+        manager=manager,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+    )
+
+    if local_endpoint.formatter_family is not cloud_endpoint.formatter_family:
+        raise ValueError(
+            "LLM routing requires local and cloud slots to share the same "
+            "formatter family.",
+        )
+
+    model: ChatModelBase = RoutingChatModel(
+        local_endpoint=local_endpoint,
+        cloud_endpoint=cloud_endpoint,
+        routing_cfg=routing_cfg,
+    )
+    formatter = _create_formatter_from_family(
+        local_endpoint.formatter_family,
+    )
+    setattr(formatter, "_qwenpaw_routing_preserve_media", True)
+    return model, formatter
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
@@ -818,6 +929,7 @@ def create_model_and_formatter(
     """
     from ..app.agent_context import get_current_agent_id
     from ..config.config import load_agent_config
+    from ..config.utils import load_config
 
     # Determine agent_id (parameter > context > None)
     if agent_id is None:
@@ -827,13 +939,16 @@ def create_model_and_formatter(
             pass
 
     # Try to get agent-specific model first
+    manager = ProviderManager.get_instance()
     model_slot = None
+    routing_cfg = None
     retry_config = None
     rate_limit_config = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
             model_slot = agent_config.active_model
+            routing_cfg = agent_config.llm_routing
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,
                 max_retries=agent_config.running.llm_max_retries,
@@ -850,22 +965,52 @@ def create_model_and_formatter(
         except Exception:
             pass
 
+    if routing_cfg is None:
+        routing_cfg = load_config().agents.llm_routing
+
+    if routing_cfg.enabled:
+        if not _has_configured_slot(routing_cfg.local):
+            raise ValueError(
+                "LLM routing is enabled but the local slot is not configured.",
+            )
+
+        cloud_slot = (
+            routing_cfg.cloud
+            if _has_configured_slot(routing_cfg.cloud)
+            else (
+                model_slot
+                if _has_configured_slot(model_slot)
+                else manager.get_active_model()
+            )
+        )
+        if not _has_configured_slot(cloud_slot):
+            raise ValueError(
+                "LLM routing is enabled but the cloud slot could not be "
+                "resolved from routing config, agent config, or active model.",
+            )
+
+        assert cloud_slot is not None
+        return _create_routing_model_and_formatter(
+            routing_cfg.local,
+            cloud_slot,
+            routing_cfg,
+            manager=manager,
+            retry_config=retry_config,
+            rate_limit_config=rate_limit_config,
+        )
+
     # Create chat model from agent-specific or global config
     if model_slot and model_slot.provider_id and model_slot.model:
         # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=f"Provider '{model_slot.provider_id}' not found.",
-            )
-
-        model = provider.get_chat_model_instance(model_slot.model)
+        model, chat_model_class = _create_model_instance_for_provider(
+            model_slot,
+            manager=manager,
+        )
         provider_id = model_slot.provider_id
     else:
         # Fallback to global active model
         model = ProviderManager.get_active_chat_model()
-        global_model = ProviderManager.get_instance().get_active_model()
+        global_model = manager.get_active_model()
         if not global_model:
             raise ProviderError(
                 message=(
@@ -875,14 +1020,20 @@ def create_model_and_formatter(
                 ),
             )
         provider_id = global_model.provider_id
+        provider = manager.get_provider(provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
+        chat_model_class = provider.get_chat_model_cls()
 
     # Create the formatter based on the real model class
-    formatter = _create_formatter_instance(model.__class__)
+    formatter = _create_formatter_instance(chat_model_class)
 
     # Wrap with retry logic for transient LLM API errors
-    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
-    wrapped_model = RetryChatModel(
-        wrapped_model,
+    wrapped_model = _wrap_model_with_retry(
+        provider_id,
+        model,
         retry_config=retry_config,
         rate_limit_config=rate_limit_config,
     )
@@ -905,6 +1056,12 @@ def _create_formatter_instance(
         Formatter instance with file block support
     """
     base_formatter_class = _get_formatter_for_chat_model(chat_model_class)
+    return _create_formatter_from_family(base_formatter_class)
+
+
+def _create_formatter_from_family(
+    base_formatter_class: Type[FormatterBase],
+) -> FormatterBase:
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
