@@ -523,7 +523,9 @@ def test_agents_delete_remove_workspace_deletes_directory(
     monkeypatch,
     tmp_path,
 ) -> None:
-    workspace_dir = tmp_path / "research"
+    monkeypatch.setattr("qwenpaw.cli.agents_cmd.WORKING_DIR", tmp_path)
+
+    workspace_dir = tmp_path / "nested" / "research"
     workspace_dir.mkdir()
     (workspace_dir / "agent.json").write_text("{}", encoding="utf-8")
 
@@ -569,6 +571,52 @@ def test_agents_delete_remove_workspace_deletes_directory(
     assert not workspace_dir.exists()
     assert '"workspace_removed": true' in result.output
     assert f'"workspace_dir": "{workspace_dir}"' in result.output
+
+
+def test_agents_delete_rejects_workspace_outside_working_dir(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    allowed_root = tmp_path / "working"
+    allowed_root.mkdir()
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.WORKING_DIR",
+        allowed_root,
+    )
+
+    workspace_dir = tmp_path / "external" / "research"
+
+    get_response = Mock()
+    get_response.status_code = 200
+    get_response.json.return_value = {
+        "workspace_dir": str(workspace_dir),
+    }
+    get_response.raise_for_status = Mock()
+
+    client = Mock()
+    client.get.return_value = get_response
+
+    class _ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.agent_tools.create_agent_api_client",
+        lambda _base_url: _ClientContext(),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "delete", "research", "--remove-workspace", "--yes"],
+    )
+
+    assert result.exit_code != 0
+    client.get.assert_called_once_with("/agents/research")
+    client.delete.assert_not_called()
+    assert "Cannot delete workspace outside WORKING_DIR" in result.output
 
 
 def test_agents_delete_rejects_remove_workspace_for_remote_api(

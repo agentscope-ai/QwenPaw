@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import Optional, Dict, Any
 
 import click
@@ -391,12 +390,6 @@ def _build_active_model_config(
     return ModelSlotConfig(provider_id=provider.id, model=model_id)
 
 
-def _is_local_base_url(base_url: str) -> bool:
-    """Return whether the resolved API base URL points to the local host."""
-    hostname = urlparse(base_url).hostname
-    return hostname in {"127.0.0.1", "localhost", "0.0.0.0", None}
-
-
 def _fetch_agent_workspace_dir(
     client: httpx.Client,
     agent_id: str,
@@ -414,12 +407,33 @@ def _fetch_agent_workspace_dir(
     return Path(workspace_dir).expanduser()
 
 
+def _ensure_workspace_within_working_dir(workspace_dir: Path) -> Path:
+    """Validate that a workspace directory lives under WORKING_DIR."""
+    resolved_working_dir = WORKING_DIR.resolve()
+    resolved_workspace_dir = workspace_dir.expanduser().resolve()
+
+    try:
+        resolved_workspace_dir.relative_to(resolved_working_dir)
+    except ValueError as exc:
+        raise click.ClickException(
+            "Cannot delete workspace outside WORKING_DIR: "
+            f"'{resolved_workspace_dir}' is not under "
+            f"'{resolved_working_dir}'.",
+        ) from exc
+
+    return resolved_workspace_dir
+
+
 def _remove_agent_workspace(workspace_dir: Path) -> bool:
     """Delete the agent workspace directory if it exists."""
-    if not workspace_dir.exists():
+    resolved_workspace_dir = _ensure_workspace_within_working_dir(
+        workspace_dir,
+    )
+
+    if not resolved_workspace_dir.exists():
         return False
 
-    shutil.rmtree(workspace_dir)
+    shutil.rmtree(resolved_workspace_dir)
     return True
 
 
@@ -657,11 +671,6 @@ def delete_cmd(
     """
     resolved_base_url = resolve_base_url(ctx, base_url)
 
-    if remove_workspace and not _is_local_base_url(resolved_base_url):
-        raise click.ClickException(
-            "--remove-workspace is only supported when targeting a local API.",
-        )
-
     if not yes:
         click.echo(f"WARNING: You are about to delete agent '{agent_id}'.")
         click.echo(
@@ -679,6 +688,10 @@ def delete_cmd(
     with agent_tools.create_agent_api_client(resolved_base_url) as client:
         if remove_workspace:
             workspace_dir = _fetch_agent_workspace_dir(client, agent_id)
+            if workspace_dir is not None:
+                workspace_dir = _ensure_workspace_within_working_dir(
+                    workspace_dir,
+                )
         response = client.delete(f"/agents/{agent_id}")
 
     if response.status_code == 404:
