@@ -1,11 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import api from "../../../api";
-import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
+import type {
+  ProviderInfo,
+  ActiveModelsInfo,
+  LLMRoutingConfig,
+} from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 
 export function useProviders() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
+    null,
+  );
+  const [routingConfig, setRoutingConfig] = useState<LLMRoutingConfig | null>(
     null,
   );
   const [loading, setLoading] = useState(true);
@@ -18,9 +25,10 @@ export function useProviders() {
     }
     setError(null);
     try {
-      const [provData, activeData] = await Promise.all([
+      const [provData, activeData, routingData] = await Promise.all([
         api.listProviders(),
         api.getActiveModels({ scope: "global" }),
+        api.getLlmRoutingConfig(),
       ]);
       if (!Array.isArray(provData)) {
         throw new Error(
@@ -29,6 +37,7 @@ export function useProviders() {
       }
       setProviders(provData);
       if (activeData) setActiveModels(activeData);
+      if (routingData) setRoutingConfig(routingData);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load provider data";
@@ -48,6 +57,7 @@ export function useProviders() {
   return {
     providers,
     activeModels,
+    routingConfig,
     loading,
     error,
     fetchAll,

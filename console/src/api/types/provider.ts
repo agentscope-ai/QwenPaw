@@ -43,6 +43,15 @@ export interface ModelSlotConfig {
   model: string;
 }
 
+export type LLMRoutingMode = "local_first" | "cloud_first";
+
+export interface LLMRoutingConfig {
+  enabled: boolean;
+  mode: LLMRoutingMode;
+  local: ModelSlotConfig;
+  cloud: ModelSlotConfig | null;
+}
+
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
 }
