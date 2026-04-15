@@ -350,29 +350,6 @@ Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in 
 
 > **Using local models only?** If you use [Local Models](#local-models) (llama.cpp / Ollama / LM Studio), you do **not** need any API key.
 
-### Langfuse Observability (Optional)
-
-QwenPaw supports optional [Langfuse](https://langfuse.com/) tracing for LLM calls (trace/generation + usage, latency and error reporting). This integration is **server-side only**.
-
-1. Install SDK:
-   ```bash
-   pip install langfuse
-   ```
-2. Configure environment variables (Console **Settings → Environment variables** or shell):
-   ```bash
-   QWENPAW_LANGFUSE_ENABLED=true
-   LANGFUSE_PUBLIC_KEY=pk-lf-...
-   LANGFUSE_SECRET_KEY=sk-lf-...
-   # Optional:
-   LANGFUSE_HOST=https://cloud.langfuse.com
-   # or LANGFUSE_BASE_URL=https://cloud.langfuse.com
-   LANGFUSE_PROJECT=your-project
-   ```
-
-Notes:
-- `LANGFUSE_SECRET_KEY` must stay on the backend; do **not** expose it in frontend/browser code.
-- If Langfuse is disabled, not installed, or keys are missing, QwenPaw automatically degrades to normal behavior without affecting existing model calls.
-
 ## Local Models
 
 QwenPaw can run LLMs entirely on your machine — no API keys or cloud services required. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
