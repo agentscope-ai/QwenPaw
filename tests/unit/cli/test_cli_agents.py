@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -11,6 +10,7 @@ from click.testing import CliRunner
 
 from qwenpaw.cli.main import cli
 from qwenpaw.constant import BUILTIN_QA_AGENT_SKILL_NAMES
+from qwenpaw.providers.models import ModelSlotConfig
 
 
 def test_agents_list_uses_shared_tool_helper(monkeypatch) -> None:
@@ -347,6 +347,103 @@ def test_agents_create_local_template_uses_local_md_template(
     assert builtin_tools["write_file"].enabled is True
     assert builtin_tools["edit_file"].enabled is True
     assert builtin_tools["execute_shell_command"].enabled is True
+
+
+def test_agents_create_sets_active_model_when_requested(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config = SimpleNamespace(
+        agents=SimpleNamespace(
+            profiles={},
+            agent_order=[],
+            language="zh",
+        ),
+    )
+    saved = {}
+
+    monkeypatch.setattr("qwenpaw.cli.agents_cmd.load_config", lambda: config)
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.save_config",
+        lambda updated_config: saved.setdefault("config", updated_config),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.save_agent_config",
+        lambda agent_id, agent_config: saved.setdefault(
+            "agent_config",
+            (agent_id, agent_config),
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd._initialize_new_agent_workspace",
+        lambda workspace_dir, skill_names, md_template_id=None: saved.setdefault(  # noqa: E501
+            "workspace_init",
+            (workspace_dir, skill_names, md_template_id),
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd._build_active_model_config",
+        lambda provider_id, model_id: ModelSlotConfig(
+            provider_id=provider_id,
+            model=model_id,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "create",
+            "--name",
+            "Research Bot",
+            "--agent-id",
+            "research",
+            "--workspace-dir",
+            str(tmp_path / "research"),
+            "--provider-id",
+            "openai",
+            "--model-id",
+            "gpt-4.1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert saved["agent_config"][1].active_model == ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4.1",
+    )
+
+
+def test_agents_create_requires_provider_and_model_together(
+    monkeypatch,
+) -> None:
+    config = SimpleNamespace(
+        agents=SimpleNamespace(
+            profiles={},
+            agent_order=[],
+            language="zh",
+        ),
+    )
+
+    monkeypatch.setattr("qwenpaw.cli.agents_cmd.load_config", lambda: config)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "create",
+            "--name",
+            "Research Bot",
+            "--provider-id",
+            "openai",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert (
+        "--provider-id and --model-id must be provided together."
+        in result.output
+    )
 
 
 def test_agents_delete_calls_local_api(monkeypatch) -> None:

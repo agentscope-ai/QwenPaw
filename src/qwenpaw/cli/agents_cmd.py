@@ -24,6 +24,8 @@ from ..config.config import (
     save_agent_config,
 )
 from ..constant import WORKING_DIR
+from ..providers.models import ModelSlotConfig
+from ..providers.provider_manager import ProviderManager
 from .http import print_json, resolve_base_url
 
 SUPPORTED_AGENT_TEMPLATES = list_supported_agent_templates()
@@ -360,6 +362,35 @@ def _initialize_new_agent_workspace(
     )
 
 
+def _build_active_model_config(
+    provider_id: Optional[str],
+    model_id: Optional[str],
+) -> ModelSlotConfig | None:
+    """Validate and build an agent-scoped active model configuration."""
+    provider_id = _normalize_optional_text(provider_id)
+    model_id = _normalize_optional_text(model_id)
+
+    if provider_id is None and model_id is None:
+        return None
+
+    if provider_id is None or model_id is None:
+        raise click.ClickException(
+            "--provider-id and --model-id must be provided together.",
+        )
+
+    manager = ProviderManager.get_instance()
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise click.ClickException(f"Provider '{provider_id}' not found.")
+
+    if not provider.has_model(model_id):
+        raise click.ClickException(
+            f"Model '{model_id}' not found in provider '{provider.id}'.",
+        )
+
+    return ModelSlotConfig(provider_id=provider.id, model=model_id)
+
+
 def _is_local_base_url(base_url: str) -> bool:
     """Return whether the resolved API base URL points to the local host."""
     hostname = urlparse(base_url).hostname
@@ -496,6 +527,18 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
     multiple=True,
     help="Initial skill to install. Repeat to add multiple skills.",
 )
+@click.option(
+    "--provider-id",
+    default=None,
+    show_default=False,
+    help="Provider ID for the agent's default active model.",
+)
+@click.option(
+    "--model-id",
+    default=None,
+    show_default=False,
+    help="Model ID for the agent's default active model.",
+)
 def create_cmd(
     name: Optional[str],
     agent_id: Optional[str],
@@ -504,6 +547,8 @@ def create_cmd(
     language: Optional[str],
     template: Optional[str],
     skills: tuple[str, ...],
+    provider_id: Optional[str],
+    model_id: Optional[str],
 ) -> None:
     """Create a new local agent configuration and workspace."""
     config = load_config()
@@ -540,6 +585,10 @@ def create_cmd(
     agent_config = template_result.agent_config
     template_skill_names = list(template_result.initial_skill_names)
     md_template_id = template_result.md_template_id
+    agent_config.active_model = _build_active_model_config(
+        provider_id,
+        model_id,
+    )
 
     requested_skills = list(dict.fromkeys([*template_skill_names, *skills]))
     _initialize_new_agent_workspace(
