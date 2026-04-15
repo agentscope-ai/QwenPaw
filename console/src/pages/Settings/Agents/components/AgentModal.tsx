@@ -130,7 +130,7 @@ export function AgentModal({
             help={t("agent.idHelp")}
             rules={[
               {
-                pattern: /^[a-z0-9][a-z0-9_-]*[a-z0-9]$/,
+                pattern: /^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$/,
                 message: t("agent.idPattern"),
               },
             ]}

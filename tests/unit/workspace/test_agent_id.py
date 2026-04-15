@@ -35,10 +35,10 @@ def test_generate_short_agent_id_alphanumeric():
 # --- sanitize_agent_id ---
 
 
-def test_sanitize_strips_and_lowercases():
-    """Test sanitize_agent_id strips whitespace and lowercases."""
-    assert sanitize_agent_id("  Browse-Agent  ") == "browse-agent"
-    assert sanitize_agent_id("MY_BOT") == "my_bot"
+def test_sanitize_strips_whitespace():
+    """Test sanitize_agent_id strips whitespace."""
+    assert sanitize_agent_id("  Browse-Agent  ") == "Browse-Agent"
+    assert sanitize_agent_id("MY_BOT") == "MY_BOT"
     assert sanitize_agent_id("hello") == "hello"
 
 
@@ -58,6 +58,8 @@ def test_sanitize_empty_string():
         "my_bot_v2",
         "a1",
         "agent123",
+        "Browse-Agent",
+        "MY_BOT",
     ],
 )
 def test_validate_valid_ids(agent_id):
@@ -95,7 +97,6 @@ def test_validate_too_long():
         "_starts-under",  # starts with underscore
         "ends-dash-",  # ends with dash
         "ends_under_",  # ends with underscore
-        "UPPER",  # uppercase
     ],
 )
 def test_validate_invalid_pattern(agent_id):

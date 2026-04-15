@@ -27,9 +27,9 @@ from ..constant import (
 )
 from ..providers.models import ModelSlotConfig
 
-# Agent ID validation: lowercase alphanumeric, hyphens, underscores.
+# Agent ID validation: alphanumeric, hyphens, underscores.
 _AGENT_ID_PATTERN = re.compile(
-    r"^[a-z0-9][a-z0-9_-]*[a-z0-9]$",
+    r"^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$",
 )
 _AGENT_ID_MIN_LENGTH = 2
 _AGENT_ID_MAX_LENGTH = 64
@@ -46,7 +46,7 @@ def generate_short_agent_id() -> str:
 
 
 def sanitize_agent_id(raw: str) -> str:
-    """Normalize raw agent ID input: strip whitespace and lowercase.
+    """Normalize raw agent ID input: strip whitespace.
 
     Args:
         raw: Raw user input for agent ID.
@@ -54,7 +54,7 @@ def sanitize_agent_id(raw: str) -> str:
     Returns:
         Sanitized agent ID string.
     """
-    return raw.strip().lower()
+    return raw.strip()
 
 
 def validate_agent_id(
@@ -85,7 +85,7 @@ def validate_agent_id(
     if not _AGENT_ID_PATTERN.match(agent_id):
         raise ValueError(
             f"Agent ID '{agent_id}' contains invalid characters. "
-            "Only lowercase letters, digits, hyphens, and underscores "
+            "Only letters, digits, hyphens, and underscores "
             "are allowed. Cannot start or end with '-' or '_'.",
         )
     if agent_id in _RESERVED_AGENT_IDS:
