@@ -568,6 +568,7 @@ PROVIDER_OPENCODE = OpenAIProvider(
     api_key_prefix="",
     models=OPENCODE_MODELS,
     freeze_url=True,
+    require_api_key=False,
     support_model_discovery=True,
 )
 
