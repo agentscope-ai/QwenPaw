@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
+from agentscope.agent._react_agent import _MemoryMark
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
@@ -721,18 +722,14 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         not set ``\"required\"`` so a genuinely finished task can still end in
         text only.
         """
-        from agentscope.agent._react_agent import _MemoryMark
-
         running = self._agent_config.running
         if not running.auto_continue_on_text_only:
-            return msg
-        if tool_choice == "none":
             return msg
         if msg is None or msg.has_content_blocks("tool_use"):
             return msg
 
         tc: Literal["auto", "none", "required"] = (
-            tool_choice if tool_choice is not None else "auto"
+            "auto" if tool_choice in (None, "none") else tool_choice
         )
         extra = 0
         while extra < self._AUTO_CONTINUE_MAX_EXTRA:
