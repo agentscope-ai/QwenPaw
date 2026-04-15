@@ -205,10 +205,14 @@ class Provider(ProviderInfo, ABC):
         ):
             self.generate_kwargs = config["generate_kwargs"]
         if "extra_models" in config and config["extra_models"] is not None:
+            # Always go through model_validate with dict data to
+            # avoid class-identity issues from dual module loading.
             self.extra_models = [
-                model
-                if isinstance(model, ModelInfo)
-                else ModelInfo.model_validate(model)
+                ModelInfo.model_validate(
+                    model.model_dump()
+                    if isinstance(model, BaseModel)
+                    else model
+                )
                 for model in config["extra_models"]
             ]
 
@@ -313,14 +317,19 @@ class Provider(ProviderInfo, ABC):
             if mock_secret and self.api_key
             else self.api_key
         )
+        # Serialize models/extra_models to plain dicts so that
+        # ProviderInfo constructs fresh ModelInfo instances using
+        # the class in its own module scope.  This avoids pydantic
+        # class-identity mismatches when the same module is loaded
+        # via two different import paths (e.g. PYTHONPATH + pip install).
         return ProviderInfo(
             id=self.id,
             name=self.name,
             base_url=self.base_url,
             api_key=api_key,
             chat_model=self.chat_model,
-            models=self.models,
-            extra_models=self.extra_models,
+            models=[m.model_dump() for m in self.models],
+            extra_models=[m.model_dump() for m in self.extra_models],
             api_key_prefix=self.api_key_prefix,
             is_local=self.is_local,
             is_custom=self.is_custom,
