@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -570,7 +571,10 @@ def test_agents_delete_remove_workspace_deletes_directory(
     client.delete.assert_called_once_with("/agents/research")
     assert not workspace_dir.exists()
     assert '"workspace_removed": true' in result.output
-    assert f'"workspace_dir": "{workspace_dir}"' in result.output
+    assert (
+        f'"workspace_dir": {json.dumps(str(workspace_dir))}'
+        in result.output
+    )
 
 
 def test_agents_delete_rejects_workspace_outside_working_dir(
