@@ -105,7 +105,7 @@ class ProviderInfo(BaseModel):
         description=("Whether this provider is user-created (not built-in)."),
     )
     support_model_discovery: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether this provider supports fetching available models"
             " from the provider's API"

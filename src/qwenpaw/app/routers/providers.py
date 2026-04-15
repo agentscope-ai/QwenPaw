@@ -318,6 +318,17 @@ async def discover_models(
     ),
 ) -> DiscoverModelsResponse:
     try:
+        provider = manager.get_provider(provider_id)
+        if provider is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Provider '{provider_id}' not found",
+            )
+
+        existing_model_ids = {
+            model.id for model in provider.models + provider.extra_models
+        }
+
         ok = manager.update_provider(
             provider_id,
             {
@@ -339,7 +350,18 @@ async def discover_models(
         except Exception:
             result = []
             success = False
-        return DiscoverModelsResponse(success=success, models=result)
+
+        added_count = 0
+        if save and success:
+            added_count = sum(
+                1 for model in result if model.id not in existing_model_ids
+            )
+
+        return DiscoverModelsResponse(
+            success=success,
+            models=result,
+            added_count=added_count,
+        )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -272,8 +272,10 @@ export function RemoteModelManageModal({
   const { isDark } = useTheme();
   const darkBtnStyle = isDark ? { color: "rgba(255,255,255,0.65)" } : undefined;
   const { message } = useAppMessage();
+  const supportsAutoDiscover = provider.support_model_discovery;
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [discoveringModels, setDiscoveringModels] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
@@ -503,6 +505,44 @@ export function RemoteModelManageModal({
       message.error(t("models.modelAddFailed"));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAutoDiscoverModels = async () => {
+    setDiscoveringModels(true);
+    try {
+      const result = await api.discoverModels(provider.id, undefined, true);
+
+      if (!result.success) {
+        message.error(result.message || t("models.autoDiscoverModelsFailed"));
+        return;
+      }
+
+      await onSaved();
+
+      if (result.added_count > 0) {
+        message.success(
+          t("models.autoDiscoverModelsSuccess", {
+            count: result.added_count,
+          }),
+        );
+        return;
+      }
+
+      message.info(
+        result.message ||
+          t("models.autoDiscoverModelsNoNew", {
+            count: result.models.length,
+          }),
+      );
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.autoDiscoverModelsFailed");
+      message.error(errMsg);
+    } finally {
+      setDiscoveringModels(false);
     }
   };
 
@@ -941,7 +981,17 @@ export function RemoteModelManageModal({
             </Form>
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <div className={styles.modalActionRow}>
+            {supportsAutoDiscover && (
+              <Button
+                icon={<SearchOutlined />}
+                loading={discoveringModels}
+                onClick={handleAutoDiscoverModels}
+                style={{ flex: 1 }}
+              >
+                {t("models.autoDiscoverModels")}
+              </Button>
+            )}
             <Button
               type="dashed"
               icon={<PlusOutlined />}
