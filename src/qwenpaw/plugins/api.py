@@ -11,9 +11,7 @@ class PluginApi:
     """Plugin API - Interface for plugin developers.
 
     This class provides the API that plugins use to register their
-    capabilities.  It also tracks every registration so that
-    ``unregister_all()`` can cleanly remove them during dynamic
-    unloading.
+    capabilities.
     """
 
     def __init__(
@@ -207,33 +205,3 @@ class PluginApi:
                 f"Plugin '{self.plugin_id}' registered JS tool renderer "
                 f"'{tool_name}' -> '{component_name}'",
             )
-
-    def unregister_all(self) -> None:
-        """Remove all registrations made by this plugin.
-
-        Delegates to ``PluginRegistry.unregister_all_by_plugin`` which
-        handles every category in one call.  This is the primary method
-        used during dynamic plugin unloading.
-        """
-        if self._registry:
-            summary = self._registry.unregister_all_by_plugin(self.plugin_id)
-            logger.info(
-                f"Plugin '{self.plugin_id}' unregistered all resources: "
-                f"{summary}",
-            )
-
-        # Clear local tracking lists
-        self._registered_startup_hooks.clear()
-        self._registered_shutdown_hooks.clear()
-        self._registered_js_tool_renderers.clear()
-
-    @property
-    def runtime(self):
-        """Access runtime helper functions.
-
-        Returns:
-            RuntimeHelpers instance or None
-        """
-        if self._registry:
-            return self._registry.get_runtime_helpers()
-        return None

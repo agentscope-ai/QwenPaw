@@ -15,18 +15,13 @@ class BasePlugin(ABC):
 
     Every plugin must export a ``plugin`` object that is an instance of a
     class derived from ``BasePlugin``.  The loader calls ``register`` on
-    startup and ``unregister`` before the plugin is unloaded, giving the
-    plugin a chance to clean up resources it registered.
+    startup.
 
     Example::
 
         class MyPlugin(BasePlugin):
             def register(self, api: PluginApi) -> None:
                 api.register_js_tool_renderer("view_image", "ViewImageCard")
-
-            def unregister(self, api: PluginApi) -> None:
-                # Optional: custom cleanup beyond automatic unregister_all()
-                pass
 
         plugin = MyPlugin()
     """
@@ -37,18 +32,6 @@ class BasePlugin(ABC):
 
         Use the *api* object to register providers, hooks, JS tool
         renderers, and other capabilities.
-
-        Args:
-            api: The plugin API instance bound to this plugin.
-        """
-
-    def unregister(self, api: "PluginApi") -> None:
-        """Called when the plugin is about to be unloaded.
-
-        Override this to perform custom cleanup.  The framework will
-        **always** call ``api.unregister_all()`` after this method returns,
-        so you only need to override it if you have resources outside the
-        plugin registry to release (e.g. background tasks, open files).
 
         Args:
             api: The plugin API instance bound to this plugin.
