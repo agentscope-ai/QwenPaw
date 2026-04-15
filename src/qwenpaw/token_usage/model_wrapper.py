@@ -9,6 +9,7 @@ from agentscope.model._model_response import ChatResponse
 from agentscope.model._model_usage import ChatUsage
 from pydantic import BaseModel
 
+from ..observability.langfuse import GenerationContext, get_langfuse_observer
 from .manager import get_token_usage_manager
 
 
@@ -24,6 +25,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
         )
         self._model = model
         self._provider_id = provider_id
+        self._observer = get_langfuse_observer()
 
     async def _record_usage(self, usage: ChatUsage | None) -> None:
         if usage is None:
@@ -74,26 +76,83 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if tool_choice == "auto":
             tool_choice = None
 
-        result = await self._model(
-            messages=messages,
-            tools=tools,
-            tool_choice=tool_choice,
-            structured_model=structured_model,
-            **kwargs,
-        )
+        generation_context = self._start_generation(messages=messages, tools=tools)
+        try:
+            result = await self._model(
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                structured_model=structured_model,
+                **kwargs,
+            )
+        except Exception as exc:
+            self._finish_generation_error(generation_context, exc)
+            raise
 
         if isinstance(result, AsyncGenerator):
-            return self._wrap_stream(result)
+            return self._wrap_stream(result, generation_context)
         await self._record_usage(getattr(result, "usage", None))
+        self._finish_generation_success(
+            generation_context,
+            response=result,
+            usage=getattr(result, "usage", None),
+        )
         return result
 
     async def _wrap_stream(
         self,
         stream: AsyncGenerator[ChatResponse, None],
+        generation_context: GenerationContext | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         last_usage: ChatUsage | None = None
+        last_response: ChatResponse | None = None
         async for chunk in stream:
             if getattr(chunk, "usage", None) is not None:
                 last_usage = chunk.usage
+            last_response = chunk
             yield chunk
         await self._record_usage(last_usage)
+        self._finish_generation_success(
+            generation_context,
+            response=last_response,
+            usage=last_usage,
+        )
+
+    def _start_generation(
+        self,
+        *,
+        messages: list[dict],
+        tools: list[dict] | None,
+    ) -> GenerationContext | None:
+        if self._observer is None:
+            return None
+        return self._observer.start_generation(
+            provider_id=self._provider_id,
+            model_name=self.model_name,
+            messages=messages,
+            tools=tools,
+        )
+
+    def _finish_generation_success(
+        self,
+        context: GenerationContext | None,
+        *,
+        response: ChatResponse | None,
+        usage: ChatUsage | None,
+    ) -> None:
+        if self._observer is None or context is None:
+            return
+        self._observer.finish_success(
+            context,
+            response=response,
+            usage=usage,
+        )
+
+    def _finish_generation_error(
+        self,
+        context: GenerationContext | None,
+        error: Exception,
+    ) -> None:
+        if self._observer is None or context is None:
+            return
+        self._observer.finish_error(context, error=error)
