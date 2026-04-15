@@ -14,11 +14,8 @@ succeed.
 
 from __future__ import annotations
 
-import types
-from typing import List
-
 import pytest
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
 
 from qwenpaw.providers.provider import ModelInfo, Provider, ProviderInfo
 
@@ -59,6 +56,7 @@ def _make_foreign_model_info(model_id: str, name: str):
 # A minimal concrete Provider for testing (Provider is abstract).
 # ---------------------------------------------------------------------------
 
+
 class _StubProvider(Provider):
     async def check_connection(self, timeout=5):
         return True, "ok"
@@ -76,6 +74,7 @@ class _StubProvider(Provider):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestGetInfoClassIdentity:
     """Provider.get_info() must tolerate foreign ModelInfo instances."""
@@ -141,18 +140,21 @@ class TestUpdateConfigClassIdentity:
     def test_update_config_with_dict_models(self):
         """update_config() with plain dicts should still work normally."""
         provider = _StubProvider(id="test-provider", name="Test")
-        provider.update_config({
-            "extra_models": [
-                {"id": "model-a", "name": "Model A"},
-                {"id": "model-b", "name": "Model B"},
-            ]
-        })
+        provider.update_config(
+            {
+                "extra_models": [
+                    {"id": "model-a", "name": "Model A"},
+                    {"id": "model-b", "name": "Model B"},
+                ],
+            },
+        )
 
         assert len(provider.extra_models) == 2
         assert all(isinstance(m, ModelInfo) for m in provider.extra_models)
 
     def test_update_config_with_canonical_model_instances(self):
-        """update_config() with canonical ModelInfo instances must still work."""
+        """update_config() with canonical ModelInfo instances
+        must still work."""
         canonical = ModelInfo(id="model-c", name="Model C")
 
         provider = _StubProvider(id="test-provider", name="Test")

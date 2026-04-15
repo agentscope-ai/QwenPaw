@@ -211,7 +211,7 @@ class Provider(ProviderInfo, ABC):
                 ModelInfo.model_validate(
                     model.model_dump()
                     if isinstance(model, BaseModel)
-                    else model
+                    else model,
                 )
                 for model in config["extra_models"]
             ]
