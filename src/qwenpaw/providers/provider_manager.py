@@ -262,23 +262,7 @@ OPENAI_MODELS: List[ModelInfo] = [
     ),
 ]
 
-OPENCODE_MODELS: List[ModelInfo] = [
-    # Free models from OpenCode Zen
-    ModelInfo(
-        id="big-pickle",
-        name="Big Pickle",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="nemotron-3-super-free",
-        name="Nemotron 3 Super Free",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
+OPENCODE_MODELS: List[ModelInfo] = []
 
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(
@@ -576,6 +560,7 @@ PROVIDER_OPENCODE = OpenAIProvider(
     api_key_prefix="",
     models=OPENCODE_MODELS,
     freeze_url=True,
+    require_api_key=False,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
