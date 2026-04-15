@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""An OpenAI provider implementation."""
-
-from __future__ import annotations
+"""An Ollama provider implementation."""
 
 import os
 from typing import Any

@@ -23,6 +23,7 @@ from .gemini_provider import GeminiProvider
 from .models import ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
+from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
     Provider,
@@ -667,7 +668,7 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     support_model_discovery=True,
 )
 
-PROVIDER_LMSTUDIO = OpenAIProvider(
+PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
     name="LM Studio",
     is_local=True,
