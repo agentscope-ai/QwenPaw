@@ -27,7 +27,7 @@ if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec("langfuse"
     from langfuse.openai import AsyncOpenAI  # type: ignore[import]
 else:
     if os.environ.get("LANGFUSE_SECRET_KEY"):
-        logging.warning(
+        logger.warning(
             "LANGFUSE_SECRET_KEY is set but langfuse is not installed; "
             "install with `pip install langfuse` to enable tracing"
         )
