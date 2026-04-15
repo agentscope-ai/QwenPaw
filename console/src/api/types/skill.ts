@@ -64,7 +64,6 @@ export interface HubInstallTaskResponse {
   bundle_url: string;
   version: string;
   enable: boolean;
-  overwrite: boolean;
   status: "pending" | "importing" | "completed" | "failed" | "cancelled";
   error: string | null;
   result: {
