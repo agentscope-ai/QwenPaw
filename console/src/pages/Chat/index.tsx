@@ -316,16 +316,8 @@ function useMessageHistoryNavigation(
     return null;
   };
 
-  const isSuggestionPopupOpen = (textarea: HTMLTextAreaElement): boolean => {
-    if (!textarea.value.startsWith("/")) return false;
-    const doc = textarea.ownerDocument;
-    const menuItems = Array.from(
-      doc.querySelectorAll('[role="menuitemcheckbox"], [role="menuitem"]'),
-    );
-    return menuItems.some((item) =>
-      (item.textContent || "").trim().startsWith("/"),
-    );
-  };
+  const isSuggestionPopupOpen = (textarea: HTMLTextAreaElement): boolean =>
+    textarea.value.startsWith("/");
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
