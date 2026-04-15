@@ -7,7 +7,7 @@ metadata:
     emoji: "🗺️"
 ---
 
-# 压缩版制定计划策略
+# Make Plan (制定计划)
 
 当你需要向更强 Agent 发起一次**外部计划请求**时，使用本 Skill。
 
