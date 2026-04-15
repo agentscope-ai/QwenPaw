@@ -551,11 +551,6 @@ class ToolGuardMixin:
         guard_result,
     ) -> dict | None:
         """Deny the tool call and record a pending approval."""
-        from agentscope.message import ToolResultBlock
-        from qwenpaw.security.tool_guard.approval import (
-            format_findings_summary,
-        )
-
         channel = str(self._request_context.get("channel") or "")
 
         # Find the original assistant message and extract thinking blocks
