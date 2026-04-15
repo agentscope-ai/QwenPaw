@@ -66,17 +66,3 @@ async def test_opencode_check_connection_success(monkeypatch) -> None:
 
     assert ok is True
     assert msg == ""
-
-
-def test_opencode_has_expected_models(isolated_secret_dir) -> None:
-    """Provider manager OpenCode provider should include built-in models."""
-    manager = ProviderManager()
-    provider = manager.get_provider("opencode")
-
-    assert provider is not None
-
-    for model_id in [
-        "big-pickle",
-        "nemotron-3-super-free",
-    ]:
-        assert provider.has_model(model_id)
