@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, Any, List
 
 from agentscope.model import ChatModelBase
-from openai import APIError, AsyncOpenAI
+from openai import APIError
 
 from qwenpaw.providers.provider import ModelInfo, Provider
 
@@ -20,6 +22,15 @@ logger = logging.getLogger(__name__)
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
+
+if importlib.util.find_spec("langfuse") is not None and bool(
+    os.getenv("LANGFUSE_SECRET_KEY")
+):
+    from langfuse.openai import AsyncOpenAI  # type: ignore[import]
+
+    logger.info("Langfuse OpenAI tracing enabled")
+else:
+    from openai import AsyncOpenAI
 
 
 class OpenAIProvider(Provider):

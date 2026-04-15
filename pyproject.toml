@@ -98,6 +98,9 @@ ollama = [
 whisper = [
     "openai-whisper>=20231117",
 ]
+langfuse = [
+    "langfuse>=2.0.0",
+]
 full = [
     "qwenpaw[local,ollama,llamacpp,whisper]",
     "mlx-lm>=0.10.0; sys_platform == 'darwin'",

@@ -266,3 +266,89 @@ async def test_update_config_does_not_update_base_url_when_frozen() -> None:
     assert provider.api_key == "sk-frozen"
     assert info.base_url == "https://mock-openai.local/v1"
     assert info.api_key == "sk-frozen"
+
+
+# ---------------------------------------------------------------------------
+# Langfuse conditional import tests
+# ---------------------------------------------------------------------------
+
+
+def test_async_openai_is_openai_client_when_langfuse_disabled(
+    monkeypatch,
+) -> None:
+    """AsyncOpenAI should come from the plain openai package when langfuse is
+    not configured, regardless of whether the package is installed."""
+    import importlib
+    import sys
+
+    import openai
+
+    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+
+    # Remove the cached module so the conditional import re-runs.
+    monkeypatch.delitem(sys.modules, "qwenpaw.providers.openai_provider", raising=False)
+    mod = importlib.import_module("qwenpaw.providers.openai_provider")
+
+    assert mod.AsyncOpenAI is openai.AsyncOpenAI
+
+
+def test_async_openai_falls_back_to_openai_when_langfuse_not_installed(
+    monkeypatch,
+) -> None:
+    """AsyncOpenAI should come from the plain openai package when
+    LANGFUSE_SECRET_KEY is set but the langfuse package is not installed."""
+    import importlib
+    import sys
+
+    import openai
+
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test-secret")
+
+    # Simulate langfuse not being installed.
+    monkeypatch.delitem(sys.modules, "qwenpaw.providers.openai_provider", raising=False)
+    langfuse_spec_orig = importlib.util.find_spec
+
+    def _find_spec_no_langfuse(name, *args, **kwargs):
+        if name == "langfuse":
+            return None
+        return langfuse_spec_orig(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", _find_spec_no_langfuse)
+    mod = importlib.import_module("qwenpaw.providers.openai_provider")
+
+    assert mod.AsyncOpenAI is openai.AsyncOpenAI
+
+
+def test_async_openai_uses_langfuse_when_enabled(monkeypatch) -> None:
+    """AsyncOpenAI should be replaced by langfuse's instrumented version when
+    LANGFUSE_SECRET_KEY is set and the langfuse package is available."""
+    import importlib
+    import sys
+    import types
+
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test-secret")
+
+    # Build a minimal fake langfuse.openai module with a sentinel AsyncOpenAI.
+    fake_async_openai = object()
+    fake_langfuse_openai = types.ModuleType("langfuse.openai")
+    fake_langfuse_openai.AsyncOpenAI = fake_async_openai  # type: ignore[attr-defined]
+
+    fake_langfuse = types.ModuleType("langfuse")
+
+    # Ensure importlib.util.find_spec("langfuse") returns a non-None spec
+    # and that importing langfuse.openai returns our fake module.
+    langfuse_spec_orig = importlib.util.find_spec
+
+    def _find_spec_with_langfuse(name, *args, **kwargs):
+        if name == "langfuse":
+            return object()  # truthy spec – langfuse is "installed"
+        return langfuse_spec_orig(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", _find_spec_with_langfuse)
+    monkeypatch.setitem(sys.modules, "langfuse", fake_langfuse)
+    monkeypatch.setitem(sys.modules, "langfuse.openai", fake_langfuse_openai)
+
+    monkeypatch.delitem(sys.modules, "qwenpaw.providers.openai_provider", raising=False)
+    mod = importlib.import_module("qwenpaw.providers.openai_provider")
+
+    assert mod.AsyncOpenAI is fake_async_openai
