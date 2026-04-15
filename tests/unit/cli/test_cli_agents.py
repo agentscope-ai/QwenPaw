@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from click.testing import CliRunner
 
@@ -345,3 +347,232 @@ def test_agents_create_local_template_uses_local_md_template(
     assert builtin_tools["write_file"].enabled is True
     assert builtin_tools["edit_file"].enabled is True
     assert builtin_tools["execute_shell_command"].enabled is True
+
+
+def test_agents_delete_calls_local_api(monkeypatch) -> None:
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "success": True,
+        "agent_id": "research",
+    }
+    response.raise_for_status = Mock()
+
+    client = Mock()
+    client.delete.return_value = response
+
+    class _ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.agent_tools.create_agent_api_client",
+        lambda _base_url: _ClientContext(),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "delete", "research"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    client.delete.assert_called_once_with("/agents/research")
+    assert (
+        "WARNING: You are about to delete agent 'research'." in result.output
+    )
+    assert "Continue with deletion? [y/N]: y" in result.output
+    assert '"agent_id": "research"' in result.output
+
+
+def test_agents_delete_yes_skips_confirmation(monkeypatch) -> None:
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "success": True,
+        "agent_id": "research",
+    }
+    response.raise_for_status = Mock()
+
+    client = Mock()
+    client.delete.return_value = response
+
+    class _ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.agent_tools.create_agent_api_client",
+        lambda _base_url: _ClientContext(),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "delete", "research", "--yes"],
+    )
+
+    assert result.exit_code == 0
+    client.delete.assert_called_once_with("/agents/research")
+    assert "Continue with deletion?" not in result.output
+
+
+def test_agents_delete_remove_workspace_deletes_directory(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    workspace_dir = tmp_path / "research"
+    workspace_dir.mkdir()
+    (workspace_dir / "agent.json").write_text("{}", encoding="utf-8")
+
+    get_response = Mock()
+    get_response.status_code = 200
+    get_response.json.return_value = {
+        "workspace_dir": str(workspace_dir),
+    }
+    get_response.raise_for_status = Mock()
+
+    delete_response = Mock()
+    delete_response.status_code = 200
+    delete_response.json.return_value = {
+        "success": True,
+        "agent_id": "research",
+    }
+    delete_response.raise_for_status = Mock()
+
+    client = Mock()
+    client.get.return_value = get_response
+    client.delete.return_value = delete_response
+
+    class _ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.agent_tools.create_agent_api_client",
+        lambda _base_url: _ClientContext(),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "delete", "research", "--remove-workspace", "--yes"],
+    )
+
+    assert result.exit_code == 0
+    client.get.assert_called_once_with("/agents/research")
+    client.delete.assert_called_once_with("/agents/research")
+    assert not workspace_dir.exists()
+    assert '"workspace_removed": true' in result.output
+    assert f'"workspace_dir": "{workspace_dir}"' in result.output
+
+
+def test_agents_delete_rejects_remove_workspace_for_remote_api(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.resolve_base_url",
+        lambda _ctx, _base_url: "http://192.168.1.20:8088",
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "delete", "research", "--remove-workspace", "--yes"],
+    )
+
+    assert result.exit_code != 0
+    assert (
+        "--remove-workspace is only supported when targeting a local API."
+        in result.output
+    )
+
+
+def test_agents_delete_cancelled_before_api_call(monkeypatch) -> None:
+    client = Mock()
+
+    class _ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.agent_tools.create_agent_api_client",
+        lambda _base_url: _ClientContext(),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "delete", "research"],
+        input="n\n",
+    )
+
+    assert result.exit_code != 0
+    client.delete.assert_not_called()
+
+
+def test_agents_delete_surfaces_not_found(monkeypatch) -> None:
+    response = Mock()
+    response.status_code = 404
+
+    client = Mock()
+    client.delete.return_value = response
+
+    class _ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.agent_tools.create_agent_api_client",
+        lambda _base_url: _ClientContext(),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "delete", "missing", "--yes"],
+    )
+
+    assert result.exit_code != 0
+    assert "Agent 'missing' not found." in result.output
+
+
+def test_agents_delete_surfaces_api_detail(monkeypatch) -> None:
+    response = Mock()
+    response.status_code = 400
+    response.json.return_value = {
+        "detail": "Cannot delete the default agent",
+    }
+
+    client = Mock()
+    client.delete.return_value = response
+
+    class _ClientContext:
+        def __enter__(self):
+            return client
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(
+        "qwenpaw.cli.agents_cmd.agent_tools.create_agent_api_client",
+        lambda _base_url: _ClientContext(),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["agents", "delete", "default", "--yes"],
+    )
+
+    assert result.exit_code != 0
+    assert "Cannot delete the default agent" in result.output

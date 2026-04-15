@@ -3,7 +3,9 @@
 # pylint:disable=too-many-branches,too-many-statements
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Optional, Dict, Any
 
 import click
@@ -358,21 +360,55 @@ def _initialize_new_agent_workspace(
     )
 
 
+def _is_local_base_url(base_url: str) -> bool:
+    """Return whether the resolved API base URL points to the local host."""
+    hostname = urlparse(base_url).hostname
+    return hostname in {"127.0.0.1", "localhost", "0.0.0.0", None}
+
+
+def _fetch_agent_workspace_dir(
+    client: httpx.Client,
+    agent_id: str,
+) -> Optional[Path]:
+    """Load the configured workspace directory for an agent from the API."""
+    response = client.get(f"/agents/{agent_id}")
+
+    if response.status_code == 404:
+        raise click.ClickException(f"Agent '{agent_id}' not found.")
+
+    response.raise_for_status()
+    workspace_dir = response.json().get("workspace_dir")
+    if not workspace_dir:
+        return None
+    return Path(workspace_dir).expanduser()
+
+
+def _remove_agent_workspace(workspace_dir: Path) -> bool:
+    """Delete the agent workspace directory if it exists."""
+    if not workspace_dir.exists():
+        return False
+
+    shutil.rmtree(workspace_dir)
+    return True
+
+
 @click.group("agents")
 def agents_group() -> None:
     """Manage agents and inter-agent communication.
 
     \b
     Commands:
-      list    List all configured agents
       chat    Communicate with another agent
       create  Create a new local agent
+      delete  Delete a configured agent
+      list    List all configured agents
 
     \b
     Examples:
-      qwenpaw agents list
       qwenpaw agents chat --from-agent bot_a --to-agent bot_b --text "..."
-      qwenpaw agents create --name "Research Bot"
+      qwenpaw agents create --name "Research Bot" --agent-id research_bot
+      qwenpaw agents delete research_bot
+      qwenpaw agents list
     """
 
 
@@ -524,6 +560,97 @@ def create_cmd(
     save_agent_config(new_id, agent_config)
 
     print_json(agent_ref.model_dump())
+
+
+@agents_group.command("delete")
+@click.argument("agent_id")
+@click.option(
+    "--remove-workspace",
+    is_flag=True,
+    default=False,
+    help="Also remove the agent workspace directory from the local machine.",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Skip warning messages and confirmation prompt.",
+)
+@click.option(
+    "--base-url",
+    default=None,
+    help=(
+        "Override the API base URL (e.g. http://127.0.0.1:8088). "
+        "If omitted, uses global --host and --port from config."
+    ),
+)
+@click.pass_context
+def delete_cmd(
+    ctx: click.Context,
+    agent_id: str,
+    remove_workspace: bool,
+    yes: bool,
+    base_url: Optional[str],
+) -> None:
+    """Delete a configured agent via the local API.
+
+    Stops the target agent if it is running and removes it from the
+    configured agent list. The default agent cannot be deleted.
+
+    \b
+    AGENT_ID  Configured agent ID, obtainable via `qwenpaw agents list`.
+
+    \b
+    Examples:
+      qwenpaw agents delete research
+      qwenpaw agents delete research --remove-workspace
+      qwenpaw agents delete research --yes
+    """
+    resolved_base_url = resolve_base_url(ctx, base_url)
+
+    if remove_workspace and not _is_local_base_url(resolved_base_url):
+        raise click.ClickException(
+            "--remove-workspace is only supported when targeting a local API.",
+        )
+
+    if not yes:
+        click.echo(f"WARNING: You are about to delete agent '{agent_id}'.")
+        click.echo(
+            "WARNING: This will stop the agent and remove it from agent list.",
+        )
+        if remove_workspace:
+            click.echo(
+                "WARNING: The local workspace directory will also be "
+                "permanently deleted. This action cannot be undone.",
+            )
+        click.confirm("Continue with deletion?", abort=True)
+
+    workspace_dir: Optional[Path] = None
+
+    with agent_tools.create_agent_api_client(resolved_base_url) as client:
+        if remove_workspace:
+            workspace_dir = _fetch_agent_workspace_dir(client, agent_id)
+        response = client.delete(f"/agents/{agent_id}")
+
+    if response.status_code == 404:
+        raise click.ClickException(f"Agent '{agent_id}' not found.")
+
+    if response.status_code == 400:
+        detail = response.json().get("detail")
+        raise click.ClickException(detail or "Failed to delete agent.")
+
+    response.raise_for_status()
+    result = response.json()
+
+    if remove_workspace:
+        if workspace_dir is None:
+            raise click.ClickException(
+                "Agent deleted, but workspace path could not be determined.",
+            )
+        result["workspace_dir"] = str(workspace_dir)
+        result["workspace_removed"] = _remove_agent_workspace(workspace_dir)
+
+    print_json(result)
 
 
 @agents_group.command("chat")
