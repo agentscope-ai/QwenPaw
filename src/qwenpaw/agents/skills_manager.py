@@ -59,6 +59,7 @@ ALL_SKILL_ROUTING_CHANNELS = [
 
 _RegistryResult = TypeVar("_RegistryResult")
 _MAX_ZIP_BYTES = 200 * 1024 * 1024
+_REQUIREMENTS_METADATA_NAMESPACES = ("openclaw", "qwenpaw", "clawdbot")
 
 
 class SkillInfo(BaseModel):
@@ -544,11 +545,15 @@ def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
     metadata = post.get("metadata")
     if not isinstance(metadata, dict):
         metadata = {}
-    if "openclaw" in metadata and isinstance(metadata["openclaw"], dict):
-        requires = metadata["openclaw"].get("requires", {})
-    elif "qwenpaw" in metadata and isinstance(metadata["qwenpaw"], dict):
-        requires = metadata["qwenpaw"].get("requires", {})
-    else:
+    requires: Any | None = None
+    for namespace in _REQUIREMENTS_METADATA_NAMESPACES:
+        provider_metadata = metadata.get(namespace)
+        if isinstance(provider_metadata, dict):
+            requires = provider_metadata.get("requires")
+            if requires is not None:
+                break
+
+    if requires is None:
         requires = metadata.get(
             "requires",
             post.get("requires", {}),
@@ -913,6 +918,8 @@ def import_builtin_skills(
             )
             if "config" in existing:
                 entry["config"] = existing.get("config")
+            if "tags" in existing:
+                entry["tags"] = existing.get("tags")
             skills[skill_name] = entry
 
         return {
@@ -1257,6 +1264,8 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
         )
         if "config" in existing:
             entry["config"] = existing["config"]
+        if "tags" in existing:
+            entry["tags"] = existing["tags"]
         payload["skills"][skill_name] = entry
         return entry
 

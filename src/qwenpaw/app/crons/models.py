@@ -152,6 +152,7 @@ class CronJobBase(BaseModel):
                 raise ConfigurationException(
                     message="task_type is text but text is empty",
                 )
+            self.request = None
         elif self.task_type == "agent":
             if self.request is None:
                 raise ConfigurationException(
@@ -168,7 +169,7 @@ class CronJobBase(BaseModel):
 
 
 class CronJobSpec(CronJobBase):
-    id: str
+    id: Optional[str] = None
 
 
 class JobsFile(BaseModel):

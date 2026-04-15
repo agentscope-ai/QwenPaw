@@ -259,6 +259,21 @@ export default function Header() {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
+                a({ href, children, ...props }: any) {
+                  return (
+                    <a
+                      {...props}
+                      href={href}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (href) handleNavClick(href);
+                      }}
+                      style={{ cursor: "pointer" }}
+                    >
+                      {children}
+                    </a>
+                  );
+                },
                 code({ node, className, children, ...props }: any) {
                   const match = /language-(\w+)/.exec(className || "");
                   const isBlock =

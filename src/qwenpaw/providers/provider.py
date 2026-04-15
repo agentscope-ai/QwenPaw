@@ -46,6 +46,27 @@ class ModelInfo(BaseModel):
     )
 
 
+class ExtendedModelInfo(ModelInfo):
+    """Extended model info with additional metadata for providers."""
+
+    provider: str = Field(
+        default="",
+        description="Provider/series (e.g., 'openai', 'google')",
+    )
+    input_modalities: List[str] = Field(
+        default_factory=list,
+        description="Supported input modalities",
+    )
+    output_modalities: List[str] = Field(
+        default_factory=list,
+        description="Supported output modalities",
+    )
+    pricing: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Pricing info (prompt/completion)",
+    )
+
+
 class ProviderInfo(BaseModel):
     id: str = Field(..., description="Provider identifier")
     name: str = Field(..., description="Human-readable provider name")
@@ -84,7 +105,7 @@ class ProviderInfo(BaseModel):
         description=("Whether this provider is user-created (not built-in)."),
     )
     support_model_discovery: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Whether this provider supports fetching available models"
             " from the provider's API"

@@ -258,6 +258,26 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 ---
 
+## Skill Chat Commands
+
+These commands let you inspect skill status in chat and force the agent to use
+a specific skill.
+
+- `/skills` lists skills available in the current channel in a compact format.
+- `/<skill_name>` shows detailed information for that skill, including its
+  description and local path.
+- `/<skill_name> <input>` forces the agent to use `skill_name` to solve the
+  input, usually a task.
+- `/[skill_name]` is also supported as an alternate form.
+
+Notes:
+
+- `skill_name` must match the skill command name shown in `/skills`.
+- These slash commands only work for skills that are enabled and routed to the
+  current channel.
+
+---
+
 ## Model Management Commands
 
 Commands for managing and switching AI models. These commands execute directly without going through the Agent.

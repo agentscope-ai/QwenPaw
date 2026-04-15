@@ -35,7 +35,8 @@ const itemVariants = {
 };
 
 export function Contributors() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const isZh = i18n.language?.startsWith("zh");
   const [contributors, setContributors] = useState<Contributor[]>([]);
   const [page, setPage] = useState(1);
 
@@ -105,21 +106,27 @@ export function Contributors() {
                 src="/communityIcon/path.svg"
                 alt=""
                 aria-hidden
-                className="pointer-events-none absolute left-1/2 top-full w-[120%] max-w-none -translate-x-1/2 -translate-y-1.5 select-none md:w-[128%] md:-translate-y-5"
+                className={`pointer-events-none absolute left-1/2 top-full w-[120%] max-w-none -translate-x-1/2 -translate-y-1.5 select-none md:w-[128%] ${
+                  isZh ? "md:-translate-y-2" : "md:-translate-y-5"
+                }`}
                 loading="lazy"
               />
               <img
                 src="/communityIcon/contributor1.svg"
                 alt=""
                 aria-hidden
-                className="pointer-events-none absolute -right-8 -top-4 h-9 w-9 select-none md:-right-5 md:-top-10 md:h-16 md:w-16"
+                className={`pointer-events-none absolute -right-8 -top-4 h-9 w-9 select-none md:-right-5 md:h-16 md:w-16 ${
+                  isZh ? "md:-top-14" : "md:-top-11"
+                }`}
                 loading="lazy"
               />
               <img
                 src="/communityIcon/contributor2.svg"
                 alt=""
                 aria-hidden
-                className="pointer-events-none absolute -right-12 -top-2 h-9 w-9 -rotate-12 select-none md:-right-13 md:-top-5 md:h-16 md:w-16"
+                className={`pointer-events-none absolute -right-12 -top-2 h-9 w-9 -rotate-12 select-none md:-right-13 md:h-16 md:w-16 ${
+                  isZh ? "md:-top-9" : "md:-top-6"
+                }`}
                 loading="lazy"
               />
             </span>

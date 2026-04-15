@@ -66,6 +66,14 @@ class TokenRecordingModelWrapper(ChatModelBase):
         structured_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        # Fix: Omit tool_choice="auto" for vLLM compatibility
+        # vLLM without --enable-auto-tool-choice will reject requests when
+        # tool_choice="auto" is present, even if tools are provided.
+        # By omitting tool_choice when it's "auto", we bypass the check
+        # while keeping tools available for correct tool calling behavior.
+        if tool_choice == "auto":
+            tool_choice = None
+
         result = await self._model(
             messages=messages,
             tools=tools,

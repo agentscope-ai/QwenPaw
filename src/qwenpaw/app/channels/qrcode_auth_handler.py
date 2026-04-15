@@ -263,10 +263,137 @@ class WecomQRCodeAuthHandler(QRCodeAuthHandler):
 
 
 # ---------------------------------------------------------------------------
+# DingTalk (Device Flow) handler
+# ---------------------------------------------------------------------------
+
+_DINGTALK_API_BASE = "https://oapi.dingtalk.com"
+_DINGTALK_SOURCE = "QWENPAW"
+
+
+class DingtalkQRCodeAuthHandler(QRCodeAuthHandler):
+    """QR code auth handler for DingTalk bot registration via Device Flow.
+
+    Flow:
+    1. POST /app/registration/init   → nonce (5 min TTL)
+    2. POST /app/registration/begin  → device_code + verification_uri_complete
+    3. POST /app/registration/poll   → client_id + client_secret on SUCCESS
+    """
+
+    async def fetch_qrcode(self, request: Request) -> QRCodeResult:
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                # Step 1: init – obtain a one-time nonce
+                init_resp = await client.post(
+                    f"{_DINGTALK_API_BASE}/app/registration/init",
+                    json={"source": _DINGTALK_SOURCE},
+                )
+                init_resp.raise_for_status()
+                init_data = init_resp.json()
+
+                if init_data.get("errcode", -1) != 0:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            f"DingTalk init failed: "
+                            f"{init_data.get('errmsg', 'unknown error')}"
+                        ),
+                    )
+
+                nonce = init_data.get("nonce", "")
+                if not nonce:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="DingTalk returned empty nonce",
+                    )
+
+                # Step 2: begin – exchange nonce for device_code & QR URL
+                begin_resp = await client.post(
+                    f"{_DINGTALK_API_BASE}/app/registration/begin",
+                    json={"nonce": nonce},
+                )
+                begin_resp.raise_for_status()
+                begin_data = begin_resp.json()
+
+                if begin_data.get("errcode", -1) != 0:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            f"DingTalk begin failed: "
+                            f"{begin_data.get('errmsg', 'unknown error')}"
+                        ),
+                    )
+
+                device_code = begin_data.get("device_code", "")
+                scan_url = begin_data.get("verification_uri_complete", "")
+
+                if not device_code or not scan_url:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="DingTalk returned empty device_code or URI",
+                    )
+
+                return QRCodeResult(
+                    scan_url=scan_url,
+                    poll_token=device_code,
+                )
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"DingTalk QR code fetch failed: {exc}",
+            ) from exc
+
+    async def poll_status(self, token: str, request: Request) -> PollResult:
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"{_DINGTALK_API_BASE}/app/registration/poll",
+                    json={"device_code": token},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"DingTalk status check failed: {exc}",
+            ) from exc
+
+        status = data.get("status", "WAITING")
+
+        if status == "SUCCESS":
+            return PollResult(
+                status="success",
+                credentials={
+                    "client_id": data.get("client_id", ""),
+                    "client_secret": data.get("client_secret", ""),
+                },
+            )
+        elif status == "FAIL":
+            return PollResult(
+                status="fail",
+                credentials={
+                    "fail_reason": data.get("fail_reason", ""),
+                },
+            )
+        elif status == "EXPIRED":
+            return PollResult(status="expired", credentials={})
+        else:
+            # WAITING or any other status
+            return PollResult(status="waiting", credentials={})
+
+
+# ---------------------------------------------------------------------------
 # Handler registry – add new channels here
 # ---------------------------------------------------------------------------
 
 QRCODE_AUTH_HANDLERS: Dict[str, QRCodeAuthHandler] = {
     "weixin": WeixinQRCodeAuthHandler(),
     "wecom": WecomQRCodeAuthHandler(),
+    "dingtalk": DingtalkQRCodeAuthHandler(),
 }

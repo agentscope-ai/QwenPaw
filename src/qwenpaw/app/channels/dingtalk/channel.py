@@ -38,6 +38,21 @@ from urllib.parse import urlparse
 import aiohttp
 import dingtalk_stream
 from dingtalk_stream import ChatbotMessage
+from alibabacloud_tea_openapi import models as open_api_models
+from alibabacloud_dingtalk.oauth2_1_0 import (
+    client as dingtalk_oauth_client,
+    models as dingtalk_oauth_models,
+)
+from alibabacloud_dingtalk.robot_1_0 import (
+    client as dingtalk_robot_client,
+    models as dingtalk_robot_models,
+)
+from alibabacloud_dingtalk.card_1_0 import (
+    client as dingtalk_card_client,
+    models as dingtalk_card_models,
+)
+from alibabacloud_tea_util import models as tea_util_models
+from Tea.exceptions import TeaException
 from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 
 from ..utils import file_url_to_local_path
@@ -82,6 +97,14 @@ from .utils import guess_suffix_from_file_content
 
 if TYPE_CHECKING:
     from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+
+# Short aliases for long SDK model names (≤79 chars)
+_GroupDeliverModel = (
+    dingtalk_card_models.DeliverCardRequestImGroupOpenDeliverModel
+)
+_RobotDeliverModel = (
+    dingtalk_card_models.DeliverCardRequestImRobotOpenDeliverModel
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +201,11 @@ class DingTalkChannel(BaseChannel):
         self._stream_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._http: Optional[aiohttp.ClientSession] = None
+
+        # DingTalk OpenAPI SDK clients
+        self._oauth_sdk: Optional[dingtalk_oauth_client.Client] = None
+        self._robot_sdk: Optional[dingtalk_robot_client.Client] = None
+        self._card_sdk: Optional[dingtalk_card_client.Client] = None
 
         # Store sessionWebhook for proactive send (in-memory).
         # Key is a handle string, e.g. "dingtalk:sw:<sender>"
@@ -700,13 +728,25 @@ class DingTalkChannel(BaseChannel):
             None,
         )
 
+    @staticmethod
+    def _is_base64_url(url: str) -> bool:
+        """True when *url* is a ``data:…;base64,`` URI."""
+        return (
+            isinstance(url, str)
+            and url.startswith("data:")
+            and "base64," in url
+        )
+
     def _parts_to_single_text(
         self,
         parts: List[OutgoingContentPart],
         bot_prefix: str = "",
     ) -> str:
-        """Build one reply text from parts
-        (same logic as send_content_parts body).
+        """Build one reply text from parts.
+
+        Base64 data-URIs are replaced with a short
+        placeholder to avoid exceeding DingTalk's
+        message size limit.
         """
         text_parts: List[str] = []
         for p in parts:
@@ -716,9 +756,17 @@ class DingTalkChannel(BaseChannel):
             elif t == ContentType.REFUSAL and getattr(p, "refusal", None):
                 text_parts.append(p.refusal or "")
             elif t == ContentType.IMAGE and getattr(p, "image_url", None):
-                text_parts.append(f"[Image: {p.image_url}]")
+                url = p.image_url
+                if self._is_base64_url(url):
+                    text_parts.append("[Image]")
+                else:
+                    text_parts.append(f"[Image: {url}]")
             elif t == ContentType.VIDEO and getattr(p, "video_url", None):
-                text_parts.append(f"[Video: {p.video_url}]")
+                url = p.video_url
+                if self._is_base64_url(url):
+                    text_parts.append("[Video]")
+                else:
+                    text_parts.append(f"[Video: {url}]")
             elif t == ContentType.FILE and (
                 getattr(p, "file_url", None) or getattr(p, "file_id", None)
             ):
@@ -727,7 +775,10 @@ class DingTalkChannel(BaseChannel):
                     "file_id",
                     None,
                 )
-                text_parts.append(f"[File: {url_or_id}]")
+                if self._is_base64_url(url_or_id or ""):
+                    text_parts.append("[File]")
+                else:
+                    text_parts.append(f"[File: {url_or_id}]")
             elif t == ContentType.AUDIO and getattr(p, "data", None):
                 text_parts.append("[Audio]")
         body = "\n".join(text_parts) if text_parts else ""
@@ -844,11 +895,10 @@ class DingTalkChannel(BaseChannel):
         """Send message via DingTalk Open API as fallback when sessionWebhook
         is expired or unavailable.
 
-        Uses:
-        - /v1.0/robot/oToMessages/batchSend for DMs
-        - /v1.0/robot/groupMessages/send for groups
+        Uses robot_1_0 SDK:
+        - org_group_send for groups
+        - batch_send_oto for DMs
         """
-        token = await self._get_access_token()
         text = (bot_prefix + "  " + body) if body else bot_prefix
         is_group = conversation_type == "group"
 
@@ -861,77 +911,14 @@ class DingTalkChannel(BaseChannel):
             len(text),
         )
 
-        if is_group:
-            url = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
-            payload: Dict[str, Any] = {
-                "robotCode": self.robot_code,
-                "openConversationId": conversation_id,
-                "msgKey": "sampleText",
-                "msgParam": json.dumps({"content": text}),
-            }
-        else:
-            if not sender_staff_id:
-                logger.warning(
-                    "dingtalk _send_via_open_api: no sender_staff_id for DM, "
-                    "cannot send",
-                )
-                return False
-            url = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
-            payload = {
-                "robotCode": self.robot_code,
-                "userIds": [sender_staff_id],
-                "msgKey": "sampleText",
-                "msgParam": json.dumps({"content": text}),
-            }
-
-        headers = {
-            "Content-Type": "application/json",
-            "x-acs-dingtalk-access-token": token,
-        }
-        try:
-            async with self._http.post(
-                url,
-                json=payload,
-                headers=headers,
-            ) as resp:
-                body_text = await resp.text()
-                if resp.status >= 400:
-                    logger.warning(
-                        "dingtalk _send_via_open_api failed: is_group=%s "
-                        "status=%s body=%s",
-                        is_group,
-                        resp.status,
-                        body_text[:500],
-                    )
-                    return False
-                try:
-                    body_json = json.loads(body_text) if body_text else {}
-                except json.JSONDecodeError:
-                    body_json = {}
-                errcode = body_json.get("errcode", 0)
-                errmsg = body_json.get("errmsg", "")
-                if errcode != 0:
-                    logger.warning(
-                        "dingtalk _send_via_open_api API error: is_group=%s "
-                        "errcode=%s errmsg=%s body=%s",
-                        is_group,
-                        errcode,
-                        errmsg,
-                        body_text[:300],
-                    )
-                    return False
-                logger.info(
-                    "dingtalk _send_via_open_api ok: is_group=%s status=%s",
-                    is_group,
-                    resp.status,
-                )
-                return True
-        except Exception:
-            logger.exception(
-                "dingtalk _send_via_open_api failed: is_group=%s",
-                is_group,
-            )
-            return False
+        return await self._send_robot_message(
+            msg_key="sampleText",
+            msg_param=json.dumps({"content": text}),
+            conversation_id=conversation_id,
+            is_group=is_group,
+            sender_staff_id=sender_staff_id,
+            caller="_send_via_open_api",
+        )
 
     async def _try_open_api_fallback(
         self,
@@ -1133,74 +1120,82 @@ class DingTalkChannel(BaseChannel):
         sender_staff_id: str,
     ) -> bool:
         """Send a single message via DingTalk Open API with given msgKey."""
-        token = await self._get_access_token()
         is_group = conversation_type == "group"
+        return await self._send_robot_message(
+            msg_key=msg_key,
+            msg_param=json.dumps(msg_param),
+            conversation_id=conversation_id,
+            is_group=is_group,
+            sender_staff_id=sender_staff_id,
+            caller="_send_open_api_message",
+        )
 
-        if is_group:
-            url = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
-            payload: Dict[str, Any] = {
-                "robotCode": self.robot_code,
-                "openConversationId": conversation_id,
-                "msgKey": msg_key,
-                "msgParam": json.dumps(msg_param),
-            }
-        else:
-            if not sender_staff_id:
-                logger.warning(
-                    "dingtalk _send_open_api_message: no sender_staff_id "
-                    "for DM, cannot send",
-                )
-                return False
-            url = "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
-            payload = {
-                "robotCode": self.robot_code,
-                "userIds": [sender_staff_id],
-                "msgKey": msg_key,
-                "msgParam": json.dumps(msg_param),
-            }
-
-        headers = {
-            "Content-Type": "application/json",
-            "x-acs-dingtalk-access-token": token,
+    async def _send_robot_message(
+        self,
+        *,
+        msg_key: str,
+        msg_param: str,
+        conversation_id: str,
+        is_group: bool,
+        sender_staff_id: str,
+        caller: str = "",
+    ) -> bool:
+        """Unified robot message sender using robot_1_0 SDK."""
+        token = await self._get_access_token()
+        sdk_headers_kwargs = {
+            "x_acs_dingtalk_access_token": token,
         }
+        runtime = tea_util_models.RuntimeOptions()
         try:
-            async with self._http.post(
-                url,
-                json=payload,
-                headers=headers,
-            ) as resp:
-                body_text = await resp.text()
-                if resp.status >= 400:
-                    logger.warning(
-                        "dingtalk _send_open_api_message failed: "
-                        "msg_key=%s status=%s body=%s",
-                        msg_key,
-                        resp.status,
-                        body_text[:500],
-                    )
-                    return False
-                try:
-                    body_json = json.loads(body_text) if body_text else {}
-                except json.JSONDecodeError:
-                    body_json = {}
-                errcode = body_json.get("errcode", 0)
-                if errcode != 0:
-                    logger.warning(
-                        "dingtalk _send_open_api_message API error: "
-                        "msg_key=%s errcode=%s body=%s",
-                        msg_key,
-                        errcode,
-                        body_text[:300],
-                    )
-                    return False
-                logger.info(
-                    "dingtalk _send_open_api_message ok: msg_key=%s",
-                    msg_key,
+            if is_group:
+                request = dingtalk_robot_models.OrgGroupSendRequest(
+                    robot_code=self.robot_code,
+                    open_conversation_id=conversation_id,
+                    msg_key=msg_key,
+                    msg_param=msg_param,
                 )
-                return True
+                headers = dingtalk_robot_models.OrgGroupSendHeaders(
+                    **sdk_headers_kwargs,
+                )
+                await self._robot_sdk.org_group_send_with_options_async(
+                    request,
+                    headers,
+                    runtime,
+                )
+            else:
+                if not sender_staff_id:
+                    logger.warning(
+                        "dingtalk %s: no sender_staff_id for DM, "
+                        "cannot send",
+                        caller,
+                    )
+                    return False
+                request = dingtalk_robot_models.BatchSendOTORequest(
+                    robot_code=self.robot_code,
+                    user_ids=[sender_staff_id],
+                    msg_key=msg_key,
+                    msg_param=msg_param,
+                )
+                headers = dingtalk_robot_models.BatchSendOTOHeaders(
+                    **sdk_headers_kwargs,
+                )
+                await self._robot_sdk.batch_send_otowith_options_async(
+                    request,
+                    headers,
+                    runtime,
+                )
+            logger.info(
+                "dingtalk %s ok: is_group=%s msg_key=%s",
+                caller,
+                is_group,
+                msg_key,
+            )
+            return True
         except Exception:
             logger.exception(
-                "dingtalk _send_open_api_message failed: msg_key=%s",
+                "dingtalk %s failed: is_group=%s msg_key=%s",
+                caller,
+                is_group,
                 msg_key,
             )
             return False
@@ -1980,12 +1975,78 @@ class DingTalkChannel(BaseChannel):
             await self._process_one_request(request, reply_meta=send_meta)
         except Exception as e:
             logger.exception("dingtalk _process_one_request failed")
+            # Recall "processing" reaction on error
+            incoming_msg_id = str(
+                (send_meta or {}).get("message_id") or "",
+            )
+            conv_id = str(
+                (send_meta or {}).get("conversation_id") or "",
+            )
+            if incoming_msg_id and conv_id:
+                await self._send_emotion(
+                    incoming_msg_id,
+                    conv_id,
+                    "🤔Thinking",
+                    recall=True,
+                )
+                await self._send_emotion(
+                    incoming_msg_id,
+                    conv_id,
+                    "☹️Error",
+                )
             err_msg = str(e).strip() or "An error occurred while processing."
             self._reply_sync_batch(
                 send_meta,
                 self.bot_prefix + f"Error: {err_msg}",
             )
             raise
+
+    async def _deliver_media_parts(
+        self,
+        parts: list,
+        webhook: Optional[str],
+        to_handle: str,
+        meta: Dict[str, Any],
+    ) -> None:
+        """Send media parts separately.
+
+        AI Card only carries text; images, files,
+        videos and audio must be delivered via
+        webhook upload or Open API.
+        """
+        _types = (
+            ContentType.IMAGE,
+            ContentType.FILE,
+            ContentType.VIDEO,
+            ContentType.AUDIO,
+        )
+        for part in parts:
+            pt = getattr(part, "type", None)
+            if pt not in _types:
+                continue
+            sent = False
+            if webhook:
+                sent = await self._send_media_part_via_webhook(
+                    webhook,
+                    part,
+                )
+            if not sent:
+                resolver = getattr(
+                    self,
+                    "_resolve_open_api_params_from_handle",
+                )
+                params = await resolver(
+                    to_handle,
+                    meta,
+                )
+                cid = params["conversation_id"]
+                if cid:
+                    await self._send_media_part_via_open_api(
+                        part,
+                        conversation_id=cid,
+                        conversation_type=params["conversation_type"],
+                        sender_staff_id=params["sender_staff_id"],
+                    )
 
     async def _process_dingtalk_core(  # noqa: C901
         self,
@@ -2023,6 +2084,16 @@ class DingTalkChannel(BaseChannel):
         accumulated_parts: list = []
         _acked_early = False
         conversation_id = str(meta.get("conversation_id") or "")
+        incoming_msg_id = str(meta.get("message_id") or "")
+
+        # Add "processing" reaction to the user's incoming message
+        if incoming_msg_id and conversation_id:
+            await self._send_emotion(
+                incoming_msg_id,
+                conversation_id,
+                "🤔Thinking",
+            )
+
         use_ai_card = self._ai_card_enabled() and bool(conversation_id)
         logger.info(
             "dingtalk ai card gate: enabled=%s "
@@ -2104,6 +2175,14 @@ class DingTalkChannel(BaseChannel):
                             )
                         else:
                             accumulated_parts.extend(parts)
+                    # AI Card carries text only; deliver
+                    # media parts (images etc.) separately.
+                    await self._deliver_media_parts(
+                        parts,
+                        session_webhook,
+                        to_handle,
+                        reply_meta,
+                    )
                 elif use_multi and parts and session_webhook:
                     if body.strip():
                         await self._send_via_session_webhook(
@@ -2136,6 +2215,20 @@ class DingTalkChannel(BaseChannel):
 
         # ---- Finalize ----
         err_msg = self._get_response_error_message(last_response)
+        # Recall "processing" reaction on error (success path handled
+        # by _on_process_completed via the hook call below)
+        if err_msg and incoming_msg_id and conversation_id:
+            await self._send_emotion(
+                incoming_msg_id,
+                conversation_id,
+                "🤔Thinking",
+                recall=True,
+            )
+            await self._send_emotion(
+                incoming_msg_id,
+                conversation_id,
+                "☹️Error",
+            )
         if use_ai_card and card:
             final_text = card_full_text or self._build_ai_card_initial_text()
             try:
@@ -2189,6 +2282,13 @@ class DingTalkChannel(BaseChannel):
                 reply_meta,
                 bot_prefix + "An error occurred while processing "
                 "your request.",
+            )
+
+        if not err_msg:
+            await self._on_process_completed(
+                request,
+                to_handle,
+                reply_meta,
             )
 
         if self._on_reply_sent:
@@ -2510,6 +2610,15 @@ class DingTalkChannel(BaseChannel):
         self._stream_thread.start()
         if self._http is None:
             self._http = aiohttp.ClientSession()
+
+        # Initialize DingTalk OpenAPI SDK clients
+        sdk_config = open_api_models.Config()
+        sdk_config.protocol = "https"
+        sdk_config.region_id = "central"
+        self._oauth_sdk = dingtalk_oauth_client.Client(sdk_config)
+        self._robot_sdk = dingtalk_robot_client.Client(sdk_config)
+        self._card_sdk = dingtalk_card_client.Client(sdk_config)
+
         await self._recover_active_cards()
 
     async def stop(self) -> None:
@@ -2548,17 +2657,122 @@ class DingTalkChannel(BaseChannel):
             await self._http.close()
             self._http = None
         self._client = None
+        self._oauth_sdk = None
+        self._robot_sdk = None
+        self._card_sdk = None
 
-    # Note: dingtalk_stream SDK has AICardReplier/CardReplier,
-    # but those APIs are request/reply oriented and tied to ChatbotMessage
-    # context; here we keep raw OpenAPI calls to support proactive recovery
-    # and persisted card lifecycles across restarts.
+    async def _on_process_completed(
+        self,
+        request: Any,
+        to_handle: str,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Recall 'processing' reaction and add 'done' reaction."""
+        incoming_msg_id = str((send_meta or {}).get("message_id") or "")
+        conversation_id = str((send_meta or {}).get("conversation_id") or "")
+        if incoming_msg_id and conversation_id:
+            await self._send_emotion(
+                incoming_msg_id,
+                conversation_id,
+                "🤔Thinking",
+                recall=True,
+            )
+            await self._send_emotion(
+                incoming_msg_id,
+                conversation_id,
+                "🥳Done",
+            )
+
     def _ai_card_enabled(self) -> bool:
         return (
             self.message_type == "card"
             and bool(self.card_template_id)
             and bool(self.robot_code)
         )
+
+    # ---- Emotion reaction helpers ----
+
+    async def _send_emotion(
+        self,
+        open_msg_id: str,
+        open_conversation_id: str,
+        emoji_name: str,
+        *,
+        recall: bool = False,
+    ) -> None:
+        """Add or recall an emoji reaction on a message.
+
+        Args:
+            open_msg_id: Target message ID.
+            open_conversation_id: Conversation ID.
+            emoji_name: Display name (e.g. "🤔Thinking", "🥳Done").
+            recall: If True, recall the reaction instead of adding it.
+        """
+        if not self._robot_sdk or not open_msg_id or not open_conversation_id:
+            return
+        action = "recall" if recall else "reply"
+        try:
+            token = await self._get_access_token()
+            emotion_kwargs = {
+                "robot_code": self.robot_code,
+                "open_msg_id": open_msg_id,
+                "open_conversation_id": open_conversation_id,
+                "emotion_type": 2,
+                "emotion_name": emoji_name,
+            }
+            runtime = tea_util_models.RuntimeOptions()
+            if recall:
+                emotion_kwargs[
+                    "text_emotion"
+                ] = dingtalk_robot_models.RobotRecallEmotionRequestTextEmotion(
+                    emotion_id="2659900",
+                    emotion_name=emoji_name,
+                    text=emoji_name,
+                    background_id="im_bg_1",
+                )
+                request = dingtalk_robot_models.RobotRecallEmotionRequest(
+                    **emotion_kwargs,
+                )
+                sdk_headers = dingtalk_robot_models.RobotRecallEmotionHeaders(
+                    x_acs_dingtalk_access_token=token,
+                )
+                await self._robot_sdk.robot_recall_emotion_with_options_async(
+                    request,
+                    sdk_headers,
+                    runtime,
+                )
+            else:
+                emotion_kwargs[
+                    "text_emotion"
+                ] = dingtalk_robot_models.RobotReplyEmotionRequestTextEmotion(
+                    emotion_id="2659900",
+                    emotion_name=emoji_name,
+                    text=emoji_name,
+                    background_id="im_bg_1",
+                )
+                request = dingtalk_robot_models.RobotReplyEmotionRequest(
+                    **emotion_kwargs,
+                )
+                sdk_headers = dingtalk_robot_models.RobotReplyEmotionHeaders(
+                    x_acs_dingtalk_access_token=token,
+                )
+                await self._robot_sdk.robot_reply_emotion_with_options_async(
+                    request,
+                    sdk_headers,
+                    runtime,
+                )
+            logger.info(
+                "dingtalk _send_emotion: %s %s on msg=%s",
+                action,
+                emoji_name,
+                open_msg_id[:24] if open_msg_id else "",
+            )
+        except Exception:
+            logger.debug(
+                "dingtalk _send_emotion %s failed",
+                action,
+                exc_info=True,
+            )
 
     def _build_ai_card_initial_text(self) -> str:
         return self.bot_prefix + AI_CARD_PROCESSING_TEXT
@@ -2593,12 +2807,12 @@ class DingTalkChannel(BaseChannel):
         meta: Optional[Dict[str, Any]] = None,
         inbound: bool = True,
     ) -> Optional[ActiveAICard]:
-        if not self._ai_card_enabled() or self._http is None:
+        if not self._ai_card_enabled() or self._card_sdk is None:
             logger.warning(
-                "dingtalk create ai card skipped: enabled=%s http_ready=%s "
+                "dingtalk create ai card skipped: enabled=%s sdk_ready=%s "
                 "message_type=%s has_template=%s has_robot=%s",
                 self._ai_card_enabled(),
-                self._http is not None,
+                self._card_sdk is not None,
                 self.message_type,
                 bool(self.card_template_id),
                 bool(self.robot_code),
@@ -2615,23 +2829,34 @@ class DingTalkChannel(BaseChannel):
             or ""
         )
         is_group = bool(meta.get("is_group"))
-        card_param_map: Dict[str, Any] = {self.card_template_key: ""}
+        card_param_map: Dict[str, str] = {self.card_template_key: ""}
         if self.card_auto_layout:
             card_param_map["config"] = json.dumps({"autoLayout": True})
-        create_payload: Dict[str, Any] = {
-            "cardTemplateId": self.card_template_id,
-            "outTrackId": card_instance_id,
-            "cardData": {"cardParamMap": card_param_map},
-            "callbackType": "STREAM",
-            "imGroupOpenSpaceModel": {"supportForward": True},
-            "imRobotOpenSpaceModel": {"supportForward": True},
-        }
 
-        headers = {
-            "Content-Type": "application/json",
-            "x-acs-dingtalk-access-token": token,
-        }
-        create_url = "https://api.dingtalk.com/v1.0/card/instances"
+        sdk_headers = dingtalk_card_models.CreateCardHeaders(
+            x_acs_dingtalk_access_token=token,
+        )
+        runtime = tea_util_models.RuntimeOptions()
+
+        create_request = dingtalk_card_models.CreateCardRequest(
+            card_template_id=self.card_template_id,
+            out_track_id=card_instance_id,
+            card_data=dingtalk_card_models.CreateCardRequestCardData(
+                card_param_map=card_param_map,
+            ),
+            callback_type="STREAM",
+            im_group_open_space_model=(
+                dingtalk_card_models.CreateCardRequestImGroupOpenSpaceModel(
+                    support_forward=True,
+                )
+            ),
+            im_robot_open_space_model=(
+                dingtalk_card_models.CreateCardRequestImRobotOpenSpaceModel(
+                    support_forward=True,
+                )
+            ),
+        )
+
         logger.info(
             "dingtalk create ai card: conversation_id=%s is_group=%s "
             "sender_staff_id=%s template_id=%s inbound=%s",
@@ -2641,36 +2866,30 @@ class DingTalkChannel(BaseChannel):
             self.card_template_id,
             inbound,
         )
-        async with self._http.post(
-            create_url,
-            json=create_payload,
-            headers=headers,
-        ) as resp:
-            body = await resp.text()
-            logger.info(
-                "dingtalk create ai card response: status=%s body=%s",
-                resp.status,
-                body[:1000],
+        try:
+            await self._card_sdk.create_card_with_options_async(
+                create_request,
+                sdk_headers,
+                runtime,
             )
-            if resp.status >= 400:
-                raise ChannelError(
-                    channel_name="dingtalk",
-                    message=(
-                        f"create ai card failed "
-                        f"status={resp.status} body={body[:500]}"
-                    ),
-                )
+        except Exception as exc:
+            raise ChannelError(
+                channel_name="dingtalk",
+                message=f"create ai card failed: {exc}",
+            ) from exc
 
         if is_group:
             open_space_id = f"dtv1.card//IM_GROUP.{conversation_id}"
-            deliver_payload: Dict[str, Any] = {
-                "outTrackId": card_instance_id,
-                "userIdType": 1,
-                "openSpaceId": open_space_id,
-                "imGroupOpenDeliverModel": {
-                    "robotCode": self.robot_code,
-                },
-            }
+            deliver_request = dingtalk_card_models.DeliverCardRequest(
+                out_track_id=card_instance_id,
+                user_id_type=1,
+                open_space_id=open_space_id,
+                im_group_open_deliver_model=(
+                    _GroupDeliverModel(
+                        robot_code=self.robot_code,
+                    )
+                ),
+            )
         else:
             if not sender_staff_id:
                 raise ChannelError(
@@ -2681,73 +2900,74 @@ class DingTalkChannel(BaseChannel):
                     ),
                 )
             open_space_id = f"dtv1.card//IM_ROBOT.{sender_staff_id}"
-            deliver_payload = {
-                "outTrackId": card_instance_id,
-                "userIdType": 1,
-                "openSpaceId": open_space_id,
-                "imRobotOpenDeliverModel": {
-                    "spaceType": "IM_ROBOT",
-                },
-            }
+            deliver_request = dingtalk_card_models.DeliverCardRequest(
+                out_track_id=card_instance_id,
+                user_id_type=1,
+                open_space_id=open_space_id,
+                im_robot_open_deliver_model=(
+                    _RobotDeliverModel(
+                        space_type="IM_ROBOT",
+                    )
+                ),
+            )
 
-        deliver_url = "https://api.dingtalk.com/v1.0/card/instances/deliver"
+        deliver_headers = dingtalk_card_models.DeliverCardHeaders(
+            x_acs_dingtalk_access_token=token,
+        )
         logger.info(
             "dingtalk deliver ai card: conversation_id=%s open_space_id=%s",
             conversation_id,
             open_space_id,
         )
-        async with self._http.post(
-            deliver_url,
-            json=deliver_payload,
-            headers=headers,
-        ) as resp:
-            deliver_body = await resp.text()
-            logger.info(
-                "dingtalk deliver ai card response: status=%s body=%s",
-                resp.status,
-                deliver_body[:1000],
-            )
-            if resp.status >= 400:
-                raise ChannelError(
-                    channel_name="dingtalk",
-                    message=(
-                        f"deliver ai card failed "
-                        f"status={resp.status} body={deliver_body[:500]}"
-                    ),
-                )
-
         try:
-            deliver_data = json.loads(deliver_body) if deliver_body else {}
-        except json.JSONDecodeError:
-            deliver_data = {}
-        result = (
-            deliver_data.get("result")
-            if isinstance(deliver_data, dict)
-            else None
-        )
-        if isinstance(result, list):
-            deliver_results = result
-        elif isinstance(result, dict):
-            deliver_results = result.get("deliverResults")
-        else:
-            deliver_results = None
-        if isinstance(deliver_results, list):
-            failed = [
-                item
-                for item in deliver_results
-                if isinstance(item, dict) and not item.get("success", False)
-            ]
-            if failed:
-                err = failed[0]
-                raise ChannelError(
-                    channel_name="dingtalk",
-                    message=(
-                        f"deliver ai card failed: "
-                        f"spaceId={err.get('spaceId')} "
-                        f"spaceType={err.get('spaceType')} "
-                        f"errorMsg={err.get('errorMsg')}"
-                    ),
+            deliver_response = (
+                await self._card_sdk.deliver_card_with_options_async(
+                    deliver_request,
+                    deliver_headers,
+                    runtime,
                 )
+            )
+        except Exception as exc:
+            raise ChannelError(
+                channel_name="dingtalk",
+                message=f"deliver ai card failed: {exc}",
+            ) from exc
+
+        deliver_body = deliver_response.body if deliver_response else None
+        if deliver_body:
+            result = getattr(
+                deliver_body,
+                "result",
+                None,
+            )
+            deliver_results = (
+                getattr(result, "deliver_results", None) if result else None
+            )
+            if isinstance(deliver_results, list):
+                failed = [
+                    item
+                    for item in deliver_results
+                    if not getattr(
+                        item,
+                        "success",
+                        False,
+                    )
+                ]
+                if failed:
+                    err = failed[0]
+                    raise ChannelError(
+                        channel_name="dingtalk",
+                        message=(
+                            "deliver ai card failed:"
+                            f" spaceId="
+                            f"{getattr(err, 'space_id', None)}"
+                            f" spaceType="
+                            f"{getattr(err, 'space_type', None)}"
+                            f" errorMsg="
+                            f"{getattr(err, 'error_msg', None)}"
+                        ),
+                    )
+
         logger.info(
             "dingtalk create ai card ok:"
             " conversation_id=%s card_instance_id=%s",
@@ -2779,7 +2999,7 @@ class DingTalkChannel(BaseChannel):
         content: str,
         finalize: bool = False,
     ) -> bool:
-        if self._http is None or card.state in (FINISHED, FAILED):
+        if self._card_sdk is None or card.state in (FINISHED, FAILED):
             return False
 
         content = (content or "").strip()
@@ -2802,22 +3022,21 @@ class DingTalkChannel(BaseChannel):
         ) > AI_CARD_TOKEN_PREEMPTIVE_REFRESH_SECONDS * 1000:
             card.access_token = await self._get_access_token()
 
-        payload = {
-            "outTrackId": card.card_instance_id,
-            "guid": str(uuid4()),
-            "key": self.card_template_key,
-            "content": content,
-            "isFull": True,
-            "isFinalize": finalize,
-            "isError": False,
-        }
-        url = "https://api.dingtalk.com/v1.0/card/streaming"
+        request = dingtalk_card_models.StreamingUpdateRequest(
+            out_track_id=card.card_instance_id,
+            guid=str(uuid4()),
+            key=self.card_template_key,
+            content=content,
+            is_full=True,
+            is_finalize=finalize,
+            is_error=False,
+        )
 
         async def _do_stream(token: str):
-            headers = {
-                "Content-Type": "application/json",
-                "x-acs-dingtalk-access-token": token,
-            }
+            sdk_headers = dingtalk_card_models.StreamingUpdateHeaders(
+                x_acs_dingtalk_access_token=token,
+            )
+            runtime = tea_util_models.RuntimeOptions()
             logger.info(
                 "dingtalk stream ai card: conversation_id=%s finalize=%s "
                 "content_len=%s",
@@ -2825,40 +3044,52 @@ class DingTalkChannel(BaseChannel):
                 finalize,
                 len(content),
             )
-            async with self._http.put(
-                url,
-                json=payload,
-                headers=headers,
-            ) as resp:
-                txt = await resp.text()
-                logger.info(
-                    "dingtalk stream ai card response:"
-                    " status=%s finalize=%s body=%s",
-                    resp.status,
-                    finalize,
-                    txt[:1000],
-                )
-                return resp.status, txt
+            await self._card_sdk.streaming_update_with_options_async(
+                request,
+                sdk_headers,
+                runtime,
+            )
 
-        status, txt = await _do_stream(card.access_token)
-        if status == 401:
-            card.access_token = await self._get_access_token()
-            status, txt = await _do_stream(card.access_token)
-
-        if status >= 400:
-            if status == 500 and "unknownError" in txt:
+        try:
+            await _do_stream(card.access_token)
+        except Exception as first_exc:
+            is_unauthorized = (
+                isinstance(first_exc, TeaException)
+                and getattr(first_exc, "statusCode", None) == 401
+            )
+            error_msg = str(first_exc)
+            if is_unauthorized:
+                card.access_token = await self._get_access_token()
+                try:
+                    await _do_stream(card.access_token)
+                except Exception as retry_exc:
+                    retry_msg = str(retry_exc)
+                    if "unknownError" in retry_msg:
+                        raise ChannelError(
+                            channel_name="dingtalk",
+                            message=(
+                                "dingtalk ai card unknownError: "
+                                "card_template_key mismatch?"
+                            ),
+                        ) from retry_exc
+                    raise ChannelError(
+                        channel_name="dingtalk",
+                        message=f"stream ai card failed: {retry_exc}",
+                    ) from retry_exc
+            elif "unknownError" in error_msg:
                 raise ChannelError(
                     channel_name="dingtalk",
                     message=(
                         "dingtalk ai card unknownError: "
                         "card_template_key mismatch?"
                     ),
-                )
-            raise ChannelError(
-                channel_name="dingtalk",
-                message=f"stream ai card failed status={status}",
-                details={"body": txt[:500]},
-            )
+                ) from first_exc
+            else:
+                raise ChannelError(
+                    channel_name="dingtalk",
+                    message=f"stream ai card failed: {first_exc}",
+                ) from first_exc
+
         logger.info(
             "dingtalk stream ai card ok: conversation_id=%s finalize=%s",
             card.conversation_id,
@@ -2889,7 +3120,7 @@ class DingTalkChannel(BaseChannel):
         return await self._stream_ai_card(card, final_content, finalize=True)
 
     async def _recover_active_cards(self) -> None:
-        if not self._ai_card_enabled() or self._http is None:
+        if not self._ai_card_enabled() or self._card_sdk is None:
             return
         records = self._card_store.load()
         if not records:
@@ -3059,28 +3290,29 @@ class DingTalkChannel(BaseChannel):
             if self._token_value and now < self._token_expires_at:
                 return self._token_value
 
-            url = "https://api.dingtalk.com/v1.0/oauth2/accessToken"
-            payload = {
-                "appKey": self.client_id,
-                "appSecret": self.client_secret,
-            }
+            request = dingtalk_oauth_models.GetAccessTokenRequest(
+                app_key=self.client_id,
+                app_secret=self.client_secret,
+            )
+            try:
+                response = await self._oauth_sdk.get_access_token_async(
+                    request,
+                )
+            except Exception as exc:
+                raise ChannelError(
+                    channel_name="dingtalk",
+                    message=f"get accessToken failed: {exc}",
+                ) from exc
 
-            async with self._http.post(url, json=payload) as resp:
-                data = await resp.json(content_type=None)
-                if resp.status >= 400:
-                    raise ChannelError(
-                        channel_name="dingtalk",
-                        message=(
-                            "get accessToken failed " f"status={resp.status}"
-                        ),
-                        details={"response": data},
-                    )
-
-            token = data.get("accessToken") or data.get("access_token")
+            token = (
+                response.body.access_token
+                if response and response.body
+                else None
+            )
             if not token:
                 raise ChannelError(
                     channel_name="dingtalk",
-                    message=f"accessToken not found in response: {data}",
+                    message="accessToken not found in SDK response",
                 )
 
             self._token_value = token
@@ -3098,38 +3330,37 @@ class DingTalkChannel(BaseChannel):
         """Call DingTalk messageFiles/download to get a downloadable URL."""
         if not download_code or not robot_code:
             return None
-        if self._http is None:
+        if self._robot_sdk is None:
             return None
 
         token = await self._get_access_token()
-        url = "https://api.dingtalk.com/v1.0/robot/messageFiles/download"
-        payload = {"downloadCode": download_code, "robotCode": robot_code}
-        headers = {
-            "Content-Type": "application/json",
-            "x-acs-dingtalk-access-token": token,
-        }
-
-        async with self._http.post(
-            url,
-            json=payload,
-            headers=headers,
-        ) as resp:
-            data = await resp.json(content_type=None)
-            if resp.status >= 400:
-                logger.warning(
-                    "messageFiles/download failed status=%s body=%s",
-                    resp.status,
-                    data,
-                )
-                return None
-
-        logger.debug("messageFiles/download response=%s", data)
-        return (
-            data.get("downloadUrl")
-            or data.get("url")
-            or (data.get("result") or {}).get("downloadUrl")
-            or (data.get("result") or {}).get("url")
+        request = dingtalk_robot_models.RobotMessageFileDownloadRequest(
+            download_code=download_code,
+            robot_code=robot_code,
         )
+        sdk_headers = dingtalk_robot_models.RobotMessageFileDownloadHeaders(
+            x_acs_dingtalk_access_token=token,
+        )
+        runtime = tea_util_models.RuntimeOptions()
+        try:
+            _download = (
+                self._robot_sdk.robot_message_file_download_with_options_async
+            )
+            response = await _download(
+                request,
+                sdk_headers,
+                runtime,
+            )
+        except Exception:
+            logger.exception("messageFiles/download SDK call failed")
+            return None
+
+        body = response.body if response else None
+        if not body:
+            logger.warning("messageFiles/download: empty response body")
+            return None
+        logger.debug("messageFiles/download response body=%s", body)
+        return getattr(body, "download_url", None)
 
     async def _download_media_to_local(
         self,

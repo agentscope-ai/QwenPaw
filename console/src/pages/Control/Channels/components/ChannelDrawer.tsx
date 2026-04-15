@@ -138,6 +138,37 @@ export function ChannelDrawer({
     ),
   });
 
+  // DingTalk QR code hook
+  const dingtalkQrcode = useChannelQrcode({
+    channel: "dingtalk",
+    successStatus: "success",
+    successCredentialKey: "client_id",
+    pollInterval: 5000,
+    onSuccess: useCallback(
+      (credentials: Record<string, string>) => {
+        form.setFieldsValue({
+          client_id: credentials.client_id,
+          client_secret: credentials.client_secret,
+        });
+        message.success(t("channels.dingtalkAuthSuccess"));
+      },
+      [form, message, t],
+    ),
+    onExpired: useCallback(() => {
+      message.warning(t("channels.dingtalkQrcodeExpired"));
+    }, [message, t]),
+    onError: useCallback(
+      (type: "fetch" | "expired") => {
+        if (type === "expired") {
+          message.warning(t("channels.dingtalkQrcodeExpired"));
+        } else {
+          message.error(t("channels.dingtalkQrcodeFailed"));
+        }
+      },
+      [message, t],
+    ),
+  });
+
   // WeCom QR code hook
   const wecomQrcode = useChannelQrcode({
     channel: "wecom",
@@ -298,12 +329,55 @@ export function ChannelDrawer({
       case "dingtalk":
         return (
           <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.dingtalkSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <Form.Item label={t("channels.dingtalkScanAuth")}>
+              <Button
+                type="primary"
+                block
+                loading={dingtalkQrcode.loading}
+                onClick={dingtalkQrcode.fetchQrcode}
+              >
+                {t("channels.dingtalkGetQrcode")}
+              </Button>
+              {dingtalkQrcode.loading && (
+                <div style={{ textAlign: "center", marginTop: 12 }}>
+                  <Spin />
+                </div>
+              )}
+              {dingtalkQrcode.qrcodeImg && !dingtalkQrcode.loading && (
+                <div style={{ textAlign: "center", marginTop: 12 }}>
+                  <img
+                    src={`data:image/png;base64,${dingtalkQrcode.qrcodeImg}`}
+                    alt="DingTalk QR Code"
+                    style={{ width: 200, height: 200 }}
+                  />
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      color: isDark
+                        ? "rgba(255,255,255,0.45)"
+                        : "rgba(0,0,0,0.45)",
+                    }}
+                  >
+                    {t("channels.dingtalkScanHint")}
+                  </div>
+                </div>
+              )}
+            </Form.Item>
             <Form.Item
               name="client_id"
               label="Client ID"
               rules={[{ required: true }]}
             >
-              <Input />
+              <Input placeholder="dingxxxxx" />
             </Form.Item>
             <Form.Item
               name="client_secret"
@@ -771,6 +845,12 @@ export function ChannelDrawer({
                 type="info"
                 showIcon
                 message={t("channels.weixinSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+              <Alert
+                type="warning"
+                showIcon
+                message={t("channels.weixinContextTokenLimit")}
                 style={{ marginBottom: 16 }}
               />
             </ConfigProvider>

@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 import json
-import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
 
@@ -77,28 +76,3 @@ class AICardPendingStore:
             encoding="utf-8",
         )
         tmp.replace(self._path)
-
-
-def is_group_conversation(conversation_id: str) -> bool:
-    return (conversation_id or "").startswith("cid")
-
-
-def thinking_or_tool_to_card_text(text: str, title: str) -> str:
-    body = (text or "")[:500]
-    if len(text or "") > 500:
-        body += "…"
-    lines = body.splitlines() or [""]
-    fixed = []
-    for ln in lines:
-        ln = re.sub(r"^_$", "*", ln)
-        ln = re.sub(r"_$", "*", ln)
-        fixed.append(f"> {ln}")
-    return f"{title}\n" + "\n".join(fixed)
-
-
-def to_pending_record(card: ActiveAICard) -> dict:
-    data = asdict(card)
-    data.pop("access_token", None)
-    data.pop("store_path", None)
-    data.pop("last_streamed_content", None)
-    return data

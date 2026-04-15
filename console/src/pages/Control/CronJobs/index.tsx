@@ -183,21 +183,21 @@ function CronJobsPage() {
     }
 
     if (processedValues.task_type === "text") {
-      delete (processedValues as any).request;
-    }
-
-    if (processedValues.task_type === "agent") {
+      delete processedValues.request;
+    } else if (processedValues.task_type === "agent") {
       delete (processedValues as any).text;
 
-      // Parse request input JSON
+      if (!processedValues.request) {
+        processedValues.request = {
+          input: values.request?.input,
+        } as NonNullable<CronJobSpecInput["request"]>;
+      }
+
       if (values.request?.input && typeof values.request.input === "string") {
         try {
-          processedValues = {
-            ...processedValues,
-            request: {
-              ...(processedValues.request || {}),
-              input: JSON.parse(values.request.input as any),
-            },
+          processedValues.request = {
+            ...(processedValues.request || {}),
+            input: JSON.parse(values.request.input),
           };
         } catch (error) {
           console.error("❌ Failed to parse request.input JSON:", error);
