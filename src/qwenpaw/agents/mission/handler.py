@@ -21,7 +21,7 @@ from .prompts import build_master_prompt
 from .state import (
     create_loop_dir,
     detect_git_context,
-    get_latest_loop_dir,
+    get_active_loop_dir,
     init_progress_txt,
     list_loop_dirs,
     read_loop_config,
@@ -34,8 +34,10 @@ logger = logging.getLogger(__name__)
 
 MISSION_COMMANDS = frozenset({"/mission"})
 
-# Defaults
+# Defaults and limits for --max-iterations
 _DEFAULT_MAX_ITERATIONS = 20
+_MIN_MAX_ITERATIONS = 1
+_MAX_MAX_ITERATIONS = 100
 
 
 def is_mission_command(query: str | None) -> bool:
@@ -75,6 +77,24 @@ def _parse_mission_args(query: str) -> dict[str, Any]:
             i += 1
 
     args["task_text"] = " ".join(task_parts)
+
+    # Clamp max_iterations to a sane range
+    max_iters = args["max_iterations"]
+    if max_iters < _MIN_MAX_ITERATIONS:
+        logger.warning(
+            "Mission: --max-iterations %d too low, clamping to %d",
+            max_iters,
+            _MIN_MAX_ITERATIONS,
+        )
+        args["max_iterations"] = _MIN_MAX_ITERATIONS
+    elif max_iters > _MAX_MAX_ITERATIONS:
+        logger.warning(
+            "Mission: --max-iterations %d too high, clamping to %d",
+            max_iters,
+            _MAX_MAX_ITERATIONS,
+        )
+        args["max_iterations"] = _MAX_MAX_ITERATIONS
+
     return args
 
 
@@ -99,9 +119,13 @@ async def handle_mission_command(  # pylint: disable=too-many-return-statements
     # --- Sub-commands that return info without starting a loop -----------
 
     if task_text.strip().lower() == "status":
-        loop_dir = get_latest_loop_dir(workspace_dir)
+        # Default: session-bound lookup
+        loop_dir = get_active_loop_dir(workspace_dir, session_id)
         if loop_dir is None:
-            return "**Mission Mode**: No active missions found."
+            return (
+                "**Mission Status**: No active mission for this session.\n\n"
+                "Use `/mission list` to see all missions in this workspace."
+            )
         prd = read_prd(loop_dir)
         cfg = read_loop_config(loop_dir)
         stories = prd.get("userStories", [])
@@ -111,11 +135,17 @@ async def handle_mission_command(  # pylint: disable=too-many-return-statements
             git_label = "installed"
             if cfg.get("is_git_repo"):
                 git_label += f", repo (branch `{cfg.get('branch_name', '?')}`)"
+
+        loop_session = cfg.get("session_id", "N/A")
+        phase = cfg.get("current_phase", "unknown")
+
         lines = [
             f"**Mission Status** — `{loop_dir.name}`",
+            f"- Session: `{loop_session}`",
+            f"- Phase: `{phase}`",
             f"- Project: {prd.get('project', 'N/A')}",
             f"- Progress: {passed}/{len(stories)} stories passed",
-            f"- Loop dir (work dir): `{loop_dir}`",
+            f"- Loop dir: `{loop_dir}`",
             f"- Git: {git_label}",
         ]
         for s in stories:
@@ -150,7 +180,9 @@ async def handle_mission_command(  # pylint: disable=too-many-return-statements
             "- `/mission list` — list all missions\n\n"
             "Options:\n"
             "- `--verify <command>` — verification command (e.g. `pytest`)\n"
-            "- `--max-iterations <n>` — max iterations (default 20)\n\n"
+            f"- `--max-iterations <n>` — max Phase 2 iterations "
+            f"(range: {_MIN_MAX_ITERATIONS}-{_MAX_MAX_ITERATIONS}, "
+            f"default: {_DEFAULT_MAX_ITERATIONS})\n\n"
             "**Note**: Task description must be at least 5 characters."
         )
 

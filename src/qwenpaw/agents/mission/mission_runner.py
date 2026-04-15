@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# flake8: noqa: E501
+# pylint:disable=line-too-long,too-many-return-statements
 """Mission Mode execution engine.
 
 Encapsulates the full Mission Mode lifecycle:
@@ -36,8 +38,58 @@ from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
 
 from .state import read_loop_config, read_prd, write_loop_config
+from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
+
+# ── Internationalization ──────────────────────────────────────────────────
+
+_MESSAGES = {
+    "zh": {
+        "phase2_no_prd": "⚠️ **无法进入 Phase 2**: prd.json 未找到或为空。\n请先生成有效的 PRD。",
+        "phase2_invalid_prd": "⚠️ **无法进入 Phase 2**: prd.json 格式错误:\n{detail}\n\n请修正 PRD 格式后再确认。",
+        "phase2_startup_no_prd": "⚠️ **Phase 2 启动失败**: prd.json 未找到或为空。\n无法继续执行。",
+        "phase2_startup_invalid": "⚠️ **Phase 2 启动失败**: prd.json 格式错误:\n{detail}\n\n请返回 Phase 1 修正 PRD。",
+        "prd_still_invalid": "⚠️ **prd.json 仍然不符合格式** (已尝试 {attempts} 次):\n{detail}\n\n请手动检查并修正 prd.json 后再确认。",
+        "mission_complete": "**Mission Complete** — {passed}/{total} stories passed ✅\n",
+        "mission_max_iterations": "⚠️ **Mission reached max iterations** ({max_iter}). {passed}/{total} stories passed.\n\nYou can check with `/mission status` to see what remains, then start a new mission or manually complete the work.",
+        "prd_no_stories": "⚠️ prd.json has no user stories. Loop aborted.",
+    },
+    "en": {
+        "phase2_no_prd": "⚠️ **Cannot enter Phase 2**: prd.json not found or empty.\nPlease generate a valid PRD first.",
+        "phase2_invalid_prd": "⚠️ **Cannot enter Phase 2**: prd.json format errors:\n{detail}\n\nPlease fix the PRD format before confirming.",
+        "phase2_startup_no_prd": "⚠️ **Phase 2 startup failed**: prd.json not found or empty.\nCannot proceed.",
+        "phase2_startup_invalid": "⚠️ **Phase 2 startup failed**: prd.json format errors:\n{detail}\n\nPlease return to Phase 1 to fix the PRD.",
+        "prd_still_invalid": "⚠️ **prd.json still invalid** (tried {attempts} times):\n{detail}\n\nPlease manually check and fix prd.json before confirming.",
+        "mission_complete": "**Mission Complete** — {passed}/{total} stories passed ✅\n",
+        "mission_max_iterations": "⚠️ **Mission reached max iterations** ({max_iter}). {passed}/{total} stories passed.\n\nYou can check with `/mission status` to see what remains, then start a new mission or manually complete the work.",
+        "prd_no_stories": "⚠️ prd.json has no user stories. Loop aborted.",
+    },
+}
+
+
+def _get_message(key: str, agent_id: str, **kwargs) -> str:
+    """Get localized message based on agent's language config.
+
+    Args:
+        key: Message key from _MESSAGES dict
+        agent_id: Agent ID to load language from
+        **kwargs: Format arguments for the message
+
+    Returns:
+        Formatted message string in the agent's language (zh or en)
+    """
+    try:
+        config = load_agent_config(agent_id)
+        lang = config.get("language", "en")
+        # Normalize: if not 'zh', use 'en'
+        lang = "zh" if lang == "zh" else "en"
+    except Exception:
+        lang = "en"
+
+    template = _MESSAGES[lang].get(key, _MESSAGES["en"][key])
+    return template.format(**kwargs) if kwargs else template
+
 
 # ── Tool-group name used for implementation tools ────────────────────────
 MISSION_IMPL_GROUP = "mission_impl"
@@ -161,11 +213,17 @@ def _update_phase(loop_dir: Path, phase: str) -> None:
     write_loop_config(loop_dir, cfg)
 
 
-def _completion_summary(prd: dict[str, Any]) -> str:
+def _completion_summary(prd: dict[str, Any], agent_id: str) -> str:
     stories = prd.get("userStories", [])
     passed = sum(1 for s in stories if s.get("passes"))
     total = len(stories)
-    lines = [f"**Mission Complete** — {passed}/{total} stories passed ✅\n"]
+    header = _get_message(
+        "mission_complete",
+        agent_id,
+        passed=passed,
+        total=total,
+    )
+    lines = [header]
     for s in stories:
         mark = "✅" if s.get("passes") else "❌"
         lines.append(f"  {mark} {s['id']}: {s['title']}")
@@ -266,6 +324,42 @@ async def run_mission_phase1(
     # Check if agent signaled Phase 2 confirmation
     cfg = read_loop_config(loop_dir)
     if cfg.get("current_phase") == "execution_confirmed":
+        # Validate PRD before transitioning to Phase 2
+        prd = read_prd(loop_dir)
+        if not prd:
+            yield Msg(
+                name="system",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=_get_message("phase2_no_prd", agent.agent_id),
+                    ),
+                ],
+            ), True
+            _update_phase(loop_dir, "prd_generation")
+            return
+
+        problems = validate_prd(prd)
+        if problems:
+            detail = "\n".join(f"  - {p}" for p in problems)
+            yield Msg(
+                name="system",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=_get_message(
+                            "phase2_invalid_prd",
+                            agent.agent_id,
+                            detail=detail,
+                        ),
+                    ),
+                ],
+            ), True
+            _update_phase(loop_dir, "prd_generation")
+            return
+
         logger.info("Mission: agent confirmed PRD, transitioning to Phase 2")
         async for msg, last in run_mission_phase2(
             agent=agent,
@@ -360,10 +454,11 @@ async def run_mission_phase1(
         content=[
             TextBlock(
                 type="text",
-                text=(
-                    f"⚠️ **prd.json 仍然不符合格式** "
-                    f"(已尝试 {_MAX_PRD_FIX_ATTEMPTS} 次):\n{detail}\n\n"
-                    "请手动检查并修正 prd.json 后再确认。"
+                text=_get_message(
+                    "prd_still_invalid",
+                    agent.agent_id,
+                    attempts=_MAX_PRD_FIX_ATTEMPTS,
+                    detail=detail,
                 ),
             ),
         ],
@@ -385,12 +480,47 @@ async def run_mission_phase2(
 
     Yields streamed messages throughout.
     """
+    # Defensive check: Phase 2 requires a valid PRD
+    prd = read_prd(loop_dir)
+    if not prd:
+        yield Msg(
+            name="system",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=_get_message("phase2_startup_no_prd", agent.agent_id),
+                ),
+            ],
+        ), True
+        _update_phase(loop_dir, "prd_generation")
+        return
+
+    problems = validate_prd(prd)
+    if problems:
+        detail = "\n".join(f"  - {p}" for p in problems)
+        yield Msg(
+            name="system",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=_get_message(
+                        "phase2_startup_invalid",
+                        agent.agent_id,
+                        detail=detail,
+                    ),
+                ),
+            ],
+        ), True
+        _update_phase(loop_dir, "prd_generation")
+        return
+
     _update_phase(loop_dir, "execution")
     set_phase2_tool_restrictions(agent)
 
     # Build initial message for the first iteration if none provided
     if not msgs:
-        prd = read_prd(loop_dir)
         msgs = [
             Msg(
                 name="user",
@@ -432,9 +562,9 @@ async def run_mission_phase2(
                     content=[
                         TextBlock(
                             type="text",
-                            text=(  # noqa: E501
-                                "⚠️ prd.json has no user stories. "
-                                "Loop aborted."
+                            text=_get_message(
+                                "prd_no_stories",
+                                agent.agent_id,
                             ),
                         ),
                     ],
@@ -449,7 +579,7 @@ async def run_mission_phase2(
                     content=[
                         TextBlock(
                             type="text",
-                            text=_completion_summary(prd),
+                            text=_completion_summary(prd, agent.agent_id),
                         ),
                     ],
                 ), True
@@ -476,13 +606,12 @@ async def run_mission_phase2(
             content=[
                 TextBlock(
                     type="text",
-                    text=(
-                        f"⚠️ **Mission reached max iterations**"
-                        f" ({max_iterations}). "
-                        f"{passed}/{len(stories)} stories passed."
-                        f"\n\nYou can check with `/mission status`"
-                        " to see what remains, then start a new"
-                        " mission or manually complete the work."
+                    text=_get_message(
+                        "mission_max_iterations",
+                        agent.agent_id,
+                        max_iter=max_iterations,
+                        passed=passed,
+                        total=len(stories),
                     ),
                 ),
             ],

@@ -20,7 +20,7 @@ from ...agents.mission.handler import (
     is_mission_command,
 )
 from ...agents.mission.state import (
-    get_latest_loop_dir,
+    get_active_loop_dir,
     read_loop_config,
 )
 
@@ -82,16 +82,17 @@ def detect_active_mission_phase(
     through the Mission agent — the agent itself decides whether the
     user is confirming, requesting changes, or asking questions.
 
-    Session binding: only returns a match when ``session_id`` matches
-    the one stored in loop_config.  This prevents unrelated sessions
-    from being accidentally captured by an active mission.
+    Session binding: uses get_active_loop_dir() to find the most recent
+    loop matching the provided session_id. This prevents unrelated
+    sessions from being accidentally captured by an active mission,
+    even when multiple sessions have concurrent missions.
 
     Returns:
         ``dict`` with ``{"mission_phase": 1 or 2, ...}`` when an
             active mission needs the agent to process user input.
         ``None`` if no active mission for this session.
     """
-    loop_dir = get_latest_loop_dir(workspace_dir)
+    loop_dir = get_active_loop_dir(workspace_dir, session_id)
     if loop_dir is None:
         return None
 
@@ -99,10 +100,6 @@ def detect_active_mission_phase(
     phase = cfg.get("current_phase", "")
 
     if phase not in ("prd_generation", "execution_confirmed"):
-        return None
-
-    loop_session = cfg.get("session_id", "")
-    if loop_session and session_id and loop_session != session_id:
         return None
 
     if phase == "execution_confirmed":

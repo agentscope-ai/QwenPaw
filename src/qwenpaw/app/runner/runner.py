@@ -537,16 +537,33 @@ class AgentRunner(Runner):
                 )
                 if mission_info is not None:
                     loop_dir = mission_info["loop_dir"]
-                    refresher = (
-                        f"[Mission active — dir: `{loop_dir}`]\n"
-                        f"You are in Mission Phase 1 (PRD review). "
-                        f"The user's message follows.\n"
-                        f"If the user is confirming the PRD, update "
-                        f"`{loop_dir}/loop_config.json` setting "
-                        f"`current_phase` to `execution_confirmed`.\n"
-                        f"If the user requests changes, modify "
-                        f"prd.json.\n---\n"
-                    )
+                    phase = mission_info.get("mission_phase", 1)
+
+                    if phase == 1:
+                        refresher = (
+                            f"[Mission active — dir: `{loop_dir}`]\n"
+                            f"You are in Mission Phase 1 (PRD review). "
+                            f"The user's message follows.\n"
+                            f"If the user is confirming the PRD, update "
+                            f"`{loop_dir}/loop_config.json` setting "
+                            f"`current_phase` to `execution_confirmed`.\n"
+                            f"If the user requests changes, modify "
+                            f"prd.json.\n---\n"
+                        )
+                    elif phase == 2:
+                        refresher = (
+                            f"[Mission active — dir: `{loop_dir}`]\n"
+                            f"You are in Mission Phase 2 (execution). "
+                            f"The user's follow-up message follows.\n"
+                            f"Continue the worker → verifier pipeline. "
+                            f"Check prd.json progress and dispatch workers "
+                            f"for remaining stories.\n---\n"
+                        )
+                    else:
+                        refresher = (
+                            f"[Mission active — dir: `{loop_dir}`]\n---\n"
+                        )
+
                     original = query or ""
                     self._rewrite_last_message_text(
                         msgs,

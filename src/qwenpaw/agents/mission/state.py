@@ -203,11 +203,28 @@ def get_all_passed(prd: dict[str, Any]) -> bool:
     return all(s.get("passes") for s in stories)
 
 
-def get_latest_loop_dir(workspace_dir: Path) -> Path | None:
-    """Return the most-recently-created mission directory, or None."""
+def get_active_loop_dir(
+    workspace_dir: Path,
+    session_id: str = "",
+) -> Path | None:
+    """Return the most recent mission directory for this session.
+
+    Scans recent mission directories and returns the newest one whose
+    loop_config.json.session_id matches the provided session_id.
+
+    Args:
+        workspace_dir: Workspace root directory.
+        session_id: Current session ID. If empty, returns the globally
+            latest loop (backward compatibility).
+
+    Returns:
+        Path to the newest loop matching session_id, or None if not found.
+    """
     base = workspace_dir / "missions"
     if not base.exists():
         return None
+
+    # Get all mission dirs sorted by creation time (newest first)
     dirs = sorted(
         (
             d
@@ -217,7 +234,19 @@ def get_latest_loop_dir(workspace_dir: Path) -> Path | None:
         key=lambda d: d.name,
         reverse=True,
     )
-    return dirs[0] if dirs else None
+
+    # If no session_id, return the globally latest (backward compat)
+    if not session_id:
+        return dirs[0] if dirs else None
+
+    # Scan recent loops (limit to 20 to avoid perf issues)
+    for loop_dir in dirs[:20]:
+        cfg = read_loop_config(loop_dir)
+        loop_session = cfg.get("session_id", "")
+        if loop_session == session_id:
+            return loop_dir
+
+    return None
 
 
 def list_loop_dirs(workspace_dir: Path) -> list[dict[str, Any]]:
