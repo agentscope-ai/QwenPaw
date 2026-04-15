@@ -105,6 +105,30 @@ export interface VoiceChannelConfig extends BaseChannelConfig {
   welcome_greeting: string;
 }
 
+export interface SIPChannelConfig extends BaseChannelConfig {
+  sip_mode: string;
+  sip_host: string;
+  sip_port: number;
+  sip_username: string;
+  sip_password: string;
+  sip_server: string;
+  sip_transport: string;
+  rtp_port_low: number;
+  rtp_port_high: number;
+  dashscope_api_key: string;
+  tts_provider: string;
+  tts_voice: string;
+  stt_provider: string;
+  language: string;
+  welcome_greeting: string;
+  call_timeout: number;
+  livekit_url: string;
+  livekit_api_key: string;
+  livekit_api_secret: string;
+  livekit_sip_trunk_id: string;
+  livekit_room_name: string;
+}
+
 export interface XiaoYiConfig extends BaseChannelConfig {
   ak: string;
   sk: string;
@@ -133,6 +157,7 @@ export interface ChannelConfig {
   wecom: WecomConfig;
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
+  sip: SIPChannelConfig;
   xiaoyi: XiaoYiConfig;
   onebot: OneBotConfig;
 }
@@ -150,5 +175,6 @@ export type SingleChannelConfig =
   | MattermostConfig
   | WecomConfig
   | VoiceChannelConfig
+  | SIPChannelConfig
   | XiaoYiConfig
   | OneBotConfig;

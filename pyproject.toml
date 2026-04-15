@@ -96,6 +96,17 @@ whisper = [
 full = [
     "qwenpaw[local,whisper]",
 ]
+sip = [
+    "pyVoIP>=1.6.0",
+    "dashscope>=1.0.0",
+    "dashscope-realtime>=0.1.0",
+    "audioop-lts; python_version >= '3.13'",
+]
+sip-livekit = [
+    "qwenpaw[sip]",
+    "livekit>=1.0.0",
+    "livekit-api>=0.6.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

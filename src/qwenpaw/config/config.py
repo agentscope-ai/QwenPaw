@@ -358,6 +358,34 @@ class VoiceChannelConfig(BaseChannelConfig):
     welcome_greeting: str = "Hi! This is QwenPaw. How can I help you?"
 
 
+class SIPChannelConfig(BaseChannelConfig):
+    """SIP voice channel: dual-track (pyVoIP dev / LiveKit production)."""
+
+    sip_mode: str = "dev"
+    sip_host: str = "0.0.0.0"
+    sip_port: int = 5061
+    sip_username: str = ""
+    sip_password: str = ""
+    sip_server: str = ""
+    sip_transport: str = "UDP"
+    rtp_port_low: int = 10000
+    rtp_port_high: int = 20000
+    dashscope_api_key: str = ""
+    tts_provider: str = "aliyun"
+    tts_voice: str = ""
+    stt_provider: str = "aliyun"
+    language: str = "zh-CN"
+    welcome_greeting: str = "你好，我是QwenPaw"
+    call_timeout: float = 120.0
+    livekit_url: str = ""
+    livekit_api_key: str = ""
+    livekit_api_secret: str = ""
+    livekit_sip_trunk_id: str = ""
+    livekit_room_name: str = "sip-inbound"
+    livekit_output_sample_rate: int = 24000
+    max_concurrent_calls: int = 5
+
+
 class XiaoYiConfig(BaseChannelConfig):
     """XiaoYi channel: Huawei A2A protocol via WebSocket."""
 
@@ -400,6 +428,7 @@ class ChannelConfig(BaseModel):
     console: ConsoleConfig = ConsoleConfig()
     matrix: MatrixConfig = MatrixConfig()
     voice: VoiceChannelConfig = VoiceChannelConfig()
+    sip: SIPChannelConfig = SIPChannelConfig()
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
     weixin: WeixinConfig = WeixinConfig()
@@ -1442,6 +1471,7 @@ ChannelConfigUnion = Union[
     ConsoleConfig,
     MatrixConfig,
     VoiceChannelConfig,
+    SIPChannelConfig,
     WecomConfig,
     XiaoYiConfig,
     WeixinConfig,
