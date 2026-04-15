@@ -26,7 +26,7 @@ def test_opencode_provider_config() -> None:
     assert PROVIDER_OPENCODE.name == "OpenCode"
     assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
     assert PROVIDER_OPENCODE.freeze_url is True
-    assert PROVIDER_OPENCODE.support_model_discovery is True
+    assert PROVIDER_OPENCODE.support_model_discovery is False
 
 
 @pytest.fixture

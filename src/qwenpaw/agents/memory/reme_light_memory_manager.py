@@ -120,6 +120,10 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             rebuild_on_start=rebuild_on_start,
         )
 
+        recursive_file_watcher = (
+            agent_config.running.memory_summary.recursive_file_watcher
+        )
+
         self._reme = ReMeLight(
             working_dir=working_dir,
             default_embedding_model_config=emb_config,
@@ -131,6 +135,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             },
             default_file_watcher_config={
                 "rebuild_index_on_start": effective_rebuild,
+                "recursive": recursive_file_watcher,
             },
         )
 
