@@ -13,13 +13,62 @@
     .qwenpaw-slider .qwenpaw-slider-handle::after {
       box-shadow: 0 0 0 2px #ff7f16;
     }
+
+    .qwenpaw-tabs-nav {
+      padding: 0 16px !important;
+    }
   }
 }
 
-.pageContent {
+.content {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  width: 100%;
+}
+
+/* ---- Main Tabs ---- */
+.mainTabs {
+  :global(.qwenpaw-tabs-nav) {
+    margin-bottom: 20px;
+
+    &::before {
+      border-bottom: 1px solid #f0f0f0;
+    }
+  }
+
+  :global(.qwenpaw-tabs-tab) {
+    padding: 10px 4px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666 !important;
+
+    &:hover {
+      color: #ff7f16 !important;
+    }
+  }
+
+  :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
+    color: #ff7f16 !important;
+    font-weight: 600;
+  }
+
+  :global(.qwenpaw-tabs-ink-bar) {
+    background: #ff7f16 !important;
+    height: 3px;
+    border-radius: 2px 2px 0 0;
+  }
+}
+
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.tabContent {
+  padding: 0 16px;
 }
 
 .pageHeader {
@@ -124,9 +173,7 @@
   }
 }
 
-.formContainer {
-  padding: 16px;
-}
+/* formContainer kept for legacy reference */
 
 .sliderValue {
   font-weight: 500;
@@ -195,5 +242,20 @@
 
   .sliderValue {
     color: #ff7f16;
+  }
+
+  .mainTabs {
+    :global(.qwenpaw-tabs-tab .qwenpaw-tabs-tab-btn) {
+      color: #ffffff !important;
+    }
+
+    :global(.qwenpaw-tabs-tab-active .qwenpaw-tabs-tab-btn) {
+      color: #ff7f16 !important;
+      font-weight: 600;
+    }
+
+    :global(.qwenpaw-tabs-ink-bar) {
+      background: #ff7f16 !important;
+    }
   }
 }

@@ -242,6 +242,7 @@ class CronManager:
     async def _register_or_update(self, spec: CronJobSpec) -> None:
         # Validate and build trigger first. If cron is invalid, fail fast
         # without mutating scheduler/runtime state.
+        assert spec.id is not None, "Job must have an id"
         trigger = self._build_trigger(spec)
 
         # per-job concurrency semaphore
@@ -347,6 +348,7 @@ class CronManager:
             logger.exception("heartbeat run failed")
 
     async def _execute_once(self, job: CronJobSpec) -> None:
+        assert job.id is not None, "Job must have an id"
         rt = self._rt.get(job.id)
         if not rt:
             rt = _Runtime(sem=asyncio.Semaphore(job.runtime.max_concurrency))

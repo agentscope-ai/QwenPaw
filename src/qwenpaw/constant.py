@@ -304,3 +304,9 @@ except (TypeError, ValueError):
 # Split output on this marker to recover the original (untruncated) portion:
 #   original = output.split(TRUNCATION_NOTICE_MARKER)[0]
 TRUNCATION_NOTICE_MARKER = "<<<TRUNCATED>>>"
+
+# Placeholder text used when media blocks are stripped from messages
+# because the model does not support multimodal content.
+MEDIA_UNSUPPORTED_PLACEHOLDER = (
+    "[Media content removed - model does not support this media type]"
+)

@@ -36,6 +36,7 @@ from .skills_manager import (
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
+    chat_with_agent,
     desktop_screenshot,
     edit_file,
     execute_shell_command,
@@ -43,6 +44,7 @@ from .tools import (
     get_token_usage,
     glob_search,
     grep_search,
+    list_agents,
     read_file,
     send_file_to_user,
     set_user_timezone,
@@ -53,6 +55,7 @@ from .tools import (
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
+    MEDIA_UNSUPPORTED_PLACEHOLDER,
     WORKING_DIR,
 )
 from ..agents.memory import BaseMemoryManager
@@ -238,6 +241,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
+            "list_agents": list_agents,
+            "chat_with_agent": chat_with_agent,
         }
 
         multimodal = get_active_model_supports_multimodal()
@@ -672,6 +677,17 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """
         return self._strip_media_blocks_from_memory()
 
+    def _uses_request_time_media_normalization(self) -> bool:
+        """Return True when request-time normalization can handle media."""
+        return getattr(self, "formatter", None) is not None
+
+    def _set_formatter_media_strip(self, enabled: bool) -> None:
+        """Toggle request-time media stripping on the active formatter."""
+        formatter = getattr(self, "formatter", None)
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_media", enabled)
+
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
@@ -690,13 +706,19 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """
         # --- Proactive filtering layer ---
         if not get_active_model_supports_multimodal():
-            n = self._proactive_strip_media_blocks()
-            if n > 0:
-                logger.warning(
-                    "Proactively stripped %d media block(s) - "
-                    "model does not support multimodal.",
-                    n,
+            if self._uses_request_time_media_normalization():
+                logger.debug(
+                    "Formatter will strip media from copied messages "
+                    "before reasoning.",
                 )
+            else:
+                n = self._proactive_strip_media_blocks()
+                if n > 0:
+                    logger.warning(
+                        "Proactively stripped %d media block(s) - "
+                        "model does not support multimodal.",
+                        n,
+                    )
 
         # --- Passive fallback layer (existing logic) ---
         try:
@@ -704,6 +726,24 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         except Exception as e:
             if not self._is_bad_request_or_media_error(e):
                 raise
+
+            if self._uses_request_time_media_normalization():
+                if get_active_model_supports_multimodal():
+                    logger.warning(
+                        "Model marked multimodal but "
+                        "rejected media. "
+                        "Capability flag may be wrong.",
+                    )
+                self._set_formatter_media_strip(True)
+                try:
+                    logger.warning(
+                        "_reasoning failed (%s). "
+                        "Retrying with request-time media stripping.",
+                        e,
+                    )
+                    return await super()._reasoning(tool_choice=tool_choice)
+                finally:
+                    self._set_formatter_media_strip(False)
 
             n_stripped = self._strip_media_blocks_from_memory()
             if n_stripped == 0:
@@ -726,6 +766,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             )
             return await super()._reasoning(tool_choice=tool_choice)
 
+    # pylint: disable=too-many-branches
     async def _summarizing(self) -> Msg:
         """Override summarizing with proactive media filtering,
         passive fallback, and tool_use block filtering.
@@ -743,13 +784,19 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """
         # --- Proactive filtering layer ---
         if not get_active_model_supports_multimodal():
-            n = self._proactive_strip_media_blocks()
-            if n > 0:
-                logger.warning(
-                    "Proactively stripped %d media block(s) - "
-                    "model does not support multimodal.",
-                    n,
+            if self._uses_request_time_media_normalization():
+                logger.debug(
+                    "Formatter will strip media from copied messages "
+                    "before summarizing.",
                 )
+            else:
+                n = self._proactive_strip_media_blocks()
+                if n > 0:
+                    logger.warning(
+                        "Proactively stripped %d media block(s) - "
+                        "model does not support multimodal.",
+                        n,
+                    )
 
         # --- Passive fallback layer ---
         self._in_summarizing = True
@@ -760,24 +807,42 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 if not self._is_bad_request_or_media_error(e):
                     raise
 
-                n_stripped = self._strip_media_blocks_from_memory()
-                if n_stripped == 0:
-                    raise
+                if self._uses_request_time_media_normalization():
+                    if get_active_model_supports_multimodal():
+                        logger.warning(
+                            "Model marked multimodal but "
+                            "rejected media. "
+                            "Capability flag may be wrong.",
+                        )
+                    self._set_formatter_media_strip(True)
+                    try:
+                        logger.warning(
+                            "_summarizing failed (%s). "
+                            "Retrying with request-time media stripping.",
+                            e,
+                        )
+                        msg = await super()._summarizing()
+                    finally:
+                        self._set_formatter_media_strip(False)
+                else:
+                    n_stripped = self._strip_media_blocks_from_memory()
+                    if n_stripped == 0:
+                        raise
 
-                if get_active_model_supports_multimodal():
+                    if get_active_model_supports_multimodal():
+                        logger.warning(
+                            "Model marked multimodal but "
+                            "rejected media. "
+                            "Capability flag may be wrong.",
+                        )
+
                     logger.warning(
-                        "Model marked multimodal but "
-                        "rejected media. "
-                        "Capability flag may be wrong.",
+                        "_summarizing failed (%s). "
+                        "Stripped %d media block(s) from memory, retrying.",
+                        e,
+                        n_stripped,
                     )
-
-                logger.warning(
-                    "_summarizing failed (%s). "
-                    "Stripped %d media block(s) from memory, retrying.",
-                    e,
-                    n_stripped,
-                )
-                msg = await super()._summarizing()
+                    msg = await super()._summarizing()
         finally:
             self._in_summarizing = False
 
@@ -895,10 +960,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         ]
         return any(kw in error_str for kw in keywords)
 
-    _MEDIA_PLACEHOLDER = (
-        "[Media content removed - model does not support this media type]"
-    )
-
     def _strip_media_blocks_from_memory(self) -> int:
         """Remove media blocks (image/audio/video) from all messages.
 
@@ -917,12 +978,14 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 continue
 
             new_content = []
+            stripped_this_message = 0
             for block in msg.content:
                 if (
                     isinstance(block, dict)
                     and block.get("type") in media_types
                 ):
                     total_stripped += 1
+                    stripped_this_message += 1
                     continue
 
                 if (
@@ -941,14 +1004,18 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                     ]
                     stripped_count = original_len - len(block["output"])
                     total_stripped += stripped_count
+                    stripped_this_message += stripped_count
                     if stripped_count > 0 and not block["output"]:
-                        block["output"] = self._MEDIA_PLACEHOLDER
+                        block["output"] = MEDIA_UNSUPPORTED_PLACEHOLDER
 
                 new_content.append(block)
 
-            if not new_content and total_stripped > 0:
+            if not new_content and stripped_this_message > 0:
                 new_content.append(
-                    {"type": "text", "text": self._MEDIA_PLACEHOLDER},
+                    {
+                        "type": "text",
+                        "text": MEDIA_UNSUPPORTED_PLACEHOLDER,
+                    },
                 )
 
             msg.content = new_content
