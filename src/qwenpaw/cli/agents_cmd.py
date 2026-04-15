@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Optional, Dict, Any
 
 import click
@@ -437,6 +438,13 @@ def _remove_agent_workspace(workspace_dir: Path) -> bool:
     return True
 
 
+def _is_local_api_base_url(base_url: str) -> bool:
+    """Return whether the resolved API base URL points to the local host."""
+    parsed = urlparse(base_url)
+    hostname = (parsed.hostname or "").lower()
+    return hostname in {"localhost", "127.0.0.1", "::1"}
+
+
 @click.group("agents")
 def agents_group() -> None:
     """Manage agents and inter-agent communication.
@@ -670,6 +678,11 @@ def delete_cmd(
       qwenpaw agents delete research --yes
     """
     resolved_base_url = resolve_base_url(ctx, base_url)
+
+    if remove_workspace and not _is_local_api_base_url(resolved_base_url):
+        raise click.ClickException(
+            "--remove-workspace is only supported when targeting a local API.",
+        )
 
     if not yes:
         click.echo(f"WARNING: You are about to delete agent '{agent_id}'.")
