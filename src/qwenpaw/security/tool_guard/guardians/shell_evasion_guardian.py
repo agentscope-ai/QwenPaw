@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from ..models import GuardFinding, GuardSeverity, GuardThreatCategory
 from . import BaseToolGuardian
@@ -173,7 +173,8 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            "Command contains ANSI-C quoting ($'...') which can hide characters",
+            "Command contains ANSI-C quoting ($'...') "
+            "which can hide characters",
             command,
         )
 
@@ -181,7 +182,8 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            'Command contains locale quoting ($"...") which can hide characters',
+            'Command contains locale quoting ($"...") '
+            "which can hide characters",
             command,
         )
 
@@ -189,7 +191,8 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            "Command contains empty special quotes before dash (potential bypass)",
+            "Command contains empty special quotes before dash "
+            "(potential bypass)",
             command,
         )
 
@@ -197,7 +200,8 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            "Command contains empty quotes before dash (potential flag bypass)",
+            "Command contains empty quotes before dash "
+            "(potential flag bypass)",
             command,
         )
 
@@ -224,7 +228,8 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
                     return _finding(
                         "SHELL_EVASION_OBFUSCATED_FLAGS",
                         GuardSeverity.HIGH,
-                        "Command contains quoted flag name (potential obfuscation)",
+                        "Command contains quoted flag name "
+                        "(potential obfuscation)",
                         command,
                         matched=command[i : j + 1],
                     )
@@ -453,7 +458,8 @@ def _finding(
 
 # All checks, executed in order. Short-circuit on first finding to keep
 # the approval dialog focused on the primary concern.
-_CHECKS = [
+_ShellCheckFn = Callable[..., GuardFinding | None]
+_CHECKS: tuple[_ShellCheckFn, ...] = (
     _check_command_substitution,
     _check_obfuscated_flags,
     _check_backslash_escaped_whitespace,
@@ -461,7 +467,7 @@ _CHECKS = [
     _check_newlines,
     _check_comment_quote_desync,
     _check_quoted_newline,
-]
+)
 
 
 class ShellEvasionGuardian(BaseToolGuardian):
