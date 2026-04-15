@@ -316,6 +316,17 @@ function useMessageHistoryNavigation(
     return null;
   };
 
+  const isSuggestionPopupOpen = (textarea: HTMLTextAreaElement): boolean => {
+    if (!textarea.value.startsWith("/")) return false;
+    const doc = textarea.ownerDocument;
+    const menuItems = Array.from(
+      doc.querySelectorAll('[role="menuitemcheckbox"], [role="menuitem"]'),
+    );
+    return menuItems.some((item) =>
+      (item.textContent || "").trim().startsWith("/"),
+    );
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isChatActive()) return;
@@ -336,6 +347,8 @@ function useMessageHistoryNavigation(
       const userMessages = getUserMessagesWithText();
 
       if (e.key === "ArrowUp") {
+        if (isSuggestionPopupOpen(textarea)) return;
+
         const cursorPosition = textarea.selectionStart || 0;
         const textBeforeCursor = textarea.value.substring(0, cursorPosition);
         const lineBreaks = textBeforeCursor.split("\n").length - 1;
