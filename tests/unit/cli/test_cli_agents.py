@@ -572,8 +572,7 @@ def test_agents_delete_remove_workspace_deletes_directory(
     assert not workspace_dir.exists()
     assert '"workspace_removed": true' in result.output
     assert (
-        f'"workspace_dir": {json.dumps(str(workspace_dir))}'
-        in result.output
+        f'"workspace_dir": {json.dumps(str(workspace_dir))}' in result.output
     )
 
 
