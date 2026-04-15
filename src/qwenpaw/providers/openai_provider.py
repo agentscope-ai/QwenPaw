@@ -85,7 +85,7 @@ class OpenAIProvider(Provider):
     async def check_model_connection(
         self,
         model_id: str,
-        timeout: float = 30,
+        timeout: float = 5,
     ) -> tuple[bool, str]:
         """Check if a specific model is reachable/usable"""
         model_id = (model_id or "").strip()

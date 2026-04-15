@@ -50,6 +50,14 @@ class OllamaProvider(OpenAIProvider):
             timeout=timeout,
         )
 
+    async def check_model_connection(
+        self,
+        model_id: str,
+        timeout: float = 5,
+    ) -> tuple[bool, str]:
+        """Check if a specific model is reachable/usable"""
+        return await super().check_model_connection(model_id, timeout=30)
+
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
