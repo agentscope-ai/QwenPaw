@@ -168,7 +168,7 @@ class TestMatrixChannelFromConfig:
 
         assert channel._cfg.enabled is True
         assert channel._cfg.homeserver == "https://matrix.example.com"
-        assert channel._user_id == "@bot:example.com"
+        assert channel._cfg.user_id == "@bot:example.com"
         assert channel._cfg.access_token == "test_token_123"
 
     def test_from_config_with_optional_params(
