@@ -667,7 +667,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
     _AUTO_CONTINUE_MAX_EXTRA = 2
     _AUTO_CONTINUE_TAIL_CHARS = 600
 
-    _AUTO_CONTINUE_HINT = (
+    _AUTO_CONTINUE_HINT_EN = (
         "<system-hint>"
         "Your previous assistant turn had text only (no tool calls). "
         "Use the trailing excerpt in <previous-assistant-tail> (if present) "
@@ -675,12 +675,24 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         "user's task still needs tools, emit tool_use now; if it is fully "
         "done, reply with a short text only (no tools). "
         "Do not stop with plans or code fences alone when tools are still "
-        "needed.\n"
+        "needed."
+        "</system-hint>"
+    )
+    _AUTO_CONTINUE_HINT_ZH = (
+        "<system-hint>"
         "上轮助手仅文字、未调工具。请结合上下文与 <previous-assistant-tail> "
         "（若有）在本轮推理中判断：仍需执行则立刻 tool；已完结则简短收尾。"
         "需要操作时勿只输出计划或代码块。"
         "</system-hint>"
     )
+
+    def _auto_continue_system_hint(self) -> str:
+        """Pick hint by agent language (zh vs others)."""
+        raw_lang = getattr(self._agent_config, "language", None)
+        lang = (raw_lang or "").strip().lower()
+        if lang == "zh":
+            return self._AUTO_CONTINUE_HINT_ZH
+        return self._AUTO_CONTINUE_HINT_EN
 
     @staticmethod
     def _auto_continue_tail_context(msg: Msg, max_chars: int) -> str:
@@ -700,9 +712,10 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
     ) -> Msg:
         """Nudge the model when it returns text-only mid-task.
 
-        Injects a bilingual hint (with a trailing excerpt of the assistant
-        text for self-review) and runs up to ``_AUTO_CONTINUE_MAX_EXTRA``
-        extra ``_reasoning`` passes until a tool_use appears or the cap is
+        Injects a language-matched hint (with a trailing excerpt of the
+        assistant text for self-review) and runs up to
+        ``_AUTO_CONTINUE_MAX_EXTRA`` extra ``_reasoning`` passes until a
+        tool_use appears or the cap is
         hit—so one text-only stall cannot exhaust the mechanism in a single
         shot.  Same ``tool_choice`` as the step (usually ``\"auto\"``); we do
         not set ``\"required\"`` so a genuinely finished task can still end in
@@ -730,7 +743,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 msg,
                 self._AUTO_CONTINUE_TAIL_CHARS,
             )
-            hint_body = self._AUTO_CONTINUE_HINT
+            hint_body = self._auto_continue_system_hint()
             if tail:
                 hint_body += (
                     "\n\n<previous-assistant-tail>\n"
