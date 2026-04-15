@@ -11,6 +11,7 @@ import time
 from typing import TYPE_CHECKING, Any, List
 
 from agentscope.model import ChatModelBase
+import openai
 from openai import APIError
 
 from qwenpaw.providers.provider import ModelInfo, Provider
@@ -23,15 +24,17 @@ logger = logging.getLogger(__name__)
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 
-if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec("langfuse"):
+if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
+    "langfuse",
+):
     from langfuse.openai import AsyncOpenAI  # type: ignore[import]
 else:
     if os.environ.get("LANGFUSE_SECRET_KEY"):
         logger.warning(
             "LANGFUSE_SECRET_KEY is set but langfuse is not installed; "
-            "install with `pip install langfuse` to enable tracing"
+            "install with `pip install langfuse` to enable tracing",
         )
-    from openai import AsyncOpenAI
+    AsyncOpenAI = openai.AsyncOpenAI
 
 
 class OpenAIProvider(Provider):
