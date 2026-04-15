@@ -1175,7 +1175,7 @@
         "description": "Deny the pending tool action"
       },
       "mission": {
-        "description": "Start Mission Mode — autonomous agent for complex tasks"
+        "description": "Start Mission Mode — autonomous agent for complex tasks ⚠️ Background task bypass security guard"
       }
     },
     "attachments": {
