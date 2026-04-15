@@ -9,43 +9,52 @@ import pytest
 
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import Provider
 from qwenpaw.providers.provider_manager import (
-    KIMI_MODELS,
-    PROVIDER_KIMI_CN,
-    PROVIDER_KIMI_INTL,
+    _KIMI_MODELS,
+    _create_builtin_providers,
     ProviderManager,
 )
 
 
+def _find_provider(provider_id: str) -> Provider:
+    for p in _create_builtin_providers():
+        if p.id == provider_id:
+            return p
+    raise AssertionError(f"provider {provider_id!r} not found")
+
+
 def test_kimi_providers_are_openai_compatible() -> None:
     """Kimi providers should be OpenAIProvider instances."""
-    assert isinstance(PROVIDER_KIMI_CN, OpenAIProvider)
-    assert isinstance(PROVIDER_KIMI_INTL, OpenAIProvider)
+    assert isinstance(_find_provider("kimi-cn"), OpenAIProvider)
+    assert isinstance(_find_provider("kimi-intl"), OpenAIProvider)
 
 
 def test_kimi_provider_configs() -> None:
     """Verify Kimi provider configuration defaults."""
-    assert PROVIDER_KIMI_CN.id == "kimi-cn"
-    assert PROVIDER_KIMI_CN.name == "Kimi (China)"
-    assert PROVIDER_KIMI_CN.base_url == "https://api.moonshot.cn/v1"
-    assert PROVIDER_KIMI_CN.freeze_url is True
+    provider_cn = _find_provider("kimi-cn")
+    assert provider_cn.id == "kimi-cn"
+    assert provider_cn.name == "Kimi (China)"
+    assert provider_cn.base_url == "https://api.moonshot.cn/v1"
+    assert provider_cn.freeze_url is True
 
-    assert PROVIDER_KIMI_INTL.id == "kimi-intl"
-    assert PROVIDER_KIMI_INTL.name == "Kimi (International)"
-    assert PROVIDER_KIMI_INTL.base_url == "https://api.moonshot.ai/v1"
-    assert PROVIDER_KIMI_INTL.freeze_url is True
+    provider_intl = _find_provider("kimi-intl")
+    assert provider_intl.id == "kimi-intl"
+    assert provider_intl.name == "Kimi (International)"
+    assert provider_intl.base_url == "https://api.moonshot.ai/v1"
+    assert provider_intl.freeze_url is True
 
 
 def test_kimi_models_list() -> None:
     """Verify Kimi model definitions."""
-    model_ids = [m.id for m in KIMI_MODELS]
+    model_ids = [m["id"] for m in _KIMI_MODELS]
     assert "kimi-k2.5" in model_ids
     assert "kimi-k2-0905-preview" in model_ids
     assert "kimi-k2-0711-preview" in model_ids
     assert "kimi-k2-turbo-preview" in model_ids
     assert "kimi-k2-thinking" in model_ids
     assert "kimi-k2-thinking-turbo" in model_ids
-    assert len(KIMI_MODELS) == 6
+    assert len(_KIMI_MODELS) == 6
 
 
 @pytest.fixture

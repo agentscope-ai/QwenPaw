@@ -9,42 +9,51 @@ import pytest
 
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import Provider
 from qwenpaw.providers.provider_manager import (
-    PROVIDER_SILICONFLOW_CN,
-    PROVIDER_SILICONFLOW_INTL,
+    _create_builtin_providers,
     ProviderManager,
 )
 
 
+def _find_provider(provider_id: str) -> Provider:
+    for p in _create_builtin_providers():
+        if p.id == provider_id:
+            return p
+    raise AssertionError(f"provider {provider_id!r} not found")
+
+
 def test_siliconflow_providers_are_openai_compatible() -> None:
     """Siliconflow providers should be OpenAIProvider instances."""
-    assert isinstance(PROVIDER_SILICONFLOW_CN, OpenAIProvider)
-    assert isinstance(PROVIDER_SILICONFLOW_INTL, OpenAIProvider)
+    assert isinstance(_find_provider("siliconflow-cn"), OpenAIProvider)
+    assert isinstance(_find_provider("siliconflow-intl"), OpenAIProvider)
 
 
 def test_siliconflow_provider_configs() -> None:
     """Verify Siliconflow provider configuration defaults."""
-    assert PROVIDER_SILICONFLOW_CN.id == "siliconflow-cn"
-    assert PROVIDER_SILICONFLOW_CN.name == "SiliconFlow (China)"
-    assert PROVIDER_SILICONFLOW_CN.base_url == "https://api.siliconflow.cn/v1"
-    assert PROVIDER_SILICONFLOW_CN.freeze_url is True
-    assert PROVIDER_SILICONFLOW_CN.support_model_discovery is True
+    provider_cn = _find_provider("siliconflow-cn")
+    assert provider_cn.id == "siliconflow-cn"
+    assert provider_cn.name == "SiliconFlow (China)"
+    assert provider_cn.base_url == "https://api.siliconflow.cn/v1"
+    assert provider_cn.freeze_url is True
+    assert provider_cn.support_model_discovery is True
 
-    assert PROVIDER_SILICONFLOW_INTL.id == "siliconflow-intl"
-    assert PROVIDER_SILICONFLOW_INTL.name == "SiliconFlow (International)"
-    assert (
-        PROVIDER_SILICONFLOW_INTL.base_url == "https://api.siliconflow.com/v1"
-    )
-    assert PROVIDER_SILICONFLOW_INTL.freeze_url is True
-    assert PROVIDER_SILICONFLOW_INTL.support_model_discovery is True
+    provider_intl = _find_provider("siliconflow-intl")
+    assert provider_intl.id == "siliconflow-intl"
+    assert provider_intl.name == "SiliconFlow (International)"
+    assert provider_intl.base_url == "https://api.siliconflow.com/v1"
+    assert provider_intl.freeze_url is True
+    assert provider_intl.support_model_discovery is True
 
 
 def test_siliconflow_models_list() -> None:
     """Verify Siliconflow has no preset models (empty list)."""
-    assert PROVIDER_SILICONFLOW_CN.models == []
-    assert PROVIDER_SILICONFLOW_INTL.models == []
-    assert len(PROVIDER_SILICONFLOW_CN.models) == 0
-    assert len(PROVIDER_SILICONFLOW_INTL.models) == 0
+    provider_cn = _find_provider("siliconflow-cn")
+    provider_intl = _find_provider("siliconflow-intl")
+    assert provider_cn.models == []
+    assert provider_intl.models == []
+    assert len(provider_cn.models) == 0
+    assert len(provider_intl.models) == 0
 
 
 @pytest.fixture
