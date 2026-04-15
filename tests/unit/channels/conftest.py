@@ -48,11 +48,3 @@ def temp_media_dir(tmp_path) -> str:
     media_dir = tmp_path / ".copaw" / "media"
     media_dir.mkdir(parents=True, exist_ok=True)
     return str(media_dir)
-
-
-@pytest.fixture
-def temp_copaw_home(tmp_path) -> str:
-    """Temporary COPAW_HOME directory."""
-    copaw_dir = tmp_path / ".copaw"
-    copaw_dir.mkdir(parents=True, exist_ok=True)
-    return str(copaw_dir)

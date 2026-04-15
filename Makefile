@@ -34,7 +34,7 @@ coverage-sa:
 # Full coverage (all modules)
 coverage-full:
 	$(PYTEST) tests/unit/ tests/integration/ -v \
-		--cov=src/copaw \
+		--cov=src/qwenpaw \
 		--cov-report=term-missing \
 		--cov-report=html
 

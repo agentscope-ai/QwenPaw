@@ -1099,7 +1099,7 @@ class MatrixChannel(BaseChannel):
         return d
 
     def _mxc_to_http(self, mxc_url: str) -> str:
-        """Convert an mxc:// URL to an HTTP download URL with access token.
+        """Convert an mxc:// URL to an HTTP download URL.
 
         Returns the original URL unchanged if it is not an mxc:// URL or if
         the format is invalid.
@@ -1114,7 +1114,7 @@ class MatrixChannel(BaseChannel):
         server, media_id = rest.split("/", 1)
         return (
             f"{self._cfg.homeserver}/_matrix/media/v3/download"
-            f"/{server}/{media_id}?access_token={self._cfg.access_token}"
+            f"/{server}/{media_id}"
         )
 
     async def _download_mxc(

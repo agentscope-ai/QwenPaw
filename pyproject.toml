@@ -116,7 +116,7 @@ testpaths = [
 ]
 
 [tool.coverage.run]
-source = ["src/copaw"]
+source = ["src/qwenpaw"]
 omit = [
     "*/tests/*",
     "*/test_*",

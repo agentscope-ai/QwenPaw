@@ -98,10 +98,14 @@ jobs:
             CHANNELS=$(echo "$CHANGED_FILES" | grep -oE 'channels/[^/]+' | sed 's/channels\///' | sort -u)
 
             # Build list of test files to run
-            TESTS="test_base_channel"
+            TESTS="test_base_core"
             for ch in $CHANNELS; do
-              if [ "$ch" != "" ] && [ -f "tests/unit/channels/test_${ch}_channel.py" ]; then
-                TESTS="${TESTS} test_${ch}_channel"
+              if [ "$ch" != "" ]; then
+                if [ -f "tests/unit/channels/test_${ch}.py" ]; then
+                  TESTS="${TESTS} test_${ch}"
+                elif [ -f "tests/unit/channels/test_${ch}_channel.py" ]; then
+                  TESTS="${TESTS} test_${ch}_channel"
+                fi
               fi
             done
 
