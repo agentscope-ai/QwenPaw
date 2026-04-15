@@ -10,23 +10,31 @@ import pytest
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import (
-    PROVIDER_OPENCODE,
+    _create_builtin_providers,
     ProviderManager,
 )
 
 
+def _find_provider(provider_id: str) -> OpenAIProvider:
+    for p in _create_builtin_providers():
+        if p.id == provider_id:
+            return p
+    raise AssertionError(f"provider {provider_id!r} not found")
+
+
 def test_opencode_provider_is_openai_compatible() -> None:
     """OpenCode provider should be an OpenAIProvider instance."""
-    assert isinstance(PROVIDER_OPENCODE, OpenAIProvider)
+    assert isinstance(_find_provider("opencode"), OpenAIProvider)
 
 
 def test_opencode_provider_config() -> None:
     """Verify OpenCode provider configuration defaults."""
-    assert PROVIDER_OPENCODE.id == "opencode"
-    assert PROVIDER_OPENCODE.name == "OpenCode"
-    assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
-    assert PROVIDER_OPENCODE.freeze_url is True
-    assert PROVIDER_OPENCODE.support_model_discovery is True
+    provider = _find_provider("opencode")
+    assert provider.id == "opencode"
+    assert provider.name == "OpenCode"
+    assert provider.base_url == "https://opencode.ai/zen/v1"
+    assert provider.freeze_url is True
+    assert provider.support_model_discovery is True
 
 
 @pytest.fixture

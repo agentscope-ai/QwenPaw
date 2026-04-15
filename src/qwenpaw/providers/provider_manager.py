@@ -5,7 +5,7 @@ providers, adding/removing custom providers, and fetching provider details."""
 
 import asyncio
 import os
-from typing import Dict, List
+from typing import Any, Dict, List
 import logging
 import json
 
@@ -41,664 +41,661 @@ logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------
 # Built-in provider definitions and their default models.
+#
+# Model data is stored as plain dicts (not pydantic instances) to avoid
+# class-identity issues when the module is re-imported in multi-worker
+# servers like gunicorn.  Pydantic coerces dicts to ModelInfo at
+# validation time, using whichever class is current in the process.
+# Provider instances are created lazily inside _create_builtin_providers().
+# See: https://github.com/agentscope-ai/QwenPaw/issues/3375
 # -------------------------------------------------------
 
-MODELSCOPE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="Qwen/Qwen3.5-122B-A10B",
-        name="Qwen3.5-122B-A10B",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="ZhipuAI/GLM-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
+_MODELSCOPE_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "Qwen/Qwen3.5-122B-A10B",
+        "name": "Qwen3.5-122B-A10B",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "ZhipuAI/GLM-5",
+        "name": "GLM-5",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
 ]
 
-DASHSCOPE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="qwen3-max",
-        name="Qwen3 Max",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-235b-a22b-thinking-2507",
-        name="Qwen3 235B A22B Thinking",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
+_DASHSCOPE_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "qwen3-max",
+        "name": "Qwen3 Max",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "qwen3-235b-a22b-thinking-2507",
+        "name": "Qwen3 235B A22B Thinking",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "deepseek-v3.2",
+        "name": "DeepSeek-V3.2",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
 ]
 
-ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="qwen3.5-plus",
-        name="Qwen3.5 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-4.7",
-        name="GLM-4.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-max-2026-01-23",
-        name="Qwen3 Max 2026-01-23",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-coder-next",
-        name="Qwen3 Coder Next",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-coder-plus",
-        name="Qwen3 Coder Plus",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
+_ALIYUN_CODINGPLAN_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "qwen3.5-plus",
+        "name": "Qwen3.5 Plus",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "glm-5",
+        "name": "GLM-5",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "glm-4.7",
+        "name": "GLM-4.7",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "MiniMax-M2.5",
+        "name": "MiniMax M2.5",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "kimi-k2.5",
+        "name": "Kimi K2.5",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "qwen3-max-2026-01-23",
+        "name": "Qwen3 Max 2026-01-23",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "qwen3-coder-next",
+        "name": "Qwen3 Coder Next",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "qwen3-coder-plus",
+        "name": "Qwen3 Coder Plus",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
 ]
 
-ZHIPU_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="glm-5",
-        name="glm-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.1",
-        name="glm-5.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5-turbo",
-        name="glm-5-turbo",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5v-turbo",
-        name="glm-5v-turbo",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-    ),
+_ZHIPU_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "glm-5",
+        "name": "glm-5",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "glm-5.1",
+        "name": "glm-5.1",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "glm-5-turbo",
+        "name": "glm-5-turbo",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "glm-5v-turbo",
+        "name": "glm-5v-turbo",
+        "supports_image": True,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
 ]
 
-OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gpt-5.2",
-        name="GPT-5.2",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5",
-        name="GPT-5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-mini",
-        name="GPT-5 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-nano",
-        name="GPT-5 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1",
-        name="GPT-4.1",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-mini",
-        name="GPT-4.1 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-nano",
-        name="GPT-4.1 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="o3",
-        name="o3",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="o4-mini",
-        name="o4-mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
+_OPENAI_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "gpt-5.2",
+        "name": "GPT-5.2",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-5",
+        "name": "GPT-5",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-5-mini",
+        "name": "GPT-5 Mini",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-5-nano",
+        "name": "GPT-5 Nano",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4.1",
+        "name": "GPT-4.1",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4.1-mini",
+        "name": "GPT-4.1 Mini",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4.1-nano",
+        "name": "GPT-4.1 Nano",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "o3",
+        "name": "o3",
+        "supports_image": True,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "o4-mini",
+        "name": "o4-mini",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4o",
+        "name": "GPT-4o",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4o-mini",
+        "name": "GPT-4o Mini",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
 ]
 
-OPENCODE_MODELS: List[ModelInfo] = [
+_OPENCODE_MODELS: List[Dict[str, Any]] = [
     # Free models from OpenCode Zen
-    ModelInfo(
-        id="big-pickle",
-        name="Big Pickle",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="nemotron-3-super-free",
-        name="Nemotron 3 Super Free",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
+    {
+        "id": "big-pickle",
+        "name": "Big Pickle",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "nemotron-3-super-free",
+        "name": "Nemotron 3 Super Free",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
 ]
 
-AZURE_OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gpt-5-chat",
-        name="GPT-5 Chat",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-mini",
-        name="GPT-5 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-nano",
-        name="GPT-5 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1",
-        name="GPT-4.1",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-mini",
-        name="GPT-4.1 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-nano",
-        name="GPT-4.1 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
+_AZURE_OPENAI_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "gpt-5-chat",
+        "name": "GPT-5 Chat",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-5-mini",
+        "name": "GPT-5 Mini",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-5-nano",
+        "name": "GPT-5 Nano",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4.1",
+        "name": "GPT-4.1",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4.1-mini",
+        "name": "GPT-4.1 Mini",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4.1-nano",
+        "name": "GPT-4.1 Nano",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4o",
+        "name": "GPT-4o",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gpt-4o-mini",
+        "name": "GPT-4o Mini",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
 ]
 
-MINIMAX_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5-highspeed",
-        name="MiniMax M2.5 Highspeed",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.7",
-        name="MiniMax M2.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.7-highspeed",
-        name="MiniMax M2.7 Highspeed",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
+_MINIMAX_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "MiniMax-M2.5",
+        "name": "MiniMax M2.5",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "MiniMax-M2.5-highspeed",
+        "name": "MiniMax M2.5 Highspeed",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "MiniMax-M2.7",
+        "name": "MiniMax M2.7",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "MiniMax-M2.7-highspeed",
+        "name": "MiniMax M2.7 Highspeed",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
 ]
 
-KIMI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-0905-preview",
-        name="Kimi K2 0905 Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-0711-preview",
-        name="Kimi K2 0711 Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-turbo-preview",
-        name="Kimi K2 Turbo Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-thinking",
-        name="Kimi K2 Thinking",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-thinking-turbo",
-        name="Kimi K2 Thinking Turbo",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
+_KIMI_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "kimi-k2.5",
+        "name": "Kimi K2.5",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "kimi-k2-0905-preview",
+        "name": "Kimi K2 0905 Preview",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "kimi-k2-0711-preview",
+        "name": "Kimi K2 0711 Preview",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "kimi-k2-turbo-preview",
+        "name": "Kimi K2 Turbo Preview",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "kimi-k2-thinking",
+        "name": "Kimi K2 Thinking",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "kimi-k2-thinking-turbo",
+        "name": "Kimi K2 Thinking Turbo",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
 ]
 
-DEEPSEEK_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="deepseek-chat",
-        name="DeepSeek Chat",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-reasoner",
-        name="DeepSeek Reasoner",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
+_DEEPSEEK_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "deepseek-chat",
+        "name": "DeepSeek Chat",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "deepseek-reasoner",
+        "name": "DeepSeek Reasoner",
+        "supports_image": False,
+        "supports_video": False,
+        "probe_source": "documentation",
+    },
 ]
 
-ANTHROPIC_MODELS: List[ModelInfo] = []
+_ANTHROPIC_MODELS: List[Dict[str, Any]] = []
 
-GEMINI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gemini-3.1-pro-preview",
-        name="Gemini 3.1 Pro Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-3-flash-preview",
-        name="Gemini 3 Flash Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-3.1-flash-lite-preview",
-        name="Gemini 3.1 Flash Lite Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-pro",
-        name="Gemini 2.5 Pro",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-flash",
-        name="Gemini 2.5 Flash",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-flash-lite",
-        name="Gemini 2.5 Flash Lite",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.0-flash",
-        name="Gemini 2.0 Flash",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
+_GEMINI_MODELS: List[Dict[str, Any]] = [
+    {
+        "id": "gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gemini-3-flash-preview",
+        "name": "Gemini 3 Flash Preview",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gemini-3.1-flash-lite-preview",
+        "name": "Gemini 3.1 Flash Lite Preview",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gemini-2.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gemini-2.5-flash-lite",
+        "name": "Gemini 2.5 Flash Lite",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
+    {
+        "id": "gemini-2.0-flash",
+        "name": "Gemini 2.0 Flash",
+        "supports_image": True,
+        "supports_video": True,
+        "probe_source": "documentation",
+    },
 ]
 
-PROVIDER_MODELSCOPE = OpenAIProvider(
-    id="modelscope",
-    name="ModelScope",
-    base_url="https://api-inference.modelscope.cn/v1",
-    api_key_prefix="ms",
-    models=MODELSCOPE_MODELS,
-    freeze_url=True,
-)
 
-PROVIDER_DASHSCOPE = OpenAIProvider(
-    id="dashscope",
-    name="DashScope",
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    api_key_prefix="sk",
-    models=DASHSCOPE_MODELS,
-    freeze_url=True,
-)
+def _create_builtin_providers() -> List[Provider]:
+    """Create all built-in provider instances.
 
-PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
-    id="aliyun-codingplan",
-    name="Aliyun Coding Plan",
-    base_url="https://coding.dashscope.aliyuncs.com/v1",
-    api_key_prefix="sk-sp",
-    models=ALIYUN_CODINGPLAN_MODELS,
-    # This provider doesn't support connection check without model config
-    support_connection_check=False,
-    freeze_url=True,
-)
+    Called lazily from ProviderManager._init_builtins() instead of at module
+    import time.  This avoids pydantic class-identity issues that arise when
+    gunicorn (or any multi-worker server) causes modules to be imported
+    under different paths, creating duplicate ModelInfo classes.
 
-PROVIDER_ZHIPU_CN = OpenAIProvider(
-    id="zhipu-cn",
-    name="Zhipu (BigModel)",
-    base_url="https://open.bigmodel.cn/api/paas/v4",
-    api_key_prefix="",
-    models=ZHIPU_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
-    id="zhipu-cn-codingplan",
-    name="Zhipu Coding Plan (BigModel)",
-    base_url="https://open.bigmodel.cn/api/coding/paas/v4",
-    api_key_prefix="",
-    models=ZHIPU_MODELS,
-    freeze_url=True,
-    support_connection_check=False,
-)
-
-PROVIDER_ZHIPU_INTL = OpenAIProvider(
-    id="zhipu-intl",
-    name="Zhipu (Z.AI)",
-    base_url="https://api.z.ai/api/paas/v4",
-    api_key_prefix="",
-    models=ZHIPU_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
-    id="zhipu-intl-codingplan",
-    name="Zhipu Coding Plan (Z.AI)",
-    base_url="https://api.z.ai/api/coding/paas/v4",
-    api_key_prefix="",
-    models=ZHIPU_MODELS,
-    freeze_url=True,
-    support_connection_check=False,
-)
-
-PROVIDER_QWENPAW = OpenAIProvider(
-    id="qwenpaw-local",
-    name="QwenPaw Local",
-    is_local=True,
-    require_api_key=False,
-)
-
-PROVIDER_OPENAI = OpenAIProvider(
-    id="openai",
-    name="OpenAI",
-    base_url="https://api.openai.com/v1",
-    api_key_prefix="sk-",
-    models=OPENAI_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_OPENCODE = OpenAIProvider(
-    id="opencode",
-    name="OpenCode",
-    base_url="https://opencode.ai/zen/v1",
-    api_key_prefix="",
-    models=OPENCODE_MODELS,
-    freeze_url=True,
-    support_model_discovery=True,
-)
-
-PROVIDER_AZURE_OPENAI = OpenAIProvider(
-    id="azure-openai",
-    name="Azure OpenAI",
-    api_key_prefix="",
-    models=AZURE_OPENAI_MODELS,
-)
-
-PROVIDER_MINIMAX = AnthropicProvider(
-    id="minimax",
-    name="MiniMax (International)",
-    base_url="https://api.minimax.io/anthropic",
-    models=MINIMAX_MODELS,
-    chat_model="AnthropicChatModel",
-    freeze_url=True,
-    # This provider doesn't support connection check without model config
-    support_connection_check=False,
-)
-
-PROVIDER_MINIMAX_CN = AnthropicProvider(
-    id="minimax-cn",
-    name="MiniMax (China)",
-    base_url="https://api.minimaxi.com/anthropic",
-    models=MINIMAX_MODELS,
-    chat_model="AnthropicChatModel",
-    freeze_url=True,
-    # This provider doesn't support connection check without model config
-    support_connection_check=False,
-)
-
-PROVIDER_KIMI_CN = OpenAIProvider(
-    id="kimi-cn",
-    name="Kimi (China)",
-    base_url="https://api.moonshot.cn/v1",
-    api_key_prefix="",
-    models=KIMI_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_KIMI_INTL = OpenAIProvider(
-    id="kimi-intl",
-    name="Kimi (International)",
-    base_url="https://api.moonshot.ai/v1",
-    api_key_prefix="",
-    models=KIMI_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_DEEPSEEK = OpenAIProvider(
-    id="deepseek",
-    name="DeepSeek",
-    base_url="https://api.deepseek.com",
-    api_key_prefix="sk-",
-    models=DEEPSEEK_MODELS,
-    freeze_url=True,
-)
-
-PROVIDER_ANTHROPIC = AnthropicProvider(
-    id="anthropic",
-    name="Anthropic",
-    base_url="https://api.anthropic.com",
-    api_key_prefix="sk-ant-",
-    models=ANTHROPIC_MODELS,
-    chat_model="AnthropicChatModel",
-    freeze_url=True,
-)
-
-PROVIDER_GEMINI = GeminiProvider(
-    id="gemini",
-    name="Google Gemini",
-    base_url="https://generativelanguage.googleapis.com",
-    api_key_prefix="",
-    models=GEMINI_MODELS,
-    chat_model="GeminiChatModel",
-    freeze_url=True,
-    support_model_discovery=True,
-)
-
-PROVIDER_OLLAMA = OllamaProvider(
-    id="ollama",
-    name="Ollama",
-    is_local=True,
-    require_api_key=False,
-    support_model_discovery=True,
-    generate_kwargs={"max_tokens": None},
-)
-
-PROVIDER_OPENROUTER = OpenRouterProvider(
-    id="openrouter",
-    name="OpenRouter",
-    base_url="https://openrouter.ai/api/v1",
-    api_key_prefix="sk-or-v1-",
-    models=[],
-    freeze_url=True,
-    support_model_discovery=True,
-)
-
-PROVIDER_LMSTUDIO = OpenAIProvider(
-    id="lmstudio",
-    name="LM Studio",
-    is_local=True,
-    base_url="http://localhost:1234/v1",
-    require_api_key=False,
-    api_key_prefix="",
-    support_model_discovery=True,
-    generate_kwargs={"max_tokens": None},
-)
-
-PROVIDER_SILICONFLOW_CN = OpenAIProvider(
-    id="siliconflow-cn",
-    name="SiliconFlow (China)",
-    base_url="https://api.siliconflow.cn/v1",
-    api_key_prefix="sk-",
-    models=[],
-    freeze_url=True,
-    support_model_discovery=True,
-    require_api_key=True,
-)
-
-PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
-    id="siliconflow-intl",
-    name="SiliconFlow (International)",
-    base_url="https://api.siliconflow.com/v1",
-    api_key_prefix="sk-",
-    models=[],
-    freeze_url=True,
-    support_model_discovery=True,
-    require_api_key=True,
-)
+    Plain-dict model data is coerced to ModelInfo by pydantic at validation
+    time, so the class in scope at call time is always used — no identity
+    mismatch.
+    """
+    return [
+        OpenAIProvider(
+            id="qwenpaw-local",
+            name="QwenPaw Local",
+            is_local=True,
+            require_api_key=False,
+        ),
+        OllamaProvider(
+            id="ollama",
+            name="Ollama",
+            is_local=True,
+            require_api_key=False,
+            support_model_discovery=True,
+            generate_kwargs={"max_tokens": None},
+        ),
+        OpenAIProvider(
+            id="lmstudio",
+            name="LM Studio",
+            is_local=True,
+            base_url="http://localhost:1234/v1",
+            require_api_key=False,
+            api_key_prefix="",
+            support_model_discovery=True,
+            generate_kwargs={"max_tokens": None},
+        ),
+        OpenAIProvider(
+            id="modelscope",
+            name="ModelScope",
+            base_url="https://api-inference.modelscope.cn/v1",
+            api_key_prefix="ms",
+            models=_MODELSCOPE_MODELS,
+            freeze_url=True,
+        ),
+        OpenAIProvider(
+            id="dashscope",
+            name="DashScope",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            api_key_prefix="sk",
+            models=_DASHSCOPE_MODELS,
+            freeze_url=True,
+        ),
+        OpenAIProvider(
+            id="aliyun-codingplan",
+            name="Aliyun Coding Plan",
+            base_url="https://coding.dashscope.aliyuncs.com/v1",
+            api_key_prefix="sk-sp",
+            models=_ALIYUN_CODINGPLAN_MODELS,
+            support_connection_check=False,
+            freeze_url=True,
+        ),
+        OpenAIProvider(
+            id="openai",
+            name="OpenAI",
+            base_url="https://api.openai.com/v1",
+            api_key_prefix="sk-",
+            models=_OPENAI_MODELS,
+            freeze_url=True,
+        ),
+        OpenAIProvider(
+            id="azure-openai",
+            name="Azure OpenAI",
+            api_key_prefix="",
+            models=_AZURE_OPENAI_MODELS,
+        ),
+        AnthropicProvider(
+            id="anthropic",
+            name="Anthropic",
+            base_url="https://api.anthropic.com",
+            api_key_prefix="sk-ant-",
+            models=_ANTHROPIC_MODELS,
+            chat_model="AnthropicChatModel",
+            freeze_url=True,
+        ),
+        GeminiProvider(
+            id="gemini",
+            name="Google Gemini",
+            base_url="https://generativelanguage.googleapis.com",
+            api_key_prefix="",
+            models=_GEMINI_MODELS,
+            chat_model="GeminiChatModel",
+            freeze_url=True,
+            support_model_discovery=True,
+        ),
+        OpenAIProvider(
+            id="deepseek",
+            name="DeepSeek",
+            base_url="https://api.deepseek.com",
+            api_key_prefix="sk-",
+            models=_DEEPSEEK_MODELS,
+            freeze_url=True,
+        ),
+        OpenAIProvider(
+            id="kimi-cn",
+            name="Kimi (China)",
+            base_url="https://api.moonshot.cn/v1",
+            api_key_prefix="",
+            models=_KIMI_MODELS,
+            freeze_url=True,
+        ),
+        OpenAIProvider(
+            id="kimi-intl",
+            name="Kimi (International)",
+            base_url="https://api.moonshot.ai/v1",
+            api_key_prefix="",
+            models=_KIMI_MODELS,
+            freeze_url=True,
+        ),
+        AnthropicProvider(
+            id="minimax-cn",
+            name="MiniMax (China)",
+            base_url="https://api.minimaxi.com/anthropic",
+            models=_MINIMAX_MODELS,
+            chat_model="AnthropicChatModel",
+            freeze_url=True,
+            support_connection_check=False,
+        ),
+        AnthropicProvider(
+            id="minimax",
+            name="MiniMax (International)",
+            base_url="https://api.minimax.io/anthropic",
+            models=_MINIMAX_MODELS,
+            chat_model="AnthropicChatModel",
+            freeze_url=True,
+            support_connection_check=False,
+        ),
+        OpenRouterProvider(
+            id="openrouter",
+            name="OpenRouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key_prefix="sk-or-v1-",
+            models=[],
+            freeze_url=True,
+            support_model_discovery=True,
+        ),
+        OpenAIProvider(
+            id="opencode",
+            name="OpenCode",
+            base_url="https://opencode.ai/zen/v1",
+            api_key_prefix="",
+            models=_OPENCODE_MODELS,
+            freeze_url=True,
+            support_model_discovery=True,
+        ),
+        OpenAIProvider(
+            id="zhipu-cn",
+            name="Zhipu (BigModel)",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            api_key_prefix="",
+            models=_ZHIPU_MODELS,
+            freeze_url=True,
+        ),
+        OpenAIProvider(
+            id="zhipu-cn-codingplan",
+            name="Zhipu Coding Plan (BigModel)",
+            base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+            api_key_prefix="",
+            models=_ZHIPU_MODELS,
+            freeze_url=True,
+            support_connection_check=False,
+        ),
+        OpenAIProvider(
+            id="zhipu-intl",
+            name="Zhipu (Z.AI)",
+            base_url="https://api.z.ai/api/paas/v4",
+            api_key_prefix="",
+            models=_ZHIPU_MODELS,
+            freeze_url=True,
+        ),
+        OpenAIProvider(
+            id="zhipu-intl-codingplan",
+            name="Zhipu Coding Plan (Z.AI)",
+            base_url="https://api.z.ai/api/coding/paas/v4",
+            api_key_prefix="",
+            models=_ZHIPU_MODELS,
+            freeze_url=True,
+            support_connection_check=False,
+        ),
+        OpenAIProvider(
+            id="siliconflow-cn",
+            name="SiliconFlow (China)",
+            base_url="https://api.siliconflow.cn/v1",
+            api_key_prefix="sk-",
+            models=[],
+            freeze_url=True,
+            support_model_discovery=True,
+            require_api_key=True,
+        ),
+        OpenAIProvider(
+            id="siliconflow-intl",
+            name="SiliconFlow (International)",
+            base_url="https://api.siliconflow.com/v1",
+            api_key_prefix="sk-",
+            models=[],
+            freeze_url=True,
+            support_model_discovery=True,
+            require_api_key=True,
+        ),
+    ]
 
 
 class ActiveModelsInfo(BaseModel):
@@ -746,29 +743,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 pass
 
     def _init_builtins(self):
-        self._add_builtin(PROVIDER_QWENPAW)
-        self._add_builtin(PROVIDER_OLLAMA)
-        self._add_builtin(PROVIDER_LMSTUDIO)
-        self._add_builtin(PROVIDER_MODELSCOPE)
-        self._add_builtin(PROVIDER_DASHSCOPE)
-        self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
-        self._add_builtin(PROVIDER_OPENAI)
-        self._add_builtin(PROVIDER_AZURE_OPENAI)
-        self._add_builtin(PROVIDER_ANTHROPIC)
-        self._add_builtin(PROVIDER_GEMINI)
-        self._add_builtin(PROVIDER_DEEPSEEK)
-        self._add_builtin(PROVIDER_KIMI_CN)
-        self._add_builtin(PROVIDER_KIMI_INTL)
-        self._add_builtin(PROVIDER_MINIMAX_CN)
-        self._add_builtin(PROVIDER_MINIMAX)
-        self._add_builtin(PROVIDER_OPENROUTER)
-        self._add_builtin(PROVIDER_OPENCODE)
-        self._add_builtin(PROVIDER_ZHIPU_CN)
-        self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
-        self._add_builtin(PROVIDER_ZHIPU_INTL)
-        self._add_builtin(PROVIDER_ZHIPU_INTL_CODINGPLAN)
-        self._add_builtin(PROVIDER_SILICONFLOW_CN)
-        self._add_builtin(PROVIDER_SILICONFLOW_INTL)
+        for provider in _create_builtin_providers():
+            self._add_builtin(provider)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
