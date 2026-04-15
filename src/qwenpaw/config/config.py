@@ -1084,9 +1084,10 @@ def build_qa_agent_tools_config() -> ToolsConfig:
 def build_local_agent_tools_config() -> ToolsConfig:
     """Tools preset for local collaborative agents.
 
-    Only inter-agent coordination tools are enabled by default so a local
-    small model can escalate planning work instead of attempting everything
-    alone.
+    Inter-agent coordination tools are enabled by default, along with
+    execute_shell_command and file read/write/edit tools, so a local small
+    model can escalate planning work while still handling basic workspace
+    actions. All other built-ins are disabled.
     """
     allow = frozenset(
         {

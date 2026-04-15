@@ -70,7 +70,8 @@ def build_agent_template(
     resolved_language = language or fallback_language or "zh"
 
     if template_id == DEFAULT_AGENT_TEMPLATE:
-        assert name is not None, "Default template requires a name"
+        if name is None:
+            raise ValueError("Default template requires a name")
         agent_config = AgentProfileConfig(
             id=agent_id,
             name=name,
