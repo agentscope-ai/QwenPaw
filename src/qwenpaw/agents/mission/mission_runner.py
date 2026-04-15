@@ -105,7 +105,6 @@ IMPLEMENTATION_TOOLS = frozenset(
         "edit_file",
         "browser_use",
         "desktop_screenshot",
-        "send_file_to_user",
     },
 )
 

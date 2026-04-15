@@ -795,7 +795,7 @@ mission-20260415-123456/
 6. **⚠️ Tool Guard Bypass**:
    - **Worker and verifier agents automatically bypass the security tool guard** (disabled via `--background` mode)
    - This is necessary because background sessions cannot respond to `/approve` interactive prompts
-   - The master agent itself is still protected by the guard (unless manually bypassed)
+   - The master agent itself will also bypass the guard
    - **Security Warning**: All worker operations occur within `missions/<mission-xxx>/` directory, but it is still recommended to **only use Mission Mode in fully trusted codebases**
    - Sensitive operations (e.g., deleting files, executing shell commands) will execute directly without manual approval
 

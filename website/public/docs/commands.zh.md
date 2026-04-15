@@ -794,7 +794,7 @@ mission-20260415-123456/
 6. **⚠️ 工具安全护栏绕过**：
    - **Worker 和 verifier agents 会自动绕过安全护栏**（通过 `--background` 模式自动禁用）
    - 这是因为后台 session 无法响应 `/approve` 交互提示
-   - Master agent 自身仍受护栏保护（除非手动绕过）
+   - Master agent 也会绕过护栏保护
    - **安全提示**：所有 worker 操作都在 `missions/<mission-xxx>/` 目录下进行，但仍建议**仅在完全信任的代码仓库中使用 Mission Mode**
    - 敏感操作（如删除文件、执行 shell 命令）会直接执行，无需人工审批
 

@@ -470,6 +470,33 @@ class AgentRunner(Runner):
             if custom_context and isinstance(custom_context, dict):
                 base_request_context.update(custom_context)
 
+            # Mission Mode: /mission
+            _ws = self.workspace_dir or WORKING_DIR
+            mission_info: dict | None = None
+
+            mission_result = await maybe_handle_mission_command(
+                query=query,
+                msgs=msgs,
+                workspace_dir=_ws,
+                agent_id=self.agent_id,
+                rewrite_fn=self._rewrite_last_message_text,
+                session_id=session_id,
+            )
+            if isinstance(mission_result, Msg):
+                yield mission_result, True
+                return
+            if isinstance(mission_result, dict):
+                mission_info = mission_result
+
+            # Mission Mode: bypass tool guard
+            # (workers can't respond to /approve)
+            if mission_info is not None:
+                base_request_context["_headless_tool_guard"] = "false"
+                logger.info(
+                    "Mission Mode: bypassing tool guard for session %s",
+                    session_id,
+                )
+
             agent = QwenPawAgent(
                 agent_config=agent_config,
                 env_context=env_context,
@@ -519,24 +546,6 @@ class AgentRunner(Runner):
                     f"ChatManager is None! Cannot auto-register chat for "
                     f"session_id={session_id}",
                 )
-
-            # Mission Mode: /mission
-            _ws = self.workspace_dir or WORKING_DIR
-            mission_info: dict | None = None
-
-            mission_result = await maybe_handle_mission_command(
-                query=query,
-                msgs=msgs,
-                workspace_dir=_ws,
-                agent_id=self.agent_id,
-                rewrite_fn=self._rewrite_last_message_text,
-                session_id=session_id,
-            )
-            if isinstance(mission_result, Msg):
-                yield mission_result, True
-                return
-            if isinstance(mission_result, dict):
-                mission_info = mission_result
 
             # Active mission: auto-route follow-up messages
             if mission_info is None:

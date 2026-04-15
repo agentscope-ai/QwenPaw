@@ -1189,7 +1189,7 @@
         "description": "Deny the pending tool action"
       },
       "mission": {
-        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ Background tasks will bypass tool guardrails"
+        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ This mode will bypass tool guardrails"
       }
     },
     "attachments": {
