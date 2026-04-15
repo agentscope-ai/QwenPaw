@@ -8,6 +8,8 @@ import os
 import platform
 import re
 import subprocess
+import sys
+from collections.abc import Mapping
 from typing import Any
 
 _BYTES_PER_GB = float(1024**3)
@@ -15,6 +17,28 @@ _CUDA_VERSION_PATTERNS = (
     re.compile(r"CUDA Version:\s*([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE),
     re.compile(r"release\s+([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE),
 )
+
+
+def summarize_python_environment(
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Short label for the venv/conda context of current ``sys.executable``.
+
+    When *environ* is omitted, uses :data:`os.environ`. Passing a mapping is
+    mainly for tests.
+    """
+    env = os.environ if environ is None else environ
+    ve = (env.get("VIRTUAL_ENV") or "").strip()
+    if ve:
+        return ve
+    cenv = (env.get("CONDA_DEFAULT_ENV") or "").strip()
+    cpfx = (env.get("CONDA_PREFIX") or "").strip()
+    if cenv and cpfx:
+        return f"conda {cenv} ({cpfx})"
+    base = getattr(sys, "base_prefix", sys.prefix)
+    if sys.prefix != base:
+        return f"venv (sys.prefix={sys.prefix})"
+    return "system interpreter (no virtualenv in effect)"
 
 
 def get_os_name() -> str:

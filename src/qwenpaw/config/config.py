@@ -1221,6 +1221,60 @@ ChannelConfigUnion = Union[
 # Agent configuration utility functions
 
 
+def build_fallback_agent_profile_config(
+    agent_id: str,
+    config: "Config",
+) -> AgentProfileConfig:
+    """Build the same profile as when ``agent.json``
+    is missing (no disk read/write).
+
+    Used by :func:`load_agent_config` and ``qwenpaw doctor fix``
+    so defaults stay in sync.
+    """
+    if agent_id not in config.agents.profiles:
+        raise ValueError(f"Agent '{agent_id}' not found in config")
+
+    agent_ref = config.agents.profiles[agent_id]
+    workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+    return AgentProfileConfig(
+        id=agent_id,
+        name=agent_id.title(),
+        description=f"{agent_id} agent",
+        workspace_dir=str(workspace_dir),
+        channels=(
+            config.channels
+            if hasattr(config, "channels") and config.channels
+            else None
+        ),
+        mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
+        tools=(
+            config.tools if hasattr(config, "tools") and config.tools else None
+        ),
+        security=(
+            config.security
+            if hasattr(config, "security") and config.security
+            else None
+        ),
+        running=(
+            config.agents.running
+            if hasattr(config.agents, "running") and config.agents.running
+            else AgentsRunningConfig()
+        ),
+        llm_routing=(
+            config.agents.llm_routing
+            if hasattr(config.agents, "llm_routing")
+            and config.agents.llm_routing
+            else AgentsLLMRoutingConfig()
+        ),
+        system_prompt_files=(
+            config.agents.system_prompt_files
+            if hasattr(config.agents, "system_prompt_files")
+            and config.agents.system_prompt_files
+            else ["AGENTS.md", "SOUL.md", "PROFILE.md"]
+        ),
+    )
+
+
 def load_agent_config(agent_id: str) -> AgentProfileConfig:
     """Load agent's complete configuration from workspace/agent.json.
 
@@ -1248,49 +1302,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     agent_config_path = workspace_dir / "agent.json"
 
     if not agent_config_path.exists():
-        # Fallback: Try to use root config fields for backward compatibility
-        # This allows downgrade scenarios where agent.json doesn't exist yet
-        fallback_config = AgentProfileConfig(
-            id=agent_id,
-            name=agent_id.title(),
-            description=f"{agent_id} agent",
-            workspace_dir=str(workspace_dir),
-            # Inherit from root config if available (for backward compat)
-            channels=(
-                config.channels
-                if hasattr(config, "channels") and config.channels
-                else None
-            ),
-            mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
-            tools=(
-                config.tools
-                if hasattr(config, "tools") and config.tools
-                else None
-            ),
-            security=(
-                config.security
-                if hasattr(config, "security") and config.security
-                else None
-            ),
-            # Use agent-specific configs with proper defaults
-            running=(
-                config.agents.running
-                if hasattr(config.agents, "running") and config.agents.running
-                else AgentsRunningConfig()
-            ),
-            llm_routing=(
-                config.agents.llm_routing
-                if hasattr(config.agents, "llm_routing")
-                and config.agents.llm_routing
-                else AgentsLLMRoutingConfig()
-            ),
-            system_prompt_files=(
-                config.agents.system_prompt_files
-                if hasattr(config.agents, "system_prompt_files")
-                and config.agents.system_prompt_files
-                else ["AGENTS.md", "SOUL.md", "PROFILE.md"]
-            ),
-        )
+        fallback_config = build_fallback_agent_profile_config(agent_id, config)
         # Save for future use
         save_agent_config(agent_id, fallback_config)
         return fallback_config

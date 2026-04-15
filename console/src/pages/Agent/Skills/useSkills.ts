@@ -117,7 +117,6 @@ export function useSkills() {
       setUploading(true);
       const result = await api.uploadSkill(file, {
         enable: true,
-        overwrite: false,
         target_name: targetName,
         rename_map: renameMap,
       });
@@ -170,7 +169,6 @@ export function useSkills() {
       const payload = {
         bundle_url: text,
         enable: true,
-        overwrite: false,
         target_name: targetName,
       };
       const task = await api.startHubSkillInstall(payload);

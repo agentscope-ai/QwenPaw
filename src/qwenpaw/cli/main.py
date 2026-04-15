@@ -146,6 +146,7 @@ class LazyGroup(click.Group):
             "mission_group",
             ".mission_cmd",
         ),
+        "doctor": ("qwenpaw.cli.doctor_cmd", "doctor_cmd", ".doctor_cmd"),
     },
 )
 @click.version_option(version=__version__, prog_name="QwenPaw")

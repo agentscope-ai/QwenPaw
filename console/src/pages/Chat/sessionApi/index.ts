@@ -51,7 +51,7 @@ interface ContentItem {
 /** A backend message after role-normalisation (output of toOutputMessage). */
 interface OutputMessage extends Omit<Message, "role"> {
   role: string;
-  metadata: null;
+  metadata: unknown;
   sequence_number?: number;
 }
 
@@ -155,7 +155,7 @@ const toOutputMessage = (msg: Message): OutputMessage => ({
     msg.type === TYPE_PLUGIN_CALL_OUTPUT && msg.role === "system"
       ? ROLE_TOOL
       : msg.role,
-  metadata: null,
+  metadata: msg.metadata ?? null,
 });
 
 /** Build a user card (AgentScopeRuntimeRequestCard) from a user message. */
