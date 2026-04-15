@@ -205,7 +205,7 @@ class TestMatrixChannelMXC:
 
         expected = (
             "https://matrix.example.com/_matrix/media/v3/download/"
-            "matrix.org/media_123?access_token=test_token_123"
+            "matrix.org/media_123"
         )
         assert http_url == expected
 
