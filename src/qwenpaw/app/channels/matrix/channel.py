@@ -255,61 +255,6 @@ class MatrixChannel(BaseChannel):
         self._http_client: Optional[httpx.AsyncClient] = None
 
     # ------------------------------------------------------------------
-    # Config attribute proxies (for test convenience and external access)
-    # ------------------------------------------------------------------
-
-    @property
-    def enabled(self) -> bool:
-        return self._cfg.enabled
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None:
-        if hasattr(self, "_cfg"):
-            self._cfg.enabled = value
-
-    @property
-    def dm_policy(self) -> str:
-        return self._cfg.dm_policy
-
-    @dm_policy.setter
-    def dm_policy(self, value: str) -> None:
-        if hasattr(self, "_cfg"):
-            self._cfg.dm_policy = value
-
-    @property
-    def group_policy(self) -> str:
-        return self._cfg.group_policy
-
-    @group_policy.setter
-    def group_policy(self, value: str) -> None:
-        if hasattr(self, "_cfg"):
-            self._cfg.group_policy = value
-
-    @property
-    def client(self) -> Optional["AsyncClient"]:
-        return self._client
-
-    @client.setter
-    def client(self, value: Optional["AsyncClient"]) -> None:
-        self._client = value
-
-    @property
-    def homeserver(self) -> str:
-        return self._cfg.homeserver
-
-    @property
-    def user_id(self) -> Optional[str]:
-        return self._user_id or getattr(self._cfg, "user_id", None)
-
-    @user_id.setter
-    def user_id(self, value: Optional[str]) -> None:
-        self._user_id = value
-
-    @property
-    def access_token(self) -> str:
-        return self._cfg.access_token
-
-    # ------------------------------------------------------------------
     # Debounce key — serialize by room_id (avoid concurrent session access)
     # ------------------------------------------------------------------
 

@@ -166,10 +166,10 @@ class TestMatrixChannelFromConfig:
             config=matrix_config,
         )
 
-        assert channel.enabled is True
-        assert channel.homeserver == "https://matrix.example.com"
-        assert channel.user_id == "@bot:example.com"
-        assert channel.access_token == "test_token_123"
+        assert channel._cfg.enabled is True
+        assert channel._cfg.homeserver == "https://matrix.example.com"
+        assert channel._user_id == "@bot:example.com"
+        assert channel._cfg.access_token == "test_token_123"
 
     def test_from_config_with_optional_params(
         self,
@@ -681,7 +681,7 @@ class TestMatrixChannelStartStop:
 
         await matrix_channel.start()
 
-        assert matrix_channel.client is None
+        assert matrix_channel._client is None
 
     async def test_start_creates_client(
         self,
@@ -695,7 +695,7 @@ class TestMatrixChannelStartStop:
         ):
             await matrix_channel.start()
 
-            assert matrix_channel.client is mock_async_client
+            assert matrix_channel._client is mock_async_client
             assert mock_async_client.access_token == "test_token_123"
             assert mock_async_client.add_event_callback.call_count >= 2
 
@@ -756,7 +756,7 @@ class TestMatrixChannelSend:
     async def test_send_success(self, matrix_channel, mock_async_client):
         """Test successful message send."""
         mock_async_client.room_send = AsyncMock(return_value=MagicMock())
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
 
         await matrix_channel.send("!room:example.com", "Hello world")
 
@@ -770,7 +770,7 @@ class TestMatrixChannelSend:
 
     async def test_send_when_client_not_initialized(self, matrix_channel):
         """Test send when client is not initialized."""
-        matrix_channel.client = None
+        matrix_channel._client = None
 
         # Should not raise
         await matrix_channel.send("!room:example.com", "Hello")
@@ -778,7 +778,7 @@ class TestMatrixChannelSend:
     async def test_send_empty_message(self, matrix_channel, mock_async_client):
         """Test sending empty message does not raise."""
         mock_async_client.room_send = AsyncMock(return_value=MagicMock())
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
 
         # Should not raise regardless of whether implementation sends or skips
         await matrix_channel.send("!room:example.com", "")
@@ -794,7 +794,7 @@ class TestMatrixChannelSend:
             status_code="M_UNKNOWN",
         )
         mock_async_client.room_send = AsyncMock(return_value=error_response)
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
 
         # Should not raise, just log error
         await matrix_channel.send("!room:example.com", "Hello")
@@ -858,7 +858,7 @@ class TestMatrixChannelSendMedia:
         matrix_channel,
     ):
         """Test send_media when client is not initialized."""
-        matrix_channel.client = None
+        matrix_channel._client = None
 
         part = ImageContent(
             type=ContentType.IMAGE,
@@ -873,7 +873,7 @@ class TestMatrixChannelSendMedia:
         mock_async_client,
     ):
         """Test send_media when part has no URL."""
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
 
         part = ImageContent(type=ContentType.IMAGE, image_url=None)
         await matrix_channel.send_media("!room:example.com", part)
@@ -891,7 +891,7 @@ class TestMatrixChannelSendMedia:
         test_file = tmp_path / "test_image.png"
         test_file.write_bytes(b"fake image data")
 
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
         upload_response = UploadResponse(
             content_uri="mxc://example.org/uploaded_123",
         )
@@ -921,7 +921,7 @@ class TestMatrixChannelSendMedia:
             image_url="https://example.com/img.png",
         )
         # Actual HTTP mocking is too complex, just verify the method runs
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
         try:
             await matrix_channel.send_media("!room:example.com", part)
         except (TypeError, AttributeError):
@@ -934,7 +934,7 @@ class TestMatrixChannelSendMedia:
         mock_async_client,
     ):
         """Test handling HTTP download failure."""
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
 
         # Mock failed aiohttp response
         mock_response = AsyncMock()
@@ -966,7 +966,7 @@ class TestMatrixChannelSendMedia:
         test_file = tmp_path / "test_image.png"
         test_file.write_bytes(b"fake image data")
 
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
         upload_error = UploadError(message="Upload failed")
         mock_async_client.upload = AsyncMock(return_value=(upload_error, None))
 
@@ -988,7 +988,7 @@ class TestMatrixChannelSendMedia:
         test_file = tmp_path / "test_image.png"
         test_file.write_bytes(b"fake image data")
 
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
         upload_response = UploadResponse(
             content_uri="mxc://example.org/uploaded_123",
         )
@@ -1023,7 +1023,7 @@ class TestMatrixChannelSendMedia:
         test_file = tmp_path / "test_video.mp4"
         test_file.write_bytes(b"fake video data")
 
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
         upload_response = UploadResponse(
             content_uri="mxc://example.org/uploaded_123",
         )
@@ -1055,7 +1055,7 @@ class TestMatrixChannelSendMedia:
         test_file = tmp_path / "test_audio.mp3"
         test_file.write_bytes(b"fake audio data")
 
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
         upload_response = UploadResponse(
             content_uri="mxc://example.org/uploaded_123",
         )
@@ -1076,7 +1076,7 @@ class TestMatrixChannelSendMedia:
         mock_async_client,
     ):
         """Test handling unknown URL scheme."""
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
 
         part = ImageContent(
             type=ContentType.IMAGE,
@@ -1096,7 +1096,7 @@ class TestMatrixChannelSendMedia:
         test_file = tmp_path / "test_document.pdf"
         test_file.write_bytes(b"fake pdf data")
 
-        matrix_channel.client = mock_async_client
+        matrix_channel._client = mock_async_client
         upload_response = UploadResponse(
             content_uri="mxc://example.org/uploaded_123",
         )
