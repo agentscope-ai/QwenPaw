@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import Optional, Dict, Any
 
 import click
