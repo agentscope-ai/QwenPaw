@@ -433,7 +433,12 @@ def _remove_agent_workspace(workspace_dir: Path) -> bool:
     if not resolved_workspace_dir.exists():
         return False
 
-    shutil.rmtree(resolved_workspace_dir)
+    try:
+        shutil.rmtree(resolved_workspace_dir)
+    except OSError as exc:
+        raise click.ClickException(
+            f"Failed to delete workspace '{resolved_workspace_dir}': {exc}",
+        ) from exc
     return True
 
 
