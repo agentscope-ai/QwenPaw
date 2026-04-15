@@ -333,9 +333,9 @@ def _build_agent_workspace_dir(
     if workspace_dir is not None:
         workspace_dir = workspace_dir.strip() or None
 
-    return Path(
-        workspace_dir or f"{WORKING_DIR}/workspaces/{agent_id}",
-    ).expanduser()
+    if workspace_dir is not None:
+        return Path(workspace_dir).expanduser()
+    return (WORKING_DIR / "workspaces" / agent_id).expanduser()
 
 
 def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
@@ -581,6 +581,10 @@ def create_cmd(
         raise click.ClickException("--name is required.")
 
     new_id = _generate_agent_id(config, agent_id)
+    active_model = _build_active_model_config(
+        provider_id,
+        model_id,
+    )
     resolved_workspace_dir = _build_agent_workspace_dir(
         new_id,
         workspace_dir,
@@ -604,10 +608,7 @@ def create_cmd(
     agent_config = template_result.agent_config
     template_skill_names = list(template_result.initial_skill_names)
     md_template_id = template_result.md_template_id
-    agent_config.active_model = _build_active_model_config(
-        provider_id,
-        model_id,
-    )
+    agent_config.active_model = active_model
 
     requested_skills = list(dict.fromkeys([*template_skill_names, *skills]))
     _initialize_new_agent_workspace(
