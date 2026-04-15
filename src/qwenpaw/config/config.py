@@ -468,7 +468,7 @@ class MemorySummaryConfig(BaseModel):
     )
 
     recursive_file_watcher: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether to watch memory directory recursively. "
             "Set to True to include subdirectories like memory/subdirectory/* "
