@@ -467,6 +467,15 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    recursive_file_watcher: bool = Field(
+        default=False,
+        description=(
+            "Whether to watch memory directory recursively. "
+            "Set to True to include subdirectories like memory/subdirectory/* "
+            "in vector search indexing."
+        ),
+    )
+
 
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""

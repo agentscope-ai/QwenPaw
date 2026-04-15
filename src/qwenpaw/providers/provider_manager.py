@@ -23,6 +23,7 @@ from .gemini_provider import GeminiProvider
 from .models import ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
+from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
     Provider,
@@ -569,7 +570,6 @@ PROVIDER_OPENCODE = OpenAIProvider(
     models=OPENCODE_MODELS,
     freeze_url=True,
     require_api_key=False,
-    support_model_discovery=True,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -646,7 +646,6 @@ PROVIDER_GEMINI = GeminiProvider(
     models=GEMINI_MODELS,
     chat_model="GeminiChatModel",
     freeze_url=True,
-    support_model_discovery=True,
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -665,10 +664,9 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     api_key_prefix="sk-or-v1-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
 )
 
-PROVIDER_LMSTUDIO = OpenAIProvider(
+PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
     name="LM Studio",
     is_local=True,
@@ -686,7 +684,6 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     api_key_prefix="sk-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
     require_api_key=True,
 )
 
@@ -697,7 +694,6 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     api_key_prefix="sk-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
     require_api_key=True,
 )
 
@@ -1578,10 +1574,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             is_custom=False,  # Mark as non-custom (like builtin, cannot be
             # deleted)
             require_api_key=metadata.get("require_api_key", True),
-            support_model_discovery=metadata.get(
-                "support_model_discovery",
-                False,
-            ),
             meta=metadata.get("meta", {}),  # Pass meta from plugin
         )
 
