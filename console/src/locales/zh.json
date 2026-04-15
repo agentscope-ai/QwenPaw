@@ -1154,6 +1154,12 @@
       },
       "deny": {
         "description": "拒绝待执行的工具操作"
+      },
+      "undo": {
+        "description": "撤销最近一次工作区文件变更"
+      },
+      "redo": {
+        "description": "重新应用最近一次已撤销的工作区文件变更"
       }
     },
     "attachments": {

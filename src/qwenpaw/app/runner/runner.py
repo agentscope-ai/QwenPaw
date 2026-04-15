@@ -41,6 +41,7 @@ from ...constant import (
 )
 from ...security.tool_guard.approval import ApprovalDecision
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
+from ..rollback.service import SnapshotService
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
@@ -68,6 +69,8 @@ def _is_approval(text: str) -> bool:
 
 
 class AgentRunner(Runner):
+    _workspace_run_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(
         self,
         agent_id: str = "default",
@@ -109,6 +112,61 @@ class AgentRunner(Runner):
             workspace: Workspace instance
         """
         self._workspace = workspace
+
+    def _get_workspace_run_lock(self) -> asyncio.Lock:
+        """Return the per-workspace execution lock."""
+        workspace_key = str(
+            (self.workspace_dir if self.workspace_dir else WORKING_DIR)
+            .expanduser()
+            .resolve(),
+        )
+        lock = self._workspace_run_locks.get(workspace_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._workspace_run_locks[workspace_key] = lock
+        return lock
+
+    async def _capture_before_hash(
+        self,
+        snapshot_svc: SnapshotService,
+    ) -> str | None:
+        """Best-effort pre-run snapshot capture."""
+        try:
+            return await snapshot_svc.track()
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Rollback: failed to capture pre-run snapshot",
+                exc_info=True,
+            )
+            return None
+
+    async def _record_rollback_if_changed(
+        self,
+        snapshot_svc: SnapshotService,
+        session_id: str,
+        before_hash: str | None,
+    ) -> None:
+        """Persist rollback history without masking agent failures."""
+        if not before_hash:
+            return
+
+        try:
+            entry = await snapshot_svc.record_history_if_changed(
+                session_id=session_id,
+                before_hash=before_hash,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Rollback: failed to persist workspace history",
+                exc_info=True,
+            )
+            return
+
+        if entry is not None:
+            logger.info(
+                "Rollback: Saved workspace state (changed %s files)",
+                len(entry.files),
+            )
 
     @staticmethod
     def _parse_skill_query(
@@ -401,6 +459,10 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        before_hash: str | None = None
+        snapshot_svc = SnapshotService(
+            self.workspace_dir if self.workspace_dir else WORKING_DIR,
+        )
         try:
             session_id = request.session_id
             user_id = request.user_id
@@ -537,11 +599,20 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            async for msg, last in stream_printing_messages(
-                agents=[agent],
-                coroutine_task=agent(msgs),
-            ):
-                yield msg, last
+            async with self._get_workspace_run_lock():
+                before_hash = await self._capture_before_hash(snapshot_svc)
+                try:
+                    async for msg, last in stream_printing_messages(
+                        agents=[agent],
+                        coroutine_task=agent(msgs),
+                    ):
+                        yield msg, last
+                finally:
+                    await self._record_rollback_if_changed(
+                        snapshot_svc=snapshot_svc,
+                        session_id=session_id,
+                        before_hash=before_hash,
+                    )
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")

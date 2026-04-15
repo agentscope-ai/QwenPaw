@@ -1180,6 +1180,12 @@
       },
       "deny": {
         "description": "Deny the pending tool action"
+      },
+      "undo": {
+        "description": "Undo the most recent workspace file change"
+      },
+      "redo": {
+        "description": "Reapply the most recently undone workspace file change"
       }
     },
     "attachments": {

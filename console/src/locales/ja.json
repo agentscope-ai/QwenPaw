@@ -1094,6 +1094,12 @@
       },
       "deny": {
         "description": "保留中のツール操作を拒否"
+      },
+      "undo": {
+        "description": "直近のワークスペースファイル変更を取り消し"
+      },
+      "redo": {
+        "description": "直近で取り消したワークスペースファイル変更を再適用"
       }
     },
     "attachments": {
