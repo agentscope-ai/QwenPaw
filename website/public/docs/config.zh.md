@@ -488,6 +488,7 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 | Zhipu Coding Plan（BigModel） | `zhipu-cn-codingplan`   | 智谱国内版 Coding Plan |
 | Zhipu（Z.AI）                 | `zhipu-intl`            | 智谱国际版标准 API     |
 | Zhipu Coding Plan（Z.AI）     | `zhipu-intl-codingplan` | 智谱国际版 Coding Plan |
+| OpenCode                      | `opencode`              | OpenCode Zen 模型服务  |
 | 自定义                        | `custom`                | 自定义 OpenAI 兼容服务 |
 
 > **完整配置说明：** 每个提供商的详细配置方式、`providers.json` 字段结构、模型发现等请参见 [模型](./models)。

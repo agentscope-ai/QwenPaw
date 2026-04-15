@@ -28,13 +28,13 @@ from .provider import (
     Provider,
     ProviderInfo,
 )
+from .openrouter_provider import OpenRouterProvider
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
     decrypt_dict_fields,
     encrypt_dict_fields,
     is_encrypted,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +250,24 @@ OPENAI_MODELS: List[ModelInfo] = [
         name="GPT-4o Mini",
         supports_image=True,
         supports_video=True,
+        probe_source="documentation",
+    ),
+]
+
+OPENCODE_MODELS: List[ModelInfo] = [
+    # Free models from OpenCode Zen
+    ModelInfo(
+        id="big-pickle",
+        name="Big Pickle",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="nemotron-3-super-free",
+        name="Nemotron 3 Super Free",
+        supports_image=False,
+        supports_video=False,
         probe_source="documentation",
     ),
 ]
@@ -543,6 +561,16 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_OPENCODE = OpenAIProvider(
+    id="opencode",
+    name="OpenCode",
+    base_url="https://opencode.ai/zen/v1",
+    api_key_prefix="",
+    models=OPENCODE_MODELS,
+    freeze_url=True,
+    support_model_discovery=True,
+)
+
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
     id="azure-openai",
     name="Azure OpenAI",
@@ -627,6 +655,16 @@ PROVIDER_OLLAMA = OllamaProvider(
     require_api_key=False,
     support_model_discovery=True,
     generate_kwargs={"max_tokens": None},
+)
+
+PROVIDER_OPENROUTER = OpenRouterProvider(
+    id="openrouter",
+    name="OpenRouter",
+    base_url="https://openrouter.ai/api/v1",
+    api_key_prefix="sk-or-v1-",
+    models=[],
+    freeze_url=True,
+    support_model_discovery=True,
 )
 
 PROVIDER_LMSTUDIO = OpenAIProvider(
@@ -723,6 +761,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_KIMI_INTL)
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
+        self._add_builtin(PROVIDER_OPENROUTER)
+        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_ZHIPU_CN)
         self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
         self._add_builtin(PROVIDER_ZHIPU_INTL)
@@ -1166,8 +1206,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     )
                 except Exception as enc_err:
                     logger.debug(
-                        "Deferred plaintext→encrypted migration for"
-                        " provider '%s': %s",
+                        "Deferred plaintext→encrypted migration"
+                        " for provider '%s': %s",
                         provider_id,
                         enc_err,
                     )
@@ -1200,6 +1240,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id = str(data.get("id", ""))
         chat_model = str(data.get("chat_model", ""))
 
+        if provider_id == "openrouter":
+            return OpenRouterProvider.model_validate(data)
         if provider_id == "anthropic" or chat_model == "AnthropicChatModel":
             return AnthropicProvider.model_validate(data)
         if provider_id == "gemini" or chat_model == "GeminiChatModel":
@@ -1466,15 +1508,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because llama.cpp is not "
-                "installed.",
+                "Skipping local model restore because"
+                " llama.cpp is not installed.",
             )
             return
 
         if not local_manager.is_model_downloaded(model_id):
             logger.warning(
-                "Skipping local model restore because model is not "
-                "downloaded: %s",
+                "Skipping local model restore because"
+                " model is not downloaded: %s",
                 model_id,
             )
             return
@@ -1558,8 +1600,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                         "generate_kwargs"
                     ]
                 logger.info(
-                    f"✓ Loaded saved config for plugin provider:"
-                    f" {provider_id}",
+                    f"✓ Loaded saved config for"
+                    f" plugin provider: {provider_id}",
                 )
             except Exception as e:
                 logger.warning(

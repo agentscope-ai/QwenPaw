@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
 import multiprocessing as mp
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -332,11 +334,11 @@ class ModelManager:
                 source=source,
                 local_dir=staging_dir,
             )
-        except Exception as exc:
+        except Exception:
             queue.put(
                 DownloadTaskResult(
                     status=DownloadTaskStatus.FAILED,
-                    error="Download failed: " + str(exc),
+                    error="Download failed: " + traceback.format_exc(),
                 ).to_message(),
             )
             logger.error(
@@ -393,10 +395,20 @@ class ModelManager:
         local_dir: Path,
     ) -> str:
         """Download a model repository from ModelScope."""
-        return ModelManager._get_modelscope_snapshot_download()(
-            model_id=repo_id,
-            local_dir=str(local_dir),
-        )
+        with open(
+            os.devnull,
+            "a",
+            encoding="utf-8",
+            buffering=1,
+            errors="replace",
+        ) as sink_stream:
+            with contextlib.redirect_stdout(
+                sink_stream,
+            ), contextlib.redirect_stderr(sink_stream):
+                return ModelManager._get_modelscope_snapshot_download()(
+                    model_id=repo_id,
+                    local_dir=str(local_dir),
+                )
 
     def _estimate_huggingface_size(
         self,
