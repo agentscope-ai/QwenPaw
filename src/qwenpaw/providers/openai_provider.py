@@ -23,13 +23,15 @@ logger = logging.getLogger(__name__)
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 
-if importlib.util.find_spec("langfuse") is not None and bool(
-    os.getenv("LANGFUSE_SECRET_KEY")
-):
+if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec("langfuse"):
     from langfuse.openai import AsyncOpenAI  # type: ignore[import]
-
-    logger.info("Langfuse OpenAI tracing enabled")
 else:
+    if os.environ.get("LANGFUSE_SECRET_KEY"):
+        import logging
+        logging.warning(
+            "LANGFUSE_SECRET_KEY is set but langfuse is not installed; "
+            "install with `pip install langfuse` to enable tracing"
+        )
     from openai import AsyncOpenAI
 
 
