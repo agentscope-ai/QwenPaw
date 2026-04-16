@@ -578,6 +578,12 @@ class QwenPawACPAgent(Agent):
                         session_id=session_id,
                         update=upd,
                     )
+
+                # After each message, check for new usage data.
+                # Each LLM invocation writes usage; poll here so
+                # multi-step prompts (with tool calls) report usage
+                # per LLM call, matching QwenCode behaviour.
+                await self._emit_usage_if_available(session_id)
         except Exception:
             logger.exception(
                 "ACP prompt error: session=%s",
@@ -586,17 +592,9 @@ class QwenPawACPAgent(Agent):
         finally:
             self._cancel_events.pop(session_id, None)
 
-        # Emit a final empty chunk with usage metadata (like QwenCode)
-        usage_meta = self._pop_session_usage(session_id)
-        if usage_meta:
-            await self._conn.session_update(
-                session_id=session_id,
-                update=AgentMessageChunk(
-                    sessionUpdate="agent_message_chunk",
-                    content=text_block(""),
-                    field_meta=usage_meta,
-                ),
-            )
+        # Final sweep: catch any usage that arrived after the last
+        # streamed message (e.g., single-turn prompts with no tools).
+        await self._emit_usage_if_available(session_id)
 
         return PromptResponse(stop_reason="end_turn")
 
@@ -718,6 +716,22 @@ class QwenPawACPAgent(Agent):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _emit_usage_if_available(
+        self,
+        session_id: str,
+    ) -> None:
+        """Send a usage chunk if new usage data is available."""
+        usage_meta = self._pop_session_usage(session_id)
+        if usage_meta:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=AgentMessageChunk(
+                    sessionUpdate="agent_message_chunk",
+                    content=text_block(""),
+                    field_meta=usage_meta,
+                ),
+            )
 
     @staticmethod
     def _pop_session_usage(
