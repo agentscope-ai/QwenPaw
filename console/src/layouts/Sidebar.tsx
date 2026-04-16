@@ -236,9 +236,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     },
   ];
 
-  // ── Menu items ────────────────────────────────────────────────────────────
+  // ── Menu items — agent-scoped (Chat + Control + Workspace) ──────────────
 
-  const menuItems: MenuProps["items"] = [
+  const agentMenuItems: MenuProps["items"] = [
     {
       key: "chat",
       label: collapsed ? null : t("nav.chat"),
@@ -301,6 +301,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         },
       ],
     },
+  ];
+
+  // ── Menu items — global settings ──────────────────────────────────────
+
+  const settingsMenuItems: MenuProps["items"] = [
     {
       key: "settings-group",
       label: collapsed ? null : t("nav.settings"),
@@ -353,10 +358,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}`}
     >
-      <div className={styles.agentSelectorContainer}>
-        <AgentSelector collapsed={collapsed} />
-      </div>
-
       {collapsed ? (
         <nav className={styles.collapsedNav}>
           {collapsedNavItems.map((item) => {
@@ -384,18 +385,40 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           })}
         </nav>
       ) : (
-        <Menu
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          openKeys={DEFAULT_OPEN_KEYS}
-          onClick={({ key }) => {
-            const path = KEY_TO_PATH[String(key)];
-            if (path) navigate(path);
-          }}
-          items={menuItems}
-          theme={isDark ? "dark" : "light"}
-          className={styles.sideMenu}
-        />
+        <>
+          {/* Agent-scoped section: selector + Chat + Control + Workspace */}
+          <div className={styles.agentScopedSection}>
+            <div className={styles.agentSelectorContainer}>
+              <AgentSelector collapsed={collapsed} />
+            </div>
+            <Menu
+              mode="inline"
+              selectedKeys={[selectedKey]}
+              openKeys={DEFAULT_OPEN_KEYS}
+              onClick={({ key }) => {
+                const path = KEY_TO_PATH[String(key)];
+                if (path) navigate(path);
+              }}
+              items={agentMenuItems}
+              theme={isDark ? "dark" : "light"}
+              className={styles.sideMenu}
+            />
+          </div>
+
+          {/* Global settings section */}
+          <Menu
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            openKeys={DEFAULT_OPEN_KEYS}
+            onClick={({ key }) => {
+              const path = KEY_TO_PATH[String(key)];
+              if (path) navigate(path);
+            }}
+            items={settingsMenuItems}
+            theme={isDark ? "dark" : "light"}
+            className={styles.sideMenu}
+          />
+        </>
       )}
 
       {authEnabled && !collapsed && (
