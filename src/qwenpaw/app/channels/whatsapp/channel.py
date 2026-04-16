@@ -180,6 +180,10 @@ class WhatsAppChannel(BaseChannel):
         self._bot_lid = ""
         self._group_history: Dict[str, list] = {}  # chat_jid -> [{sender, body, ts}]
         self._group_history_limit = 50
+        # Scratch buffer used by _extract_message_content to hand raw local
+        # paths back to the dispatch loop for group-history storage. Reset
+        # at the top of each _extract_message_content call.
+        self._last_extracted_media_paths: List[str] = []
 
         if self.enabled and not NEONIZE_AVAILABLE:
             logger.error("whatsapp: neonize not installed, channel disabled")
@@ -404,12 +408,19 @@ class WhatsAppChannel(BaseChannel):
     async def _extract_message_content(self, client, msg, msg_id) -> tuple:
         """Extract body text and content parts from a WhatsApp message.
 
-        Returns:
-            (body, content_parts) where body is the text string and
-            content_parts is a list of Content objects.
+        Returns ``(body, content_parts)`` for backwards compatibility. The
+        raw local-media paths that were downloaded here are also recorded
+        on ``self._last_extracted_media_paths`` so the group-history store
+        can reference them directly without having to reason about whether
+        a content_part's ``image_url`` is a local path, a file:// URL, a
+        signed HTTPS URL, or base64.
         """
         body = ""
         content_parts: List[Any] = []
+        media_local_paths: List[str] = []
+        # Clear the per-call scratch buffer on entry so stale paths from a
+        # previous message don't leak into the next.
+        self._last_extracted_media_paths = media_local_paths
 
         # Text message
         if msg.conversation:
@@ -448,6 +459,7 @@ class WhatsAppChannel(BaseChannel):
                 self._media_dir.mkdir(parents=True, exist_ok=True)
                 path = self._media_dir / f"wa_img_{msg_id}.jpg"
                 await client.download_any(msg, path=str(path))
+                media_local_paths.append(str(path))
                 media_url = await resolve_media_url(str(path))
                 content_parts.append(ImageContent(type=ContentType.IMAGE, image_url=media_url))
             except Exception as e:
@@ -460,6 +472,7 @@ class WhatsAppChannel(BaseChannel):
                 ext = "ogg" if msg.audioMessage.ptt else "m4a"
                 path = self._media_dir / f"wa_audio_{msg_id}.{ext}"
                 await client.download_any(msg, path=str(path))
+                media_local_paths.append(str(path))
                 media_url = await resolve_media_url(str(path))
                 content_parts.append(AudioContent(type=ContentType.AUDIO, data=media_url))
             except Exception as e:
@@ -474,6 +487,7 @@ class WhatsAppChannel(BaseChannel):
                 fname = Path(raw_fname).name or f"wa_doc_{msg_id}"
                 path = self._media_dir / fname
                 await client.download_any(msg, path=str(path))
+                media_local_paths.append(str(path))
                 media_url = await resolve_media_url(str(path))
                 content_parts.append(FileContent(type=ContentType.FILE, file_url=media_url))
             except Exception as e:
@@ -491,6 +505,7 @@ class WhatsAppChannel(BaseChannel):
                 self._media_dir.mkdir(parents=True, exist_ok=True)
                 path = self._media_dir / f"wa_vid_{msg_id}.mp4"
                 await client.download_any(msg, path=str(path))
+                media_local_paths.append(str(path))
                 media_url = await resolve_media_url(str(path))
                 content_parts.append(VideoContent(type=ContentType.VIDEO, video_url=media_url))
             except Exception as e:
@@ -502,6 +517,7 @@ class WhatsAppChannel(BaseChannel):
                 self._media_dir.mkdir(parents=True, exist_ok=True)
                 path = self._media_dir / f"wa_sticker_{msg_id}.webp"
                 await client.download_any(msg, path=str(path))
+                media_local_paths.append(str(path))
                 media_url = await resolve_media_url(str(path))
                 content_parts.append(ImageContent(type=ContentType.IMAGE, image_url=media_url))
             except Exception as e:
@@ -689,6 +705,11 @@ class WhatsAppChannel(BaseChannel):
             # Extract message content via helper
             msg = message.Message
             body, content_parts = await self._extract_message_content(client, msg, msg_id)
+            # Snapshot the raw local-media paths _extract_message_content
+            # populated via its scratch buffer, so we can pass them to the
+            # group-history store below without being vulnerable to a
+            # later message overwriting the buffer.
+            media_local_paths = list(self._last_extracted_media_paths)
 
             # Extract quoted/replied-to message content
             quote_parts = await self._extract_quote_content(client, msg)
@@ -713,16 +734,14 @@ class WhatsAppChannel(BaseChannel):
                         if sender_str.endswith("@lid"):
                             await self._resolve_lid(client, sender_str, sender_jid)
                         display = self._format_sender(sender_str)
-                        # Collect media paths from the already-downloaded
-                        # attachments so the agent can see them when
-                        # context is injected.
-                        media_paths = []
-                        for part in content_parts:
-                            for attr in ("image_url", "video_url", "file_url", "data"):
-                                v = getattr(part, attr, None)
-                                if v and os.path.isfile(str(v)):
-                                    media_paths.append(str(v))
-                                    break
+                        # Store the raw local paths (tracked by
+                        # _extract_message_content) rather than peeking at
+                        # content_parts' URL attributes — those may be
+                        # resolved HTTPS URLs once resolve_media_url starts
+                        # doing signed-URL substitution, and os.path.isfile
+                        # would silently drop them otherwise. Keep only the
+                        # paths that still exist on disk right now.
+                        media_paths = [p for p in media_local_paths if p and os.path.isfile(p)]
                         history = self._group_history.setdefault(chat_str, [])
                         history.append({
                             "sender": display,
