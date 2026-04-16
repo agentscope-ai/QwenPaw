@@ -743,6 +743,7 @@
     "manageModelsTitle": "{{provider}} — 模型管理",
     "userAdded": "用户添加",
     "addModel": "添加模型",
+    "addModels": "添加模型",
     "autoDiscoverModels": "自动发现模型",
     "addModelTitle": "为 {{provider}} 添加模型",
     "modelIdLabel": "模型 ID",

@@ -769,6 +769,7 @@
     "manageModelsTitle": "{{provider}} — Model Management",
     "userAdded": "User-added",
     "addModel": "Add Model",
+    "addModels": "Add Models",
     "autoDiscoverModels": "Auto Discover Models",
     "addModelTitle": "Add Model to {{provider}}",
     "modelIdLabel": "Model ID",

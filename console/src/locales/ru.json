@@ -712,6 +712,7 @@
     "manageModelsTitle": "{{provider}} — Управление моделями",
     "userAdded": "Добавлено пользователем",
     "addModel": "Добавить модель",
+    "addModels": "Добавить модели",
     "autoDiscoverModels": "Автообнаружение моделей",
     "addModelTitle": "Добавить модель в {{provider}}",
     "modelIdLabel": "ID модели",

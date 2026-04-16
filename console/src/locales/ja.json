@@ -707,6 +707,7 @@
     "manageModelsTitle": "{{provider}} — モデル管理",
     "userAdded": "ユーザー追加",
     "addModel": "モデルを追加",
+    "addModels": "モデルを追加",
     "autoDiscoverModels": "モデルを自動検出",
     "addModelTitle": "{{provider}} にモデルを追加",
     "modelIdLabel": "モデルID",

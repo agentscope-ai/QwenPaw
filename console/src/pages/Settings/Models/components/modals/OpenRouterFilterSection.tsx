@@ -5,6 +5,7 @@ import { Button, Input, Switch, Tag } from "@agentscope-ai/design";
 import {
   FilterOutlined,
   GiftOutlined,
+  PlusOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import {
@@ -174,13 +175,13 @@ export function OpenRouterFilterSection({
     <div className={styles.section}>
       <Button
         type={showFilters ? "primary" : "default"}
-        icon={<FilterOutlined />}
+        icon={<PlusOutlined />}
         onClick={onToggleFilters}
         className={`${styles.toggleButton} ${
           showFilters ? styles.toggleButtonExpanded : ""
         }`}
       >
-        {t("models.filterModels") || "Filter Models"}
+        {t("models.addModels") || "Add Models"}
       </Button>
 
       {showFilters && (
@@ -288,11 +289,12 @@ export function OpenRouterFilterSection({
 
           <Button
             type="primary"
+            icon={<FilterOutlined />}
             onClick={onFetchModels}
             loading={loadingFilters}
             className={styles.fetchButton}
           >
-            {t("models.getModels") || "Get Models"}
+            {t("models.filterModels") || "Filter Models"}
           </Button>
 
           {discoveredModels.length > 0 && (
