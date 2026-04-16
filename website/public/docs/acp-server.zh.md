@@ -26,18 +26,18 @@ qwenpaw acp --debug
 
 ## 支持的 ACP 方法
 
-| 方法 | 说明 |
-|---|---|
-| `initialize` | 握手——返回智能体能力和版本信息 |
-| `new_session` | 创建新的会话 |
-| `load_session` | 按 ID 加载/接入已有会话 |
-| `resume_session` | 恢复之前关闭的会话 |
-| `list_sessions` | 列出活跃会话，可按 `cwd` 过滤 |
-| `close_session` | 关闭并清理会话 |
-| `prompt` | 发送用户消息，流式返回智能体响应 |
+| 方法                | 说明                                              |
+| ------------------- | ------------------------------------------------- |
+| `initialize`        | 握手——返回智能体能力和版本信息                    |
+| `new_session`       | 创建新的会话                                      |
+| `load_session`      | 按 ID 加载/接入已有会话                           |
+| `resume_session`    | 恢复之前关闭的会话                                |
+| `list_sessions`     | 列出活跃会话，可按 `cwd` 过滤                     |
+| `close_session`     | 关闭并清理会话                                    |
+| `prompt`            | 发送用户消息，流式返回智能体响应                  |
 | `set_session_model` | 切换活跃 LLM 模型（格式：`provider_id:model_id`） |
-| `set_config_option` | 切换会话配置选项（如 Tool Guard 开关） |
-| `cancel` | 取消正在进行的 prompt |
+| `set_config_option` | 切换会话配置选项（如 Tool Guard 开关）            |
+| `cancel`            | 取消正在进行的 prompt                             |
 
 ---
 
@@ -45,12 +45,12 @@ qwenpaw acp --debug
 
 在 `prompt` 调用过程中，智能体通过 `session_update` 通知向客户端实时推送更新：
 
-| 更新类型 | 触发时机 |
-|---|---|
-| `agent_message_chunk` | 智能体文本响应（流式） |
+| 更新类型              | 触发时机                |
+| --------------------- | ----------------------- |
+| `agent_message_chunk` | 智能体文本响应（流式）  |
 | `agent_thought_chunk` | 智能体内部推理/系统消息 |
-| `tool_call` | 工具调用开始 |
-| `tool_call_update` | 工具执行完成并返回结果 |
+| `tool_call`           | 工具调用开始            |
+| `tool_call_update`    | 工具执行完成并返回结果  |
 
 ---
 
@@ -75,9 +75,9 @@ qwenpaw acp --debug
 
 创建新会话时，智能体会返回可通过 `set_config_option` 切换的配置选项：
 
-| 配置 ID | 类型 | 类别 | 默认值 | 可选值 |
-|---|---|---|---|---|
-| `mode` | select | `mode` | `default` | `default` — 正常模式，启用 Tool Guard；`bypassPermissions` — 跳过工具安全检查 |
+| 配置 ID | 类型   | 类别   | 默认值    | 可选值                                                                        |
+| ------- | ------ | ------ | --------- | ----------------------------------------------------------------------------- |
+| `mode`  | select | `mode` | `default` | `default` — 正常模式，启用 Tool Guard；`bypassPermissions` — 跳过工具安全检查 |
 
 ---
 

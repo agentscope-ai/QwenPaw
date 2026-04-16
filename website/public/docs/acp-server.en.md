@@ -26,18 +26,18 @@ The process communicates over stdin/stdout using the ACP JSON-RPC protocol. stde
 
 ## Supported ACP Methods
 
-| Method | Description |
-|---|---|
-| `initialize` | Handshake — returns agent capabilities and version info |
-| `new_session` | Create a new conversation session |
-| `load_session` | Load/attach to an existing session by ID |
-| `resume_session` | Resume a previously closed session |
-| `list_sessions` | List active sessions, optionally filtered by `cwd` |
-| `close_session` | Close and clean up a session |
-| `prompt` | Send a user message and stream back agent responses |
+| Method              | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `initialize`        | Handshake — returns agent capabilities and version info      |
+| `new_session`       | Create a new conversation session                            |
+| `load_session`      | Load/attach to an existing session by ID                     |
+| `resume_session`    | Resume a previously closed session                           |
+| `list_sessions`     | List active sessions, optionally filtered by `cwd`           |
+| `close_session`     | Close and clean up a session                                 |
+| `prompt`            | Send a user message and stream back agent responses          |
 | `set_session_model` | Switch the active LLM model (format: `provider_id:model_id`) |
-| `set_config_option` | Toggle session config options (e.g. Tool Guard on/off) |
-| `cancel` | Cancel an in-progress prompt |
+| `set_config_option` | Toggle session config options (e.g. Tool Guard on/off)       |
+| `cancel`            | Cancel an in-progress prompt                                 |
 
 ---
 
@@ -45,12 +45,12 @@ The process communicates over stdin/stdout using the ACP JSON-RPC protocol. stde
 
 During a `prompt` call, the agent streams real-time updates back to the client via `session_update` notifications:
 
-| Update Type | When |
-|---|---|
-| `agent_message_chunk` | Agent text response (streaming) |
+| Update Type           | When                                       |
+| --------------------- | ------------------------------------------ |
+| `agent_message_chunk` | Agent text response (streaming)            |
 | `agent_thought_chunk` | Agent internal reasoning / system messages |
-| `tool_call` | Tool invocation started |
-| `tool_call_update` | Tool execution completed with output |
+| `tool_call`           | Tool invocation started                    |
+| `tool_call_update`    | Tool execution completed with output       |
 
 ---
 
@@ -75,9 +75,9 @@ The agent declares the following capabilities during `initialize`:
 
 When a new session is created, the agent returns config options that the client can change via `set_config_option`:
 
-| Config ID | Type | Category | Default | Options |
-|---|---|---|---|---|
-| `mode` | select | `mode` | `default` | `default` — Normal mode with Tool Guard enabled; `bypassPermissions` — Skip tool guard checks |
+| Config ID | Type   | Category | Default   | Options                                                                                       |
+| --------- | ------ | -------- | --------- | --------------------------------------------------------------------------------------------- |
+| `mode`    | select | `mode`   | `default` | `default` — Normal mode with Tool Guard enabled; `bypassPermissions` — Skip tool guard checks |
 
 ---
 
