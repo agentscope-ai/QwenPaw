@@ -583,6 +583,14 @@ html.dark-mode .qwenpaw-modal-confirm-paragraph {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
+.qwenpaw-free-model-warning-link-row {
+  margin-top: 8px;
+}
+
+.qwenpaw-free-model-warning-checkbox-row {
+  margin-top: 16px;
+}
+
 /* Form labels inside modal */
 html.dark-mode .qwenpaw-modal-body .qwenpaw-form-item-label > label,
 html.dark-mode .qwenpaw-modal-body .ant-form-item-label > label,
