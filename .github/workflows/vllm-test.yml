@@ -121,15 +121,38 @@ jobs:
           # For now, just verify the import and that the fix is present
           python -c "
           import qwenpaw
-          from qwenpaw.agents.react_agent import ReactAgent
+          from qwenpaw.agents.react_agent import QwenPawAgent
           print('✅ QwenPaw imported successfully')
           # Check that the fix is in the code
           import inspect
-          source = inspect.getsource(ReactAgent._reasoning)
+          source = inspect.getsource(QwenPawAgent._reasoning)
           if 'JSON tool calling' in source and 'vllm' in source.lower():
               print('✅ vLLM compatibility code found')
           else:
               raise Exception('vLLM compatibility code not found in _reasoning method')
+          
+          # Also verify the tool_choice fix is present in all files
+          import os
+          files = [
+              'src/qwenpaw/agents/tool_guard_mixin.py',
+              'src/qwenpaw/agents/react_agent.py',
+              'src/qwenpaw/agents/routing_chat_model.py',
+              'src/qwenpaw/token_usage/model_wrapper.py',
+          ]
+          missing = []
+          for f in files:
+              with open(f, 'r') as fp:
+                  content = fp.read()
+              if 'tool_choice' in content and '\"auto\"' in content and 'tool_choice = None' in content:
+                  print(f'✅ {f} has the fix')
+              else:
+                  missing.append(f)
+                  print(f'❌ {f} missing the fix')
+          if missing:
+              raise Exception(f'Some files missing the fix: {missing}')
+          print('✅ All 4 files have the complete vLLM tool_choice fix')
+          
+          print('\\n✅ All checks passed!')
           "
 
       - name: Clean up
