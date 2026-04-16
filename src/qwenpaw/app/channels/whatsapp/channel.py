@@ -732,7 +732,14 @@ class WhatsAppChannel(BaseChannel):
                                 if ts_val > 1e12:
                                     ts_val = ts_val / 1000
                                 dt = datetime.datetime.fromtimestamp(ts_val, tz=datetime.timezone(datetime.timedelta(hours=8)))
-                                ts_formatted = dt.strftime("%Y年%-m月%-d日 %H:%M:%S (HKT)")
+                                # Portable format — %-m/%-d are a GNU
+                                # extension not supported on Windows; use
+                                # explicit month/day so strftime stays
+                                # pure-POSIX.
+                                ts_formatted = (
+                                    f"{dt.year}年{dt.month}月{dt.day}日 "
+                                    f"{dt.strftime('%H:%M:%S')} (HKT)"
+                                )
                                 ts_prefix = f"[{ts_formatted}] "
                             except Exception:
                                 ts_prefix = f"[{ts}] "

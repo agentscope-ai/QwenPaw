@@ -1089,7 +1089,7 @@ export function ChannelDrawer({
                     message.success(t("channels.whatsappUnlinked"));
                   }}
                 >
-                  Unlink Device
+                  {t("channels.whatsappUnlinkDevice")}
                 </Button>
               )}
             </Form.Item>

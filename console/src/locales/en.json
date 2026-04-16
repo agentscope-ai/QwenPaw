@@ -56,7 +56,8 @@
     "security": "Security",
     "tokenUsage": "Token Usage",
     "voiceTranscription": "Voice Transcription",
-    "debug": "Debug"
+    "debug": "Debug",
+    "mediaServer": "Media Server"
   },
   "debug": {
     "title": "Debug",

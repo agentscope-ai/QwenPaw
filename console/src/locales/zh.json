@@ -56,7 +56,8 @@
     "security": "安全",
     "tokenUsage": "Token 消耗",
     "voiceTranscription": "语音转写",
-    "mediaServer": "媒體伺服器"
+    "debug": "调试",
+    "mediaServer": "媒体服务器"
   },
   "workspace": {
     "title": "文件",

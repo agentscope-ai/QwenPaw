@@ -118,6 +118,10 @@ export interface WhatsAppConfig extends BaseChannelConfig {
   text_chunk_limit?: number;
   groups?: string[];
   group_allow_from?: string[];
+  ack_reaction_thinking?: string;
+  ack_reaction_done?: string;
+  ack_reaction_error?: string;
+  reply_to_trigger?: boolean;
 }
 
 export interface SignalConfig extends BaseChannelConfig {
@@ -128,8 +132,13 @@ export interface SignalConfig extends BaseChannelConfig {
   auto_start?: boolean;
   send_read_receipts?: boolean;
   text_chunk_limit?: number;
+  media_max_mb?: number;
   groups?: string[];
   group_allow_from?: string[];
+  ack_reaction_thinking?: string;
+  ack_reaction_done?: string;
+  ack_reaction_error?: string;
+  reply_to_trigger?: boolean;
 }
 
 export interface WeixinConfig extends BaseChannelConfig {

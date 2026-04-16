@@ -925,15 +925,27 @@ async def get_whatsapp_status(request: Request) -> dict:
         def _check_linked():
             conn = sqlite3.connect(str(db_path))
             try:
-                rows = conn.execute("SELECT * FROM whatsmeow_device LIMIT 1").fetchall()
-                return bool(rows)
+                # whatsmeow_device.jid is the bot's own JID, e.g.
+                # "85212345678.0:0@s.whatsapp.net". We return the phone
+                # part so the UI can display a real E.164 number instead
+                # of a literal "linked" placeholder.
+                row = conn.execute(
+                    "SELECT jid FROM whatsmeow_device LIMIT 1",
+                ).fetchone()
+                if not row or not row[0]:
+                    return (False, None)
+                jid = str(row[0])
+                # strip "@s.whatsapp.net" and device suffix (".0:0")
+                user = jid.split("@", 1)[0].split(".", 1)[0].split(":", 1)[0]
+                phone = f"+{user}" if user.isdigit() else user
+                return (True, phone)
             except Exception:
-                return False
+                return (False, None)
             finally:
                 conn.close()
-        linked = await asyncio.to_thread(_check_linked)
+        linked, phone = await asyncio.to_thread(_check_linked)
         if linked:
-            return {"linked": True, "phone": "linked"}
+            return {"linked": True, "phone": phone}
         return {"linked": False, "phone": None}
     except Exception as e:
         return {"linked": False, "error": str(e)}
