@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .core import PermissionResolution, SuspendedPermission
+from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
+
+from .core import SuspendedPermission
 
 BLOCKED_COMMAND_PATTERNS = (
     "rm -rf /",
@@ -19,37 +21,34 @@ class ACPPermissionAdapter:
     def __init__(self, cwd: str):
         self.cwd = str(Path(cwd).expanduser().resolve())
 
-    async def resolve_permission(
+    def build_suspended_permission(
         self,
         *,
         agent: str,
-        request_payload: dict[str, Any],
-    ) -> PermissionResolution:
-        tool_call = self._extract_tool_call(request_payload)
-        options = request_payload.get("options")
-        if not isinstance(options, list):
-            options = []
-
-        if self._is_hard_blocked(tool_call):
-            return PermissionResolution(
-                result={"outcome": {"outcome": "cancelled"}},
-            )
-
-        return PermissionResolution(
-            suspended=SuspendedPermission(
-                request_id=None,
-                payload=request_payload,
-                options=list(options),
-                agent=agent,
-                tool_name=self._tool_name(tool_call),
-                tool_kind=self._tool_kind(tool_call),
-                target=self._target(tool_call),
-                action=self._action(tool_call),
-                summary=self._summary(tool_call),
-                command=self._command(tool_call),
-                paths=self._paths(tool_call),
-                requires_user_confirmation=True,
-            ),
+        tool_call: Any,
+        options: list[Any],
+    ) -> SuspendedPermission:
+        tool_call_payload = self._tool_call_payload(tool_call)
+        option_payloads: list[dict[str, Any]] = []
+        for option in options:
+            payload = self._option_payload(option)
+            if payload is not None:
+                option_payloads.append(payload)
+        return SuspendedPermission(
+            payload={
+                "toolCall": tool_call_payload,
+                "options": option_payloads,
+            },
+            options=option_payloads,
+            agent=agent,
+            tool_name=self._tool_name(tool_call_payload),
+            tool_kind=self._tool_kind(tool_call_payload),
+            target=self._target(tool_call_payload),
+            action=self._action(tool_call_payload),
+            summary=self._summary(tool_call_payload),
+            command=self._command(tool_call_payload),
+            paths=self._paths(tool_call_payload),
+            requires_user_confirmation=True,
         )
 
     def resolve_option_by_id(
@@ -63,27 +62,47 @@ class ACPPermissionAdapter:
         for opt in options:
             if not isinstance(opt, dict):
                 continue
-            candidate = str(opt.get("optionId") or "").strip()
+            candidate = str(opt.get("optionId") or opt.get("option_id") or "").strip()
             if candidate == key:
                 return opt
         return None
 
-    def selected_result(self, option: dict[str, Any] | None) -> dict[str, Any]:
+    def selected_response(
+        self,
+        option: dict[str, Any] | None,
+    ) -> RequestPermissionResponse:
         if option is None:
-            return {"outcome": {"outcome": "cancelled"}}
-        option_id = option.get("optionId") or "selected"
-        return {
-            "outcome": {
-                "outcome": "selected",
-                "optionId": option_id,
-            },
-        }
+            return self.cancelled_response()
+        option_id = str(option.get("optionId") or option.get("option_id") or "selected")
+        return RequestPermissionResponse(
+            outcome=AllowedOutcome(option_id=option_id, outcome="selected"),
+        )
 
-    def _extract_tool_call(self, payload: dict[str, Any]) -> dict[str, Any]:
-        tool_call = payload.get("toolCall")
+    def cancelled_response(self) -> RequestPermissionResponse:
+        return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+
+    def is_hard_blocked(self, tool_call: Any) -> bool:
+        return self._is_hard_blocked(self._tool_call_payload(tool_call))
+
+    def _tool_call_payload(self, tool_call: Any) -> dict[str, Any]:
         if isinstance(tool_call, dict):
-            return tool_call
+            return dict(tool_call)
+        model_dump = getattr(tool_call, "model_dump", None)
+        if callable(model_dump):
+            data = model_dump(by_alias=True, exclude_none=True)
+            if isinstance(data, dict):
+                return data
         return {}
+
+    def _option_payload(self, option: Any) -> dict[str, Any] | None:
+        if isinstance(option, dict):
+            return dict(option)
+        model_dump = getattr(option, "model_dump", None)
+        if callable(model_dump):
+            data = model_dump(by_alias=True, exclude_none=True)
+            if isinstance(data, dict):
+                return data
+        return None
 
     def _tool_name(self, tool_call: dict[str, Any]) -> str:
         title = tool_call.get("title")
@@ -110,7 +129,7 @@ class ACPPermissionAdapter:
         return None
 
     def _command(self, tool_call: dict[str, Any]) -> str | None:
-        raw_input = tool_call.get("rawInput")
+        raw_input = tool_call.get("rawInput") or tool_call.get("raw_input")
         if isinstance(raw_input, dict):
             command = raw_input.get("command")
             if isinstance(command, str) and command.strip():
@@ -146,6 +165,8 @@ class ACPPermissionAdapter:
                 add_path(content.get("path"))
 
         raw_input = tool_call.get("rawInput")
+        if raw_input is None:
+            raw_input = tool_call.get("raw_input")
         if isinstance(raw_input, dict):
             add_path(raw_input.get("path"))
 

@@ -39,12 +39,23 @@ def _string(value: Any) -> str:
 
 
 def _option_parts(option: Any) -> Optional[Tuple[str, str]]:
-    if not isinstance(option, dict):
-        return None
-    option_id = _string(option.get("optionId") or option.get("id"))
-    title = _string(
-        option.get("title") or option.get("name") or option_id or "option",
-    )
+    option_id = None
+    title = None
+    if isinstance(option, dict):
+        option_id = _string(
+            option.get("optionId") or option.get("option_id") or option.get("id"),
+        )
+        title = _string(option.get("title") or option.get("name"))
+    else:
+        option_id = _string(
+            getattr(option, "option_id", None)
+            or getattr(option, "optionId", None)
+            or getattr(option, "id", None),
+        )
+        title = _string(
+            getattr(option, "title", None) or getattr(option, "name", None),
+        )
+    title = title or option_id or "option"
     if not title:
         return None
     return title, option_id
@@ -190,7 +201,7 @@ def format_permission_suspended_response(
     )
     reply_hint = (
         "\n\nReply with one exact option id using "
-        '`spawn_agent(action="respond", runner=..., message=...)`.'
+        '`delegate_external_agent(action="respond", runner=..., message=...)`.'
     )
     text = (
         intro

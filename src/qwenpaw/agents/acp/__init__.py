@@ -9,7 +9,6 @@ from .core import (
     ACPSessionError,
     ACPTransportError,
     ACPErrors,
-    PermissionResolution,
     SuspendedPermission,
 )
 from .service import ACPService, get_acp_service, init_acp_service
@@ -25,6 +24,5 @@ __all__ = [
     "ACPService",
     "get_acp_service",
     "init_acp_service",
-    "PermissionResolution",
     "SuspendedPermission",
 ]

@@ -105,42 +105,23 @@ async def _run_action(
     on_message: Any,
 ) -> Any:
     if action_name == "start":
-        existing = await _get_bound_session(
-            service,
-            chat_id=chat_id,
-            runner_name=runner_name,
-        )
-        if existing is not None:
-            await service.close_chat_session(
-                chat_id=existing.chat_id,
-                agent=existing.agent,
-            )
         return await service.run_turn(
             chat_id=chat_id,
             agent=runner_name,
             prompt_blocks=[{"type": "text", "text": message_text or "hi"}],
             cwd=str(execution_cwd),
             on_message=on_message,
+            restart=True,
         )
 
     if action_name == "message":
-        existing = await _get_bound_session(
-            service,
-            chat_id=chat_id,
-            runner_name=runner_name,
-        )
-        if existing is None:
-            raise ValueError(
-                "no bound ACP session found for runner "
-                f"'{runner_name}' in current chat; call "
-                "delegate_external_agent with action='start' first",
-            )
         return await service.run_turn(
             chat_id=chat_id,
             agent=runner_name,
             prompt_blocks=[{"type": "text", "text": message_text}],
             cwd=str(execution_cwd),
             on_message=on_message,
+            require_existing=True,
         )
 
     if action_name == "respond":
@@ -163,21 +144,9 @@ async def _run_action(
                 "current ACP session for runner "
                 f"'{runner_name}' is not waiting for permission",
             )
-        selected_option_id = message_text.strip()
-        valid_option_ids = {
-            str(opt.get("optionId") or opt.get("id") or "").strip()
-            for opt in suspended_permission.options
-            if isinstance(opt, dict)
-        }
-        valid_option_ids.discard("")
-        if selected_option_id not in valid_option_ids:
-            raise ValueError(
-                "respond requires the exact selected permission "
-                "option id from the provided options.",
-            )
         return await service.resume_permission(
             acp_session_id=bound_session.acp_session_id,
-            option_id=selected_option_id,
+            option_id=message_text.strip(),
             on_message=on_message,
         )
 
