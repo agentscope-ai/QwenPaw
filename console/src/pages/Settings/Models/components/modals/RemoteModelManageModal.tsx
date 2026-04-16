@@ -476,7 +476,10 @@ export function RemoteModelManageModal({
     setLoadingFilters(true);
     try {
       const filterBody: Record<string, unknown> = {};
-      if (selectedSeries.length > 0) {
+      const hasPartialProviderSelection =
+        selectedSeries.length > 0 &&
+        selectedSeries.length < availableSeries.length;
+      if (hasPartialProviderSelection) {
         filterBody.providers = selectedSeries;
       }
       if (selectedInputModalities.length > 0) {

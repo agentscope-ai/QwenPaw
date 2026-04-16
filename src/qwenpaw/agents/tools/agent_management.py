@@ -368,9 +368,9 @@ def format_background_status_text(
         return "\n".join(parts)
 
     if status == "running":
-        started_at = result.get("started_at", "N/A")
+        created_at = result.get("created_at", "N/A")
         parts.append("Task is still running...")
-        parts.append(f"Started at: {started_at}")
+        parts.append(f"Started at: {created_at}")
     elif status == "pending":
         parts.append("Task is pending in queue...")
     elif status == "submitted":
