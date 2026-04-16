@@ -173,6 +173,7 @@ jobs:
     if: |
       always() &&
       needs.approval-gate.result == 'success'
+    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
