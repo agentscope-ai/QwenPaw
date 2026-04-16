@@ -112,7 +112,6 @@ class PluginLoader:
         backend_entry = manifest.entry.backend
         entry_file = source_path / backend_entry if backend_entry else None
         plugin_def = None
-        api = None
 
         if entry_file and entry_file.exists():
             try:
@@ -197,8 +196,6 @@ class PluginLoader:
             source_path=source_path,
             enabled=True,
             instance=plugin_def,
-            api=api,
-            diagnostics=[],
         )
 
         self._loaded_plugins[plugin_id] = record

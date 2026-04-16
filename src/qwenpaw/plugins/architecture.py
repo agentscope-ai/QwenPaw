@@ -1,41 +1,9 @@
 # -*- coding: utf-8 -*-
 """Plugin architecture definitions."""
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
-
-if TYPE_CHECKING:
-    from .api import PluginApi
-
-
-class BasePlugin(ABC):
-    """Abstract base class for all plugins.
-
-    Every plugin must export a ``plugin`` object that is an instance of a
-    class derived from ``BasePlugin``.  The loader calls ``register`` on
-    startup.
-
-    Example::
-
-        class MyPlugin(BasePlugin):
-            def register(self, api: PluginApi) -> None:
-                api.register_provider(...)
-
-        plugin = MyPlugin()
-    """
-
-    @abstractmethod
-    def register(self, api: "PluginApi") -> None:
-        """Called when the plugin is loaded.
-
-        Use the *api* object to register providers, hooks, and other
-        capabilities.
-
-        Args:
-            api: The plugin API instance bound to this plugin.
-        """
 
 
 @dataclass
@@ -97,5 +65,4 @@ class PluginRecord:
     source_path: Path
     enabled: bool
     instance: Optional[Any] = None
-    api: Optional["PluginApi"] = None
     diagnostics: List[str] = field(default_factory=list)
