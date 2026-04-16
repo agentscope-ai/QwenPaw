@@ -22,8 +22,8 @@ if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
 
 Push-Location $ConsoleDir
 try {
-  pnpm install
-  if ($LASTEXITCODE -ne 0) { throw "pnpm install failed with exit code $LASTEXITCODE" }
+  pnpm install --frozen-lockfile
+  if ($LASTEXITCODE -ne 0) { throw "pnpm install --frozen-lockfile failed with exit code $LASTEXITCODE" }
   pnpm run build
   if ($LASTEXITCODE -ne 0) { throw "pnpm run build failed with exit code $LASTEXITCODE" }
 } finally {

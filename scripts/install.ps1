@@ -248,16 +248,16 @@ function Prepare-Console {
         } else {
             Write-Warn "pnpm not found - skipping console frontend build."
             Write-Warn "Install Node.js from https://nodejs.org/ then re-run this installer,"
-            Write-Warn "or run 'cd console && pnpm install && pnpm run build' manually."
+            Write-Warn "or run 'cd console && pnpm install --frozen-lockfile && pnpm run build' manually."
             return
         }
     }
 
-    Write-Info "Building console frontend (pnpm install && pnpm run build)..."
+        Write-Info "Building console frontend (pnpm install --frozen-lockfile && pnpm run build)..."
     Push-Location (Join-Path $RepoDir "console")
     try {
-        pnpm install
-        if ($LASTEXITCODE -ne 0) { Write-Warn "pnpm install failed - the web UI won't be available."; return }
+        pnpm install --frozen-lockfile
+        if ($LASTEXITCODE -ne 0) { Write-Warn "pnpm install --frozen-lockfile failed - the web UI won't be available."; return }
         pnpm run build
         if ($LASTEXITCODE -ne 0) { Write-Warn "pnpm run build failed - the web UI won't be available."; return }
     } finally {

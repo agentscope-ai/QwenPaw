@@ -20,7 +20,7 @@ if ! command -v pnpm &>/dev/null; then
     fi
 fi
 
-(cd "$CONSOLE_DIR" && pnpm install)
+(cd "$CONSOLE_DIR" && pnpm install --frozen-lockfile)
 (cd "$CONSOLE_DIR" && pnpm run build)
 
 echo "[wheel_build] Copying console/dist/* -> src/qwenpaw/console/..."

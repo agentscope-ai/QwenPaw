@@ -191,13 +191,13 @@ prepare_console() {
         else
             warn "pnpm not found — skipping console frontend build."
             warn "Install Node.js from https://nodejs.org/ then re-run this installer,"
-            warn "or run 'cd console && pnpm install && pnpm run build' manually."
+            warn "or run 'cd console && pnpm install --frozen-lockfile && pnpm run build' manually."
             return
         fi
     fi
 
-    info "Building console frontend (pnpm install && pnpm run build)..."
-    (cd "$repo_dir/console" && pnpm install && pnpm run build)
+    info "Building console frontend (pnpm install --frozen-lockfile && pnpm run build)..."
+    (cd "$repo_dir/console" && pnpm install --frozen-lockfile && pnpm run build)
     if [ -f "$console_src/index.html" ]; then
         mkdir -p "$console_dest"
         cp -R "$console_src/"* "$console_dest/"
