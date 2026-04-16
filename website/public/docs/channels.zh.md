@@ -752,6 +752,12 @@ signal-cli --version
 # signal-cli 0.14.1
 ```
 
+### 通过 Console UI 关联（推荐）
+
+打开该 agent 的 **Channels** 页面，点开 **Signal** 卡片，在抽屉顶部点击 **关联设备**。QwenPaw 会自动执行 `signal-cli link`，把设备链接 URL 渲染为 PNG 二维码，并在后台监听完成状态。手机端：打开 **Signal → 设置 → 已连接的设备 → 连接新设备**，扫描该二维码即可。`signal-cli` 一旦输出 `Associated with: +<电话>` 确认行，抽屉会自动翻转为 **已关联** 状态，并填入 `account`、`account_uuid`。点击 **解除关联** 则停止监听进程并删除该 agent 对应的账号数据目录。
+
+下面的命令行流程仍然有效，适合无头环境或高级用户，两种方式任选其一。
+
 ### 注册或链接账号
 
 **方案 A — 链接到已有 Signal 账号（推荐）**，作为次要设备（继续使用你的手机号，不涉及 SMS 费用）：
@@ -805,6 +811,7 @@ cat ~/.local/share/signal-cli/data/accounts.json
 | `account`            | string       | `""`（必填）         | 在 signal-cli 注册的电话号码，E.164 格式                                                                          |
 | `account_uuid`       | string       | `""`                 | Bot 账号的 UUID（取自 `accounts.json`），用于检测群内 @机器人自己                                                 |
 | `signal_cli_path`    | string       | `"signal-cli"`       | signal-cli 二进制的路径或 `$PATH` 中的名称。若未在 `$PATH`，请填绝对路径                                          |
+| `data_dir`           | string       | `""`                 | signal-cli 数据目录（对应 `-c` 参数）。留空则解析为 `<workspace_dir>/credentials/signal/default` 或 `<WORKING_DIR>/credentials/signal/default`；支持绝对路径或 `~/` 开头。除非在此字段显式填入，signal-cli 自身的 `~/.local/share/signal-cli/` 不会被使用。 |
 | `extra_args`         | list[str]    | `[]`                 | 追加到 spawn 命令尾部的额外参数，如 `["--trust-new-identities", "always"]`                                        |
 | `show_typing`        | bool         | `true`               | 生成响应期间持续刷新 "输入中" 状态                                                                                 |
 | `send_read_receipts` | bool         | `true`               | 发送已读回执                                                                                                     |

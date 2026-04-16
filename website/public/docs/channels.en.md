@@ -752,6 +752,12 @@ signal-cli --version
 # signal-cli 0.14.1
 ```
 
+### Link via Console UI (recommended)
+
+Open the agent's **Channels** page, click the **Signal** card, and use the **Link Device** button at the top of the drawer. QwenPaw runs `signal-cli link` for you, renders the device-link URL as a PNG QR, and detects completion automatically. On your phone, go to **Signal → Settings → Linked Devices → Link new device** and scan the QR. The drawer flips to **Linked** and fills in `account` + `account_uuid` as soon as signal-cli's `Associated with: +<phone>` confirmation lands. **Unlink Device** stops the link watcher and deletes the per-agent account data.
+
+The CLI walkthrough below is the power-user / headless option and still works — use whichever fits your setup.
+
 ### Register or link an account
 
 **Option A — link to an existing Signal account (recommended)** as a secondary device (keeps using your personal phone number; no SMS cost):
@@ -805,6 +811,7 @@ cat ~/.local/share/signal-cli/data/accounts.json
 | `account`            | string       | `""` (required)      | Phone number registered with signal-cli, E.164 format                                                                    |
 | `account_uuid`       | string       | `""`                 | Bot account UUID (from `accounts.json`); used to detect self-mentions in groups                                          |
 | `signal_cli_path`    | string       | `"signal-cli"`       | Path or PATH-lookup name of the signal-cli binary. Use an absolute path if it's not on `$PATH`.                          |
+| `data_dir`           | string       | `""`                 | signal-cli data dir (the `-c` flag). Empty resolves to `<workspace_dir>/credentials/signal/default` or `<WORKING_DIR>/credentials/signal/default`; explicit absolute / `~`-expanded paths override. signal-cli's own default (`~/.local/share/signal-cli/`) is NOT used unless you set it here. |
 | `extra_args`         | list[str]    | `[]`                 | Extra CLI flags appended to the spawn command, e.g. `["--trust-new-identities", "always"]`                               |
 | `show_typing`        | bool         | `true`               | Continuous typing-indicator loop during streaming                                                                        |
 | `send_read_receipts` | bool         | `true`               | Send read receipts                                                                                                       |

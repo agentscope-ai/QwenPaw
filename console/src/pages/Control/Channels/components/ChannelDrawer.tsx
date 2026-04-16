@@ -12,11 +12,12 @@ import { Alert, ConfigProvider, Spin } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import { useChannelQrcode } from "./useChannelQrcode";
 import styles from "../index.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import api from "../../../../api";
 
 const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "telegram",
@@ -195,6 +196,115 @@ export function ChannelDrawer({
       [message, t],
     ),
   });
+
+  // ── Signal link flow state ──────────────────────────────────────────
+  // Parallels WhatsApp's waPhone / waQrImage / waPairStatus pattern but
+  // with signal-cli subprocess semantics: no phone-number param (the
+  // subprocess returns one), QR is the only path (no pair-code fallback).
+  const [sigLinked, setSigLinked] = useState(false);
+  const [sigPhone, setSigPhone] = useState<string>("");
+  // UUID is not shown in the drawer but is stored on the form; the
+  // setter is still useful for that purpose (hence the _ prefix — it
+  // signals "intentionally unread state" to Copilot / strict-TS).
+  const [, setSigUuid] = useState<string>("");
+  const [sigQrImage, setSigQrImage] = useState<string>("");
+  const [sigPairStatus, setSigPairStatus] = useState<string>("idle");
+  const [sigPairLoading, setSigPairLoading] = useState(false);
+  const [sigDeviceName, setSigDeviceName] = useState<string>("QwenPaw");
+  const sigPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopSigPoll = useCallback(() => {
+    if (sigPollRef.current) {
+      clearInterval(sigPollRef.current);
+      sigPollRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeKey === "signal") {
+      api
+        .getSignalStatus()
+        .then((s) => {
+          setSigLinked(Boolean(s.linked));
+          if (s.linked) {
+            setSigPairStatus("linked");
+            if (s.phone) setSigPhone(s.phone);
+            if (s.uuid) setSigUuid(s.uuid);
+          }
+        })
+        .catch(() => {
+          /* ignore — endpoint may be 404 on older backends */
+        });
+    }
+    return () => {
+      stopSigPoll();
+    };
+  }, [activeKey, stopSigPoll]);
+
+  const handleSignalLink = useCallback(async () => {
+    stopSigPoll();
+    setSigPairLoading(true);
+    setSigQrImage("");
+    setSigPairStatus("starting");
+    try {
+      const data = await api.startSignalLink(sigDeviceName || "QwenPaw");
+      if (data.qr_image) {
+        setSigQrImage(data.qr_image);
+        setSigPairStatus(data.status || "waiting_qr");
+      }
+      // Poll for completion. Slightly longer interval than WhatsApp
+      // (3s) because signal-cli link rarely confirms in under 10s.
+      sigPollRef.current = setInterval(async () => {
+        try {
+          const s = await api.checkSignalLinkStatus();
+          if (s.status === "linked") {
+            stopSigPoll();
+            setSigQrImage("");
+            setSigPairStatus("linked");
+            setSigLinked(true);
+            if (s.phone) setSigPhone(s.phone);
+            if (s.uuid) setSigUuid(s.uuid);
+            setSigPairLoading(false);
+            form.setFieldsValue({
+              account: s.phone || "",
+              account_uuid: s.uuid || "",
+            });
+            message.success(t("channels.signalLinkSuccess"));
+          } else if (s.status === "error") {
+            stopSigPoll();
+            setSigPairStatus("error");
+            setSigPairLoading(false);
+            message.error(s.error || t("channels.signalLinkFailed"));
+          }
+        } catch {
+          /* transient — keep polling */
+        }
+      }, 3000);
+    } catch (err) {
+      const msg = (err as Error)?.message || t("channels.signalLinkFailed");
+      message.error(msg);
+      setSigPairStatus("error");
+    } finally {
+      setSigPairLoading(false);
+    }
+  }, [sigDeviceName, stopSigPoll, form, message, t]);
+
+  const handleSignalUnbind = useCallback(async () => {
+    stopSigPoll();
+    try {
+      await api.unbindSignal();
+      setSigLinked(false);
+      setSigPhone("");
+      setSigUuid("");
+      setSigQrImage("");
+      setSigPairStatus("idle");
+      form.setFieldsValue({ account: "", account_uuid: "" });
+      message.success(t("channels.signalUnlinkSuccess"));
+    } catch (err) {
+      const msg = (err as Error)?.message || t("channels.signalUnlinkFailed");
+      message.error(msg);
+    }
+  }, [stopSigPoll, form, message, t]);
 
   // ── Access control fields (shared across multiple channels) ──────────────
 
@@ -961,6 +1071,75 @@ export function ChannelDrawer({
       case "signal":
         return (
           <>
+            <Form.Item label={t("channels.signalConnection")}>
+              {sigLinked || sigPairStatus === "linked" ? (
+                <>
+                  <Alert
+                    type="success"
+                    showIcon
+                    message={t("channels.signalLinked")}
+                    description={
+                      sigPhone
+                        ? `${t("channels.signalLinkedAs")}: ${sigPhone}`
+                        : t("channels.signalSessionActive")
+                    }
+                    style={{ marginBottom: 12 }}
+                  />
+                  <Button
+                    danger
+                    block
+                    loading={sigPairLoading}
+                    onClick={handleSignalUnbind}
+                  >
+                    {t("channels.signalUnlinkDevice")}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Input
+                    placeholder={t("channels.signalDeviceNamePlaceholder")}
+                    value={sigDeviceName}
+                    onChange={(e) => setSigDeviceName(e.target.value)}
+                    style={{ marginBottom: 8 }}
+                  />
+                  <Button
+                    type="primary"
+                    block
+                    loading={sigPairLoading}
+                    onClick={handleSignalLink}
+                  >
+                    {t("channels.signalLinkDevice")}
+                  </Button>
+                  {sigQrImage && (
+                    <div style={{ textAlign: "center", marginTop: 12 }}>
+                      <img
+                        src={`data:image/png;base64,${sigQrImage}`}
+                        alt="Signal link QR"
+                        style={{ width: 220, height: 220 }}
+                      />
+                      <div
+                        style={{
+                          marginTop: 8,
+                          fontSize: 12,
+                          opacity: 0.7,
+                        }}
+                      >
+                        {t("channels.signalScanInstructions")}
+                      </div>
+                    </div>
+                  )}
+                  {sigPairStatus === "error" && (
+                    <div style={{ marginTop: 8 }}>
+                      <Alert
+                        type="error"
+                        showIcon
+                        message={t("channels.signalLinkFailed")}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </Form.Item>
             <Form.Item
               name="account"
               label={t("channels.signalAccount")}
@@ -982,6 +1161,13 @@ export function ChannelDrawer({
               tooltip={t("channels.signalCliPathTooltip")}
             >
               <Input placeholder={t("channels.signalCliPathPlaceholder")} />
+            </Form.Item>
+            <Form.Item
+              name="data_dir"
+              label={t("channels.signalDataDir")}
+              tooltip={t("channels.signalDataDirTooltip")}
+            >
+              <Input placeholder={t("channels.signalDataDirPlaceholder")} />
             </Form.Item>
             <Form.Item
               name="extra_args"

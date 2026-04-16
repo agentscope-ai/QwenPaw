@@ -41,10 +41,15 @@ class SignalSubprocessClient:
         account: str,
         signal_cli_path: str = "signal-cli",
         extra_args: Optional[List[str]] = None,
+        data_dir: Optional[Path | str] = None,
     ):
         self._account = account
         self._signal_cli_path = signal_cli_path
         self._extra_args = list(extra_args or [])
+        if data_dir is None or data_dir == "":
+            self._data_dir: Optional[Path] = None
+        else:
+            self._data_dir = Path(data_dir).expanduser()
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._reader_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
@@ -284,6 +289,9 @@ class SignalSubprocessClient:
 
     def _build_cmd(self) -> List[str]:
         cmd = [self._signal_cli_path]
+        # signal-cli requires -c BEFORE account-scoped flags like -a.
+        if self._data_dir is not None:
+            cmd += ["-c", str(self._data_dir)]
         if self._account:
             cmd += ["-a", self._account]
         cmd += ["--output=json", "jsonRpc"]
@@ -327,6 +335,17 @@ class SignalSubprocessClient:
             backoff = min(backoff * 2, _BACKOFF_MAX)
 
     async def _spawn_once(self) -> bool:
+        # Ensure the data-dir exists so signal-cli can create its SQLite
+        # store on first link. mkdir is a no-op on existing dirs.
+        if self._data_dir is not None:
+            try:
+                self._data_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                logger.error(
+                    "signal: failed to create data_dir %s: %s",
+                    self._data_dir, e,
+                )
+                return False
         cmd = self._build_cmd()
         logger.info("signal: spawning %s", " ".join(cmd))
         try:

@@ -339,3 +339,150 @@ def test_strip_bot_self_mention_name_with_id() -> None:
     ch = _make_channel()
     stripped = ch._strip_bot_self_mention("@Bot (+85251159218) hello")
     assert stripped == "hello"
+
+
+# ───────────────────────────── data_dir resolution ───────────────────
+
+def test_data_dir_resolves_from_explicit(tmp_path) -> None:
+    from qwenpaw.app.channels.signal.channel import _resolve_signal_data_dir
+    custom = tmp_path / "custom-dir"
+    resolved = _resolve_signal_data_dir(str(custom), None)
+    assert resolved == custom
+
+
+def test_data_dir_resolves_from_workspace_dir(tmp_path) -> None:
+    from qwenpaw.app.channels.signal.channel import _resolve_signal_data_dir
+    ws = tmp_path / "agent-ws"
+    resolved = _resolve_signal_data_dir("", ws)
+    assert resolved == ws / "credentials" / "signal" / "default"
+
+
+def test_data_dir_resolves_from_working_dir_fallback() -> None:
+    """With no workspace and no explicit path, falls back to WORKING_DIR."""
+    from qwenpaw.app.channels.signal.channel import (
+        _resolve_signal_data_dir,
+        _DEFAULT_DATA_DIR,
+    )
+    resolved = _resolve_signal_data_dir("", None)
+    assert resolved == _DEFAULT_DATA_DIR
+
+
+def test_data_dir_explicit_expands_tilde(tmp_path) -> None:
+    """Explicit ``~/foo`` is expanded to the user's home."""
+    from pathlib import Path as _P
+    from qwenpaw.app.channels.signal.channel import _resolve_signal_data_dir
+    resolved = _resolve_signal_data_dir("~/foo", None)
+    assert str(resolved).startswith(str(_P.home()))
+    assert resolved.name == "foo"
+
+
+def test_channel_stores_resolved_data_dir(tmp_path) -> None:
+    """SignalChannel(workspace_dir=...) picks up the workspace-scoped default."""
+    ws = tmp_path / "ws"
+    ch = _make_channel(workspace_dir=ws, account="+85251159218")
+    assert ch._data_dir == ws / "credentials" / "signal" / "default"
+
+
+# ───────────────────────────── subprocess -c flag ────────────────────
+
+def test_subprocess_cmd_includes_config_flag(tmp_path) -> None:
+    """data_dir string/Path produces `-c <path>` before `-a`."""
+    from qwenpaw.app.channels.signal.subprocess_client import (
+        SignalSubprocessClient,
+    )
+    target = tmp_path / "signal-data"
+    client = SignalSubprocessClient(
+        account="+85251159218",
+        data_dir=target,
+    )
+    cmd = client._build_cmd()
+    assert "-c" in cmd
+    c_idx = cmd.index("-c")
+    assert cmd[c_idx + 1] == str(target)
+    # -c must come before -a (signal-cli CLI requires it that way).
+    assert c_idx < cmd.index("-a")
+
+
+def test_subprocess_cmd_no_config_flag_when_unset() -> None:
+    """When data_dir is None or empty, -c flag is omitted (backward compat)."""
+    from qwenpaw.app.channels.signal.subprocess_client import (
+        SignalSubprocessClient,
+    )
+    for v in (None, ""):
+        client = SignalSubprocessClient(account="+1", data_dir=v)
+        cmd = client._build_cmd()
+        assert "-c" not in cmd, f"-c should not appear for data_dir={v!r}"
+
+
+# ───────────────────────────── mention prefix collision ──────────────
+
+def test_is_mentioned_plain_text_phone() -> None:
+    """Account +85298349370 in body '@+85298349370 hello' → mentioned."""
+    ch = _make_channel(account="+85298349370", account_uuid="")
+    assert ch._is_bot_mentioned({}, "@+85298349370 hello") is True
+
+
+def test_is_mentioned_phone_prefix_no_false_positive() -> None:
+    """Account +123 should NOT match body '@+12345 hi' (prefix collision)."""
+    ch = _make_channel(account="+123", account_uuid="")
+    assert ch._is_bot_mentioned({}, "@+12345 hi") is False
+
+
+def test_is_mentioned_uuid_word_boundary() -> None:
+    """UUID prefix requires a non-word char boundary (no substring match)."""
+    ch = _make_channel(account="", account_uuid="447e")
+    assert ch._is_bot_mentioned({}, "@447efoo") is False
+    assert ch._is_bot_mentioned({}, "@447e hello") is True
+
+
+def test_is_mentioned_via_structured_mention() -> None:
+    """Structured mentions dict (from signal-cli) marks bot mentioned."""
+    ch = _make_channel(
+        account="+85251159218",
+        account_uuid="82e0393a-1f09-4a0a-b000-000000000000",
+    )
+    mentions = [{"uuid": "82e0393a-1f09-4a0a-b000-000000000000"}]
+    assert ch._is_bot_mentioned({"mentions": mentions}, "") is True
+
+
+# ───────────────────────────── link-endpoint helpers ─────────────────
+
+def test_read_signal_accounts_missing_file(tmp_path) -> None:
+    from qwenpaw.app.routers.config import _read_signal_accounts
+    res = _read_signal_accounts(tmp_path / "does-not-exist")
+    assert res == {"accounts": []}
+
+
+def test_read_signal_accounts_valid_file(tmp_path) -> None:
+    import json as _json
+    from qwenpaw.app.routers.config import _read_signal_accounts
+    data_dir = tmp_path / "sig"
+    (data_dir / "data").mkdir(parents=True)
+    (data_dir / "data" / "accounts.json").write_text(_json.dumps({
+        "accounts": [{
+            "number": "+85298349370",
+            "uuid": "447e962a-0000-0000-0000-000000000000",
+            "path": "some/path",
+        }],
+    }))
+    res = _read_signal_accounts(data_dir)
+    assert res["accounts"][0]["number"] == "+85298349370"
+    assert res["accounts"][0]["uuid"].startswith("447e962a")
+
+
+def test_read_signal_accounts_malformed_file(tmp_path) -> None:
+    """Garbage JSON → empty accounts (treated as not-linked)."""
+    from qwenpaw.app.routers.config import _read_signal_accounts
+    data_dir = tmp_path / "sig"
+    (data_dir / "data").mkdir(parents=True)
+    (data_dir / "data" / "accounts.json").write_text("not json {{")
+    assert _read_signal_accounts(data_dir) == {"accounts": []}
+
+
+def test_get_signal_link_state_idempotent() -> None:
+    from qwenpaw.app.routers.config import _get_signal_link_state
+    s1 = _get_signal_link_state("test-agent-zzz")
+    s2 = _get_signal_link_state("test-agent-zzz")
+    # Same dict object — idempotent and preserves in-flight state.
+    assert s1 is s2
+    assert s1["status"] == "idle"

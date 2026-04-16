@@ -49,6 +49,54 @@ logger = logging.getLogger(__name__)
 SIGNAL_MAX_TEXT_LENGTH = 4000
 _MEDIA_DIR = WORKING_DIR / "media" / "signal"
 
+# Default data_dir: WORKING_DIR/credentials/signal/default when no
+# workspace_dir is passed. When a workspace_dir IS passed (agent-scoped
+# install), the default becomes workspace_dir/credentials/signal/default
+# so each agent gets its own signal-cli account store. Explicit ``data_dir``
+# in the channel config overrides both.
+_DEFAULT_DATA_DIR = WORKING_DIR / "credentials" / "signal" / "default"
+_LEGACY_DATA_DIR = Path.home() / ".local" / "share" / "signal-cli"
+_LEGACY_WARNED = False
+
+
+def _resolve_signal_data_dir(
+    explicit_data_dir: str,
+    workspace_dir: Optional[Path] = None,
+) -> Path:
+    """Compute signal-cli data-dir path consistently across channel + router.
+
+    Priority:
+      1. ``explicit_data_dir`` from channel config (expanduser applied)
+      2. ``workspace_dir/credentials/signal/default`` when workspace is set
+      3. ``WORKING_DIR/credentials/signal/default``
+
+    If the resolved path does not yet exist but signal-cli's global default
+    (``~/.local/share/signal-cli``) does, log a one-line warning — the user
+    may want to migrate their existing account data manually.
+    """
+    if explicit_data_dir:
+        resolved = Path(explicit_data_dir).expanduser()
+    elif workspace_dir is not None:
+        resolved = (
+            Path(workspace_dir).expanduser()
+            / "credentials" / "signal" / "default"
+        )
+    else:
+        resolved = _DEFAULT_DATA_DIR
+    global _LEGACY_WARNED
+    if (
+        not _LEGACY_WARNED
+        and not resolved.exists()
+        and _LEGACY_DATA_DIR.exists()
+    ):
+        logger.warning(
+            "signal: legacy data dir found at %s; consider moving its "
+            "contents to %s for per-agent isolation",
+            _LEGACY_DATA_DIR, resolved,
+        )
+        _LEGACY_WARNED = True
+    return resolved
+
 _UUID_LIKE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,
@@ -150,6 +198,7 @@ class SignalChannel(BaseChannel):
         enabled: bool = False,
         account: str = "",
         signal_cli_path: str = "signal-cli",
+        data_dir: str = "",
         extra_args: Optional[List[str]] = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
@@ -166,6 +215,7 @@ class SignalChannel(BaseChannel):
         ack_reaction_thinking: str = "🤔",
         ack_reaction_done: str = "👀",
         ack_reaction_error: str = "⚠️",
+        workspace_dir: Optional[Path] = None,
         **kwargs,
     ):
         super().__init__(
@@ -196,17 +246,22 @@ class SignalChannel(BaseChannel):
         self._group_history: Dict[str, list] = {}
         self._group_history_limit = 50
         self._sender_names: Dict[str, str] = {}
+        self._workspace_dir = workspace_dir
+        self._data_dir: Path = _resolve_signal_data_dir(
+            data_dir, workspace_dir,
+        )
 
         self.client = SignalSubprocessClient(
             account=account,
             signal_cli_path=signal_cli_path,
             extra_args=extra_args,
+            data_dir=self._data_dir,
         )
 
         if self.enabled:
             logger.info(
-                "signal: initialized (account=%s, signal_cli=%s)",
-                account, signal_cli_path,
+                "signal: initialized (account=%s, signal_cli=%s, data_dir=%s)",
+                account, signal_cli_path, self._data_dir,
             )
 
     @classmethod
@@ -232,6 +287,8 @@ class SignalChannel(BaseChannel):
             enabled=bool(c.get("enabled", False)),
             account=c.get("account") or "",
             signal_cli_path=c.get("signal_cli_path") or "signal-cli",
+            data_dir=c.get("data_dir") or "",
+            workspace_dir=workspace_dir,
             extra_args=c.get("extra_args") or [],
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
@@ -349,8 +406,15 @@ class SignalChannel(BaseChannel):
                             sender_id,
                         )
                         return
+                # Compute mention status once so channel_meta can reflect
+                # reality regardless of require_mention. In groups we use
+                # the real check; DMs are always implicitly addressed to
+                # the bot so they fall through to True below.
+                bot_mentioned_actual = self._is_bot_mentioned(
+                    data_message, body,
+                )
                 if self.require_mention:
-                    if not self._is_bot_mentioned(data_message, body):
+                    if not bot_mentioned_actual:
                         if body or downloaded_media:
                             media_paths = [m["path"] for m in downloaded_media]
                             sender_label = self._format_sender_display(
@@ -369,6 +433,8 @@ class SignalChannel(BaseChannel):
                                 ]
                         return
             else:
+                # DM: implicitly addressed to the bot.
+                bot_mentioned_actual = True
                 if self.dm_policy == "allowlist" and self.allow_from:
                     if not self._is_source_allowed(source, source_uuid):
                         return
@@ -508,7 +574,11 @@ class SignalChannel(BaseChannel):
                 "quote_timestamp": timestamp,
                 "quote_author": source or source_uuid,
                 "has_bot_command": has_bot_command,
-                "bot_mentioned": True,
+                # Reflects actual @mention detection, not "we passed the
+                # mention gate". DMs are implicitly True; groups use
+                # _is_bot_mentioned(). Avoids the round-8 WhatsApp bug
+                # where downstream consumers got hard-coded True.
+                "bot_mentioned": bot_mentioned_actual,
             }
             session_id = self.resolve_session_id(
                 source or source_uuid, channel_meta,
@@ -574,18 +644,30 @@ class SignalChannel(BaseChannel):
     # ── Access control / naming helpers ──────────────────────────────
 
     def _is_bot_mentioned(self, data_message: Dict[str, Any], body: str) -> bool:
+        # Structured mentions are the reliable signal (set by signal-cli
+        # from the wire protocol). Accept both uuid and phone matches.
         mentions = data_message.get("mentions") or []
         for m in mentions:
             if m.get("uuid") == self._account_uuid:
                 return True
             if m.get("number") == self._account:
                 return True
+        # Reply-to-bot counts as an implicit mention.
         quote = data_message.get("quote")
         if quote:
             qa = quote.get("author") or quote.get("authorUuid") or ""
             if qa == self._account or qa == self._account_uuid:
                 return True
-        if self._account and self._account in body:
+        # Plain-text fallback. Use a trailing non-digit / non-word guard so
+        # account "+123" doesn't falsely match body "@+12345 hello"
+        # (prefix-collision bug; identical to the WhatsApp round-3 fix).
+        if self._account and re.search(
+            rf"@\+?{re.escape(self._account.lstrip('+'))}(?!\d)", body,
+        ):
+            return True
+        if self._account_uuid and re.search(
+            rf"@{re.escape(self._account_uuid)}(?!\w)", body,
+        ):
             return True
         return False
 

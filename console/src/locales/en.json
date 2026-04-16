@@ -655,7 +655,26 @@
     "signalReplyToTriggerTooltip": "When enabled, the bot's reply quotes the triggering message, giving a clear thread in the Signal client.",
     "channelNames": {
       "signal": "Signal"
-    }
+    },
+    "signalConnection": "Connection",
+    "signalLinkDevice": "Link Device",
+    "signalUnlinkDevice": "Unlink Device",
+    "signalLinked": "Signal account linked",
+    "signalNotLinked": "No Signal account linked yet",
+    "signalLinkedAs": "Linked as",
+    "signalSessionActive": "signal-cli session is active for this agent",
+    "signalLinkInProgress": "Linking — scan the QR with Signal mobile",
+    "signalLinkSuccess": "Signal account linked successfully",
+    "signalLinkFailed": "Failed to link Signal account",
+    "signalUnlinkSuccess": "Signal account unlinked",
+    "signalUnlinkFailed": "Failed to unlink Signal account",
+    "signalScanInstructions": "In Signal mobile: Settings → Linked Devices → Link new device → scan this QR code",
+    "signalDeviceName": "Device Name",
+    "signalDeviceNamePlaceholder": "QwenPaw (shown in Signal's Linked Devices list)",
+    "signalDataDir": "Data Directory",
+    "signalDataDirTooltip": "signal-cli account data directory. Leave empty to use the per-agent default (<WORKING_DIR>/credentials/signal/default, or workspace-scoped when the agent has one).",
+    "signalDataDirPlaceholder": "Leave empty for the default; signal-cli's ~/.local/share/signal-cli/ is NOT used unless set here",
+    "signalUnbindConfirm": "Unlink this Signal account? signal-cli's local data will be removed and you'll need to re-scan the QR to reconnect."
   },
   "sessions": {
     "title": "Sessions",

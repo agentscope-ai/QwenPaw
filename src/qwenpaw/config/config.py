@@ -316,6 +316,14 @@ class SignalConfig(BaseChannelConfig):
     signal_cli_path: str = "signal-cli"
     """Path to the signal-cli binary. Looked up on PATH when not absolute."""
 
+    data_dir: str = ""
+    """signal-cli data directory (``-c`` flag). Empty means:
+    ``workspace_dir/credentials/signal/default`` when the agent has a
+    workspace, otherwise ``WORKING_DIR/credentials/signal/default``.
+    ``~``-expansion is applied. signal-cli's own default
+    (``~/.local/share/signal-cli/``) is never used unless explicitly
+    set here."""
+
     extra_args: List[str] = Field(default_factory=list)
     """Extra args to append to the signal-cli command line (e.g.
     ``["--trust-new-identities", "always"]``)."""
