@@ -32,7 +32,6 @@ export function ContextCompactCard({
     <Card
       className={styles.formCard}
       title={t("agentConfig.contextCompactTitle")}
-      style={{ marginTop: 16 }}
     >
       <Form.Item
         label={t("agentConfig.contextCompactEnabled")}

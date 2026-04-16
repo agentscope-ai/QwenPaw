@@ -26,6 +26,7 @@ export interface ToolResultCompactConfig {
 
 export interface MemorySummaryConfig {
   memory_summary_enabled: boolean;
+  dream_cron: string;
   force_memory_search: boolean;
   force_max_results: number;
   force_min_score: number;
@@ -47,6 +48,8 @@ export interface EmbeddingConfig {
 
 export interface AgentsRunningConfig {
   max_iters: number;
+  /** When true, inject a hint and one extra reasoning pass if the model returns text-only (no tool calls). */
+  auto_continue_on_text_only: boolean;
   llm_retry_enabled: boolean;
   llm_max_retries: number;
   llm_backoff_base: number;

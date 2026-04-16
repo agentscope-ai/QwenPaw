@@ -247,6 +247,7 @@
     "downloadedToWorkspace": "Downloaded to current workspace",
     "builtinUpgradeTitle": "Upgrade Built-in Skill",
     "builtinUpgradeContent": "A newer version of built-in skill \"{{name}}\" is available in the pool. Overwrite the current version?",
+    "overwriteExistingList": "The following skills already exist and will be overwritten:",
     "nameConflict": "Name conflict detected. Suggested rename has been filled.",
     "uploadToPoolHint": "Upload selected workspace skills to the shared local skill pool",
     "downloadFromPoolHint": "Download selected pool skills into the current workspace",
@@ -348,6 +349,8 @@
     "broadcastSuccess": "Broadcast completed",
     "broadcastFailed": "Broadcast failed",
     "overwriteConfirm": "Overwrite existing skills?",
+    "overwriteTargetsContent": "The following existing targets will be overwritten:",
+    "builtinOverwriteTargetsContent": "The following built-in targets have different versions and will be overwritten:",
     "renameAndRetry": "A skill with this name already exists. Use the suggested name?",
     "multiConflictTitle": "Multiple Conflicts Detected",
     "multiConflictDesc": "The following skills already exist. Please resolve conflicts individually and retry:",
@@ -473,7 +476,7 @@
     "runtimeMaxConcurrency": "Max Concurrency",
     "runtimeTimeoutSeconds": "Timeout (seconds)",
     "runtimeMisfireGraceSeconds": "Misfire Grace (seconds)",
-    "idTooltip": "Unique identifier for this job. Use lowercase letters, numbers, hyphens, and underscores.",
+    "idTooltip": "System-generated, non-editable, unique UUID assigned at task creation.",
     "nameTooltip": "A friendly name to help you identify this job.",
     "cronTooltip": "Define when the task should run",
     "cronExample": "Common examples: '0 9 * * *' = 9 AM daily | '*/30 * * * *' = every 30 min | '0 */2 * * *' = every 2 hours | '0 0 * * 0' = Sunday midnight",
@@ -576,6 +579,7 @@
     "feishuChina": "Feishu (China)",
     "feishuInternational": "Lark (International)",
     "weixinSetupGuide": "WeChat personal account Bot (iLink protocol). On first start without a Bot Token, a QR code login URL will be printed; scan to authorize. The token is saved locally for future use.",
+    "weixinContextTokenLimit": "⚠️ WeChat iLink platform limitation: each user message's context_token allows a maximum of 10 reply messages. This is a hard limit enforced by the platform and cannot be bypassed. It is recommended to disable thinking and tool output to avoid exceeding the limit and causing message send failures.",
     "weixinBotToken": "Bot Token",
     "weixinBotTokenTooltip": "Bearer token obtained after QR code login. Leave empty to trigger QR code login on startup.",
     "weixinBotTokenPlaceholder": "Auto-filled after QR login, or paste manually",
@@ -688,6 +692,7 @@
     "modelGenerateConfigHint": "Generation parameters expressed as a JSON object for this model. They will be expanded and passed into the generation request. These override provider-level advanced configuration.",
     "modelConfigSaved": "Configuration saved for model {{name}}",
     "modelConfigSaveFailed": "Failed to save model configuration",
+    "modelConfigLabel": "Model Config",
     "protocol": "Protocol",
     "protocolHint": "Choose the provider API protocol for this configuration.",
     "selectProtocol": "Please select a protocol",
@@ -739,6 +744,7 @@
     "actions": "Actions",
     "search": "Search",
     "searchPlaceholder": "Search providers...",
+    "searchModelPlaceholder": "Search models...",
     "custom": "Custom",
     "builtin": "Built-in",
     "addProvider": "Add Provider",
@@ -763,6 +769,7 @@
     "manageModelsTitle": "{{provider}} — Model Management",
     "userAdded": "User-added",
     "addModel": "Add Model",
+    "autoDiscoverModels": "Auto Discover Models",
     "addModelTitle": "Add Model to {{provider}}",
     "modelIdLabel": "Model ID",
     "modelIdPlaceholder": "e.g. gpt-4o, gemini-2.0-flash",
@@ -772,6 +779,9 @@
     "modelNamePlaceholder": "e.g. GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "Model \"{{name}}\" added",
     "modelAddFailed": "Failed to add model",
+    "autoDiscoverModelsSuccess": "Auto discovery complete. Added {{count}} models",
+    "autoDiscoverModelsNoNew": "Auto discovery complete. No new models were added",
+    "autoDiscoverModelsFailed": "Failed to auto discover models",
     "removeModel": "Remove",
     "removeModelConfirm": "Remove model \"{{name}}\" from {{provider}}?",
     "modelRemoved": "Model \"{{name}}\" removed",
@@ -899,6 +909,9 @@
     "tagImage": "Image",
     "tagVideo": "Video",
     "tagTextOnly": "Text Only",
+    "tagMultimodal": "Multimodal",
+    "tagVision": "Vision",
+    "tagText": "Text",
     "probeMultimodal": "Test Multimodal",
     "probeImage": "Image",
     "probeVideo": "Video",
@@ -974,6 +987,8 @@
     "maxItersPlaceholder": "Enter max iterations",
     "maxItersRequired": "Max iterations is required",
     "maxItersMin": "Max iterations must be at least 1",
+    "autoContinueOnTextOnly": "Auto-continue on text-only step",
+    "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -1047,6 +1062,9 @@
     "memorySummaryTitle": "Long-term Memory Config",
     "memorySummaryEnabled": "Activate Memory Summary",
     "memorySummaryEnabledTooltip": "Automatically generate and save memory summaries during context compaction",
+    "dreamCron": "Dream",
+    "dreamCronTooltip": "Cron expression for periodically optimizing long-term memories through dream state (leave empty to disable)",
+    "dreamCronPlaceholder": "0 23 * * *",
     "forceMemorySearch": "Force Memory Search (beta)",
     "forceMemorySearchTooltip": "Force memory search to run on every conversation turn. Each query will retrieve relevant memories, helping QwenPaw understand you better — but this increases token consumption. Note: enabling force memory search will break the KV cache, reducing cache hit rate. Use with caution.",
     "forceMaxResults": "Force Search Max Results",
@@ -1174,6 +1192,12 @@
       },
       "deny": {
         "description": "Deny the pending tool action"
+      },
+      "mission": {
+        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ This mode will bypass tool guardrails"
+      },
+      "skills": {
+        "description": "List chat-available skills and expose explicit skill commands"
       }
     },
     "attachments": {
@@ -1193,7 +1217,8 @@
       "noResults": "No results found",
       "resultsCount": "Found {{count}} result(s)",
       "userMessage": "User",
-      "assistantMessage": "Assistant"
+      "assistantMessage": "Assistant",
+      "titleMatch": "Title"
     }
   },
   "security": {

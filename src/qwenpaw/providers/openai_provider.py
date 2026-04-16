@@ -207,7 +207,8 @@ class OpenAIProvider(Provider):
         1. If the API rejects the request (400 / media-keyword error)
            → not supported.
         2. If accepted, verify the model can *actually perceive* the
-           image content via a semantic check (see _evaluate_image_response).
+           image content via a semantic check
+           (see ``evaluate_image_probe_answer``).
 
         Why a semantic check is necessary:
             Some models (e.g. qwen3-max via OpenAI-compatible API) silently
@@ -220,7 +221,9 @@ class OpenAIProvider(Provider):
         """
         from .multimodal_prober import (
             _PROBE_IMAGE_B64,
+            _IMAGE_PROBE_PROMPT,
             _is_media_keyword_error,
+            evaluate_image_probe_answer,
         )
 
         logger.info(
@@ -248,12 +251,7 @@ class OpenAIProvider(Provider):
                             },
                             {
                                 "type": "text",
-                                "text": (
-                                    "What is the single dominant "
-                                    "color of this image? Reply "
-                                    "with ONLY the color name, "
-                                    "nothing else."
-                                ),
+                                "text": _IMAGE_PROBE_PROMPT,
                             },
                         ],
                     },
@@ -261,10 +259,16 @@ class OpenAIProvider(Provider):
                 max_tokens=200,
                 timeout=timeout,
             )
-            return self._evaluate_image_response(
-                res,
+            answer = (res.choices[0].message.content or "").lower().strip()
+            reasoning = ""
+            msg = res.choices[0].message
+            if hasattr(msg, "reasoning_content") and msg.reasoning_content:
+                reasoning = msg.reasoning_content.lower()
+            return evaluate_image_probe_answer(
+                answer,
                 model_id,
                 start_time,
+                reasoning,
             )
         except APIError as e:
             elapsed = time.monotonic() - start_time
@@ -292,62 +296,6 @@ class OpenAIProvider(Provider):
                 elapsed,
             )
             return False, f"Probe failed: {e}"
-
-    @staticmethod
-    def _evaluate_image_response(
-        res,
-        model_id: str,
-        start_time: float,
-    ) -> tuple[bool, str]:
-        """Evaluate image probe response.
-
-        Detection criteria:
-            The probe image is a solid-red 16×16 PNG.  We ask the model
-            "What is the single dominant color?" and check whether the
-            reply (or reasoning_content for reasoning models) contains
-            "red" or "红".  If neither appears, the model likely cannot
-            perceive the image and we report False.
-        """
-        answer = (res.choices[0].message.content or "").lower().strip()
-        # Primary check: answer text contains a red-family color keyword.
-        # Models may describe the solid-red image as "red", "scarlet",
-        # "crimson", "vermilion", "maroon", "红" etc.
-        _RED_KW = ("red", "scarlet", "crimson", "vermilion", "maroon", "红")
-        if any(kw in answer for kw in _RED_KW):
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Image probe done: model=%s result=True %.2fs",
-                model_id,
-                elapsed,
-            )
-            return True, f"Image supported (answer={answer!r})"
-        # Fallback: some reasoning models (e.g. DeepSeek-R1) put the
-        # real analysis in reasoning_content rather than the final answer.
-        reasoning = ""
-        msg = res.choices[0].message
-        if hasattr(msg, "reasoning_content") and msg.reasoning_content:
-            reasoning = msg.reasoning_content.lower()
-        if reasoning and any(kw in reasoning for kw in _RED_KW):
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Image probe done: model=%s result=True %.2fs",
-                model_id,
-                elapsed,
-            )
-            return (
-                True,
-                f"Image supported (reasoning, answer={answer!r})",
-            )
-        elapsed = time.monotonic() - start_time
-        logger.info(
-            "Image probe done: model=%s result=False %.2fs",
-            model_id,
-            elapsed,
-        )
-        return (
-            False,
-            f"Model did not recognise image (answer={answer!r})",
-        )
 
     async def _probe_video_support(
         self,

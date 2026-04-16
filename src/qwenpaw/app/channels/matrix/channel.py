@@ -40,24 +40,19 @@ from nio import (
 )
 from nio.responses import JoinedMembersResponse, WhoamiResponse
 
-logger = logging.getLogger("qwenpaw.channels.matrix")
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    AudioContent,
+    ContentType,
+    FileContent,
+    ImageContent,
+    TextContent,
+    VideoContent,
+)
 
-# ---------------------------------------------------------------------------
-# Lazy import of QwenPaw base types so this file can be syntax-checked without
-# qwenpaw installed (it's only executed inside a qwenpaw environment).
-# ---------------------------------------------------------------------------
-try:
-    from qwenpaw.app.channels.base import BaseChannel
-    from agentscope_runtime.engine.schemas.agent_schemas import (
-        AudioContent,
-        ContentType,
-        FileContent,
-        ImageContent,
-        TextContent,
-        VideoContent,
-    )
-except ImportError:  # pragma: no cover
-    BaseChannel = object  # type: ignore[assignment,misc]
+from ....app.channels.base import BaseChannel
+from ....constant import WORKING_DIR
+
+logger = logging.getLogger("qwenpaw.channels.matrix")
 
 
 CHANNEL_KEY = "matrix"
@@ -483,7 +478,6 @@ class MatrixChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Sync loop — token persistence, catch-up, incremental sync, E2EE
     # maintenance
-    # next_batch file under QWENPAW_WORKING_DIR (§3);
     # catch-up sync suppresses replay; incremental sync; E2EE maintenance
     # between syncs when encryption on.
     # ------------------------------------------------------------------
@@ -491,12 +485,7 @@ class MatrixChannel(BaseChannel):
     @staticmethod
     def _sync_token_path() -> Optional[Path]:
         """Return the file path for persisting the Matrix sync token."""
-        wd = os.environ.get("QWENPAW_WORKING_DIR") or os.environ.get(
-            "COPAW_WORKING_DIR",
-        )
-        if wd:
-            return Path(wd) / "matrix_sync_token"
-        return None
+        return WORKING_DIR / "matrix_sync_token"
 
     def _load_sync_token(self) -> Optional[str]:
         """Load persisted next_batch token from disk, or None.
@@ -1028,19 +1017,7 @@ class MatrixChannel(BaseChannel):
 
     def _media_dir(self) -> Path:
         """Return (and create) the local media storage directory."""
-        try:
-            from qwenpaw.constant import WORKING_DIR
-
-            d = WORKING_DIR / "media"
-        except Exception as exc:
-            logger.debug(
-                "MatrixChannel: qwenpaw.constant.WORKING_DIR "
-                "unavailable (%s), using ~/.qwenpaw/media",
-                exc,
-            )
-            d = Path.home() / ".qwenpaw" / "media"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return WORKING_DIR / "media"
 
     async def _download_mxc(
         self,
@@ -1077,12 +1054,7 @@ class MatrixChannel(BaseChannel):
 
     def _e2ee_store_path(self) -> Path:
         """Return the directory for persisting Olm/Megolm crypto state."""
-        wd = os.environ.get("QWENPAW_WORKING_DIR") or os.environ.get(
-            "COPAW_WORKING_DIR",
-        )
-        if wd:
-            return Path(wd) / "matrix_crypto_store"
-        return Path.home() / ".qwenpaw" / "matrix_crypto_store"
+        return WORKING_DIR / "matrix_crypto_store"
 
     async def _download_encrypted_mxc(
         self,

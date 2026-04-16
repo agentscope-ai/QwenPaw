@@ -32,6 +32,8 @@ class MemoryCompactionHook:
     messages while summarizing older conversation history.
     """
 
+    _REENTRANCY_ATTR = "_memory_compact_hook_running"
+
     def __init__(self, memory_manager: "BaseMemoryManager"):
         """Initialize memory compaction hook.
 
@@ -81,6 +83,14 @@ class MemoryCompactionHook:
         Returns:
             None (hook doesn't modify kwargs)
         """
+        # Guard against duplicate execution caused by the metaclass
+        # wrapping _reasoning at multiple levels of the class hierarchy
+        # (QwenPawAgent._reasoning and ReActAgent._reasoning are both
+        # wrapped, so hooks fire twice per reasoning call).
+        if getattr(agent, self._REENTRANCY_ATTR, False):
+            return None
+        setattr(agent, self._REENTRANCY_ATTR, True)
+
         try:
             # Get hot-reloaded agent config
             agent_config = load_agent_config(self.memory_manager.agent_id)
@@ -209,5 +219,8 @@ class MemoryCompactionHook:
                 e,
                 exc_info=True,
             )
+
+        finally:
+            setattr(agent, self._REENTRANCY_ATTR, False)
 
         return None

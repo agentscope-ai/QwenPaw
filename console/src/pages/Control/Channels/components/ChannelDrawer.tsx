@@ -847,6 +847,12 @@ export function ChannelDrawer({
                 message={t("channels.weixinSetupGuide")}
                 style={{ marginBottom: 16 }}
               />
+              <Alert
+                type="warning"
+                showIcon
+                message={t("channels.weixinContextTokenLimit")}
+                style={{ marginBottom: 16 }}
+              />
             </ConfigProvider>
             <Form.Item label={t("channels.weixinScanLogin")}>
               <Button

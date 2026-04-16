@@ -140,16 +140,8 @@
   flex-direction: column;
   border: 1px solid rgba(0, 0, 0, 0.04);
   padding: 16px;
-  padding-bottom: 16px;
-
-  &.normal {
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-  }
-
-  &.hover {
-    border: 1px solid rgba(0, 0, 0, 0.04);
-  }
+  padding-bottom: 64px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 
   :global(.ant-card-body) {
     display: flex;
@@ -973,7 +965,7 @@
 }
 
 .modelList {
-  max-height: 360px;
+  max-height: 480px;
   overflow-y: auto;
   border: 1px solid #f0f0f0;
   border-radius: 8px;
@@ -1124,6 +1116,7 @@
 .modalActionRow {
   margin-top: 12px;
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
 }
 
@@ -1377,15 +1370,8 @@
   /* Provider card */
   .providerCard {
     background: #2a2a2a;
-
-    &.normal {
-      border-color: rgba(255, 255, 255, 0.08) !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-    }
-
-    &.hover {
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
-    }
+    border-color: rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
   }
 
   .cardName {

@@ -81,6 +81,84 @@ qwenpaw daemon version
 qwenpaw daemon logs -n 50
 ```
 
+### qwenpaw doctor
+
+对当前安装做**只读**检查：根目录 `config.json` 校验、工作区、`agent.json`、
+频道、MCP、控制台静态资源、HTTP API 可达性、活跃模型与各 Agent 模型连通性
+等。**单独运行 `doctor` 不会修复磁盘**；需要改文件时请使用子命令
+**`qwenpaw doctor fix`**（默认会在 `doctor-fix-backups/` 下备份后再写）。
+
+```bash
+qwenpaw doctor                      # 默认检查
+qwenpaw doctor --deep               # 额外：已启用频道出站探测 + 本地 llama 提示
+qwenpaw doctor --port 8088          # 强制指定 API 端口（见下文说明）
+qwenpaw doctor fix --dry-run        # 仅打印计划，不写盘
+qwenpaw doctor fix -y --only …      # 应用白名单内的修复项（详见 --help）
+```
+
+| 选项            | 作用对象 | 说明                                               |
+| --------------- | -------- | -------------------------------------------------- |
+| `--timeout`     | `doctor` | API / 连通性相关 HTTP 超时（默认 5 秒）            |
+| `--llm-timeout` | `doctor` | 模型连通性检测超时（默认 15 秒）                   |
+| `--deep`        | `doctor` | 对已启用频道做出站探测；`qwenpaw-local` 时附加说明 |
+
+**`doctor` 连的是哪个 host/port？** 根命令上的 `qwenpaw --host` /
+`--port` 对所有子命令生效（含 `doctor`）。若未指定，CLI 会用
+**`config.json` 里持久化的 `last_api`**（一般在 `qwenpaw app` 启动时写入）
+补全缺省项；**仅当没有 `last_api` 时**才回落到 `127.0.0.1:8088`。若发现
+检查打到了错误端口，可显式加 `--port`，或改配置里的 `last_api`。
+
+**`doctor fix`** 只会在工作目录范围内做保守修复。
+
+#### 推荐流程（先预览，再执行）
+
+```bash
+qwenpaw doctor fix --dry-run
+# 缩小到你明确想执行的修复项
+qwenpaw doctor fix --dry-run --only ensure-working-dir,ensure-workspace-dirs
+
+# 确认计划无误后再执行
+qwenpaw doctor fix --only ensure-working-dir,ensure-workspace-dirs
+```
+
+- `--dry-run` 仅打印计划，不写盘。
+- 若计划里包含只读校验（如 jobs.json 校验），FAIL 时仍会返回非 0 退出码
+  （便于 CI 使用）。
+
+#### 修复项（fix ids）
+
+可通过 `--only` 传入逗号分隔的 id。
+
+- 常见安示例：
+  - `ensure-working-dir`：工作目录不存在时创建
+  - `ensure-workspace-dirs`：创建缺失的 agent workspace 目录
+- 完整 fix ids 列表与风险说明请查看：
+  - `qwenpaw doctor fix --help`
+- 当 `qwenpaw doctor` 检测到问题时，输出里会给出对应的修复提示（含建议
+  的 `doctor fix --dry-run --only ...` 命令）。
+
+#### 修复项的安全执行方式
+
+示例：
+
+```bash
+qwenpaw doctor fix --dry-run --only seed-missing-agent-json,reset-invalid-agent-json
+qwenpaw doctor fix -y --only seed-missing-agent-json,reset-invalid-agent-json
+```
+
+- `-y` 仅在真实执行（不带 `--dry-run`）时生效。
+- `--non-interactive` 只允许安全 + 只读 + 技能同步类修复项
+
+#### 备份与恢复
+
+默认会写备份到：
+
+- `doctor-fix-backups/<时间戳>/files/`
+
+恢复时，将 `files/` 子树中的文件按相同相对路径复制回工作目录即可。
+
+> 除非你非常确定不需要回滚，否则不建议使用 `--no-backup`。
+
 ---
 
 ## 模型与环境变量
@@ -513,6 +591,7 @@ qwenpaw chats delete <chat_id>
 | ----------------------- | --------------------------------- |
 | `qwenpaw skills list`   | 列出所有技能及启用/禁用状态       |
 | `qwenpaw skills config` | 交互式启用/禁用技能（复选框界面） |
+| `qwenpaw skills info`   | 查看某个 workspace 技能的本地详情 |
 
 **多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
@@ -521,6 +600,8 @@ qwenpaw skills list                   # 看默认智能体的技能
 qwenpaw skills list --agent-id abc123 # 看特定智能体的技能
 qwenpaw skills config                 # 交互式配置默认智能体
 qwenpaw skills config --agent-id abc123 # 交互式配置特定智能体
+qwenpaw skills info [skill_name]               # 看默认智能体的技能详情
+qwenpaw skills info [skill_name] --agent-id abc123 # 看特定智能体的技能详情
 ```
 
 交互界面中：↑/↓ 选择、空格 切换、回车 确认。确认前会预览变更。

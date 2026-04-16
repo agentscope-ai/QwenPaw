@@ -88,6 +88,87 @@ qwenpaw daemon version
 qwenpaw daemon logs -n 50
 ```
 
+### qwenpaw doctor
+
+Read-only diagnostics for your install: root `config.json` validation,
+workspaces, `agent.json`, channels, MCP, static console bundle, API
+reachability, active LLM / per-agent model checks, and more. **`doctor` by
+itself does not repair files** — use the separate **`doctor fix`** subcommand
+when you intend to change disk (that path creates backups by default).
+
+```bash
+qwenpaw doctor                      # Default checks
+qwenpaw doctor --deep               # Extra: enabled-channel probes + local llama notes
+qwenpaw doctor --port 8088          # Force API target (see note below)
+qwenpaw doctor fix --dry-run        # Preview planned fixes (no writes)
+qwenpaw doctor fix -y --only …      # Apply allowlisted fixes (see --help)
+```
+
+| Option          | Applies to | Purpose                                                               |
+| --------------- | ---------- | --------------------------------------------------------------------- |
+| `--timeout`     | `doctor`   | HTTP timeout for API / connectivity checks (default 5s)               |
+| `--llm-timeout` | `doctor`   | Timeout for model “ping” checks (default 15s)                         |
+| `--deep`        | `doctor`   | Outbound probes for enabled channels; extra notes for `qwenpaw-local` |
+
+**Which host/port does `doctor` hit?** Global `qwenpaw --host` / `--port`
+apply to every subcommand, including `doctor`. If you omit them, the CLI
+fills missing values from **`last_api` in `config.json`** (updated when
+`qwenpaw app` last ran). Only when `last_api` is absent do you get
+`127.0.0.1:8088`. If checks target the wrong port, pass `--port` explicitly or
+update `last_api`.
+
+**`doctor fix`** applies conservative repairs under the working directory
+only.
+
+#### Recommended workflow (preview before apply)
+
+```bash
+qwenpaw doctor fix --dry-run
+# Narrow to the exact ids you want
+qwenpaw doctor fix --dry-run --only ensure-working-dir,ensure-workspace-dirs
+
+# Apply after you confirm the plan
+qwenpaw doctor fix --only ensure-working-dir,ensure-workspace-dirs
+```
+
+- `--dry-run` prints planned operations and does not write files.
+- Read-only validations in the plan (such as jobs.json validation) can still
+  return non-zero exit codes on FAIL (useful for CI gates).
+
+#### Fix ids at a glance
+
+Pass comma-separated ids with `--only`.
+
+- Common safe examples:
+  - `ensure-working-dir` - create working directory if missing
+  - `ensure-workspace-dirs` - create missing agent workspace directories
+- For the full list of fix ids and risk semantics, run:
+  - `qwenpaw doctor fix --help`
+- When `qwenpaw doctor` detects issues, output includes matching fix hints,
+  including suggested `doctor fix --dry-run --only ...` commands.
+
+#### Applying risky ids safely
+
+```bash
+qwenpaw doctor fix --dry-run --only seed-missing-agent-json,reset-invalid-agent-json
+qwenpaw doctor fix -y --only seed-missing-agent-json,reset-invalid-agent-json
+```
+
+- Risky ids require `-y` only when applying (without `--dry-run`).
+- `--non-interactive` allows only safe + read-only + skill-sync ids and still
+  rejects risky ids even with `-y`.
+
+#### Backups and restore
+
+By default, `doctor fix` writes backups to:
+
+- `doctor-fix-backups/<timestamp>/files/`
+
+Restore by copying files from the `files/` subtree back into your working
+directory using the same relative paths.
+
+> Avoid `--no-backup` unless you are sure you do not need rollback.
+
 ---
 
 ## Models & environment variables
@@ -525,6 +606,7 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 | ----------------------- | ------------------------------------------------- |
 | `qwenpaw skills list`   | Show all skills and their enabled/disabled status |
 | `qwenpaw skills config` | Interactively enable/disable skills (checkbox UI) |
+| `qwenpaw skills info`   | Show local details for one workspace skill        |
 
 **Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
@@ -533,6 +615,8 @@ qwenpaw skills list                   # See default agent's skills
 qwenpaw skills list --agent-id abc123 # See specific agent's skills
 qwenpaw skills config                 # Configure default agent
 qwenpaw skills config --agent-id abc123 # Configure specific agent
+qwenpaw skills info [skill_name]               # See default agent's skill details
+qwenpaw skills info [skill_name] --agent-id abc123 # See specific agent's skill details
 ```
 
 In the interactive UI: ↑/↓ to navigate, Space to toggle, Enter to confirm.

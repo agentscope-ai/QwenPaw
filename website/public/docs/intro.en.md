@@ -109,6 +109,6 @@ Each concept is explained in detail in its corresponding chapter.
    - [Magic Commands](./commands) — Use special commands to quickly control conversation state (like `/new` for new conversation, `/clear` to clear history, `/stop` to stop tasks, `/restart` to restart service, etc.) without waiting for AI to understand;
    - [Security](./security) — Configure tool protection, file protection, skill security scanning, and other security mechanisms;
    - [Heartbeat](./heartbeat) — Set up scheduled check-ins or digests (optional);
-   - [Scheduled tasks](./console#scheduled-tasks) or [CLI](./cli) — Manage scheduled tasks, clean working directory, etc.;
+   - [Scheduled tasks](./console#scheduled-tasks) or [CLI](./cli) — Scheduled tasks, `qwenpaw doctor` diagnostics, `qwenpaw doctor fix`, and more;
    - [Multi-Agent](./multi-agent) — Multi-agent configuration, management, and collaboration (v0.1.0+ feature);
    - [Config & working directory](./config) — Working directory and config file details.

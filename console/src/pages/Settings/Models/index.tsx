@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button, Input } from "@agentscope-ai/design";
-import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
   LoadingState,
@@ -34,6 +34,37 @@ function ModelsPage() {
       if (p.is_local) local.push(p);
       else regular.push(p);
     }
+
+    // Sort providers: custom/available first, then configured, then the rest.
+    // This mirrors the isConfigured logic in RemoteProviderCard.
+    const sortPriority = (provider: ProviderInfo): number => {
+      let isConfigured = false;
+      if (provider.id === "qwenpaw-local") {
+        isConfigured = true;
+      } else if (provider.is_custom && provider.base_url) {
+        isConfigured = true;
+      } else if (provider.require_api_key === false) {
+        isConfigured = true;
+      } else if (provider.require_api_key && provider.api_key) {
+        isConfigured = true;
+      }
+
+      const hasModels =
+        provider.models.length + provider.extra_models.length > 0;
+      const isAvailable = isConfigured && hasModels;
+
+      // Lower number = higher priority (shown first)
+      // Available providers (configured + has models) always come first,
+      // then custom providers, then configured-only, then unconfigured.
+      if (isAvailable && provider.is_custom) return 0;
+      if (isAvailable) return 1;
+      if (provider.is_custom) return 2;
+      if (isConfigured) return 3;
+      return 4;
+    };
+
+    regular.sort((a, b) => sortPriority(a) - sortPriority(b));
+
     // Fuzzy search filter: match provider name (case-insensitive)
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
@@ -91,19 +122,16 @@ function ModelsPage() {
                       placeholder={t("models.searchPlaceholder")}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      onPressEnter={() => {}}
                       className={styles.searchInput}
                       prefix={<SearchOutlined />}
                       allowClear
                     />
                     <Button
-                      type="primary"
-                      icon={<SearchOutlined />}
+                      icon={<SyncOutlined />}
                       onClick={() => fetchAll()}
                       className={styles.searchBtn}
-                    >
-                      {t("models.search")}
-                    </Button>
+                      title={t("common.refresh")}
+                    />
                   </div>
                   <Button
                     type="primary"

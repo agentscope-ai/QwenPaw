@@ -755,6 +755,7 @@
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
+  min-width: 0;
 
   &:hover {
     border-color: #ff7f16;
@@ -787,10 +788,15 @@
 }
 
 .pickerCardTitle {
+  display: block;
+  width: 100%;
   font-size: 14px;
   font-weight: 500;
   color: #1a1a1a;
-  word-break: break-all;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pickerCardMeta {
@@ -810,6 +816,7 @@
   padding: 8px 10px;
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 
 .compactPickerCheck {
@@ -823,6 +830,7 @@
 .compactPickerTitle {
   font-size: 12px;
   line-height: 1.25;
+  width: 100%;
   padding-right: 18px;
 }
 

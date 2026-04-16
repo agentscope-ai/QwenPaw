@@ -86,6 +86,6 @@ QwenPaw 由 [AgentScope 团队](https://github.com/agentscope-ai) 基于
    - [魔法命令](./commands) — 使用特殊命令快速控制对话状态（如 `/new` 开启新对话、`/clear` 清空历史、`/stop` 停止任务、`/restart` 重启服务等），无需等待 AI 理解；
    - [安全](./security) — 配置工具防护、文件防护、技能安全扫描等安全机制；
    - [心跳](./heartbeat) — 配置定时自检或摘要（可选）；
-   - [定时任务](./console#定时任务) 或 [CLI](./cli) — 管理定时任务、清空工作目录等；
+   - [定时任务](./console#定时任务) 或 [CLI](./cli) — 管理定时任务、`qwenpaw doctor` 诊断与 `qwenpaw doctor fix`、清空工作目录等；
    - [多智能体](./multi-agent) — 多智能体配置、管理与协作（v0.1.0+ 新功能）；
    - [配置与工作目录](./config) — 工作目录与配置文件说明。

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
+from agentscope.agent._react_agent import _MemoryMark
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
@@ -37,6 +38,7 @@ from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
     delegate_external_agent,
+    chat_with_agent,
     desktop_screenshot,
     edit_file,
     execute_shell_command,
@@ -44,6 +46,7 @@ from .tools import (
     get_token_usage,
     glob_search,
     grep_search,
+    list_agents,
     read_file,
     send_file_to_user,
     set_user_timezone,
@@ -54,6 +57,7 @@ from .tools import (
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..constant import (
+    MEDIA_UNSUPPORTED_PLACEHOLDER,
     WORKING_DIR,
 )
 from ..agents.memory import BaseMemoryManager
@@ -240,6 +244,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
             "delegate_external_agent": delegate_external_agent,
+            "list_agents": list_agents,
+            "chat_with_agent": chat_with_agent,
         }
 
         multimodal = get_active_model_supports_multimodal()
@@ -666,6 +672,113 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
+    _AUTO_CONTINUE_MAX_EXTRA = 2
+    _AUTO_CONTINUE_TAIL_CHARS = 600
+
+    _AUTO_CONTINUE_HINT_EN = (
+        "<system-hint>"
+        "Your previous assistant turn had text only (no tool calls). "
+        "Use the trailing excerpt in <previous-assistant-tail> (if present) "
+        "plus the conversation to decide in this **reasoning** step: if the "
+        "user's task still needs tools, emit tool_use now; if it is fully "
+        "done, reply with a short text only (no tools). "
+        "Do not stop with plans or code fences alone when tools are still "
+        "needed."
+        "</system-hint>"
+    )
+    _AUTO_CONTINUE_HINT_ZH = (
+        "<system-hint>"
+        "上轮助手仅文字、未调工具。请结合上下文与 <previous-assistant-tail> "
+        "（若有）在本轮推理中判断：仍需执行则立刻 tool；已完结则简短收尾。"
+        "需要操作时勿只输出计划或代码块。"
+        "</system-hint>"
+    )
+
+    def _auto_continue_system_hint(self) -> str:
+        """Pick hint by agent language (zh vs others)."""
+        raw_lang = getattr(self._agent_config, "language", None)
+        lang = (raw_lang or "").strip().lower()
+        if lang == "zh":
+            return self._AUTO_CONTINUE_HINT_ZH
+        return self._AUTO_CONTINUE_HINT_EN
+
+    @staticmethod
+    def _auto_continue_tail_context(msg: Msg, max_chars: int) -> str:
+        """Assistant text suffix for hint (fixed cut, not sentence NLP)."""
+        raw = msg.get_text_content() if msg is not None else ""
+        text = (raw or "").strip()
+        if not text:
+            return ""
+        if len(text) <= max_chars:
+            return text
+        return text[-max_chars:].lstrip()
+
+    async def _auto_continue_if_text_only(
+        self,
+        msg: Msg,
+        tool_choice: Literal["auto", "none", "required"] | None,
+    ) -> Msg:
+        """Nudge the model when it returns text-only mid-task.
+
+        Injects a language-matched hint (with a trailing excerpt of the
+        assistant text for self-review) and runs up to
+        ``_AUTO_CONTINUE_MAX_EXTRA`` extra ``_reasoning`` passes until a
+        tool_use appears or the cap is
+        hit.  Uses the original ``tool_choice`` unchanged (no switching).
+        If an extra pass still returns text-only, keep the prior response to
+        avoid repeated duplicated answers.
+        """
+        running = self._agent_config.running
+        if not running.auto_continue_on_text_only:
+            return msg
+        if msg is None or msg.has_content_blocks("tool_use"):
+            return msg
+
+        extra = 0
+        while extra < self._AUTO_CONTINUE_MAX_EXTRA:
+            if msg.has_content_blocks("tool_use"):
+                break
+            extra += 1
+            tail = self._auto_continue_tail_context(
+                msg,
+                self._AUTO_CONTINUE_TAIL_CHARS,
+            )
+            hint_body = self._auto_continue_system_hint()
+            if tail:
+                hint_body += (
+                    "\n\n<previous-assistant-tail>\n"
+                    f"{tail}\n"
+                    "</previous-assistant-tail>"
+                )
+            logger.info(
+                "Auto-continue: text-only (%d/%d); hint + _reasoning "
+                "tool_choice=%r",
+                extra,
+                self._AUTO_CONTINUE_MAX_EXTRA,
+                tool_choice,
+            )
+            hint_msg = Msg("user", hint_body, "user")
+            await self.memory.add(hint_msg, marks=_MemoryMark.HINT)
+            try:
+                next_msg = await super()._reasoning(tool_choice=tool_choice)
+            except Exception:
+                logger.warning(
+                    "Auto-continue extra _reasoning failed; "
+                    "keeping prior response",
+                    exc_info=True,
+                )
+                break
+            if next_msg.has_content_blocks("tool_use"):
+                msg = next_msg
+                continue
+            logger.info(
+                "Auto-continue extra _reasoning still text-only; "
+                "keeping prior response",
+            )
+            break
+
+        return msg
+
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -673,6 +786,17 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         Returns the number of blocks stripped.
         """
         return self._strip_media_blocks_from_memory()
+
+    def _uses_request_time_media_normalization(self) -> bool:
+        """Return True when request-time normalization can handle media."""
+        return getattr(self, "formatter", None) is not None
+
+    def _set_formatter_media_strip(self, enabled: bool) -> None:
+        """Toggle request-time media stripping on the active formatter."""
+        formatter = getattr(self, "formatter", None)
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
     async def _reasoning(
         self,
@@ -692,20 +816,44 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """
         # --- Proactive filtering layer ---
         if not get_active_model_supports_multimodal():
-            n = self._proactive_strip_media_blocks()
-            if n > 0:
-                logger.warning(
-                    "Proactively stripped %d media block(s) - "
-                    "model does not support multimodal.",
-                    n,
+            if self._uses_request_time_media_normalization():
+                logger.debug(
+                    "Formatter will strip media from copied messages "
+                    "before reasoning.",
                 )
+            else:
+                n = self._proactive_strip_media_blocks()
+                if n > 0:
+                    logger.warning(
+                        "Proactively stripped %d media block(s) - "
+                        "model does not support multimodal.",
+                        n,
+                    )
 
         # --- Passive fallback layer (existing logic) ---
         try:
-            return await super()._reasoning(tool_choice=tool_choice)
+            msg = await super()._reasoning(tool_choice=tool_choice)
         except Exception as e:
             if not self._is_bad_request_or_media_error(e):
                 raise
+
+            if self._uses_request_time_media_normalization():
+                if get_active_model_supports_multimodal():
+                    logger.warning(
+                        "Model marked multimodal but "
+                        "rejected media. "
+                        "Capability flag may be wrong.",
+                    )
+                self._set_formatter_media_strip(True)
+                try:
+                    logger.warning(
+                        "_reasoning failed (%s). "
+                        "Retrying with request-time media stripping.",
+                        e,
+                    )
+                    return await super()._reasoning(tool_choice=tool_choice)
+                finally:
+                    self._set_formatter_media_strip(False)
 
             n_stripped = self._strip_media_blocks_from_memory()
             if n_stripped == 0:
@@ -726,8 +874,11 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 e,
                 n_stripped,
             )
-            return await super()._reasoning(tool_choice=tool_choice)
+            msg = await super()._reasoning(tool_choice=tool_choice)
 
+        return await self._auto_continue_if_text_only(msg, tool_choice)
+
+    # pylint: disable=too-many-branches
     async def _summarizing(self) -> Msg:
         """Override summarizing with proactive media filtering,
         passive fallback, and tool_use block filtering.
@@ -745,13 +896,19 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """
         # --- Proactive filtering layer ---
         if not get_active_model_supports_multimodal():
-            n = self._proactive_strip_media_blocks()
-            if n > 0:
-                logger.warning(
-                    "Proactively stripped %d media block(s) - "
-                    "model does not support multimodal.",
-                    n,
+            if self._uses_request_time_media_normalization():
+                logger.debug(
+                    "Formatter will strip media from copied messages "
+                    "before summarizing.",
                 )
+            else:
+                n = self._proactive_strip_media_blocks()
+                if n > 0:
+                    logger.warning(
+                        "Proactively stripped %d media block(s) - "
+                        "model does not support multimodal.",
+                        n,
+                    )
 
         # --- Passive fallback layer ---
         self._in_summarizing = True
@@ -762,24 +919,42 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 if not self._is_bad_request_or_media_error(e):
                     raise
 
-                n_stripped = self._strip_media_blocks_from_memory()
-                if n_stripped == 0:
-                    raise
+                if self._uses_request_time_media_normalization():
+                    if get_active_model_supports_multimodal():
+                        logger.warning(
+                            "Model marked multimodal but "
+                            "rejected media. "
+                            "Capability flag may be wrong.",
+                        )
+                    self._set_formatter_media_strip(True)
+                    try:
+                        logger.warning(
+                            "_summarizing failed (%s). "
+                            "Retrying with request-time media stripping.",
+                            e,
+                        )
+                        msg = await super()._summarizing()
+                    finally:
+                        self._set_formatter_media_strip(False)
+                else:
+                    n_stripped = self._strip_media_blocks_from_memory()
+                    if n_stripped == 0:
+                        raise
 
-                if get_active_model_supports_multimodal():
+                    if get_active_model_supports_multimodal():
+                        logger.warning(
+                            "Model marked multimodal but "
+                            "rejected media. "
+                            "Capability flag may be wrong.",
+                        )
+
                     logger.warning(
-                        "Model marked multimodal but "
-                        "rejected media. "
-                        "Capability flag may be wrong.",
+                        "_summarizing failed (%s). "
+                        "Stripped %d media block(s) from memory, retrying.",
+                        e,
+                        n_stripped,
                     )
-
-                logger.warning(
-                    "_summarizing failed (%s). "
-                    "Stripped %d media block(s) from memory, retrying.",
-                    e,
-                    n_stripped,
-                )
-                msg = await super()._summarizing()
+                    msg = await super()._summarizing()
         finally:
             self._in_summarizing = False
 
@@ -897,10 +1072,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         ]
         return any(kw in error_str for kw in keywords)
 
-    _MEDIA_PLACEHOLDER = (
-        "[Media content removed - model does not support this media type]"
-    )
-
     def _strip_media_blocks_from_memory(self) -> int:
         """Remove media blocks (image/audio/video) from all messages.
 
@@ -919,12 +1090,14 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 continue
 
             new_content = []
+            stripped_this_message = 0
             for block in msg.content:
                 if (
                     isinstance(block, dict)
                     and block.get("type") in media_types
                 ):
                     total_stripped += 1
+                    stripped_this_message += 1
                     continue
 
                 if (
@@ -943,14 +1116,18 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                     ]
                     stripped_count = original_len - len(block["output"])
                     total_stripped += stripped_count
+                    stripped_this_message += stripped_count
                     if stripped_count > 0 and not block["output"]:
-                        block["output"] = self._MEDIA_PLACEHOLDER
+                        block["output"] = MEDIA_UNSUPPORTED_PLACEHOLDER
 
                 new_content.append(block)
 
-            if not new_content and total_stripped > 0:
+            if not new_content and stripped_this_message > 0:
                 new_content.append(
-                    {"type": "text", "text": self._MEDIA_PLACEHOLDER},
+                    {
+                        "type": "text",
+                        "text": MEDIA_UNSUPPORTED_PLACEHOLDER,
+                    },
                 )
 
             msg.content = new_content

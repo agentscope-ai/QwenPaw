@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CLI skill: list and interactively enable/disable workspace skills."""
+"""CLI skill: list, inspect, and interactively configure workspace skills."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,6 +9,7 @@ import click
 from ..agents.skills_manager import (
     SkillPoolService,
     SkillService,
+    get_workspace_skills_dir,
     read_skill_manifest,
     reconcile_pool_manifest,
     reconcile_workspace_manifest,
@@ -272,3 +273,44 @@ def list_cmd(agent_id: str) -> None:
 def configure_cmd(agent_id: str) -> None:
     """Interactively configure skills."""
     configure_skills_interactive(agent_id=agent_id)
+
+
+@skills_group.command("info")
+@click.argument("skill_name", required=True)
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+def info_cmd(
+    skill_name: str,
+    agent_id: str,
+) -> None:
+    """Show local details for a specific workspace skill."""
+    working_dir = _get_agent_workspace(agent_id)
+    reconcile_workspace_manifest(working_dir)
+
+    skill_service = SkillService(working_dir)
+    manifest = read_skill_manifest(working_dir).get("skills", {})
+    skill_map = {
+        skill.name: skill for skill in skill_service.list_all_skills()
+    }
+    skill = skill_map.get(skill_name)
+    if skill is None:
+        raise click.ClickException(
+            f"Skill '{skill_name}' was not found for agent '{agent_id}'.",
+        )
+
+    entry = manifest.get(skill_name, {})
+    channels = entry.get("channels") or ["all"]
+    enabled = bool(entry.get("enabled", False))
+    skill_dir = get_workspace_skills_dir(working_dir) / skill_name
+
+    click.echo(f"Skill: {skill.name}")
+    click.echo(f"Enabled: {'yes' if enabled else 'no'}")
+    click.echo(f"Channels: {', '.join(channels)}")
+    click.echo(f"Source: {skill.source}")
+    click.echo(f"Path: {skill_dir}")
+    click.echo(
+        "Description: " f"{skill.description or 'No description.'}",
+    )

@@ -23,7 +23,12 @@ from .message_processing import (
 )
 
 # Setup utilities
-from .setup_utils import copy_builtin_qa_md_files, copy_md_files
+from .setup_utils import (
+    copy_builtin_qa_md_files,
+    copy_md_files,
+    copy_template_md_files,
+    copy_workspace_md_files,
+)
 
 # Token counting
 from .token_counter import get_token_counter
@@ -49,6 +54,8 @@ __all__ = [
     # Setup utilities
     "copy_builtin_qa_md_files",
     "copy_md_files",
+    "copy_template_md_files",
+    "copy_workspace_md_files",
     # Token counting
     "get_token_counter",
     # Tool message utilities
