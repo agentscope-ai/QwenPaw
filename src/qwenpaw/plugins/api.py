@@ -113,7 +113,6 @@ class PluginApi:
                 callback=callback,
                 priority=priority,
             )
-            self._registered_startup_hooks.append(hook_name)
             logger.info(
                 f"Plugin '{self.plugin_id}' registered startup hook "
                 f"'{hook_name}' (priority={priority})",
@@ -146,7 +145,6 @@ class PluginApi:
                 callback=callback,
                 priority=priority,
             )
-            self._registered_shutdown_hooks.append(hook_name)
             logger.info(
                 f"Plugin '{self.plugin_id}' registered shutdown hook "
                 f"'{hook_name}' (priority={priority})",
@@ -174,3 +172,14 @@ class PluginApi:
                 f"Plugin '{self.plugin_id}' registered control command "
                 f"'{handler.command_name}' (priority={priority_level})",
             )
+
+    @property
+    def runtime(self):
+        """Access runtime helper functions.
+
+        Returns:
+            RuntimeHelpers instance or None
+        """
+        if self._registry:
+            return self._registry.get_runtime_helpers()
+        return None
