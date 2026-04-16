@@ -110,7 +110,7 @@ function ChannelPill({ iconSrc, name }: { iconSrc: string; name: string }) {
   );
 }
 
-export function CopawChannels() {
+export function Channels() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage === "zh";
 
@@ -127,34 +127,33 @@ export function CopawChannels() {
         variants={itemVariants}
       >
         <motion.h2
-          className="font-newsreader inline-block text-4xl font-semibold leading-[1.2] text-(--color-text) md:text-4xl"
+          className="font-newsreader text-2xl font-semibold leading-[1.2] text-(--color-text) sm:text-3xl md:text-4xl"
           variants={itemVariants}
         >
-          <span className="inline-flex items-center whitespace-nowrap">
-            <span className="mr-2">{t("channels.titleWe")}</span>
-            <img
-              src={
+          <span className="inline-flex flex-wrap items-center justify-center gap-x-2">
+            <span
+              className={`inline-flex items-center ${
                 isZh
-                  ? "https://img.alicdn.com/imgextra/i1/O1CN0187d8Zq1U51Qw6WTtl_!!6000000002465-2-tps-4167-981.png"
-                  : "https://img.alicdn.com/imgextra/i1/O1CN01achIdX1jY4nMdPgQN_!!6000000004559-55-tps-41-26.svg"
-              }
-              alt=""
-              className={`inline-block h-6 w-auto shrink-0 pr-0 sm:h-6 sm:pr-0.5 md:h-7 ${
-                isZh
-                  ? "mb-0 sm:mb-0 md:mb-0 md:translate-y-0"
-                  : "mb-1.5 sm:mb-2 md:mb-3 md:translate-y-[1px]"
+                  ? "whitespace-nowrap"
+                  : "flex-col sm:flex-row sm:whitespace-nowrap"
               }`}
-              aria-hidden
-            />
-            <span>{t("channels.titleOperateWith")}</span>
+            >
+              <span className="mr-2">{t("channels.titleWe")}</span>
+              <img
+                src="https://img.alicdn.com/imgextra/i4/O1CN01aJaU1x1eYT3UlTm19_!!6000000003883-55-tps-771-132.svg"
+                alt=""
+                className={`inline-block h-5 w-auto shrink-0 pr-0 sm:h-6 sm:pr-0.5 md:h-7 ${
+                  isZh
+                    ? "mb-1 sm:mb-0 md:mb-1 md:translate-y-0"
+                    : "mt-1 sm:mt-0 sm:mb-2 md:mb-3 md:translate-y-[1px]"
+                }`}
+                aria-hidden
+              />
+            </span>
+            <em className="italic text-[#301601] font-semibold">
+              {t("channels.titleEverything")}
+            </em>
           </span>
-          <em
-            className={`mt-1 block italic text-[#301601] md:mt-0 md:ml-1 md:inline ${
-              isZh ? "font-semibold" : "font-normal"
-            }`}
-          >
-            {t("channels.titleEverything")}
-          </em>
         </motion.h2>
         <motion.p
           className="font-inter mx-auto mt-3 max-w-3xl text-sm leading-relaxed text-(--color-text-tertiary) md:text-[1.03rem]"
@@ -166,7 +165,7 @@ export function CopawChannels() {
 
       <motion.div className="relative mt-12 w-full" variants={itemVariants}>
         <div className="group/row-top overflow-hidden">
-          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-1 will-change-transform animate-[copaw-channels-marquee-right_72s_linear_infinite] group-hover/row-top:[animation-play-state:paused]">
+          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-1 will-change-transform animate-[qwenpaw-channels-marquee-right_72s_linear_infinite] group-hover/row-top:[animation-play-state:paused]">
             {[...TOP_CHANNELS, ...TOP_CHANNELS].map((item, idx) => (
               <ChannelPill
                 key={`${item.name}-${idx}`}
@@ -178,7 +177,7 @@ export function CopawChannels() {
         </div>
 
         <div className="group/row-bottom mt-3 overflow-hidden">
-          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-2 will-change-transform animate-[copaw-channels-marquee-left_72s_linear_infinite] group-hover/row-bottom:[animation-play-state:paused]">
+          <div className="inline-flex w-max items-center gap-3 whitespace-nowrap py-2 will-change-transform animate-[qwenpaw-channels-marquee-left_72s_linear_infinite] group-hover/row-bottom:[animation-play-state:paused]">
             {[...TOP_CHANNELS, ...TOP_CHANNELS].map((item, idx) => (
               <ChannelPill
                 key={`${item.name}-bottom-${idx}`}

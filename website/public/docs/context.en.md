@@ -10,7 +10,7 @@ Imagine the LLM's context window as a **backpack with limited capacity** 🎒. E
 
 ### How It Works — Summary
 
-CoPaw context management uses two parallel offload paths to handle the limited context window:
+QwenPaw context management uses two parallel offload paths to handle the limited context window:
 
 | Mechanism                          | Triggered When                        | Offload Target            | What Stays in Context                    |
 | ---------------------------------- | ------------------------------------- | ------------------------- | ---------------------------------------- |
@@ -37,7 +37,7 @@ flowchart LR
 
 ### In-Memory Data Structure
 
-CoPaw's context consists of two components:
+QwenPaw's context consists of two components:
 
 ```mermaid
 flowchart TD
@@ -116,7 +116,7 @@ graph LR
 
 ### Related Code
 
-- [MemoryCompactionHook](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/hooks/memory_compaction.py)
+- [MemoryCompactionHook](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/hooks/memory_compaction.py)
 - [compact_tool_result](https://github.com/agentscope-ai/ReMe/blob/v0.3.1.6/reme/memory/file_based/components/tool_result_compactor.py)
 - [check_context](https://github.com/agentscope-ai/ReMe/blob/v0.3.1.6/reme/memory/file_based/components/context_checker.py)
 - [compact_memory](https://github.com/agentscope-ai/ReMe/blob/v0.3.1.6/reme/memory/file_based/components/compactor.py)
@@ -144,7 +144,7 @@ flowchart LR
 
 ## Compaction Mechanism
 
-When the context approaches its limit, CoPaw automatically triggers compaction, condensing old conversations into a structured summary.
+When the context approaches its limit, QwenPaw automatically triggers compaction, condensing old conversations into a structured summary.
 
 ### 1. compact_tool_result — Tool Result Compaction
 
@@ -263,7 +263,7 @@ graph TB
 
 ## Configuration
 
-Configuration is located in `~/.copaw/config.json` under `agents.running`:
+Configuration is located in `~/.qwenpaw/config.json` under `agents.running`:
 
 **`running` top-level fields:**
 

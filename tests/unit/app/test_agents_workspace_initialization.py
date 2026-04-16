@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from copaw.app.routers import agents as agents_router
+from qwenpaw.app.routers import agents as agents_router
 
 
 def _stub_global_config(language: str = "en") -> SimpleNamespace:
@@ -15,36 +15,18 @@ def _stub_global_config(language: str = "en") -> SimpleNamespace:
     )
 
 
-def test_copy_builtin_skills_targets_unified_skills_dir(monkeypatch, tmp_path):
-    """Builtin skills should seed into workspace ``skills/``."""
-    copied_targets: list[Path] = []
-
-    def _record_copytree(_source: Path, target: Path) -> None:
-        copied_targets.append(target)
-
-    monkeypatch.setattr(agents_router.shutil, "copytree", _record_copytree)
-
-    agents_router._copy_builtin_skills(tmp_path)
-
-    assert copied_targets
-    assert all(
-        target.parent == tmp_path / "skills" for target in copied_targets
-    )
-
-
 def test_initialize_agent_workspace_creates_runtime_compatible_files(
     monkeypatch,
     tmp_path,
 ):
     """New workspaces should match the runtime file contract."""
-    import copaw.config as config_module
+    import qwenpaw.config as config_module
 
     monkeypatch.setattr(
         config_module,
         "load_config",
         lambda: _stub_global_config("en"),
     )
-    monkeypatch.setattr(agents_router, "_copy_builtin_skills", lambda _: None)
     monkeypatch.setattr(
         agents_router,
         "_install_initial_skills",
@@ -72,14 +54,14 @@ def test_initialize_agent_workspace_creates_runtime_compatible_files(
     }
 
 
-def test_initialize_agent_workspace_builtin_qa_seed_passes_language_first(
+def test_initialize_agent_workspace_applies_md_template_with_language(
     monkeypatch,
     tmp_path,
 ):
-    """Builtin QA seeding should pass language before workspace."""
-    import copaw.config as config_module
+    """Workspace initialization should pass language and md_template_id."""
+    import qwenpaw.config as config_module
 
-    recorded_calls: list[tuple[str, Path]] = []
+    recorded_calls: list[tuple[str, Path, str | None]] = []
 
     monkeypatch.setattr(
         config_module,
@@ -88,12 +70,13 @@ def test_initialize_agent_workspace_builtin_qa_seed_passes_language_first(
     )
     monkeypatch.setattr(
         agents_router,
-        "copy_builtin_qa_md_files",
-        lambda language, workspace_dir: recorded_calls.append(
-            (language, Path(workspace_dir)),
+        "copy_workspace_md_files",
+        lambda language, workspace_dir, md_template_id=None: (
+            recorded_calls.append(
+                (language, workspace_dir, md_template_id),
+            )
         ),
     )
-    monkeypatch.setattr(agents_router, "_copy_builtin_skills", lambda _: None)
     monkeypatch.setattr(
         agents_router,
         "_install_initial_skills",
@@ -102,7 +85,7 @@ def test_initialize_agent_workspace_builtin_qa_seed_passes_language_first(
 
     agents_router._initialize_agent_workspace(
         tmp_path,
-        builtin_qa_md_seed=True,
+        md_template_id="qa",
     )
 
-    assert recorded_calls == [("ru", tmp_path)]
+    assert recorded_calls == [("ru", tmp_path, "qa")]

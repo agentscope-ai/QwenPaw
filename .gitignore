@@ -8,6 +8,10 @@ sessions_mount_dir/
 
 # testing
 /coverage
+.coverage
+coverage.xml
+htmlcov/
+htmlcov.zip
 
 # cookbook
 cookbook/_build
@@ -17,9 +21,9 @@ cookbook/_build
 dist/
 .wheelshim/
 # Console frontend build (generated in Docker/CI, do not commit)
-src/copaw/console/dist/
-src/copaw/console/
 console/.cursor/
+src/qwenpaw/console/dist/
+src/qwenpaw/console/
 
 # frontend (website)
 website/node_modules/

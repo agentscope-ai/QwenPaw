@@ -6,12 +6,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from copaw.config.config import (
+from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
     Config,
 )
-from copaw.app.routers import agents as agents_router
+from qwenpaw.app.routers import agents as agents_router
 
 
 def _build_config(
@@ -154,7 +154,7 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
     monkeypatch.setattr(
         agents_router,
         "_initialize_agent_workspace",
-        lambda workspace_dir, skill_names=None, builtin_qa_md_seed=False: None,
+        lambda workspace_dir, skill_names=None, md_template_id=None: None,
     )
     monkeypatch.setattr(
         agents_router,

@@ -1,5 +1,5 @@
 {
-  "name": "copaw-console",
+  "name": "qwenpaw-console",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "build:prod": "tsc -b && vite build --mode production",
     "build:test": "tsc -b && vite build --mode test",
-    "format": "tsc -b --noEmit && prettier --write .",
+    "format": "tsc -b --noEmit && prettier --write --cache .",
     "format:check": "tsc -b --noEmit && prettier --check .",
     "lint": "eslint .",
     "preview": "vite preview",

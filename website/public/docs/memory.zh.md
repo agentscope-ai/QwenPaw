@@ -1,6 +1,6 @@
 # 长期记忆
 
-**长期记忆** 让 CoPaw 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
+**长期记忆** 让 QwenPaw 拥有跨对话的持久记忆能力：通过文件工具将关键信息写入 Markdown 文件长期保存，并配合语义检索随时召回。
 
 > 长期记忆机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，由 [ReMe](https://github.com/agentscope-ai/ReMe) 的 **ReMeLight** 实现——以文件系统为存储后端，记忆即 Markdown 文件，可直接读取、编辑与迁移。
 
@@ -123,13 +123,14 @@ Embedding 配置用于向量语义搜索，配置优先级为：**配置文件 >
 
 在 `agent.json` 的 `running.memory_summary` 中配置：
 
-| 配置项                           | 说明                                                                        | 默认值  |
-| -------------------------------- | --------------------------------------------------------------------------- | ------- |
-| `memory_summary_enabled`         | 是否在上下文压缩时后台保存长期记忆（调用 `summary_memory` 写入文件）        | `true`  |
-| `force_memory_search` **(BETA)** | 是否在每次对话时强制执行记忆搜索，并将结果注入上下文                        | `false` |
-| `force_max_results`              | 强制搜索时最多返回的结果数                                                  | `1`     |
-| `force_min_score`                | 强制搜索时的最低相关性分数阈值（0.0 ~ 1.0）                                 | `0.3`   |
-| `rebuild_memory_index_on_start`  | 启动时是否清空并重建记忆搜索索引；设为 `false` 可跳过重建，仅监控新文件变更 | `false` |
+| 配置项                           | 说明                                                                        | 默认值         |
+| -------------------------------- | --------------------------------------------------------------------------- | -------------- |
+| `memory_summary_enabled`         | 是否在上下文压缩时后台保存长期记忆（调用 `summary_memory` 写入文件）        | `true`         |
+| `dream_cron`                     | 梦境记忆优化任务的 Cron 表达式（空字符串表示禁用）                          | `"0 23 * * *"` |
+| `force_memory_search` **(BETA)** | 是否在每次对话时强制执行记忆搜索，并将结果注入上下文                        | `false`        |
+| `force_max_results`              | 强制搜索时最多返回的结果数                                                  | `1`            |
+| `force_min_score`                | 强制搜索时的最低相关性分数阈值（0.0 ~ 1.0）                                 | `0.3`          |
+| `rebuild_memory_index_on_start`  | 启动时是否清空并重建记忆搜索索引；设为 `false` 可跳过重建，仅监控新文件变更 | `false`        |
 
 ---
 

@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import copaw.providers.provider_manager as provider_manager_module
-from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.provider_manager import (
+import qwenpaw.providers.provider_manager as provider_manager_module
+from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider_manager import (
     PROVIDER_SILICONFLOW_CN,
     PROVIDER_SILICONFLOW_INTL,
     ProviderManager,
@@ -28,7 +28,7 @@ def test_siliconflow_provider_configs() -> None:
     assert PROVIDER_SILICONFLOW_CN.name == "SiliconFlow (China)"
     assert PROVIDER_SILICONFLOW_CN.base_url == "https://api.siliconflow.cn/v1"
     assert PROVIDER_SILICONFLOW_CN.freeze_url is True
-    assert PROVIDER_SILICONFLOW_CN.support_model_discovery is True
+    assert PROVIDER_SILICONFLOW_CN.support_model_discovery is False
 
     assert PROVIDER_SILICONFLOW_INTL.id == "siliconflow-intl"
     assert PROVIDER_SILICONFLOW_INTL.name == "SiliconFlow (International)"
@@ -36,20 +36,20 @@ def test_siliconflow_provider_configs() -> None:
         PROVIDER_SILICONFLOW_INTL.base_url == "https://api.siliconflow.com/v1"
     )
     assert PROVIDER_SILICONFLOW_INTL.freeze_url is True
-    assert PROVIDER_SILICONFLOW_INTL.support_model_discovery is True
+    assert PROVIDER_SILICONFLOW_INTL.support_model_discovery is False
 
 
 def test_siliconflow_models_list() -> None:
     """Verify Siliconflow has no preset models (empty list)."""
-    assert PROVIDER_SILICONFLOW_CN.models == []
-    assert PROVIDER_SILICONFLOW_INTL.models == []
+    assert not PROVIDER_SILICONFLOW_CN.models
+    assert not PROVIDER_SILICONFLOW_INTL.models
     assert len(PROVIDER_SILICONFLOW_CN.models) == 0
     assert len(PROVIDER_SILICONFLOW_INTL.models) == 0
 
 
 @pytest.fixture
 def isolated_secret_dir(monkeypatch, tmp_path):
-    secret_dir = tmp_path / ".copaw.secret"
+    secret_dir = tmp_path / ".qwenpaw.secret"
     monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
     return secret_dir
 

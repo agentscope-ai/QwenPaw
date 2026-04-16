@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import {
   Button,
@@ -48,6 +48,18 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 
 dayjs.extend(relativeTime);
+
+type DownloadConflict =
+  | {
+      skill_name: string;
+      reason: "conflict";
+    }
+  | {
+      skill_name: string;
+      reason: "builtin_upgrade";
+      current_version_text: string;
+      source_version_text: string;
+    };
 
 function SkillsPage() {
   const { t } = useTranslation();
@@ -106,6 +118,18 @@ function SkillsPage() {
     hasMore,
     sentinelRef,
   } = useProgressiveRender(sortedSkills);
+
+  const confirmOverwrite = (title: string, content: ReactNode) =>
+    new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title,
+        content,
+        okText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
 
   const toggleSelect = (name: string) => {
     setSelectedSkills((prev) => {
@@ -273,14 +297,14 @@ function SkillsPage() {
     if (editingSkill) {
       const sourceName = editingSkill.name;
       const targetName = values.name;
-      try {
+      const saveEditedSkill = async (overwrite = false) => {
         const result = await api.saveSkill({
           name: targetName,
           content: values.content,
           source_name: sourceName !== targetName ? sourceName : undefined,
           config: values.config,
+          overwrite,
         });
-        // Parallel updates, only if values changed
         const sideUpdates: Promise<unknown>[] = [];
         const newChannels = values.channels || ["all"];
         if (
@@ -310,21 +334,30 @@ function SkillsPage() {
         setDrawerOpen(false);
         invalidateSkillCache({ agentId: selectedAgent });
         await refreshSkills();
+      };
+      try {
+        await saveEditedSkill();
       } catch (error) {
         const detail = parseErrorDetail(error);
-        if (detail?.suggested_name) {
-          const renameMap = await showConflictRenameModal([
-            {
-              key: targetName,
-              label: targetName,
-              suggested_name: detail.suggested_name,
-            },
-          ]);
-          if (renameMap) {
-            const newName = Object.values(renameMap)[0];
-            if (newName) {
-              await handleSubmit({ ...values, name: newName });
-            }
+        if (detail?.reason === "conflict") {
+          const confirmed = await confirmOverwrite(
+            t("skillPool.overwriteConfirm"),
+            <div style={{ display: "grid", gap: 8 }}>
+              <div>{t("skills.overwriteExistingList")}</div>
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                <li>{targetName}</li>
+              </ul>
+            </div>,
+          );
+          if (!confirmed) return;
+          try {
+            await saveEditedSkill(true);
+          } catch (retryError) {
+            message.error(
+              retryError instanceof Error
+                ? retryError.message
+                : t("common.save"),
+            );
           }
         } else {
           message.error(
@@ -374,30 +407,43 @@ function SkillsPage() {
   const handleUploadToPool = async (workspaceSkillNames: string[]) => {
     if (workspaceSkillNames.length === 0) return;
     try {
+      const conflictingNames: string[] = [];
       for (const skillName of workspaceSkillNames) {
-        let newName: string | undefined;
-        while (true) {
-          try {
-            await api.uploadWorkspaceSkillToPool({
-              workspace_id: selectedAgent,
-              skill_name: skillName,
-              new_name: newName,
-            });
-            break;
-          } catch (error) {
-            const detail = parseErrorDetail(error);
-            if (!detail?.suggested_name) throw error;
-            const renameMap = await showConflictRenameModal([
-              {
-                key: skillName,
-                label: skillName,
-                suggested_name: detail.suggested_name,
-              },
-            ]);
-            if (!renameMap) return;
-            newName = Object.values(renameMap)[0] || undefined;
+        try {
+          await api.uploadWorkspaceSkillToPool({
+            workspace_id: selectedAgent,
+            skill_name: skillName,
+            preview_only: true,
+          });
+        } catch (error) {
+          const detail = parseErrorDetail(error);
+          if (detail?.reason === "conflict") {
+            conflictingNames.push(skillName);
+            continue;
           }
+          throw error;
         }
+      }
+      if (conflictingNames.length > 0) {
+        const confirmed = await confirmOverwrite(
+          t("skillPool.overwriteConfirm"),
+          <div style={{ display: "grid", gap: 8 }}>
+            <div>{t("skills.overwriteExistingList")}</div>
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              {conflictingNames.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
+          </div>,
+        );
+        if (!confirmed) return;
+      }
+      for (const skillName of workspaceSkillNames) {
+        await api.uploadWorkspaceSkillToPool({
+          workspace_id: selectedAgent,
+          skill_name: skillName,
+          overwrite: conflictingNames.includes(skillName),
+        });
       }
       message.success(t("skills.uploadedToPool"));
       closePoolModal();
@@ -411,58 +457,84 @@ function SkillsPage() {
     }
   };
 
-  const handleDownloadFromPool = async (
-    poolSkillNames: string[],
-    overwrite?: boolean,
-  ) => {
+  const handleDownloadFromPool = async (poolSkillNames: string[]) => {
     if (poolSkillNames.length === 0) return;
     try {
+      const conflicts: DownloadConflict[] = [];
       for (const skillName of poolSkillNames) {
-        let targetName: string | undefined;
-        let shouldOverwrite = overwrite;
-        while (true) {
-          try {
-            await api.downloadSkillPoolSkill({
-              skill_name: skillName,
-              targets: [
-                {
-                  workspace_id: selectedAgent,
-                  target_name: targetName,
-                },
-              ],
-              overwrite: shouldOverwrite,
-            });
-            break;
-          } catch (error) {
-            const detail = parseErrorDetail(error);
-            const conflict = detail?.conflicts?.[0];
-            if (conflict?.reason === "builtin_upgrade") {
-              const confirmed = await new Promise<boolean>((resolve) => {
-                Modal.confirm({
-                  title: t("skills.builtinUpgradeTitle"),
-                  content: t("skills.builtinUpgradeContent", {
-                    name: conflict.skill_name || skillName,
-                  }),
-                  onOk: () => resolve(true),
-                  onCancel: () => resolve(false),
-                });
-              });
-              if (!confirmed) return;
-              shouldOverwrite = true;
-              continue;
-            }
-            if (!conflict?.suggested_name) throw error;
-            const renameMap = await showConflictRenameModal([
-              {
-                key: skillName,
-                label: skillName,
-                suggested_name: conflict.suggested_name,
-              },
-            ]);
-            if (!renameMap) return;
-            targetName = Object.values(renameMap)[0] || undefined;
+        try {
+          await api.downloadSkillPoolSkill({
+            skill_name: skillName,
+            targets: [{ workspace_id: selectedAgent }],
+            preview_only: true,
+          });
+        } catch (error) {
+          const detail = parseErrorDetail(error);
+          const returnedConflicts = Array.isArray(detail?.conflicts)
+            ? detail.conflicts
+            : [];
+          if (!returnedConflicts.length) {
+            throw error;
           }
+          conflicts.push(
+            ...returnedConflicts.map((conflict) =>
+              conflict?.reason === "builtin_upgrade"
+                ? {
+                    skill_name: conflict.skill_name || skillName,
+                    reason: "builtin_upgrade" as const,
+                    current_version_text: conflict.current_version_text || "",
+                    source_version_text: conflict.source_version_text || "",
+                  }
+                : {
+                    skill_name: conflict?.skill_name || skillName,
+                    reason: "conflict" as const,
+                  },
+            ),
+          );
         }
+      }
+      if (conflicts.length > 0) {
+        const allBuiltinUpgrades = conflicts.every(
+          (conflict) => conflict.reason === "builtin_upgrade",
+        );
+        const confirmed = await confirmOverwrite(
+          allBuiltinUpgrades
+            ? t("skills.builtinUpgradeTitle")
+            : t("skillPool.overwriteConfirm"),
+          <div style={{ display: "grid", gap: 8 }}>
+            <div>
+              {allBuiltinUpgrades
+                ? t("skillPool.builtinOverwriteTargetsContent")
+                : t("skills.overwriteExistingList")}
+            </div>
+            {conflicts.map((conflict) => (
+              <div key={conflict.skill_name}>
+                <strong>{conflict.skill_name}</strong>
+                {conflict.reason === "builtin_upgrade" ? (
+                  <>
+                    {"  "}
+                    {t("skillPool.currentVersion")}:{" "}
+                    {conflict.current_version_text || "-"}
+                    {"  ->  "}
+                    {t("skillPool.sourceVersion")}:{" "}
+                    {conflict.source_version_text || "-"}
+                  </>
+                ) : null}
+              </div>
+            ))}
+          </div>,
+        );
+        if (!confirmed) return;
+      }
+      for (const skillName of poolSkillNames) {
+        const shouldOverwrite = conflicts.some(
+          (conflict) => conflict.skill_name === skillName,
+        );
+        await api.downloadSkillPoolSkill({
+          skill_name: skillName,
+          targets: [{ workspace_id: selectedAgent }],
+          overwrite: shouldOverwrite,
+        });
       }
       message.success(t("skills.downloadedToWorkspace"));
       closePoolModal();
@@ -865,6 +937,7 @@ function SkillsPage() {
         open={drawerOpen}
         editingSkill={editingSkill}
         form={form}
+        availableTags={allTags}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />

@@ -38,6 +38,8 @@ export function JobDrawer({
   const { t } = useTranslation();
   const timezoneOptions = useTimezoneOptions();
 
+  const isEdit = !!editingJob;
+
   return (
     <Drawer
       width={600}
@@ -61,14 +63,15 @@ export function JobDrawer({
         onFinish={onSubmit}
         initialValues={DEFAULT_FORM_VALUES}
       >
-        <Form.Item
-          name="id"
-          label={t("cronJobs.id")}
-          rules={[{ required: true, message: t("cronJobs.pleaseInputId") }]}
-          tooltip={t("cronJobs.idTooltip")}
-        >
-          <Input placeholder={t("cronJobs.jobIdPlaceholder")} />
-        </Form.Item>
+        {isEdit && (
+          <Form.Item
+            name="id"
+            label={t("cronJobs.id")}
+            tooltip={t("cronJobs.idTooltip")}
+          >
+            <Input disabled placeholder={t("cronJobs.jobIdPlaceholder")} />
+          </Form.Item>
+        )}
 
         <Form.Item
           name="name"

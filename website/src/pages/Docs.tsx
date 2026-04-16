@@ -194,6 +194,7 @@ const DOC_GROUPS: DocGroup[] = [
     titleKey: "docs.groupOthers",
     children: [
       { slug: "faq", titleKey: "docs.faq" },
+      { slug: "api-tutorial", titleKey: "docs.apiTutorial" },
       { slug: "community", titleKey: "docs.community" },
       { slug: "contributing", titleKey: "docs.contributing" },
       { slug: "roadmap", titleKey: "docs.roadmap" },
