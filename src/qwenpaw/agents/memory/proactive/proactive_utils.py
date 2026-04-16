@@ -208,7 +208,6 @@ def load_json_safely(json_input) -> Optional[dict]:
                 brace_count -= 1
                 if brace_count == 0 and start_idx != -1:
                     try:
-                        # Fixed E203: removed space before colon in slice
                         return json.loads(json_input[start_idx : i + 1])
                     except json.JSONDecodeError:
                         continue
@@ -338,7 +337,9 @@ def _filter_recent_sessions(
     nowdate = ensure_tz_aware(datetime.now(timezone.utc))
     ts_date = nowdate - timedelta(days=days)
 
-    filtered_sessions = [s for s in sessions_to_read if s["mod_time"] >= ts_date]
+    filtered_sessions = [
+        s for s in sessions_to_read if s["mod_time"] >= ts_date
+    ]
 
     if len(filtered_sessions) < 5:
         sessions_to_read.sort(key=lambda x: x["mod_time"], reverse=True)

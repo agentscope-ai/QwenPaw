@@ -243,7 +243,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
             half = running_config.history_max_length // 2
             history_str = f"{history_str[:half]}\n...\n{history_str[-half:]}"
 
-        history_str += "\n\n---\n\n- Use /message <index> to view full message content"
+        history_str += (
+            "\n\n---\n\n- Use /message <index> to view full message content"
+        )
 
         # Add compact summary hint if available
         if self.memory.get_compressed_summary():
@@ -267,7 +269,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         task_count = len(self.memory_manager.summary_tasks)
         if task_count == 0:
             return await self._make_system_msg(
-                "**No Summary Tasks**\n\n" "- No pending summary tasks to wait for",
+                "**No Summary Tasks**\n\n"
+                "- No pending summary tasks to wait for",
             )
 
         result = await self.memory_manager.await_summary_tasks()
@@ -439,7 +442,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
                         # Check first message for summary marker
                         if (
                             i == 0
-                            and msg.metadata.get("has_compressed_summary") == "true"
+                            and msg.metadata.get("has_compressed_summary")
+                            == "true"
                         ):
                             has_summary_marker = True
                         if len(loaded_messages) >= MAX_LOAD_HISTORY_COUNT:
@@ -544,7 +548,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         if not args or args == "on":
             try:
-
                 result = enable_proactive_for_session(
                     self.agent_name,
                     30,
