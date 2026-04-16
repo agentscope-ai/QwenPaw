@@ -130,7 +130,7 @@ async def test_fetch_models_normalizes_and_deduplicates(monkeypatch) -> None:
 
     assert [m.id for m in models] == ["gemini-2.5-flash", "gemini-2.5-pro"]
     assert [m.name for m in models] == ["Gemini 2.5 Flash", "gemini-2.5-pro"]
-    assert provider.models == []
+    assert not provider.models
 
 
 async def test_fetch_models_api_error_returns_empty(monkeypatch) -> None:

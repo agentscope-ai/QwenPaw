@@ -1091,11 +1091,21 @@ class BaseChannel(ABC):
         pass
 
     def _response_to_text(self, response: "AgentResponse") -> str:
-        """Extract reply text from AgentResponse (last message in output)."""
+        """Extract reply text from the last ``message``-type output item.
+
+        Searches backwards so trailing reasoning / tool-output items are
+        skipped.
+        """
         if not response.output:
             return ""
-        last_msg = response.output[-1]
-        if last_msg.type != MessageType.MESSAGE or not last_msg.content:
+
+        last_msg = None
+        for msg in reversed(response.output):
+            if msg.type == MessageType.MESSAGE and msg.content:
+                last_msg = msg
+                break
+
+        if not last_msg:
             return ""
         parts = []
         for c in last_msg.content:

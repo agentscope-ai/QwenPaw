@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Dict, List, Type, Any
+from typing import TYPE_CHECKING, Any, Dict, List, Type
 from pydantic import BaseModel, Field
+from pydantic import ConfigDict
 
 from agentscope.model import ChatModelBase
 from qwenpaw.exceptions import ProviderError
@@ -68,6 +69,15 @@ class ExtendedModelInfo(ModelInfo):
 
 
 class ProviderInfo(BaseModel):
+    """Provider configuration and metadata."""
+
+    # Allow flexible typing for test environments where ModelInfo
+    # may be reloaded (different object identity)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_default=False,
+    )
+
     id: str = Field(..., description="Provider identifier")
     name: str = Field(..., description="Human-readable provider name")
     base_url: str = Field(default="", description="API base URL")
@@ -84,6 +94,7 @@ class ProviderInfo(BaseModel):
         default_factory=list,
         description="List of user-added models (not fetched from provider)",
     )
+
     api_key_prefix: str = Field(
         default="",
         description="Expected prefix for the API key (e.g., 'sk-')",

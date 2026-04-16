@@ -64,6 +64,10 @@ def sender_from_chatbot_message(incoming_message: Any) -> tuple[str, bool]:
     """Build sender as nickname#last4(sender_id).
     Return (sender, should_skip).
     """
+    # Skip bot's own messages
+    if getattr(incoming_message, "is_bot", False):
+        return "", True
+
     nickname = (
         getattr(incoming_message, "sender_nick", None)
         or getattr(incoming_message, "senderNick", None)
