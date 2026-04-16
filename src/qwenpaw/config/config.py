@@ -1059,6 +1059,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=False,
             description="Delegate work to an external ACP agent runner",
             icon="📡",
+        ),
         "list_agents": BuiltinToolConfig(
             name="list_agents",
             enabled=True,

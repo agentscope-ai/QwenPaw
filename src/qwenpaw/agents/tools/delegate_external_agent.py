@@ -54,7 +54,7 @@ def _request_context_chat_id() -> str:
     session_id = str(get_current_session_id() or "")
     if not session_id:
         raise ValueError(
-            "delegate_external_agent requires request context with a session_id; "
+            "delegate agent requires request context with a session_id; "
             "this tool can only run inside a bound chat session",
         )
     return session_id
@@ -263,17 +263,22 @@ async def delegate_external_agent(
     """
     Open, talk to, respond to permissions for, or close an ACP agent session.
 
-    1. Call `delegate_external_agent(action="start", runner=...)` to open a new
-       conversation.
-    2. Call `delegate_external_agent(action="message", runner=..., message=...)` to keep
-       talking.
+    1. Call delegate_external_agent(
+        action="start", runner=..., message=...
+        ) to open a new conversation.
+    2. Call delegate_external_agent(
+        action="message", runner=..., message=...
+        ) to keep talking.
     3. When a permission request appears, first ask the user which option to
        choose. Then call
-       `delegate_external_agent(action="respond", runner=..., message=...)` to respond
-       to the pending permission request. You must strictly choose one
-       option from the provided permission request, and the chosen option must
-       come from the exact options shown in that request.
-    4. Call `delegate_external_agent(action="close", runner=...)` to end the conversation.
+       delegate_external_agent(
+           action="respond", runner=..., message=...
+        ) to respond to the pending permission request. You must strictly
+        choose one option from the provided permission request, and the chosen
+        option must come from the exact options shown in that request.
+    4. Call delegate_external_agent(
+        action="close", runner=...
+        ) to end the conversation.
 
     Permission responses are always strict in the current ACP flow.
 
