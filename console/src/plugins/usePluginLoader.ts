@@ -107,9 +107,7 @@ function processRegistrations(registrations: PluginRegistration[]): {
   const toolConfig: ToolRenderConfig = {};
   const routes: PluginPageRoute[] = [];
 
-  for (const { manifest, capabilities } of registrations) {
-    const pluginName = manifest.name;
-
+  for (const { pluginId, capabilities } of registrations) {
     // Process tool renderers
     if (capabilities.toolRenderers) {
       for (const [toolName, component] of Object.entries(
@@ -117,7 +115,7 @@ function processRegistrations(registrations: PluginRegistration[]): {
       )) {
         if (typeof component === "function") {
           toolConfig[toolName] = component;
-          console.info(`[plugin:${pluginName}] Mapped tool "${toolName}"`);
+          console.info(`[plugin:${pluginId}] Mapped tool "${toolName}"`);
         }
       }
     }
@@ -129,14 +127,12 @@ function processRegistrations(registrations: PluginRegistration[]): {
           routes.push({
             path: route.path.startsWith("/")
               ? route.path
-              : `/plugin/${pluginName}/${route.path}`,
+              : `/plugin/${pluginId}/${route.path}`,
             label: route.label,
             icon: route.icon || "🔌",
             component: route.component,
           });
-          console.info(
-            `[plugin:${pluginName}] Registered route "${route.path}"`,
-          );
+          console.info(`[plugin:${pluginId}] Registered route "${route.path}"`);
         }
       }
     }

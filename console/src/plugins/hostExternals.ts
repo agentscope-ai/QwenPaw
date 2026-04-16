@@ -38,26 +38,19 @@ export interface PluginRouteDeclaration {
   icon?: string;
 }
 
-export interface PluginManifestArg {
-  name: string;
-  version: string;
-  description?: string;
-  entry?: { frontend?: string | null; backend?: string | null };
-}
-
 export interface PluginCapabilities {
   routes?: PluginRouteDeclaration[];
   toolRenderers?: Record<string, React.FC<any>>;
 }
 
 export interface PluginRegistration {
-  manifest: PluginManifestArg;
+  pluginId: string;
   capabilities: PluginCapabilities;
 }
 
 /** Callback type for `window.__registerPlugin`. */
 export type RegisterPluginFn = (
-  manifest: PluginManifestArg,
+  pluginId: string,
   capabilities: PluginCapabilities,
 ) => void;
 
@@ -97,13 +90,11 @@ export function installHostExternals(): void {
 
   if (!window.__registerPlugin) {
     window.__registerPlugin = (
-      manifest: PluginManifestArg,
+      pluginId: string,
       capabilities: PluginCapabilities,
     ) => {
-      window.__pluginRegistrations__!.push({ manifest, capabilities });
-      console.info(
-        `[plugin] Registered "${manifest.name}" v${manifest.version}`,
-      );
+      window.__pluginRegistrations__!.push({ pluginId, capabilities });
+      console.info(`[plugin] Registered "${pluginId}"`);
     };
   }
 }

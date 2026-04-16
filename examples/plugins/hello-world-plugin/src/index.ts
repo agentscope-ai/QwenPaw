@@ -207,13 +207,7 @@ function buildPlugin() {
   }
 
   // Register the plugin with the host
-  (window as any).__registerPlugin?.(
-    {
-      name: "hello-world-plugin",
-      version: "1.0.0",
-      description: "A minimal example plugin with a greeting dashboard.",
-    },
-    {
+  (window as any).__registerPlugin?.("hello-world-plugin", {
       routes: [
         {
           path: "/plugin/hello-world-plugin/dashboard",
