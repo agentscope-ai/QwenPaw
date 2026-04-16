@@ -169,7 +169,7 @@ jobs:
           # Test simple completion
           print('\\n🧪 Testing simple text completion...')
           messages = [
-              {"role": "user", "content": "What is 2 + 2? Answer in one short sentence."}
+              {\"role\": \"user\", \"content\": \"What is 2 + 2? Answer in one short sentence.\"}
           ]
           
           response = model(messages)
