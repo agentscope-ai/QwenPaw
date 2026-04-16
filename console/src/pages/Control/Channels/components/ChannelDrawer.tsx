@@ -29,6 +29,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "weixin",
   "imessage",
   "onebot",
+  "signal",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -52,6 +53,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
+  signal: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Signal",
 };
 
 // Doc ZH URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -72,6 +74,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
+  signal: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Signal",
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";
@@ -949,6 +952,104 @@ export function ChannelDrawer({
               label={t("channels.onebotShareSessionInGroup")}
               valuePropName="checked"
               tooltip={t("channels.onebotShareSessionInGroupTooltip")}
+            >
+              <Switch />
+            </Form.Item>
+          </>
+        );
+
+      case "signal":
+        return (
+          <>
+            <Form.Item
+              name="account"
+              label={t("channels.signalAccount")}
+              tooltip={t("channels.signalAccountTooltip")}
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="+85298349370" />
+            </Form.Item>
+            <Form.Item
+              name="account_uuid"
+              label={t("channels.signalAccountUuid")}
+              tooltip={t("channels.signalAccountUuidTooltip")}
+            >
+              <Input placeholder="447e962a-0000-0000-0000-000000000000" />
+            </Form.Item>
+            <Form.Item
+              name="signal_cli_path"
+              label={t("channels.signalCliPath")}
+              tooltip={t("channels.signalCliPathTooltip")}
+            >
+              <Input placeholder={t("channels.signalCliPathPlaceholder")} />
+            </Form.Item>
+            <Form.Item
+              name="extra_args"
+              label={t("channels.signalExtraArgs")}
+              tooltip={t("channels.signalExtraArgsTooltip")}
+              initialValue={[]}
+            >
+              <Select
+                mode="tags"
+                placeholder={t("channels.signalExtraArgsPlaceholder")}
+                tokenSeparators={[","]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="show_typing"
+              label={t("channels.signalShowTyping")}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="send_read_receipts"
+              label={t("channels.signalSendReadReceipts")}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="text_chunk_limit"
+              label={t("channels.signalTextChunkLimit")}
+              tooltip={t("channels.signalTextChunkLimitTooltip")}
+            >
+              <InputNumber
+                min={100}
+                max={10000}
+                style={{ width: "100%" }}
+                placeholder="4000"
+              />
+            </Form.Item>
+            <Form.Item
+              name="groups"
+              label={t("channels.signalGroups")}
+              tooltip={t("channels.signalGroupsTooltip")}
+              initialValue={[]}
+            >
+              <Select
+                mode="tags"
+                placeholder={t("channels.signalGroupsPlaceholder")}
+                tokenSeparators={[","]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="group_allow_from"
+              label={t("channels.signalGroupAllowFrom")}
+              tooltip={t("channels.signalGroupAllowFromTooltip")}
+              initialValue={[]}
+            >
+              <Select
+                mode="tags"
+                placeholder={t("channels.signalGroupAllowFromPlaceholder")}
+                tokenSeparators={[","]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="reply_to_trigger"
+              label={t("channels.signalReplyToTrigger")}
+              tooltip={t("channels.signalReplyToTriggerTooltip")}
+              valuePropName="checked"
             >
               <Switch />
             </Form.Item>

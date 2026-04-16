@@ -61,7 +61,9 @@
   "debug": {
     "title": "Debug",
     "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
-    "level": { "all": "All" },
+    "level": {
+      "all": "All"
+    },
     "backend": {
       "title": "Backend logs",
       "autoRefresh": "Auto refresh",
@@ -628,7 +630,32 @@
     "weixinLoginSuccess": "WeChat login successful, token has been filled in",
     "weixinQrcodeExpired": "QR code expired, please get a new one",
     "onebotShareSessionInGroup": "Share Session in Group",
-    "onebotShareSessionInGroupTooltip": "When enabled, all group members share the same conversation session. When disabled, each member has their own session."
+    "onebotShareSessionInGroupTooltip": "When enabled, all group members share the same conversation session. When disabled, each member has their own session.",
+    "signalAccount": "Bot Phone Number",
+    "signalAccountTooltip": "Linked Signal account in E.164 form (e.g. +85298349370). Must be already registered or linked with signal-cli before enabling.",
+    "signalAccountUuid": "Bot Account UUID",
+    "signalAccountUuidTooltip": "Bot account UUID (optional). Used for reliable mention detection in groups. Find with 'signal-cli -u <phone> listAccounts'.",
+    "signalCliPath": "signal-cli Path",
+    "signalCliPathTooltip": "Path to the signal-cli binary. Leave as 'signal-cli' to use PATH lookup, or specify an absolute path (e.g. /opt/signal-cli/bin/signal-cli).",
+    "signalCliPathPlaceholder": "Leave empty to use 'signal-cli' from PATH",
+    "signalExtraArgs": "Extra signal-cli Arguments",
+    "signalExtraArgsTooltip": "Extra arguments appended to the signal-cli command line. Useful flags include '--trust-new-identities always'.",
+    "signalExtraArgsPlaceholder": "--trust-new-identities, always",
+    "signalShowTyping": "Show Typing Indicator",
+    "signalSendReadReceipts": "Send Read Receipts",
+    "signalTextChunkLimit": "Text Chunk Limit",
+    "signalTextChunkLimitTooltip": "Maximum characters per outbound message. Longer replies are split into multiple messages. Default: 4000.",
+    "signalGroups": "Allowed Groups",
+    "signalGroupsTooltip": "Group IDs (base64) the bot participates in. Leave empty to accept messages from all groups the bot is in.",
+    "signalGroupsPlaceholder": "Base64 group IDs, comma separated",
+    "signalGroupAllowFrom": "Group Allow From",
+    "signalGroupAllowFromTooltip": "When set, only messages from these users (phone number or UUID) are accepted in groups. Empty means no per-user restriction.",
+    "signalGroupAllowFromPlaceholder": "+85251159218, 447e962a-...",
+    "signalReplyToTrigger": "Quote Original Message",
+    "signalReplyToTriggerTooltip": "When enabled, the bot's reply quotes the triggering message, giving a clear thread in the Signal client.",
+    "channelNames": {
+      "signal": "Signal"
+    }
   },
   "sessions": {
     "title": "Sessions",
@@ -972,7 +999,6 @@
     "perMillionIn": "/1M in",
     "perMillionOut": "/1M out"
   },
-
   "agentConfig": {
     "title": "Configuration",
     "description": "Configure agent runtime parameters",
