@@ -44,7 +44,7 @@ jobs:
 
       - name: Build console frontend
         run: |
-          cd console && pnpm install && pnpm run build
+          cd console && pnpm install --frozen-lockfile && pnpm run build
 
       - name: Copy console build into package
         run: |

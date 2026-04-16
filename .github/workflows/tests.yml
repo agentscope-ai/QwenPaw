@@ -64,7 +64,7 @@ jobs:
       - name: Build console frontend
         shell: bash
         run: |
-          cd console && pnpm install && pnpm run build
+          cd console && pnpm install --frozen-lockfile && pnpm run build
 
       - name: Copy console build into package
         shell: bash
@@ -133,7 +133,7 @@ jobs:
       - name: Build console frontend
         shell: bash
         run: |
-          cd console && pnpm install && pnpm run build
+          cd console && pnpm install --frozen-lockfile && pnpm run build
 
       - name: Copy console build into package
         shell: bash
@@ -205,7 +205,7 @@ jobs:
       - name: Build console frontend
         shell: bash
         run: |
-          cd console && pnpm install && pnpm run build
+          cd console && pnpm install --frozen-lockfile && pnpm run build
 
       - name: Copy console build into package
         shell: bash
