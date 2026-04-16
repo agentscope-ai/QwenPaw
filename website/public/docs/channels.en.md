@@ -743,7 +743,7 @@ The WhatsApp channel uses [neonize-qwenpaw](https://github.com/joe2643/neonize-q
 3. On your phone: **Settings → Linked Devices → Link with phone number** and type in the 8-character code (if using pair code), or scan the QR.
 4. After linking, the card shows **Linked** with the bot's phone number.
 
-The session is persisted under `~/.qwenpaw/credentials/whatsapp/default/neonize.db`. Restart CoPaw and the bot reconnects automatically — no re-pairing needed.
+The session is persisted under `$WORKING_DIR/credentials/whatsapp/default/neonize.db` (default `WORKING_DIR` is `~/.qwenpaw`; falls back to legacy `~/.copaw` if that directory exists, or `$QWENPAW_WORKING_DIR` if set). Restart QwenPaw and the bot reconnects automatically — no re-pairing needed.
 
 ### Configure
 
@@ -770,7 +770,7 @@ The session is persisted under `~/.qwenpaw/credentials/whatsapp/default/neonize.
 
 | Field                | Type    | Default            | Description                                                          |
 | -------------------- | ------- | ------------------ | -------------------------------------------------------------------- |
-| `auth_dir`           | string  | `""`               | Directory for neonize-qwenpaw session DB. Defaults to `~/.qwenpaw/credentials/whatsapp/default` |
+| `auth_dir`           | string  | `""`               | Directory for neonize-qwenpaw session DB. Defaults to `$WORKING_DIR/credentials/whatsapp/default` (follows `QWENPAW_WORKING_DIR` / legacy `~/.copaw` / `~/.qwenpaw`) |
 | `send_read_receipts` | bool    | `true`             | Send read receipts (double blue ticks)                               |
 | `self_chat_mode`     | bool    | `false`            | Process messages sent from the bot's own number (for self-commands)  |
 | `text_chunk_limit`   | int     | `4096`             | Maximum characters per outgoing message (longer replies are split)   |

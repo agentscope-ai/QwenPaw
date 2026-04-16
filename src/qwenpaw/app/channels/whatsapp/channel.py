@@ -44,6 +44,10 @@ logger = logging.getLogger(__name__)
 WHATSAPP_MAX_TEXT_LENGTH = 4096
 from ....constant import WORKING_DIR
 _MEDIA_DIR = WORKING_DIR / "media" / "whatsapp"
+# Default auth_dir: WORKING_DIR/credentials/whatsapp/default. Derived from
+# WORKING_DIR so QWENPAW_WORKING_DIR / legacy ~/.copaw / ~/.qwenpaw fallbacks
+# all line up. Override with explicit `auth_dir` in the agent's channel config.
+_DEFAULT_AUTH_DIR = WORKING_DIR / "credentials" / "whatsapp" / "default"
 
 try:
     from neonize.aioze.client import NewAClient
@@ -132,7 +136,7 @@ class WhatsAppChannel(BaseChannel):
             require_mention=require_mention,
         )
         self.enabled = enabled
-        self._auth_dir = Path(auth_dir).expanduser() if auth_dir else Path.home() / ".qwenpaw" / "credentials" / "whatsapp" / "default"
+        self._auth_dir = Path(auth_dir).expanduser() if auth_dir else _DEFAULT_AUTH_DIR
         self._send_read_receipts = send_read_receipts
         self._text_chunk_limit = text_chunk_limit
         self._self_chat_mode = self_chat_mode
@@ -220,7 +224,7 @@ class WhatsAppChannel(BaseChannel):
         new_auth_path = (
             Path(new_auth_dir).expanduser()
             if new_auth_dir
-            else Path.home() / ".qwenpaw" / "credentials" / "whatsapp" / "default"
+            else _DEFAULT_AUTH_DIR
         )
         if new_auth_path != self._auth_dir:
             logger.info("whatsapp: update_config: auth_dir changed, needs restart")

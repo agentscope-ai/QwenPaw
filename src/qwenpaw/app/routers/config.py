@@ -667,9 +667,17 @@ def _get_wa_pair_state(agent_id: str) -> dict:
 
 
 def _get_wa_auth_dir(agent) -> str:
-    """Resolve WhatsApp auth directory from agent config."""
+    """Resolve WhatsApp auth directory from agent config.
+
+    Default is ``WORKING_DIR/credentials/whatsapp/default`` so the router,
+    the channel class, and any tooling all read/write the same location
+    regardless of whether WORKING_DIR is ``~/.qwenpaw`` (fresh install),
+    ``~/.copaw`` (legacy), or a custom ``$QWENPAW_WORKING_DIR``.
+    """
+    from ...constant import WORKING_DIR
+    default_dir = str(WORKING_DIR / "credentials" / "whatsapp" / "default")
     wa_cfg = getattr(agent.config.channels, "whatsapp", None)
-    auth_dir = "~/.copaw/credentials/whatsapp/default"
+    auth_dir = default_dir
     if wa_cfg:
         auth_dir = getattr(wa_cfg, "auth_dir", auth_dir) or auth_dir
     return auth_dir
