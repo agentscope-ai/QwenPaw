@@ -1,6 +1,6 @@
 # CoPaw Test & Coverage Makefile
 
-.PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-sa coverage-html clean
+.PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-full clean
 
 # Python path
 PYTHON := python
@@ -22,15 +22,6 @@ test-contract:
 test-integration:
 	$(PYTEST) tests/integration/ -v --tb=short
 
-# S-A modules coverage (Critical + Core)
-coverage-sa:
-	@echo "Running coverage for S级/A级 modules..."
-	$(PYTEST) tests/unit/ -v \
-		--cov-config=.coveragerc-s-a-only \
-		--cov-report=term-missing \
-		--cov-report=html
-	@echo "HTML report: htmlcov-sa/index.html"
-
 # Full coverage (all modules)
 coverage-full:
 	$(PYTEST) tests/unit/ tests/integration/ -v \
@@ -44,7 +35,7 @@ check-contracts:
 
 # Clean generated files
 clean:
-	rm -rf htmlcov/ htmlcov-sa/ .pytest_cache/
+	rm -rf htmlcov/ .pytest_cache/
 	rm -f coverage.xml coverage-sa.xml .coverage
 
 # Quick check (fast feedback)
