@@ -5,14 +5,14 @@ import { useTranslation } from "react-i18next";
 import {
   ExportOutlined,
   LinkOutlined,
-  CopyOutlined,
+  SnippetsOutlined,
   CloseOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   DownOutlined,
   PaperClipOutlined,
 } from "@ant-design/icons";
-import { isSupportedSkillUrl, skillMarkets, type SkillMarket } from "./index";
+import { skillMarkets, type SkillMarket } from "./index";
 import styles from "./ImportHubModal.module.less";
 
 interface ImportHubModalProps {
@@ -24,29 +24,27 @@ interface ImportHubModalProps {
   hint?: string;
 }
 
-function validateUrl(
-  url: string,
-): { ok: true; source: string } | { ok: false; message: string } {
+type ValidationResult =
+  | { ok: true; source: string }
+  | { ok: false; messageKey: string };
+
+function validateUrl(url: string): ValidationResult {
   const trimmed = url.trim();
   if (!trimmed) {
-    return { ok: false, message: "" };
+    return { ok: false, messageKey: "" };
   }
 
   try {
     new URL(trimmed);
   } catch {
-    return { ok: false, message: "Invalid URL format" };
+    return { ok: false, messageKey: "skills.invalidUrl" };
   }
 
   const source = skillMarkets.find((m) =>
     trimmed.toLowerCase().startsWith(m.urlPrefix.toLowerCase()),
   );
   if (!source) {
-    return { ok: false, message: "Unsupported source" };
-  }
-
-  if (!isSupportedSkillUrl(trimmed)) {
-    return { ok: false, message: "URL format not supported" };
+    return { ok: false, messageKey: "skills.invalidSkillUrlSource" };
   }
 
   return { ok: true, source: source.name };
@@ -83,7 +81,7 @@ export function ImportHubModal({
 
   const inputStateClass = validation.ok
     ? styles.valid
-    : validation.message
+    : validation.messageKey
     ? styles.invalid
     : "";
 
@@ -123,11 +121,7 @@ export function ImportHubModal({
         </div>
       }
     >
-      {hint && (
-        <p style={{ margin: "0 0 12px", fontSize: 13, color: "#666" }}>
-          {hint}
-        </p>
-      )}
+      {hint && <p className={styles.hintText}>{hint}</p>}
 
       <div className={styles.urlInputSection}>
         <div className={`${styles.inputWrapper} ${inputStateClass}`}>
@@ -164,7 +158,7 @@ export function ImportHubModal({
             type="button"
             aria-label={t("common.paste")}
           >
-            <CopyOutlined />
+            <SnippetsOutlined />
           </button>
         </div>
 
@@ -174,10 +168,10 @@ export function ImportHubModal({
               <CheckCircleOutlined />
               {t("skills.urlValid", { source: validation.source })}
             </span>
-          ) : validation.message ? (
+          ) : validation.messageKey ? (
             <span className={styles.invalid}>
               <CloseCircleOutlined />
-              {validation.message}
+              {t(validation.messageKey)}
             </span>
           ) : importing ? (
             <span className={styles.validating}>
@@ -232,7 +226,7 @@ export function ImportHubModal({
             <div className={styles.sourceCardMeta}>
               {market.examples.length > 0 && (
                 <>
-                  {market.examples.length} examples
+                  {market.examples.length} {t("skills.examples")}
                   <DownOutlined
                     className={`${styles.sourceCardArrow} ${
                       activeMarket === market.key ? styles.active : ""

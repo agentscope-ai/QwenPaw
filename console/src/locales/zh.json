@@ -24,7 +24,9 @@
     "help": "帮助",
     "close": "关闭",
     "actions": "操作",
-    "total": "共 {{count}} 条"
+    "total": "共 {{count}} 条",
+    "clear": "清除",
+    "paste": "粘贴"
   },
   "chunkError": {
     "title": "页面加载失败",

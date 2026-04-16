@@ -708,6 +708,10 @@ def _safe_fallback_name(raw: str) -> str:
 
 
 def _extract_error_message_from_payload(payload: bytes) -> str:
+    if not payload:
+        return ""
+    if not _is_probably_text_blob(payload):
+        return ""
     text = payload.decode("utf-8", errors="ignore").strip()
     if not text:
         return ""

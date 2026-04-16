@@ -28,6 +28,15 @@
 }
 
 // ============================================
+// Hint Text
+// ============================================
+.hintText {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #666;
+}
+
+// ============================================
 // URL Input Section
 // ============================================
 .urlInputSection {
@@ -145,7 +154,7 @@
   display: flex;
   align-items: center;
   margin: 20px 0;
-  color: #999;
+  color: #666;
   font-size: 13px;
   text-align: center;
 
@@ -371,6 +380,10 @@
 // Dark Mode
 // ============================================
 :global(.dark-mode) {
+  .hintText {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
   .importHubModal {
     :global(.ant-modal-content) {
       background: #1f1f1f;
@@ -445,7 +458,7 @@
   }
 
   .divider {
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.55);
 
     &::before,
     &::after {

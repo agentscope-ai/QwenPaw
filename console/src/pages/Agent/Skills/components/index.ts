@@ -78,6 +78,18 @@ export const skillMarkets: SkillMarket[] = [
     ],
   },
   {
+    key: "market.lobehub",
+    name: "LobeHub Market",
+    homepage: "https://market.lobehub.com",
+    urlPrefix: "https://market.lobehub.com/",
+    examples: [
+      {
+        label: "cli-developer",
+        url: "https://market.lobehub.com/api/v1/skills/openclaw-skills-cli-developer/download",
+      },
+    ],
+  },
+  {
     key: "github",
     name: "GitHub",
     homepage: "https://github.com",

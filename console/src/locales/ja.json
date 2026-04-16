@@ -21,7 +21,9 @@
     "copied": "クリップボードにコピーしました",
     "copyFailed": "クリップボードへのコピーに失敗しました",
     "contentPlaceholder": "内容を入力してください...",
-    "close": "閉じる"
+    "close": "閉じる",
+    "clear": "クリア",
+    "paste": "貼り付け"
   },
   "chunkError": {
     "title": "ページの読み込みに失敗しました",

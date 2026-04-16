@@ -24,7 +24,9 @@
     "help": "Help",
     "close": "Close",
     "actions": "Actions",
-    "total": "Total {{count}}"
+    "total": "Total {{count}}",
+    "clear": "Clear",
+    "paste": "Paste"
   },
   "chunkError": {
     "title": "Failed to load page",
