@@ -6,9 +6,8 @@
  *
  * ## Plugin contract
  *
- * The module must default-export a `register(host)` function that returns
- * an object mapping component names to React components.  The backend
- * `plugin.json` declares which component is used for which page route.
+ * The plugin JS calls `window.__registerPlugin(manifest, capabilities)`
+ * to register its routes, tool renderers, and other UI capabilities.
  *
  * ## Build & Install
  *
@@ -16,23 +15,15 @@
  *   cp -r ../  ~/.qwenpaw/plugins/hello-world-plugin
  */
 
-interface PluginHost {
-  React: any;
-  antd: any;
-  getApiUrl: (path: string) => string;
-}
-
-export default function register(host: PluginHost) {
-  const { React, antd } = host;
+function buildPlugin() {
+  const { React, antd } = (window as any).__QWENPAW__;
   const { Card, Typography, Space, Tag, Divider, Button } = antd;
-  const { Title, Paragraph, Text } = Typography;
+  const { Title, Paragraph, Text: AntText } = Typography;
   const { useState, useEffect, useCallback } = React;
 
   /**
-   * HelloDashboard — the main page component.
-   *
-   * This name must match the `component` field in plugin.json's
-   * `meta.ui.pages[].component`.
+   * HelloDashboard — the main page component rendered at
+   * `/plugin/hello-world-plugin/dashboard`.
    */
   function HelloDashboard() {
     const [clickCount, setClickCount] = useState(0);
@@ -91,7 +82,11 @@ export default function register(host: PluginHost) {
         React.createElement(
           Card,
           { title: "🕐 Live Clock", style: styles.infoCard },
-          React.createElement(Text, { style: styles.clockText }, currentTime),
+          React.createElement(
+            AntText,
+            { style: styles.clockText },
+            currentTime,
+          ),
         ),
 
         // Counter card
@@ -106,7 +101,7 @@ export default function register(host: PluginHost) {
               style: { width: "100%" },
             },
             React.createElement(
-              Text,
+              AntText,
               { style: styles.counterText },
               String(clickCount),
             ),
@@ -126,19 +121,19 @@ export default function register(host: PluginHost) {
             Space,
             { direction: "vertical", size: "small" },
             React.createElement(
-              Text,
+              AntText,
               null,
               React.createElement("strong", null, "ID: "),
               "hello-world-plugin",
             ),
             React.createElement(
-              Text,
+              AntText,
               null,
               React.createElement("strong", null, "Version: "),
               "1.0.0",
             ),
             React.createElement(
-              Text,
+              AntText,
               null,
               React.createElement("strong", null, "Author: "),
               "QwenPaw",
@@ -161,26 +156,16 @@ export default function register(host: PluginHost) {
             React.createElement(
               Title,
               { level: 5, style: { margin: "0 0 8px" } },
-              "1. Define pages in plugin.json",
+              "1. Declare entry points in plugin.json",
             ),
             React.createElement(
               "pre",
               { style: styles.codeBlock },
               JSON.stringify(
                 {
-                  meta: {
-                    ui: {
-                      enabled: true,
-                      entry: "ui/dist/index.js",
-                      pages: [
-                        {
-                          path: "dashboard",
-                          label: "Hello Dashboard",
-                          icon: "👋",
-                          component: "HelloDashboard",
-                        },
-                      ],
-                    },
+                  entry: {
+                    frontend: "dist/index.js",
+                    backend: null,
                   },
                 },
                 null,
@@ -194,12 +179,12 @@ export default function register(host: PluginHost) {
             React.createElement(
               Title,
               { level: 5, style: { margin: "0 0 8px" } },
-              "2. Export components from register(host)",
+              "2. Register via window.__registerPlugin",
             ),
             React.createElement(
               "pre",
               { style: styles.codeBlock },
-              "export default function register(host) {\n  // Use host.React, host.antd, etc.\n  function HelloDashboard() { ... }\n  return { HelloDashboard };\n}",
+              'const { React, antd } = window.__QWENPAW__;\n\nfunction HelloDashboard() { ... }\n\nwindow.__registerPlugin?.(\n  { name: "hello-world", version: "1.0.0" },\n  { routes: [{ path: "/dashboard", component: HelloDashboard, label: "Hello", icon: "👋" }] },\n);',
             ),
           ),
           React.createElement(
@@ -221,9 +206,27 @@ export default function register(host: PluginHost) {
     );
   }
 
-  // Return the component map — names must match plugin.json declarations
-  return { HelloDashboard };
+  // Register the plugin with the host
+  (window as any).__registerPlugin?.(
+    {
+      name: "hello-world-plugin",
+      version: "1.0.0",
+      description: "A minimal example plugin with a greeting dashboard.",
+    },
+    {
+      routes: [
+        {
+          path: "/plugin/hello-world-plugin/dashboard",
+          component: HelloDashboard,
+          label: "Hello Dashboard",
+          icon: "👋",
+        },
+      ],
+    },
+  );
 }
+
+buildPlugin();
 
 const styles: Record<string, Record<string, unknown>> = {
   page: {

@@ -66,8 +66,6 @@ class PluginRegistry:
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
-        # plugin_id → { tool_name → component_name }
-        self._js_tool_renderers: Dict[str, Dict[str, str]] = {}
         self._runtime_helpers = None
 
         self._initialized = True
@@ -253,51 +251,3 @@ class PluginRegistry:
             List of ControlCommandRegistration
         """
         return self._control_commands.copy()
-
-    def register_js_tool_renderer(
-        self,
-        plugin_id: str,
-        tool_name: str,
-        component_name: str,
-    ):
-        """Register a JS tool renderer mapping.
-
-        Maps a backend tool name to a frontend JS component name exported
-        by the plugin's UI module.
-
-        Args:
-            plugin_id: Plugin identifier
-            tool_name: Backend tool name (e.g. "view_image")
-            component_name: JS component name exported by the plugin
-                (e.g. "ViewImageCard")
-        """
-        if plugin_id not in self._js_tool_renderers:
-            self._js_tool_renderers[plugin_id] = {}
-
-        self._js_tool_renderers[plugin_id][tool_name] = component_name
-        logger.info(
-            f"Registered JS tool renderer '{tool_name}' -> "
-            f"'{component_name}' from plugin '{plugin_id}'",
-        )
-
-    def get_js_tool_renderers(
-        self,
-        plugin_id: Optional[str] = None,
-    ) -> Dict[str, str]:
-        """Get JS tool renderer mappings.
-
-        Args:
-            plugin_id: If provided, return only renderers for this plugin.
-                Otherwise return all renderers merged (later plugins
-                override earlier ones for the same tool name).
-
-        Returns:
-            Dictionary of tool_name -> component_name
-        """
-        if plugin_id is not None:
-            return self._js_tool_renderers.get(plugin_id, {}).copy()
-
-        merged: Dict[str, str] = {}
-        for renderers in self._js_tool_renderers.values():
-            merged.update(renderers)
-        return merged

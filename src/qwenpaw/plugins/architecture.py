@@ -21,7 +21,7 @@ class BasePlugin(ABC):
 
         class MyPlugin(BasePlugin):
             def register(self, api: PluginApi) -> None:
-                api.register_js_tool_renderer("view_image", "ViewImageCard")
+                api.register_provider(...)
 
         plugin = MyPlugin()
     """
@@ -30,12 +30,20 @@ class BasePlugin(ABC):
     def register(self, api: "PluginApi") -> None:
         """Called when the plugin is loaded.
 
-        Use the *api* object to register providers, hooks, JS tool
-        renderers, and other capabilities.
+        Use the *api* object to register providers, hooks, and other
+        capabilities.
 
         Args:
             api: The plugin API instance bound to this plugin.
         """
+
+
+@dataclass
+class PluginEntryPoints:
+    """Plugin entry points for frontend and backend."""
+
+    frontend: Optional[str] = None
+    backend: Optional[str] = None
 
 
 @dataclass
@@ -47,7 +55,7 @@ class PluginManifest:
     version: str
     description: str = ""
     author: str = ""
-    entry_point: str = "plugin.py"
+    entry: PluginEntryPoints = field(default_factory=PluginEntryPoints)
     dependencies: List[str] = field(default_factory=list)
     min_version: str = "0.1.0"
     meta: Dict[str, Any] = field(default_factory=dict)
@@ -62,13 +70,19 @@ class PluginManifest:
         Returns:
             PluginManifest instance
         """
+        entry_data = data.get("entry", {})
+        entry = PluginEntryPoints(
+            frontend=entry_data.get("frontend"),
+            backend=entry_data.get("backend", "plugin.py"),
+        )
+
         return cls(
             id=data["id"],
             name=data["name"],
             version=data["version"],
             description=data.get("description", ""),
             author=data.get("author", ""),
-            entry_point=data.get("entry_point", "plugin.py"),
+            entry=entry,
             dependencies=data.get("dependencies", []),
             min_version=data.get("min_version", "0.1.0"),
             meta=data.get("meta", {}),

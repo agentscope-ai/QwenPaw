@@ -174,34 +174,3 @@ class PluginApi:
                 f"Plugin '{self.plugin_id}' registered control command "
                 f"'{handler.command_name}' (priority={priority_level})",
             )
-
-    def register_js_tool_renderer(
-        self,
-        tool_name: str,
-        component_name: str,
-    ):
-        """Register a JS tool renderer mapping.
-
-        Declares that the frontend JS component ``component_name``
-        (exported by this plugin's UI module) should be used to render
-        the output of the backend tool ``tool_name``.
-
-        Args:
-            tool_name: Backend tool name (e.g. "view_image")
-            component_name: JS component name exported by the plugin's
-                UI module (e.g. "ViewImageCard")
-
-        Example:
-            >>> api.register_js_tool_renderer("view_image", "ViewImageCard")
-        """
-        if self._registry:
-            self._registry.register_js_tool_renderer(
-                plugin_id=self.plugin_id,
-                tool_name=tool_name,
-                component_name=component_name,
-            )
-            self._registered_js_tool_renderers.append(tool_name)
-            logger.info(
-                f"Plugin '{self.plugin_id}' registered JS tool renderer "
-                f"'{tool_name}' -> '{component_name}'",
-            )

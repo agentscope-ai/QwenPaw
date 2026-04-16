@@ -108,12 +108,13 @@ class PluginLoader:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
 
-        # Load plugin module (if entry point exists)
-        entry_file = source_path / manifest.entry_point
+        # Load backend module (if declared and exists)
+        backend_entry = manifest.entry.backend
+        entry_file = source_path / backend_entry if backend_entry else None
         plugin_def = None
         api = None
 
-        if entry_file.exists():
+        if entry_file and entry_file.exists():
             try:
                 # Dynamic import of plugin module
                 # Use unique module name to avoid conflicts
@@ -156,7 +157,6 @@ class PluginLoader:
                     "version": manifest.version,
                     "description": manifest.description,
                     "author": manifest.author,
-                    "entry_point": manifest.entry_point,
                     "dependencies": manifest.dependencies,
                     "min_version": manifest.min_version,
                     "meta": manifest.meta,
@@ -183,12 +183,12 @@ class PluginLoader:
                 )
                 raise
         else:
-            # Frontend-only plugin: no Python entry point, just UI assets.
+            # No backend entry point — frontend-only or pure-config plugin.
             # Still register it so the /api/plugins endpoint can serve its
             # manifest and static files.
             logger.info(
-                f"Plugin '{plugin_id}' has no entry point "
-                f"'{manifest.entry_point}' — loading as frontend-only plugin",
+                f"Plugin '{plugin_id}' has no backend entry point "
+                f"— loading as frontend-only plugin",
             )
 
         # Create plugin record

@@ -31,17 +31,21 @@ def _get_plugin_loader(request: Request):
     description="Return all loaded plugins with optional UI metadata.",
 )
 async def list_plugins(request: Request):
-    """Return every loaded plugin.  Plugins whose ``plugin.json`` contains
-    ``meta.ui.enabled = true`` include a ``ui`` object with the information
-    the frontend needs to dynamically load the plugin's UI components."""
+    """Return every loaded plugin with basic metadata and entry points.
+
+    Plugins that declare ``entry.frontend`` in their ``plugin.json``
+    include a ``frontend_entry`` URL so the frontend can dynamically
+    load the plugin's JS module.  All UI registration (routes, tool
+    renderers) is handled by the plugin JS itself via
+    ``window.__registerPlugin``.
+    """
 
     loader = _get_plugin_loader(request)
     result = []
 
-    for plugin_id, record in loader.get_all_loaded_plugins().items():
+    for _plugin_id, record in loader.get_all_loaded_plugins().items():
         manifest = record.manifest
-        ui_meta = manifest.meta.get("ui", {})
-        has_ui = bool(ui_meta.get("enabled", False))
+        frontend_entry = manifest.entry.frontend
 
         plugin_info: dict = {
             "id": manifest.id,
@@ -49,33 +53,13 @@ async def list_plugins(request: Request):
             "version": manifest.version,
             "description": manifest.description,
             "enabled": record.enabled,
-            "has_ui": has_ui,
+            "has_frontend": frontend_entry is not None,
         }
 
-        if has_ui:
-            entry = ui_meta.get("entry", "ui/index.js")
-            css = ui_meta.get("css", "")
-
-            # Prefer js_tool_renderers registered via
-            # api.register_js_tool_renderer() in plugin.py; fall back to
-            # static declaration in plugin.json.
-            js_tool_renderers = loader.registry.get_js_tool_renderers(
-                plugin_id,
-            )
-            if not js_tool_renderers:
-                js_tool_renderers = ui_meta.get("js_tool_renderers", {})
-
-            # Page-level routes declared by the plugin
-            pages = ui_meta.get("pages", [])
-
-            plugin_info["ui"] = {
-                "entry": f"/api/plugins/{manifest.id}/files/{entry}",
-                "css": (
-                    f"/api/plugins/{manifest.id}/files/{css}" if css else ""
-                ),
-                "js_tool_renderers": js_tool_renderers,
-                "pages": pages,
-            }
+        if frontend_entry:
+            plugin_info[
+                "frontend_entry"
+            ] = f"/api/plugins/{manifest.id}/files/{frontend_entry}"
 
         result.append(plugin_info)
 
