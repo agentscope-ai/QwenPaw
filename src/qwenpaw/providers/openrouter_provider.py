@@ -237,6 +237,7 @@ class OpenRouterProvider(Provider):
         input_modalities: Optional[List[str]] = None,
         output_modalities: Optional[List[str]] = None,
         max_prompt_price: Optional[float] = None,
+        is_free: Optional[bool] = None,
     ) -> List[ExtendedModelInfo]:
         """Filter models by given criteria.
 
@@ -246,6 +247,7 @@ class OpenRouterProvider(Provider):
             input_modalities: Required input modalities (e.g., ["image"])
             output_modalities: Required output modalities (e.g., ["text"])
             max_prompt_price: Maximum prompt price per 1M tokens
+            is_free: Whether to return only free models
 
         Returns:
             Filtered list of models
@@ -283,6 +285,9 @@ class OpenRouterProvider(Provider):
                 if m.pricing.get("prompt")
                 and float(m.pricing.get("prompt", "0")) <= max_prompt_price
             ]
+
+        if is_free is True:
+            result = [m for m in result if m.is_free is True]
 
         return result
 

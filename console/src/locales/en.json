@@ -799,6 +799,7 @@
     "filterModels": "Filter Models",
     "filterByProvider": "Provider:",
     "filterByModality": "Input Modality:",
+    "filterFreeOnly": "Free Models Only",
     "getModels": "Get Models",
     "discovered": "Available Models:",
     "add": "Add",

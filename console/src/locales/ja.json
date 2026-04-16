@@ -844,7 +844,8 @@
     "probeVideo": "動画",
     "probeSupported": "対応: {{types}}",
     "probeNotSupported": "このモデルはマルチモーダル入力に対応していません",
-    "probeFailed": "検出に失敗しました"
+    "probeFailed": "検出に失敗しました",
+    "filterFreeOnly": "無料モデルのみ"
   },
   "agentConfig": {
     "title": "設定",

@@ -203,6 +203,7 @@ export interface FilterModelsRequest {
   input_modalities?: string[];
   output_modalities?: string[];
   max_prompt_price?: number;
+  is_free?: boolean;
 }
 
 export interface SeriesResponse {

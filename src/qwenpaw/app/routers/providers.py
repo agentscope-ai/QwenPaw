@@ -707,6 +707,10 @@ class FilterModelsRequest(BaseModel):
         default=None,
         description="Maximum prompt price per 1M tokens (e.g., 0.000001)",
     )
+    is_free: Optional[bool] = Field(
+        default=None,
+        description="Whether to return only free models",
+    )
 
 
 class SeriesResponse(BaseModel):
@@ -880,6 +884,7 @@ async def filter_openrouter_models(
                 body.output_modalities if body.output_modalities else None
             ),
             max_prompt_price=body.max_prompt_price,
+            is_free=body.is_free,
         )
 
         models_dict = [

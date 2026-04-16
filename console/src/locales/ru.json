@@ -742,6 +742,7 @@
     "filterModels": "Фильтровать модели",
     "filterByProvider": "Провайдер:",
     "filterByModality": "Модальность ввода:",
+    "filterFreeOnly": "Только бесплатные модели",
     "getModels": "Получить модели",
     "discovered": "Доступные модели:",
     "add": "Добавить",

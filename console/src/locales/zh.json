@@ -773,6 +773,7 @@
     "filterModels": "过滤模型",
     "filterByProvider": "供应商：",
     "filterByModality": "输入模态：",
+    "filterFreeOnly": "仅免费模型",
     "getModels": "获取模型",
     "discovered": "可用模型：",
     "add": "添加",
