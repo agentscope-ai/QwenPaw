@@ -430,6 +430,8 @@ async def chat_with_agent(
     normalized_session_id = normalize_id(session_id)
     if not normalized_to_agent:
         return _tool_text_response("ERROR: 'to_agent' is required for chat")
+    if not text:
+        return _tool_text_response("ERROR: 'text' is required for chat")
 
     target_exists = await asyncio.to_thread(
         agent_exists,
@@ -495,6 +497,10 @@ async def submit_to_agent(
     if not normalized_to_agent:
         return _tool_text_response(
             "ERROR: 'to_agent' is required for submission",
+        )
+    if not text:
+        return _tool_text_response(
+            "ERROR: 'text' is required for submission",
         )
 
     target_exists = await asyncio.to_thread(

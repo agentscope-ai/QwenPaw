@@ -2,7 +2,7 @@
 name: chat_with_agent
 description: Use this skill when you need to consult another agent, ask for help, or involve a specific agent the user asked for. | 当你需要咨询另一个 agent、寻求帮助，或用户明确要求某个 agent 参与时使用。
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "1.1"
   qwenpaw:
     emoji: "💬"
 ---
