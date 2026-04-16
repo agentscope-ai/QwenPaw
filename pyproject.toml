@@ -113,4 +113,34 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "unit: marks tests as unit tests",
+    "contract: marks tests as contract tests",
+    "integration: marks tests as integration tests",
 ]
+testpaths = [
+    "tests",
+]
+
+[tool.coverage.run]
+source = ["src/qwenpaw"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "pass",
+]
+fail_under = 30
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"

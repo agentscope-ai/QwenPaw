@@ -157,7 +157,8 @@ class MatrixChannelConfig:
 
     def __init__(self, raw: dict[str, Any]) -> None:
         self.enabled: bool = raw.get("enabled", True)
-        self.homeserver: str = raw.get("homeserver", "")
+        self.homeserver: str = raw.get("homeserver", "").rstrip("/")
+        self.user_id: str = raw.get("user_id", "")
         self.access_token: str = raw.get("access_token", "")
         # username/password fallback (rarely used in hiclaw)
         self.username: str = raw.get("username", "")
@@ -1018,6 +1019,25 @@ class MatrixChannel(BaseChannel):
     def _media_dir(self) -> Path:
         """Return (and create) the local media storage directory."""
         return WORKING_DIR / "media"
+
+    def _mxc_to_http(self, mxc_url: str) -> str:
+        """Convert an mxc:// URL to an HTTP download URL.
+
+        Returns the original URL unchanged if it is not an mxc:// URL or if
+        the format is invalid.
+        """
+        if not mxc_url:
+            return mxc_url
+        if not mxc_url.startswith("mxc://"):
+            return mxc_url
+        rest = mxc_url[6:]  # strip "mxc://"
+        if "/" not in rest:
+            return mxc_url
+        server, media_id = rest.split("/", 1)
+        return (
+            f"{self._cfg.homeserver}/_matrix/media/v3/download"
+            f"/{server}/{media_id}"
+        )
 
     async def _download_mxc(
         self,

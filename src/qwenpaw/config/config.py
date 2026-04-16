@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal, Any
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ConfigDict,
+    field_validator,
+    model_validator,
+)
 import shortuuid
 from agentscope_runtime.engine.schemas.exception import (
     ConfigurationException,
@@ -162,6 +168,12 @@ class MatrixConfig(BaseChannelConfig):
     """Matrix channel configuration."""
 
     homeserver: str = ""
+
+    @field_validator("homeserver")
+    @classmethod
+    def strip_trailing_slash(cls, v: str) -> str:
+        return v.rstrip("/")
+
     user_id: str = ""
     access_token: str = ""
 

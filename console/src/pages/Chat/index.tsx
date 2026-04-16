@@ -316,6 +316,9 @@ function useMessageHistoryNavigation(
     return null;
   };
 
+  const isSuggestionPopupOpen = (textarea: HTMLTextAreaElement): boolean =>
+    textarea.value.startsWith("/");
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isChatActive()) return;
@@ -336,6 +339,8 @@ function useMessageHistoryNavigation(
       const userMessages = getUserMessagesWithText();
 
       if (e.key === "ArrowUp") {
+        if (isSuggestionPopupOpen(textarea)) return;
+
         const cursorPosition = textarea.selectionStart || 0;
         const textBeforeCursor = textarea.value.substring(0, cursorPosition);
         const lineBreaks = textBeforeCursor.split("\n").length - 1;
@@ -777,6 +782,11 @@ export default function ChatPage() {
         command: "/mission",
         value: "mission",
         description: t("chat.commands.mission.description"),
+      },
+      {
+        command: "/skills",
+        value: "skills",
+        description: t("chat.commands.skills.description"),
       },
     ];
 

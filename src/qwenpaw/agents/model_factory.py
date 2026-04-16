@@ -553,6 +553,44 @@ def _promote_tool_result_videos(
     return new_messages
 
 
+def _reorder_tool_and_promoted_messages(
+    messages: list[dict],
+) -> list[dict]:
+    """Move promoted user messages after all tool results in a sequence.
+
+    When ``promote_tool_result_images`` is True the upstream formatter
+    inserts a ``role=user`` message after each ``role=tool`` message to
+    carry the promoted image.  The OpenAI / Anthropic APIs require all
+    tool-result messages to appear contiguously after the assistant
+    message.  This helper collects the interleaved user messages and
+    appends them after the last tool message in each sequence.
+    """
+    result: list[dict] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            result.append(msg)
+            i += 1
+            tool_msgs: list[dict] = []
+            promoted_msgs: list[dict] = []
+            while i < len(messages) and messages[i].get("role") in (
+                "tool",
+                "user",
+            ):
+                if messages[i]["role"] == "tool":
+                    tool_msgs.append(messages[i])
+                else:
+                    promoted_msgs.append(messages[i])
+                i += 1
+            result.extend(tool_msgs)
+            result.extend(promoted_msgs)
+        else:
+            result.append(msg)
+            i += 1
+    return result
+
+
 # Mapping of non-standard MIME subtypes to their correct forms.
 _MIME_FIXES: dict[str, str] = {
     "image/jpg": "image/jpeg",
@@ -687,6 +725,10 @@ def _create_file_block_support_formatter(
                         normalized_msgs,
                         messages,
                     )
+
+            # Image promotion inserts user messages between tool
+            # results, violating the API's contiguity requirement.
+            messages = _reorder_tool_and_promoted_messages(messages)
 
             # Normalize non-standard MIME types (e.g. image/jpg → image/jpeg)
             _fix_image_mime_types(messages)
