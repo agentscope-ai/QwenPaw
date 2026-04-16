@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Protocols for memory system components."""
+
+# pylint: disable=unnecessary-ellipsis
 from typing import Protocol, runtime_checkable
 
 

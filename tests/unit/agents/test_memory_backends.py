@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Tests for the extensible memory backend system."""
+
+# pylint: disable=unused-import,unused-argument,abstract-class-instantiated,
+# pylint: disable=protected-access
+
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # 1. InMemoryMemoryProtocol tests
@@ -83,7 +85,13 @@ class TestBaseMemoryManager:
             async def check_context(self, **kwargs):
                 return ([], [], True)
 
-            async def compact_memory(self, messages, previous_summary="", extra_instruction="", **kwargs):
+            async def compact_memory(
+                self,
+                messages,
+                previous_summary="",
+                extra_instruction="",
+                **kwargs,
+            ):
                 return ""
 
             async def summary_memory(self, messages, **kwargs):
@@ -91,6 +99,7 @@ class TestBaseMemoryManager:
 
             async def memory_search(self, query, max_results=5, min_score=0.1):
                 from agentscope.tool import ToolResponse
+
                 return ToolResponse(content=[])
 
             def get_in_memory_memory(self, **kwargs):
@@ -187,19 +196,16 @@ class TestPluginRegistryMemoryBackends:
         from qwenpaw.plugins.registry import PluginRegistry
 
         # Reset singleton for test isolation
-        PluginRegistry._instance = None
-        registry = PluginRegistry()
-        return registry
+        PluginRegistry._instance = None  # pylint: disable=protected-access
+        return PluginRegistry()
 
     def _teardown_registry(self):
         from qwenpaw.plugins.registry import PluginRegistry
 
-        PluginRegistry._instance = None
+        PluginRegistry._instance = None  # pylint: disable=protected-access
 
     def test_register_and_get_memory_backend(self):
         """Register a memory backend and retrieve it."""
-        from qwenpaw.plugins.registry import PluginRegistry
-
         try:
             registry = self._setup_registry()
 
@@ -226,8 +232,6 @@ class TestPluginRegistryMemoryBackends:
 
     def test_get_nonexistent_backend_returns_none(self):
         """Getting a non-existent backend returns None."""
-        from qwenpaw.plugins.registry import PluginRegistry
-
         try:
             registry = self._setup_registry()
             assert registry.get_memory_backend("nonexistent") is None
@@ -236,8 +240,6 @@ class TestPluginRegistryMemoryBackends:
 
     def test_duplicate_registration_raises(self):
         """Registering the same backend_id twice raises ValueError."""
-        from qwenpaw.plugins.registry import PluginRegistry
-
         try:
             registry = self._setup_registry()
 
@@ -262,8 +264,6 @@ class TestPluginRegistryMemoryBackends:
 
     def test_get_all_memory_backends(self):
         """get_all_memory_backends returns all registered backends."""
-        from qwenpaw.plugins.registry import PluginRegistry
-
         try:
             registry = self._setup_registry()
 
@@ -298,7 +298,7 @@ class TestPluginApiMemoryBackend:
         from qwenpaw.plugins.registry import PluginRegistry
 
         # Reset singleton
-        PluginRegistry._instance = None
+        PluginRegistry._instance = None  # pylint: disable=protected-access
         try:
             registry = PluginRegistry()
             api = PluginApi(plugin_id="test-plugin", config={})
@@ -319,7 +319,7 @@ class TestPluginApiMemoryBackend:
             assert reg.backend_class is FakeBackend
             assert reg.plugin_id == "test-plugin"
         finally:
-            PluginRegistry._instance = None
+            PluginRegistry._instance = None  # pylint: disable=protected-access
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +346,7 @@ class TestResolveMemoryClass:
         """Plugin-registered backend resolves correctly."""
         from qwenpaw.plugins.registry import PluginRegistry
 
-        PluginRegistry._instance = None
+        PluginRegistry._instance = None  # pylint: disable=protected-access
         try:
             registry = PluginRegistry()
 
@@ -363,11 +363,13 @@ class TestResolveMemoryClass:
             cls = self._call_resolve("fake")
             assert cls is FakeBackend
         finally:
-            PluginRegistry._instance = None
+            PluginRegistry._instance = None  # pylint: disable=protected-access
 
     def test_unknown_backend_raises(self):
         """Unknown backend raises ConfigurationException."""
-        from agentscope_runtime.engine.schemas.exception import ConfigurationException
+        from agentscope_runtime.engine.schemas.exception import (
+            ConfigurationException,
+        )
 
         with pytest.raises(ConfigurationException):
             self._call_resolve("nonexistent_backend")

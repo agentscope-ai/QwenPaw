@@ -2,6 +2,7 @@
 # pylint: disable=too-many-branches
 # mypy: ignore-errors
 """ReMeLight-backed memory manager for agents."""
+
 import importlib.metadata
 import json
 import logging
@@ -18,7 +19,6 @@ from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
 
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
-from qwenpaw.agents.memory.protocols import InMemoryMemoryProtocol
 from qwenpaw.agents.model_factory import create_model_and_formatter
 from qwenpaw.agents.tools import read_file, write_file, edit_file
 from qwenpaw.agents.utils import get_token_counter
@@ -31,7 +31,7 @@ from qwenpaw.config.context import (
 from qwenpaw.constant import EnvVarLoader
 
 if TYPE_CHECKING:
-    pass
+    from .protocols import InMemoryMemoryProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -461,7 +461,8 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         )
 
     def get_in_memory_memory(
-        self, **_kwargs,
+        self,
+        **_kwargs,
     ) -> "InMemoryMemoryProtocol | None":
         """Retrieve the in-memory memory object with token counting support."""
         self._warn_if_version_mismatch()

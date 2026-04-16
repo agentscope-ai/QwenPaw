@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """Abstract base class for memory managers."""
+
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase
 from agentscope.tool import ToolResponse
 
-from .protocols import InMemoryMemoryProtocol
+if TYPE_CHECKING:
+    from .protocols import InMemoryMemoryProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +136,9 @@ class BaseMemoryManager(ABC):
             Comprehensive summary string.
         """
 
-    async def dream_memory(self, **kwargs) -> None:
+    async def dream_memory(
+        self, **_kwargs
+    ) -> None:  # pylint: disable=unused-argument
         """Run one dream-based memory optimization task.
 
         Default implementation is a no-op. Backends that support
@@ -250,7 +254,9 @@ class BaseMemoryManager(ABC):
         """
 
     @abstractmethod
-    def get_in_memory_memory(self, **kwargs) -> "InMemoryMemoryProtocol | None":
+    def get_in_memory_memory(
+        self, **kwargs
+    ) -> "InMemoryMemoryProtocol | None":
         """Retrieve the in-memory memory object for the agent.
 
         Args:
