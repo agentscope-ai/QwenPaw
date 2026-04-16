@@ -651,7 +651,7 @@ async def remove_from_whitelist(
 
 # ── WhatsApp auth (QR / pair code) ────────────────────────────
 # Per-agent pairing state keyed by agent_id.
-# CoPaw runs as a single-process server; concurrent pairing for
+# QwenPaw runs as a single-process server; concurrent pairing for
 # different agents is safe because each gets its own state dict.
 _whatsapp_pair_states: dict[str, dict] = {}
 
@@ -951,7 +951,7 @@ async def unbind_whatsapp(request: Request) -> dict:
     if db_path.exists():
         db_path.unlink()
         state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
-        return {"status": "unbound", "detail": "Session deleted. Restart CoPaw to re-pair."}
+        return {"status": "unbound", "detail": "Session deleted. Restart QwenPaw to re-pair."}
     return {"status": "idle", "detail": "No session found."}
 
 
