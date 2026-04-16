@@ -165,19 +165,27 @@ def is_bare_plan_command(query: str | None) -> bool:
 
 
 def is_plan_with_inline_description(query: str | None) -> bool:
-    """True for ``/plan`` followed by non-empty description text."""
+    """True when the message is the ``/plan`` command word plus description.
+
+    Requires whitespace after ``/plan`` so paths like ``/planning`` are not
+    mistaken for ``/plan <desc>``.
+    """
     if not query or not isinstance(query, str):
         return False
-    s = query.strip()
-    if len(s) < 6 or not s.lower().startswith("/plan"):
+    parts = query.strip().split(None, 1)
+    if len(parts) < 2:
         return False
-    rest = s[5:].lstrip()
-    return bool(rest)
+    if parts[0].lower() != "/plan":
+        return False
+    return bool(parts[1].strip())
 
 
 def plan_inline_description(query: str) -> str:
     """Return text after ``/plan`` (caller must ensure inline form)."""
-    return query.strip()[5:].lstrip()
+    parts = query.strip().split(None, 1)
+    if len(parts) < 2 or parts[0].lower() != "/plan":
+        return ""
+    return parts[1].strip()
 
 
 PLAN_REQUEST_USER_PREFIX = (

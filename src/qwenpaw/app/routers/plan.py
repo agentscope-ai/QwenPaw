@@ -15,13 +15,14 @@ from starlette.responses import StreamingResponse
 
 from ..agent_context import get_agent_for_request
 from ..auth import has_registered_users, is_auth_enabled
+from ...plan import set_plan_gate
 from ...plan.schemas import (
     FinishPlanRequest,
     PlanConfigUpdateRequest,
     PlanStateResponse,
     RevisePlanRequest,
+    plan_to_response,
 )
-from ...plan.schemas import plan_to_response
 from ...plan.broadcast import register_sse_client, unregister_sse_client
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,7 @@ async def finish_plan(body: FinishPlanRequest, request: Request):
             detail="No active plan to finish",
         )
     await nb.finish_plan(state=body.state, outcome=body.outcome)
+    set_plan_gate(nb, False)
     return {"success": True}
 
 

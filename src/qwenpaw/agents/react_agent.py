@@ -1193,6 +1193,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             await self.print(plan_reply)
             return plan_reply
 
+        # Bare ``/plan`` vs ``/plan <desc>`` are mutually exclusive (split
+        # on whitespace), so the inline-description branch below is reachable
+        # for messages like ``/plan fix the bug`` but not for ``/plan`` alone.
         if isinstance(msg, list):
             was_list = True
             work_msgs: list[Msg] = list(msg)

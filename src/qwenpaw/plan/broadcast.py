@@ -39,9 +39,9 @@ def unregister_sse_client(agent_id: str, q: asyncio.Queue[Any]) -> None:
             del _plan_update_queues[agent_id]
 
 
-def broadcast_plan_update(agent_id: str, payload: dict) -> None:
+def broadcast_plan_update(agent_id: str, payload: dict | None) -> None:
     """Push *payload* to every SSE client listening for *agent_id*.
-
+    *payload* may be ``None`` when the active plan is cleared.
     This is called from the plan-change hook inside the agent's async
     context, so it must be non-blocking.
     """

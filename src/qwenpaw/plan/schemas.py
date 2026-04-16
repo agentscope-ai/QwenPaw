@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """Pydantic response models for plan API endpoints."""
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
+
 from pydantic import BaseModel, Field, model_validator
+
+if TYPE_CHECKING:
+    from agentscope.plan import Plan
 
 
 class SubTaskStateResponse(BaseModel):
@@ -67,7 +71,7 @@ class PlanConfigUpdateRequest(BaseModel):
     storage_path: Optional[str] = Field(default=None)
 
 
-def plan_to_response(plan) -> PlanStateResponse:
+def plan_to_response(plan: "Plan") -> PlanStateResponse:
     """Convert an AgentScope Plan to a PlanStateResponse."""
     return PlanStateResponse(
         plan_id=plan.id,

@@ -74,12 +74,16 @@ def check_plan_tool_gate(plan_notebook, tool_name: str):
     message instructing the model to call ``create_plan`` first.
 
     The gate flag is set via :func:`set_plan_gate` and is
-    automatically bypassed once a plan exists
-    (``current_plan is not None``).
+    cleared once a plan exists (``create_plan`` succeeded) or when the
+    HTTP API finishes the plan, so it does not stick across sessions.
     """
     if plan_notebook is None:
         return None
     if plan_notebook.current_plan is not None:
+        # No longer in the "must create_plan first" window; drop stale flag.
+        if getattr(plan_notebook, "_qwenpaw_plan_gate", False):
+            # pylint: disable-next=protected-access
+            plan_notebook._qwenpaw_plan_gate = False
         return None
     if not getattr(plan_notebook, "_qwenpaw_plan_gate", False):
         return None
