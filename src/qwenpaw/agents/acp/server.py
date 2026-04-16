@@ -1,0 +1,669 @@
+# -*- coding: utf-8 -*-
+"""QwenPaw ACP Agent server.
+
+Exposes QwenPaw as an ACP-compliant agent that external clients
+(Zed, OpenCode, etc.) can connect to via stdio JSON-RPC.
+
+Uses the full ``Workspace`` lifecycle so the ACP agent has exactly
+the same capabilities as the web console (MCP tools, memory,
+sub-agent delegation, etc.).
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from acp import (
+    Agent,
+    InitializeResponse,
+    LoadSessionResponse,
+    NewSessionResponse,
+    PromptResponse,
+    SetSessionModelResponse,
+    run_agent,
+    start_tool_call,
+    text_block,
+    tool_content,
+    update_agent_message,
+    update_agent_thought,
+    update_tool_call,
+)
+from acp.interfaces import Client
+from acp.schema import (
+    AgentCapabilities,
+    AudioContentBlock,
+    ClientCapabilities,
+    CloseSessionResponse,
+    EmbeddedResourceContentBlock,
+    HttpMcpServer,
+    ImageContentBlock,
+    Implementation,
+    ListSessionsResponse,
+    McpServerStdio,
+    ResourceContentBlock,
+    ResumeSessionResponse,
+    SessionCapabilities,
+    SessionCloseCapabilities,
+    SessionConfigOptionSelect,
+    SessionConfigSelectOption,
+    SessionInfo,
+    SessionListCapabilities,
+    SessionResumeCapabilities,
+    SetSessionConfigOptionResponse,
+    SseMcpServer,
+    TextContentBlock,
+)
+
+from ...__version__ import __version__
+
+logger = logging.getLogger(__name__)
+
+
+PromptBlocks = list[
+    TextContentBlock
+    | ImageContentBlock
+    | AudioContentBlock
+    | ResourceContentBlock
+    | EmbeddedResourceContentBlock
+]
+
+
+def _extract_text(
+    blocks: PromptBlocks,
+) -> str:
+    """Pull plain text from ACP prompt content blocks."""
+    parts: list[str] = []
+    for block in blocks:
+        if isinstance(block, dict):
+            text = block.get("text", "")
+        elif isinstance(block, TextContentBlock):
+            text = block.text
+        else:
+            text = getattr(block, "text", "")
+        if text:
+            parts.append(str(text))
+    return "\n".join(parts)
+
+
+def _msg_to_updates(
+    msg: Any,
+) -> list[Any]:  # pylint: disable=too-many-branches
+    """Convert a QwenPaw Msg into ACP session update(s)."""
+    updates: list[Any] = []
+    metadata = getattr(msg, "metadata", {}) or {}
+    content = getattr(msg, "content", None)
+    role = getattr(msg, "role", "assistant")
+
+    if role == "system":
+        text = _get_msg_text(msg)
+        if text:
+            updates.append(
+                update_agent_thought(text_block(text)),
+            )
+        return updates
+
+    tool_calls = metadata.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            updates.append(
+                start_tool_call(
+                    str(tc.get("id") or uuid4().hex[:8]),
+                    str(tc.get("name") or "tool"),
+                    status="in_progress",
+                ),
+            )
+        return updates
+
+    tool_responses = metadata.get("tool_responses")
+    if isinstance(tool_responses, list):
+        for tr in tool_responses:
+            if not isinstance(tr, dict):
+                continue
+            updates.append(
+                update_tool_call(
+                    str(tr.get("id") or uuid4().hex[:8]),
+                    status="completed",
+                    content=[
+                        tool_content(
+                            text_block(
+                                str(tr.get("output", "")),
+                            ),
+                        ),
+                    ],
+                ),
+            )
+        return updates
+
+    if isinstance(content, list):
+        _content_blocks_to_updates(content, updates)
+
+    if not updates:
+        text = _get_msg_text(msg)
+        if text:
+            updates.append(
+                update_agent_message(text_block(text)),
+            )
+
+    return updates
+
+
+def _content_blocks_to_updates(
+    content: list[Any],
+    updates: list[Any],
+) -> None:
+    """Map Msg content blocks to ACP updates."""
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type", "text")
+        if block_type == "tool_use":
+            updates.append(
+                start_tool_call(
+                    str(block.get("id") or uuid4().hex[:8]),
+                    str(block.get("name") or "tool"),
+                    status="in_progress",
+                ),
+            )
+        elif block_type == "tool_result":
+            updates.append(
+                update_tool_call(
+                    str(block.get("id") or uuid4().hex[:8]),
+                    status="completed",
+                    content=[
+                        tool_content(
+                            text_block(
+                                str(block.get("output", "")),
+                            ),
+                        ),
+                    ],
+                ),
+            )
+        elif block_type == "text":
+            text = block.get("text", "")
+            if text:
+                updates.append(
+                    update_agent_message(
+                        text_block(text),
+                    ),
+                )
+
+
+def _get_msg_text(msg: Any) -> str:
+    """Extract plain text from a Msg."""
+    get_text = getattr(msg, "get_text_content", None)
+    if callable(get_text):
+        return get_text() or ""
+    content = getattr(msg, "content", "")
+    if isinstance(content, str):
+        return content
+    return ""
+
+
+class QwenPawACPAgent(Agent):
+    """ACP Agent backed by a full ``Workspace``.
+
+    Instead of creating a bare ``AgentRunner``, this class boots a
+    complete ``Workspace`` — the same lifecycle the web console uses —
+    so MCP tools, memory, chat persistence, sub-agent calls, etc. are
+    all available.
+    """
+
+    _conn: Client
+
+    MODE_CONFIG_ID = "mode"
+    MODE_DEFAULT = "default"
+    MODE_BYPASS = "bypassPermissions"
+
+    def __init__(
+        self,
+        agent_id: str | None = None,
+        workspace_dir: Path | None = None,
+    ):
+        self._agent_id = agent_id
+        self._workspace_dir = workspace_dir
+        self._sessions: dict[str, dict[str, Any]] = {}
+        self._cancel_events: dict[str, asyncio.Event] = {}
+        self._workspace: Any | None = None
+        self._workspace_ready = False
+        self._session_mode: str = self.MODE_DEFAULT
+
+    def on_connect(self, conn: Client) -> None:
+        self._conn = conn
+
+    # ------------------------------------------------------------------
+    # Workspace bootstrap (mirrors the web-app lifespan)
+    # ------------------------------------------------------------------
+
+    def _resolve_agent_id(self) -> str:
+        """Return the effective agent id."""
+        if self._agent_id is not None:
+            return self._agent_id
+
+        from ...config import load_config
+
+        config = load_config()
+        agents_cfg = getattr(config, "agents", None)
+        if agents_cfg is not None:
+            aid = getattr(agents_cfg, "active_agent", None)
+            if aid:
+                return aid
+        return "default"
+
+    def _resolve_workspace_dir(
+        self,
+        agent_id: str,
+    ) -> Path:
+        """Return the effective workspace directory."""
+        if self._workspace_dir is not None:
+            return self._workspace_dir
+
+        from ...constant import WORKING_DIR
+
+        return WORKING_DIR / "workspaces" / agent_id
+
+    async def _ensure_workspace(self) -> Any:
+        """Boot a full ``Workspace`` (once) and return its runner."""
+        if self._workspace is not None and self._workspace_ready:
+            return self._workspace.runner
+
+        from ...app.workspace.workspace import Workspace
+
+        agent_id = self._resolve_agent_id()
+        workspace_dir = self._resolve_workspace_dir(agent_id)
+
+        workspace = Workspace(
+            agent_id=agent_id,
+            workspace_dir=str(workspace_dir),
+        )
+        await workspace.start()
+
+        runner = workspace.runner
+        if runner is not None:
+            await runner.init_handler()
+
+        self._workspace = workspace
+        self._workspace_ready = True
+        logger.info(
+            "QwenPaw ACP Agent workspace started: agent_id=%s workspace=%s",
+            agent_id,
+            workspace_dir,
+        )
+        return runner
+
+    async def _shutdown_workspace(self) -> None:
+        """Gracefully stop the workspace."""
+        if self._workspace is not None:
+            try:
+                await self._workspace.stop(final=True)
+            except Exception:
+                logger.exception(
+                    "Error stopping ACP workspace",
+                )
+            self._workspace = None
+            self._workspace_ready = False
+
+    # ------------------------------------------------------------------
+    # ACP protocol methods
+    # ------------------------------------------------------------------
+
+    async def initialize(  # pylint: disable=unused-argument
+        self,
+        protocol_version: int,
+        client_capabilities: ClientCapabilities | None = None,
+        client_info: Implementation | None = None,
+        **kwargs: Any,
+    ) -> InitializeResponse:
+        logger.info(
+            "ACP initialize: version=%d client=%s",
+            protocol_version,
+            client_info,
+        )
+        return InitializeResponse(
+            protocol_version=protocol_version,
+            agent_capabilities=AgentCapabilities(
+                load_session=True,
+                session_capabilities=SessionCapabilities(
+                    close=SessionCloseCapabilities(),
+                    list=SessionListCapabilities(),
+                    resume=SessionResumeCapabilities(),
+                ),
+            ),
+            agent_info=Implementation(
+                name="qwenpaw",
+                title="QwenPaw",
+                version=__version__,
+            ),
+        )
+
+    async def new_session(  # pylint: disable=unused-argument
+        self,
+        cwd: str,
+        mcp_servers: (
+            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
+        ) = None,
+        **kwargs: Any,
+    ) -> NewSessionResponse:
+        session_id = uuid4().hex
+        self._sessions[session_id] = {
+            "cwd": cwd,
+            "user_id": f"acp_{session_id[:8]}",
+            "mcp_servers": mcp_servers,
+        }
+        logger.info(
+            "ACP new_session: id=%s cwd=%s",
+            session_id,
+            cwd,
+        )
+        return NewSessionResponse(
+            session_id=session_id,
+            config_options=self._build_config_options(),
+        )
+
+    async def load_session(  # pylint: disable=unused-argument
+        self,
+        cwd: str,
+        session_id: str,
+        mcp_servers: (
+            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
+        ) = None,
+        **kwargs: Any,
+    ) -> LoadSessionResponse | None:
+        self._sessions[session_id] = {
+            "cwd": cwd,
+            "user_id": f"acp_{session_id[:8]}",
+            "mcp_servers": mcp_servers,
+        }
+        logger.info(
+            "ACP load_session: id=%s cwd=%s",
+            session_id,
+            cwd,
+        )
+        return LoadSessionResponse()
+
+    async def prompt(  # pylint: disable=too-many-locals,unused-argument
+        self,
+        prompt: PromptBlocks,
+        session_id: str,
+        message_id: str | None = None,
+        **kwargs: Any,
+    ) -> PromptResponse:
+        logger.info(
+            "ACP prompt: session=%s",
+            session_id,
+        )
+
+        text = _extract_text(prompt)
+        if not text:
+            return PromptResponse(stop_reason="end_turn")
+
+        runner = await self._ensure_workspace()
+        session_info = self._sessions.get(
+            session_id,
+            {},
+        )
+        user_id = session_info.get(
+            "user_id",
+            f"acp_{session_id[:8]}",
+        )
+
+        cancel_event = asyncio.Event()
+        self._cancel_events[session_id] = cancel_event
+
+        from agentscope.message import Msg
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            AgentRequest,
+            Message,
+        )
+
+        msgs = [
+            Msg(
+                name="user",
+                role="user",
+                content=text,
+            ),
+        ]
+
+        request_context: dict[str, str] = {}
+        if self._session_mode == self.MODE_BYPASS:
+            request_context["_headless_tool_guard"] = "false"
+
+        request = AgentRequest(
+            input=[
+                Message(
+                    role="user",
+                    content=[
+                        {"type": "text", "text": text},
+                    ],
+                ),
+            ],
+            session_id=session_id,
+            user_id=user_id,
+            request_context=request_context or None,
+        )
+
+        try:
+            async for msg, _is_last in runner.query_handler(
+                msgs,
+                request=request,
+            ):
+                if cancel_event.is_set():
+                    logger.info(
+                        "ACP prompt cancelled: session=%s",
+                        session_id,
+                    )
+                    break
+
+                updates = _msg_to_updates(msg)
+                for upd in updates:
+                    await self._conn.session_update(
+                        session_id=session_id,
+                        update=upd,
+                    )
+        except Exception:
+            logger.exception(
+                "ACP prompt error: session=%s",
+                session_id,
+            )
+        finally:
+            self._cancel_events.pop(session_id, None)
+
+        return PromptResponse(stop_reason="end_turn")
+
+    async def close_session(  # pylint: disable=unused-argument
+        self,
+        session_id: str,
+        **kwargs: Any,
+    ) -> CloseSessionResponse | None:
+        logger.info("ACP close_session: session=%s", session_id)
+        self._sessions.pop(session_id, None)
+        self._cancel_events.pop(session_id, None)
+        return CloseSessionResponse()
+
+    async def list_sessions(  # pylint: disable=unused-argument
+        self,
+        cursor: str | None = None,
+        cwd: str | None = None,
+        **kwargs: Any,
+    ) -> ListSessionsResponse:
+        logger.info("ACP list_sessions: cwd=%s", cwd)
+        sessions: list[SessionInfo] = []
+        for sid, info in self._sessions.items():
+            sess_cwd = info.get("cwd", "")
+            if cwd is not None and sess_cwd != cwd:
+                continue
+            sessions.append(
+                SessionInfo(
+                    session_id=sid,
+                    cwd=sess_cwd,
+                    title=f"ACP session {sid[:8]}",
+                ),
+            )
+        return ListSessionsResponse(sessions=sessions)
+
+    async def resume_session(  # pylint: disable=unused-argument
+        self,
+        cwd: str,
+        session_id: str,
+        mcp_servers: (
+            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
+        ) = None,
+        **kwargs: Any,
+    ) -> ResumeSessionResponse:
+        logger.info(
+            "ACP resume_session: id=%s cwd=%s",
+            session_id,
+            cwd,
+        )
+        if session_id not in self._sessions:
+            self._sessions[session_id] = {
+                "cwd": cwd,
+                "user_id": f"acp_{session_id[:8]}",
+                "mcp_servers": mcp_servers,
+            }
+        else:
+            self._sessions[session_id]["cwd"] = cwd
+        return ResumeSessionResponse()
+
+    async def set_session_model(  # pylint: disable=unused-argument
+        self,
+        model_id: str,
+        session_id: str,
+        **kwargs: Any,
+    ) -> SetSessionModelResponse | None:
+        logger.info(
+            "ACP set_session_model: session=%s model=%s",
+            session_id,
+            model_id,
+        )
+        try:
+            await self._switch_model(model_id)
+        except Exception:
+            logger.exception(
+                "Failed to switch model to %s",
+                model_id,
+            )
+            return None
+        return SetSessionModelResponse()
+
+    async def set_config_option(  # pylint: disable=unused-argument
+        self,
+        config_id: str,
+        session_id: str,
+        value: str | bool,
+        **kwargs: Any,
+    ) -> SetSessionConfigOptionResponse | None:
+        logger.info(
+            "ACP set_config_option: session=%s config=%s value=%s",
+            session_id,
+            config_id,
+            value,
+        )
+        if config_id == self.MODE_CONFIG_ID:
+            if value in (self.MODE_DEFAULT, self.MODE_BYPASS):
+                self._session_mode = str(value)
+            return SetSessionConfigOptionResponse(
+                config_options=self._build_config_options(),
+            )
+        return None
+
+    async def cancel(  # pylint: disable=unused-argument
+        self,
+        session_id: str,
+        **kwargs: Any,
+    ) -> None:
+        logger.info(
+            "ACP cancel: session=%s",
+            session_id,
+        )
+        event = self._cancel_events.get(session_id)
+        if event is not None:
+            event.set()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_config_options(
+        self,
+    ) -> list[SessionConfigOptionSelect]:
+        """Return the current set of session config options."""
+        return [
+            SessionConfigOptionSelect(
+                type="select",
+                id=self.MODE_CONFIG_ID,
+                name="Session Mode",
+                category="mode",
+                description=("Controls tool guard and permission behavior"),
+                current_value=self._session_mode,
+                options=[
+                    SessionConfigSelectOption(
+                        value=self.MODE_DEFAULT,
+                        name="Default",
+                        description=("Normal mode with Tool Guard enabled"),
+                    ),
+                    SessionConfigSelectOption(
+                        value=self.MODE_BYPASS,
+                        name="Bypass Permissions",
+                        description=("Skip tool guard checks"),
+                    ),
+                ],
+            ),
+        ]
+
+    async def _switch_model(
+        self,
+        model_spec: str,
+    ) -> None:
+        """Switch the active model via ``ProviderManager``.
+
+        *model_spec* should be ``"provider_id:model_id"``.
+        Falls back to treating the whole string as *model_id* with
+        an empty provider search.
+        """
+        from ...providers.provider_manager import ProviderManager
+
+        if ":" in model_spec:
+            provider_id, model_id = model_spec.split(":", 1)
+        else:
+            provider_id, model_id = "", model_spec
+
+        manager = ProviderManager.get_instance()
+
+        if provider_id:
+            await manager.activate_model(provider_id, model_id)
+        else:
+            # Search all providers for this model_id.
+            all_infos = await manager.list_provider_info()
+            matched = False
+            for pinfo in all_infos:
+                all_models = list(pinfo.models) + list(
+                    pinfo.extra_models,
+                )
+                if any(m.id == model_id for m in all_models):
+                    await manager.activate_model(pinfo.id, model_id)
+                    matched = True
+                    break
+            if not matched:
+                raise ValueError(
+                    f"Model {model_id!r} not found in any provider",
+                )
+
+
+async def run_qwenpaw_agent(
+    agent_id: str | None = None,
+    workspace_dir: Path | None = None,
+) -> None:
+    """Entry point: run QwenPaw as an ACP agent over stdio."""
+    agent = QwenPawACPAgent(
+        agent_id=agent_id,
+        workspace_dir=workspace_dir,
+    )
+    try:
+        await run_agent(agent)
+    finally:
+        await agent._shutdown_workspace()  # pylint: disable=protected-access
