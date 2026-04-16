@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import logging
 from decimal import Decimal, InvalidOperation
 from typing import Any, List, Optional
 
@@ -15,9 +14,6 @@ from qwenpaw.providers.provider import (
     ModelInfo,
     Provider,
 )
-
-
-logger = logging.getLogger(__name__)
 
 
 class OpenRouterProvider(Provider):
