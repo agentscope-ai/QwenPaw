@@ -9,12 +9,23 @@ $ConsoleDir = Join-Path $RepoRoot "console"
 $ConsoleDest = Join-Path $RepoRoot "src\qwenpaw\console"
 
 Write-Host "[wheel_build] Building console frontend..."
+
+# Ensure pnpm is available
+if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        Write-Host "pnpm not found, installing via npm..."
+        npm install -g pnpm
+    } else {
+        throw "pnpm not found and npm is also not available. Install Node.js first."
+    }
+}
+
 Push-Location $ConsoleDir
 try {
-  npm ci
-  if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
-  npm run build
-  if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE" }
+  pnpm install
+  if ($LASTEXITCODE -ne 0) { throw "pnpm install failed with exit code $LASTEXITCODE" }
+  pnpm run build
+  if ($LASTEXITCODE -ne 0) { throw "pnpm run build failed with exit code $LASTEXITCODE" }
 } finally {
   Pop-Location
 }

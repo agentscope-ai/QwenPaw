@@ -234,27 +234,32 @@ function Prepare-Console {
         return
     }
 
-    # Try to build if npm is available
+    # Try to build if pnpm is available
     $packageJson = Join-Path $RepoDir "console\package.json"
     if (-not (Test-Path $packageJson)) {
         Write-Warn "Console source not found - the web UI won't be available."
         return
     }
 
-    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-        Write-Warn "npm not found - skipping console frontend build."
-        Write-Warn "Install Node.js from https://nodejs.org/ then re-run this installer,"
-        Write-Warn "or run 'cd console && npm ci && npm run build' manually."
-        return
+    if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+        if (Get-Command npm -ErrorAction SilentlyContinue) {
+            Write-Info "pnpm not found, installing pnpm via npm..."
+            npm install -g pnpm
+        } else {
+            Write-Warn "pnpm not found - skipping console frontend build."
+            Write-Warn "Install Node.js from https://nodejs.org/ then re-run this installer,"
+            Write-Warn "or run 'cd console && pnpm install && pnpm run build' manually."
+            return
+        }
     }
 
-    Write-Info "Building console frontend (npm ci && npm run build)..."
+    Write-Info "Building console frontend (pnpm install && pnpm run build)..."
     Push-Location (Join-Path $RepoDir "console")
     try {
-        npm ci
-        if ($LASTEXITCODE -ne 0) { Write-Warn "npm ci failed - the web UI won't be available."; return }
-        npm run build
-        if ($LASTEXITCODE -ne 0) { Write-Warn "npm run build failed - the web UI won't be available."; return }
+        pnpm install
+        if ($LASTEXITCODE -ne 0) { Write-Warn "pnpm install failed - the web UI won't be available."; return }
+        pnpm run build
+        if ($LASTEXITCODE -ne 0) { Write-Warn "pnpm run build failed - the web UI won't be available."; return }
     } finally {
         Pop-Location
     }

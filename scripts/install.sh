@@ -178,21 +178,26 @@ prepare_console() {
         return
     fi
 
-    # Try to build if npm is available
+    # Try to build if pnpm is available
     if [ ! -f "$repo_dir/console/package.json" ]; then
         warn "Console source not found — the web UI won't be available."
         return
     fi
 
-    if ! command -v npm &>/dev/null; then
-        warn "npm not found — skipping console frontend build."
-        warn "Install Node.js from https://nodejs.org/ then re-run this installer,"
-        warn "or run 'cd console && npm ci && npm run build' manually."
-        return
+    if ! command -v pnpm &>/dev/null; then
+        if command -v npm &>/dev/null; then
+            info "pnpm not found, installing pnpm via npm..."
+            npm install -g pnpm
+        else
+            warn "pnpm not found — skipping console frontend build."
+            warn "Install Node.js from https://nodejs.org/ then re-run this installer,"
+            warn "or run 'cd console && pnpm install && pnpm run build' manually."
+            return
+        fi
     fi
 
-    info "Building console frontend (npm ci && npm run build)..."
-    (cd "$repo_dir/console" && npm ci && npm run build)
+    info "Building console frontend (pnpm install && pnpm run build)..."
+    (cd "$repo_dir/console" && pnpm install && pnpm run build)
     if [ -f "$console_src/index.html" ]; then
         mkdir -p "$console_dest"
         cp -R "$console_src/"* "$console_dest/"

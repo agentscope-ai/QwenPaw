@@ -16,7 +16,7 @@ Dependencies follow `pyproject.toml`.
 ## Prerequisites
 
 - **conda** (Miniconda/Anaconda) on PATH
-- **Node.js / npm** (for the console frontend)
+- **Node.js / pnpm** (for the console frontend)
 - (Windows only) **NSIS**: `makensis` on PATH
 - **Icons**: Pre-generated `icon.ico` (Windows) and `icon.icns` (macOS) are included in `scripts/pack/assets/`
 

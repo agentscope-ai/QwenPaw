@@ -444,7 +444,7 @@ git clone https://github.com/agentscope-ai/QwenPaw.git
 cd QwenPaw
 
 # Build console frontend first (required for web UI)
-cd console && npm ci && npm run build
+cd console && pnpm install && pnpm run build
 cd ..
 
 # Copy console build output to package directory

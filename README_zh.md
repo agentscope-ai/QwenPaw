@@ -508,7 +508,7 @@ git clone https://github.com/agentscope-ai/QwenPaw.git
 cd QwenPaw
 
 # 先构建前端控制台（Web 界面必需）
-cd console && npm ci && npm run build
+cd console && pnpm install && pnpm run build
 cd ..
 
 # 将控制台构建产物复制到包目录

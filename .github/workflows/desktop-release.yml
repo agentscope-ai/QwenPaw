@@ -44,8 +44,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: console/package-lock.json
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10
+          cache: true
+          cache_dependency_path: console/pnpm-lock.yaml
 
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
@@ -104,8 +109,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: console/package-lock.json
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10
+          cache: true
+          cache_dependency_path: console/pnpm-lock.yaml
 
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
