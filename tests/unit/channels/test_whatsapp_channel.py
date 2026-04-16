@@ -993,8 +993,13 @@ class TestStripBotMention:
     def test_mention_in_middle(self):
         ch = _make_channel()
         ch._bot_phone = "817089933036"
-        # Regex matches anywhere, not anchored — current impl strips any occurrence
-        assert ch._strip_bot_mention("hello @+817089933036 world").startswith("hello")
+        # Mentions are only stripped at the START of the message (so /commands
+        # after "@+bot" work). A mid-string mention is left untouched to avoid
+        # altering normal conversational text.
+        assert (
+            ch._strip_bot_mention("hello @+817089933036 world")
+            == "hello @+817089933036 world"
+        )
 
 
 # ===================================================================

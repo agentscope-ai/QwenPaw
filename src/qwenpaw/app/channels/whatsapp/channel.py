@@ -349,8 +349,13 @@ class WhatsAppChannel(BaseChannel):
                 logger.debug("whatsapp: %s — skipping auto-reconnect (stop in progress)", reason)
                 return
             logger.warning("whatsapp: %s — scheduling auto-reconnect in %ds", reason, delay)
-            asyncio.get_event_loop().call_later(
-                delay, lambda: asyncio.ensure_future(self._auto_reconnect()),
+            # Use get_running_loop() + create_task() — get_event_loop() and
+            # ensure_future() are deprecated as entry points in Python 3.10+.
+            # This is safe here because the event handlers that call
+            # _schedule_reconnect are async and always run inside a loop.
+            loop = asyncio.get_running_loop()
+            loop.call_later(
+                delay, lambda: loop.create_task(self._auto_reconnect()),
             )
 
         @self._client.event(DisconnectedEv)
@@ -726,8 +731,16 @@ class WhatsAppChannel(BaseChannel):
             # Group mention gate — record non-mentioned messages for context
             # Slash commands (/new, /stop, /clear, etc.) bypass mention gate
             is_slash_command = bool(body and body.lstrip().startswith("/"))
+            # Compute actual mention status up-front so channel_meta reflects
+            # reality rather than "we reached here, so assume mentioned".
+            # DMs: implicitly addressed to the bot; mark as mentioned.
+            # Groups: run the real check regardless of require_mention so
+            # downstream metadata consumers see truth.
+            bot_mentioned_actual = (
+                self._is_bot_mentioned(msg, body) if is_group else True
+            )
             if is_group and self.require_mention and not is_slash_command:
-                if not self._is_bot_mentioned(msg, body):
+                if not bot_mentioned_actual:
                     # Buffer for later context injection when bot IS mentioned
                     if body or content_parts:
                         # Resolve LID to phone/name for readable history
@@ -909,7 +922,11 @@ class WhatsAppChannel(BaseChannel):
                 "bot_phone": f"+{self._bot_phone}" if self._bot_phone else "",
                 "bot_lid": self._bot_lid,
                 "has_bot_command": has_bot_command,
-                "bot_mentioned": True,  # We only reach here if mention check passed
+                # bot_mentioned reflects whether the bot was actually
+                # @-mentioned — NOT whether we "passed the mention gate".
+                # DMs are True (implicitly addressed to bot); groups
+                # reflect the real _is_bot_mentioned() result.
+                "bot_mentioned": bot_mentioned_actual,
             }
             session_id = self.resolve_session_id(effective_sender, channel_meta)
             request = self.build_agent_request_from_user_content(
