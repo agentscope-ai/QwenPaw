@@ -13,6 +13,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from starlette.responses import StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+from ...constant import WORKING_DIR
 from ..agent_context import get_agent_for_request
 
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/console", tags=["console"])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_DEBUG_LOG_LINES = 1000
 
 
 def _safe_filename(name: str) -> str:
@@ -35,7 +37,7 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     run_key must be ChatSpec.id (chat_id) so it matches list_chats/get_chat.
     """
     if isinstance(request_data, AgentRequest):
-        channel_id = request_data.channel or "console"
+        channel_id = getattr(request_data, "channel", None) or "console"
         sender_id = request_data.user_id or "default"
         session_id = request_data.session_id or "default"
         content_parts = (
@@ -63,6 +65,33 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         },
     }
     return native_payload
+
+
+def _tail_text_file(
+    path: Path,
+    *,
+    lines: int = 200,
+    max_bytes: int = 512 * 1024,
+) -> str:
+    """Read the last N lines from a text file with bounded memory."""
+    path = Path(path)
+    if not path.exists() or not path.is_file():
+        return ""
+    try:
+        size = path.stat().st_size
+        if size == 0:
+            return ""
+        with open(path, "rb") as f:
+            if size <= max_bytes:
+                data = f.read()
+            else:
+                f.seek(max(size - max_bytes, 0))
+                data = f.read()
+        text = data.decode("utf-8", errors="replace")
+        return "\n".join(text.splitlines()[-lines:])
+    except Exception:
+        logger.exception("Failed to read backend debug log file")
+        return ""
 
 
 @router.post(
@@ -196,6 +225,42 @@ async def post_console_upload(
         "file_name": safe_name,
         "size": len(data),
     }
+
+
+@router.get(
+    "/debug/backend-logs",
+    response_model=dict,
+    summary="Read backend daemon logs for debug page",
+)
+async def get_backend_debug_logs(
+    lines: int = Query(
+        200,
+        ge=20,
+        le=MAX_DEBUG_LOG_LINES,
+        description="Number of trailing log lines to return",
+    ),
+) -> dict:
+    """Return the tail of WORKING_DIR/copaw.log for the debug UI."""
+    log_path = (WORKING_DIR / "copaw.log").resolve()
+    try:
+        st = log_path.stat()
+        return {
+            "path": str(log_path),
+            "exists": True,
+            "lines": lines,
+            "updated_at": st.st_mtime,
+            "size": st.st_size,
+            "content": _tail_text_file(log_path, lines=lines),
+        }
+    except FileNotFoundError:
+        return {
+            "path": str(log_path),
+            "exists": False,
+            "lines": lines,
+            "updated_at": None,
+            "size": 0,
+            "content": "",
+        }
 
 
 @router.get("/push-messages")

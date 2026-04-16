@@ -126,13 +126,14 @@ Control BM25 full-text search via the `FTS_ENABLED` environment variable:
 
 Configure in `agent.json` under `running.memory_summary`:
 
-| Config Field                     | Description                                                                                                                             | Default |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| `memory_summary_enabled`         | Whether to save long-term memory in the background during context compaction (via `summary_memory`)                                     | `true`  |
-| `force_memory_search` **(BETA)** | Whether to force a memory search on every conversation turn and inject results into context                                             | `false` |
-| `force_max_results`              | Maximum number of results to return when force memory search is enabled                                                                 | `1`     |
-| `force_min_score`                | Minimum relevance score threshold when force memory search is enabled (0.0 ~ 1.0)                                                       | `0.3`   |
-| `rebuild_memory_index_on_start`  | Whether to clear and rebuild the memory search index on startup; set to `false` to skip re-indexing and only watch for new file changes | `false` |
+| Config Field                     | Description                                                                                                                             | Default        |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `memory_summary_enabled`         | Whether to save long-term memory in the background during context compaction (via `summary_memory`)                                     | `true`         |
+| `dream_cron`                     | Cron expression for dream-based memory optimization job (empty string to disable)                                                       | `"0 23 * * *"` |
+| `force_memory_search` **(BETA)** | Whether to force a memory search on every conversation turn and inject results into context                                             | `false`        |
+| `force_max_results`              | Maximum number of results to return when force memory search is enabled                                                                 | `1`            |
+| `force_min_score`                | Minimum relevance score threshold when force memory search is enabled (0.0 ~ 1.0)                                                       | `0.3`          |
+| `rebuild_memory_index_on_start`  | Whether to clear and rebuild the memory search index on startup; set to `false` to skip re-indexing and only watch for new file changes | `false`        |
 
 ---
 

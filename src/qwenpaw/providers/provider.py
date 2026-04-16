@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Dict, List, Type, Any
+from typing import TYPE_CHECKING, Any, Dict, List, Type
 from pydantic import BaseModel, Field
+from pydantic import ConfigDict
 
 from agentscope.model import ChatModelBase
 from qwenpaw.exceptions import ProviderError
@@ -39,6 +40,10 @@ class ModelInfo(BaseModel):
             " or 'probed' (actual probe)"
         ),
     )
+    is_free: bool = Field(
+        default=False,
+        description="Whether this model is free to use (e.g., no API cost)",
+    )
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Per-model generation parameters that override "
@@ -68,6 +73,15 @@ class ExtendedModelInfo(ModelInfo):
 
 
 class ProviderInfo(BaseModel):
+    """Provider configuration and metadata."""
+
+    # Allow flexible typing for test environments where ModelInfo
+    # may be reloaded (different object identity)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_default=False,
+    )
+
     id: str = Field(..., description="Provider identifier")
     name: str = Field(..., description="Human-readable provider name")
     base_url: str = Field(default="", description="API base URL")
@@ -84,6 +98,7 @@ class ProviderInfo(BaseModel):
         default_factory=list,
         description="List of user-added models (not fetched from provider)",
     )
+
     api_key_prefix: str = Field(
         default="",
         description="Expected prefix for the API key (e.g., 'sk-')",
@@ -105,7 +120,7 @@ class ProviderInfo(BaseModel):
         description=("Whether this provider is user-created (not built-in)."),
     )
     support_model_discovery: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether this provider supports fetching available models"
             " from the provider's API"
@@ -205,10 +220,14 @@ class Provider(ProviderInfo, ABC):
         ):
             self.generate_kwargs = config["generate_kwargs"]
         if "extra_models" in config and config["extra_models"] is not None:
+            # Always go through model_validate with dict data to
+            # avoid class-identity issues from dual module loading.
             self.extra_models = [
-                model
-                if isinstance(model, ModelInfo)
-                else ModelInfo.model_validate(model)
+                ModelInfo.model_validate(
+                    model.model_dump()
+                    if isinstance(model, BaseModel)
+                    else model,
+                )
                 for model in config["extra_models"]
             ]
 
@@ -313,14 +332,19 @@ class Provider(ProviderInfo, ABC):
             if mock_secret and self.api_key
             else self.api_key
         )
+        # Serialize models/extra_models to plain dicts so that
+        # ProviderInfo constructs fresh ModelInfo instances using
+        # the class in its own module scope.  This avoids pydantic
+        # class-identity mismatches when the same module is loaded
+        # via two different import paths (e.g. PYTHONPATH + pip install).
         return ProviderInfo(
             id=self.id,
             name=self.name,
             base_url=self.base_url,
             api_key=api_key,
             chat_model=self.chat_model,
-            models=self.models,
-            extra_models=self.extra_models,
+            models=[m.model_dump() for m in self.models],
+            extra_models=[m.model_dump() for m in self.extra_models],
             api_key_prefix=self.api_key_prefix,
             is_local=self.is_local,
             is_custom=self.is_custom,

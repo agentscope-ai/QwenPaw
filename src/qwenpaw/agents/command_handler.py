@@ -94,11 +94,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if the query is a system command (alias for mixin)."""
         return self.is_conversation_command(query)
 
-    async def _make_system_msg(self, text: str) -> Msg:
+    async def _make_system_msg(
+        self,
+        text: str,
+        metadata: dict | None = None,
+    ) -> Msg:
         """Create a system response message.
 
         Args:
             text: Message text content
+            metadata: Optional structured metadata for downstream consumers
 
         Returns:
             System message
@@ -107,6 +112,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             name=self.agent_name,
             role="assistant",
             content=[TextBlock(type="text", text=text)],
+            metadata=metadata or {},
         )
 
     def _has_memory_manager(self) -> bool:
@@ -198,6 +204,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
             "- Memory is now empty",
+            metadata={"clear_history": True},
         )
 
     async def _process_compact_str(

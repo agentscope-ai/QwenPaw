@@ -158,7 +158,6 @@ class ImportBuiltinRequest(BaseModel):
 class CreateSkillRequest(BaseModel):
     name: str
     content: str
-    overwrite: bool = False
     references: dict[str, Any] | None = None
     scripts: dict[str, Any] | None = None
     config: dict[str, Any] | None = None
@@ -168,13 +167,12 @@ class CreateSkillRequest(BaseModel):
 class UploadToPoolRequest(BaseModel):
     workspace_id: str
     skill_name: str
-    new_name: str | None = None
     overwrite: bool = False
+    preview_only: bool = False
 
 
 class PoolDownloadTarget(BaseModel):
     workspace_id: str
-    target_name: str | None = None
 
 
 class DownloadFromPoolRequest(BaseModel):
@@ -182,6 +180,7 @@ class DownloadFromPoolRequest(BaseModel):
     targets: list[PoolDownloadTarget] = Field(default_factory=list)
     all_workspaces: bool = False
     overwrite: bool = False
+    preview_only: bool = False
 
 
 class SkillConfigRequest(BaseModel):
@@ -193,6 +192,7 @@ class SavePoolSkillRequest(BaseModel):
     content: str
     source_name: str | None = None
     config: dict[str, Any] | None = None
+    overwrite: bool = False
 
 
 class SaveSkillRequest(BaseModel):
@@ -200,6 +200,7 @@ class SaveSkillRequest(BaseModel):
     content: str
     source_name: str | None = None
     config: dict[str, Any] | None = None
+    overwrite: bool = False
 
 
 class HubInstallRequest(BaseModel):
@@ -207,10 +208,6 @@ class HubInstallRequest(BaseModel):
     version: str = Field(default="", description="Optional version tag")
     enable: bool = Field(default=True, description="Enable after import")
     target_name: str = Field(default="", description="Optional renamed skill")
-    overwrite: bool = Field(
-        default=False,
-        description="Overwrite existing workspace skill",
-    )
 
 
 class HubInstallTaskStatus(str, Enum):
@@ -226,7 +223,6 @@ class HubInstallTask(BaseModel):
     bundle_url: str
     version: str = ""
     enable: bool = True
-    overwrite: bool = False
     status: HubInstallTaskStatus = HubInstallTaskStatus.PENDING
     error: str | None = None
     result: dict[str, Any] | None = None
@@ -405,7 +401,6 @@ async def _run_hub_install_task(
                 version=body.version,
                 enable=body.enable,
                 target_name=body.target_name,
-                overwrite=body.overwrite,
                 cancel_checker=cancel_event.is_set,
             ),
         )
@@ -589,7 +584,6 @@ async def start_install_from_hub(
         bundle_url=request_body.bundle_url,
         version=request_body.version,
         enable=request_body.enable,
-        overwrite=request_body.overwrite,
     )
     cancel_event = threading.Event()
     async with _hub_install_lock:
@@ -672,7 +666,6 @@ async def create_skill(
         created = SkillService(workspace_dir).create_skill(
             name=body.name,
             content=body.content,
-            overwrite=body.overwrite,
             references=body.references,
             scripts=body.scripts,
             config=body.config,
@@ -700,7 +693,6 @@ async def upload_skill_zip(
     request: Request,
     file: UploadFile = File(...),
     enable: bool = True,
-    overwrite: bool = False,
     target_name: str = "",
     rename_map: str = "",
 ) -> dict[str, Any]:
@@ -727,7 +719,6 @@ async def upload_skill_zip(
         result = await asyncio.to_thread(
             SkillService(workspace_dir).import_from_zip,
             data=data,
-            overwrite=overwrite,
             enable=enable,
             target_name=target_name,
             rename_map=parsed_rename,
@@ -770,13 +761,10 @@ async def create_pool_skill(body: CreateSkillRequest) -> dict[str, Any]:
 
 @router.put("/pool/save")
 async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
-    """Edit or save-as a pool skill depending on the target name.
+    """Save one pool skill.
 
-    Example:
-    - editing a normal shared skill in place -> ``mode="edit"``
-    - saving any skill under a new name -> ``mode="rename"``
-    - editing a builtin in place -> conflict with suggestion
-    - customizing a builtin -> save under a new name
+    ``overwrite`` only matters when the save would replace an existing target
+    skill during rename/save-as.
     """
     service = SkillPoolService()
     try:
@@ -785,6 +773,7 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
             target_name=body.name,
             content=body.content,
             config=body.config,
+            overwrite=body.overwrite,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
@@ -800,7 +789,6 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
 @router.post("/pool/upload-zip")
 async def upload_skill_pool_zip(
     file: UploadFile = File(...),
-    overwrite: bool = False,
     target_name: str = "",
     rename_map: str = "",
 ) -> dict[str, Any]:
@@ -823,7 +811,6 @@ async def upload_skill_pool_zip(
         result = await asyncio.to_thread(
             SkillPoolService().import_from_zip,
             data=data,
-            overwrite=overwrite,
             target_name=target_name,
             rename_map=parsed_rename,
         )
@@ -871,8 +858,8 @@ async def upload_workspace_skill_to_pool(
         result = SkillPoolService().upload_from_workspace(
             workspace_dir=workspace_dir,
             skill_name=body.skill_name,
-            target_name=body.new_name,
             overwrite=body.overwrite,
+            preview_only=body.preview_only,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
@@ -897,7 +884,6 @@ def _preflight_download_conflicts(
         result = hub_service.preflight_download_to_workspace(
             skill_name=skill_name,
             workspace_dir=workspace_dir,
-            target_name=target.target_name,
             overwrite=overwrite,
         )
         if not result.get("success"):
@@ -954,13 +940,12 @@ def _build_download_plan(
         workspace_dir = _workspace_dir_for_agent(target.workspace_id)
         snapshot = _snapshot_workspace_skill(
             workspace_dir,
-            str(target.target_name or skill_name),
+            str(skill_name),
         )
         plan.append(
             {
                 "workspace_id": target.workspace_id,
                 "workspace_dir": workspace_dir,
-                "target_name": target.target_name,
                 "snapshot": snapshot,
             },
         )
@@ -976,6 +961,8 @@ async def download_pool_skill_to_workspaces(
     All-or-nothing: if any target conflicts, reject everything.
     """
     targets, hub_service = _resolve_and_preflight(body)
+    if body.preview_only:
+        return {"downloaded": []}
 
     execution_plan = _build_download_plan(targets, body.skill_name)
 
@@ -985,7 +972,6 @@ async def download_pool_skill_to_workspaces(
             result = hub_service.download_to_workspace(
                 skill_name=body.skill_name,
                 workspace_dir=plan["workspace_dir"],
-                target_name=plan["target_name"],
                 overwrite=body.overwrite,
             )
             if not result.get("success"):
@@ -1305,6 +1291,7 @@ async def save_workspace_skill(
             content=body.content,
             target_name=body.name if body.source_name else None,
             config=body.config,
+            overwrite=body.overwrite,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)

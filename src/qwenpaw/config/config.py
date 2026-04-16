@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 import os
 import json
+import re
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any
+from typing import Optional, Union, Dict, List, Literal, Any, Set
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ConfigDict,
+    field_validator,
+    model_validator,
+)
 import shortuuid
 from agentscope_runtime.engine.schemas.exception import (
     ConfigurationException,
@@ -25,6 +32,15 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..providers.models import ModelSlotConfig
+from ..agents.acp.core import ACPConfig
+
+# Agent ID validation: alphanumeric, hyphens, underscores.
+_AGENT_ID_PATTERN = re.compile(
+    r"^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$",
+)
+_AGENT_ID_MIN_LENGTH = 2
+_AGENT_ID_MAX_LENGTH = 64
+_RESERVED_AGENT_IDS = frozenset({"default"})
 
 
 def generate_short_agent_id() -> str:
@@ -34,6 +50,59 @@ def generate_short_agent_id() -> str:
         6-character short UUID string
     """
     return shortuuid.ShortUUID().random(length=6)
+
+
+def sanitize_agent_id(raw: str) -> str:
+    """Normalize raw agent ID input: strip whitespace.
+
+    Args:
+        raw: Raw user input for agent ID.
+
+    Returns:
+        Sanitized agent ID string.
+    """
+    return raw.strip()
+
+
+def validate_agent_id(
+    agent_id: str,
+    existing_ids: Set[str],
+) -> None:
+    """Validate a custom agent ID.
+
+    Checks length, character set, reserved words, and uniqueness.
+
+    Args:
+        agent_id: The sanitized agent ID to validate.
+        existing_ids: Set of already-registered agent IDs.
+
+    Raises:
+        ValueError: If the ID is invalid.
+    """
+    if len(agent_id) < _AGENT_ID_MIN_LENGTH:
+        raise ValueError(
+            f"Agent ID must be at least {_AGENT_ID_MIN_LENGTH} characters, "
+            f"got {len(agent_id)}.",
+        )
+    if len(agent_id) > _AGENT_ID_MAX_LENGTH:
+        raise ValueError(
+            f"Agent ID must be at most {_AGENT_ID_MAX_LENGTH} characters, "
+            f"got {len(agent_id)}.",
+        )
+    if not _AGENT_ID_PATTERN.match(agent_id):
+        raise ValueError(
+            f"Agent ID '{agent_id}' contains invalid characters. "
+            "Only letters, digits, hyphens, and underscores "
+            "are allowed. Cannot start or end with '-' or '_'.",
+        )
+    if agent_id in _RESERVED_AGENT_IDS:
+        raise ValueError(
+            f"Agent ID '{agent_id}' is reserved and cannot be used.",
+        )
+    if agent_id in existing_ids:
+        raise ValueError(
+            f"Agent ID '{agent_id}' already exists.",
+        )
 
 
 class BaseChannelConfig(BaseModel):
@@ -161,6 +230,12 @@ class MatrixConfig(BaseChannelConfig):
     """Matrix channel configuration."""
 
     homeserver: str = ""
+
+    @field_validator("homeserver")
+    @classmethod
+    def strip_trailing_slash(cls, v: str) -> str:
+        return v.rstrip("/")
+
     user_id: str = ""
     access_token: str = ""
 
@@ -425,6 +500,12 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    dream_cron: str = Field(
+        default="0 23 * * *",
+        description="Cron expression for dream-based memory optimization job "
+        "(empty to disable)",
+    )
+
     force_memory_search: bool = Field(
         default=False,
         description="Whether to force memory search on every turn",
@@ -467,6 +548,15 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    recursive_file_watcher: bool = Field(
+        default=False,
+        description=(
+            "Whether to watch memory directory recursively. "
+            "Set to True to include subdirectories like memory/subdirectory/* "
+            "in vector search indexing."
+        ),
+    )
+
 
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
@@ -478,6 +568,18 @@ class AgentsRunningConfig(BaseModel):
         ge=1,
         description=(
             "Maximum number of reasoning-acting iterations for ReAct agent"
+        ),
+    )
+
+    auto_continue_on_text_only: bool = Field(
+        default=False,
+        description=(
+            "When the model returns a text-only assistant message (no tool "
+            "calls), inject one follow-up hint and run one extra reasoning "
+            "pass with the same tool_choice as the current step (typically "
+            "'auto'), so the model can either emit tool calls or finish with "
+            "text. Does not use tool_choice='required' (that would force "
+            "tools and prevent a natural summary when the task is done)."
         ),
     )
 
@@ -680,6 +782,10 @@ class AgentProfileConfig(BaseModel):
     workspace_dir: str = Field(
         default="",
         description="Path to agent's workspace (optional, for reference)",
+    )
+    template_id: Optional[str] = Field(
+        default=None,
+        description="Builtin template used when this agent was created",
     )
 
     # Agent-specific configurations
@@ -1022,6 +1128,12 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Get llm token usage",
             icon="📊",
         ),
+        "delegate_external_agent": BuiltinToolConfig(
+            name="delegate_external_agent",
+            enabled=False,
+            description="Delegate work to an external ACP agent runner",
+            icon="📡",
+        ),
         "list_agents": BuiltinToolConfig(
             name="list_agents",
             enabled=True,
@@ -1031,8 +1143,23 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         "chat_with_agent": BuiltinToolConfig(
             name="chat_with_agent",
             enabled=True,
-            description="Send a message to another configured agent",
+            description=(
+                "Send a message to another configured agent and wait for "
+                "the response"
+            ),
             icon="💬",
+        ),
+        "submit_to_agent": BuiltinToolConfig(
+            name="submit_to_agent",
+            enabled=True,
+            description="Submit a background task to another configured agent",
+            icon="📨",
+        ),
+        "check_agent_task": BuiltinToolConfig(
+            name="check_agent_task",
+            enabled=True,
+            description="Check the status of a background agent task",
+            icon="⏳",
         ),
     }
 
@@ -1068,6 +1195,33 @@ def build_qa_agent_tools_config() -> ToolsConfig:
             "write_file",
             "edit_file",
             "view_image",
+        },
+    )
+    builtin_tools = {
+        name: tc.model_copy(update={"enabled": name in allow})
+        for name, tc in _default_builtin_tools().items()
+    }
+    return ToolsConfig(builtin_tools=builtin_tools)
+
+
+def build_local_agent_tools_config() -> ToolsConfig:
+    """Tools preset for local collaborative agents.
+
+    Inter-agent coordination tools are enabled by default, along with
+    execute_shell_command and file read/write/edit tools, so a local small
+    model can escalate planning work while still handling basic workspace
+    actions. All other built-ins are disabled.
+    """
+    allow = frozenset(
+        {
+            "list_agents",
+            "chat_with_agent",
+            "submit_to_agent",
+            "check_agent_task",
+            "execute_shell_command",
+            "read_file",
+            "write_file",
+            "edit_file",
         },
     )
     builtin_tools = {
@@ -1172,6 +1326,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    acp: ACPConfig = Field(default_factory=ACPConfig)
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
@@ -1206,6 +1361,60 @@ ChannelConfigUnion = Union[
 # Agent configuration utility functions
 
 
+def build_fallback_agent_profile_config(
+    agent_id: str,
+    config: "Config",
+) -> AgentProfileConfig:
+    """Build the same profile as when ``agent.json``
+    is missing (no disk read/write).
+
+    Used by :func:`load_agent_config` and ``qwenpaw doctor fix``
+    so defaults stay in sync.
+    """
+    if agent_id not in config.agents.profiles:
+        raise ValueError(f"Agent '{agent_id}' not found in config")
+
+    agent_ref = config.agents.profiles[agent_id]
+    workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+    return AgentProfileConfig(
+        id=agent_id,
+        name=agent_id.title(),
+        description=f"{agent_id} agent",
+        workspace_dir=str(workspace_dir),
+        channels=(
+            config.channels
+            if hasattr(config, "channels") and config.channels
+            else None
+        ),
+        mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
+        tools=(
+            config.tools if hasattr(config, "tools") and config.tools else None
+        ),
+        security=(
+            config.security
+            if hasattr(config, "security") and config.security
+            else None
+        ),
+        running=(
+            config.agents.running
+            if hasattr(config.agents, "running") and config.agents.running
+            else AgentsRunningConfig()
+        ),
+        llm_routing=(
+            config.agents.llm_routing
+            if hasattr(config.agents, "llm_routing")
+            and config.agents.llm_routing
+            else AgentsLLMRoutingConfig()
+        ),
+        system_prompt_files=(
+            config.agents.system_prompt_files
+            if hasattr(config.agents, "system_prompt_files")
+            and config.agents.system_prompt_files
+            else ["AGENTS.md", "SOUL.md", "PROFILE.md"]
+        ),
+    )
+
+
 def load_agent_config(agent_id: str) -> AgentProfileConfig:
     """Load agent's complete configuration from workspace/agent.json.
 
@@ -1233,49 +1442,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     agent_config_path = workspace_dir / "agent.json"
 
     if not agent_config_path.exists():
-        # Fallback: Try to use root config fields for backward compatibility
-        # This allows downgrade scenarios where agent.json doesn't exist yet
-        fallback_config = AgentProfileConfig(
-            id=agent_id,
-            name=agent_id.title(),
-            description=f"{agent_id} agent",
-            workspace_dir=str(workspace_dir),
-            # Inherit from root config if available (for backward compat)
-            channels=(
-                config.channels
-                if hasattr(config, "channels") and config.channels
-                else None
-            ),
-            mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
-            tools=(
-                config.tools
-                if hasattr(config, "tools") and config.tools
-                else None
-            ),
-            security=(
-                config.security
-                if hasattr(config, "security") and config.security
-                else None
-            ),
-            # Use agent-specific configs with proper defaults
-            running=(
-                config.agents.running
-                if hasattr(config.agents, "running") and config.agents.running
-                else AgentsRunningConfig()
-            ),
-            llm_routing=(
-                config.agents.llm_routing
-                if hasattr(config.agents, "llm_routing")
-                and config.agents.llm_routing
-                else AgentsLLMRoutingConfig()
-            ),
-            system_prompt_files=(
-                config.agents.system_prompt_files
-                if hasattr(config.agents, "system_prompt_files")
-                and config.agents.system_prompt_files
-                else ["AGENTS.md", "SOUL.md", "PROFILE.md"]
-            ),
-        )
+        fallback_config = build_fallback_agent_profile_config(agent_id, config)
         # Save for future use
         save_agent_config(agent_id, fallback_config)
         return fallback_config

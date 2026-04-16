@@ -24,7 +24,9 @@
     "help": "Help",
     "close": "Close",
     "actions": "Actions",
-    "total": "Total {{count}}"
+    "total": "Total {{count}}",
+    "clear": "Clear",
+    "paste": "Paste"
   },
   "chunkError": {
     "title": "Failed to load page",
@@ -53,7 +55,29 @@
     "environments": "Environments",
     "security": "Security",
     "tokenUsage": "Token Usage",
-    "voiceTranscription": "Voice Transcription"
+    "voiceTranscription": "Voice Transcription",
+    "debug": "Debug"
+  },
+  "debug": {
+    "title": "Debug",
+    "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
+    "level": { "all": "All" },
+    "backend": {
+      "title": "Backend logs",
+      "autoRefresh": "Auto refresh",
+      "newestFirst": "Newest first",
+      "updatedAt": "Updated at",
+      "path": "Log file",
+      "notFound": "Backend log file was not found yet.",
+      "placeholder": "Backend log output will appear here.",
+      "loadFailed": "Failed to load backend logs",
+      "searchPlaceholder": "Search backend logs..."
+    },
+    "actions": {
+      "refreshBackend": "Refresh backend logs",
+      "refreshSuccess": "Logs refreshed",
+      "copyBackend": "Copy backend logs"
+    }
   },
   "voiceTranscription": {
     "title": "Voice Transcription",
@@ -143,7 +167,9 @@
     "loadConfigFailed": "Failed to load agent config",
     "saveFailed": "Failed to save agent",
     "idRequired": "Please enter agent ID",
-    "idPattern": "ID can only contain lowercase letters, numbers, underscores and hyphens",
+    "idLabel": "Agent ID (optional)",
+    "idHelp": "Leave empty to auto-generate. Only letters, digits, hyphens and underscores allowed.",
+    "idPattern": "ID can only contain letters, numbers, underscores and hyphens",
     "idPlaceholder": "e.g.: my-agent",
     "nameRequired": "Please enter agent name",
     "namePlaceholder": "e.g.: My Agent",
@@ -180,13 +206,21 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
-    "importHub": "Import from Skills Hub",
-    "importHubHint": "Import skills via URL",
+    "importHub": "Import Hub",
+    "importHubHint": "Import a skill from a supported online hub URL into the current workspace",
+    "importSkills": "Import Skill",
     "enterSkillUrl": "Enter Skill URL",
-    "supportedSkillUrlSources": "Currently supported skill URL sources:",
+    "orChooseFromSources": "or choose from supported Skill marketplaces",
+    "supportedSkillUrlSources": "Supported Skill Marketplaces:",
     "urlExamples": "URL examples:",
-    "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/, or https://modelscope.cn/skills/",
+    "urlValid": "Valid URL from {{source}}",
+    "invalidUrl": "Invalid URL",
+    "examplesFrom": "Examples from {{source}}",
+    "clickToFill": "Click to fill in URL",
+    "invalidSkillUrlSource": "Please verify the skill URL is from a supported marketplace",
     "type": "Type",
+    "source": "Source",
+    "path": "Path",
     "skillDescription": "Description",
     "tags": "Tags",
     "builtin": "Built-in",
@@ -247,6 +281,7 @@
     "downloadedToWorkspace": "Downloaded to current workspace",
     "builtinUpgradeTitle": "Upgrade Built-in Skill",
     "builtinUpgradeContent": "A newer version of built-in skill \"{{name}}\" is available in the pool. Overwrite the current version?",
+    "overwriteExistingList": "The following skills already exist and will be overwritten:",
     "nameConflict": "Name conflict detected. Suggested rename has been filled.",
     "uploadToPoolHint": "Upload selected workspace skills to the shared local skill pool",
     "downloadFromPoolHint": "Download selected pool skills into the current workspace",
@@ -268,8 +303,9 @@
     "emptyStateBadge": "New workspaces start empty",
     "emptyStateTitle": "This agent does not have any skills yet",
     "emptyStateText": "This is expected. New workspaces do not come with skills automatically. Download skills from the local pool or create one here to equip this agent.",
-    "emptyStateDownload": "Load from Skill Pool",
+    "emptyStateDownload": "Download from Skill Pool",
     "emptyStateCreate": "Create First Skill",
+    "examples": "Examples",
     "loadFailed": "Failed to load skills",
     "refreshFailed": "Failed to refresh skills",
     "createdSuccessfully": "Created successfully",
@@ -348,6 +384,8 @@
     "broadcastSuccess": "Broadcast completed",
     "broadcastFailed": "Broadcast failed",
     "overwriteConfirm": "Overwrite existing skills?",
+    "overwriteTargetsContent": "The following existing targets will be overwritten:",
+    "builtinOverwriteTargetsContent": "The following built-in targets have different versions and will be overwritten:",
     "renameAndRetry": "A skill with this name already exists. Use the suggested name?",
     "multiConflictTitle": "Multiple Conflicts Detected",
     "multiConflictDesc": "The following skills already exist. Please resolve conflicts individually and retry:",
@@ -473,7 +511,7 @@
     "runtimeMaxConcurrency": "Max Concurrency",
     "runtimeTimeoutSeconds": "Timeout (seconds)",
     "runtimeMisfireGraceSeconds": "Misfire Grace (seconds)",
-    "idTooltip": "Unique identifier for this job. Use lowercase letters, numbers, hyphens, and underscores.",
+    "idTooltip": "System-generated, non-editable, unique UUID assigned at task creation.",
     "nameTooltip": "A friendly name to help you identify this job.",
     "cronTooltip": "Define when the task should run",
     "cronExample": "Common examples: '0 9 * * *' = 9 AM daily | '*/30 * * * *' = every 30 min | '0 */2 * * *' = every 2 hours | '0 0 * * 0' = Sunday midnight",
@@ -726,6 +764,9 @@
     "selectModel": "Select a model",
     "llmModelUpdated": "LLM Model updated",
     "failedToSave": "Failed to save",
+    "freeModelWarningTitle": "Free Model Risk Warning",
+    "freeModelWarningMessage": "You are using a free model. It may have stability and privacy leakage risks. See the provider website for details:",
+    "freeModelWarningDontShowAgain": "Do not show this again",
     "saved": "Saved",
     "save": "Save",
     "cancel": "Cancel",
@@ -766,6 +807,8 @@
     "manageModelsTitle": "{{provider}} — Model Management",
     "userAdded": "User-added",
     "addModel": "Add Model",
+    "addModels": "Add Models",
+    "autoDiscoverModels": "Auto Discover Models",
     "addModelTitle": "Add Model to {{provider}}",
     "modelIdLabel": "Model ID",
     "modelIdPlaceholder": "e.g. gpt-4o, gemini-2.0-flash",
@@ -775,6 +818,9 @@
     "modelNamePlaceholder": "e.g. GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "Model \"{{name}}\" added",
     "modelAddFailed": "Failed to add model",
+    "autoDiscoverModelsSuccess": "Auto discovery complete. Added {{count}} models",
+    "autoDiscoverModelsNoNew": "Auto discovery complete. No new models were added",
+    "autoDiscoverModelsFailed": "Failed to auto discover models",
     "removeModel": "Remove",
     "removeModelConfirm": "Remove model \"{{name}}\" from {{provider}}?",
     "modelRemoved": "Model \"{{name}}\" removed",
@@ -791,7 +837,12 @@
     "allModelsCleared": "Cleared {{count}} models",
     "filterModels": "Filter Models",
     "filterByProvider": "Provider:",
+    "searchProviderPlaceholder": "Search provider name",
+    "selectAllProviders": "Select All",
+    "clearProviderSelection": "Deselect All",
+    "noMatchingProviders": "No matching providers",
     "filterByModality": "Input Modality:",
+    "filterFreeOnly": "Free Models Only:",
     "getModels": "Get Models",
     "discovered": "Available Models:",
     "add": "Add",
@@ -905,6 +956,7 @@
     "tagMultimodal": "Multimodal",
     "tagVision": "Vision",
     "tagText": "Text",
+    "free": "Free",
     "probeMultimodal": "Test Multimodal",
     "probeImage": "Image",
     "probeVideo": "Video",
@@ -912,7 +964,7 @@
     "probeNotSupported": "This model does not support multimodal input",
     "probeFailed": "Probe failed",
     "tagNotProbed": "Not Probed",
-    "modalityVision": "Vision (image)",
+    "modalityVision": "Image",
     "modalityAudio": "Audio",
     "modalityVideo": "Video",
     "modalityFile": "File",
@@ -980,6 +1032,8 @@
     "maxItersPlaceholder": "Enter max iterations",
     "maxItersRequired": "Max iterations is required",
     "maxItersMin": "Max iterations must be at least 1",
+    "autoContinueOnTextOnly": "Auto-continue on text-only step",
+    "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -1053,6 +1107,9 @@
     "memorySummaryTitle": "Long-term Memory Config",
     "memorySummaryEnabled": "Activate Memory Summary",
     "memorySummaryEnabledTooltip": "Automatically generate and save memory summaries during context compaction",
+    "dreamCron": "Dream",
+    "dreamCronTooltip": "Cron expression for periodically optimizing long-term memories through dream state (leave empty to disable)",
+    "dreamCronPlaceholder": "0 23 * * *",
     "forceMemorySearch": "Force Memory Search (beta)",
     "forceMemorySearchTooltip": "Force memory search to run on every conversation turn. Each query will retrieve relevant memories, helping QwenPaw understand you better — but this increases token consumption. Note: enabling force memory search will break the KV cache, reducing cache hit rate. Use with caution.",
     "forceMaxResults": "Force Search Max Results",
@@ -1180,6 +1237,12 @@
       },
       "deny": {
         "description": "Deny the pending tool action"
+      },
+      "mission": {
+        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ This mode will bypass tool guardrails"
+      },
+      "skills": {
+        "description": "List chat-available skills and expose explicit skill commands"
       }
     },
     "attachments": {
@@ -1199,7 +1262,8 @@
       "noResults": "No results found",
       "resultsCount": "Found {{count}} result(s)",
       "userMessage": "User",
-      "assistantMessage": "Assistant"
+      "assistantMessage": "Assistant",
+      "titleMatch": "Title"
     }
   },
   "security": {

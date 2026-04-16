@@ -72,10 +72,6 @@
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
   "client_secret": "你的 Client Secret",
-  "message_type": "markdown",
-  "card_template_id": "",
-  "card_template_key": "content",
-  "robot_code": "",
   "filter_tool_messages": false
 }
 ```
@@ -307,7 +303,7 @@
 
    - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
-     ![console](https://img.alicdn.com/imgextra/i4/O1CN01yxsvJ51yOetCYur9f_!!6000000006569-2-tps-3822-2070.png)
+     ![控制台](https://img.alicdn.com/imgextra/i4/O1CN01yxsvJ51yOetCYur9f_!!6000000006569-2-tps-3822-2070.png)
 
    - 填写智能体工作区的 `agent.json`（如 `~/.qwenpaw/workspaces/default/agent.json`）：
 

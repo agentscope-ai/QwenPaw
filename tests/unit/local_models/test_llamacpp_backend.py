@@ -876,6 +876,7 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     assert setup_result.port == downloader.get_server_status()["port"]
     assert setup_result.model_info.model_dump() == {
         "id": "demo-model",
+        "is_free": False,
         "name": "demo-model",
         "supports_multimodal": False,
         "supports_image": False,
@@ -1021,6 +1022,7 @@ async def test_setup_server_passes_mmproj_argument(
 
     assert setup_result.model_info.model_dump() == {
         "id": "vision-model",
+        "is_free": False,
         "name": "vision-model",
         "supports_multimodal": True,
         "supports_image": True,

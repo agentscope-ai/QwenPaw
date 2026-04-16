@@ -23,6 +23,7 @@ from .gemini_provider import GeminiProvider
 from .models import ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
+from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
     Provider,
@@ -85,6 +86,13 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
 ]
 
 ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
     ModelInfo(
         id="qwen3.5-plus",
         name="Qwen3.5 Plus",
@@ -255,13 +263,13 @@ OPENAI_MODELS: List[ModelInfo] = [
 ]
 
 OPENCODE_MODELS: List[ModelInfo] = [
-    # Free models from OpenCode Zen
     ModelInfo(
         id="big-pickle",
         name="Big Pickle",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        is_free=True,
     ),
     ModelInfo(
         id="nemotron-3-super-free",
@@ -269,6 +277,7 @@ OPENCODE_MODELS: List[ModelInfo] = [
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        is_free=True,
     ),
 ]
 
@@ -568,7 +577,7 @@ PROVIDER_OPENCODE = OpenAIProvider(
     api_key_prefix="",
     models=OPENCODE_MODELS,
     freeze_url=True,
-    support_model_discovery=True,
+    require_api_key=False,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -645,7 +654,6 @@ PROVIDER_GEMINI = GeminiProvider(
     models=GEMINI_MODELS,
     chat_model="GeminiChatModel",
     freeze_url=True,
-    support_model_discovery=True,
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -664,10 +672,9 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     api_key_prefix="sk-or-v1-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
 )
 
-PROVIDER_LMSTUDIO = OpenAIProvider(
+PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
     name="LM Studio",
     is_local=True,
@@ -685,7 +692,6 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     api_key_prefix="sk-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
     require_api_key=True,
 )
 
@@ -696,7 +702,6 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     api_key_prefix="sk-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
     require_api_key=True,
 )
 
@@ -749,9 +754,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_QWENPAW)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
+        self._add_builtin(PROVIDER_OPENROUTER)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
+        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
@@ -761,8 +768,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_KIMI_INTL)
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
-        self._add_builtin(PROVIDER_OPENROUTER)
-        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_ZHIPU_CN)
         self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
         self._add_builtin(PROVIDER_ZHIPU_INTL)
@@ -1577,10 +1582,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             is_custom=False,  # Mark as non-custom (like builtin, cannot be
             # deleted)
             require_api_key=metadata.get("require_api_key", True),
-            support_model_discovery=metadata.get(
-                "support_model_discovery",
-                False,
-            ),
             meta=metadata.get("meta", {}),  # Pass meta from plugin
         )
 

@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build && git rev-parse --short HEAD > dist/.build_hash",
     "build:prod": "tsc -b && vite build --mode production",
     "build:test": "tsc -b && vite build --mode test",
-    "format": "tsc -b --noEmit && prettier --write .",
+    "format": "tsc -b --noEmit && prettier --write --cache .",
     "format:check": "tsc -b --noEmit && prettier --check .",
     "lint": "eslint .",
     "preview": "vite preview",

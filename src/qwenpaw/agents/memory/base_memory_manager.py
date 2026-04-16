@@ -113,6 +113,17 @@ class BaseMemoryManager(ABC):
             Comprehensive summary string.
         """
 
+    @abstractmethod
+    async def dream_memory(self, **kwargs) -> None:
+        """Run one dream-based memory optimization task.
+
+        This method performs dream-based memory optimization by executing
+        an agent query with specific instructions for memory file optimization.
+
+        Args:
+            **kwargs: Additional keyword arguments for the dream task.
+        """
+
     def add_async_summary_task(self, messages: list[Msg], **kwargs):
         """Add an asynchronous summary task for the given messages."""
 

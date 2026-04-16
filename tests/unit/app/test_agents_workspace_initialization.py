@@ -54,14 +54,14 @@ def test_initialize_agent_workspace_creates_runtime_compatible_files(
     }
 
 
-def test_initialize_agent_workspace_builtin_qa_seed_passes_language_first(
+def test_initialize_agent_workspace_applies_md_template_with_language(
     monkeypatch,
     tmp_path,
 ):
-    """Builtin QA seeding should pass language before workspace."""
+    """Workspace initialization should pass language and md_template_id."""
     import qwenpaw.config as config_module
 
-    recorded_calls: list[tuple[str, Path]] = []
+    recorded_calls: list[tuple[str, Path, str | None]] = []
 
     monkeypatch.setattr(
         config_module,
@@ -70,9 +70,11 @@ def test_initialize_agent_workspace_builtin_qa_seed_passes_language_first(
     )
     monkeypatch.setattr(
         agents_router,
-        "copy_builtin_qa_md_files",
-        lambda language, workspace_dir: recorded_calls.append(
-            (language, workspace_dir),
+        "copy_workspace_md_files",
+        lambda language, workspace_dir, md_template_id=None: (
+            recorded_calls.append(
+                (language, workspace_dir, md_template_id),
+            )
         ),
     )
     monkeypatch.setattr(
@@ -83,7 +85,7 @@ def test_initialize_agent_workspace_builtin_qa_seed_passes_language_first(
 
     agents_router._initialize_agent_workspace(
         tmp_path,
-        builtin_qa_md_seed=True,
+        md_template_id="qa",
     )
 
-    assert recorded_calls == [("ru", tmp_path)]
+    assert recorded_calls == [("ru", tmp_path, "qa")]

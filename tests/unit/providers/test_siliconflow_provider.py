@@ -28,7 +28,7 @@ def test_siliconflow_provider_configs() -> None:
     assert PROVIDER_SILICONFLOW_CN.name == "SiliconFlow (China)"
     assert PROVIDER_SILICONFLOW_CN.base_url == "https://api.siliconflow.cn/v1"
     assert PROVIDER_SILICONFLOW_CN.freeze_url is True
-    assert PROVIDER_SILICONFLOW_CN.support_model_discovery is True
+    assert PROVIDER_SILICONFLOW_CN.support_model_discovery is False
 
     assert PROVIDER_SILICONFLOW_INTL.id == "siliconflow-intl"
     assert PROVIDER_SILICONFLOW_INTL.name == "SiliconFlow (International)"
@@ -36,13 +36,13 @@ def test_siliconflow_provider_configs() -> None:
         PROVIDER_SILICONFLOW_INTL.base_url == "https://api.siliconflow.com/v1"
     )
     assert PROVIDER_SILICONFLOW_INTL.freeze_url is True
-    assert PROVIDER_SILICONFLOW_INTL.support_model_discovery is True
+    assert PROVIDER_SILICONFLOW_INTL.support_model_discovery is False
 
 
 def test_siliconflow_models_list() -> None:
     """Verify Siliconflow has no preset models (empty list)."""
-    assert PROVIDER_SILICONFLOW_CN.models == []
-    assert PROVIDER_SILICONFLOW_INTL.models == []
+    assert not PROVIDER_SILICONFLOW_CN.models
+    assert not PROVIDER_SILICONFLOW_INTL.models
     assert len(PROVIDER_SILICONFLOW_CN.models) == 0
     assert len(PROVIDER_SILICONFLOW_INTL.models) == 0
 

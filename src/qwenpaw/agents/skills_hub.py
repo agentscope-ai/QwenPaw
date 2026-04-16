@@ -708,6 +708,10 @@ def _safe_fallback_name(raw: str) -> str:
 
 
 def _extract_error_message_from_payload(payload: bytes) -> str:
+    if not payload:
+        return ""
+    if not _is_probably_text_blob(payload):
+        return ""
     text = payload.decode("utf-8", errors="ignore").strip()
     if not text:
         return ""
@@ -1596,7 +1600,6 @@ def install_skill_from_hub(
     bundle_url: str,
     version: str = "",
     enable: bool = False,
-    overwrite: bool = False,
     target_name: str | None = None,
     cancel_checker: Any | None = None,
 ) -> HubInstallResult:
@@ -1626,7 +1629,6 @@ def install_skill_from_hub(
         created = skill_service.create_skill(
             name=name,
             content=content,
-            overwrite=overwrite,
             references=references,
             scripts=scripts,
             extra_files=extra_files,

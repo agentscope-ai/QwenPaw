@@ -26,7 +26,7 @@ def test_opencode_provider_config() -> None:
     assert PROVIDER_OPENCODE.name == "OpenCode"
     assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
     assert PROVIDER_OPENCODE.freeze_url is True
-    assert PROVIDER_OPENCODE.support_model_discovery is True
+    assert PROVIDER_OPENCODE.support_model_discovery is False
 
 
 @pytest.fixture
@@ -66,17 +66,3 @@ async def test_opencode_check_connection_success(monkeypatch) -> None:
 
     assert ok is True
     assert msg == ""
-
-
-def test_opencode_has_expected_models(isolated_secret_dir) -> None:
-    """Provider manager OpenCode provider should include built-in models."""
-    manager = ProviderManager()
-    provider = manager.get_provider("opencode")
-
-    assert provider is not None
-
-    for model_id in [
-        "big-pickle",
-        "nemotron-3-super-free",
-    ]:
-        assert provider.has_model(model_id)

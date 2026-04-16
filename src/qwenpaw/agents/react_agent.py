@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import ReActAgent
+from agentscope.agent._react_agent import _MemoryMark
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
@@ -36,7 +37,10 @@ from .skills_manager import (
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
+    delegate_external_agent,
     chat_with_agent,
+    check_agent_task,
+    submit_to_agent,
     desktop_screenshot,
     edit_file,
     execute_shell_command,
@@ -241,8 +245,11 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
+            "delegate_external_agent": delegate_external_agent,
             "list_agents": list_agents,
             "chat_with_agent": chat_with_agent,
+            "submit_to_agent": submit_to_agent,
+            "check_agent_task": check_agent_task,
         }
 
         multimodal = get_active_model_supports_multimodal()
@@ -669,6 +676,113 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video"}
 
+    _AUTO_CONTINUE_MAX_EXTRA = 2
+    _AUTO_CONTINUE_TAIL_CHARS = 600
+
+    _AUTO_CONTINUE_HINT_EN = (
+        "<system-hint>"
+        "Your previous assistant turn had text only (no tool calls). "
+        "Use the trailing excerpt in <previous-assistant-tail> (if present) "
+        "plus the conversation to decide in this **reasoning** step: if the "
+        "user's task still needs tools, emit tool_use now; if it is fully "
+        "done, reply with a short text only (no tools). "
+        "Do not stop with plans or code fences alone when tools are still "
+        "needed."
+        "</system-hint>"
+    )
+    _AUTO_CONTINUE_HINT_ZH = (
+        "<system-hint>"
+        "上轮助手仅文字、未调工具。请结合上下文与 <previous-assistant-tail> "
+        "（若有）在本轮推理中判断：仍需执行则立刻 tool；已完结则简短收尾。"
+        "需要操作时勿只输出计划或代码块。"
+        "</system-hint>"
+    )
+
+    def _auto_continue_system_hint(self) -> str:
+        """Pick hint by agent language (zh vs others)."""
+        raw_lang = getattr(self._agent_config, "language", None)
+        lang = (raw_lang or "").strip().lower()
+        if lang == "zh":
+            return self._AUTO_CONTINUE_HINT_ZH
+        return self._AUTO_CONTINUE_HINT_EN
+
+    @staticmethod
+    def _auto_continue_tail_context(msg: Msg, max_chars: int) -> str:
+        """Assistant text suffix for hint (fixed cut, not sentence NLP)."""
+        raw = msg.get_text_content() if msg is not None else ""
+        text = (raw or "").strip()
+        if not text:
+            return ""
+        if len(text) <= max_chars:
+            return text
+        return text[-max_chars:].lstrip()
+
+    async def _auto_continue_if_text_only(
+        self,
+        msg: Msg,
+        tool_choice: Literal["auto", "none", "required"] | None,
+    ) -> Msg:
+        """Nudge the model when it returns text-only mid-task.
+
+        Injects a language-matched hint (with a trailing excerpt of the
+        assistant text for self-review) and runs up to
+        ``_AUTO_CONTINUE_MAX_EXTRA`` extra ``_reasoning`` passes until a
+        tool_use appears or the cap is
+        hit.  Uses the original ``tool_choice`` unchanged (no switching).
+        If an extra pass still returns text-only, keep the prior response to
+        avoid repeated duplicated answers.
+        """
+        running = self._agent_config.running
+        if not running.auto_continue_on_text_only:
+            return msg
+        if msg is None or msg.has_content_blocks("tool_use"):
+            return msg
+
+        extra = 0
+        while extra < self._AUTO_CONTINUE_MAX_EXTRA:
+            if msg.has_content_blocks("tool_use"):
+                break
+            extra += 1
+            tail = self._auto_continue_tail_context(
+                msg,
+                self._AUTO_CONTINUE_TAIL_CHARS,
+            )
+            hint_body = self._auto_continue_system_hint()
+            if tail:
+                hint_body += (
+                    "\n\n<previous-assistant-tail>\n"
+                    f"{tail}\n"
+                    "</previous-assistant-tail>"
+                )
+            logger.info(
+                "Auto-continue: text-only (%d/%d); hint + _reasoning "
+                "tool_choice=%r",
+                extra,
+                self._AUTO_CONTINUE_MAX_EXTRA,
+                tool_choice,
+            )
+            hint_msg = Msg("user", hint_body, "user")
+            await self.memory.add(hint_msg, marks=_MemoryMark.HINT)
+            try:
+                next_msg = await super()._reasoning(tool_choice=tool_choice)
+            except Exception:
+                logger.warning(
+                    "Auto-continue extra _reasoning failed; "
+                    "keeping prior response",
+                    exc_info=True,
+                )
+                break
+            if next_msg.has_content_blocks("tool_use"):
+                msg = next_msg
+                continue
+            logger.info(
+                "Auto-continue extra _reasoning still text-only; "
+                "keeping prior response",
+            )
+            break
+
+        return msg
+
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -722,7 +836,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         # --- Passive fallback layer (existing logic) ---
         try:
-            return await super()._reasoning(tool_choice=tool_choice)
+            msg = await super()._reasoning(tool_choice=tool_choice)
         except Exception as e:
             if not self._is_bad_request_or_media_error(e):
                 raise
@@ -764,7 +878,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 e,
                 n_stripped,
             )
-            return await super()._reasoning(tool_choice=tool_choice)
+            msg = await super()._reasoning(tool_choice=tool_choice)
+
+        return await self._auto_continue_if_text_only(msg, tool_choice)
 
     # pylint: disable=too-many-branches
     async def _summarizing(self) -> Msg:
