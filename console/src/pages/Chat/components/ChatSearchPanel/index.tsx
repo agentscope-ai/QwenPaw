@@ -36,7 +36,7 @@ const getRoleLabel = (role: string, t: (key: string) => string): string => {
 interface SearchResult {
   chatId: string;
   chatName: string;
-  messageId: string;
+  messageId?: string;
   role: string;
   roleLabel: string;
   text: string;
@@ -64,6 +64,17 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const inputRef = useRef<InputRef>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Monotonic id so slow list/getChat responses cannot overwrite a newer search. */
+  const searchSeqRef = useRef(0);
+
+  // Clean up debounce timer on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Focus input when drawer opens
   useEffect(() => {
@@ -79,8 +90,12 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
 
   // Search across all sessions
   useEffect(() => {
+    // Bump first so clearing input or closing invalidates any in-flight search.
+    const seq = ++searchSeqRef.current;
+
     if (!searchQuery.trim()) {
       setSearchResults([]);
+      setLoading(false);
       return;
     }
 
@@ -97,14 +112,15 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
 
         // Get all chats from backend
         const chats = await chatApi.listChats();
+        if (seq !== searchSeqRef.current) return;
 
         // Fetch all chat histories in parallel using Promise.all
         const chatHistories = await Promise.all(
           chats
-            .filter((chat) => chat.id)
+            .filter((chat): chat is typeof chat & { id: string } => !!chat.id)
             .map(async (chat) => {
               try {
-                const history = await chatApi.getChat(chat.id!);
+                const history = await chatApi.getChat(chat.id);
                 return { chat, history };
               } catch (err) {
                 console.warn(`Failed to load chat ${chat.id}:`, err);
@@ -113,18 +129,36 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
             }),
         );
 
-        // Search in each chat
+        if (seq !== searchSeqRef.current) return;
+
+        // Search in each chat: title match + message body matches are independent
         for (const item of chatHistories) {
           if (!item) continue;
           const { chat, history } = item;
+          const chatId = chat.id;
+          if (!chatId) continue;
           const messages = history.messages || [];
           const chatName = chat.name || "New Chat";
           const chatTimestamp = chat.created_at;
 
+          // Title match: only match real titles, skip the default placeholder
+          if (chat.name && chatName.toLowerCase().includes(query)) {
+            results.push({
+              chatId,
+              chatName,
+              role: "chat_title",
+              roleLabel: t("chat.search.titleMatch"),
+              text: chatName,
+              matchedText: chatName,
+              timestamp: chatTimestamp,
+            });
+          }
+
+          // Message body matches
           for (const msg of messages) {
             const text = extractTextFromContent(msg.content);
-            if (text.toLowerCase().includes(query)) {
-              const lowerText = text.toLowerCase();
+            const lowerText = text.toLowerCase();
+            if (lowerText.includes(query)) {
               const matchIndex = lowerText.indexOf(query);
               const contextLength = 80;
               const start = Math.max(0, matchIndex - contextLength);
@@ -135,7 +169,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
               const matchedText = text.slice(start, end);
 
               results.push({
-                chatId: chat.id!,
+                chatId,
                 chatName,
                 messageId: String(msg.id || ""),
                 role: msg.role || "",
@@ -158,12 +192,16 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
           );
         });
 
+        if (seq !== searchSeqRef.current) return;
         setSearchResults(results);
       } catch (err) {
+        if (seq !== searchSeqRef.current) return;
         console.error("Search failed:", err);
         setSearchResults([]);
       } finally {
-        setLoading(false);
+        if (seq === searchSeqRef.current) {
+          setLoading(false);
+        }
       }
     }, 300);
 

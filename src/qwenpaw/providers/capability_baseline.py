@@ -175,6 +175,16 @@ class ExpectedCapabilityRegistry:
         self._register(
             ExpectedCapability(
                 provider_id="aliyun-codingplan",
+                model_id="qwen3.6-plus",
+                expected_image=True,
+                expected_video=True,
+                doc_url=_acp_doc,
+                note="Qwen3.6-Plus is natively multimodal (image+video)",
+            ),
+        )
+        self._register(
+            ExpectedCapability(
+                provider_id="aliyun-codingplan",
                 model_id="qwen3.5-plus",
                 expected_image=True,
                 expected_video=True,

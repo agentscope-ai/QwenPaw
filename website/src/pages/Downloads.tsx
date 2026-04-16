@@ -60,31 +60,44 @@ function detectOS(): string | null {
 }
 
 interface PlatformCardProps {
-  fileMetadata: FileMetadata;
-  allVersions: string[];
+  versions: FileMetadata[];
+  latestStableFileId: string | null;
   isRecommended: boolean;
 }
 
 function PlatformCard({
-  fileMetadata,
-  allVersions,
+  versions,
+  latestStableFileId,
   isRecommended,
 }: PlatformCardProps) {
   const { t, i18n } = useTranslation();
   const isZh = i18n.resolvedLanguage === "zh";
-  const [selectedVersion, setSelectedVersion] = useState(fileMetadata.version);
+  const [selectedFileId, setSelectedFileId] = useState(versions[0]?.id ?? "");
+
+  const selectedFileMetadata =
+    versions.find((item) => item.id === selectedFileId) ?? versions[0];
+
+  if (!selectedFileMetadata) {
+    return null;
+  }
 
   const platformName = isZh
-    ? fileMetadata.name["zh-CN"]
-    : fileMetadata.name["en-US"];
+    ? selectedFileMetadata.name["zh-CN"]
+    : selectedFileMetadata.name["en-US"];
   const description = isZh
-    ? fileMetadata.description["zh-CN"]
-    : fileMetadata.description["en-US"];
-  const IconComponent = platformIcons[fileMetadata.platform] || Monitor;
-  const updatedDate = new Date(fileMetadata.updated_at).toLocaleDateString(
-    isZh ? "zh-CN" : "en-US",
+    ? selectedFileMetadata.description["zh-CN"]
+    : selectedFileMetadata.description["en-US"];
+  const IconComponent = platformIcons[selectedFileMetadata.platform] || Monitor;
+  const updatedDate = new Date(
+    selectedFileMetadata.updated_at,
+  ).toLocaleDateString(isZh ? "zh-CN" : "en-US");
+  const downloadUrl = `https://download.qwenpaw.agentscope.io${selectedFileMetadata.url}`;
+  const stableVersions = versions.filter(
+    (item) => !/[ab]\d*$/i.test(item.version) && !/preview/i.test(item.version),
   );
-  const downloadUrl = `https://download.qwenpaw.agentscope.io${fileMetadata.url}`;
+  const previewVersions = versions.filter(
+    (item) => /[ab]\d*$/i.test(item.version) || /preview/i.test(item.version),
+  );
 
   return (
     <div className={`platform-card ${isRecommended ? "recommended" : ""}`}>
@@ -101,26 +114,41 @@ function PlatformCard({
               </span>
             )}
           </h4>
-          <div className="platform-version">v{fileMetadata.version}</div>
+          <div className="platform-version">
+            v{selectedFileMetadata.version}
+          </div>
         </div>
       </div>
       <p className="platform-description">{description}</p>
 
-      {allVersions.length > 1 && (
+      {versions.length > 1 && (
         <div className="version-selector">
           <label className="version-label">
             {t("downloads.selectVersion")}
           </label>
           <select
             className="version-dropdown"
-            value={selectedVersion}
-            onChange={(e) => setSelectedVersion(e.target.value)}
+            value={selectedFileId}
+            onChange={(e) => setSelectedFileId(e.target.value)}
           >
-            {allVersions.map((version, index) => (
-              <option key={version} value={version}>
-                v{version} {index === 0 ? `(${t("downloads.latest")})` : ""}
-              </option>
-            ))}
+            {stableVersions.length > 0 &&
+              stableVersions.map((versionItem) => (
+                <option key={versionItem.id} value={versionItem.id}>
+                  v{versionItem.id}
+                  {latestStableFileId === versionItem.id
+                    ? ` (${t("downloads.latest")})`
+                    : ""}
+                </option>
+              ))}
+            {previewVersions.length > 0 && (
+              <optgroup label="Preview">
+                {previewVersions.map((versionItem) => (
+                  <option key={versionItem.id} value={versionItem.id}>
+                    v{versionItem.id}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
       )}
@@ -133,11 +161,11 @@ function PlatformCard({
       <div className="file-details">
         <div className="detail-row">
           <span className="detail-label">{t("downloads.version")}:</span>
-          <span>{fileMetadata.version}</span>
+          <span>{selectedFileMetadata.version}</span>
         </div>
         <div className="detail-row">
           <span className="detail-label">{t("downloads.size")}:</span>
-          <span>{fileMetadata.size}</span>
+          <span>{selectedFileMetadata.size}</span>
         </div>
         <div className="detail-row">
           <span className="detail-label">{t("downloads.updated")}:</span>
@@ -145,11 +173,49 @@ function PlatformCard({
         </div>
         <div className="sha256-row">
           <span className="detail-label">SHA256:</span>
-          <div className="sha256">{fileMetadata.sha256}</div>
+          <div className="sha256">{selectedFileMetadata.sha256}</div>
         </div>
       </div>
     </div>
   );
+}
+
+function isPreviewVersion(version: string): boolean {
+  return /[ab]\d*$/i.test(version) || /preview/i.test(version);
+}
+
+function compareVersionPart(a: string, b: string): number {
+  const aNum = Number(a);
+  const bNum = Number(b);
+
+  if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
+    return aNum - bNum;
+  }
+
+  return a.localeCompare(b);
+}
+
+function compareVersionDesc(a: string, b: string): number {
+  const aBase = a.match(/^\d+(?:\.\d+)*/)?.[0] ?? "0";
+  const bBase = b.match(/^\d+(?:\.\d+)*/)?.[0] ?? "0";
+  const aParts = aBase.split(".");
+  const bParts = bBase.split(".");
+  const maxLength = Math.max(aParts.length, bParts.length);
+
+  for (let i = 0; i < maxLength; i += 1) {
+    const result = compareVersionPart(aParts[i] ?? "0", bParts[i] ?? "0");
+    if (result !== 0) {
+      return -result;
+    }
+  }
+
+  const aIsPreview = isPreviewVersion(a);
+  const bIsPreview = isPreviewVersion(b);
+  if (aIsPreview !== bIsPreview) {
+    return aIsPreview ? 1 : -1;
+  }
+
+  return b.localeCompare(a);
 }
 
 export default function Downloads() {
@@ -274,21 +340,32 @@ export default function Downloads() {
                 <div className="platform-grid">
                   {Object.entries(desktopIndex.platforms).map(
                     ([platform, platformData]) => {
-                      const latestFileId = platformData.latest;
-                      const fileMetadata = desktopIndex.files[latestFileId];
+                      const platformVersions = (platformData.versions || [])
+                        .map((fileId) => desktopIndex.files[fileId])
+                        .filter((item): item is FileMetadata => Boolean(item))
+                        .sort((a, b) =>
+                          compareVersionDesc(a.version, b.version),
+                        );
 
-                      if (!fileMetadata) return null;
+                      if (platformVersions.length === 0) return null;
 
+                      const latestStable = platformVersions.find(
+                        (item) => !isPreviewVersion(item.version),
+                      );
+                      const defaultVersion =
+                        latestStable ?? platformVersions[0];
                       const isRecommended = platform === userOS;
-                      const allVersions = platformData.versions || [
-                        fileMetadata.version,
-                      ];
 
                       return (
                         <PlatformCard
                           key={platform}
-                          fileMetadata={fileMetadata}
-                          allVersions={allVersions}
+                          versions={[
+                            defaultVersion,
+                            ...platformVersions.filter(
+                              (item) => item.id !== defaultVersion.id,
+                            ),
+                          ]}
+                          latestStableFileId={latestStable?.id ?? null}
                           isRecommended={isRecommended}
                         />
                       );

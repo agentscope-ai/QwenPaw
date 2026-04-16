@@ -19,6 +19,7 @@ interface PoolSkillDrawerProps {
   drawerContent: string;
   showMarkdown: boolean;
   configText: string;
+  availableTags?: string[];
   onClose: () => void;
   onSave: () => void;
   onContentChange: (content: string) => void;
@@ -34,6 +35,7 @@ export function PoolSkillDrawer({
   drawerContent,
   showMarkdown,
   configText,
+  availableTags = [],
   onClose,
   onSave,
   onContentChange,
@@ -124,7 +126,10 @@ export function PoolSkillDrawer({
         >
           <Select
             mode="tags"
-            open={false}
+            options={availableTags.map((tag) => ({
+              label: tag,
+              value: tag,
+            }))}
             placeholder={t("skillPool.tagsPlaceholder")}
             maxCount={MAX_TAGS}
           />

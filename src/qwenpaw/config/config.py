@@ -425,6 +425,12 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    dream_cron: str = Field(
+        default="0 23 * * *",
+        description="Cron expression for dream-based memory optimization job "
+        "(empty to disable)",
+    )
+
     force_memory_search: bool = Field(
         default=False,
         description="Whether to force memory search on every turn",
@@ -467,6 +473,15 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    recursive_file_watcher: bool = Field(
+        default=False,
+        description=(
+            "Whether to watch memory directory recursively. "
+            "Set to True to include subdirectories like memory/subdirectory/* "
+            "in vector search indexing."
+        ),
+    )
+
 
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
@@ -478,6 +493,18 @@ class AgentsRunningConfig(BaseModel):
         ge=1,
         description=(
             "Maximum number of reasoning-acting iterations for ReAct agent"
+        ),
+    )
+
+    auto_continue_on_text_only: bool = Field(
+        default=False,
+        description=(
+            "When the model returns a text-only assistant message (no tool "
+            "calls), inject one follow-up hint and run one extra reasoning "
+            "pass with the same tool_choice as the current step (typically "
+            "'auto'), so the model can either emit tool calls or finish with "
+            "text. Does not use tool_choice='required' (that would force "
+            "tools and prevent a natural summary when the task is done)."
         ),
     )
 
@@ -680,6 +707,10 @@ class AgentProfileConfig(BaseModel):
     workspace_dir: str = Field(
         default="",
         description="Path to agent's workspace (optional, for reference)",
+    )
+    template_id: Optional[str] = Field(
+        default=None,
+        description="Builtin template used when this agent was created",
     )
 
     # Agent-specific configurations
@@ -914,14 +945,17 @@ class BuiltinToolConfig(BaseModel):
     """Configuration for a single built-in tool."""
 
     name: str = Field(..., description="Tool function name")
-    enabled: bool = Field(True, description="Whether the tool is enabled")
+    enabled: bool = Field(
+        default=True,
+        description="Whether the tool is enabled",
+    )
     description: str = Field(default="", description="Tool description")
     display_to_user: bool = Field(
-        True,
+        default=True,
         description="Whether tool output is rendered to user channels",
     )
     async_execution: bool = Field(
-        False,
+        default=False,
         description="Whether to execute the tool asynchronously in background",
     )
     icon: str | None = Field(
@@ -1019,6 +1053,18 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Get llm token usage",
             icon="📊",
         ),
+        "list_agents": BuiltinToolConfig(
+            name="list_agents",
+            enabled=True,
+            description="List configured agents from the local API",
+            icon="🤖",
+        ),
+        "chat_with_agent": BuiltinToolConfig(
+            name="chat_with_agent",
+            enabled=True,
+            description="Send a message to another configured agent",
+            icon="💬",
+        ),
     }
 
 
@@ -1053,6 +1099,31 @@ def build_qa_agent_tools_config() -> ToolsConfig:
             "write_file",
             "edit_file",
             "view_image",
+        },
+    )
+    builtin_tools = {
+        name: tc.model_copy(update={"enabled": name in allow})
+        for name, tc in _default_builtin_tools().items()
+    }
+    return ToolsConfig(builtin_tools=builtin_tools)
+
+
+def build_local_agent_tools_config() -> ToolsConfig:
+    """Tools preset for local collaborative agents.
+
+    Inter-agent coordination tools are enabled by default, along with
+    execute_shell_command and file read/write/edit tools, so a local small
+    model can escalate planning work while still handling basic workspace
+    actions. All other built-ins are disabled.
+    """
+    allow = frozenset(
+        {
+            "list_agents",
+            "chat_with_agent",
+            "execute_shell_command",
+            "read_file",
+            "write_file",
+            "edit_file",
         },
     )
     builtin_tools = {
@@ -1191,6 +1262,60 @@ ChannelConfigUnion = Union[
 # Agent configuration utility functions
 
 
+def build_fallback_agent_profile_config(
+    agent_id: str,
+    config: "Config",
+) -> AgentProfileConfig:
+    """Build the same profile as when ``agent.json``
+    is missing (no disk read/write).
+
+    Used by :func:`load_agent_config` and ``qwenpaw doctor fix``
+    so defaults stay in sync.
+    """
+    if agent_id not in config.agents.profiles:
+        raise ValueError(f"Agent '{agent_id}' not found in config")
+
+    agent_ref = config.agents.profiles[agent_id]
+    workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+    return AgentProfileConfig(
+        id=agent_id,
+        name=agent_id.title(),
+        description=f"{agent_id} agent",
+        workspace_dir=str(workspace_dir),
+        channels=(
+            config.channels
+            if hasattr(config, "channels") and config.channels
+            else None
+        ),
+        mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
+        tools=(
+            config.tools if hasattr(config, "tools") and config.tools else None
+        ),
+        security=(
+            config.security
+            if hasattr(config, "security") and config.security
+            else None
+        ),
+        running=(
+            config.agents.running
+            if hasattr(config.agents, "running") and config.agents.running
+            else AgentsRunningConfig()
+        ),
+        llm_routing=(
+            config.agents.llm_routing
+            if hasattr(config.agents, "llm_routing")
+            and config.agents.llm_routing
+            else AgentsLLMRoutingConfig()
+        ),
+        system_prompt_files=(
+            config.agents.system_prompt_files
+            if hasattr(config.agents, "system_prompt_files")
+            and config.agents.system_prompt_files
+            else ["AGENTS.md", "SOUL.md", "PROFILE.md"]
+        ),
+    )
+
+
 def load_agent_config(agent_id: str) -> AgentProfileConfig:
     """Load agent's complete configuration from workspace/agent.json.
 
@@ -1218,49 +1343,7 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     agent_config_path = workspace_dir / "agent.json"
 
     if not agent_config_path.exists():
-        # Fallback: Try to use root config fields for backward compatibility
-        # This allows downgrade scenarios where agent.json doesn't exist yet
-        fallback_config = AgentProfileConfig(
-            id=agent_id,
-            name=agent_id.title(),
-            description=f"{agent_id} agent",
-            workspace_dir=str(workspace_dir),
-            # Inherit from root config if available (for backward compat)
-            channels=(
-                config.channels
-                if hasattr(config, "channels") and config.channels
-                else None
-            ),
-            mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
-            tools=(
-                config.tools
-                if hasattr(config, "tools") and config.tools
-                else None
-            ),
-            security=(
-                config.security
-                if hasattr(config, "security") and config.security
-                else None
-            ),
-            # Use agent-specific configs with proper defaults
-            running=(
-                config.agents.running
-                if hasattr(config.agents, "running") and config.agents.running
-                else AgentsRunningConfig()
-            ),
-            llm_routing=(
-                config.agents.llm_routing
-                if hasattr(config.agents, "llm_routing")
-                and config.agents.llm_routing
-                else AgentsLLMRoutingConfig()
-            ),
-            system_prompt_files=(
-                config.agents.system_prompt_files
-                if hasattr(config.agents, "system_prompt_files")
-                and config.agents.system_prompt_files
-                else ["AGENTS.md", "SOUL.md", "PROFILE.md"]
-            ),
-        )
+        fallback_config = build_fallback_agent_profile_config(agent_id, config)
         # Save for future use
         save_agent_config(agent_id, fallback_config)
         return fallback_config

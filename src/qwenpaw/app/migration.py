@@ -8,28 +8,30 @@ import logging
 import shutil
 from pathlib import Path
 
+from ..agents.templates import (
+    DEFAULT_AGENT_TEMPLATE,
+    QA_AGENT_TEMPLATE,
+    build_agent_template,
+)
 from ..config.config import (
     AgentProfileConfig,
     AgentProfileRef,
     AgentsConfig,
     AgentsLLMRoutingConfig,
     AgentsRunningConfig,
-    ChannelConfig,
-    HeartbeatConfig,
-    MCPConfig,
-    build_qa_agent_tools_config,
     save_agent_config,
 )
 from ..constant import (
     BUILTIN_QA_AGENT_ID,
-    BUILTIN_QA_AGENT_NAME,
-    BUILTIN_QA_AGENT_SKILL_NAMES,
     LEGACY_QA_AGENT_ID,
     WORKING_DIR,
 )
 from ..config.utils import load_config, save_config
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_AGENT_NAME = "Default Agent"
+_DEFAULT_AGENT_DESCRIPTION = "Default QwenPaw agent"
 
 # Workspace items to migrate: (name, is_directory)
 _WORKSPACE_ITEMS_TO_MIGRATE = [
@@ -661,6 +663,14 @@ def _do_ensure_default_agent() -> None:
     # Only update config if agent didn't exist
     if not agent_existed:
         logger.info("Creating default agent...")
+        template_result = build_agent_template(
+            DEFAULT_AGENT_TEMPLATE,
+            name=_DEFAULT_AGENT_NAME,
+            agent_id="default",
+            workspace_dir=default_workspace,
+            fallback_language=config.agents.language or "zh",
+            description=_DEFAULT_AGENT_DESCRIPTION,
+        )
 
         # Add default agent reference to config
         config.agents.profiles["default"] = AgentProfileRef(
@@ -673,6 +683,7 @@ def _do_ensure_default_agent() -> None:
             config.agents.active_agent = "default"
 
         save_config(config)
+        save_agent_config("default", template_result.agent_config)
         logger.info(
             f"Created default agent with workspace: {default_workspace}",
         )
@@ -833,30 +844,17 @@ def _do_ensure_qa_agent() -> None:
         return
 
     logger.info("Creating builtin QA agent...")
-    qa_skill_list = list(BUILTIN_QA_AGENT_SKILL_NAMES)
-
-    language = config.agents.language or "zh"
-    agent_config = AgentProfileConfig(
-        id=qa_id,
-        name=BUILTIN_QA_AGENT_NAME,
-        description=(
-            "Builtin Q&A helper for QwenPaw setup, local config under "
-            "QWENPAW_WORKING_DIR, and documentation. Prefer reading files "
-            "before answering; use absolute paths for code outside this "
-            "workspace."
-        ),
-        workspace_dir=str(qa_workspace),
-        language=language,
-        channels=ChannelConfig(),
-        mcp=MCPConfig(),
-        heartbeat=HeartbeatConfig(),
-        tools=build_qa_agent_tools_config(),
+    template_result = build_agent_template(
+        QA_AGENT_TEMPLATE,
+        agent_id=qa_id,
+        workspace_dir=qa_workspace,
+        fallback_language=config.agents.language or "zh",
     )
 
     _initialize_agent_workspace(
         qa_workspace,
-        skill_names=qa_skill_list,
-        builtin_qa_md_seed=True,
+        skill_names=list(template_result.initial_skill_names),
+        md_template_id=template_result.md_template_id,
     )
 
     config.agents.profiles[qa_id] = AgentProfileRef(
@@ -865,7 +863,7 @@ def _do_ensure_qa_agent() -> None:
     )
     _apply_legacy_qa_disable_for_migration(config)
     save_config(config)
-    save_agent_config(qa_id, agent_config)
+    save_agent_config(qa_id, template_result.agent_config)
     logger.info(
         "Created builtin QA agent with workspace: %s",
         qa_workspace,

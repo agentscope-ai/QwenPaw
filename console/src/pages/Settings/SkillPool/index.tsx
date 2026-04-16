@@ -273,6 +273,7 @@ function SkillPoolPage() {
         drawerContent={pool.drawerContent}
         showMarkdown={pool.showMarkdown}
         configText={pool.configText}
+        availableTags={pool.allTags}
         onClose={pool.closeDrawer}
         onSave={pool.handleSavePoolSkill}
         onContentChange={pool.handleDrawerContentChange}

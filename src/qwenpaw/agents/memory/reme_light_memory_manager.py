@@ -7,10 +7,13 @@ import json
 import logging
 import os
 import platform
+import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
 
@@ -120,6 +123,10 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             rebuild_on_start=rebuild_on_start,
         )
 
+        recursive_file_watcher = (
+            agent_config.running.memory_summary.recursive_file_watcher
+        )
+
         self._reme = ReMeLight(
             working_dir=working_dir,
             default_embedding_model_config=emb_config,
@@ -131,6 +138,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             },
             default_file_watcher_config={
                 "rebuild_index_on_start": effective_rebuild,
+                "recursive": recursive_file_watcher,
             },
         )
 
@@ -435,3 +443,156 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         return self._reme.get_in_memory_memory(
             as_token_counter=get_token_counter(agent_config),
         )
+
+    # ------------------------------------------------------------------
+    # Dream-based memory optimization
+    # ------------------------------------------------------------------
+
+    async def dream_memory(self, **kwargs) -> None:
+        """
+        Run one dream-based memory optimization: execute dream task as
+        agent query.
+        """
+        logger.info("running dream-based memory optimization")
+
+        self._prepare_model_formatter()
+
+        # Load agent config to get model configuration
+        agent_config = load_agent_config(self.agent_id)
+
+        set_current_workspace_dir(Path(self.working_dir))
+        recent_max_bytes = (
+            agent_config.running.tool_result_compact.recent_max_bytes
+        )
+        set_current_recent_max_bytes(recent_max_bytes)
+
+        # Determine language based on agent config
+        language = getattr(agent_config, "language", "zh")
+
+        # Get current date in YYYY-MM-DD format
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Build the dream prompt with working directory and current date=
+        query_text = self._get_dream_prompt(
+            language,
+            current_date,
+        )
+
+        if not query_text.strip():
+            logger.debug("dream optimization skipped: empty query")
+            return
+
+        # Ensure model and formatter are prepared
+        self._prepare_model_formatter()
+
+        # Create backup directory to store backup files
+        self.backup_path = Path(self.working_dir).absolute() / "backup"
+        self.backup_path.mkdir(parents=True, exist_ok=True)
+
+        # Handle MEMORY.md backup directly in code before agent processing
+        memory_file = Path(self.working_dir) / "MEMORY.md"
+        if memory_file.exists():
+            # Create timestamp for backup filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"memory_backup_{timestamp}.md"
+            backup_file = self.backup_path / backup_filename
+
+            # Read current MEMORY.md content and write to backup
+            try:
+                shutil.copyfile(memory_file, backup_file)
+                logger.info(f"Created MEMORY.md backup: {backup_file}")
+            except Exception as e:
+                logger.error(f"Failed to create MEMORY.md backup: {e}")
+                # Continue anyway, but log the error
+        else:
+            logger.debug("No existing MEMORY.md file to backup")
+
+        # Create a minimal ReActAgent for dream functionality
+        dream_agent = ReActAgent(
+            name="DreamOptimizer",
+            model=self.chat_model,
+            sys_prompt="You are a Dream Memory Organizer specialized"
+            " in optimizing long-term memory files.",
+            toolkit=self.summary_toolkit,
+            formatter=self.formatter,
+        )
+
+        # Build request message
+        user_msg = Msg(
+            name="dream",
+            role="user",
+            content=[TextBlock(type="text", text=query_text)],
+        )
+
+        try:
+            response = await dream_agent.reply(user_msg)
+            logger.debug(
+                f"Dream agent response: {response.get_text_content()}",
+            )
+        except Exception as e:
+            logger.error("dream-based memory optimization failed: %s", repr(e))
+            raise
+
+    def _get_dream_prompt(
+        self,
+        language: str = "zh",
+        current_date: str = "",
+    ) -> str:
+        """Get the dream prompt based on language."""
+        prompts = {
+            "zh": (
+                "现在进入梦境状态，对长期记忆进行优化整理。请读取今日日志与现有长期记忆，"
+                "在梦境中提炼高价值增量信息并去重合并，最终覆写至 `MEMORY.md`，"
+                "确保长期记忆文件保持最新、精简、无冗余。\n\n"
+                f"当前日期: {current_date}\n\n"
+                "【梦境优化原则】\n"
+                "1. 极简去冗：严禁记录流水账、Bug修复细节或单次任务。"
+                "仅保留“核心业务决策”、“确认的用户偏好”与“高价值可复用经验”。\n"
+                "2. 状态覆写：若发现状态变更（如技术栈更改、配置更新），"
+                "必须用新状态替换旧状态，严禁新旧矛盾信息并存。\n"
+                "3. 归纳整合：主动将零碎的相似规则提炼、合并为通用性强的独立条目。"
+                "\n4. 废弃剔除：主动删除已被证伪的假设或不再适用的陈旧条目。\n\n"
+                "【梦境执行步骤】\n步骤 1 [加载]：调用 `read` 工具，"
+                "读取根目录下的 `MEMORY.md` 以及当天的日志文件 `memory/YYYY-MM-DD.md`。\n"
+                "步骤 2 [梦境提纯]：在梦境中对比新旧内容，严格按照【梦境优化原则】进行去重、替换、剔除和合并，"
+                "生成一份全新的记忆内容。\n步骤 3 [落盘]：调用 `write` 或 `edit` 工具，"
+                "将整理后全新的 Markdown 内容覆盖写入到 `MEMORY.md` 中（请保持清晰的层级与列表结构）。\n"
+                "步骤 4 [苏醒汇报]：从梦境中苏醒后，在对话中向我简短汇报：1) 新增/沉淀了哪些核心记忆；"
+                "2) 修正/删除了哪些过期内容。"
+            ),
+            "en": (
+                "Enter dream state for memory optimization. Please act as a "
+                "'Dream Memory Organizer', read today's logs and existing "
+                "long-term memory, extract high-value incremental information "
+                "in your dream state, deduplicate and merge, and ultimately "
+                "overwrite `MEMORY.md`. Ensure the long-term memory file "
+                "remains up-to-date, concise, and non-redundant.\n\n"
+                f"Current date: {current_date}\n\n"
+                "[Dream Optimization Principles]\n1. Extreme "
+                "Minimalism: Strictly forbid recording daily routines, "
+                "specific bug-fix details, or one-off tasks. Retain ONLY 'core"
+                " business decisions', 'confirmed user preferences', and "
+                "'high-value reusable experiences'.\n2. State Overwrite: If a"
+                " state change is detected (e.g., tech stack changes, config "
+                "updates), you MUST replace the old state with the new one. "
+                "Contradictory old and new information must not coexist.\n3. "
+                "Inductive Consolidation: Proactively distill and merge "
+                "fragmented, similar rules into highly universal, independent"
+                " entries.\n4. Deprecation: Proactively delete hypotheses "
+                "that have been proven false or outdated entries that no "
+                "longer apply.\n\n[Dream Execution Steps]\nStep 1 [Load]: "
+                "Invoke the `read` tool to read `MEMORY.md` in the root "
+                "directory and today's log file `memory/YYYY-MM-DD.md`.\n"
+                "Step 2 [Dream Purification]: Compare the old and new content "
+                "in your dream state. Strictly follow the [Dream Optimization "
+                "Principles] to deduplicate, replace, remove, and merge, "
+                "generating entirely new memory content.\nStep 3 [Save]: "
+                "Invoke the `write` or `edit` tool to overwrite the newly "
+                "organized Markdown content into `MEMORY.md` (maintain clear "
+                "hierarchy and list structures).\nStep 4 [Awake Report]: "
+                "After waking from your dream, briefly report to me in the "
+                "chat: 1) What core memories were newly added/consolidated; "
+                "2) What outdated content was corrected/deleted."
+            ),
+        }
+        return prompts.get(language, prompts["en"])

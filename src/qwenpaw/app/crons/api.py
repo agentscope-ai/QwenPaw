@@ -56,7 +56,9 @@ async def replace_job(
     spec: CronJobSpec,
     mgr: CronManager = Depends(get_cron_manager),
 ):
-    if spec.id != job_id:
+    if spec.id is None:
+        spec.id = job_id
+    elif spec.id != job_id:
         raise HTTPException(status_code=400, detail="job_id mismatch")
     await mgr.create_or_replace_job(spec)
     return spec
