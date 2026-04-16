@@ -24,7 +24,7 @@ DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 
 if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
-    "langfuse"
+    "langfuse",
 ):
     from langfuse.openai import AsyncOpenAI  # type: ignore[import]
 else:
