@@ -38,6 +38,7 @@ import {
 } from "@agentscope-ai/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
+import { usePlugins } from "../plugins/PluginContext";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
@@ -59,6 +60,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
+  const { pluginRoutes } = usePlugins();
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -234,6 +236,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       path: "/voice-transcription",
       label: t("nav.voiceTranscription"),
     },
+    // Append plugin nav items dynamically
+    ...pluginRoutes.map((route) => ({
+      key: route.path.replace(/^\//, ""),
+      icon: <span style={{ fontSize: 18 }}>{route.icon}</span>,
+      path: route.path,
+      label: route.label,
+    })),
   ];
 
   // ── Menu items ────────────────────────────────────────────────────────────
@@ -344,6 +353,19 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     },
   ];
 
+  // Append plugin menu items as a group (only when there are plugins)
+  if (pluginRoutes.length > 0) {
+    menuItems.push({
+      key: "plugins-group",
+      label: collapsed ? null : "Plugins",
+      children: pluginRoutes.map((route) => ({
+        key: route.path.replace(/^\//, ""),
+        label: collapsed ? null : route.label,
+        icon: <span style={{ fontSize: 16 }}>{route.icon}</span>,
+      })),
+    } as any);
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -387,10 +409,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
-          openKeys={DEFAULT_OPEN_KEYS}
+          openKeys={[
+            ...DEFAULT_OPEN_KEYS,
+            ...(pluginRoutes.length > 0 ? ["plugins-group"] : []),
+          ]}
           onClick={({ key }) => {
-            const path = KEY_TO_PATH[String(key)];
-            if (path) navigate(path);
+            // Static routes first; plugin routes use key as path segment
+            const path = KEY_TO_PATH[String(key)] ?? `/${String(key)}`;
+            navigate(path);
           }}
           items={menuItems}
           theme={isDark ? "dark" : "light"}

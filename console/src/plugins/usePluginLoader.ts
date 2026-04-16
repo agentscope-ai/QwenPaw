@@ -1,21 +1,21 @@
 /**
  * `usePluginLoader` — dynamically discovers plugins that ship a frontend UI,
- * loads their JS/CSS assets at runtime, and produces a
- * `customToolRenderConfig` map ready for `@agentscope-ai/chat`.
+ * loads their JS/CSS assets at runtime, and produces:
+ *
+ * - A `customToolRenderConfig` map ready for `@agentscope-ai/chat`.
+ * - A `pluginRoutes` array of page-level routes that plugins declare.
  *
  * ### How it works
  *
  * 1. `GET /api/plugins` → list of plugins with `ui` metadata, including
- *    `js_tool_renderers` mapping (tool_name → component_name) registered
- *    by the backend `plugin.py` via `api.register_js_tool_renderer(...)`.
+ *    `js_tool_renderers` mapping and `pages` declarations.
  * 2. For each plugin whose `has_ui === true`:
  *    a. Inject `<link rel="stylesheet">` for the plugin's CSS (if any).
  *    b. Fetch + Blob-URL-import the plugin's JS entry module.
  *    c. Call the module's default export `register(host)` which returns
  *       an object mapping component names to React components.
- *    d. Use the backend `js_tool_renderers` mapping to look up each
- *       component by name and register it in `toolRenderConfig`.
- * 3. Return `{ toolRenderConfig, loading, error }`.
+ *    d. Wire tool renderers and page routes using the exported components.
+ * 3. Return `{ toolRenderConfig, pluginRoutes, loading, error }`.
  *
  * ### Plugin JS module contract
  *
@@ -25,9 +25,11 @@
  *   const h = React.createElement;
  *
  *   function MyCard(props) { return h("div", null, "Hello!"); }
+ *   function DashboardPage() { return h("div", null, "Dashboard"); }
  *
- *   // Return components by name — the backend decides which tool uses which.
- *   return { MyCard };
+ *   // Return components by name — the backend decides which tool/page
+ *   // uses which component via plugin.json declarations.
+ *   return { MyCard, DashboardPage };
  * }
  * ```
  */
@@ -51,6 +53,20 @@ function resolvePluginUrl(backendPath: string): string {
 }
 
 export type ToolRenderConfig = Record<string, React.FC<any>>;
+
+/**
+ * A resolved plugin page route with the actual React component attached.
+ */
+export interface PluginPageRoute {
+  /** Full URL path, e.g. "/plugin/my-plugin/dashboard". */
+  path: string;
+  /** Display label for the sidebar menu. */
+  label: string;
+  /** Emoji or short text used as the sidebar icon. */
+  icon: string;
+  /** The resolved React component to render at this route. */
+  component: React.ComponentType;
+}
 
 /**
  * The `host` object passed to each plugin's `register(host)` function.
@@ -77,9 +93,11 @@ export interface PluginHost {
   getApiToken: () => string;
 }
 
-interface PluginLoaderResult {
+export interface PluginLoaderResult {
   /** Map of tool name → React component, ready for customToolRenderConfig. */
   toolRenderConfig: ToolRenderConfig;
+  /** Page-level routes registered by plugins. */
+  pluginRoutes: PluginPageRoute[];
   /** True while plugins are being fetched / loaded. */
   loading: boolean;
   /** Non-null if any plugin failed to load (others may still succeed). */
@@ -101,16 +119,16 @@ function injectCSS(pluginId: string, cssUrl: string): void {
 }
 
 /**
- * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and
- * `import()` it.  This avoids CORS issues when the frontend dev server
- * and the backend run on different origins.
- */
-/**
  * The return type of a plugin's `register(host)` function: an object
  * mapping component names to React components.
  */
 type PluginComponentMap = Record<string, React.FC<any>>;
 
+/**
+ * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and
+ * `import()` it.  This avoids CORS issues when the frontend dev server
+ * and the backend run on different origins.
+ */
 async function loadPluginModule(
   entryUrl: string,
 ): Promise<(host: PluginHost) => PluginComponentMap> {
@@ -145,7 +163,7 @@ async function loadPluginModule(
 /**
  * Build a `PluginHost` object that plugins receive in their `register(host)`
  * call.  Provides shared dependencies only — component registration is
- * handled by the loader based on the backend `js_tool_renderers` mapping.
+ * handled by the loader based on the backend mappings.
  */
 function createPluginHost(): PluginHost {
   const externals = window.__QWENPAW__;
@@ -165,6 +183,7 @@ export function usePluginLoader(): PluginLoaderResult {
   const [toolRenderConfig, setToolRenderConfig] = useState<ToolRenderConfig>(
     {},
   );
+  const [pluginRoutes, setPluginRoutes] = useState<PluginPageRoute[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const loadedRef = useRef(false);
@@ -187,7 +206,8 @@ export function usePluginLoader(): PluginLoaderResult {
           return;
         }
 
-        const config: ToolRenderConfig = {};
+        const toolConfig: ToolRenderConfig = {};
+        const routes: PluginPageRoute[] = [];
         const errors: string[] = [];
 
         await Promise.allSettled(
@@ -209,14 +229,14 @@ export function usePluginLoader(): PluginLoaderResult {
               const host = createPluginHost();
               const exportedComponents = registerFn(host) || {};
 
-              // 4. Use backend js_tool_renderers mapping to wire components
+              // 4. Wire tool renderers via backend js_tool_renderers mapping
               const jsToolRenderers = ui.js_tool_renderers || {};
               for (const [toolName, componentName] of Object.entries(
                 jsToolRenderers,
               )) {
                 const component = exportedComponents[componentName];
                 if (typeof component === "function") {
-                  config[toolName] = component;
+                  toolConfig[toolName] = component;
                   console.info(
                     `[plugin:${plugin.id}] Mapped tool "${toolName}" -> component "${componentName}"`,
                   );
@@ -224,6 +244,28 @@ export function usePluginLoader(): PluginLoaderResult {
                   console.warn(
                     `[plugin:${plugin.id}] js_tool_renderers declares "${toolName}" -> "${componentName}", ` +
                       `but register() did not return a component named "${componentName}"`,
+                  );
+                }
+              }
+
+              // 5. Wire page routes via backend pages declaration
+              const pages = ui.pages || [];
+              for (const page of pages) {
+                const component = exportedComponents[page.component];
+                if (typeof component === "function") {
+                  routes.push({
+                    path: `/plugin/${plugin.id}/${page.path}`,
+                    label: page.label,
+                    icon: page.icon || "🔌",
+                    component,
+                  });
+                  console.info(
+                    `[plugin:${plugin.id}] Registered page route "/plugin/${plugin.id}/${page.path}" -> "${page.component}"`,
+                  );
+                } else {
+                  console.warn(
+                    `[plugin:${plugin.id}] pages declares component "${page.component}" for path "${page.path}", ` +
+                      `but register() did not return a component with that name`,
                   );
                 }
               }
@@ -236,7 +278,8 @@ export function usePluginLoader(): PluginLoaderResult {
         );
 
         if (!cancelled) {
-          setToolRenderConfig(config);
+          setToolRenderConfig(toolConfig);
+          setPluginRoutes(routes);
           if (errors.length > 0) {
             setError(errors.join("; "));
           }
@@ -259,5 +302,5 @@ export function usePluginLoader(): PluginLoaderResult {
     };
   }, []);
 
-  return { toolRenderConfig, loading, error };
+  return { toolRenderConfig, pluginRoutes, loading, error };
 }

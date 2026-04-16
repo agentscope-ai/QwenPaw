@@ -65,12 +65,16 @@ async def list_plugins(request: Request):
             if not js_tool_renderers:
                 js_tool_renderers = ui_meta.get("js_tool_renderers", {})
 
+            # Page-level routes declared by the plugin
+            pages = ui_meta.get("pages", [])
+
             plugin_info["ui"] = {
                 "entry": f"/api/plugins/{manifest.id}/files/{entry}",
                 "css": (
                     f"/api/plugins/{manifest.id}/files/{css}" if css else ""
                 ),
                 "js_tool_renderers": js_tool_renderers,
+                "pages": pages,
             }
 
         result.append(plugin_info)

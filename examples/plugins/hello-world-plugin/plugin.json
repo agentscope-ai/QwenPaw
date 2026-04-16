@@ -1,0 +1,23 @@
+{
+  "id": "hello-world-plugin",
+  "name": "Hello World Plugin",
+  "version": "1.0.0",
+  "description": "A minimal example plugin that registers a custom page with a greeting dashboard.",
+  "author": "QwenPaw",
+  "meta": {
+    "ui": {
+      "enabled": true,
+      "entry": "dist/index.js",
+      "css": "",
+      "js_tool_renderers": {},
+      "pages": [
+        {
+          "path": "dashboard",
+          "label": "Hello Dashboard",
+          "icon": "👋",
+          "component": "HelloDashboard"
+        }
+      ]
+    }
+  }
+}

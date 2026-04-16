@@ -108,94 +108,103 @@ class PluginLoader:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
 
-        # Load plugin module
+        # Load plugin module (if entry point exists)
         entry_file = source_path / manifest.entry_point
-        if not entry_file.exists():
-            raise FileNotFoundError(
-                f"Plugin entry point not found: {entry_file}",
-            )
+        plugin_def = None
+        api = None
 
-        try:
-            # Dynamic import of plugin module
-            # Use unique module name to avoid conflicts
-            module_name = f"plugin_{plugin_id.replace('-', '_')}"
-            plugin_dir_str = str(source_path)
+        if entry_file.exists():
+            try:
+                # Dynamic import of plugin module
+                # Use unique module name to avoid conflicts
+                module_name = f"plugin_{plugin_id.replace('-', '_')}"
+                plugin_dir_str = str(source_path)
 
-            # submodule_search_locations enables relative imports within plugin
-            # without polluting global sys.path
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                entry_file,
-                submodule_search_locations=[plugin_dir_str],
-            )
-            if spec is None or spec.loader is None:
-                raise ImportError(
-                    f"Failed to load module spec for {entry_file}",
+                # submodule_search_locations enables relative imports
+                # within plugin without polluting global sys.path
+                spec = importlib.util.spec_from_file_location(
+                    module_name,
+                    entry_file,
+                    submodule_search_locations=[plugin_dir_str],
                 )
+                if spec is None or spec.loader is None:
+                    raise ImportError(
+                        f"Failed to load module spec for {entry_file}",
+                    )
 
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
 
-            # Set __package__ and __path__ to enable relative imports
-            module.__package__ = module_name
-            module.__path__ = [plugin_dir_str]  # Enable submodule discovery
+                # Set __package__ and __path__ to enable relative imports
+                module.__package__ = module_name
+                module.__path__ = [plugin_dir_str]
 
-            spec.loader.exec_module(module)
+                spec.loader.exec_module(module)
 
-            # Get plugin definition
-            if not hasattr(module, "plugin"):
-                raise AttributeError(
-                    "Plugin module must export 'plugin' object",
+                # Get plugin definition
+                if not hasattr(module, "plugin"):
+                    raise AttributeError(
+                        "Plugin module must export 'plugin' object",
+                    )
+
+                plugin_def = module.plugin
+
+                # Create plugin API instance with manifest
+                manifest_dict = {
+                    "id": manifest.id,
+                    "name": manifest.name,
+                    "version": manifest.version,
+                    "description": manifest.description,
+                    "author": manifest.author,
+                    "entry_point": manifest.entry_point,
+                    "dependencies": manifest.dependencies,
+                    "min_version": manifest.min_version,
+                    "meta": manifest.meta,
+                }
+                api = PluginApi(plugin_id, config or {}, manifest_dict)
+                api.set_registry(self.registry)
+
+                # Call plugin's register method (support both sync and async)
+                if hasattr(plugin_def, "register"):
+                    result = plugin_def.register(api)
+                    if inspect.iscoroutine(result) or inspect.isawaitable(
+                        result,
+                    ):
+                        await result
+                else:
+                    raise AttributeError(
+                        "Plugin must implement 'register(api)' method",
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to load plugin '{plugin_id}': {e}",
+                    exc_info=True,
                 )
-
-            plugin_def = module.plugin
-
-            # Create plugin API instance with manifest
-            manifest_dict = {
-                "id": manifest.id,
-                "name": manifest.name,
-                "version": manifest.version,
-                "description": manifest.description,
-                "author": manifest.author,
-                "entry_point": manifest.entry_point,
-                "dependencies": manifest.dependencies,
-                "min_version": manifest.min_version,
-                "meta": manifest.meta,
-            }
-            api = PluginApi(plugin_id, config or {}, manifest_dict)
-            api.set_registry(self.registry)
-
-            # Call plugin's register method (support both sync and async)
-            if hasattr(plugin_def, "register"):
-                result = plugin_def.register(api)
-                if inspect.iscoroutine(result) or inspect.isawaitable(result):
-                    await result
-            else:
-                raise AttributeError(
-                    "Plugin must implement 'register(api)' method",
-                )
-
-            # Create plugin record (keep api reference for unloading)
-            record = PluginRecord(
-                manifest=manifest,
-                source_path=source_path,
-                enabled=True,
-                instance=plugin_def,
-                api=api,
-                diagnostics=[],
+                raise
+        else:
+            # Frontend-only plugin: no Python entry point, just UI assets.
+            # Still register it so the /api/plugins endpoint can serve its
+            # manifest and static files.
+            logger.info(
+                f"Plugin '{plugin_id}' has no entry point "
+                f"'{manifest.entry_point}' — loading as frontend-only plugin",
             )
 
-            self._loaded_plugins[plugin_id] = record
-            logger.info(f"✓ Loaded plugin '{plugin_id}' successfully")
+        # Create plugin record
+        record = PluginRecord(
+            manifest=manifest,
+            source_path=source_path,
+            enabled=True,
+            instance=plugin_def,
+            api=api,
+            diagnostics=[],
+        )
 
-            return record
+        self._loaded_plugins[plugin_id] = record
+        logger.info(f"✓ Loaded plugin '{plugin_id}' successfully")
 
-        except Exception as e:
-            logger.error(
-                f"Failed to load plugin '{plugin_id}': {e}",
-                exc_info=True,
-            )
-            raise
+        return record
 
     async def load_all_plugins(
         self,
