@@ -83,7 +83,7 @@ class ACPTransport:
             )
         except Exception as exc:
             raise ACPTransportError(
-                f"Failed to spawn agent {self.agent_name}: {exc}",
+                f"Failed to delegate external agent {self.agent_name}: {exc}",
                 agent=self.agent_name,
             ) from exc
 

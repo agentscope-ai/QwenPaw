@@ -36,13 +36,13 @@ from .skills_manager import (
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
+    delegate_external_agent,
     desktop_screenshot,
     edit_file,
     execute_shell_command,
     get_current_time,
     get_token_usage,
     glob_search,
-    spawn_agent,
     grep_search,
     read_file,
     send_file_to_user,
@@ -239,7 +239,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
-            "spawn_agent": spawn_agent,
+            "delegate_external_agent": delegate_external_agent,
         }
 
         multimodal = get_active_model_supports_multimodal()

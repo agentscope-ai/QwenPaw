@@ -59,7 +59,7 @@ def _default_agents() -> Dict[str, ACPAgentConfig]:
 
 
 class ACPConfig(BaseModel):
-    """Minimal ACP config used by spawn_agent."""
+    """Minimal ACP config used by delegate_external_agent."""
 
     agents: Dict[str, ACPAgentConfig] = Field(default_factory=_default_agents)
 

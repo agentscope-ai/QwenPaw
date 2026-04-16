@@ -54,7 +54,7 @@ def _request_context_chat_id() -> str:
     session_id = str(get_current_session_id() or "")
     if not session_id:
         raise ValueError(
-            "spawn_agent requires request context with a session_id; "
+            "delegate_external_agent requires request context with a session_id; "
             "this tool can only run inside a bound chat session",
         )
     return session_id
@@ -133,7 +133,7 @@ async def _run_action(
             raise ValueError(
                 "no bound ACP session found for runner "
                 f"'{runner_name}' in current chat; call "
-                "spawn_agent with action='start' first",
+                "delegate_external_agent with action='start' first",
             )
         return await service.run_turn(
             chat_id=chat_id,
@@ -254,7 +254,7 @@ async def _stream_action_responses(
     )
 
 
-async def spawn_agent(
+async def delegate_external_agent(
     action: str = "",
     runner: str = "",
     message: str = "",
@@ -263,17 +263,17 @@ async def spawn_agent(
     """
     Open, talk to, respond to permissions for, or close an ACP agent session.
 
-    1. Call `spawn_agent(action="start", runner=...)` to open a new
+    1. Call `delegate_external_agent(action="start", runner=...)` to open a new
        conversation.
-    2. Call `spawn_agent(action="message", runner=..., message=...)` to keep
+    2. Call `delegate_external_agent(action="message", runner=..., message=...)` to keep
        talking.
     3. When a permission request appears, first ask the user which option to
        choose. Then call
-       `spawn_agent(action="respond", runner=..., message=...)` to respond
+       `delegate_external_agent(action="respond", runner=..., message=...)` to respond
        to the pending permission request. You must strictly choose one
        option from the provided permission request, and the chosen option must
        come from the exact options shown in that request.
-    4. Call `spawn_agent(action="close", runner=...)` to end the conversation.
+    4. Call `delegate_external_agent(action="close", runner=...)` to end the conversation.
 
     Permission responses are always strict in the current ACP flow.
 
@@ -347,7 +347,7 @@ async def spawn_agent(
 
     except asyncio.CancelledError:
         yield response_text(
-            "spawn_agent streaming interrupted.",
+            "delegate_external_agent streaming interrupted.",
             stream=True,
             is_last=True,
         )

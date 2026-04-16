@@ -1020,11 +1020,11 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Get llm token usage",
             icon="📊",
         ),
-        "spawn_agent": BuiltinToolConfig(
-            name="spawn_agent",
+        "delegate_external_agent": BuiltinToolConfig(
+            name="delegate_external_agent",
             enabled=False,
             description="Delegate work to an external ACP agent runner",
-            icon="🤖",
+            icon="📡",
         ),
     }
 

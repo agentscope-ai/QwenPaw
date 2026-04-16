@@ -238,24 +238,24 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 
 ### 内置工具列表
 
-| 类型         | 工具名称                | 功能说明                                            |
-| ------------ | ----------------------- | --------------------------------------------------- |
-| 文件操作     | `read_file`             | 读取文件内容，支持按行范围读取                      |
-| 文件操作     | `write_file`            | 创建或覆盖文件                                      |
-| 文件操作     | `edit_file`             | 使用查找替换修改文件内容（替换所有匹配项）          |
-| 文件操作     | `append_file`           | 追加内容到文件末尾                                  |
-| 文件搜索     | `grep_search`           | 按内容搜索文件，支持正则表达式和上下文              |
-| 文件搜索     | `glob_search`           | 按文件名模式查找文件                                |
-| 命令执行     | `execute_shell_command` | 执行 Shell 命令，支持异步执行                       |
-| 智能体委托   | `spawn_agent`           | 通过 ACP 将任务委托给外部智能体 runner |
-| 浏览器自动化 | `browser_use`           | 浏览器自动化，支持 30+ 种操作（导航、交互、截图等） |
-| 截图         | `desktop_screenshot`    | 捕获桌面或窗口截图                                  |
-| 图像分析     | `view_image`            | 加载图片到上下文供模型分析                          |
-| 文件传输     | `send_file_to_user`     | 发送文件给用户，自动识别文件类型                    |
-| 记忆搜索     | `memory_search`         | 在 MEMORY.md 中语义搜索过往信息                     |
-| 时间         | `get_current_time`      | 获取当前时间和时区                                  |
-| 时间         | `set_user_timezone`     | 设置用户时区偏好                                    |
-| 统计         | `get_token_usage`       | 查询 LLM Token 使用量统计                           |
+| 类型         | 工具名称                  | 功能说明                                            |
+| ------------ | ------------------------- | --------------------------------------------------- |
+| 文件操作     | `read_file`               | 读取文件内容，支持按行范围读取                      |
+| 文件操作     | `write_file`              | 创建或覆盖文件                                      |
+| 文件操作     | `edit_file`               | 使用查找替换修改文件内容（替换所有匹配项）          |
+| 文件操作     | `append_file`             | 追加内容到文件末尾                                  |
+| 文件搜索     | `grep_search`             | 按内容搜索文件，支持正则表达式和上下文              |
+| 文件搜索     | `glob_search`             | 按文件名模式查找文件                                |
+| 命令执行     | `execute_shell_command`   | 执行 Shell 命令，支持异步执行                       |
+| 智能体委托   | `delegate_external_agent` | 通过 ACP 将任务委托给外部智能体 runner              |
+| 浏览器自动化 | `browser_use`             | 浏览器自动化，支持 30+ 种操作（导航、交互、截图等） |
+| 截图         | `desktop_screenshot`      | 捕获桌面或窗口截图                                  |
+| 图像分析     | `view_image`              | 加载图片到上下文供模型分析                          |
+| 文件传输     | `send_file_to_user`       | 发送文件给用户，自动识别文件类型                    |
+| 记忆搜索     | `memory_search`           | 在 MEMORY.md 中语义搜索过往信息                     |
+| 时间         | `get_current_time`        | 获取当前时间和时区                                  |
+| 时间         | `set_user_timezone`       | 设置用户时区偏好                                    |
+| 统计         | `get_token_usage`         | 查询 LLM Token 使用量统计                           |
 
 ### 工具详细说明
 
@@ -297,15 +297,15 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 
 - 使用前，请先准备好需要接入的外部智能体 runner，例如 `claude_code`、`codex`、`qwen_code`、`opencode`
 - 确保对应 runner 已完成登录或 API Key 配置，并且可以在终端中正常启动和使用
-- 在 **智能体 → 工具** 页面开启 `spawn_agent` 工具
+- 在 **智能体 → 工具** 页面开启 `delegate_external_agent` 工具
 - 在对话中直接提出需求，例如：
   - “请使用外部智能体 claude code 帮我分析一下工作目录的结构”
   - “请和外部智能体 claude code 对话，让它把自我介绍写入一个 md 文件中”
-- QwenPaw 会在合适的时候调用 `spawn_agent`，与外部智能体建立连续对话，并将中间进度和结果回传到当前会话中
-- 建立连接后，可以继续通过 `spawn_agent` 与该外部智能体多轮对话
+- QwenPaw 会在合适的时候调用 `delegate_external_agent`，与外部智能体建立连续对话，并将中间进度和结果回传到当前会话中
+- 建立连接后，可以继续通过 `delegate_external_agent` 与该外部智能体多轮对话
 - 当前每个 runner 在同一个聊天中只支持一个活动会话；如果要开启新对话，需先关闭当前会话
 
-- `spawn_agent`：通过 ACP（Agent Client Protocol）与外部智能体 runner 建立会话，并将任务委托给外部智能体执行
+- `delegate_external_agent`：通过 ACP（Agent Client Protocol）与外部智能体 runner 建立会话，并将任务委托给外部智能体执行
   - 适用场景：把代码分析、文件编辑、命令执行等工作转交给外部 coding agent
   - 默认支持的 runner：`qwen_code`、`claude_code`、`codex`、`opencode`
   - 默认 **禁用**，需要在 **智能体 → 工具** 页面单独启用
