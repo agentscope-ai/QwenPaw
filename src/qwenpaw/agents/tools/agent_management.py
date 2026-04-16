@@ -133,13 +133,28 @@ def parse_agent_sse_line(line: str) -> Optional[Dict[str, Any]]:
 
 
 def extract_agent_text_content(response_data: Dict[str, Any]) -> str:
-    """Extract concatenated text blocks from an agent response payload."""
+    """Extract concatenated text blocks from an agent response payload.
+
+    Searches backwards through output for the last ``message``-type item
+    so that trailing reasoning / tool-output items are skipped.
+    """
     try:
         output = response_data.get("output", [])
         if not output:
             return ""
 
-        last_msg = output[-1]
+        last_msg = None
+        for msg in reversed(output):
+            if (
+                isinstance(msg, dict)
+                and msg.get("type", "message") == "message"
+            ):
+                last_msg = msg
+                break
+
+        if not last_msg:
+            return ""
+
         content = last_msg.get("content", [])
 
         text_parts = []
