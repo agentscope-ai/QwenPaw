@@ -64,7 +64,7 @@ class CreateAgentRequest(BaseModel):
     """Request model for creating a new agent.
 
     The ``id`` field is optional.  When provided the server uses it as
-    the agent identifier (after lowercasing); when omitted a random
+    the agent identifier (after sanitization); when omitted a random
     short UUID is generated automatically.
     """
 
@@ -78,7 +78,7 @@ class CreateAgentRequest(BaseModel):
     @field_validator("id", mode="before")
     @classmethod
     def sanitize_id(cls, value: str | None) -> str | None:
-        """Strip whitespace and lowercase the custom ID."""
+        """Strip whitespace from the custom ID."""
         if value is None:
             return None
         if isinstance(value, str):
