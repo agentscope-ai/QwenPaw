@@ -39,6 +39,18 @@ class ControlCommandRegistration:
     priority_level: int = 10
 
 
+@dataclass
+class MemoryBackendRegistration:
+    """Memory backend registration record."""
+
+    plugin_id: str
+    backend_id: str
+    backend_class: Type
+    label: str
+    description: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
 class PluginRegistry:
     """Central plugin registry (Singleton).
 
@@ -66,6 +78,7 @@ class PluginRegistry:
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        self._memory_backends: Dict[str, MemoryBackendRegistration] = {}
         self._runtime_helpers = None
 
         self._initialized = True
@@ -251,3 +264,69 @@ class PluginRegistry:
             List of ControlCommandRegistration
         """
         return self._control_commands.copy()
+
+    def register_memory_backend(
+        self,
+        plugin_id: str,
+        backend_id: str,
+        backend_class: Type,
+        label: str,
+        description: str = "",
+        metadata: Dict[str, Any] | None = None,
+    ):
+        """Register a memory backend.
+
+        Args:
+            plugin_id: Plugin identifier
+            backend_id: Unique backend identifier
+            backend_class: Memory manager class (inherits BaseMemoryManager)
+            label: Display name
+            description: Backend description
+            metadata: Additional metadata
+
+        Raises:
+            ValueError: If backend_id already registered
+        """
+        if backend_id in self._memory_backends:
+            existing = self._memory_backends[backend_id]
+            raise ValueError(
+                f"Memory backend '{backend_id}' already registered "
+                f"by plugin '{existing.plugin_id}'",
+            )
+
+        self._memory_backends[backend_id] = MemoryBackendRegistration(
+            plugin_id=plugin_id,
+            backend_id=backend_id,
+            backend_class=backend_class,
+            label=label or backend_id,
+            description=description,
+            metadata=metadata or {},
+        )
+        logger.info(
+            f"Registered memory backend '{backend_id}' from plugin "
+            f"'{plugin_id}'",
+        )
+
+    def get_memory_backend(
+        self,
+        backend_id: str,
+    ) -> Optional[MemoryBackendRegistration]:
+        """Get memory backend registration.
+
+        Args:
+            backend_id: Backend identifier
+
+        Returns:
+            MemoryBackendRegistration or None if not found
+        """
+        return self._memory_backends.get(backend_id)
+
+    def get_all_memory_backends(
+        self,
+    ) -> Dict[str, MemoryBackendRegistration]:
+        """Get all registered memory backends.
+
+        Returns:
+            Dictionary of backend_id -> MemoryBackendRegistration
+        """
+        return self._memory_backends.copy()

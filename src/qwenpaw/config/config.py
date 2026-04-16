@@ -702,11 +702,20 @@ class AgentsRunningConfig(BaseModel):
         description="Embedding model configuration",
     )
 
-    memory_manager_backend: Literal["remelight"] = Field(
+    memory_manager_backend: str = Field(
         default="remelight",
         description=(
             "Memory manager backend type. "
-            "Currently only 'remelight' is supported."
+            "Built-in: 'remelight'. Additional backends can be registered "
+            "via plugins."
+        ),
+    )
+
+    memory_backend_config: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Backend-specific configuration for the memory manager. "
+            "Keys and values depend on the selected backend."
         ),
     )
 

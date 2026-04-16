@@ -3,17 +3,14 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional
-
+from typing import Optional
 
 from agentscope.formatter import FormatterBase
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase
 from agentscope.tool import ToolResponse
 
-if TYPE_CHECKING:
-    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
-
+from .protocols import InMemoryMemoryProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -33,26 +30,50 @@ class BaseMemoryManager(ABC):
         agent_id: Unique agent identifier.
         chat_model: Chat model used for compaction and summarization.
         formatter: Formatter paired with the chat model.
+        backend_config: Backend-specific configuration dictionary.
     """
 
     def __init__(
         self,
         working_dir: str,
         agent_id: str,
+        backend_config: dict | None = None,
     ):
         """Initialize common memory manager attributes.
 
         Args:
             working_dir: Working directory path for memory storage.
             agent_id: Unique agent identifier.
+            backend_config: Optional backend-specific configuration dict.
         """
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
+        self.backend_config: dict = backend_config or {}
         self.chat_model: Optional[ChatModelBase] = None
         self.formatter: Optional[FormatterBase] = None
 
         # Initialize list to track background summarization tasks
         self.summary_tasks: list[asyncio.Task] = []
+
+    @classmethod
+    def backend_name(cls) -> str:
+        """Return the unique identifier for this memory backend.
+
+        Subclasses must override this to return a unique string identifier.
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} must implement backend_name()",
+        )
+
+    @classmethod
+    def backend_label(cls) -> str:
+        """Return a human-readable label for this memory backend.
+
+        Subclasses must override this to return a display name.
+        """
+        raise NotImplementedError(
+            f"{cls.__name__} must implement backend_label()",
+        )
 
     @abstractmethod
     async def start(self) -> None:
@@ -113,16 +134,20 @@ class BaseMemoryManager(ABC):
             Comprehensive summary string.
         """
 
-    @abstractmethod
     async def dream_memory(self, **kwargs) -> None:
         """Run one dream-based memory optimization task.
 
-        This method performs dream-based memory optimization by executing
-        an agent query with specific instructions for memory file optimization.
+        Default implementation is a no-op. Backends that support
+        dream-based optimization (e.g., file-based memory) should
+        override this method.
 
         Args:
             **kwargs: Additional keyword arguments for the dream task.
         """
+        logger.debug(
+            "dream_memory not supported by %s backend, skipping.",
+            self.__class__.__name__,
+        )
 
     def add_async_summary_task(self, messages: list[Msg], **kwargs):
         """Add an asynchronous summary task for the given messages."""
@@ -225,12 +250,12 @@ class BaseMemoryManager(ABC):
         """
 
     @abstractmethod
-    def get_in_memory_memory(self, **kwargs) -> "ReMeInMemoryMemory | None":
+    def get_in_memory_memory(self, **kwargs) -> "InMemoryMemoryProtocol | None":
         """Retrieve the in-memory memory object for the agent.
 
         Args:
             **kwargs: Additional keyword arguments.
 
         Returns:
-            In-memory memory instance.
+            In-memory memory instance, or None if not supported.
         """

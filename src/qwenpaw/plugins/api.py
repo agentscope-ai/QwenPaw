@@ -173,6 +173,45 @@ class PluginApi:
                 f"'{handler.command_name}' (priority={priority_level})",
             )
 
+    def register_memory_backend(
+        self,
+        backend_id: str,
+        backend_class: Type,
+        label: str = "",
+        description: str = "",
+        **metadata,
+    ):
+        """Register a custom memory backend.
+
+        Args:
+            backend_id: Unique backend identifier
+            backend_class: Memory manager class (inherits BaseMemoryManager)
+            label: Display name for the backend
+            description: Backend description
+            **metadata: Additional metadata
+
+        Example:
+            >>> api.register_memory_backend(
+            ...     backend_id="mem0",
+            ...     backend_class=Mem0MemoryManager,
+            ...     label="Mem0",
+            ...     description="Cloud-based memory via Mem0",
+            ... )
+        """
+        if self._registry:
+            self._registry.register_memory_backend(
+                plugin_id=self.plugin_id,
+                backend_id=backend_id,
+                backend_class=backend_class,
+                label=label or backend_id,
+                description=description,
+                metadata=metadata,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered memory backend "
+                f"'{backend_id}'",
+            )
+
     @property
     def runtime(self):
         """Access runtime helper functions.

@@ -18,6 +18,8 @@ const LANGUAGE_OPTIONS = [
 
 const MEMORY_MANAGER_BACKEND_OPTIONS = [
   { value: "remelight", label: "ReMeLight" },
+  // Additional backends can be registered via plugins.
+  // The dropdown will be dynamically populated from the API in the future.
 ];
 
 interface ReactAgentCardProps {
