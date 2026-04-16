@@ -54,12 +54,13 @@ function ModelsPage() {
       const isAvailable = isConfigured && hasModels;
 
       // Lower number = higher priority (shown first)
-      if (provider.is_custom && isAvailable) return 0;
-      if (provider.is_custom && isConfigured) return 1;
+      // Available providers (configured + has models) always come first,
+      // then custom providers, then configured-only, then unconfigured.
+      if (isAvailable && provider.is_custom) return 0;
+      if (isAvailable) return 1;
       if (provider.is_custom) return 2;
-      if (isAvailable) return 3;
-      if (isConfigured) return 4;
-      return 5;
+      if (isConfigured) return 3;
+      return 4;
     };
 
     regular.sort((a, b) => sortPriority(a) - sortPriority(b));
