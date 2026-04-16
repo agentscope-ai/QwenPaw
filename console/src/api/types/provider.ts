@@ -4,6 +4,7 @@ export interface ModelInfo {
   supports_multimodal: boolean | null;
   supports_image: boolean | null;
   supports_video: boolean | null;
+  is_free?: boolean;
   generate_kwargs: Record<string, unknown>;
 }
 
@@ -75,6 +76,11 @@ export interface CreateCustomProviderRequest {
 export interface AddModelRequest {
   id: string;
   name: string;
+  is_free?: boolean;
+  supports_multimodal?: boolean | null;
+  supports_image?: boolean | null;
+  supports_video?: boolean | null;
+  probe_source?: string | null;
 }
 
 export interface ModelConfigRequest {
@@ -181,6 +187,11 @@ export interface ProbeMultimodalResponse {
 export interface ExtendedModelInfo {
   id: string;
   name: string;
+  supports_multimodal?: boolean | null;
+  supports_image?: boolean | null;
+  supports_video?: boolean | null;
+  probe_source?: string | null;
+  is_free?: boolean;
   provider: string;
   input_modalities: string[];
   output_modalities: string[];

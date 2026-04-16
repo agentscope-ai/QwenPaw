@@ -101,6 +101,26 @@ class CreateCustomProviderRequest(BaseModel):
 class AddModelRequest(BaseModel):
     id: str = Field(...)
     name: str = Field(...)
+    is_free: bool = Field(
+        default=False,
+        description="Whether this model is free to use",
+    )
+    supports_multimodal: Optional[bool] = Field(
+        default=None,
+        description="Whether the model supports multimodal input",
+    )
+    supports_image: Optional[bool] = Field(
+        default=None,
+        description="Whether the model supports image input",
+    )
+    supports_video: Optional[bool] = Field(
+        default=None,
+        description="Whether the model supports video input",
+    )
+    probe_source: Optional[str] = Field(
+        default=None,
+        description="Source of capability metadata",
+    )
 
 
 class ModelConfigRequest(BaseModel):
@@ -426,7 +446,15 @@ async def add_model_endpoint(
     try:
         provider = await manager.add_model_to_provider(
             provider_id=provider_id,
-            model_info=ModelInfo(id=body.id, name=body.name),
+            model_info=ModelInfo(
+                id=body.id,
+                name=body.name,
+                supports_multimodal=body.supports_multimodal,
+                supports_image=body.supports_image,
+                supports_video=body.supports_video,
+                probe_source=body.probe_source,
+                is_free=body.is_free,
+            ),
         )  # Validate provider exists and add model
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -788,6 +816,11 @@ async def discover_openrouter_extended(
             {
                 "id": m.id,
                 "name": m.name,
+                "supports_multimodal": m.supports_multimodal,
+                "supports_image": m.supports_image,
+                "supports_video": m.supports_video,
+                "probe_source": m.probe_source,
+                "is_free": m.is_free,
                 "provider": m.provider,
                 "input_modalities": m.input_modalities,
                 "output_modalities": m.output_modalities,
@@ -853,6 +886,11 @@ async def filter_openrouter_models(
             {
                 "id": m.id,
                 "name": m.name,
+                "supports_multimodal": m.supports_multimodal,
+                "supports_image": m.supports_image,
+                "supports_video": m.supports_video,
+                "probe_source": m.probe_source,
+                "is_free": m.is_free,
                 "provider": m.provider,
                 "input_modalities": m.input_modalities,
                 "output_modalities": m.output_modalities,

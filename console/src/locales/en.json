@@ -912,6 +912,7 @@
     "tagMultimodal": "Multimodal",
     "tagVision": "Vision",
     "tagText": "Text",
+    "free": "Free",
     "probeMultimodal": "Test Multimodal",
     "probeImage": "Image",
     "probeVideo": "Video",

@@ -837,6 +837,7 @@
     "tagMultimodal": "マルチモーダル",
     "tagVision": "ビジョン",
     "tagText": "テキスト",
+    "free": "無料",
     "tagNotProbed": "未検出",
     "probeMultimodal": "マルチモーダルテスト",
     "probeImage": "画像",

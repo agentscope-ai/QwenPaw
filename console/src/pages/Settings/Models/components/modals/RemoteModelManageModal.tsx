@@ -25,6 +25,7 @@ import {
   QuestionCircleOutlined,
   DatabaseOutlined,
   UserOutlined,
+  GiftOutlined,
 } from "@ant-design/icons";
 import {
   SparkTextLine,
@@ -195,6 +196,11 @@ const tagColors = (isDark: boolean) => ({
     borderColor: isDark ? "rgba(255,255,255,0.15)" : "#d9d9d9",
   },
   builtin: {
+    backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
+    color: "#52c41a",
+    borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
+  },
+  free: {
     backgroundColor: isDark ? "rgba(82,196,26,0.15)" : "#f6ffed",
     color: "#52c41a",
     borderColor: isDark ? "rgba(82,196,26,0.3)" : "#b7eb8f",
@@ -497,7 +503,15 @@ export function RemoteModelManageModal({
   const handleAddFilteredModel = async (model: ExtendedModelInfo) => {
     setSaving(true);
     try {
-      await api.addModel(provider.id, { id: model.id, name: model.name });
+      await api.addModel(provider.id, {
+        id: model.id,
+        name: model.name,
+        is_free: model.is_free,
+        supports_multimodal: model.supports_multimodal,
+        supports_image: model.supports_image,
+        supports_video: model.supports_video,
+        probe_source: model.probe_source,
+      });
       message.success(t("models.modelAdded", { name: model.name }));
       await onSaved();
       setDiscoveredModels((prev) => prev.filter((m) => m.id !== model.id));
@@ -618,6 +632,20 @@ export function RemoteModelManageModal({
                   </div>
                   <div className={styles.modelListItemActions}>
                     <CapabilityTags model={m} isDark={isDark} />
+                    {m.is_free && (
+                      <Tag
+                        style={{
+                          fontSize: 11,
+                          marginRight: 4,
+                          ...colors.free,
+                        }}
+                      >
+                        <GiftOutlined
+                          style={{ fontSize: 10, marginRight: 3 }}
+                        />
+                        {t("models.free")}
+                      </Tag>
+                    )}
                     <Tag
                       style={{
                         fontSize: 11,
@@ -846,7 +874,31 @@ export function RemoteModelManageModal({
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 500 }}>{model.name}</div>
+                        <div
+                          style={{
+                            fontWeight: 500,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <span>{model.name}</span>
+                          {model.is_free && (
+                            <Tag
+                              style={{
+                                fontSize: 11,
+                                lineHeight: "16px",
+                                marginRight: 0,
+                                ...colors.free,
+                              }}
+                            >
+                              <GiftOutlined
+                                style={{ fontSize: 10, marginRight: 3 }}
+                              />
+                              {t("models.free")}
+                            </Tag>
+                          )}
+                        </div>
                         <div
                           style={{
                             fontSize: 11,

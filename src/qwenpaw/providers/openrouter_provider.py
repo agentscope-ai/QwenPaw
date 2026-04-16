@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any, List, Optional
 
 from agentscope.model import ChatModelBase
@@ -15,11 +17,14 @@ from qwenpaw.providers.provider import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class OpenRouterProvider(Provider):
     """OpenRouter provider with required HTTP-Referer and X-Title headers."""
 
     _DEFAULT_HEADERS = {
-        "HTTP-Referer": "https://https://qwenpaw.agentscope.io/",
+        "HTTP-Referer": "https://qwenpaw.agentscope.io/",
         "X-Title": "QwenPaw",
     }
 
@@ -60,6 +65,36 @@ class OpenRouterProvider(Provider):
         return model_id
 
     @staticmethod
+    def _normalize_pricing(
+        pricing: dict[str, Any] | None,
+    ) -> dict[str, str]:
+        """Normalize OpenRouter pricing dicts for downstream checks."""
+        if not pricing:
+            return {}
+
+        return {
+            str(key): "0" if value is None else str(value)
+            for key, value in pricing.items()
+        }
+
+    @staticmethod
+    def _is_free_model(pricing: dict[str, str]) -> bool:
+        """Determine whether a model is free based on pricing fields."""
+        numeric_values: list[Decimal] = []
+        for value in pricing.values():
+            text = str(value).strip()
+            if not text:
+                continue
+            try:
+                numeric_values.append(Decimal(text))
+            except InvalidOperation:
+                continue
+
+        return bool(numeric_values) and all(
+            value == 0 for value in numeric_values
+        )
+
+    @staticmethod
     def _normalize_models_payload(
         payload: Any,
         include_extended: bool = False,
@@ -95,11 +130,15 @@ class OpenRouterProvider(Provider):
 
             # Deduplication: keep first occurrence by model_id
             if model_id not in models:
+                pricing_dict = OpenRouterProvider._normalize_pricing(
+                    getattr(row, "pricing", None),
+                )
+                is_free = OpenRouterProvider._is_free_model(pricing_dict)
+
                 if include_extended:
                     # Get architecture and pricing from the API response
                     # These are dict attributes of the Model object
                     architecture = getattr(row, "architecture", None) or {}
-                    pricing = getattr(row, "pricing", None) or {}
 
                     # Extract modalities from architecture dict
                     arch_input = architecture.get("input_modalities", [])
@@ -108,26 +147,31 @@ class OpenRouterProvider(Provider):
                     output_modalities = (
                         list(arch_output) if arch_output else []
                     )
-
-                    # Convert pricing to dict
-                    pricing_dict = {}
-                    if pricing:
-                        if isinstance(pricing, dict):
-                            pricing_dict = {
-                                k: str(v) if v is not None else "0"
-                                for k, v in pricing.items()
-                            }
+                    supports_image = "image" in input_modalities
+                    supports_video = "video" in input_modalities
+                    supports_multimodal = any(
+                        modality != "text" for modality in input_modalities
+                    )
 
                     models[model_id] = ExtendedModelInfo(
                         id=model_id,
                         name=model_name,
+                        supports_multimodal=supports_multimodal,
+                        supports_image=supports_image,
+                        supports_video=supports_video,
+                        probe_source="documentation",
+                        is_free=is_free,
                         provider=provider,
                         input_modalities=input_modalities,
                         output_modalities=output_modalities,
                         pricing=pricing_dict,
                     )
                 else:
-                    models[model_id] = ModelInfo(id=model_id, name=model_name)
+                    models[model_id] = ModelInfo(
+                        id=model_id,
+                        name=model_name,
+                        is_free=is_free,
+                    )
 
         return list(models.values())
 
