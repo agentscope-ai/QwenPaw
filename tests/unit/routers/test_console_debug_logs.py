@@ -39,7 +39,8 @@ def _patch_working_dir(tmp_path: Path):
 
 
 async def test_prefers_qwenpaw_log_when_present(
-    api_client, tmp_path: Path
+    api_client,
+    tmp_path: Path,
 ):
     """When qwenpaw.log exists, the endpoint should read from it."""
     qwen_log = tmp_path / "qwenpaw.log"
@@ -48,7 +49,8 @@ async def test_prefers_qwenpaw_log_when_present(
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 20}
+                "/api/console/debug/backend-logs",
+                params={"lines": 20},
             )
 
     assert resp.status_code == 200
@@ -59,7 +61,8 @@ async def test_prefers_qwenpaw_log_when_present(
 
 
 async def test_qwenpaw_log_returns_correct_metadata(
-    api_client, tmp_path: Path
+    api_client,
+    tmp_path: Path,
 ):
     """Metadata fields (size, lines) are populated from qwenpaw.log."""
     qwen_log = tmp_path / "qwenpaw.log"
@@ -69,7 +72,8 @@ async def test_qwenpaw_log_returns_correct_metadata(
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 20}
+                "/api/console/debug/backend-logs",
+                params={"lines": 20},
             )
 
     data = resp.json()
@@ -89,7 +93,8 @@ async def test_falls_back_to_copaw_log(api_client, tmp_path: Path):
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 20}
+                "/api/console/debug/backend-logs",
+                params={"lines": 20},
             )
 
     assert resp.status_code == 200
@@ -107,7 +112,8 @@ async def test_copaw_log_metadata(api_client, tmp_path: Path):
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 20}
+                "/api/console/debug/backend-logs",
+                params={"lines": 20},
             )
 
     data = resp.json()
@@ -119,13 +125,15 @@ async def test_copaw_log_metadata(api_client, tmp_path: Path):
 
 
 async def test_returns_not_found_when_no_log_exists(
-    api_client, tmp_path: Path
+    api_client,
+    tmp_path: Path,
 ):
     """When neither log file exists, exists=False is returned."""
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 20}
+                "/api/console/debug/backend-logs",
+                params={"lines": 20},
             )
 
     assert resp.status_code == 200
@@ -141,7 +149,8 @@ async def test_not_found_path_is_copaw_fallback(api_client, tmp_path: Path):
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 20}
+                "/api/console/debug/backend-logs",
+                params={"lines": 20},
             )
 
     data = resp.json()
@@ -152,7 +161,8 @@ async def test_not_found_path_is_copaw_fallback(api_client, tmp_path: Path):
 
 
 async def test_qwenpaw_log_wins_when_both_exist(
-    api_client, tmp_path: Path
+    api_client,
+    tmp_path: Path,
 ):
     """qwenpaw.log must win even when copaw.log also exists."""
     (tmp_path / "qwenpaw.log").write_text("from qwenpaw\n", encoding="utf-8")
@@ -161,7 +171,8 @@ async def test_qwenpaw_log_wins_when_both_exist(
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 20}
+                "/api/console/debug/backend-logs",
+                params={"lines": 20},
             )
 
     data = resp.json()
@@ -178,7 +189,8 @@ async def test_lines_param_too_small_rejected(api_client, tmp_path: Path):
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 5}
+                "/api/console/debug/backend-logs",
+                params={"lines": 5},
             )
     assert resp.status_code == 422
 
@@ -188,6 +200,7 @@ async def test_lines_param_too_large_rejected(api_client, tmp_path: Path):
     with _patch_working_dir(tmp_path):
         async with api_client:
             resp = await api_client.get(
-                "/api/console/debug/backend-logs", params={"lines": 9999}
+                "/api/console/debug/backend-logs",
+                params={"lines": 9999},
             )
     assert resp.status_code == 422
