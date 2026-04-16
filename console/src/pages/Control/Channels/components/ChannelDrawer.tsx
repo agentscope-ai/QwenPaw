@@ -1137,9 +1137,7 @@ export function ChannelDrawer({
             <Form.Item name="reply_to_trigger" label={t("channels.replyToTrigger")} valuePropName="checked" tooltip={t("channels.replyToTriggerTooltip")} initialValue={true}>
               <Switch defaultChecked />
             </Form.Item>
-            <Form.Item name="filter_thinking" label={t("channels.filterThinking")} valuePropName="checked" tooltip={t("channels.filterThinkingTooltip")}>
-              <Switch />
-            </Form.Item>
+            {/* filter_thinking is rendered by the shared global section below — don't duplicate it here */}
           </>
         );
 
@@ -1177,9 +1175,7 @@ export function ChannelDrawer({
             <Form.Item name="reply_to_trigger" label={t("channels.replyToTrigger")} valuePropName="checked" tooltip={t("channels.replyToTriggerTooltip")} initialValue={true}>
               <Switch defaultChecked />
             </Form.Item>
-            <Form.Item name="filter_thinking" label={t("channels.signalFilterThinking")} valuePropName="checked" tooltip={t("channels.signalFilterThinkingTooltip")}>
-              <Switch />
-            </Form.Item>
+            {/* filter_thinking is rendered by the shared global section below — don't duplicate it here */}
           </>
         );
 
