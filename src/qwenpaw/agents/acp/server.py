@@ -34,6 +34,7 @@ from acp import (
 from acp.interfaces import Client
 from acp.schema import (
     AgentCapabilities,
+    AgentMessageChunk,
     AudioContentBlock,
     ClientCapabilities,
     CloseSessionResponse,
@@ -88,10 +89,42 @@ def _extract_text(
     return "\n".join(parts)
 
 
-def _msg_to_updates(
+class _StreamTracker:
+    """Track cumulative text/thinking to emit only incremental deltas."""
+
+    def __init__(self) -> None:
+        self._prev_text: str = ""
+        self._prev_thinking: str = ""
+
+    def delta_text(self, cumulative: str) -> str:
+        """Return only the new portion of the text."""
+        if cumulative.startswith(self._prev_text):
+            delta = cumulative[len(self._prev_text) :]
+        else:
+            delta = cumulative
+        self._prev_text = cumulative
+        return delta
+
+    def delta_thinking(self, cumulative: str) -> str:
+        """Return only the new portion of the thinking."""
+        if cumulative.startswith(self._prev_thinking):
+            delta = cumulative[len(self._prev_thinking) :]
+        else:
+            delta = cumulative
+        self._prev_thinking = cumulative
+        return delta
+
+
+def _msg_to_updates(  # pylint: disable=too-many-branches
     msg: Any,
-) -> list[Any]:  # pylint: disable=too-many-branches
-    """Convert a QwenPaw Msg into ACP session update(s)."""
+    tracker: _StreamTracker | None = None,
+) -> list[Any]:
+    """Convert a QwenPaw Msg into ACP session update(s).
+
+    When *tracker* is provided, text and thinking content blocks are
+    emitted as **incremental** deltas rather than cumulative snapshots,
+    matching the ACP standard used by QwenCode and Qoder.
+    """
     updates: list[Any] = []
     metadata = getattr(msg, "metadata", {}) or {}
     content = getattr(msg, "content", None)
@@ -140,14 +173,17 @@ def _msg_to_updates(
         return updates
 
     if isinstance(content, list):
-        _content_blocks_to_updates(content, updates)
+        _content_blocks_to_updates(content, updates, tracker)
 
     if not updates:
         text = _get_msg_text(msg)
         if text:
-            updates.append(
-                update_agent_message(text_block(text)),
-            )
+            if tracker:
+                text = tracker.delta_text(text)
+            if text:
+                updates.append(
+                    update_agent_message(text_block(text)),
+                )
 
     return updates
 
@@ -155,42 +191,74 @@ def _msg_to_updates(
 def _content_blocks_to_updates(
     content: list[Any],
     updates: list[Any],
+    tracker: _StreamTracker | None = None,
 ) -> None:
     """Map Msg content blocks to ACP updates."""
     for block in content:
-        if not isinstance(block, dict):
-            continue
-        block_type = block.get("type", "text")
-        if block_type == "tool_use":
+        block_type, block_data = _normalise_block(block)
+        if block_type == "thinking":
+            _emit_thinking(block_data, tracker, updates)
+        elif block_type == "text":
+            _emit_text(block_data, tracker, updates)
+        elif block_type == "tool_use":
             updates.append(
                 start_tool_call(
-                    str(block.get("id") or uuid4().hex[:8]),
-                    str(block.get("name") or "tool"),
+                    str(block_data.get("id") or uuid4().hex[:8]),
+                    str(block_data.get("name") or "tool"),
                     status="in_progress",
                 ),
             )
         elif block_type == "tool_result":
             updates.append(
                 update_tool_call(
-                    str(block.get("id") or uuid4().hex[:8]),
+                    str(block_data.get("id") or uuid4().hex[:8]),
                     status="completed",
                     content=[
                         tool_content(
                             text_block(
-                                str(block.get("output", "")),
+                                str(block_data.get("output", "")),
                             ),
                         ),
                     ],
                 ),
             )
-        elif block_type == "text":
-            text = block.get("text", "")
-            if text:
-                updates.append(
-                    update_agent_message(
-                        text_block(text),
-                    ),
-                )
+
+
+def _normalise_block(block: Any) -> tuple[str, dict[str, Any]]:
+    """Return ``(block_type, data_dict)`` for both dict and object blocks."""
+    if isinstance(block, dict):
+        return block.get("type", "text"), block
+    btype = getattr(block, "type", "text") or "text"
+    data: dict[str, Any] = {}
+    for attr in ("text", "thinking", "id", "name", "output"):
+        val = getattr(block, attr, None)
+        if val is not None:
+            data[attr] = val
+    return btype, data
+
+
+def _emit_thinking(
+    data: dict[str, Any],
+    tracker: _StreamTracker | None,
+    updates: list[Any],
+) -> None:
+    thinking = data.get("thinking", "")
+    if tracker:
+        thinking = tracker.delta_thinking(thinking)
+    if thinking:
+        updates.append(update_agent_thought(text_block(thinking)))
+
+
+def _emit_text(
+    data: dict[str, Any],
+    tracker: _StreamTracker | None,
+    updates: list[Any],
+) -> None:
+    text = data.get("text", "")
+    if tracker:
+        text = tracker.delta_text(text)
+    if text:
+        updates.append(update_agent_message(text_block(text)))
 
 
 def _get_msg_text(msg: Any) -> str:
@@ -446,6 +514,8 @@ class QwenPawACPAgent(Agent):
             request_context=request_context or None,
         )
 
+        tracker = _StreamTracker()
+
         try:
             async for msg, _is_last in runner.query_handler(
                 msgs,
@@ -458,7 +528,7 @@ class QwenPawACPAgent(Agent):
                     )
                     break
 
-                updates = _msg_to_updates(msg)
+                updates = _msg_to_updates(msg, tracker)
                 for upd in updates:
                     await self._conn.session_update(
                         session_id=session_id,
@@ -471,6 +541,18 @@ class QwenPawACPAgent(Agent):
             )
         finally:
             self._cancel_events.pop(session_id, None)
+
+        # Emit a final empty chunk with usage metadata (like QwenCode)
+        usage_meta = self._pop_session_usage(session_id)
+        if usage_meta:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=AgentMessageChunk(
+                    sessionUpdate="agent_message_chunk",
+                    content=text_block(""),
+                    field_meta=usage_meta,
+                ),
+            )
 
         return PromptResponse(stop_reason="end_turn")
 
@@ -592,6 +674,36 @@ class QwenPawACPAgent(Agent):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _pop_session_usage(
+        session_id: str,
+    ) -> dict[str, Any] | None:
+        """Retrieve and clear token usage recorded for *session_id*.
+
+        Returns a ``_meta``-shaped dict with ``usage`` and ``durationMs``
+        keys, matching the format used by QwenCode, or ``None`` if no
+        usage was recorded.
+        """
+        try:
+            from ...token_usage.model_wrapper import (
+                TokenRecordingModelWrapper,
+            )
+
+            raw = TokenRecordingModelWrapper.pop_usage_for_session(
+                session_id,
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        if not raw:
+            return None
+        return {
+            "usage": {
+                "inputTokens": raw.get("prompt_tokens", 0),
+                "outputTokens": raw.get("completion_tokens", 0),
+                "totalTokens": raw.get("total_tokens", 0),
+            },
+        }
 
     def _build_config_options(
         self,
