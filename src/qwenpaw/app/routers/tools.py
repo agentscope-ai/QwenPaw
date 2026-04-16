@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import (
     APIRouter,
@@ -30,7 +30,7 @@ class ToolInfo(BaseModel):
         default=False,
         description="Whether to execute the tool asynchronously in background",
     )
-    icon: str = Field(default="🔧", description="Emoji icon for the tool")
+    icon: Optional[str] = Field(default=None, description="Emoji icon for the tool")
 
 
 @router.get("", response_model=List[ToolInfo])
