@@ -1102,9 +1102,13 @@ export function ChannelDrawer({
               name="auth_dir"
               label={t("channels.whatsappAuthDir")}
               tooltip={t("channels.whatsappAuthDirTooltip")}
-              initialValue="~/.qwenpaw/credentials/whatsapp/default"
             >
-              <Input placeholder="~/.qwenpaw/credentials/whatsapp/default" />
+              {/* Intentionally no initialValue — leave the field empty so the
+                  backend resolves the default via `_resolve_wa_auth_dir`
+                  (explicit > workspace_dir > WORKING_DIR). Setting a fixed
+                  initialValue would persist a hard path into agent.json and
+                  defeat per-agent/workspace scoping. */}
+              <Input placeholder="$WORKING_DIR/credentials/whatsapp/default (auto)" />
             </Form.Item>
             <Form.Item
               name="send_read_receipts"

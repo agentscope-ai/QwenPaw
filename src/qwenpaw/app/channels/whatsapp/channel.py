@@ -479,6 +479,34 @@ class WhatsAppChannel(BaseChannel):
             except Exception as e:
                 logger.warning("whatsapp: document download failed: %s", e)
 
+        # Video (mp4 by default; mimeType can override but neonize's download_any
+        # already chooses the right container).
+        if msg.HasField("videoMessage"):
+            vid_msg = msg.videoMessage
+            caption = getattr(vid_msg, "caption", "") or ""
+            if caption and not body:
+                body = caption
+                content_parts.append(TextContent(type=ContentType.TEXT, text=caption))
+            try:
+                self._media_dir.mkdir(parents=True, exist_ok=True)
+                path = self._media_dir / f"wa_vid_{msg_id}.mp4"
+                await client.download_any(msg, path=str(path))
+                media_url = await resolve_media_url(str(path))
+                content_parts.append(VideoContent(type=ContentType.VIDEO, video_url=media_url))
+            except Exception as e:
+                logger.warning("whatsapp: video download failed: %s", e)
+
+        # Sticker (usually webp — surface as ImageContent so vision models can read).
+        if msg.HasField("stickerMessage"):
+            try:
+                self._media_dir.mkdir(parents=True, exist_ok=True)
+                path = self._media_dir / f"wa_sticker_{msg_id}.webp"
+                await client.download_any(msg, path=str(path))
+                media_url = await resolve_media_url(str(path))
+                content_parts.append(ImageContent(type=ContentType.IMAGE, image_url=media_url))
+            except Exception as e:
+                logger.warning("whatsapp: sticker download failed: %s", e)
+
         return body, content_parts
 
     async def _extract_quote_content(self, client, msg) -> List[Any]:
@@ -1110,7 +1138,12 @@ class WhatsAppChannel(BaseChannel):
         async with self._reconnect_lock:
             backoff = 10
             attempt = 0
-            while True:  # infinite retry
+            while True:  # retry until connected or stop() bails out
+                # Re-check _stopping inside the loop so a stop() that lands
+                # after we entered the lock can short-circuit the retry.
+                if self._stopping:
+                    logger.info("whatsapp: stop() detected — aborting reconnect loop at attempt %d", attempt)
+                    return
                 attempt += 1
                 logger.info("whatsapp: reconnect attempt %d...", attempt)
                 try:
@@ -1124,15 +1157,25 @@ class WhatsAppChannel(BaseChannel):
 
                     # Re-connect
                     self._connect_task = await self._client.connect()
-                    # Wait for ConnectedEv to set self._connected
-                    await asyncio.sleep(5)
+                    # Wait for ConnectedEv to set self._connected. Break the
+                    # wait into short sleeps so stop() still has a chance to
+                    # interrupt us before we claim success.
+                    for _ in range(5):
+                        if self._stopping:
+                            logger.info("whatsapp: stop() during reconnect wait — aborting")
+                            return
+                        await asyncio.sleep(1)
                     if self._connected:
                         logger.info("whatsapp: reconnected on attempt %d", attempt)
                         return
                 except Exception as e:
                     logger.error("whatsapp: reconnect attempt %d failed: %s", attempt, e)
 
-                await asyncio.sleep(backoff)
+                # Sleep-with-wake so stop() can still interrupt the backoff.
+                for _ in range(backoff):
+                    if self._stopping:
+                        return
+                    await asyncio.sleep(1)
                 backoff = min(backoff * 2, 300)  # cap at 5 minutes
 
                 # Log periodic status

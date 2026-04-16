@@ -779,7 +779,12 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
             state["status"] = "waiting_qr"
             return {"status": "waiting_qr", "qr_image": state["qr_data"]}
         state["status"] = "error"
-        return {"status": "error", "detail": str(e)}
+        # Surface as HTTP 502 so the Console's fetch() drops into .catch()
+        # instead of treating the 200/error-payload as a successful pair.
+        raise HTTPException(
+            status_code=502,
+            detail=f"WhatsApp pairing failed: {e}",
+        )
 
 
 @router.get(
@@ -897,8 +902,13 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     if qr_result["image"]:
         state["qr_data"] = qr_result["image"]
         return {"status": "waiting_qr", "qr_image": qr_result["image"]}
-    else:
-        return {"status": "error", "detail": "QR code not generated"}
+    state["status"] = "error"
+    # Non-2xx so the Console's fetch() drops into .catch() rather than
+    # silently succeeding with an error payload.
+    raise HTTPException(
+        status_code=502,
+        detail="QR code not generated (WhatsApp client did not emit a QR within the timeout)",
+    )
 
 
 @router.post(
