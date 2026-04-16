@@ -76,13 +76,14 @@ jobs:
           # Install huggingface-cli
           pip install huggingface_hub
           
-          # Download Qwen2-0.5B-Instruct model files
-          mkdir -p ./models/Qwen/Qwen2-0.5B-Instruct
+          # Use 4-bit quantized model to reduce download size (~180MB instead of ~300MB)
+          # Still fits in 4GB memory with KV cache
+          mkdir -p ./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4
           python -c "
           from huggingface_hub import snapshot_download
           snapshot_download(
-              'Qwen/Qwen2-0.5B-Instruct',
-              local_dir='./models/Qwen/Qwen2-0.5B-Instruct',
+              'Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
+              local_dir='./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
               local_dir_use_symlinks=False
           )
           print('✅ Model downloaded to local directory')
@@ -98,7 +99,7 @@ jobs:
             -v "$(pwd)/models:/models" \
             -e VLLM_CPU_KVCACHE_SPACE=1 \
             ghcr.io/southball/vllm-avx2-docker:latest \
-            /models/Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 1024 --swap-space 1
+            /models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4 --port 8000 --max-model-len 1024 --swap-space 1
 
           echo "✅ vLLM container started with pre-downloaded model, waiting for server startup..."
           sleep 60
@@ -174,7 +175,7 @@ jobs:
           
           config = {
               'model_type': 'openai',
-              'model_name': 'Qwen/Qwen2-0.5B-Instruct',
+              'model_name': 'Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
               'api_key': 'dummy',
               'base_url': 'http://localhost:8000/v1',
           }
