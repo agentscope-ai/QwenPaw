@@ -669,18 +669,25 @@ def _get_wa_pair_state(agent_id: str) -> dict:
 def _get_wa_auth_dir(agent) -> str:
     """Resolve WhatsApp auth directory from agent config.
 
-    Default is ``WORKING_DIR/credentials/whatsapp/default`` so the router,
-    the channel class, and any tooling all read/write the same location
-    regardless of whether WORKING_DIR is ``~/.qwenpaw`` (fresh install),
-    ``~/.copaw`` (legacy), or a custom ``$QWENPAW_WORKING_DIR``.
+    Priority (matches ``WhatsAppChannel._resolve_wa_auth_dir``):
+      1. Explicit ``auth_dir`` in the agent's channel config
+      2. ``agent.workspace_dir/credentials/whatsapp/default`` (per-agent)
+      3. ``WORKING_DIR/credentials/whatsapp/default`` (install-wide fallback)
+
+    Router and channel class must agree on this ordering — otherwise the
+    pair/QR endpoints write to a different ``neonize.db`` than the live
+    channel reads from.
     """
+    from pathlib import Path
     from ...constant import WORKING_DIR
-    default_dir = str(WORKING_DIR / "credentials" / "whatsapp" / "default")
     wa_cfg = getattr(agent.config.channels, "whatsapp", None)
-    auth_dir = default_dir
-    if wa_cfg:
-        auth_dir = getattr(wa_cfg, "auth_dir", auth_dir) or auth_dir
-    return auth_dir
+    explicit = (getattr(wa_cfg, "auth_dir", "") if wa_cfg else "") or ""
+    if explicit:
+        return explicit
+    ws = getattr(agent, "workspace_dir", None)
+    if ws:
+        return str(Path(ws).expanduser() / "credentials" / "whatsapp" / "default")
+    return str(WORKING_DIR / "credentials" / "whatsapp" / "default")
 
 
 @router.post(

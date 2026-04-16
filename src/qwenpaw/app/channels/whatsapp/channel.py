@@ -44,10 +44,27 @@ logger = logging.getLogger(__name__)
 WHATSAPP_MAX_TEXT_LENGTH = 4096
 from ....constant import WORKING_DIR
 _MEDIA_DIR = WORKING_DIR / "media" / "whatsapp"
-# Default auth_dir: WORKING_DIR/credentials/whatsapp/default. Derived from
-# WORKING_DIR so QWENPAW_WORKING_DIR / legacy ~/.copaw / ~/.qwenpaw fallbacks
-# all line up. Override with explicit `auth_dir` in the agent's channel config.
+# Default auth_dir: WORKING_DIR/credentials/whatsapp/default when no
+# workspace_dir is passed. When a workspace_dir IS passed (agent-scoped
+# install), the default becomes workspace_dir/credentials/whatsapp/default
+# so each agent gets its own WhatsApp session DB. Explicit `auth_dir` in
+# the channel config overrides both.
 _DEFAULT_AUTH_DIR = WORKING_DIR / "credentials" / "whatsapp" / "default"
+
+
+def _resolve_wa_auth_dir(
+    explicit_auth_dir: str,
+    workspace_dir: Optional["Path"] = None,
+) -> "Path":
+    """Compute WhatsApp auth_dir path consistently across channel + router.
+
+    Priority: explicit > workspace > WORKING_DIR default.
+    """
+    if explicit_auth_dir:
+        return Path(explicit_auth_dir).expanduser()
+    if workspace_dir is not None:
+        return Path(workspace_dir).expanduser() / "credentials" / "whatsapp" / "default"
+    return _DEFAULT_AUTH_DIR
 
 try:
     from neonize.aioze.client import NewAClient
@@ -106,6 +123,7 @@ class WhatsAppChannel(BaseChannel):
         process: ProcessHandler,
         enabled: bool = False,
         auth_dir: str = "",
+        workspace_dir: Optional[Path] = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -136,7 +154,10 @@ class WhatsAppChannel(BaseChannel):
             require_mention=require_mention,
         )
         self.enabled = enabled
-        self._auth_dir = Path(auth_dir).expanduser() if auth_dir else _DEFAULT_AUTH_DIR
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        self._auth_dir = _resolve_wa_auth_dir(auth_dir, self._workspace_dir)
         self._send_read_receipts = send_read_receipts
         self._text_chunk_limit = text_chunk_limit
         self._self_chat_mode = self_chat_mode
@@ -187,6 +208,7 @@ class WhatsAppChannel(BaseChannel):
             process=process,
             enabled=bool(c.get("enabled", False)),
             auth_dir=c.get("auth_dir") or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -221,11 +243,7 @@ class WhatsAppChannel(BaseChannel):
 
         # Fields that require full restart
         new_auth_dir = c.get("auth_dir") or ""
-        new_auth_path = (
-            Path(new_auth_dir).expanduser()
-            if new_auth_dir
-            else _DEFAULT_AUTH_DIR
-        )
+        new_auth_path = _resolve_wa_auth_dir(new_auth_dir, self._workspace_dir)
         if new_auth_path != self._auth_dir:
             logger.info("whatsapp: update_config: auth_dir changed, needs restart")
             return False
