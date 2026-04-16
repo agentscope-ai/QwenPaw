@@ -29,7 +29,6 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "matrix",
   "weixin",
   "whatsapp",
-  "signal",
   "imessage",
   "onebot",
 ];
@@ -53,7 +52,6 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WeChat-Personal-iLink",
   whatsapp:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#WhatsApp",
-  signal: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Signal",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
@@ -75,7 +73,6 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   wecom: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#企业微信",
   weixin: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#微信个人iLink",
   whatsapp: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#WhatsApp",
-  signal: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Signal",
   xiaoyi:
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
@@ -1141,43 +1138,6 @@ export function ChannelDrawer({
           </>
         );
 
-
-      case "signal":
-        return (
-          <>
-            <Form.Item name="account" label={t("channels.signalAccount")} tooltip={t("channels.signalAccountTooltip")} rules={[{ required: true }]}>
-              <Input placeholder="+85298349370" />
-            </Form.Item>
-            <Form.Item name="http_url" label={t("channels.signalHttpUrl")} tooltip={t("channels.signalHttpUrlTooltip")}>
-              <Input placeholder="http://127.0.0.1:8082" />
-            </Form.Item>
-            <Form.Item name="http_port" label={t("channels.signalBridgePort")} initialValue={8082}>
-              <InputNumber min={1} max={65535} style={{ width: "100%" }} />
-            </Form.Item>
-            <Form.Item name="auto_start" label={t("channels.signalAutoStart")} valuePropName="checked">
-              <Switch />
-            </Form.Item>
-            <Form.Item name="send_read_receipts" label={t("channels.signalSendReadReceipts")} valuePropName="checked" initialValue={true}>
-              <Switch defaultChecked />
-            </Form.Item>
-            <Form.Item name="text_chunk_limit" label={t("channels.signalTextChunkLimit")} initialValue={4000}>
-              <InputNumber min={256} max={8192} step={256} style={{ width: "100%" }} />
-            </Form.Item>
-            <Form.Item name="media_max_mb" label={t("channels.signalMediaMaxMb")} tooltip={t("channels.signalMediaMaxMbTooltip")} initialValue={8}>
-              <InputNumber min={1} max={100} style={{ width: "100%" }} />
-            </Form.Item>
-            <Form.Item name="groups" label={t("channels.signalGroups")} tooltip={t("channels.signalGroupsTooltip")}>
-              <Select mode="tags" placeholder="sBlO8LhzR42X...=" tokenSeparators={[","," ","\n"]} />
-            </Form.Item>
-            <Form.Item name="group_allow_from" label={t("channels.signalGroupAllowFrom")} tooltip={t("channels.signalGroupAllowFromTooltip")}>
-              <Select mode="tags" placeholder="* (everyone)" tokenSeparators={[","," "]} />
-            </Form.Item>
-            <Form.Item name="reply_to_trigger" label={t("channels.replyToTrigger")} valuePropName="checked" tooltip={t("channels.replyToTriggerTooltip")} initialValue={true}>
-              <Switch defaultChecked />
-            </Form.Item>
-            {/* filter_thinking is rendered by the shared global section below — don't duplicate it here */}
-          </>
-        );
 
       case "onebot":
         return (
