@@ -39,9 +39,10 @@ class PluginManifest:
             PluginManifest instance
         """
         entry_data = data.get("entry", {})
+        legacy_entry_point = data.get("entry_point", "plugin.py")
         entry = PluginEntryPoints(
             frontend=entry_data.get("frontend"),
-            backend=entry_data.get("backend", "plugin.py"),
+            backend=entry_data.get("backend") or legacy_entry_point,
         )
 
         return cls(

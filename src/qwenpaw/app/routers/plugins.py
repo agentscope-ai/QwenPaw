@@ -37,7 +37,7 @@ async def list_plugins(request: Request):
     include a ``frontend_entry`` URL so the frontend can dynamically
     load the plugin's JS module.  All UI registration (routes, tool
     renderers) is handled by the plugin JS itself via
-    ``window.__registerPlugin``.
+        ``window.register_routes`` / ``window.register_tool_render``.
     """
 
     loader = _get_plugin_loader(request)
@@ -46,20 +46,14 @@ async def list_plugins(request: Request):
     for _plugin_id, record in loader.get_all_loaded_plugins().items():
         manifest = record.manifest
         frontend_entry = manifest.entry.frontend
-
         plugin_info: dict = {
             "id": manifest.id,
             "name": manifest.name,
             "version": manifest.version,
             "description": manifest.description,
             "enabled": record.enabled,
-            "has_frontend": frontend_entry is not None,
+            "frontend_entry": frontend_entry,
         }
-
-        if frontend_entry:
-            plugin_info[
-                "frontend_entry"
-            ] = f"/api/plugins/{manifest.id}/files/{frontend_entry}"
 
         result.append(plugin_info)
 
@@ -81,7 +75,6 @@ async def serve_plugin_ui_file(
     A path-traversal guard ensures the resolved path stays inside the
     plugin's source directory.
     """
-
     loader = _get_plugin_loader(request)
     record = loader.get_loaded_plugin(plugin_id)
 

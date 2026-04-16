@@ -110,10 +110,42 @@ class PluginLoader:
 
         # Load backend module (if declared and exists)
         backend_entry = manifest.entry.backend
-        entry_file = source_path / backend_entry if backend_entry else None
+        frontend_entry = manifest.entry.frontend
+        backend_entry_file = (
+            source_path / backend_entry if backend_entry else None
+        )
+        frontend_entry_file = (
+            source_path / frontend_entry if frontend_entry else None
+        )
         plugin_def = None
 
-        if entry_file and entry_file.exists():
+        if backend_entry_file is None and frontend_entry_file is None:
+            raise FileNotFoundError(
+                f"Plugin '{plugin_id}' has no entry points declared "
+                f"(entry.backend or entry.frontend)",
+            )
+
+        backend_exists = (
+            backend_entry_file is not None and backend_entry_file.exists()
+        )
+        frontend_exists = (
+            frontend_entry_file is not None and frontend_entry_file.exists()
+        )
+
+        if not backend_exists and not frontend_exists:
+            raise FileNotFoundError(
+                f"Plugin '{plugin_id}' entry point files not found: "
+                + (f"{backend_entry_file}" if backend_entry_file else "")
+                + (f", {frontend_entry_file}" if frontend_entry_file else ""),
+            )
+
+        if not backend_exists:
+            # Frontend-only plugin — skip backend loading
+            logger.info(
+                f"Plugin '{plugin_id}' has no backend entry point "
+                f"— loading as frontend-only plugin",
+            )
+        else:
             try:
                 # Dynamic import of plugin module
                 # Use unique module name to avoid conflicts
@@ -124,12 +156,12 @@ class PluginLoader:
                 # within plugin without polluting global sys.path
                 spec = importlib.util.spec_from_file_location(
                     module_name,
-                    entry_file,
+                    backend_entry_file,
                     submodule_search_locations=[plugin_dir_str],
                 )
                 if spec is None or spec.loader is None:
                     raise ImportError(
-                        f"Failed to load module spec for {entry_file}",
+                        f"Failed to load module spec for {backend_entry_file}",
                     )
 
                 module = importlib.util.module_from_spec(spec)
@@ -181,14 +213,6 @@ class PluginLoader:
                     exc_info=True,
                 )
                 raise
-        else:
-            # No backend entry point — frontend-only or pure-config plugin.
-            # Still register it so the /api/plugins endpoint can serve its
-            # manifest and static files.
-            logger.info(
-                f"Plugin '{plugin_id}' has no backend entry point "
-                f"— loading as frontend-only plugin",
-            )
 
         # Create plugin record
         record = PluginRecord(

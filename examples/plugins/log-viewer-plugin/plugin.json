@@ -1,0 +1,11 @@
+{
+    "id": "log-viewer-plugin",
+    "name": "Log Viewer Plugin",
+    "version": "1.0.0",
+    "description": "Tails and filters the CoPaw backend log file. Demonstrates how a plugin calls host APIs using getApiUrl + getApiToken from window.__QWENPAW__.",
+    "author": "QwenPaw",
+    "entry": {
+        "frontend": "dist/index.js",
+        "backend": null
+    }
+}

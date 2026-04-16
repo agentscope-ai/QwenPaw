@@ -1,94 +1,61 @@
 /**
- * `usePluginLoader` — dynamically discovers and loads plugins.
+ * usePluginLoader.ts — plugin loading utility
  *
- * ### How it works
+ * Responsible only for the *network* layer:
+ *   1. GET /api/plugins → list of plugin manifests.
+ *   2. For each plugin that has a `frontend_entry`, fetch the JS source,
+ *      wrap it in a same-origin Blob URL, and execute it via dynamic import.
  *
- * 1. `GET /api/plugins` → list of plugins with `frontend_entry` URLs.
- * 2. For each plugin with a frontend entry:
- *    a. Fetch + Blob-URL-import the plugin's JS module.
- *    b. The plugin JS calls `window.__registerPlugin(manifest, capabilities)`
- *       to register its routes, tool renderers, etc.
- * 3. After all plugins are loaded, collect registrations from
- *    `window.__pluginRegistrations__` and produce:
- *    - `toolRenderConfig` for `@agentscope-ai/chat`
- *    - `pluginRoutes` for the router and sidebar
+ * Executed plugins call `window.register_routes` / `window.register_tool_render`,
+ * which write into the `pluginSystem` singleton (hostExternals.ts).  React state
+ * is managed by `PluginContext.tsx` via `pluginSystem.subscribe()`.
  *
- * ### Plugin JS module contract
- *
- * ```js
- * (window as any).__registerPlugin?.(
- *   { name: "my-plugin", version: "1.0.0" },
- *   {
- *     routes: [{ path: "/dashboard", component: Dashboard, label: "Dashboard", icon: "📊" }],
- *     toolRenderers: { "view_image": ViewImageCard },
- *   },
- * );
- * ```
+ * This module exports `loadAllPlugins()` — the single function PluginContext calls.
  */
 
-import { useEffect, useRef, useState } from "react";
-import type React from "react";
-import { fetchPlugins, type PluginInfo } from "../api/modules/plugin";
-import type { PluginRegistration } from "./hostExternals";
+import { getApiUrl, getApiToken } from "../api/config";
 
-declare const VITE_API_BASE_URL: string;
+// ─────────────────────────────────────────────────────────────────────────────
+// Plugin manifest type (mirrors backend PluginInfo)
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Resolve a backend-relative URL (e.g. `/api/plugins/…/index.js`) to a full
- * URL that works in both dev mode (Vite dev server on a different port) and
- * production (same origin).
- */
-function resolvePluginUrl(backendPath: string): string {
-  const base =
-    typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
-  if (!base) return backendPath;
-  return `${base}${backendPath}`;
+interface PluginInfo {
+  id: string;
+  name: string;
+  frontend_entry?: string;
 }
 
-export type ToolRenderConfig = Record<string, React.FC<any>>;
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * A resolved plugin page route with the actual React component attached.
+ * Resolve a backend-relative API path (e.g. `/plugins/…/files/index.js`)
+ * to a full URL using the same base that all other API calls use.
  */
-export interface PluginPageRoute {
-  /** Full URL path, e.g. "/plugin/my-plugin/dashboard". */
-  path: string;
-  /** Display label for the sidebar menu. */
-  label: string;
-  /** Emoji or short text used as the sidebar icon. */
-  icon: string;
-  /** The resolved React component to render at this route. */
-  component: React.ComponentType;
-}
-
-export interface PluginLoaderResult {
-  /** Map of tool name → React component, ready for customToolRenderConfig. */
-  toolRenderConfig: ToolRenderConfig;
-  /** Page-level routes registered by plugins. */
-  pluginRoutes: PluginPageRoute[];
-  /** True while plugins are being fetched / loaded. */
-  loading: boolean;
-  /** Non-null if any plugin failed to load (others may still succeed). */
-  error: string | null;
+function resolveUrl(pluginId: string, apiPath: string): string {
+  return getApiUrl(`plugins/${pluginId}/files/${apiPath}`);
 }
 
 /**
- * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and
- * execute it.  The plugin JS is expected to call
- * `window.__registerPlugin(manifest, capabilities)` during execution.
+ * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and execute
+ * it via dynamic import().  The plugin calls register_routes / register_tool_render
+ * during execution.  Blob URL is revoked immediately after import.
  */
-async function loadPluginScript(entryUrl: string): Promise<void> {
-  const response = await fetch(entryUrl);
+async function executePluginScript(entryUrl: string): Promise<void> {
+  const token = getApiToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const response = await fetch(entryUrl, { headers });
   if (!response.ok) {
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText} for ${entryUrl}`,
-    );
+    throw new Error(`HTTP ${response.status} for ${entryUrl}`);
   }
 
   const jsText = await response.text();
-  const blob = new Blob([jsText], { type: "application/javascript" });
-  const blobUrl = URL.createObjectURL(blob);
-
+  const blobUrl = URL.createObjectURL(
+    new Blob([jsText], { type: "application/javascript" }),
+  );
   try {
     await import(/* @vite-ignore */ blobUrl);
   } finally {
@@ -96,124 +63,60 @@ async function loadPluginScript(entryUrl: string): Promise<void> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Process accumulated plugin registrations from
- * `window.__pluginRegistrations__` into tool render configs and page routes.
+ * Fetch the plugin list from `GET /api/plugins`, then load every plugin that
+ * has a `frontend_entry` in parallel.  Failures are isolated per plugin so
+ * one bad plugin never blocks the others.
+ *
+ * Returns a summary `{ loaded, failed }` for the caller to surface as an error.
  */
-function processRegistrations(registrations: PluginRegistration[]): {
-  toolConfig: ToolRenderConfig;
-  routes: PluginPageRoute[];
-} {
-  const toolConfig: ToolRenderConfig = {};
-  const routes: PluginPageRoute[] = [];
+export async function loadAllPlugins(): Promise<{
+  loaded: number;
+  failed: string[];
+}> {
+  const failed: string[] = [];
 
-  for (const { pluginId, capabilities } of registrations) {
-    // Process tool renderers
-    if (capabilities.toolRenderers) {
-      for (const [toolName, component] of Object.entries(
-        capabilities.toolRenderers,
-      )) {
-        if (typeof component === "function") {
-          toolConfig[toolName] = component;
-          console.info(`[plugin:${pluginId}] Mapped tool "${toolName}"`);
-        }
-      }
+  let plugins: PluginInfo[];
+  try {
+    const token = getApiToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(getApiUrl("/plugins"), { headers });
+    if (!res.ok) {
+      console.warn(`[PluginLoader] /api/plugins returned ${res.status}`);
+      return { loaded: 0, failed: [] };
     }
-
-    // Process routes
-    if (capabilities.routes) {
-      for (const route of capabilities.routes) {
-        if (typeof route.component === "function") {
-          routes.push({
-            path: route.path.startsWith("/")
-              ? route.path
-              : `/plugin/${pluginId}/${route.path}`,
-            label: route.label,
-            icon: route.icon || "🔌",
-            component: route.component,
-          });
-          console.info(`[plugin:${pluginId}] Registered route "${route.path}"`);
-        }
-      }
-    }
+    plugins = await res.json();
+  } catch (err) {
+    console.warn("[PluginLoader] failed to fetch plugin list:", err);
+    return { loaded: 0, failed: [] };
   }
 
-  return { toolConfig, routes };
-}
+  const frontendPlugins = plugins.filter((p) => p.frontend_entry);
 
-export function usePluginLoader(): PluginLoaderResult {
-  const [toolRenderConfig, setToolRenderConfig] = useState<ToolRenderConfig>(
-    {},
+  const results = await Promise.allSettled(
+    frontendPlugins.map(async (p) => {
+      await executePluginScript(resolveUrl(p.id, p.frontend_entry!));
+      console.info(`[PluginLoader] ✓ ${p.id}`);
+    }),
   );
-  const [pluginRoutes, setPluginRoutes] = useState<PluginPageRoute[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const loadedRef = useRef(false);
 
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-
-    let cancelled = false;
-
-    async function loadAllPlugins() {
-      try {
-        // Clear any previous registrations
-        window.__pluginRegistrations__ = [];
-
-        const plugins = await fetchPlugins();
-        const frontendPlugins = plugins.filter(
-          (plugin: PluginInfo) => plugin.has_frontend && plugin.frontend_entry,
-        );
-
-        if (frontendPlugins.length === 0) {
-          setLoading(false);
-          return;
-        }
-
-        const errors: string[] = [];
-
-        // Load all plugin scripts — each calls __registerPlugin internally
-        await Promise.allSettled(
-          frontendPlugins.map(async (plugin: PluginInfo) => {
-            try {
-              await loadPluginScript(resolvePluginUrl(plugin.frontend_entry!));
-            } catch (err) {
-              const message = `Plugin "${plugin.id}" failed to load: ${err}`;
-              console.error(`[plugin] ${message}`);
-              errors.push(message);
-            }
-          }),
-        );
-
-        if (!cancelled) {
-          // Collect all registrations made by plugins
-          const registrations = window.__pluginRegistrations__ || [];
-          const { toolConfig, routes } = processRegistrations(registrations);
-
-          setToolRenderConfig(toolConfig);
-          setPluginRoutes(routes);
-          if (errors.length > 0) {
-            setError(errors.join("; "));
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(`Failed to fetch plugin list: ${err}`);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+  results.forEach((r, i) => {
+    if (r.status === "rejected") {
+      const msg = `${frontendPlugins[i].id}: ${r.reason}`;
+      console.error(`[PluginLoader] ✗ ${msg}`);
+      failed.push(msg);
     }
+  });
 
-    loadAllPlugins();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return { toolRenderConfig, pluginRoutes, loading, error };
+  console.info(
+    `[PluginLoader] ${frontendPlugins.length - failed.length}/${
+      frontendPlugins.length
+    } plugin(s) loaded`,
+  );
+  return { loaded: frontendPlugins.length - failed.length, failed };
 }

@@ -11,8 +11,6 @@ export interface PluginInfo {
   description: string;
   enabled: boolean;
   /** Whether this plugin has a frontend entry point. */
-  has_frontend: boolean;
-  /** URL to the plugin's frontend JS entry module (if has_frontend). */
   frontend_entry?: string;
 }
 
