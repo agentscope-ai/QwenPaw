@@ -767,6 +767,11 @@ export default function ChatPage() {
         value: "mission",
         description: t("chat.commands.mission.description"),
       },
+      {
+        command: "/skills",
+        value: "skills",
+        description: t("chat.commands.skills.description"),
+      },
     ];
 
     const handleBeforeSubmit = async () => {

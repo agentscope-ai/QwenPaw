@@ -606,6 +606,7 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 | ----------------------- | ------------------------------------------------- |
 | `qwenpaw skills list`   | Show all skills and their enabled/disabled status |
 | `qwenpaw skills config` | Interactively enable/disable skills (checkbox UI) |
+| `qwenpaw skills info`   | Show local details for one workspace skill        |
 
 **Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
@@ -614,6 +615,8 @@ qwenpaw skills list                   # See default agent's skills
 qwenpaw skills list --agent-id abc123 # See specific agent's skills
 qwenpaw skills config                 # Configure default agent
 qwenpaw skills config --agent-id abc123 # Configure specific agent
+qwenpaw skills info pdf               # See default agent's pdf skill details
+qwenpaw skills info pdf --agent-id abc123 # See specific agent's pdf skill details
 ```
 
 In the interactive UI: ↑/↓ to navigate, Space to toggle, Enter to confirm.
