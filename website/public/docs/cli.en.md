@@ -615,8 +615,8 @@ qwenpaw skills list                   # See default agent's skills
 qwenpaw skills list --agent-id abc123 # See specific agent's skills
 qwenpaw skills config                 # Configure default agent
 qwenpaw skills config --agent-id abc123 # Configure specific agent
-qwenpaw skills info pdf               # See default agent's pdf skill details
-qwenpaw skills info pdf --agent-id abc123 # See specific agent's pdf skill details
+qwenpaw skills info [skill_name]               # See default agent's skill details
+qwenpaw skills info [skill_name] --agent-id abc123 # See specific agent's skill details
 ```
 
 In the interactive UI: ↑/↓ to navigate, Space to toggle, Enter to confirm.

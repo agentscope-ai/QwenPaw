@@ -600,8 +600,8 @@ qwenpaw skills list                   # 看默认智能体的技能
 qwenpaw skills list --agent-id abc123 # 看特定智能体的技能
 qwenpaw skills config                 # 交互式配置默认智能体
 qwenpaw skills config --agent-id abc123 # 交互式配置特定智能体
-qwenpaw skills info pdf               # 看默认智能体的 pdf 技能详情
-qwenpaw skills info pdf --agent-id abc123 # 看特定智能体的 pdf 技能详情
+qwenpaw skills info [skill_name]               # 看默认智能体的技能详情
+qwenpaw skills info [skill_name] --agent-id abc123 # 看特定智能体的技能详情
 ```
 
 交互界面中：↑/↓ 选择、空格 切换、回车 确认。确认前会预览变更。
