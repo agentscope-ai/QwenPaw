@@ -108,10 +108,9 @@ async def _initialize_single_proactive_agent(
     agent_config = load_agent_config(agent_id)
     agent_config.running.max_iters = 50
 
-
-
     # Create model and formatter for the agent
     from ...model_factory import create_model_and_formatter
+
     model, formatter = create_model_and_formatter(agent_id=agent_config.id)
 
     # Create toolkit and register tools conditionally
@@ -130,7 +129,7 @@ async def _initialize_single_proactive_agent(
         sys_prompt="You are a helpful assistant.",
         toolkit=toolkit,
         formatter=formatter,
-        memory=None, 
+        memory=None,
         max_iters=agent_config.running.max_iters,
     )
 
@@ -144,7 +143,7 @@ async def _initialize_single_proactive_agent(
         pass
 
     # Set memory if memory manager is available
-    if hasattr(agent, 'memory') and workspace.memory_manager is not None:
+    if hasattr(agent, "memory") and workspace.memory_manager is not None:
         agent.memory = workspace.memory_manager.get_in_memory_memory()
 
     return agent
