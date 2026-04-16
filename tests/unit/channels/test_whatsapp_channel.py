@@ -1194,14 +1194,13 @@ class TestReplyToTrigger:
 
         # Should not raise — error is caught
         await ch.send("test_chat", "hello", meta={"chat_jid": "test_chat"})
-# Append to test_whatsapp_channel.py
 
 
 # ---------------------------------------------------------------------------
 # Typing loop tests (SendChatPresence panic prevention)
 # ---------------------------------------------------------------------------
 
-class TestTypingLoop:
+class TestTypingLoopPresencePanicPrevention:
     """Tests for _typing_loop — especially that cancelled typing does NOT
     send presence type 2 (paused) which causes neonize Go panic."""
 

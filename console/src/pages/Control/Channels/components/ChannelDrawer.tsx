@@ -264,7 +264,7 @@ export function ChannelDrawer({
     } finally {
       setWaPairLoading(false);
     }
-  }, [stopWaPoll, message]);
+  }, [stopWaPoll, message, t, waPhone]);
 
   const handleWhatsappUnbind = useCallback(async () => {
     try {
@@ -276,7 +276,7 @@ export function ChannelDrawer({
     } catch (err) {
       message.error(t("channels.whatsappUnbindFailed"));
     }
-  }, [message]);
+  }, [message, t]);
 
 
   // ── Access control fields (shared across multiple channels) ──────────────
@@ -1124,14 +1124,6 @@ export function ChannelDrawer({
               initialValue={4096}
             >
               <InputNumber min={256} max={8192} step={256} style={{ width: "100%" }} />
-            </Form.Item>
-            <Form.Item
-              name="media_max_mb"
-              label={t("channels.whatsappMediaMaxMb")}
-              tooltip={t("channels.whatsappMediaMaxMbTooltip")}
-              initialValue={50}
-            >
-              <InputNumber min={1} max={100} step={1} style={{ width: "100%" }} />
             </Form.Item>
             <Form.Item name="self_chat_mode" label={t("channels.whatsappSelfChatMode")} valuePropName="checked" tooltip={t("channels.whatsappSelfChatModeTooltip")}>
               <Switch />

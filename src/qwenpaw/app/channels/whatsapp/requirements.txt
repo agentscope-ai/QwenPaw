@@ -1,2 +1,2 @@
-neonize
-segno
+neonize-qwenpaw>=0.3.16.1
+segno>=1.6.1

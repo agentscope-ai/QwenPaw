@@ -682,14 +682,24 @@ def _get_wa_auth_dir(agent) -> str:
 )
 async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     """Start WhatsApp pair code auth. Requires E.164 phone number."""
-    if not phone or not phone.startswith("+"):
-        raise HTTPException(status_code=400, detail="Phone number required in E.164 format (e.g. +85212345678)")
+    import re
+    E164_RE = re.compile(r"^\+[1-9]\d{4,14}$")
+    if not phone or not E164_RE.match(phone):
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number required in E.164 format "
+                   "(^\\+[1-9]\\d{4,14}$, e.g. +85212345678)",
+        )
     import asyncio
     try:
         from neonize.aioze.client import NewAClient
         from neonize.events import ConnectedEv
     except ImportError:
-        raise HTTPException(status_code=500, detail="neonize not installed")
+        raise HTTPException(
+            status_code=500,
+            detail="neonize-qwenpaw not installed. "
+                   "Install: pip install qwenpaw[whatsapp]",
+        )
 
     from ..agent_context import get_agent_for_request
     agent = await get_agent_for_request(request)
@@ -797,7 +807,11 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
         from neonize.events import ConnectedEv
         import segno
     except ImportError:
-        raise HTTPException(status_code=500, detail="neonize or segno not installed")
+        raise HTTPException(
+            status_code=500,
+            detail="neonize-qwenpaw or segno not installed. "
+                   "Install: pip install qwenpaw[whatsapp]",
+        )
 
     from ..agent_context import get_agent_for_request
     agent = await get_agent_for_request(request)
@@ -807,6 +821,23 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     from pathlib import Path
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
     Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
+
+    # Disconnect any existing pairing client for this agent (mirror of
+    # start_whatsapp_pair()): two NewAClients against the same neonize.db
+    # cause SQLite lock / websocket collisions.
+    old_client = state.get("client")
+    if old_client:
+        try:
+            await old_client.disconnect()
+        except Exception:
+            pass
+    old_task = state.get("task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+        try:
+            await asyncio.wait_for(old_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
 
     qr_ready = asyncio.Event()
     qr_result = {"image": None}

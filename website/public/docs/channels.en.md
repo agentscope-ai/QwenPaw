@@ -732,7 +732,7 @@ It is recommended to configure the following in `@BotFather`:
 
 ## WhatsApp
 
-The WhatsApp channel uses [neonize](https://github.com/krypton-byte/neonize) (a Python binding for the whatsmeow Go library). It connects directly to WhatsApp Web servers — no extra server, no Meta Business API, no separate daemon required.
+The WhatsApp channel uses [neonize-qwenpaw](https://github.com/joe2643/neonize-qwenpaw) (a protobuf-6-compatible fork of [neonize](https://github.com/krypton-byte/neonize)) (a Python binding for the whatsmeow Go library). It connects directly to WhatsApp Web servers — no extra server, no Meta Business API, no separate daemon required.
 
 ### Link your phone
 
@@ -743,7 +743,7 @@ The WhatsApp channel uses [neonize](https://github.com/krypton-byte/neonize) (a 
 3. On your phone: **Settings → Linked Devices → Link with phone number** and type in the 8-character code (if using pair code), or scan the QR.
 4. After linking, the card shows **Linked** with the bot's phone number.
 
-The session is persisted under `~/.copaw/credentials/whatsapp/default/neonize.db`. Restart CoPaw and the bot reconnects automatically — no re-pairing needed.
+The session is persisted under `~/.qwenpaw/credentials/whatsapp/default/neonize.db`. Restart CoPaw and the bot reconnects automatically — no re-pairing needed.
 
 ### Configure
 
@@ -770,7 +770,7 @@ The session is persisted under `~/.copaw/credentials/whatsapp/default/neonize.db
 
 | Field                | Type    | Default            | Description                                                          |
 | -------------------- | ------- | ------------------ | -------------------------------------------------------------------- |
-| `auth_dir`           | string  | `""`               | Directory for neonize session DB. Defaults to `~/.copaw/credentials/whatsapp/default` |
+| `auth_dir`           | string  | `""`               | Directory for neonize-qwenpaw session DB. Defaults to `~/.qwenpaw/credentials/whatsapp/default` |
 | `send_read_receipts` | bool    | `true`             | Send read receipts (double blue ticks)                               |
 | `self_chat_mode`     | bool    | `false`            | Process messages sent from the bot's own number (for self-commands)  |
 | `text_chunk_limit`   | int     | `4096`             | Maximum characters per outgoing message (longer replies are split)   |

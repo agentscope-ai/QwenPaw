@@ -60,7 +60,11 @@ try:
 except ImportError:
     NEONIZE_AVAILABLE = False
     NewAClient = None
-    logger.warning("neonize not installed. WhatsApp channel unavailable. Install: pip install neonize")
+    logger.warning(
+        "neonize-qwenpaw not installed. WhatsApp channel unavailable. "
+        "Install: pip install qwenpaw[whatsapp] "
+        "(or explicitly: pip install neonize-qwenpaw)"
+    )
 
 
 def _jid_to_str(jid) -> str:

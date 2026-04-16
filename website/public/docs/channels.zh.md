@@ -732,7 +732,7 @@ WEIXIN_GROUP_POLICY=open
 
 ## WhatsApp
 
-WhatsApp 频道使用 [neonize](https://github.com/krypton-byte/neonize)（whatsmeow Go 库的 Python 绑定），直接连接 WhatsApp Web 服务器——无需额外服务器、无需 Meta Business API、无需独立 daemon。
+WhatsApp 频道使用 [neonize-qwenpaw](https://github.com/joe2643/neonize-qwenpaw) (a protobuf-6-compatible fork of [neonize](https://github.com/krypton-byte/neonize))（whatsmeow Go 库的 Python 绑定），直接连接 WhatsApp Web 服务器——无需额外服务器、无需 Meta Business API、无需独立 daemon。
 
 ### 绑定手机
 
@@ -743,7 +743,7 @@ WhatsApp 频道使用 [neonize](https://github.com/krypton-byte/neonize)（whats
 3. 在手机上：**设置 → 已连接的设备 → 通过电话号码连接**，输入 8 位配对码（若使用配对码方式）。
 4. 绑定成功后，卡片显示 **已连接** 及机器人电话号码。
 
-会话数据保存在 `~/.copaw/credentials/whatsapp/default/neonize.db`。重启 CoPaw 后机器人会自动重连，无需重新配对。
+会话数据保存在 `~/.qwenpaw/credentials/whatsapp/default/neonize.db`。重启 CoPaw 后机器人会自动重连，无需重新配对。
 
 ### 配置
 
@@ -770,7 +770,7 @@ WhatsApp 频道使用 [neonize](https://github.com/krypton-byte/neonize)（whats
 
 | 字段                  | 类型    | 默认值            | 说明                                                    |
 | -------------------- | ------- | ---------------- | ------------------------------------------------------ |
-| `auth_dir`           | string  | `""`             | neonize 会话数据目录。默认 `~/.copaw/credentials/whatsapp/default` |
+| `auth_dir`           | string  | `""`             | neonize 会话数据目录。默认 `~/.qwenpaw/credentials/whatsapp/default` |
 | `send_read_receipts` | bool    | `true`           | 发送已读回执（蓝色双勾）                                    |
 | `self_chat_mode`     | bool    | `false`          | 处理自己号码发出的消息（用于自我命令）                         |
 | `text_chunk_limit`   | int     | `4096`           | 单条消息最大字符数（超出时自动分段）                          |

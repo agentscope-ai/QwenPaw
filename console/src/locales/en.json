@@ -61,7 +61,9 @@
   "debug": {
     "title": "Debug",
     "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
-    "level": { "all": "All" },
+    "level": {
+      "all": "All"
+    },
     "backend": {
       "title": "Backend logs",
       "autoRefresh": "Auto refresh",
@@ -628,7 +630,34 @@
     "weixinLoginSuccess": "WeChat login successful, token has been filled in",
     "weixinQrcodeExpired": "QR code expired, please get a new one",
     "onebotShareSessionInGroup": "Share Session in Group",
-    "onebotShareSessionInGroupTooltip": "When enabled, all group members share the same conversation session. When disabled, each member has their own session."
+    "onebotShareSessionInGroupTooltip": "When enabled, all group members share the same conversation session. When disabled, each member has their own session.",
+    "wecomAuthFailedGeneric": "WeCom authorization failed",
+    "whatsappLinkedSuccess": "WhatsApp linked successfully!",
+    "whatsappPairFailed": "Failed to start WhatsApp pairing",
+    "whatsappUnlinked": "WhatsApp unlinked",
+    "whatsappUnbindFailed": "Failed to unbind WhatsApp",
+    "whatsappUnlinkDevice": "Unlink Device",
+    "whatsappConnection": "WhatsApp Connection",
+    "whatsappConnected": "WhatsApp Connected",
+    "whatsappSessionActive": "Session is active. Messages are being received.",
+    "whatsappUnbind": "Unbind WhatsApp",
+    "whatsappGetPairCode": "Get Pair Code",
+    "whatsappShowQR": "Show QR Code",
+    "whatsappPairInstructions": "WhatsApp → Settings → Linked Devices → Link with phone number",
+    "whatsappScanQR": "Scan with WhatsApp camera",
+    "whatsappAuthInfo": "WhatsApp Channel uses QR code login. Session will be saved in auth_dir.",
+    "whatsappPhonePlaceholder": "+852XXXXXXXX (E.164 phone number)",
+    "whatsappAuthDir": "Auth Directory",
+    "whatsappAuthDirTooltip": "Directory to store WhatsApp session credentials",
+    "whatsappReadReceipts": "Send Read Receipts",
+    "whatsappTextChunkLimit": "Text Chunk Limit",
+    "whatsappTextChunkLimitTooltip": "Maximum characters per message chunk",
+    "whatsappSelfChatMode": "Self Chat Mode",
+    "whatsappSelfChatModeTooltip": "Process own messages",
+    "whatsappGroupAllowlist": "Group Allowlist",
+    "whatsappGroupAllowlistTooltip": "WhatsApp group JIDs",
+    "whatsappGroupAllowFrom": "Group Allow From",
+    "whatsappGroupAllowFromTooltip": "Who can trigger bot in groups. [\"*\"] = everyone."
   },
   "sessions": {
     "title": "Sessions",
@@ -972,7 +1001,6 @@
     "perMillionIn": "/1M in",
     "perMillionOut": "/1M out"
   },
-
   "agentConfig": {
     "title": "Configuration",
     "description": "Configure agent runtime parameters",
@@ -1446,34 +1474,5 @@
     "nothingToUpdate": "Please enter a new username or password",
     "passwordEmpty": "Password cannot be blank",
     "usernameEmpty": "Username cannot be blank"
-  },
-  "wecomAuthFailedGeneric": "WeCom authorization failed",
-  "whatsappLinkedSuccess": "WhatsApp linked successfully!",
-  "whatsappPairFailed": "Failed to start WhatsApp pairing",
-  "whatsappUnlinked": "WhatsApp unlinked",
-  "whatsappUnbindFailed": "Failed to unbind WhatsApp",
-  "whatsappUnlinkDevice": "Unlink Device",
-  "whatsappConnection": "WhatsApp Connection",
-  "whatsappConnected": "WhatsApp Connected",
-  "whatsappSessionActive": "Session is active. Messages are being received.",
-  "whatsappUnbind": "Unbind WhatsApp",
-  "whatsappGetPairCode": "Get Pair Code",
-  "whatsappShowQR": "Show QR Code",
-  "whatsappPairInstructions": "WhatsApp → Settings → Linked Devices → Link with phone number",
-  "whatsappScanQR": "Scan with WhatsApp camera",
-  "whatsappAuthInfo": "WhatsApp Channel uses QR code login. Session will be saved in auth_dir.",
-  "whatsappPhonePlaceholder": "+852XXXXXXXX (E.164 phone number)",
-  "whatsappAuthDir": "Auth Directory",
-  "whatsappAuthDirTooltip": "Directory to store WhatsApp session credentials",
-  "whatsappReadReceipts": "Send Read Receipts",
-  "whatsappTextChunkLimit": "Text Chunk Limit",
-  "whatsappTextChunkLimitTooltip": "Maximum characters per message chunk",
-  "whatsappMediaMaxMb": "Media Max Size (MB)",
-  "whatsappMediaMaxMbTooltip": "Maximum media file size in MB",
-  "whatsappSelfChatMode": "Self Chat Mode",
-  "whatsappSelfChatModeTooltip": "Process own messages",
-  "whatsappGroupAllowlist": "Group Allowlist",
-  "whatsappGroupAllowlistTooltip": "WhatsApp group JIDs",
-  "whatsappGroupAllowFrom": "Group Allow From",
-  "whatsappGroupAllowFromTooltip": "Who can trigger bot in groups. [\"*\"] = everyone."
+  }
 }
