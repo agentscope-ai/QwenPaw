@@ -70,23 +70,23 @@ jobs:
           docker pull ghcr.io/southball/vllm-avx2-docker:latest
           echo "✅ vLLM Docker image pulled"
 
-      - name: Download model to local filesystem (faster than container download)
+      - name: Download model from ModelScope (faster for GitHub runners)
         shell: bash
         run: |
-          # Install huggingface-cli
-          pip install huggingface_hub
+          # Install modelscope
+          pip install modelscope
           
           # Use 4-bit quantized model to reduce download size (~180MB instead of ~300MB)
-          # Still fits in 4GB memory with KV cache
+          # Download from ModelScope which is faster than Hugging Face for GitHub runners
           mkdir -p ./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4
           python -c "
-          from huggingface_hub import snapshot_download
-          snapshot_download(
-              'Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
+          from modelscope import snapshot_download
+          model_dir = snapshot_download(
+              'qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
+              cache_dir='./models',
               local_dir='./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
-              local_dir_use_symlinks=False
           )
-          print('✅ Model downloaded to local directory')
+          print('✅ Model downloaded from ModelScope to local directory')
           "
 
       - name: Start vLLM OpenAI CPU server with small model
