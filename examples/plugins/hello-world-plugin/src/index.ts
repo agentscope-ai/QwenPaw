@@ -17,8 +17,8 @@
  */
 
 interface PluginHost {
-  React: typeof import("react");
-  antd: typeof import("antd");
+  React: any;
+  antd: any;
   getApiUrl: (path: string) => string;
 }
 
@@ -36,7 +36,9 @@ export default function register(host: PluginHost) {
    */
   function HelloDashboard() {
     const [clickCount, setClickCount] = useState(0);
-    const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString());
+    const [currentTime, setCurrentTime] = useState(
+      new Date().toLocaleTimeString(),
+    );
 
     useEffect(() => {
       const timer = setInterval(() => {
@@ -89,11 +91,7 @@ export default function register(host: PluginHost) {
         React.createElement(
           Card,
           { title: "🕐 Live Clock", style: styles.infoCard },
-          React.createElement(
-            Text,
-            { style: styles.clockText },
-            currentTime,
-          ),
+          React.createElement(Text, { style: styles.clockText }, currentTime),
         ),
 
         // Counter card
@@ -102,7 +100,11 @@ export default function register(host: PluginHost) {
           { title: "🔢 Click Counter", style: styles.infoCard },
           React.createElement(
             Space,
-            { direction: "vertical", align: "center", style: { width: "100%" } },
+            {
+              direction: "vertical",
+              align: "center",
+              style: { width: "100%" },
+            },
             React.createElement(
               Text,
               { style: styles.counterText },
@@ -123,9 +125,24 @@ export default function register(host: PluginHost) {
           React.createElement(
             Space,
             { direction: "vertical", size: "small" },
-            React.createElement(Text, null, React.createElement("strong", null, "ID: "), "hello-world-plugin"),
-            React.createElement(Text, null, React.createElement("strong", null, "Version: "), "1.0.0"),
-            React.createElement(Text, null, React.createElement("strong", null, "Author: "), "QwenPaw"),
+            React.createElement(
+              Text,
+              null,
+              React.createElement("strong", null, "ID: "),
+              "hello-world-plugin",
+            ),
+            React.createElement(
+              Text,
+              null,
+              React.createElement("strong", null, "Version: "),
+              "1.0.0",
+            ),
+            React.createElement(
+              Text,
+              null,
+              React.createElement("strong", null, "Author: "),
+              "QwenPaw",
+            ),
           ),
         ),
       ),
@@ -141,7 +158,11 @@ export default function register(host: PluginHost) {
           React.createElement(
             "div",
             null,
-            React.createElement(Title, { level: 5, style: { margin: "0 0 8px" } }, "1. Define pages in plugin.json"),
+            React.createElement(
+              Title,
+              { level: 5, style: { margin: "0 0 8px" } },
+              "1. Define pages in plugin.json",
+            ),
             React.createElement(
               "pre",
               { style: styles.codeBlock },
@@ -151,7 +172,14 @@ export default function register(host: PluginHost) {
                     ui: {
                       enabled: true,
                       entry: "ui/dist/index.js",
-                      pages: [{ path: "dashboard", label: "Hello Dashboard", icon: "👋", component: "HelloDashboard" }],
+                      pages: [
+                        {
+                          path: "dashboard",
+                          label: "Hello Dashboard",
+                          icon: "👋",
+                          component: "HelloDashboard",
+                        },
+                      ],
                     },
                   },
                 },
@@ -163,7 +191,11 @@ export default function register(host: PluginHost) {
           React.createElement(
             "div",
             null,
-            React.createElement(Title, { level: 5, style: { margin: "0 0 8px" } }, "2. Export components from register(host)"),
+            React.createElement(
+              Title,
+              { level: 5, style: { margin: "0 0 8px" } },
+              "2. Export components from register(host)",
+            ),
             React.createElement(
               "pre",
               { style: styles.codeBlock },
@@ -173,7 +205,11 @@ export default function register(host: PluginHost) {
           React.createElement(
             "div",
             null,
-            React.createElement(Title, { level: 5, style: { margin: "0 0 8px" } }, "3. Build & install"),
+            React.createElement(
+              Title,
+              { level: 5, style: { margin: "0 0 8px" } },
+              "3. Build & install",
+            ),
             React.createElement(
               "pre",
               { style: styles.codeBlock },
@@ -189,7 +225,7 @@ export default function register(host: PluginHost) {
   return { HelloDashboard };
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, Record<string, unknown>> = {
   page: {
     padding: "24px 28px",
     maxWidth: 960,
