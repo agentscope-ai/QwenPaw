@@ -564,8 +564,13 @@ class QwenPawACPAgent(Agent):
             value,
         )
         if config_id == self.MODE_CONFIG_ID:
-            if value in (self.MODE_DEFAULT, self.MODE_BYPASS):
-                self._session_mode = str(value)
+            if value not in (self.MODE_DEFAULT, self.MODE_BYPASS):
+                raise ValueError(
+                    f"Invalid mode value: {value!r}. "
+                    f"Must be '{self.MODE_DEFAULT}' or "
+                    f"'{self.MODE_BYPASS}'.",
+                )
+            self._session_mode = str(value)
             return SetSessionConfigOptionResponse(
                 config_options=self._build_config_options(),
             )
@@ -664,6 +669,6 @@ async def run_qwenpaw_agent(
         workspace_dir=workspace_dir,
     )
     try:
-        await run_agent(agent)
+        await run_agent(agent, use_unstable_protocol=True)
     finally:
         await agent._shutdown_workspace()  # pylint: disable=protected-access
