@@ -90,11 +90,18 @@ def _extract_text(
 
 
 class _StreamTracker:
-    """Track cumulative text/thinking to emit only incremental deltas."""
+    """Convert agentscope's snapshot-style messages to ACP event stream.
+
+    agentscope emits cumulative snapshots (each message contains the full
+    state so far).  ACP expects an event stream (each update is a delta).
+    This tracker maintains the necessary state to perform that conversion
+    for text, thinking, and tool-call events.
+    """
 
     def __init__(self) -> None:
         self._prev_text: str = ""
         self._prev_thinking: str = ""
+        self._seen_tool_ids: set[str] = set()
 
     def delta_text(self, cumulative: str) -> str:
         """Return only the new portion of the text."""
@@ -114,6 +121,13 @@ class _StreamTracker:
         self._prev_thinking = cumulative
         return delta
 
+    def is_new_tool_call(self, tool_id: str) -> bool:
+        """Return True only the first time *tool_id* is seen."""
+        if tool_id in self._seen_tool_ids:
+            return False
+        self._seen_tool_ids.add(tool_id)
+        return True
+
 
 def _msg_to_updates(  # pylint: disable=too-many-branches
     msg: Any,
@@ -131,11 +145,14 @@ def _msg_to_updates(  # pylint: disable=too-many-branches
     role = getattr(msg, "role", "assistant")
 
     if role == "system":
-        text = _get_msg_text(msg)
-        if text:
-            updates.append(
-                update_agent_thought(text_block(text)),
-            )
+        if isinstance(content, list):
+            _content_blocks_to_updates(content, updates, tracker)
+        if not updates:
+            text = _get_msg_text(msg)
+            if text:
+                updates.append(
+                    update_agent_thought(text_block(text)),
+                )
         return updates
 
     tool_calls = metadata.get("tool_calls")
@@ -143,13 +160,15 @@ def _msg_to_updates(  # pylint: disable=too-many-branches
         for tc in tool_calls:
             if not isinstance(tc, dict):
                 continue
-            updates.append(
-                start_tool_call(
-                    str(tc.get("id") or uuid4().hex[:8]),
-                    str(tc.get("name") or "tool"),
-                    status="in_progress",
-                ),
-            )
+            tc_id = str(tc.get("id") or uuid4().hex[:8])
+            if not tracker or tracker.is_new_tool_call(tc_id):
+                updates.append(
+                    start_tool_call(
+                        tc_id,
+                        str(tc.get("name") or "tool"),
+                        status="in_progress",
+                    ),
+                )
         return updates
 
     tool_responses = metadata.get("tool_responses")
@@ -164,7 +183,9 @@ def _msg_to_updates(  # pylint: disable=too-many-branches
                     content=[
                         tool_content(
                             text_block(
-                                str(tr.get("output", "")),
+                                _extract_tool_output(
+                                    tr.get("output", ""),
+                                ),
                             ),
                         ),
                     ],
@@ -201,13 +222,15 @@ def _content_blocks_to_updates(
         elif block_type == "text":
             _emit_text(block_data, tracker, updates)
         elif block_type == "tool_use":
-            updates.append(
-                start_tool_call(
-                    str(block_data.get("id") or uuid4().hex[:8]),
-                    str(block_data.get("name") or "tool"),
-                    status="in_progress",
-                ),
-            )
+            tc_id = str(block_data.get("id") or uuid4().hex[:8])
+            if not tracker or tracker.is_new_tool_call(tc_id):
+                updates.append(
+                    start_tool_call(
+                        tc_id,
+                        str(block_data.get("name") or "tool"),
+                        status="in_progress",
+                    ),
+                )
         elif block_type == "tool_result":
             updates.append(
                 update_tool_call(
@@ -216,12 +239,33 @@ def _content_blocks_to_updates(
                     content=[
                         tool_content(
                             text_block(
-                                str(block_data.get("output", "")),
+                                _extract_tool_output(
+                                    block_data.get("output", ""),
+                                ),
                             ),
                         ),
                     ],
                 ),
             )
+
+
+def _extract_tool_output(output: Any) -> str:
+    """Extract plain text from a tool output value.
+
+    The output may be a string, a list of content blocks, or another
+    structure — normalise everything to a flat string.
+    """
+    if isinstance(output, str):
+        return output
+    if isinstance(output, list):
+        parts = []
+        for item in output:
+            if isinstance(item, dict):
+                parts.append(item.get("text", str(item)))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(output)
 
 
 def _normalise_block(block: Any) -> tuple[str, dict[str, Any]]:
