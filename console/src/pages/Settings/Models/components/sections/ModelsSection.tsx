@@ -5,7 +5,7 @@ import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
-import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning.tsx";
+import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import styles from "../../index.module.less";
 
 interface ModelsSectionProps {

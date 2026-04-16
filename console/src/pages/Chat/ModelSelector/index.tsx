@@ -12,7 +12,7 @@ import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
-import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning.tsx";
+import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import { providerIcon } from "../../Settings/Models/components/providerIcon";
 import styles from "./index.module.less";
 
