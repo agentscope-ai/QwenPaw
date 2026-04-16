@@ -298,6 +298,38 @@ class WeixinConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
 
 
+class WhatsAppConfig(BaseChannelConfig):
+    """WhatsApp channel config (neonize backend)."""
+
+    auth_dir: str = ""
+    send_read_receipts: bool = True
+    self_chat_mode: bool = False
+    text_chunk_limit: int = 4096
+    media_max_mb: int = 50
+    groups: List[str] = Field(default_factory=list)
+    group_allow_from: List[str] = Field(default_factory=list)
+    ack_reaction_thinking: str = "🤔"
+    ack_reaction_done: str = "👀"
+    ack_reaction_error: str = "⚠️"
+
+
+class SignalConfig(BaseChannelConfig):
+    """Signal channel config (signal-cli REST daemon)."""
+
+    account: str = ""
+    http_url: str = ""
+    http_host: str = "127.0.0.1"
+    http_port: int = 8080
+    auto_start: bool = False
+    send_read_receipts: bool = True
+    text_chunk_limit: int = 4000
+    groups: List[str] = Field(default_factory=list)
+    group_allow_from: List[str] = Field(default_factory=list)
+    ack_reaction_thinking: str = "🤔"
+    ack_reaction_done: str = "👀"
+    ack_reaction_error: str = "⚠️"
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -317,6 +349,8 @@ class ChannelConfig(BaseModel):
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
     weixin: WeixinConfig = WeixinConfig()
+    whatsapp: WhatsAppConfig = WhatsAppConfig()
+    signal: SignalConfig = SignalConfig()
     onebot: OneBotConfig = OneBotConfig()
 
 
@@ -1355,6 +1389,8 @@ ChannelConfigUnion = Union[
     WecomConfig,
     XiaoYiConfig,
     WeixinConfig,
+    WhatsAppConfig,
+    SignalConfig,
 ]
 
 
