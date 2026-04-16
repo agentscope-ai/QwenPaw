@@ -63,6 +63,13 @@ def _doctor_fix_hint(message: str) -> None:
     click.echo(f"Hint: {message}", err=True)
 
 
+def _is_console_static_positive_note(line: str) -> bool:
+    """Whether a console-static context line should be shown as OK."""
+    return line.startswith("resolved static dir:") or line.startswith(
+        "npm on PATH:",
+    )
+
+
 def _same_python_executable(a: str, b: str) -> bool:
     try:
         return os.path.samefile(a, b)
@@ -732,7 +739,10 @@ def run_doctor_checks(
             "copies dist → bundled console).",
         )
     for line in console_static_diagnostic_notes():
-        click.echo(click.style("Note:", fg="yellow") + f" {line}")
+        if _is_console_static_positive_note(line):
+            click.echo(click.style("OK", fg="green") + f" — {line}")
+        else:
+            click.echo(click.style("Note:", fg="yellow") + f" {line}")
 
     click.echo("\n=== Web authentication ===")
     auth_ok, detail = _check_web_auth(base)

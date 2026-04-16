@@ -1268,10 +1268,7 @@ def console_static_diagnostic_notes() -> list[str]:
         )
     else:
         notes.append(
-            "source checkout not detected (normal for wheel installs) — use "
-            "a git checkout to run the npm bundle fix, or point "
-            "QWENPAW_CONSOLE_STATIC_DIR (or legacy COPAW_CONSOLE_STATIC_DIR) "
-            "at a directory that contains index.html.",
+            "source checkout not detected (normal for wheel installs)",
         )
     return notes
 
