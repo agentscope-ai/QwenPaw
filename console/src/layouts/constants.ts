@@ -23,6 +23,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   sessions: "/sessions",
   "cron-jobs": "/cron-jobs",
   heartbeat: "/heartbeat",
+  meetings: "/meetings",
   skills: "/skills",
   "skill-pool": "/skill-pool",
   tools: "/tools",
@@ -35,6 +36,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   security: "/security",
   "token-usage": "/token-usage",
   "voice-transcription": "/voice-transcription",
+  "sacp-agents": "/sacp-agents",
 };
 
 export const KEY_TO_LABEL: Record<string, string> = {
@@ -54,6 +56,7 @@ export const KEY_TO_LABEL: Record<string, string> = {
   security: "nav.security",
   "token-usage": "nav.tokenUsage",
   agents: "nav.agents",
+  "sacp-agents": "nav.agentSACP",
 };
 
 // ── URL helpers ───────────────────────────────────────────────────────────

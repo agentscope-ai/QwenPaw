@@ -1,0 +1,49 @@
+.sacpAgentsPage {
+  padding: 24px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.headerInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  margin-bottom: 4px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.description {
+  margin: 0;
+  color: #999;
+  font-size: 14px;
+}
+
+.tableCard {
+  :global(.ant-card-body) {
+    padding: 0;
+  }
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+:global(.dark-mode) {
+  .title {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .description {
+    color: rgba(255, 255, 255, 0.35);
+  }
+}

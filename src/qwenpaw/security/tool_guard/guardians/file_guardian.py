@@ -28,7 +28,7 @@ _TOOL_FILE_PARAMS: dict[str, tuple[str, ...]] = {
 }
 
 _SECRET_DIR_CURRENT_NAME = ".qwenpaw.secret"
-_SECRET_DIR_LEGACY_NAME = ".copaw.secret"
+_SECRET_DIR_LEGACY_NAME = ".qwenpaw.secret"
 
 _COMPAT_SECRET_DIRS: tuple[str, ...] = (
     str(SECRET_DIR) + "/",

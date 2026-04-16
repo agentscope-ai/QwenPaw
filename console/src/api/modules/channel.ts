@@ -12,17 +12,23 @@ export const channelApi = {
       body: JSON.stringify(body),
     }),
 
-  getChannelConfig: (channelName: string) =>
+  getChannelConfig: (channelName: string, agentId?: string) =>
     request<SingleChannelConfig>(
       `/config/channels/${encodeURIComponent(channelName)}`,
+      agentId ? { headers: { "X-Agent-Id": agentId } } : undefined,
     ),
 
-  updateChannelConfig: (channelName: string, body: SingleChannelConfig) =>
+  updateChannelConfig: (
+    channelName: string,
+    body: SingleChannelConfig,
+    agentId?: string,
+  ) =>
     request<SingleChannelConfig>(
       `/config/channels/${encodeURIComponent(channelName)}`,
       {
         method: "PUT",
         body: JSON.stringify(body),
+        ...(agentId ? { headers: { "X-Agent-Id": agentId } } : {}),
       },
     ),
 

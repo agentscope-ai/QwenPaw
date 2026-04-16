@@ -4,6 +4,7 @@
 """
 Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -357,6 +358,26 @@ class BaseChannel(ABC):
         """
         self._workspace = workspace
         self._command_registry = command_registry
+
+    @staticmethod
+    def _extract_text_from_event(event: Any) -> str:
+        """Extract plain text from a completed message event."""
+        content = getattr(event, "content", None)
+        if not content:
+            return ""
+
+        parts: list[str] = []
+        for c in content:
+            ct = getattr(c, "type", None)
+            if ct == ContentType.TEXT:
+                text = getattr(c, "text", None)
+                if text:
+                    parts.append(text.strip())
+            elif ct == ContentType.REFUSAL:
+                refusal = getattr(c, "refusal", None)
+                if refusal:
+                    parts.append(refusal.strip())
+        return " ".join(parts)
 
     def _extract_chat_name(self, payload: Any) -> str:
         """Extract chat name from payload for chat creation.
@@ -1010,6 +1031,11 @@ class BaseChannel(ABC):
         Subclasses may override send_content_parts for channel-specific
         multi-part sending.
         """
+
+        status = getattr(message, "status", None)
+        if status:
+            meta = meta or {}
+            meta["status"] = status
         parts = self._message_to_content_parts(message)
         if not parts:
             logger.debug(

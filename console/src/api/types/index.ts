@@ -6,6 +6,7 @@ export * from "./chat";
 export * from "./cronjob";
 export * from "./env";
 export * from "./mcp";
+export * from "./meetings";
 export * from "./provider";
 export * from "./skill";
 export * from "./workspace";

@@ -36,6 +36,7 @@ import {
   SparkMenuFoldLine,
   SparkOtherLine,
 } from "@agentscope-ai/icons";
+import { Users, Bot } from "lucide-react";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
@@ -267,6 +268,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "heartbeat",
           label: collapsed ? null : t("nav.heartbeat"),
           icon: <SparkVoiceChat01Line size={16} />,
+        },
+        {
+          key: "meetings",
+          label: t("nav.meetings"),
+          icon: <Users size={16} />,
+        },
+        {
+          key: "sacp-agents",
+          label: t("nav.agentSACP"),
+          icon: <Bot size={16} />,
         },
       ],
     },

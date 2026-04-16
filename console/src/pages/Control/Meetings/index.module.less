@@ -1,0 +1,79 @@
+.meetingsPage {
+  padding: 24px;
+}
+
+.section {
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.sectionHeader {
+  flex: 1;
+}
+
+.sectionTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.sectionDesc {
+  color: #999;
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+
+.sectionAction {
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+
+.tableCard {
+  margin-bottom: 24px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.clickableRow {
+  cursor: pointer;
+}
+
+:global(.dark-mode) {
+  .sectionTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .sectionDesc {
+    color: rgba(255, 255, 255, 0.35);
+  }
+}
+
+:global(.dark-mode .ant-btn-link) {
+  color: #8b87f0 !important;
+
+  &:global(:hover) {
+    color: #a5a2f5 !important;
+  }
+}
+
+:global(.dark-mode .ant-btn-link.ant-btn-dangerous) {
+  color: #ff7875 !important;
+
+  &:global(:hover) {
+    color: #ff9c9a !important;
+  }
+}

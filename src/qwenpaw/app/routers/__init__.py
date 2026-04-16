@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """API routers."""
+
 from fastapi import APIRouter
 
 from .agent import router as agent_router
@@ -21,15 +22,21 @@ from .auth import router as auth_router
 from .messages import router as messages_router
 from .files import router as files_router
 from .settings import router as settings_router
+from .sacp import router as sacp_router
+from .sacp_agents import router as sacp_agents_router
+from .meetings import router as meetings_router
 
 router = APIRouter()
 
 router.include_router(agents_router)
 router.include_router(agent_router)
+router.include_router(sacp_router)
+router.include_router(sacp_agents_router)
 router.include_router(config_router)
 router.include_router(console_router)
 router.include_router(cron_router)
 router.include_router(local_models_router)
+router.include_router(meetings_router)
 router.include_router(mcp_router)
 router.include_router(messages_router)
 router.include_router(providers_router)

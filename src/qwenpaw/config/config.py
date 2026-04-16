@@ -207,6 +207,12 @@ class XiaoYiConfig(BaseChannelConfig):
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 
+class SACPChannelConfig(BaseChannelConfig):
+    """SACP channel config for communication between agents."""
+
+    sensitive_md: str = ""
+
+
 class WeixinConfig(BaseChannelConfig):
     """WeChat (iLink Bot) personal account channel config.
 
@@ -243,6 +249,7 @@ class ChannelConfig(BaseModel):
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
     weixin: WeixinConfig = WeixinConfig()
     onebot: OneBotConfig = OneBotConfig()
+    sacp: SACPChannelConfig = SACPChannelConfig()
 
 
 class LastApiConfig(BaseModel):
@@ -1351,9 +1358,9 @@ def load_agent_config(agent_id: str) -> AgentProfileConfig:
     with open(agent_config_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
+    # Normalize legacy ~/.qwenpaw-bound paths to current WORKING_DIR.
     # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
-    # contains older hard-coded paths like "~/.copaw/media".
+    # contains older hard-coded paths like "~/.qwenpaw/media".
     try:
         from .utils import _normalize_working_dir_bound_paths
 
@@ -1477,8 +1484,8 @@ def migrate_legacy_config_to_multi_agent() -> bool:
 
     # Migrate existing workspace files from legacy default working dir.
     # When QWENPAW_WORKING_DIR is customized, historical data may still exist
-    # under "~/.copaw".
-    old_workspace = Path("~/.copaw").expanduser().resolve()
+    # under "~/.qwenpaw".
+    old_workspace = Path("~/.qwenpaw").expanduser().resolve()
 
     # Move sessions, memory, and other workspace files
     for item_name in ["sessions", "memory", "jobs.json"]:

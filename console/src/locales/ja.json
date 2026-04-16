@@ -21,7 +21,12 @@
     "copied": "クリップボードにコピーしました",
     "copyFailed": "クリップボードへのコピーに失敗しました",
     "contentPlaceholder": "内容を入力してください...",
-    "close": "閉じる"
+    "help": "ヘルプ",
+    "close": "閉じる",
+    "actions": "操作",
+    "total": "合計 {{count}} 件",
+    "next": "次へ",
+    "back": "戻る"
   },
   "chunkError": {
     "title": "ページの読み込みに失敗しました",
@@ -50,7 +55,8 @@
     "tokenUsage": "トークン使用量",
     "tools": "ツール",
     "voiceTranscription": "音声文字起こし",
-    "agents": "エージェント管理"
+    "agents": "エージェント管理",
+    "agentSACP": "SACP 設定"
   },
   "agent": {
     "parent": "設定",
@@ -129,7 +135,9 @@
     "memoryFileWarning": "MEMORY.md は通常、エージェントがツールを使用してオンデマンドで照会および読み込みます。システムプロンプトに読み込むと、コンテキストが長くなりすぎる可能性があります。",
     "configUpdated": "システムプロンプト設定が更新されました",
     "configUpdateFailed": "システムプロンプト設定の更新に失敗しました",
-    "attribution": "ワークスペースの設計はOpenClawプロジェクトの一部を参考にしています — ありがとう！🐾"
+    "attribution": "ワークスペースの設計はOpenClawプロジェクトの一部を参考にしています — ありがとう！🐾",
+    "saveSuccess": "保存しました",
+    "saveFailed": "保存に失敗しました"
   },
   "skills": {
     "title": "スキル",
@@ -175,6 +183,11 @@
     "editNote": "ヒント: ここでスキルの内容、チャンネル範囲、設定を編集できます。",
     "create": "作成",
     "createSkillHint": "現在のワークスペースに新しいローカルスキルを作成します",
+    "optimizeWithAI": "AI最適化",
+    "stopOptimize": "停止",
+    "optimizeSuccess": "スキルが最適化されました",
+    "optimizeFailed": "スキルの最適化に失敗しました",
+    "noContentToOptimize": "最適化するコンテンツがありません",
     "cancelImport": "インポートを中止",
     "importCancelled": "スキルのインポートを中止しました",
     "importTimeout": "スキルのインポートがタイムアウトしました。再試行するかネットワークを確認してください。",
@@ -1346,5 +1359,38 @@
     "transcriptionInfoTitle": "文字起こしの仕組み",
     "transcriptionInfoDesc": "Whisper API 文字起こしは OpenAI 互換の /v1/audio/transcriptions エンドポイントを使用します。Whisper 対応エンドポイントを持つプロバイダー（例: OpenAI）の設定が必要です。上記で具体的なプロバイダーを選択して文字起こしを有効にしてください。",
     "transcriptionInfoDescLocal": "ローカル Whisper 文字起こしは、お使いのマシン上で直接 openai-whisper ライブラリを実行します。ffmpeg（音声デコード用）と openai-whisper Python パッケージの両方のインストールが必要です。API キーやネットワーク接続は不要です。インストール：uv pip install 'qwenpaw[whisper]'。"
+  },
+  "agentSACP": {
+    "title": "SACPエージェント",
+    "description": "SACPエージェント設定を管理します",
+    "createAgent": "エージェントを作成",
+    "editAgent": "エージェントを編集",
+    "totalItems": "合計 {{count}} エージェント",
+    "bulkHealthCheck": "一括健康チェック",
+    "globalAuthKey": "グローバル内部認証キー",
+    "globalAuthKeyPlaceholder": "内部エージェントのグローバル認証キーを入力",
+    "globalAuthKeyDesc": "このキーはすべての内部エージェントに使用されます。個別に上書き可能です。",
+    "internalAgentSelect": "内部エージェントを選択",
+    "selectAgentPlaceholder": "エージェントを選択...",
+    "columns": {
+      "name": "名前",
+      "type": "タイプ",
+      "sacpChannel": "SACPチャンネル",
+      "status": "ステータス",
+      "lastCheck": "最終チェック",
+      "lastError": "最終エラー",
+      "actions": "操作"
+    },
+    "type": {
+      "internal": "内部",
+      "external": "外部"
+    },
+    "status": {
+      "healthy": "健康",
+      "unhealthy": "異常",
+      "unknown": "不明"
+    },
+    "deleteConfirm": "このエージェントを削除してもよろしいですか？",
+    "enableChannel": "SACPを有効化"
   }
 }

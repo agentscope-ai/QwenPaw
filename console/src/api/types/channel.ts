@@ -118,6 +118,12 @@ export interface OneBotConfig extends BaseChannelConfig {
   share_session_in_group: boolean;
 }
 
+export interface SACPChannelConfig
+  extends Omit<BaseChannelConfig, "bot_prefix"> {
+  bot_prefix?: string;
+  sensitive_md?: string;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -133,6 +139,7 @@ export interface ChannelConfig {
   voice: VoiceChannelConfig;
   xiaoyi: XiaoYiConfig;
   onebot: OneBotConfig;
+  sacp: SACPChannelConfig;
 }
 
 export type SingleChannelConfig =
@@ -149,4 +156,5 @@ export type SingleChannelConfig =
   | WecomConfig
   | VoiceChannelConfig
   | XiaoYiConfig
-  | OneBotConfig;
+  | OneBotConfig
+  | SACPChannelConfig;

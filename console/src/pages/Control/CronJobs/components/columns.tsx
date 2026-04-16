@@ -10,7 +10,7 @@ import styles from "../index.module.less";
 
 type CronJob = CronJobSpecOutput;
 
-interface ColumnHandlers {
+export interface ColumnHandlers {
   onToggleEnabled: (job: CronJob) => void;
   onExecuteNow: (job: CronJob) => void;
   onEdit: (job: CronJob) => void;

@@ -25,6 +25,9 @@ const CronJobsPage = lazyWithRetry(
 const HeartbeatPage = lazyWithRetry(
   () => import("../../pages/Control/Heartbeat"),
 );
+const MeetingsPage = lazyWithRetry(
+  () => import("../../pages/Control/Meetings"),
+);
 const AgentConfigPage = lazyWithRetry(() => import("../../pages/Agent/Config"));
 const SkillsPage = lazyWithRetry(() => import("../../pages/Agent/Skills"));
 const SkillPoolPage = lazyWithRetry(
@@ -50,6 +53,9 @@ const VoiceTranscriptionPage = lazyWithRetry(
 );
 const AgentsPage = lazyWithRetry(() => import("../../pages/Settings/Agents"));
 
+const AgentSACPPage = lazyWithRetry(
+  () => import("../../pages/Control/AgentSACPs"),
+);
 const { Content } = Layout;
 
 const pathToKey: Record<string, string> = {
@@ -58,6 +64,7 @@ const pathToKey: Record<string, string> = {
   "/sessions": "sessions",
   "/cron-jobs": "cron-jobs",
   "/heartbeat": "heartbeat",
+  "/meetings": "meetings",
   "/skills": "skills",
   "/skill-pool": "skill-pool",
   "/tools": "tools",
@@ -70,6 +77,7 @@ const pathToKey: Record<string, string> = {
   "/security": "security",
   "/token-usage": "token-usage",
   "/voice-transcription": "voice-transcription",
+  "/sacp-agents": "sacp-agents",
 };
 
 export default function MainLayout() {
@@ -102,6 +110,7 @@ export default function MainLayout() {
                   <Route path="/sessions" element={<SessionsPage />} />
                   <Route path="/cron-jobs" element={<CronJobsPage />} />
                   <Route path="/heartbeat" element={<HeartbeatPage />} />
+                  <Route path="/meetings" element={<MeetingsPage />} />
                   <Route path="/skills" element={<SkillsPage />} />
                   <Route path="/skill-pool" element={<SkillPoolPage />} />
                   <Route path="/tools" element={<ToolsPage />} />
@@ -117,6 +126,7 @@ export default function MainLayout() {
                     path="/voice-transcription"
                     element={<VoiceTranscriptionPage />}
                   />
+                  <Route path="/sacp-agents" element={<AgentSACPPage />} />
                 </Routes>
               </Suspense>
             </ChunkErrorBoundary>

@@ -22,6 +22,8 @@ import { toolsApi } from "./modules/tools";
 import { securityApi } from "./modules/security";
 import { userTimezoneApi } from "./modules/userTimezone";
 import { languageApi } from "./modules/language";
+import { meetingsApi } from "./modules/meetings";
+import { agentSACPApi } from "./modules/agent_sacp";
 
 export const api = {
   // Root
@@ -76,9 +78,17 @@ export const api = {
 
   // Language
   ...languageApi,
+
+  // Meetings
+  ...meetingsApi,
+
+  // Agent SACP
+  ...agentSACPApi,
 };
 
 export default api;
 
 // Export individual APIs for direct access
 export { agentsApi };
+export { meetingsApi };
+export { agentSACPApi };
