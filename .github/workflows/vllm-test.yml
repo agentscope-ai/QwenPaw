@@ -63,21 +63,45 @@ jobs:
           pip install pytest requests
           echo "✅ QwenPaw installed successfully"
 
-      - name: Start vLLM OpenAI CPU server with small model
+      - name: Pull vLLM Docker image
         shell: bash
         run: |
           # Pull community CPU vLLM image (AVX2 compiled)
           docker pull ghcr.io/southball/vllm-avx2-docker:latest
+          echo "✅ vLLM Docker image pulled"
 
-          # Start vLLM server with small model Qwen2-0.5B-Instruct
+      - name: Download model to local filesystem (faster than container download)
+        shell: bash
+        run: |
+          # Install huggingface-cli
+          pip install huggingface_hub
+          
+          # Download Qwen2-0.5B-Instruct model files
+          mkdir -p ./models/Qwen/Qwen2-0.5B-Instruct
+          python -c "
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              'Qwen/Qwen2-0.5B-Instruct',
+              local_dir='./models/Qwen/Qwen2-0.5B-Instruct',
+              local_dir_use_symlinks=False
+          )
+          print('✅ Model downloaded to local directory')
+          "
+
+      - name: Start vLLM OpenAI CPU server with small model
+        shell: bash
+        run: |
+          # Start vLLM server with pre-downloaded model from local filesystem
           # Ubuntu runner has 4GB+ memory, this should fit
           # Image entrypoint is already ["vllm", "serve"], so just model name + args
           docker run -d --name vllm-test -p 8000:8000 \
+            -v "$(pwd)/models:/models" \
             -e VLLM_CPU_KVCACHE_SPACE=1 \
             ghcr.io/southball/vllm-avx2-docker:latest \
-            Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 1024 --swap-space 1
+            /models/Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 1024 --swap-space 1
 
-          echo "vLLM container started, waiting for model download and server startup..."
+          echo "✅ vLLM container started with pre-downloaded model, waiting for server startup..."
+          sleep 60
 
 
       - name: Wait for vLLM health check
