@@ -1,13 +1,14 @@
+import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Checkbox, Switch, Tag } from "@agentscope-ai/design";
-import { FilterOutlined, GiftOutlined } from "@ant-design/icons";
+import { Button, Input, Switch, Tag } from "@agentscope-ai/design";
+import { FilterOutlined, GiftOutlined, SearchOutlined } from "@ant-design/icons";
 import {
-  SparkTextLine,
   SparkImageuploadLine,
   SparkAudiouploadLine,
   SparkVideouploadLine,
   SparkFilePdfLine,
+  SparkTextLine,
   SparkTextImageLine,
 } from "@agentscope-ai/icons";
 import type { ExtendedModelInfo } from "../../../../../api/types";
@@ -17,7 +18,7 @@ interface OpenRouterFilterSectionProps {
   showFilters: boolean;
   availableSeries: string[];
   selectedSeries: string[];
-  selectedInputModality: string | null;
+  selectedInputModalities: string[];
   showFreeOnly: boolean;
   loadingFilters: boolean;
   discoveredModels: ExtendedModelInfo[];
@@ -26,7 +27,7 @@ interface OpenRouterFilterSectionProps {
   freeTagStyle: CSSProperties;
   onToggleFilters: () => void;
   onSelectedSeriesChange: (series: string[]) => void;
-  onSelectedInputModalityChange: (modality: string | null) => void;
+  onSelectedInputModalitiesChange: (modalities: string[]) => void;
   onShowFreeOnlyChange: (checked: boolean) => void;
   onFetchModels: () => void;
   onAddModel: (model: ExtendedModelInfo) => void;
@@ -65,14 +66,6 @@ const inputModalityOptions = (t: ReturnType<typeof useTranslation>["t"]) => [
     ),
     value: "file",
   },
-  {
-    label: (
-      <>
-        <SparkTextLine /> {t("models.modalityText")}
-      </>
-    ),
-    value: "text",
-  },
 ];
 
 function ModelPricing({ model }: { model: ExtendedModelInfo }) {
@@ -104,7 +97,7 @@ export function OpenRouterFilterSection({
   showFilters,
   availableSeries,
   selectedSeries,
-  selectedInputModality,
+  selectedInputModalities,
   showFreeOnly,
   loadingFilters,
   discoveredModels,
@@ -113,12 +106,68 @@ export function OpenRouterFilterSection({
   freeTagStyle,
   onToggleFilters,
   onSelectedSeriesChange,
-  onSelectedInputModalityChange,
+  onSelectedInputModalitiesChange,
   onShowFreeOnlyChange,
   onFetchModels,
   onAddModel,
 }: OpenRouterFilterSectionProps) {
   const { t } = useTranslation();
+  const [providerSearchInput, setProviderSearchInput] = useState("");
+  const [providerSearchQuery, setProviderSearchQuery] = useState("");
+
+  const filteredProviders = useMemo(() => {
+    const query = providerSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return availableSeries;
+    }
+    return availableSeries.filter((provider) =>
+      provider.toLowerCase().includes(query),
+    );
+  }, [availableSeries, providerSearchQuery]);
+
+  const handleApplyProviderSearch = () => {
+    setProviderSearchQuery(providerSearchInput);
+  };
+
+  const handleToggleProvider = (provider: string, checked: boolean) => {
+    if (checked) {
+      onSelectedSeriesChange(
+        selectedSeries.includes(provider)
+          ? selectedSeries
+          : [...selectedSeries, provider],
+      );
+      return;
+    }
+
+    onSelectedSeriesChange(selectedSeries.filter((item) => item !== provider));
+  };
+
+  const handleSelectAllProviders = () => {
+    const merged = new Set([...selectedSeries, ...filteredProviders]);
+    onSelectedSeriesChange(Array.from(merged));
+  };
+
+  const handleClearProviders = () => {
+    const filteredSet = new Set(filteredProviders);
+    onSelectedSeriesChange(
+      selectedSeries.filter((provider) => !filteredSet.has(provider)),
+    );
+  };
+
+  const handleToggleModality = (modality: string, checked: boolean) => {
+    if (checked) {
+      onSelectedInputModalitiesChange(
+        selectedInputModalities.includes(modality)
+          ? selectedInputModalities
+          : [...selectedInputModalities, modality],
+      );
+      return;
+    }
+
+    onSelectedInputModalitiesChange(
+      selectedInputModalities.filter((item) => item !== modality),
+    );
+  };
 
   return (
     <div className={styles.section}>
@@ -134,39 +183,102 @@ export function OpenRouterFilterSection({
       {showFilters && (
         <div className={`${styles.panel} ${isDark ? styles.panelDark : ""}`}>
           <div className={styles.filterGroup}>
-            <div className={styles.filterLabel}>
-              {t("models.filterByProvider") || "Provider:"}
+            <div className={styles.filterHeader}>
+              <div className={styles.filterTitleBlock}>
+                <div className={styles.filterLabel}>
+                  {t("models.filterByProvider") || "Provider:"}
+                </div>
+                <div className={styles.providerControls}>
+                  <Input
+                    value={providerSearchInput}
+                    onChange={(event) =>
+                      setProviderSearchInput(event.target.value)
+                    }
+                    onPressEnter={handleApplyProviderSearch}
+                    placeholder={t("models.searchProviderPlaceholder")}
+                    className={styles.providerSearchInput}
+                  />
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<SearchOutlined />}
+                    onClick={handleApplyProviderSearch}
+                  >
+                    {t("models.search")}
+                  </Button>
+                  <Button
+                    type="text"
+                    size="small"
+                    onClick={handleSelectAllProviders}
+                    disabled={filteredProviders.length === 0}
+                  >
+                    {t("models.selectAllProviders")}
+                  </Button>
+                  <Button
+                    type="text"
+                    size="small"
+                    onClick={handleClearProviders}
+                    disabled={filteredProviders.length === 0}
+                  >
+                    {t("models.clearProviderSelection")}
+                  </Button>
+                </div>
+              </div>
             </div>
-            <Checkbox.Group
-              options={availableSeries.map((series) => ({
-                label: series,
-                value: series,
-              }))}
-              value={selectedSeries}
-              onChange={(values) => onSelectedSeriesChange(values as string[])}
-              className={styles.checkboxGroup}
-            />
+
+            <div className={styles.providerList}>
+              {filteredProviders.length === 0 ? (
+                <div className={styles.providerEmpty}>
+                  {t("models.noMatchingProviders")}
+                </div>
+              ) : (
+                filteredProviders.map((provider) => {
+                  const checked = selectedSeries.includes(provider);
+                  return (
+                    <div key={provider} className={styles.providerRow}>
+                      <span className={styles.providerName}>{provider}</span>
+                      <Switch
+                        size="small"
+                        checked={checked}
+                        onChange={(value) =>
+                          handleToggleProvider(provider, value)
+                        }
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
           <div className={styles.filterGroup}>
             <div className={styles.filterLabel}>
               {t("models.filterByModality") || "Input Modality:"}
             </div>
-            <Checkbox.Group
-              options={inputModalityOptions(t)}
-              value={selectedInputModality ? [selectedInputModality] : []}
-              onChange={(values) =>
-                onSelectedInputModalityChange(
-                  values.length > 0 ? (values[0] as string) : null,
-                )
-              }
-              className={styles.checkboxGroup}
-            />
+            <div className={styles.modalitySwitchGroup}>
+              {inputModalityOptions(t).map((option) => {
+                const checked = selectedInputModalities.includes(option.value);
+                return (
+                  <div key={option.value} className={styles.modalitySwitchRow}>
+                    <span className={styles.modalitySwitchLabel}>
+                      {option.label}
+                    </span>
+                    <Switch
+                      size="small"
+                      checked={checked}
+                      onChange={(value) =>
+                        handleToggleModality(option.value, value)
+                      }
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className={styles.freeOnlyRow}>
             <div className={styles.freeOnlyLabel}>
-              {t("models.filterFreeOnly") || "Free Models Only"}
+              {t("models.filterFreeOnly") || "Free Models Only:"}
             </div>
             <Switch checked={showFreeOnly} onChange={onShowFreeOnlyChange} />
           </div>

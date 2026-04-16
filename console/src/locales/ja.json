@@ -845,6 +845,15 @@
     "probeSupported": "対応: {{types}}",
     "probeNotSupported": "このモデルはマルチモーダル入力に対応していません",
     "probeFailed": "検出に失敗しました",
+    "modalityVision": "画像",
+    "modalityAudio": "音声",
+    "modalityVideo": "動画",
+    "modalityFile": "ファイル",
+    "modalityText": "テキストのみ",
+    "searchProviderPlaceholder": "プロバイダー名を検索",
+    "selectAllProviders": "すべて選択",
+    "clearProviderSelection": "すべて解除",
+    "noMatchingProviders": "一致するプロバイダーがありません",
     "filterFreeOnly": "無料モデルのみ"
   },
   "agentConfig": {

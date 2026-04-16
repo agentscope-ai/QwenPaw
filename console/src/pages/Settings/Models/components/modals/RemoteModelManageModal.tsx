@@ -288,9 +288,9 @@ export function RemoteModelManageModal({
     [],
   );
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
-  const [selectedInputModality, setSelectedInputModality] = useState<
-    string | null
-  >(null);
+  const [selectedInputModalities, setSelectedInputModalities] = useState<
+    string[]
+  >([]);
   const [showFreeOnly, setShowFreeOnly] = useState(false);
   const [loadingFilters, setLoadingFilters] = useState(false);
 
@@ -454,10 +454,17 @@ export function RemoteModelManageModal({
       api
         .getOpenRouterSeries()
         .then((res: SeriesResponse) => {
-          setAvailableSeries(res.series || []);
+          const series = res.series || [];
+          setAvailableSeries(series);
+          setSelectedSeries((prev) =>
+            prev.length === 0
+              ? series
+              : prev.filter((item) => series.includes(item)),
+          );
         })
         .catch(() => {
           setAvailableSeries([]);
+          setSelectedSeries([]);
         });
     }
   }, [isOpenRouter]);
@@ -472,8 +479,8 @@ export function RemoteModelManageModal({
       if (selectedSeries.length > 0) {
         filterBody.providers = selectedSeries;
       }
-      if (selectedInputModality) {
-        filterBody.input_modalities = [selectedInputModality];
+      if (selectedInputModalities.length > 0) {
+        filterBody.input_modalities = selectedInputModalities;
       }
       if (showFreeOnly) {
         filterBody.is_free = true;
@@ -744,7 +751,7 @@ export function RemoteModelManageModal({
           showFilters={showFilters}
           availableSeries={availableSeries}
           selectedSeries={selectedSeries}
-          selectedInputModality={selectedInputModality}
+          selectedInputModalities={selectedInputModalities}
           showFreeOnly={showFreeOnly}
           loadingFilters={loadingFilters}
           discoveredModels={discoveredModels}
@@ -753,7 +760,7 @@ export function RemoteModelManageModal({
           freeTagStyle={colors.free}
           onToggleFilters={() => setShowFilters(!showFilters)}
           onSelectedSeriesChange={setSelectedSeries}
-          onSelectedInputModalityChange={setSelectedInputModality}
+          onSelectedInputModalitiesChange={setSelectedInputModalities}
           onShowFreeOnlyChange={setShowFreeOnly}
           onFetchModels={handleFetchModels}
           onAddModel={handleAddFilteredModel}
