@@ -235,8 +235,8 @@ def _check_task_status(
 
         elif status == "running":
             click.echo("⏳ Task is still running...")
-            created_at = result.get("created_at", "N/A")
-            click.echo(f"   Started at: {created_at}")
+            started_at = result.get("started_at", "N/A")
+            click.echo(f"   Started at: {started_at}")
             click.echo()
             click.echo(
                 "💡 Don't wait - continue with other tasks first!",

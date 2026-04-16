@@ -182,9 +182,9 @@ If the app crashes or you need to see detailed logs:
 # Navigate to the application directory
 cd /Applications  # or wherever your QwenPaw.app is located
 
-# Set environment variables and launch
+# Set environment variables and launch (isolate packaged env, avoid conflicts)
 APP_ENV="$(pwd)/QwenPaw.app/Contents/Resources/env"
-PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qwenpaw desktop
+PYTHONNOUSERSITE=1 PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qwenpaw desktop
 ```
 
 **Advantages of terminal launch:**

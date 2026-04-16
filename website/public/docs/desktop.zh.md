@@ -182,9 +182,9 @@ xattr -cr /Applications/QwenPaw.app
 # 切换到应用目录
 cd /Applications  # 或您的 QwenPaw.app 所在目录
 
-# 设置环境变量并启动
+# 设置环境变量并启动（隔离打包环境，避免冲突）
 APP_ENV="$(pwd)/QwenPaw.app/Contents/Resources/env"
-PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qwenpaw desktop
+PYTHONNOUSERSITE=1 PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qwenpaw desktop
 ```
 
 **终端启动的优势：**

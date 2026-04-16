@@ -33,6 +33,7 @@ export interface AgentProfileConfig {
 }
 
 export interface CreateAgentRequest {
+  id?: string;
   name: string;
   description?: string;
   workspace_dir?: string;

@@ -40,6 +40,10 @@ class ModelInfo(BaseModel):
             " or 'probed' (actual probe)"
         ),
     )
+    is_free: bool = Field(
+        default=False,
+        description="Whether this model is free to use (e.g., no API cost)",
+    )
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Per-model generation parameters that override "

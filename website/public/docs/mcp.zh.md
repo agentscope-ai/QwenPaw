@@ -238,23 +238,24 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 
 ### 内置工具列表
 
-| 类型         | 工具名称                | 功能说明                                            |
-| ------------ | ----------------------- | --------------------------------------------------- |
-| 文件操作     | `read_file`             | 读取文件内容，支持按行范围读取                      |
-| 文件操作     | `write_file`            | 创建或覆盖文件                                      |
-| 文件操作     | `edit_file`             | 使用查找替换修改文件内容（替换所有匹配项）          |
-| 文件操作     | `append_file`           | 追加内容到文件末尾                                  |
-| 文件搜索     | `grep_search`           | 按内容搜索文件，支持正则表达式和上下文              |
-| 文件搜索     | `glob_search`           | 按文件名模式查找文件                                |
-| 命令执行     | `execute_shell_command` | 执行 Shell 命令，支持异步执行                       |
-| 浏览器自动化 | `browser_use`           | 浏览器自动化，支持 30+ 种操作（导航、交互、截图等） |
-| 截图         | `desktop_screenshot`    | 捕获桌面或窗口截图                                  |
-| 图像分析     | `view_image`            | 加载图片到上下文供模型分析                          |
-| 文件传输     | `send_file_to_user`     | 发送文件给用户，自动识别文件类型                    |
-| 记忆搜索     | `memory_search`         | 在 MEMORY.md 中语义搜索过往信息                     |
-| 时间         | `get_current_time`      | 获取当前时间和时区                                  |
-| 时间         | `set_user_timezone`     | 设置用户时区偏好                                    |
-| 统计         | `get_token_usage`       | 查询 LLM Token 使用量统计                           |
+| 类型         | 工具名称                  | 功能说明                                            |
+| ------------ | ------------------------- | --------------------------------------------------- |
+| 文件操作     | `read_file`               | 读取文件内容，支持按行范围读取                      |
+| 文件操作     | `write_file`              | 创建或覆盖文件                                      |
+| 文件操作     | `edit_file`               | 使用查找替换修改文件内容（替换所有匹配项）          |
+| 文件操作     | `append_file`             | 追加内容到文件末尾                                  |
+| 文件搜索     | `grep_search`             | 按内容搜索文件，支持正则表达式和上下文              |
+| 文件搜索     | `glob_search`             | 按文件名模式查找文件                                |
+| 命令执行     | `execute_shell_command`   | 执行 Shell 命令，支持异步执行                       |
+| 智能体委托   | `delegate_external_agent` | 通过 ACP 将任务委托给外部智能体 runner              |
+| 浏览器自动化 | `browser_use`             | 浏览器自动化，支持 30+ 种操作（导航、交互、截图等） |
+| 截图         | `desktop_screenshot`      | 捕获桌面或窗口截图                                  |
+| 图像分析     | `view_image`              | 加载图片到上下文供模型分析                          |
+| 文件传输     | `send_file_to_user`       | 发送文件给用户，自动识别文件类型                    |
+| 记忆搜索     | `memory_search`           | 在 MEMORY.md 中语义搜索过往信息                     |
+| 时间         | `get_current_time`        | 获取当前时间和时区                                  |
+| 时间         | `set_user_timezone`       | 设置用户时区偏好                                    |
+| 统计         | `get_token_usage`         | 查询 LLM Token 使用量统计                           |
 
 ### 工具详细说明
 
@@ -289,6 +290,41 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
   - `timeout`：超时时间（秒），默认 60 秒
   - `cwd`：工作目录（可选，默认为工作目录）
   - 支持异步执行模式（见下方说明）
+
+**智能体委托（ACP）**
+
+**使用方式：**
+
+- 使用前，请先准备好需要接入的外部智能体 runner，例如 `claude_code`、`codex`、`qwen_code`、`opencode`
+- 确保对应 runner 已完成登录或 API Key 配置，并且可以在终端中正常启动和使用
+- 在 **智能体 → 工具** 页面开启 `delegate_external_agent` 工具
+- 在对话中直接提出需求，例如：
+  - “请使用外部智能体 claude code 帮我分析一下工作目录的结构”
+  - “请和外部智能体 claude code 对话，让它把自我介绍写入一个 md 文件中”
+- QwenPaw 会在合适的时候调用 `delegate_external_agent`，与外部智能体建立连续对话，并将中间进度和结果回传到当前会话中
+- 建立连接后，可以继续通过 `delegate_external_agent` 与该外部智能体多轮对话
+- 当前每个 runner 在同一个聊天中只支持一个活动会话；如果要开启新对话，需先关闭当前会话
+
+- `delegate_external_agent`：通过 ACP（Agent Client Protocol）与外部智能体 runner 建立会话，并将任务委托给外部智能体执行
+  - 适用场景：把代码分析、文件编辑、命令执行等工作转交给外部 coding agent
+  - 默认支持的 runner：`qwen_code`、`claude_code`、`codex`、`opencode`
+  - 默认 **禁用**，需要在 **智能体 → 工具** 页面单独启用
+  - `action`：支持 `start`、`message`、`respond`、`close`
+    - `start`：启动一个新的外部智能体会话；当 `message` 为空时，会默认发送 `hi`
+    - `message`：向当前聊天绑定的外部智能体会话继续发送消息
+    - `respond`：响应外部智能体发起的权限请求；`message` 必须传入当前待处理权限请求中的**精确 option id**
+    - `close`：关闭当前聊天绑定的外部智能体会话
+  - `runner`：runner 名称，例如 `qwen_code`、`claude_code`、`codex`、`opencode`
+  - `message`：发送给外部智能体的消息；在 `respond` 模式下用于传递选中的权限选项 id
+  - `cwd`：外部智能体执行时使用的工作目录；默认使用当前工作区
+  - 工具会以流式方式返回中间进度，包括文本输出、工具调用更新、权限请求以及最终结果
+
+**权限与安全说明：**
+
+- 当外部智能体请求权限时，当前会话会挂起，等待显式响应
+- 对权限请求的响应是**严格匹配**的：只能从当前请求提供的选项中选择一个，并传入其精确 id
+- 某些危险命令模式会被硬拦截
+- 文件路径访问会尽可能限制在配置的工作目录内
 
 **异步执行：**
 

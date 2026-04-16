@@ -49,10 +49,10 @@ If the .app crashes on double-click, run it from Terminal to see the full error 
 ```bash
 # From repo root; force packed env only (no system conda / PYTHONPATH). Adjust path if needed.
 APP_ENV="$(pwd)/dist/QwenPaw.app/Contents/Resources/env"
-PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qwenpaw desktop
+PYTHONNOUSERSITE=1 PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qwenpaw desktop
 ```
 
-All stdout/stderr (including Python tracebacks) will appear in the terminal. Use this to debug startup errors or to run with `--log-level debug`.
+The `PYTHONNOUSERSITE=1` prevents Python from loading packages from `~/.local/lib/pythonX.Y/site-packages`, which can conflict with the packaged environment. All stdout/stderr (including Python tracebacks) will appear in the terminal. Use this to debug startup errors or to run with `--log-level debug`.
 
 When you **double-click** the .app and nothing appears, the launcher writes stderr/stdout to `~/.qwenpaw/desktop.log`. Inspect that file for errors.
 

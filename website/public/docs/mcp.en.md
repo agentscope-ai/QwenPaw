@@ -218,23 +218,24 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 
 ### Built-in Tool List
 
-| Type               | Tool Name               | Description                                                                   |
-| ------------------ | ----------------------- | ----------------------------------------------------------------------------- |
-| File Operations    | `read_file`             | Read file contents, supports line range reading                               |
-| File Operations    | `write_file`            | Create or overwrite file                                                      |
-| File Operations    | `edit_file`             | Modify file using find-and-replace (replaces all occurrences)                 |
-| File Operations    | `append_file`           | Append content to file end                                                    |
-| File Search        | `grep_search`           | Search by content, supports regex and context                                 |
-| File Search        | `glob_search`           | Find files by name pattern                                                    |
-| Command Execution  | `execute_shell_command` | Execute shell commands, supports async execution                              |
-| Browser Automation | `browser_use`           | Browser automation with 30+ operations (navigation, interaction, screenshots) |
-| Screenshots        | `desktop_screenshot`    | Capture desktop or window screenshot                                          |
-| Image Analysis     | `view_image`            | Load image into context for model analysis                                    |
-| File Transfer      | `send_file_to_user`     | Send file to user, auto-detects file type                                     |
-| Memory Search      | `memory_search`         | Semantic search in MEMORY.md for past information                             |
-| Time               | `get_current_time`      | Get current time and timezone                                                 |
-| Time               | `set_user_timezone`     | Set user timezone preference                                                  |
-| Statistics         | `get_token_usage`       | Query LLM token usage statistics                                              |
+| Type               | Tool Name                 | Description                                                                   |
+| ------------------ | ------------------------- | ----------------------------------------------------------------------------- |
+| File Operations    | `read_file`               | Read file contents, supports line range reading                               |
+| File Operations    | `write_file`              | Create or overwrite file                                                      |
+| File Operations    | `edit_file`               | Modify file using find-and-replace (replaces all occurrences)                 |
+| File Operations    | `append_file`             | Append content to file end                                                    |
+| File Search        | `grep_search`             | Search by content, supports regex and context                                 |
+| File Search        | `glob_search`             | Find files by name pattern                                                    |
+| Command Execution  | `execute_shell_command`   | Execute shell commands, supports async execution                              |
+| Agent Delegation   | `delegate_external_agent` | Delegate work to an external ACP agent runner                                 |
+| Browser Automation | `browser_use`             | Browser automation with 30+ operations (navigation, interaction, screenshots) |
+| Screenshots        | `desktop_screenshot`      | Capture desktop or window screenshot                                          |
+| Image Analysis     | `view_image`              | Load image into context for model analysis                                    |
+| File Transfer      | `send_file_to_user`       | Send file to user, auto-detects file type                                     |
+| Memory Search      | `memory_search`           | Semantic search in MEMORY.md for past information                             |
+| Time               | `get_current_time`        | Get current time and timezone                                                 |
+| Time               | `set_user_timezone`       | Set user timezone preference                                                  |
+| Statistics         | `get_token_usage`         | Query LLM token usage statistics                                              |
 
 ### Tool Details
 
@@ -269,6 +270,41 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
   - `timeout`: Timeout in seconds (default 60)
   - `cwd`: Working directory (optional, defaults to workspace directory)
   - Supports async execution mode (see below)
+
+**Agent Delegation (ACP)**
+
+**How to use:**
+
+- Before using this feature, prepare the external agent runners you want to connect, such as `claude_code`, `codex`, `qwen_code`, or `opencode`
+- Make sure each runner is already logged in or configured with the required API key, and can be launched successfully from your terminal
+- Enable the `delegate_external_agent` tool on the **Agent → Tools** page
+- Then describe your intent directly in chat, for example:
+  - “Please use the external agent claude code to analyze the structure of the working directory”
+  - “Please talk to the external agent claude code and ask it to write a self-introduction into a markdown file”
+- QwenPaw will call `delegate_external_agent` when appropriate, establish a continuous conversation with the external agent, and stream progress and results back into the current chat
+- After the connection is established, you can continue multi-turn conversations with that external agent through `delegate_external_agent`
+- Each runner currently supports only one active session per chat; to start a new conversation, close the current session first
+
+- `delegate_external_agent`: Use ACP (Agent Client Protocol) to open a session with an external agent runner and delegate work to it
+  - Suitable for delegating code analysis, file editing, command execution, and similar tasks to an external coding agent
+  - Default supported runners: `qwen_code`, `claude_code`, `codex`, `opencode`
+  - Disabled by default and must be enabled explicitly in **Agent → Tools**
+  - `action`: supports `start`, `message`, `respond`, and `close`
+    - `start`: starts a new external agent session; when `message` is empty, a default `hi` is sent
+    - `message`: sends a follow-up message to the external agent session bound to the current chat
+    - `respond`: responds to a permission request raised by the external agent; `message` must contain the exact option id from the pending permission request
+    - `close`: closes the external agent session bound to the current chat
+  - `runner`: runner name such as `qwen_code`, `claude_code`, `codex`, or `opencode`
+  - `message`: message sent to the external agent; in `respond` mode this carries the selected permission option id
+  - `cwd`: working directory used by the external agent; defaults to the current workspace
+  - The tool streams intermediate progress back, including text output, tool call updates, permission requests, and final results
+
+**Permissions and Safety**
+
+- When an external agent requests permission, the current session is suspended until an explicit response is provided
+- Permission responses are strictly matched: you must choose one of the options from the current request and pass its exact id
+- Some dangerous command patterns are hard-blocked
+- File path access is restricted to the configured workspace where possible
 
 **Async Execution:**
 

@@ -63,6 +63,7 @@ ENV_DIR="$(cd "$(dirname "$0")/../Resources/env" && pwd)"
 LOG="$HOME/.qwenpaw/desktop.log"
 unset PYTHONPATH
 export PYTHONHOME="$ENV_DIR"
+export PYTHONNOUSERSITE=1
 export QWENPAW_DESKTOP_APP=1
 
 # Preserve system PATH for accessing system commands (e.g. imsg, brew)
