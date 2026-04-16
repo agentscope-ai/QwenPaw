@@ -555,11 +555,15 @@ def _check_console_staleness() -> None:
 
     # Get current repo commit
     try:
-        current = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=str(repo_dir),
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
+        current = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=str(repo_dir),
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
     except Exception:
         return
 
