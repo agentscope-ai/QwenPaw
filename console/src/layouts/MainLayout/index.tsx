@@ -50,6 +50,7 @@ const VoiceTranscriptionPage = lazyWithRetry(
   () => import("../../pages/Settings/VoiceTranscription"),
 );
 const AgentsPage = lazyWithRetry(() => import("../../pages/Settings/Agents"));
+const DebugPage = lazyWithRetry(() => import("../../pages/Debug"));
 
 const { Content } = Layout;
 
@@ -71,6 +72,7 @@ const pathToKey: Record<string, string> = {
   "/security": "security",
   "/token-usage": "token-usage",
   "/voice-transcription": "voice-transcription",
+  "/debug": "debug",
 };
 
 export default function MainLayout() {
@@ -129,6 +131,7 @@ export default function MainLayout() {
                     path="/voice-transcription"
                     element={<VoiceTranscriptionPage />}
                   />
+                  <Route path="/debug" element={<DebugPage />} />
 
                   {/* Plugin routes — dynamically injected at runtime */}
                   {pluginRoutes.map((route) => (

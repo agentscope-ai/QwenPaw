@@ -488,6 +488,14 @@ class AgentRunner(Runner):
             if isinstance(mission_result, dict):
                 mission_info = mission_result
 
+            # Active mission: auto-detect follow-up messages
+            # (e.g., user confirms PRD without typing /mission again)
+            if mission_info is None:
+                mission_info = detect_active_mission_phase(
+                    _ws,
+                    session_id=session_id,
+                )
+
             # Mission Mode: bypass tool guard
             # (workers can't respond to /approve)
             if mission_info is not None:
@@ -495,6 +503,36 @@ class AgentRunner(Runner):
                 logger.info(
                     "Mission Mode: bypassing tool guard for session %s",
                     session_id,
+                )
+                # Inject context reminder for active mission
+                loop_dir = mission_info.get("loop_dir", "")
+                phase = mission_info.get("mission_phase", 1)
+                if phase == 1:
+                    refresher = (
+                        f"[Mission active — dir: `{loop_dir}`]\n"
+                        f"You are in Mission Phase 1 (PRD review). "
+                        f"The user's message follows.\n"
+                        f"If the user is confirming the PRD, update "
+                        f"`{loop_dir}/loop_config.json` setting "
+                        f"`current_phase` to `execution_confirmed`.\n"
+                        f"If the user requests changes, modify "
+                        f"prd.json.\n---\n"
+                    )
+                elif phase == 2:
+                    refresher = (
+                        f"[Mission active — dir: `{loop_dir}`]\n"
+                        f"You are in Mission Phase 2 (execution). "
+                        f"The user's follow-up message follows.\n"
+                        f"Continue the worker → verifier pipeline. "
+                        f"Check prd.json progress and dispatch workers "
+                        f"for remaining stories.\n---\n"
+                    )
+                else:
+                    refresher = f"[Mission active — dir: `{loop_dir}`]\n---\n"
+                original = query or ""
+                self._rewrite_last_message_text(
+                    msgs,
+                    refresher + original,
                 )
 
             agent = QwenPawAgent(
@@ -546,47 +584,6 @@ class AgentRunner(Runner):
                     f"ChatManager is None! Cannot auto-register chat for "
                     f"session_id={session_id}",
                 )
-
-            # Active mission: auto-route follow-up messages
-            if mission_info is None:
-                mission_info = detect_active_mission_phase(
-                    _ws,
-                    session_id=session_id,
-                )
-                if mission_info is not None:
-                    loop_dir = mission_info["loop_dir"]
-                    phase = mission_info.get("mission_phase", 1)
-
-                    if phase == 1:
-                        refresher = (
-                            f"[Mission active — dir: `{loop_dir}`]\n"
-                            f"You are in Mission Phase 1 (PRD review). "
-                            f"The user's message follows.\n"
-                            f"If the user is confirming the PRD, update "
-                            f"`{loop_dir}/loop_config.json` setting "
-                            f"`current_phase` to `execution_confirmed`.\n"
-                            f"If the user requests changes, modify "
-                            f"prd.json.\n---\n"
-                        )
-                    elif phase == 2:
-                        refresher = (
-                            f"[Mission active — dir: `{loop_dir}`]\n"
-                            f"You are in Mission Phase 2 (execution). "
-                            f"The user's follow-up message follows.\n"
-                            f"Continue the worker → verifier pipeline. "
-                            f"Check prd.json progress and dispatch workers "
-                            f"for remaining stories.\n---\n"
-                        )
-                    else:
-                        refresher = (
-                            f"[Mission active — dir: `{loop_dir}`]\n---\n"
-                        )
-
-                    original = query or ""
-                    self._rewrite_last_message_text(
-                        msgs,
-                        refresher + original,
-                    )
 
             # Skill info (/<name> without input) is display-only
             if mission_info is None:

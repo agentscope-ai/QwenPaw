@@ -236,6 +236,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       path: "/voice-transcription",
       label: t("nav.voiceTranscription"),
     },
+    {
+      key: "debug",
+      icon: <SparkOtherLine size={18} />,
+      path: "/debug",
+      label: t("nav.debug", "Debug"),
+    },
     // Append plugin nav items dynamically
     ...pluginRoutes.map((route) => ({
       key: route.path.replace(/^\//, ""),
@@ -353,6 +359,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "voice-transcription",
           label: collapsed ? null : t("nav.voiceTranscription"),
           icon: <SparkMicLine size={16} />,
+        },
+        {
+          key: "debug",
+          label: collapsed ? null : t("nav.debug", "Debug"),
+          icon: <SparkOtherLine size={16} />,
         },
       ],
     },

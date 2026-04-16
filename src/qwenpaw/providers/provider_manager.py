@@ -262,7 +262,24 @@ OPENAI_MODELS: List[ModelInfo] = [
     ),
 ]
 
-OPENCODE_MODELS: List[ModelInfo] = []
+OPENCODE_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="big-pickle",
+        name="Big Pickle",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nemotron-3-super-free",
+        name="Nemotron 3 Super Free",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+]
 
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(
@@ -737,9 +754,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_QWENPAW)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
+        self._add_builtin(PROVIDER_OPENROUTER)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
+        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
@@ -749,8 +768,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_KIMI_INTL)
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
-        self._add_builtin(PROVIDER_OPENROUTER)
-        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_ZHIPU_CN)
         self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
         self._add_builtin(PROVIDER_ZHIPU_INTL)
