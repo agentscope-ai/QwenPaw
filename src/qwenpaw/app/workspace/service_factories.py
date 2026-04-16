@@ -168,3 +168,24 @@ async def create_mcp_config_watcher(ws: "Workspace", _):
     ws._service_manager.services["mcp_config_watcher"] = watcher
     return watcher
     # pylint: enable=protected-access
+
+async def reload_channel_service(ws, cm) -> None:
+    """Update reused channel_manager to point to the new runner.
+
+    When channel_manager is reused during hot-reload, the channels
+    still reference the old runner (now stopped). This swaps the
+    process callback on all channels to the new runner.
+    """
+    from ..channels.utils import make_process_from_runner
+
+    runner = ws._service_manager.services.get("runner")
+    if not runner:
+        return
+    new_process = make_process_from_runner(runner)
+    for ch in cm.channels:
+        ch._process = new_process
+    cm.set_workspace(ws)
+    import logging
+    logging.getLogger(__name__).info(
+        "channel_manager reload: updated %d channels to new runner", len(cm.channels)
+    )
