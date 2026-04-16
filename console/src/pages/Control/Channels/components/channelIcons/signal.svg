@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- Signal brand speech bubble with privacy shield motif -->
+  <path d="M24 4C12.95 4 4 12.95 4 24c0 3.82 1.07 7.38 2.93 10.41L4.28 43.72l9.31-2.65A19.87 19.87 0 0024 44c11.05 0 20-8.95 20-20S35.05 4 24 4z" fill="#3A76F0"/>
+  <path d="M24 12c-4.97 0-9 3.58-9 8 0 2.12.93 4.05 2.44 5.46L16.5 30l4.88-1.56A9.59 9.59 0 0024 29c4.97 0 9-4.03 9-9s-4.03-8-9-8z" fill="#fff" opacity="0.25"/>
+  <!-- Shield / lock icon centered -->
+  <path d="M24 15l-5 2.27V21c0 3.52 2.13 6.82 5 7.64 2.87-.82 5-4.12 5-7.64v-3.73L24 15z" fill="#fff"/>
+  <rect x="22" y="20" width="4" height="4" rx="1" fill="#3A76F0"/>
+  <path d="M24 18.5a1.5 1.5 0 00-1.5 1.5v1h3v-1a1.5 1.5 0 00-1.5-1.5z" fill="#3A76F0"/>
+</svg>

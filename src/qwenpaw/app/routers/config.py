@@ -29,6 +29,7 @@ from ...config.config import (
     MattermostConfig,
     MQTTConfig,
     QQConfig,
+    SignalConfig,
     SkillScannerConfig,
     SkillScannerWhitelistEntry,
     TelegramConfig,
@@ -58,6 +59,7 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     "mqtt": MQTTConfig,
     "matrix": MatrixConfig,
     "wecom": WecomConfig,
+    "signal": SignalConfig,
 }
 
 
