@@ -73,8 +73,9 @@ class OpenRouterProvider(Provider):
             return {}
 
         return {
-            str(key): "0" if value is None else str(value)
+            str(key): str(value)
             for key, value in pricing.items()
+            if value is not None
         }
 
     @staticmethod

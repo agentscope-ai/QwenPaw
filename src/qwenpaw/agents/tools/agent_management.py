@@ -383,7 +383,13 @@ def format_background_status_text(
 async def list_agents(
     base_url: Optional[str] = None,
 ) -> ToolResponse:
-    """List all configured agents from the local QwenPaw service."""
+    """List all configured agents from the QwenPaw service.
+
+    Returns:
+        `ToolResponse`:
+            A tool response containing the agent list as json text. Each agent
+            has its id, name, description and workspace directory.
+    """
     result = await asyncio.to_thread(list_agents_data, base_url)
     return _tool_text_response(_json_text(result))
 
@@ -400,7 +406,38 @@ async def chat_with_agent(  # pylint: disable=too-many-return-statements
     base_url: Optional[str] = None,
     from_agent: Optional[str] = None,
 ) -> ToolResponse:
-    """Send a message to another configured agent via the local API."""
+    """Send a message to another configured agent and returns the response.
+
+    Args:
+        to_agent (`str`, optional):
+            The target agent ID to send the message to. Always required unless
+            `background` is `True` with a valid `task_id`.
+        text (`str`, optional):
+            The message text to send to the agent. Always
+            required unless `background` is `True` with a valid `task_id`.
+        session_id (`str`, optional): The session ID for the chat.
+        mode (`str`, optional): The chat mode, either "final" or "stream".
+        background (`bool`, optional):
+            Whether to run the chat in the background. If `True`, the tool will
+            submit the chat as a background task and return immediately with
+            the task ID. The caller can then poll for status updates using the
+            returned task ID.
+        task_id (`str`, optional):
+            The task ID for background tasks. Only used when `background` is
+            `True`.
+        timeout (`int`, optional): The timeout for the chat request.
+        json_output (`bool`, optional): Whether to return the output as JSON.
+        base_url (`str`, optional): The base URL for the API.
+        from_agent (`str`, optional):
+            The source agent ID. In most cases this can be automatically
+            resolved and does not need to be provided.
+
+    Returns:
+        `ToolResponse`:
+            A tool response containing the agent's reply as text. If
+            `json_output` is `True`, the content will be a JSON string with
+            the full response data.
+    """
     to_agent = normalize_id(to_agent)
     from_agent = normalize_id(from_agent)
     session_id = normalize_id(session_id)
