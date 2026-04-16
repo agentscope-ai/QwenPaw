@@ -29,6 +29,7 @@ from .agent_management import (
     submit_to_agent,
     check_agent_task,
 )
+from .delegate_external_agent import delegate_external_agent
 
 __all__ = [
     "execute_python_code",
@@ -50,6 +51,7 @@ __all__ = [
     "get_current_time",
     "set_user_timezone",
     "get_token_usage",
+    "delegate_external_agent",
     "list_agents",
     "chat_with_agent",
     "submit_to_agent",

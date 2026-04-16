@@ -24,7 +24,9 @@
     "help": "帮助",
     "close": "关闭",
     "actions": "操作",
-    "total": "共 {{count}} 条"
+    "total": "共 {{count}} 条",
+    "clear": "清除",
+    "paste": "粘贴"
   },
   "chunkError": {
     "title": "页面加载失败",
@@ -53,7 +55,29 @@
     "environments": "环境变量",
     "security": "安全",
     "tokenUsage": "Token 消耗",
-    "voiceTranscription": "语音转写"
+    "voiceTranscription": "语音转写",
+    "debug": "调试"
+  },
+  "debug": {
+    "title": "调试",
+    "desc": "查看 CoPaw 后端守护进程日志文件，便于排查问题。在此页面打开时日志会自动刷新。",
+    "level": { "all": "全部" },
+    "backend": {
+      "title": "后端日志",
+      "autoRefresh": "自动刷新",
+      "newestFirst": "最新在前",
+      "updatedAt": "更新时间",
+      "path": "日志文件",
+      "notFound": "暂未找到后端日志文件。",
+      "placeholder": "后端日志会显示在这里。",
+      "loadFailed": "加载后端日志失败",
+      "searchPlaceholder": "搜索后端日志..."
+    },
+    "actions": {
+      "refreshBackend": "刷新后端日志",
+      "refreshSuccess": "日志已刷新",
+      "copyBackend": "复制后端日志"
+    }
   },
   "workspace": {
     "title": "文件",
@@ -148,13 +172,21 @@
   "skills": {
     "title": "技能",
     "description": "管理智能体技能和能力。",
-    "importHub": "从Skills Hub导入技能",
-    "importHubHint": "通过 URL的方式将技能导入",
+    "importHub": "导入 Hub",
+    "importHubHint": "通过支持的 Hub URL 将技能导入到当前工作区",
+    "importSkills": "导入技能",
     "enterSkillUrl": "输入技能URL",
-    "supportedSkillUrlSources": "当前支持的技能 URL 来源：",
+    "orChooseFromSources": "或从支持的技能市场中选择",
+    "supportedSkillUrlSources": "支持的技能市场：",
     "urlExamples": "URL 示例：",
-    "invalidSkillUrlSource": "技能 URL 当前需要以 https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/ 或 https://modelscope.cn/skills/ 开头",
+    "urlValid": "来自 {{source}} 的有效 URL",
+    "invalidUrl": "无效的 URL",
+    "examplesFrom": "{{source}} 的示例",
+    "clickToFill": "点击填入 URL",
+    "invalidSkillUrlSource": "请确认技能URL来自受支持的技能市场",
     "type": "类型",
+    "source": "来源",
+    "path": "路径",
     "skillDescription": "描述",
     "tags": "标签",
     "builtin": "内置",
@@ -328,6 +360,7 @@
     "statusNotSynced": "未同步",
     "statusConflict": "冲突",
     "renameEntry": "\"{{name}}\" 的新名称：",
+    "examples": "示例",
     "builtin": "内置",
     "custom": "自定义"
   },

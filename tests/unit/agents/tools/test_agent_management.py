@@ -249,7 +249,9 @@ async def test_list_agents_uses_to_thread(monkeypatch):
     assert '"id": "bot_a"' in response.content[0].get("text", "")
 
 
-async def test_check_agent_task_formats_finished_background_result(monkeypatch):
+async def test_check_agent_task_formats_finished_background_result(
+    monkeypatch,
+):
     monkeypatch.setattr(
         agent_management,
         "get_agent_chat_task_status",

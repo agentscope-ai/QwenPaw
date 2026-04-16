@@ -21,7 +21,9 @@
     "copied": "クリップボードにコピーしました",
     "copyFailed": "クリップボードへのコピーに失敗しました",
     "contentPlaceholder": "内容を入力してください...",
-    "close": "閉じる"
+    "close": "閉じる",
+    "clear": "クリア",
+    "paste": "貼り付け"
   },
   "chunkError": {
     "title": "ページの読み込みに失敗しました",
@@ -50,7 +52,29 @@
     "tokenUsage": "トークン使用量",
     "tools": "ツール",
     "voiceTranscription": "音声文字起こし",
-    "agents": "エージェント管理"
+    "agents": "エージェント管理",
+    "debug": "デバッグ"
+  },
+  "debug": {
+    "title": "デバッグ",
+    "desc": "CoPaw バックエンドのデーモンログを表示し、問題の調査に役立てます。このページを開いている間は自動で更新されます。",
+    "level": { "all": "すべて" },
+    "backend": {
+      "title": "バックエンドログ",
+      "autoRefresh": "自動更新",
+      "newestFirst": "新しい順",
+      "updatedAt": "更新時刻",
+      "path": "ログファイル",
+      "notFound": "バックエンドログファイルはまだ見つかっていません。",
+      "placeholder": "バックエンドログがここに表示されます。",
+      "loadFailed": "バックエンドログの読み込みに失敗しました",
+      "searchPlaceholder": "バックエンドログを検索..."
+    },
+    "actions": {
+      "refreshBackend": "バックエンドログを更新",
+      "refreshSuccess": "ログを更新しました",
+      "copyBackend": "バックエンドログをコピー"
+    }
   },
   "agent": {
     "parent": "設定",
@@ -138,11 +162,19 @@
     "description": "エージェントのスキルと機能を管理します。",
     "importHub": "Hub から取り込む",
     "importHubHint": "サポートされている Hub URL から現在のワークスペースにスキルを取り込みます",
+    "importSkills": "スキルをインポート",
     "enterSkillUrl": "スキルのURLを入力",
-    "supportedSkillUrlSources": "現在サポートされているスキルURLのソース:",
+    "orChooseFromSources": "サポートされているスキルマーケットプレイスから選択",
+    "supportedSkillUrlSources": "サポートされているスキルマーケットプレイス:",
     "urlExamples": "URLの例:",
-    "invalidSkillUrlSource": "スキルURLは https://skills.sh/、https://clawhub.ai/、https://skillsmp.com/、https://lobehub.com/、https://market.lobehub.com/、https://github.com/、または https://modelscope.cn/skills/ で始まる必要があります",
+    "urlValid": "{{source}} からの有効な URL",
+    "invalidUrl": "無効な URL",
+    "examplesFrom": "{{source}} の例",
+    "clickToFill": "クリックして URL を入力",
+    "invalidSkillUrlSource": "サポートされているマーケットプレイスのスキルURLであることを確認してください",
     "type": "タイプ",
+    "source": "ソース",
+    "path": "パス",
     "skillDescription": "説明",
     "tags": "タグ",
     "builtin": "組み込み",
@@ -305,6 +337,7 @@
     "statusNotSynced": "未同期",
     "statusConflict": "競合",
     "renameEntry": "\"{{name}}\" の新しい名前：",
+    "examples": "例",
     "builtin": "組み込み",
     "custom": "カスタム"
   },

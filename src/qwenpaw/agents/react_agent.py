@@ -37,6 +37,7 @@ from .skills_manager import (
 from .tool_guard_mixin import ToolGuardMixin
 from .tools import (
     browser_use,
+    delegate_external_agent,
     chat_with_agent,
     check_agent_task,
     submit_to_agent,
@@ -244,6 +245,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "get_current_time": get_current_time,
             "set_user_timezone": set_user_timezone,
             "get_token_usage": get_token_usage,
+            "delegate_external_agent": delegate_external_agent,
             "list_agents": list_agents,
             "chat_with_agent": chat_with_agent,
             "submit_to_agent": submit_to_agent,

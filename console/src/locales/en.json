@@ -24,7 +24,9 @@
     "help": "Help",
     "close": "Close",
     "actions": "Actions",
-    "total": "Total {{count}}"
+    "total": "Total {{count}}",
+    "clear": "Clear",
+    "paste": "Paste"
   },
   "chunkError": {
     "title": "Failed to load page",
@@ -53,7 +55,29 @@
     "environments": "Environments",
     "security": "Security",
     "tokenUsage": "Token Usage",
-    "voiceTranscription": "Voice Transcription"
+    "voiceTranscription": "Voice Transcription",
+    "debug": "Debug"
+  },
+  "debug": {
+    "title": "Debug",
+    "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
+    "level": { "all": "All" },
+    "backend": {
+      "title": "Backend logs",
+      "autoRefresh": "Auto refresh",
+      "newestFirst": "Newest first",
+      "updatedAt": "Updated at",
+      "path": "Log file",
+      "notFound": "Backend log file was not found yet.",
+      "placeholder": "Backend log output will appear here.",
+      "loadFailed": "Failed to load backend logs",
+      "searchPlaceholder": "Search backend logs..."
+    },
+    "actions": {
+      "refreshBackend": "Refresh backend logs",
+      "refreshSuccess": "Logs refreshed",
+      "copyBackend": "Copy backend logs"
+    }
   },
   "voiceTranscription": {
     "title": "Voice Transcription",
@@ -182,13 +206,21 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
-    "importHub": "Import from Skills Hub",
-    "importHubHint": "Import skills via URL",
+    "importHub": "Import Hub",
+    "importHubHint": "Import a skill from a supported online hub URL into the current workspace",
+    "importSkills": "Import Skill",
     "enterSkillUrl": "Enter Skill URL",
-    "supportedSkillUrlSources": "Currently supported skill URL sources:",
+    "orChooseFromSources": "or choose from supported Skill marketplaces",
+    "supportedSkillUrlSources": "Supported Skill Marketplaces:",
     "urlExamples": "URL examples:",
-    "invalidSkillUrlSource": "Skill URL currently needs to start with https://skills.sh/, https://clawhub.ai/, https://skillsmp.com/, https://lobehub.com/, https://market.lobehub.com/, https://github.com/, or https://modelscope.cn/skills/",
+    "urlValid": "Valid URL from {{source}}",
+    "invalidUrl": "Invalid URL",
+    "examplesFrom": "Examples from {{source}}",
+    "clickToFill": "Click to fill in URL",
+    "invalidSkillUrlSource": "Please verify the skill URL is from a supported marketplace",
     "type": "Type",
+    "source": "Source",
+    "path": "Path",
     "skillDescription": "Description",
     "tags": "Tags",
     "builtin": "Built-in",
@@ -271,8 +303,9 @@
     "emptyStateBadge": "New workspaces start empty",
     "emptyStateTitle": "This agent does not have any skills yet",
     "emptyStateText": "This is expected. New workspaces do not come with skills automatically. Download skills from the local pool or create one here to equip this agent.",
-    "emptyStateDownload": "Load from Skill Pool",
+    "emptyStateDownload": "Download from Skill Pool",
     "emptyStateCreate": "Create First Skill",
+    "examples": "Examples",
     "loadFailed": "Failed to load skills",
     "refreshFailed": "Failed to refresh skills",
     "createdSuccessfully": "Created successfully",
