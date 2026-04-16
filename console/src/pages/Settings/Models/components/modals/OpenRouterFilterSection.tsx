@@ -2,7 +2,11 @@ import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Input, Switch, Tag } from "@agentscope-ai/design";
-import { FilterOutlined, GiftOutlined, SearchOutlined } from "@ant-design/icons";
+import {
+  FilterOutlined,
+  GiftOutlined,
+  SearchOutlined,
+} from "@ant-design/icons";
 import {
   SparkImageuploadLine,
   SparkAudiouploadLine,
@@ -77,15 +81,12 @@ function ModelPricing({ model }: { model: ExtendedModelInfo }) {
 
   return (
     <span className={styles.price}>
-      $
-      {(parseFloat(model.pricing.prompt) * 1_000_000).toFixed(2)}
+      ${(parseFloat(model.pricing.prompt) * 1_000_000).toFixed(2)}
       {t("models.perMillionIn")}
       {model.pricing?.completion && (
         <span>
           {" "}
-          · ${
-            (parseFloat(model.pricing.completion) * 1_000_000).toFixed(2)
-          }
+          · ${(parseFloat(model.pricing.completion) * 1_000_000).toFixed(2)}
           {t("models.perMillionOut")}
         </span>
       )}
@@ -175,7 +176,9 @@ export function OpenRouterFilterSection({
         type={showFilters ? "primary" : "default"}
         icon={<FilterOutlined />}
         onClick={onToggleFilters}
-        className={`${styles.toggleButton} ${showFilters ? styles.toggleButtonExpanded : ""}`}
+        className={`${styles.toggleButton} ${
+          showFilters ? styles.toggleButtonExpanded : ""
+        }`}
       >
         {t("models.filterModels") || "Filter Models"}
       </Button>
@@ -300,7 +303,9 @@ export function OpenRouterFilterSection({
               {discoveredModels.map((model) => (
                 <div
                   key={model.id}
-                  className={`${styles.modelRow} ${isDark ? styles.modelRowDark : ""}`}
+                  className={`${styles.modelRow} ${
+                    isDark ? styles.modelRowDark : ""
+                  }`}
                 >
                   <div>
                     <div className={styles.modelNameRow}>
@@ -314,13 +319,17 @@ export function OpenRouterFilterSection({
                             ...freeTagStyle,
                           }}
                         >
-                          <GiftOutlined style={{ fontSize: 10, marginRight: 3 }} />
+                          <GiftOutlined
+                            style={{ fontSize: 10, marginRight: 3 }}
+                          />
                           {t("models.free")}
                         </Tag>
                       )}
                     </div>
                     <div
-                      className={`${styles.modelMeta} ${isDark ? styles.modelMetaDark : ""}`}
+                      className={`${styles.modelMeta} ${
+                        isDark ? styles.modelMetaDark : ""
+                      }`}
                     >
                       <span>{model.provider}</span>
                       {model.input_modalities?.includes("text") && (
@@ -340,7 +349,10 @@ export function OpenRouterFilterSection({
                       )}
                       {model.output_modalities?.includes("image") && (
                         <SparkTextImageLine
-                          style={{ fontSize: 12, color: isDark ? "#7dd3fc" : "#722ed1" }}
+                          style={{
+                            fontSize: 12,
+                            color: isDark ? "#7dd3fc" : "#722ed1",
+                          }}
                         />
                       )}
                       <ModelPricing model={model} />
