@@ -672,6 +672,19 @@ class WeixinChannel(BaseChannel):
                 else:
                     text_parts.append(f"[unsupported type: {item_type}]")
 
+                # Handle quoted (replied-to) message if present.
+                # When a user replies to a message in WeChat, the item
+                # contains a ``ref_msg`` field whose ``message_item``
+                # mirrors the structure of a normal item (type 1-5).
+                ref_msg = item.get("ref_msg")
+                if ref_msg:
+                    await self._process_quoted_ref_msg(
+                        ref_msg,
+                        text_parts,
+                        content_parts,
+                        client,
+                    )
+
             text = "\n".join(text_parts).strip()
             if text:
                 content_parts.insert(
@@ -761,6 +774,141 @@ class WeixinChannel(BaseChannel):
 
         except Exception:
             logger.exception("weixin _on_message failed")
+
+    async def _process_quoted_ref_msg(
+        self,
+        ref_msg: Dict[str, Any],
+        text_parts: List[str],
+        content_parts: List[Any],
+        client: ILinkClient,
+    ) -> None:
+        """Process a quoted (replied-to) message from ``ref_msg``.
+
+        Extracts text and media from the referenced message and prepends
+        quoted text to *text_parts* / appends media to *content_parts*,
+        following the same pattern used by the WeCom and Feishu channels.
+
+        Args:
+            ref_msg: The ``ref_msg`` dict from an inbound item.
+            text_parts: Mutable list of text strings to prepend quoted text.
+            content_parts: Mutable list of content parts to append media.
+            client: The ILinkClient used for downloading media.
+        """
+        quoted_item = ref_msg.get("message_item") or {}
+        quoted_type = quoted_item.get("type", 0)
+
+        if quoted_type == 1:
+            # Quoted text
+            quoted_text = (
+                (quoted_item.get("text_item") or {}).get("text", "").strip()
+            )
+            if quoted_text:
+                text_parts.insert(0, f"[quoted message: {quoted_text}]")
+
+        elif quoted_type == 2:
+            # Quoted image
+            img_item = quoted_item.get("image_item") or {}
+            media = img_item.get("media") or {}
+            encrypt_query_param = media.get("encrypt_query_param", "")
+            aeskey_hex = img_item.get("aeskey", "")
+            if aeskey_hex:
+                aes_key = _b64.b64encode(
+                    bytes.fromhex(aeskey_hex),
+                ).decode()
+            else:
+                aes_key = media.get("aes_key", "")
+            if encrypt_query_param:
+                path = await self._download_media(
+                    client,
+                    "",
+                    aes_key,
+                    "image.jpg",
+                    encrypt_query_param=encrypt_query_param,
+                )
+                if path:
+                    content_parts.append(
+                        ImageContent(
+                            type=ContentType.IMAGE,
+                            image_url=path,
+                        ),
+                    )
+                else:
+                    text_parts.insert(0, "[quoted image: download failed]")
+            else:
+                text_parts.insert(0, "[quoted image: no url]")
+
+        elif quoted_type == 3:
+            # Quoted voice — use ASR transcription
+            voice_item = quoted_item.get("voice_item") or {}
+            asr_text = (
+                voice_item.get("text_item", {}).get("text", "").strip()
+                if isinstance(voice_item.get("text_item"), dict)
+                else voice_item.get("text", "").strip()
+            )
+            if asr_text:
+                text_parts.insert(0, f"[quoted voice: {asr_text}]")
+            else:
+                text_parts.insert(0, "[quoted voice: no transcription]")
+
+        elif quoted_type == 4:
+            # Quoted file
+            file_item = quoted_item.get("file_item") or {}
+            filename = file_item.get("file_name", "file.bin") or "file.bin"
+            media = file_item.get("media") or {}
+            encrypt_query_param = media.get("encrypt_query_param", "")
+            aes_key = media.get("aes_key", "")
+            if encrypt_query_param:
+                path = await self._download_media(
+                    client,
+                    "",
+                    aes_key,
+                    filename,
+                    encrypt_query_param=encrypt_query_param,
+                )
+                if path:
+                    content_parts.append(
+                        FileContent(
+                            type=ContentType.FILE,
+                            file_url=path,
+                        ),
+                    )
+                else:
+                    text_parts.insert(0, "[quoted file: download failed]")
+            else:
+                text_parts.insert(0, "[quoted file: no url]")
+
+        elif quoted_type == 5:
+            # Quoted video
+            video_item = quoted_item.get("video_item") or {}
+            media = video_item.get("media") or {}
+            encrypt_query_param = media.get("encrypt_query_param", "")
+            aes_key = media.get("aes_key", "")
+            if encrypt_query_param:
+                path = await self._download_media(
+                    client,
+                    "",
+                    aes_key,
+                    "video.mp4",
+                    encrypt_query_param=encrypt_query_param,
+                )
+                if path:
+                    content_parts.append(
+                        VideoContent(
+                            type=ContentType.VIDEO,
+                            video_url=path,
+                        ),
+                    )
+                else:
+                    text_parts.insert(0, "[quoted video: download failed]")
+            else:
+                text_parts.insert(0, "[quoted video: no url]")
+
+        else:
+            if quoted_type:
+                text_parts.insert(
+                    0,
+                    f"[quoted message: unsupported type {quoted_type}]",
+                )
 
     # ------------------------------------------------------------------
     # Media download helper
@@ -984,6 +1132,18 @@ class WeixinChannel(BaseChannel):
                         context_token,
                         video_url,
                         ContentType.VIDEO,
+                    )
+            elif t == ContentType.AUDIO:
+                # Send audio as file (WeChat has no dedicated audio send)
+                audio_url = getattr(p, "data", None) or (
+                    p.get("data") if isinstance(p, dict) else None
+                )
+                if audio_url and not audio_url.startswith("data:"):
+                    await self._send_media_file(
+                        to_user_id,
+                        context_token,
+                        audio_url,
+                        ContentType.FILE,
                     )
 
         body = "\n".join(text_parts).strip()
