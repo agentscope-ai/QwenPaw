@@ -158,6 +158,9 @@ $LauncherBat = Join-Path $EnvRoot "QwenPaw Desktop.bat"
 @echo off
 cd /d "%~dp0"
 
+REM Isolate packaged Python from user site-packages to prevent conflicts
+set "PYTHONNOUSERSITE=1"
+
 REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
@@ -191,6 +194,9 @@ $DebugBat = Join-Path $EnvRoot "QwenPaw Desktop (Debug).bat"
 @echo off
 cd /d "%~dp0"
 
+REM Isolate packaged Python from user site-packages to prevent conflicts
+set "PYTHONNOUSERSITE=1"
+
 REM Preserve system PATH for accessing system commands
 REM Prepend packaged env to PATH so packaged Python takes precedence
 set "PATH=%~dp0;%~dp0Scripts;%PATH%"
@@ -218,6 +224,7 @@ echo ====================================
 echo Working Directory: %cd%
 echo Python: "%~dp0python.exe"
 echo PATH: %PATH%
+echo PYTHONNOUSERSITE: %PYTHONNOUSERSITE%
 echo Log Level: %QWENPAW_LOG_LEVEL%
 echo SSL_CERT_FILE: %SSL_CERT_FILE%
 echo REQUESTS_CA_BUNDLE: %REQUESTS_CA_BUNDLE%
