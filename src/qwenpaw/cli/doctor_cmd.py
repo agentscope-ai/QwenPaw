@@ -65,9 +65,11 @@ def _doctor_fix_hint(message: str) -> None:
 
 def _is_console_static_positive_note(line: str) -> bool:
     """Whether a console-static context line should be shown as OK."""
-    return line.startswith("resolved static dir:") or line.startswith(
-        "npm on PATH:",
-    )
+    if line.startswith("resolved static dir:"):
+        return "index.html present" in line
+    if line.startswith("npm on PATH:"):
+        return "not found" not in line
+    return False
 
 
 def _same_python_executable(a: str, b: str) -> bool:
