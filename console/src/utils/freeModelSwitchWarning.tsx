@@ -63,7 +63,7 @@ export async function confirmFreeModelSwitch({
       content: (
         <div>
           <div>{t("models.freeModelWarningMessage")}</div>
-                 <div className="qwenpaw-free-model-warning-link-row">
+          <div className="qwenpaw-free-model-warning-link-row">
             <a href={providerWebsite} target="_blank" rel="noreferrer">
               {providerWebsite}
             </a>
