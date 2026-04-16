@@ -2,7 +2,7 @@
 name: make_plan
 description: 面向外部计划请求场景，指导 Agent 通过 list_agents 和 chat_with_agent 向更强 Agent 请求明确、可执行、分步骤的计划，并强调计划由求助发起者执行而不是由被求助 Agent 代执行。
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "1.1"
   qwenpaw:
     emoji: "🗺️"
 ---
@@ -90,7 +90,6 @@ chat_with_agent(
 
 说明：
 - `base_url` 一般不需要传，工具会自动解析当前 API 地址
-- 不要使用 `background` 模式，因为计划请求通常需要及时交互
 - 不传 `session_id` 会自动创建新会话
 
 ## 求助模板

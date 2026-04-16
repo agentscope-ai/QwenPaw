@@ -33,7 +33,8 @@ metadata:
 1. **如果用户明确要求某个 agent，优先按要求执行，但仍要先查 agent，不要猜 ID**
 2. **如果你自己能完成，就不要调用其他 agent**
 3. **需要保留上下文续聊时，必须传 `session_id`**
-4. **默认优先使用 `list_agents()` 和 `chat_with_agent(...)`，不要绕到别的方式**
+4. **默认优先使用 `list_agents()` 和 `chat_with_agent(...)` 进行前台对话，不要绕到别的方式**
+5. **如果任务需要后台执行，使用 `submit_to_agent(...)` 提交，再用 `check_agent_task(...)` 查询状态**
 
 ## 使用流程
 
@@ -50,11 +51,15 @@ metadata:
   - 如果找不到合适的 Agent 且你不是 Default Agent，就使用 Default Agent
   - 否则告诉用户没有合适的 Agent 可用，并建议他们创建一个新的 Agent 或调整现有 Agent 的描述以便更好地匹配需求
 
-3) 调用 `chat_with_agent(...)` 发起求助，其中需要传递的关键参数包括
+3) 调用 `chat_with_agent(...)` 发起前台求助，其中需要传递的关键参数包括
   - `to_agent`: 对话目标 Agent 的 ID，注意是 ID 不是名字
   - `text`: 你要对目标 Agent 说的内容
   - `session_id`: （可选）如果你需要与同一个 Agent 进行多轮对话，从第二轮开始传递相同的 `session_id` 来保持上下文连续
-  - 请不要指定 `base_url` 也不要使用 `background` 模式，除非你有特殊需求并且知道自己在做什么
+  - `timeout`: （可选）预估任务需要的前台等待时间，避免过早超时
+
+4) 如果任务适合后台执行，请使用新的后台工具路径
+  - `submit_to_agent(...)`：提交后台任务，参数只需要 `to_agent`、`text` 和可选 `session_id`
+  - `check_agent_task(...)`：通过 `task_id` 查询任务状态，完成时返回最终结果
 
 ## 最小调用示例
 
@@ -76,6 +81,19 @@ chat_with_agent(
   to_agent="<target_agent_id>",
   text="[Agent <your_agent_id> requesting] 请基于刚才的结论继续展开第 2 点。",
   session_id="<previous_session_id>",
+)
+```
+
+### 后台提交与查询
+
+```text
+submit_to_agent(
+  to_agent="<target_agent_id>",
+  text="[Agent <your_agent_id> requesting] 请在后台完成这个较长任务。",
+)
+
+check_agent_task(
+  task_id="<task_id>",
 )
 ```
 

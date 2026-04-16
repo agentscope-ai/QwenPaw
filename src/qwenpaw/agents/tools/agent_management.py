@@ -133,28 +133,13 @@ def parse_agent_sse_line(line: str) -> Optional[Dict[str, Any]]:
 
 
 def extract_agent_text_content(response_data: Dict[str, Any]) -> str:
-    """Extract concatenated text blocks from an agent response payload.
-
-    Searches backwards through output for the last ``message``-type item
-    so that trailing reasoning / tool-output items are skipped.
-    """
+    """Extract concatenated text blocks from an agent response payload."""
     try:
         output = response_data.get("output", [])
         if not output:
             return ""
 
-        last_msg = None
-        for msg in reversed(output):
-            if (
-                isinstance(msg, dict)
-                and msg.get("type", "message") == "message"
-            ):
-                last_msg = msg
-                break
-
-        if not last_msg:
-            return ""
-
+        last_msg = output[-1]
         content = last_msg.get("content", [])
 
         text_parts = []
@@ -346,8 +331,7 @@ def format_background_submission_text(
             f"[SESSION: {session_id}]",
             "",
             "Task submitted successfully.",
-            "Check status with:  chat_with_agent(background=True, "
-            f"task_id='{task_id}')",
+            "Check status with: check_agent_task(" f"task_id='{task_id}')",
         ],
     )
 
@@ -398,101 +382,182 @@ def format_background_status_text(
 async def list_agents(
     base_url: Optional[str] = None,
 ) -> ToolResponse:
-    """List all configured agents from the local QwenPaw service."""
+    """List all configured agents from the QwenPaw service.
+
+    Returns:
+        `ToolResponse`:
+            A tool response containing the agent list as json text. Each agent
+            has its id, name, description and workspace directory.
+    """
     result = await asyncio.to_thread(list_agents_data, base_url)
     return _tool_text_response(_json_text(result))
 
 
-async def chat_with_agent(  # pylint: disable=too-many-return-statements
-    to_agent: Optional[str] = None,
-    text: Optional[str] = None,
+async def chat_with_agent(
+    to_agent: str,
+    text: str,
     session_id: Optional[str] = None,
-    mode: str = "final",
-    background: bool = False,
-    task_id: Optional[str] = None,
     timeout: int = 300,
-    json_output: bool = False,
-    base_url: Optional[str] = None,
-    from_agent: Optional[str] = None,
 ) -> ToolResponse:
-    """Send a message to another configured agent via the local API."""
-    to_agent = normalize_id(to_agent)
-    from_agent = normalize_id(from_agent)
-    session_id = normalize_id(session_id)
-    task_id = normalize_id(task_id)
+    """Send a foreground message to another configured agent.
 
-    # TODO: move background task check to a separate tool
-    if background and task_id:
-        result = await asyncio.to_thread(
-            get_agent_chat_task_status,
-            base_url,
-            task_id,
-            to_agent=to_agent or None,
-        )
-        text_output = (
-            _json_text(result)
-            if json_output
-            else format_background_status_text(task_id, result)
-        )
-        return _tool_text_response(text_output)
+    This tool waits for the target agent to finish and returns the final text
+    response in a single tool result. It is intended for direct inter-agent
+    consultation where the caller expects an immediate reply rather than a
+    background task handle.
 
-    if not to_agent or not text:
-        return _tool_text_response(
-            "ERROR: 'to_agent' and 'text' are required for chat",
-        )
+    Args:
+        to_agent (`str`):
+            The target agent ID to send the message to. This must be an agent
+            ID returned by ``list_agents``.
+        text (`str`):
+            The message text to send to the target agent.
+        session_id (`str`, optional):
+            Existing session ID to continue a previous conversation. If not
+            provided, a new session ID is generated automatically.
+        timeout (`int`, optional):
+            Foreground wait timeout in seconds. Callers should estimate how
+            long the target agent may need to finish to reduce avoidable
+            timeout failures.
 
-    target_exists = await asyncio.to_thread(agent_exists, to_agent, base_url)
+    Returns:
+        `ToolResponse`:
+            A text response containing the final agent reply. Successful
+            responses include a ``[SESSION: ...]`` header followed by the reply
+            text so the caller can reuse the same session in later turns.
+    """
+    normalized_to_agent = normalize_id(to_agent)
+    normalized_session_id = normalize_id(session_id)
+    if not normalized_to_agent:
+        return _tool_text_response("ERROR: 'to_agent' is required for chat")
+
+    target_exists = await asyncio.to_thread(
+        agent_exists,
+        normalized_to_agent,
+        None,
+    )
     if not target_exists:
-        return _tool_text_response(f"Agent [{to_agent}] not exists")
+        return _tool_text_response(
+            f"Agent [{normalized_to_agent}] not exists",
+        )
 
     final_session_id, request_payload, _ = build_agent_chat_request(
-        to_agent,
+        normalized_to_agent,
         text,
-        session_id=session_id,
-        from_agent=from_agent,
+        session_id=normalized_session_id,
+        from_agent=None,
     )
-
-    if background:
-        result = await asyncio.to_thread(
-            submit_agent_chat_task,
-            base_url,
-            request_payload,
-            to_agent,
-            timeout,
-        )
-        text_output = (
-            _json_text(result)
-            if json_output
-            else format_background_submission_text(result, final_session_id)
-        )
-        return _tool_text_response(text_output)
-
-    if mode == "stream":
-        lines = await asyncio.to_thread(
-            stream_agent_chat,
-            base_url,
-            request_payload,
-            to_agent,
-            timeout,
-        )
-        text_output = "\n".join(lines) or "(No response received)"
-        return _tool_text_response(text_output)
 
     response_data = await asyncio.to_thread(
         collect_final_agent_chat_response,
-        base_url,
+        None,
         request_payload,
-        to_agent,
+        normalized_to_agent,
         timeout,
     )
     if not response_data:
         return _tool_text_response("(No response received)")
 
-    if json_output:
-        if "session_id" not in response_data:
-            response_data["session_id"] = final_session_id
-        return _tool_text_response(_json_text(response_data))
-
     return _tool_text_response(
         format_agent_chat_text(response_data, session_id=final_session_id),
+    )
+
+
+async def submit_to_agent(
+    to_agent: str,
+    text: str,
+    session_id: Optional[str] = None,
+) -> ToolResponse:
+    """Submit a background message to another configured agent.
+
+    This tool is the background-task counterpart to ``chat_with_agent``. It
+    submits the request and returns immediately with task metadata instead of
+    waiting for the target agent to finish.
+
+    Args:
+        to_agent (`str`):
+            The target agent ID to send the message to. This must be an agent
+            ID returned by ``list_agents``.
+        text (`str`):
+            The message text to execute as a background task.
+        session_id (`str`, optional):
+            Existing session ID to continue a previous conversation in the
+            background. If not provided, a new session ID is generated.
+
+    Returns:
+        `ToolResponse`:
+            A text response containing ``[TASK_ID: ...]`` and
+            ``[SESSION: ...]`` headers. The returned task ID can be passed to
+            ``check_agent_task`` to inspect progress or fetch the final result.
+    """
+    normalized_to_agent = normalize_id(to_agent)
+    normalized_session_id = normalize_id(session_id)
+    if not normalized_to_agent:
+        return _tool_text_response(
+            "ERROR: 'to_agent' is required for submission",
+        )
+
+    target_exists = await asyncio.to_thread(
+        agent_exists,
+        normalized_to_agent,
+        None,
+    )
+    if not target_exists:
+        return _tool_text_response(
+            f"Agent [{normalized_to_agent}] not exists",
+        )
+
+    final_session_id, request_payload, _ = build_agent_chat_request(
+        normalized_to_agent,
+        text,
+        session_id=normalized_session_id,
+        from_agent=None,
+    )
+    result = await asyncio.to_thread(
+        submit_agent_chat_task,
+        None,
+        request_payload,
+        normalized_to_agent,
+        int(DEFAULT_AGENT_API_TIMEOUT),
+    )
+    return _tool_text_response(
+        format_background_submission_text(result, final_session_id),
+    )
+
+
+async def check_agent_task(
+    task_id: str,
+) -> ToolResponse:
+    """Check the status of a background inter-agent task.
+
+    This tool queries a previously submitted background task by its task ID.
+    If the task is still in progress, it returns the current lifecycle state.
+    If the task has finished, it returns either the final agent response or a
+    failure message.
+
+    Args:
+        task_id (`str`):
+            The background task ID returned by ``submit_to_agent``.
+
+    Returns:
+        `ToolResponse`:
+            A text response containing a ``[TASK_ID: ...]`` header and current
+            task status. Completed tasks also include the resolved session ID
+            and final agent text when available.
+    """
+    normalized_task_id = normalize_id(task_id)
+    if not normalized_task_id:
+        return _tool_text_response(
+            "ERROR: 'task_id' is required to check task status",
+        )
+
+    result = await asyncio.to_thread(
+        get_agent_chat_task_status,
+        None,
+        normalized_task_id,
+        to_agent=None,
+        timeout=10,
+    )
+    return _tool_text_response(
+        format_background_status_text(normalized_task_id, result),
     )
