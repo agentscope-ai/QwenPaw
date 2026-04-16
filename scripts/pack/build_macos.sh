@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-click build: console -> conda-pack -> QwenPaw.app. Run from repo root.
-# Requires: conda, node/npm (for console). Optional: icon.icns in assets/.
+# Requires: conda, node/pnpm (for console). Optional: icon.icns in assets/.
 
 set -e
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

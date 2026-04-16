@@ -61,7 +61,7 @@ and more. See [Console](./console) for a full walkthrough.
 If the frontend was not built, the root URL returns a JSON message like `{"message": "QwenPaw Web Console is not available."}` but the API still works.
 
 **To build the frontend:** in the project's `console/` directory run
-`npm ci && npm run build`, then copy the output to the package directory:
+`pnpm install && pnpm run build`, then copy the output to the package directory:
 `mkdir -p src/qwenpaw/console && cp -R console/dist/. src/qwenpaw/console/`.
 Docker images and pip packages already include the Console.
 

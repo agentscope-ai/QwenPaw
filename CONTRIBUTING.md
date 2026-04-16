@@ -79,8 +79,8 @@ docs(skills): document Skills Hub import
 - **CI policy:** Pull requests with failing pre-commit checks are not merge-ready.
 - **Frontend formatting:** If your changes involve the `console` or `website` directories, run the formatter before committing:
   ```bash
-  cd console && npm run format
-  cd website && npm run format
+  cd console && pnpm run format
+  cd website && pnpm run format
   ```
 - **Documentation:** Update docs and README when you add or change user-facing behavior. The docs live under `website/public/docs/`.
 
