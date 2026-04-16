@@ -172,6 +172,8 @@ class WhatsAppChannel(BaseChannel):
         self._client: Optional[Any] = None
         self._lid_cache: Dict[str, Dict[str, str]] = {}  # lid -> {"phone": "+852...", "name": "Joe"}
         self._connected = False
+        self._stopping = False  # set by stop() so DisconnectedEv handlers don't auto-reconnect during shutdown
+        self._reconnect_lock: Optional[asyncio.Lock] = None  # lazy-init in _auto_reconnect (asyncio.Lock needs a loop)
         self._connect_task = None
         self._my_jid = None
         self._bot_phone = ""
@@ -336,23 +338,31 @@ class WhatsAppChannel(BaseChannel):
         async def on_qr(client, evt):
             logger.info("whatsapp: QR code event received (authentication needed)")
 
+        def _schedule_reconnect(delay: int, reason: str) -> None:
+            # Don't auto-reconnect during a deliberate stop() — the disconnect
+            # is expected and scheduling a reconnect would race the shutdown.
+            if self._stopping:
+                logger.debug("whatsapp: %s — skipping auto-reconnect (stop in progress)", reason)
+                return
+            logger.warning("whatsapp: %s — scheduling auto-reconnect in %ds", reason, delay)
+            asyncio.get_event_loop().call_later(
+                delay, lambda: asyncio.ensure_future(self._auto_reconnect()),
+            )
+
         @self._client.event(DisconnectedEv)
         async def on_disconnected(client, evt):
             self._connected = False
-            logger.warning("whatsapp: DISCONNECTED — scheduling auto-reconnect in 10s")
-            asyncio.get_event_loop().call_later(10, lambda: asyncio.ensure_future(self._auto_reconnect()))
+            _schedule_reconnect(10, "DISCONNECTED")
 
         @self._client.event(ConnectFailureEv)
         async def on_connect_failure(client, evt):
             self._connected = False
             reason = getattr(evt, "reason", "unknown")
-            logger.error("whatsapp: connection failure (reason=%s) — scheduling reconnect in 30s", reason)
-            asyncio.get_event_loop().call_later(30, lambda: asyncio.ensure_future(self._auto_reconnect()))
+            _schedule_reconnect(30, f"connection failure (reason={reason})")
 
         @self._client.event(KeepAliveTimeoutEv)
         async def on_keepalive_timeout(client, evt):
-            logger.warning("whatsapp: keepalive timeout — scheduling reconnect in 15s")
-            asyncio.get_event_loop().call_later(15, lambda: asyncio.ensure_future(self._auto_reconnect()))
+            _schedule_reconnect(15, "keepalive timeout")
 
         # Start connection - connect_task must be kept running
         try:
@@ -368,6 +378,11 @@ class WhatsAppChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
+
+        # Flag so the DisconnectedEv / ConnectFailureEv handlers installed in
+        # start() don't schedule an auto-reconnect while we're deliberately
+        # shutting down.
+        self._stopping = True
 
         if self._connect_task:
             self._connect_task.cancel()
@@ -958,11 +973,14 @@ class WhatsAppChannel(BaseChannel):
             bot_info = self._lid_cache.get(bot_jid_str, {})
             my_phone = bot_info.get("phone", "")
         
-        # 1. Check body text for @LID or @phone
-        if my_lid and f"@{my_lid}" in body:
+        # 1. Check body text for @LID or @phone, with a word-boundary guard
+        #    so "@85211111" doesn't false-match inside "@852111112345".
+        if my_lid and re.search(rf"@{re.escape(my_lid)}(?!\w)", body):
             return True
-        if my_phone and (f"@{my_phone}" in body or f"@+{my_phone}" in body):
-            return True
+        if my_phone:
+            # Match @+phone or @phone (no + prefix), both with the boundary.
+            if re.search(rf"@\+?{re.escape(my_phone)}(?!\d)", body):
+                return True
         
         # 2. Check WhatsApp native mention (contextInfo.mentionedJID)
         ctx = None
@@ -1070,14 +1088,18 @@ class WhatsAppChannel(BaseChannel):
 
     # ── Outbound send ─────────────────────────────────────────────────
 
-    _reconnect_lock = None  # initialized in start()
-
     async def _auto_reconnect(self):
         """Attempt to reconnect the WhatsApp neonize client after disconnect.
 
-        Uses a lock to prevent concurrent reconnect attempts. Retries with
-        exponential backoff indefinitely (capped at 5 minutes).
+        Uses a lock (instantiated lazily in __init__ / here so asyncio.Lock
+        has a running loop) to prevent concurrent reconnect attempts. Retries
+        with exponential backoff indefinitely (capped at 5 minutes).
         """
+        # Bail if a deliberate stop() is in progress — no reconnect race.
+        if self._stopping:
+            logger.debug("whatsapp: auto-reconnect skipped (stop in progress)")
+            return
+
         if self._reconnect_lock is None:
             self._reconnect_lock = asyncio.Lock()
 

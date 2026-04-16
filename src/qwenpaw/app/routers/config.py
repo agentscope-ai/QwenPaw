@@ -35,7 +35,6 @@ from ...config.config import (
     VoiceChannelConfig,
     WecomConfig,
     WhatsAppConfig,
-    SignalConfig,
     WeixinConfig,
     XiaoYiConfig,
 )
@@ -63,7 +62,6 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     "matrix": MatrixConfig,
     "wecom": WecomConfig,
     "whatsapp": WhatsAppConfig,
-    "signal": SignalConfig,
     "weixin": WeixinConfig,
     "xiaoyi": XiaoYiConfig,
 }
@@ -725,17 +723,27 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
     Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
 
-    # Disconnect any existing pairing client for this agent
+    # Disconnect any existing pairing client + cancel its task for this agent
+    # (two NewAClients against the same neonize.db fight over the SQLite lock
+    # / websocket and one of them drops inbound messages silently).
     old_client = state.get("client")
     if old_client:
         try:
             await old_client.disconnect()
         except Exception:
             pass
+    old_task = state.get("task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+        try:
+            await asyncio.wait_for(old_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
 
     state["status"] = "pairing"
     state["code"] = None
     state["qr_data"] = None
+    state["task"] = None
 
     client = NewAClient(name=db_path)
     state["client"] = client
@@ -768,7 +776,9 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     except Exception as e:
         await asyncio.sleep(2)
         if state["qr_data"]:
+            state["status"] = "waiting_qr"
             return {"status": "waiting_qr", "qr_image": state["qr_data"]}
+        state["status"] = "error"
         return {"status": "error", "detail": str(e)}
 
 
@@ -897,13 +907,35 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     description="Delete the WhatsApp session database so the next connection requires re-pairing.",
 )
 async def unbind_whatsapp(request: Request) -> dict:
-    """Delete neonize.db to force re-authentication on next start."""
+    """Delete neonize.db to force re-authentication on next start.
+
+    Disconnects any in-memory pairing client and cancels its connect task
+    BEFORE deleting the sqlite file — otherwise the running client would
+    still hold the file open (Windows) or try to write to a now-missing
+    database (all platforms).
+    """
+    import asyncio
     from pathlib import Path as _P
 
     from ..agent_context import get_agent_for_request
     agent = await get_agent_for_request(request)
     auth_dir = _get_wa_auth_dir(agent)
     state = _get_wa_pair_state(agent.agent_id)
+
+    # Stop any in-memory pairing client + task for this agent first.
+    old_client = state.get("client")
+    if old_client:
+        try:
+            await old_client.disconnect()
+        except Exception:
+            pass
+    old_task = state.get("task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+        try:
+            await asyncio.wait_for(old_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
 
     db_path = _P(auth_dir).expanduser() / "neonize.db"
     if db_path.exists():
