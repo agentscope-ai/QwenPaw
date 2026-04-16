@@ -12,13 +12,18 @@ import { Flex, Tooltip } from "antd";
 import ChatSessionDrawer from "../ChatSessionDrawer";
 import PlanPanel from "../../../../components/PlanPanel";
 import ChatSearchPanel from "../ChatSearchPanel";
+import type { Plan } from "../../../../api/types";
 
 interface ChatActionGroupProps {
   onPlanStartExecution?: () => void;
+  livePlanFromChat?: Plan | null;
+  chatStreamsPlan?: boolean;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   onPlanStartExecution,
+  livePlanFromChat,
+  chatStreamsPlan,
 }) => {
   const { t } = useTranslation();
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -64,6 +69,8 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         open={planOpen}
         onClose={() => setPlanOpen(false)}
         onStartExecution={onPlanStartExecution}
+        livePlanFromChat={livePlanFromChat}
+        chatStreamsPlan={chatStreamsPlan}
       />
       <ChatSearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
     </Flex>

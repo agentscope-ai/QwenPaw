@@ -53,8 +53,11 @@ def create_plan_notebook(
     if QwenPawPlanToHint is not None:
         plan_to_hint = QwenPawPlanToHint()
 
-    return QwenPawPlanNotebook(
+    notebook = QwenPawPlanNotebook(
         max_subtasks=config.max_subtasks,
         storage=storage,
         plan_to_hint=plan_to_hint,
     )
+    if plan_to_hint is not None:
+        plan_to_hint.bind_notebook(notebook)
+    return notebook

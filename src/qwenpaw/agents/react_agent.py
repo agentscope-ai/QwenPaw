@@ -803,6 +803,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
+    # pylint: disable=too-many-branches
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
@@ -1000,7 +1001,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
                         logger.warning(
                             "_summarizing failed (%s). "
-                            "Stripped %d media block(s) from memory, retrying.",
+                            "Stripped %d media block(s) from memory, "
+                            "retrying.",
                             e,
                             n_stripped,
                         )

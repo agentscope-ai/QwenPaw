@@ -55,12 +55,18 @@ interface PlanPanelProps {
   onClose: () => void;
   /** After plan is confirmed via API, submit the same chat kickoff as typing in the input. */
   onStartExecution?: () => void;
+  /** When the chat page already subscribes to plan SSE, pass snapshots here and set chatStreamsPlan. */
+  livePlanFromChat?: Plan | null;
+  /** If true, skip duplicate EventSource in this drawer (parent streams). */
+  chatStreamsPlan?: boolean;
 }
 
 const PlanPanel: React.FC<PlanPanelProps> = ({
   open,
   onClose,
   onStartExecution,
+  livePlanFromChat,
+  chatStreamsPlan = false,
 }) => {
   const { t } = useTranslation();
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -91,6 +97,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
   }, [open, fetchState]);
 
   useEffect(() => {
+    if (!chatStreamsPlan) return;
+    setPlan(livePlanFromChat ?? null);
+  }, [chatStreamsPlan, livePlanFromChat]);
+
+  useEffect(() => {
+    if (chatStreamsPlan) return;
     if (!open || !planEnabled) return;
     let unsub: (() => void) | undefined;
     let cancelled = false;
@@ -109,7 +121,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
       cancelled = true;
       unsub?.();
     };
-  }, [open, planEnabled]);
+  }, [open, planEnabled, chatStreamsPlan]);
 
   const doneCount = useMemo(
     () => plan?.subtasks.filter((s) => s.state === "done").length ?? 0,

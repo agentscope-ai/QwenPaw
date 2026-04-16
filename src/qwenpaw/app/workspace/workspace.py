@@ -159,8 +159,19 @@ class Workspace:
             try:
                 if plan is not None:
                     payload = plan_to_response(plan).model_dump()
+                    states = [st.state for st in plan.subtasks]
+                    logger.info(
+                        "Plan change hook: agent_id=%s plan_id=%s states=%s",
+                        agent_id,
+                        plan.id,
+                        states,
+                    )
                 else:
                     payload = None
+                    logger.info(
+                        "Plan change hook: agent_id=%s plan cleared",
+                        agent_id,
+                    )
                 broadcast_plan_update(agent_id, payload)
             except Exception:
                 logger.warning(

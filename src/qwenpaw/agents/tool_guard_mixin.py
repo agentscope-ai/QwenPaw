@@ -335,6 +335,7 @@ class ToolGuardMixin:
 
         return result
 
+    # pylint: disable=too-many-return-statements
     async def _decide_guard_action(
         self,
         tool_call: dict[str, Any],
@@ -350,17 +351,25 @@ class ToolGuardMixin:
         tool_input = tool_call.get("input", {})
 
         from qwenpaw.plan.hints import check_plan_tool_gate
+        from qwenpaw.plan.repeat_guard import check_plan_repeat_guard
 
-        gate_msg = check_plan_tool_gate(
-            getattr(self, "plan_notebook", None),
-            tool_name,
-        )
+        nb = getattr(self, "plan_notebook", None)
+        gate_msg = check_plan_tool_gate(nb, tool_name)
         if gate_msg is not None:
             return _GuardAction(
                 "plan_gated",
                 tool_name,
                 tool_input,
                 guard_result=gate_msg,
+            )
+
+        repeat_msg = check_plan_repeat_guard(nb, tool_name, tool_input)
+        if repeat_msg is not None:
+            return _GuardAction(
+                "plan_gated",
+                tool_name,
+                tool_input,
+                guard_result=repeat_msg,
             )
 
         if not tool_name or not engine.enabled:

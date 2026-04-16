@@ -53,6 +53,10 @@ class QwenPawPlanNotebook(PlanNotebook):
 
     Models sometimes pass subtask as a JSON string; we decode before
     AgentScope validates.
+
+    When the user (or agent) revises the plan while every subtask is still
+    *todo*, we require another explicit confirmation before execution; see
+    :attr:`_qwenpaw_needs_reconfirmation` and plan hints.
     """
 
     async def create_plan(
@@ -67,12 +71,14 @@ class QwenPawPlanNotebook(PlanNotebook):
                 _normalize_subtask_payload(st) if isinstance(st, str) else st
                 for st in subtasks
             ]
-        return await super().create_plan(
+        resp = await super().create_plan(
             name,
             description,
             expected_outcome,
             subtasks,
         )
+        self._qwenpaw_needs_reconfirmation = False
+        return resp
 
     async def revise_current_plan(
         self,
@@ -81,8 +87,23 @@ class QwenPawPlanNotebook(PlanNotebook):
         subtask: SubTask | None = None,
     ) -> ToolResponse:
         normalized = _normalize_subtask_payload(subtask)
-        return await super().revise_current_plan(
+        resp = await super().revise_current_plan(
             subtask_idx,
             action,
             normalized,
         )
+        plan = self.current_plan
+        if plan is not None and plan.subtasks:
+            if all(st.state == "todo" for st in plan.subtasks):
+                self._qwenpaw_needs_reconfirmation = True
+        return resp
+
+    async def update_subtask_state(
+        self,
+        subtask_idx: int,
+        state: str,
+    ) -> ToolResponse:
+        resp = await super().update_subtask_state(subtask_idx, state)
+        if state == "in_progress":
+            self._qwenpaw_needs_reconfirmation = False
+        return resp

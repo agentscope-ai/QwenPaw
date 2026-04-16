@@ -24,6 +24,7 @@ import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
+import { usePlanLiveUpdates } from "../../hooks/usePlanLiveUpdates";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import {
@@ -463,6 +464,11 @@ export default function ChatPage() {
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
 
+  const chatPageForPlan =
+    location.pathname === "/" || location.pathname.startsWith("/chat");
+  const { livePlan: livePlanFromChat, planEnabled: planEnabledOnChat } =
+    usePlanLiveUpdates(chatPageForPlan);
+
   // Use custom hooks for better separation of concerns
   const isComposingRef = useIMEComposition(isChatActive);
   const multimodalCaps = useMultimodalCapabilities(
@@ -810,7 +816,13 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             <ModelSelector />
-            <ChatActionGroup onPlanStartExecution={handlePlanStartExecution} />
+            <ChatActionGroup
+              onPlanStartExecution={handlePlanStartExecution}
+              livePlanFromChat={livePlanFromChat}
+              chatStreamsPlan={Boolean(
+                chatPageForPlan && planEnabledOnChat === true,
+              )}
+            />
           </>
         ),
       },
