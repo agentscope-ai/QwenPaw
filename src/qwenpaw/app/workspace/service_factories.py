@@ -168,3 +168,42 @@ async def create_mcp_config_watcher(ws: "Workspace", _):
     ws._service_manager.services["mcp_config_watcher"] = watcher
     return watcher
     # pylint: enable=protected-access
+
+
+async def create_backup_service(ws: "Workspace", _):
+    """Create backup-related services.
+
+    Creates AssetExporter, AssetImporter, BackupScheduler.
+
+    Args:
+        ws: Workspace instance
+        _: Unused service parameter
+
+    Returns:
+        dict with exporter, importer, and scheduler instances
+    """
+    from ...backup.exporter import AssetExporter
+    from ...backup.importer import AssetImporter
+    from ...backup.scheduler import BackupScheduler
+
+    # Try to get memory manager for consistent memory snapshots
+    memory_manager = (
+        ws._service_manager.services.get(  # pylint: disable=protected-access
+            "memory_manager",
+        )
+    )
+
+    exporter = AssetExporter(memory_manager=memory_manager)
+    importer = AssetImporter(workspace_dir=ws.workspace_dir)
+    scheduler = BackupScheduler(exporter=exporter)
+
+    services = {
+        "asset_exporter": exporter,
+        "asset_importer": importer,
+        "backup_scheduler": scheduler,
+    }
+    ws._service_manager.services.update(  # pylint: disable=protected-access
+        services,
+    )
+    logger.info("Backup services registered for agent: %s", ws.agent_id)
+    return services

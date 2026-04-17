@@ -24,6 +24,7 @@ from .service_factories import (
     create_channel_service,
     create_agent_config_watcher,
     create_mcp_config_watcher,
+    create_backup_service,
 )
 from ..runner import AgentRunner
 from ..runner.task_tracker import TaskTracker
@@ -259,6 +260,17 @@ class Workspace:
                 start_method="start",
                 stop_method="stop",
                 priority=40,
+                concurrent_init=False,
+            ),
+        )
+
+        # Priority 45: Backup services
+        sm.register(
+            ServiceDescriptor(
+                name="backup_services",
+                service_class=None,
+                post_init=create_backup_service,
+                priority=45,
                 concurrent_init=False,
             ),
         )
