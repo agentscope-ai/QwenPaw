@@ -124,6 +124,8 @@ jobs:
 
       - name: Build console frontend
         shell: bash
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           cd console && npm ci && npm run build
 
@@ -192,6 +194,8 @@ jobs:
 
       - name: Build console frontend
         shell: bash
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           cd console && npm ci && npm run build
 
