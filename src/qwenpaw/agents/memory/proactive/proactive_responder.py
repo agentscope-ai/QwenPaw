@@ -234,7 +234,7 @@ async def send_proactive_message_via_http(
     active_agent_id: str,
     proactive_content: str,
     timeout_seconds: int = 60,
-) -> str:
+) -> Optional[Msg]:
     """Send a proactive message by directly calling the QwenPaw API."""
 
     from ...tools.agent_management import resolve_agent_api_base_url
