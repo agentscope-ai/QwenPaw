@@ -37,7 +37,7 @@ metadata:
 list_agents()
 
 chat_with_agent(
-  to_agent="<stronger_agent_id>",
+  to_agent="stronger_agent",
   text="[Agent <auto> requesting] 请帮我为下面任务制定执行计划。你不需要执行任务，只需要输出明确、可落地、按顺序排列的步骤。",
 )
 ```
