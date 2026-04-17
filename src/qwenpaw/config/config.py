@@ -430,9 +430,17 @@ class ReMeLightMemoryConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    memory_summarize_enabled: bool = Field(
+    summarize_when_compact: bool = Field(
         default=True,
         description="Whether to enable memory summarization during compaction",
+    )
+
+    summarize_interval: int | None = Field(
+        default=None,
+        description="Summarize every N user queries. None disables periodic summarization, "
+                    "1 means summarize after every user query, 2 means every 2 queries, etc. "
+                    "WARNING: Setting too small (e.g., 1-3) may cause high token usage and "
+                    "heavy background task burden. Recommended: 5 or 10.",
     )
 
     dream_cron: str = Field(

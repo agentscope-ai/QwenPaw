@@ -360,7 +360,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             if not messages_to_compact:
                 return None
 
-            if running_config.reme_light_memory_config.memory_summarize_enabled:
+            if running_config.reme_light_memory_config.summarize_when_compact:
                 memory_manager.add_summarize_task(
                     messages=messages_to_compact,
                 )
@@ -455,6 +455,32 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
         kwargs: dict[str, Any],
         output: Any,
     ) -> Msg | None:
+        """Summarize memory periodically based on user query count.
+
+        When ``summarize_interval`` is set (e.g., 2), this hook counts user
+        messages in the memory and triggers summarization every N queries.
+        """
+        memory_manager = agent.memory_manager
+        if memory_manager is None:
+            return None
+
+        agent_config = load_agent_config(self.agent_id)
+        summarize_interval = agent_config.running.reme_light_memory_config.summarize_interval
+
+        if summarize_interval is None or summarize_interval <= 0:
+            return None
+
+        memory = agent.memory
+        # memory.content is list[tuple[Msg, marks]]
+        user_msg_count = sum(
+            1 for msg, _ in memory.content if msg.role == "user"
+        )
+
+        if user_msg_count > 0 and user_msg_count % summarize_interval == 0:
+            messages = await memory.get_memory(prepend_summary=False)
+            if messages:
+                memory_manager.add_summarize_task(messages=messages)
+
         return None
 
     def get_in_memory_memory(self, **_kwargs) -> "ReMeInMemoryMemory":

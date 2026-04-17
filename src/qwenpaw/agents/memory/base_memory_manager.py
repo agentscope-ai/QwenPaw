@@ -5,6 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from agentscope.message import Msg
 from agentscope.tool import ToolResponse
@@ -27,15 +28,15 @@ class BaseMemoryManager(ABC):
     Attributes:
         working_dir: Root directory for persisting memory files.
         agent_id: Unique identifier of the owning agent.
-        summary_tasks: Active background summarization tasks; each entry is
-            a dict with task info (task, start_time, status, result/error).
     """
 
     def __init__(self, working_dir: str, agent_id: str):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
-        self._summary_task_info: dict[str, dict] = {}  # task_id -> info dict
+        self._summary_task_info: dict[str, dict[str, Any]] = {}
         self._task_counter: int = 0
+        self._task_queue: asyncio.Queue[tuple[str, list[Msg], dict]] = asyncio.Queue()
+        self._worker_task: asyncio.Task | None = None
 
     @abstractmethod
     async def start(self) -> None:
@@ -102,51 +103,78 @@ class BaseMemoryManager(ABC):
         consolidate redundant or outdated memory entries.
         """
 
+    async def _summarize_worker(self) -> None:
+        """Background worker that processes summarize tasks serially."""
+        while True:
+            task_id, messages, kwargs = await self._task_queue.get()
+            info = self._summary_task_info.get(task_id)
+            if info is None:
+                continue
+
+            info["status"] = "running"
+            logger.info(f"Summary task {task_id} started")
+            try:
+                result = await self.summarize(messages=messages, **kwargs)
+                info["status"] = "completed"
+                info["result"] = result
+                logger.info(f"Summary task {task_id} completed")
+            except asyncio.CancelledError:
+                info["status"] = "cancelled"
+                logger.info(f"Summary task {task_id} cancelled")
+                raise
+            except BaseException as e:
+                info["status"] = "failed"
+                info["error"] = str(e)
+                logger.error(f"Summary task {task_id} failed: {e}")
+
     def add_summarize_task(self, messages: list[Msg], **kwargs):
         """Schedule a background summarization task without blocking.
 
-        Updates task statuses (completed/cancelled/failed), then wraps
-        ``summarize()`` in a new ``asyncio.Task`` with tracking info.
+        Tasks are executed serially in FIFO order. If no task is running,
+        execution starts immediately; otherwise the task queues.
 
         Args:
             messages: Messages to pass to ``summarize()``.
             **kwargs: Forwarded to ``summarize()``.
         """
-        self._update_task_statuses()
+        # Ensure worker is running
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._summarize_worker())
 
         self._task_counter += 1
         task_id = f"task_{self._task_counter}"
-        start_time = datetime.now()
-
-        task = asyncio.create_task(self.summarize(messages=messages, **kwargs))
 
         self._summary_task_info[task_id] = {
             "task_id": task_id,
-            "task": task,
-            "start_time": start_time,
-            "status": "running",
+            "task": self._worker_task,  # Reference to the worker task
+            "start_time": datetime.now(),
+            "status": "pending",
             "result": None,
             "error": None,
         }
 
-    def _update_task_statuses(self):
-        """Update status of all tracked tasks."""
+        # Enqueue for serial execution
+        self._task_queue.put_nowait((task_id, messages, kwargs))
+
+    def _update_task_statuses(self) -> None:
+        """Update status for pending/running tasks if worker was cancelled."""
+        if self._worker_task is None:
+            return
+        if not self._worker_task.done():
+            return
+
+        # Worker finished - update any tasks still pending or running
         for task_id, info in self._summary_task_info.items():
-            task = info["task"]
-            assert isinstance(task, asyncio.Task)
-            if task.done():
-                if task.cancelled():
+            if info["status"] in ("pending", "running"):
+                if self._worker_task.cancelled():
                     info["status"] = "cancelled"
+                    logger.info(f"Summary task {task_id} cancelled (worker stopped)")
                 else:
-                    exc = task.exception()
+                    exc = self._worker_task.exception()
                     if exc is not None:
                         info["status"] = "failed"
                         info["error"] = str(exc)
                         logger.error(f"Summary task {task_id} failed: {exc}")
-                    else:
-                        info["status"] = "completed"
-                        info["result"] = task.result()
-                        logger.info(f"Summary task {task_id} completed")
 
     def list_summarize_status(self) -> list[dict]:
         """Return status of all summary tasks as list of dicts.
