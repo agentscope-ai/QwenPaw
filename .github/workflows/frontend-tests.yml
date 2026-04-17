@@ -1,0 +1,49 @@
+name: Frontend Tests
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'console/**'
+      - '.github/workflows/frontend-tests.yml'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'console/**'
+      - '.github/workflows/frontend-tests.yml'
+
+jobs:
+  vitest:
+    name: Vitest Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:run
+
+      - name: Generate coverage report
+        run: npm run test:coverage
+        # 当前阶段仅报告，不卡 PR（覆盖率基线建立中）
+        continue-on-error: true
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: console/coverage/
+          retention-days: 7
