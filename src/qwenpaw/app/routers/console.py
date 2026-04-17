@@ -241,7 +241,7 @@ async def get_backend_debug_logs(
     ),
 ) -> dict:
     """Return the tail of WORKING_DIR/copaw.log for the debug UI."""
-    log_path = (WORKING_DIR / "qwenpaw.log").resolve()
+    log_path = (WORKING_DIR / "copaw.log").resolve()
     try:
         st = log_path.stat()
         return {
