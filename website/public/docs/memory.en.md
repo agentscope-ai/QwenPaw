@@ -77,26 +77,45 @@ One page per day, appended with the day's work and interactions.
 
 ## Memory Configuration
 
+### Configuration Structure
+
+Memory configuration is located in `agent.json` under `running.reme_light_memory_config`:
+
+| Field                           | Description                                                                        | Default        |
+| -------------------------------- | ---------------------------------------------------------------------------------- | -------------- |
+| `summarize_when_compact`         | Whether to save long-term memory in background during context compaction           | `true`         |
+| `summarize_interval`             | Summarize every N user queries. null disables periodic summarization               | `null`         |
+| `dream_cron`                     | Cron expression for dream-based memory optimization job (empty string to disable)  | `"0 23 * * *"` |
+| `rebuild_memory_index_on_start`  | Whether to clear and rebuild memory search index on startup; false to skip rebuild | `false`        |
+| `recursive_file_watcher`         | Whether to watch memory directory recursively (includes subdirectories)            | `false`        |
+
+### Force Memory Search Configuration
+
+Configure in `running.reme_light_memory_config.force_memory_search_config`:
+
+| Field         | Description                                              | Default  |
+| ------------- | -------------------------------------------------------- | -------- |
+| `enabled`     | Whether to force memory search on every conversation turn | `false`  |
+| `max_results` | Maximum results for forced memory search                 | `1`      |
+| `min_score`   | Minimum relevance score threshold for forced search (0.0 ~ 1.0) | `0.1` |
+| `timeout`     | Timeout in seconds for forced memory search              | `10.0`   |
+
 ### Embedding Configuration (Optional)
 
-Embedding configuration is used for vector semantic search. Configuration priority: **config file > env var > default**.
+Embedding configuration for vector semantic search, located in `running.reme_light_memory_config.embedding_model_config`:
 
-#### Via Config File (Recommended)
-
-Configure in `agent.json` under `running.embedding_config`:
-
-| Config Field       | Description                                            | Default  |
-| ------------------ | ------------------------------------------------------ | -------- |
-| `backend`          | Embedding backend type                                 | `openai` |
-| `api_key`          | API Key for the Embedding service                      | ``       |
-| `base_url`         | URL of the Embedding service                           | ``       |
-| `model_name`       | Embedding model name                                   | ``       |
-| `dimensions`       | Vector dimensions for initializing the vector database | `1024`   |
-| `enable_cache`     | Whether to enable Embedding cache                      | `true`   |
-| `use_dimensions`   | Whether to pass dimensions parameter in API request    | `false`  |
-| `max_cache_size`   | Maximum number of Embedding cache entries              | `2000`   |
-| `max_input_length` | Maximum input length per Embedding request             | `8192`   |
-| `max_batch_size`   | Maximum batch size for Embedding requests              | `10`     |
+| Field             | Description                                  | Default   |
+| ----------------- | -------------------------------------------- | --------- |
+| `backend`         | Embedding backend type                       | `openai`  |
+| `api_key`         | API Key for the Embedding service            | ``        |
+| `base_url`        | URL of the Embedding service                 | ``        |
+| `model_name`      | Embedding model name                         | ``        |
+| `dimensions`      | Vector dimensions for initializing vector DB | `1024`    |
+| `enable_cache`    | Whether to enable Embedding cache            | `true`    |
+| `use_dimensions`  | Whether to pass dimensions parameter in API  | `false`   |
+| `max_cache_size`  | Maximum Embedding cache entries              | `3000`    |
+| `max_input_length`| Maximum input length per Embedding request   | `8192`    |
+| `max_batch_size`  | Maximum batch size for Embedding requests    | `10`      |
 
 > `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
 
@@ -121,19 +140,6 @@ Control BM25 full-text search via the `FTS_ENABLED` environment variable:
 | `FTS_ENABLED`        | Whether to enable full-text search | `true`  |
 
 > Even without Embedding configured, enabling full-text search allows keyword search via BM25.
-
-### Memory Summarization Configuration
-
-Configure in `agent.json` under `running.memory_summary`:
-
-| Config Field                     | Description                                                                                                                             | Default        |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `memory_summary_enabled`         | Whether to save long-term memory in the background during context compaction (via `summary_memory`)                                     | `true`         |
-| `dream_cron`                     | Cron expression for dream-based memory optimization job (empty string to disable)                                                       | `"0 23 * * *"` |
-| `force_memory_search` **(BETA)** | Whether to force a memory search on every conversation turn and inject results into context                                             | `false`        |
-| `force_max_results`              | Maximum number of results to return when force memory search is enabled                                                                 | `1`            |
-| `force_min_score`                | Minimum relevance score threshold when force memory search is enabled (0.0 ~ 1.0)                                                       | `0.3`          |
-| `rebuild_memory_index_on_start`  | Whether to clear and rebuild the memory search index on startup; set to `false` to skip re-indexing and only watch for new file changes | `false`        |
 
 ---
 

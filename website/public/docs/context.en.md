@@ -148,27 +148,27 @@ When the context approaches its limit, QwenPaw automatically triggers compaction
 
 ### 1. compact_tool_result — Tool Result Compaction
 
-When `tool_result_compact.enabled` is on (default `true`), different byte thresholds are applied based on how recent a message is:
+When `tool_result_pruning_config.enabled` is on (default `true`), different byte thresholds are applied based on how recent a message is:
 
 ```mermaid
 flowchart LR
-    A[Tool Call Result] --> B{Within recent_n?}
-    B -->|Yes| C[Low truncation<br>recent_max_bytes<br>Save full text to tool_result/uuid.txt<br>Keep snippet + file ref in message]
-    B -->|No| D[High truncation<br>old_max_bytes<br>Reference existing file<br>More aggressive truncation]
+    A[Tool Call Result] --> B{Within pruning_recent_n?}
+    B -->|Yes| C[Low truncation<br>pruning_recent_msg_max_bytes<br>Save full text to tool_result/uuid.txt<br>Keep snippet + file ref in message]
+    B -->|No| D[High truncation<br>pruning_old_msg_max_bytes<br>Reference existing file<br>More aggressive truncation]
     C --> E[Context]
     D --> E
 ```
 
-| Message type           | Threshold          | Default | Behavior                                        |
-| ---------------------- | ------------------ | ------- | ----------------------------------------------- |
-| Most recent `recent_n` | `recent_max_bytes` | `50000` | Preserve more content; save full text to file   |
-| Older messages         | `old_max_bytes`    | `3000`  | Aggressive truncation; reuse existing file path |
+| Message type           | Threshold                      | Default | Behavior                                        |
+| ---------------------- | ------------------------------ | ------- | ----------------------------------------------- |
+| Most recent `pruning_recent_n` | `pruning_recent_msg_max_bytes` | `50000` | Preserve more content; save full text to file   |
+| Older messages         | `pruning_old_msg_max_bytes`    | `3000`  | Aggressive truncation; reuse existing file path |
 
 **Tool-specific behavior:**
 
-- **Browser-use type tools**: On first call, full content is saved to `tool_result/uuid.txt`, message keeps snippet + file reference with a "read from line N" hint; secondary truncation applies once the message falls outside `recent_n`
-- **read_file tool**: No truncation or file save within `recent_n` (content is already an external file); beyond `recent_n`, truncated and saved to `tool_result/`
-- Files older than `retention_days` are automatically cleaned up
+- **Browser-use type tools**: On first call, full content is saved to `tool_result/uuid.txt`, message keeps snippet + file reference with a "read from line N" hint; secondary truncation applies once the message falls outside `pruning_recent_n`
+- **read_file tool**: No truncation or file save within `pruning_recent_n` (content is already an external file); beyond `pruning_recent_n`, truncated and saved to `tool_result/`
+- Files older than `offload_retention_days` are automatically cleaned up
 
 ### 2. check_context — Context Check
 
@@ -263,37 +263,46 @@ graph TB
 
 ## Configuration
 
-Configuration is located in `~/.qwenpaw/config.json` under `agents.running`:
+Configuration is located in `~/.qwenpaw/workspaces/{agent_id}/agent.json` under `agents.running`:
 
 **`running` top-level fields:**
 
-| Parameter          | Default  | Description                        |
-| ------------------ | -------- | ---------------------------------- |
-| `max_input_length` | `131072` | Model context window size (tokens) |
+| Parameter                   | Default  | Description                        |
+| --------------------------- | -------- | ---------------------------------- |
+| `max_input_length`          | `131072` | Model context window size (tokens) |
+| `context_manager_backend`   | `"light"`| Context manager backend type       |
+| `memory_manager_backend`    | `"ReMeLight"` | Memory manager backend type  |
 
-**`running.context_compact` fields:**
+**`running.light_context_config` fields:**
+
+| Parameter                       | Default     | Description                                    |
+| -------------------------------- | ----------- | ---------------------------------------------- |
+| `dialog_path`                    | `"dialog"`  | Dialog persistence directory (relative to working dir) |
+| `token_count_estimate_divisor`   | `4.0`       | Divisor for byte-based token estimation        |
+
+**`running.light_context_config.context_compact_config` fields:**
 
 | Parameter                     | Default | Description                                                                                    |
 | ----------------------------- | ------- | ---------------------------------------------------------------------------------------------- |
-| `context_compact_enabled`     | `true`  | Whether to enable automatic context compaction                                                 |
-| `memory_compact_ratio`        | `0.75`  | Threshold ratio for triggering compaction, triggers when `max_input_length × ratio` is reached |
-| `memory_reserve_ratio`        | `0.1`   | Ratio of recent messages to keep during compaction, keeps `max_input_length × ratio` tokens    |
+| `enabled`                     | `true`  | Whether to enable automatic context compaction                                                 |
+| `compact_threshold_ratio`     | `0.8`   | Threshold ratio for triggering compaction, triggers when `max_input_length × ratio` is reached |
+| `reserve_threshold_ratio`     | `0.1`   | Ratio of recent messages to keep during compaction, keeps `max_input_length × ratio` tokens    |
 | `compact_with_thinking_block` | `true`  | Whether to include thinking blocks during compaction                                           |
 
-**`running.tool_result_compact` fields:**
+**`running.light_context_config.tool_result_pruning_config` fields:**
 
-| Parameter          | Default | Description                                                         |
-| ------------------ | ------- | ------------------------------------------------------------------- |
-| `enabled`          | `true`  | Whether to compress long tool outputs                               |
-| `recent_n`         | `2`     | Number of recent messages to apply `recent_max_bytes` threshold to  |
-| `old_max_bytes`    | `3000`  | Byte threshold for older tool result messages                       |
-| `recent_max_bytes` | `50000` | Byte threshold for the most recent `recent_n` tool result messages  |
-| `retention_days`   | `5`     | Days to retain cached tool output files (auto-cleaned after expiry) |
+| Parameter                        | Default | Description                                                         |
+| -------------------------------- | ------- | ------------------------------------------------------------------- |
+| `enabled`                         | `true`  | Whether to prune long tool outputs                               |
+| `pruning_recent_n`                | `2`     | Number of recent messages to use higher threshold for            |
+| `pruning_old_msg_max_bytes`       | `3000`  | Byte threshold for older tool result messages                     |
+| `pruning_recent_msg_max_bytes`    | `50000` | Byte threshold for the most recent `pruning_recent_n` tool result messages |
+| `offload_retention_days`          | `5`     | Days to retain cached tool output files (auto-cleaned after expiry) |
 
 **Calculation Relationships:**
 
-- `memory_compact_threshold` = `max_input_length × memory_compact_ratio` (threshold for triggering compaction)
-- `memory_compact_reserve` = `max_input_length × memory_reserve_ratio` (tokens of recent messages to keep)
+- `memory_compact_threshold` = `max_input_length × compact_threshold_ratio` (threshold for triggering compaction)
+- `memory_compact_reserve` = `max_input_length × reserve_threshold_ratio` (tokens of recent messages to keep)
 
 **Example Configuration:**
 
@@ -302,15 +311,20 @@ Configuration is located in `~/.qwenpaw/config.json` under `agents.running`:
   "agents": {
     "running": {
       "max_input_length": 128000,
-      "context_compact": {
-        "memory_compact_ratio": 0.7,
-        "memory_reserve_ratio": 0.1
-      },
-      "tool_result_compact": {
-        "enabled": true,
-        "recent_n": 3,
-        "old_max_bytes": 3000,
-        "recent_max_bytes": 50000
+      "context_manager_backend": "light",
+      "light_context_config": {
+        "dialog_path": "dialog",
+        "context_compact_config": {
+          "enabled": true,
+          "compact_threshold_ratio": 0.8,
+          "reserve_threshold_ratio": 0.1
+        },
+        "tool_result_pruning_config": {
+          "enabled": true,
+          "pruning_recent_n": 2,
+          "pruning_old_msg_max_bytes": 3000,
+          "pruning_recent_msg_max_bytes": 50000
+        }
       }
     }
   }

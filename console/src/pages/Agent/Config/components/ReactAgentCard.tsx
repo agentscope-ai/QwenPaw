@@ -16,6 +16,10 @@ const LANGUAGE_OPTIONS = [
   { value: "ru", label: "Русский" },
 ];
 
+const CONTEXT_MANAGER_BACKEND_OPTIONS = [
+  { value: "light", label: "Light" },
+];
+
 const MEMORY_MANAGER_BACKEND_OPTIONS = [
   { value: "ReMeLight", label: "ReMeLight" },
 ];
@@ -105,20 +109,35 @@ export function ReactAgentCard({
         <Switch />
       </Form.Item>
 
-      <Form.Item
-        label={t("agentConfig.memoryManagerBackend")}
-        name="memory_manager_backend"
-        tooltip={t("agentConfig.memoryManagerBackendTooltip")}
-      >
-        <Select
-          options={MEMORY_MANAGER_BACKEND_OPTIONS}
-          style={{ width: "100%" }}
-        />
-      </Form.Item>
+      <div className={styles.reactAgentRow}>
+        <Form.Item
+          label={t("agentConfig.contextManagerBackend")}
+          name="context_manager_backend"
+          tooltip={t("agentConfig.contextManagerBackendTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            options={CONTEXT_MANAGER_BACKEND_OPTIONS}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+
+        <Form.Item
+          label={t("agentConfig.memoryManagerBackend")}
+          name="memory_manager_backend"
+          tooltip={t("agentConfig.memoryManagerBackendTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            options={MEMORY_MANAGER_BACKEND_OPTIONS}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+      </div>
       <Alert
         type="warning"
         showIcon
-        message={t("agentConfig.memoryManagerBackendRestartWarning")}
+        message={t("agentConfig.backendRestartWarning")}
         style={{ marginBottom: 16 }}
       />
 

@@ -6,10 +6,8 @@ import {
   ReactAgentCard,
   LlmRetryCard,
   LlmRateLimiterCard,
-  ContextCompactCard,
-  ToolResultCompactCard,
-  MemorySummaryCard,
-  EmbeddingConfigCard,
+  LightContextCard,
+  ReMeLightMemoryCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
@@ -116,54 +114,28 @@ function AgentConfigPage() {
                 ),
               },
               {
-                key: "contextCompact",
+                key: "lightContext",
                 label: (
                   <span className={styles.tabLabel}>
-                    {t("agentConfig.contextCompactTitle")}
+                    {t("agentConfig.lightContextTitle")}
                   </span>
                 ),
                 children: (
                   <div className={styles.tabContent}>
-                    <ContextCompactCard maxInputLength={maxInputLength} />
+                    <LightContextCard maxInputLength={maxInputLength} />
                   </div>
                 ),
               },
               {
-                key: "toolResultCompact",
+                key: "remeLightMemory",
                 label: (
                   <span className={styles.tabLabel}>
-                    {t("agentConfig.toolResultCompactTitle")}
+                    {t("agentConfig.remeLightMemoryTitle")}
                   </span>
                 ),
                 children: (
                   <div className={styles.tabContent}>
-                    <ToolResultCompactCard />
-                  </div>
-                ),
-              },
-              {
-                key: "memorySummary",
-                label: (
-                  <span className={styles.tabLabel}>
-                    {t("agentConfig.memorySummaryTitle")}
-                  </span>
-                ),
-                children: (
-                  <div className={styles.tabContent}>
-                    <MemorySummaryCard />
-                  </div>
-                ),
-              },
-              {
-                key: "embeddingConfig",
-                label: (
-                  <span className={styles.tabLabel}>
-                    {t("agentConfig.embeddingConfigTitle")}
-                  </span>
-                ),
-                children: (
-                  <div className={styles.tabContent}>
-                    <EmbeddingConfigCard />
+                    <ReMeLightMemoryCard />
                   </div>
                 ),
               },

@@ -148,27 +148,27 @@ flowchart LR
 
 ### 1. compact_tool_result — 工具结果压缩
 
-当 `tool_result_compact.enabled` 开启时（默认 `true`），对每条工具调用结果按新旧程度使用不同的字节阈值截断：
+当 `tool_result_pruning_config.enabled` 开启时（默认 `true`），对每条工具调用结果按新旧程度使用不同的字节阈值截断：
 
 ```mermaid
 flowchart LR
-    A[Tool Call Result] --> B{在 recent_n 内?}
-    B -->|是| C[低截断比例<br>recent_max_bytes<br>保存完整内容到 tool_result/uuid.txt<br>消息中保留片段 + 文件引用]
-    B -->|否| D[高截断比例<br>old_max_bytes<br>指向已有文件路径<br>更激进截断]
+    A[Tool Call Result] --> B{在 pruning_recent_n 内?}
+    B -->|是| C[低截断比例<br>pruning_recent_msg_max_bytes<br>保存完整内容到 tool_result/uuid.txt<br>消息中保留片段 + 文件引用]
+    B -->|否| D[高截断比例<br>pruning_old_msg_max_bytes<br>指向已有文件路径<br>更激进截断]
     C --> E[Context]
     D --> E
 ```
 
-| 消息类型           | 阈值               | 默认值  | 说明                           |
-| ------------------ | ------------------ | ------- | ------------------------------ |
-| 最近 `recent_n` 条 | `recent_max_bytes` | `50000` | 保留较多内容，同时写入完整文件 |
-| 更早的消息         | `old_max_bytes`    | `3000`  | 激进截断，已有文件路径继续引用 |
+| 消息类型           | 阈值                        | 默认值  | 说明                           |
+| ------------------ | --------------------------- | ------- | ------------------------------ |
+| 最近 `pruning_recent_n` 条 | `pruning_recent_msg_max_bytes` | `50000` | 保留较多内容，同时写入完整文件 |
+| 更早的消息         | `pruning_old_msg_max_bytes`    | `3000`  | 激进截断，已有文件路径继续引用 |
 
 **特殊工具说明：**
 
-- **Browser Use 类工具**：首次调用保存原始内容到 `tool_result/uuid.txt`，消息中保留片段 + 文件引用，并提示从第 N 行读取；超出 `recent_n` 后进行二次截断
-- **read_file 工具**：`recent_n` 内不截断也不保存（内容已是外部文件）；超出后截断并保存到 `tool_result/`
-- 超过 `retention_days` 天的文件自动清理
+- **Browser Use 类工具**：首次调用保存原始内容到 `tool_result/uuid.txt`，消息中保留片段 + 文件引用，并提示从第 N 行读取；超出 `pruning_recent_n` 后进行二次截断
+- **read_file 工具**：`pruning_recent_n` 内不截断也不保存（内容已是外部文件）；超出后截断并保存到 `tool_result/`
+- 超过 `offload_retention_days` 天的文件自动清理
 
 ### 2. check_context — 上下文检查
 
@@ -263,37 +263,46 @@ graph TB
 
 ## 配置
 
-配置文件位于 `~/.qwenpaw/config.json` 中的 `agents.running` 部分：
+配置文件位于 `~/.qwenpaw/workspaces/{agent_id}/agent.json` 中的 `running` 部分：
 
 **`running` 直接字段：**
 
-| 参数               | 默认值   | 说明                         |
-| ------------------ | -------- | ---------------------------- |
-| `max_input_length` | `131072` | 模型上下文窗口大小（tokens） |
+| 参数                      | 默认值   | 说明                         |
+| ------------------------- | -------- | ---------------------------- |
+| `max_input_length`        | `131072` | 模型上下文窗口大小（tokens） |
+| `context_manager_backend` | `"light"`| 上下文管理器后端类型         |
+| `memory_manager_backend`  | `"ReMeLight"` | 记忆管理器后端类型    |
 
-**`running.context_compact` 字段：**
+**`running.light_context_config` 字段：**
+
+| 参数                       | 默认值    | 说明                             |
+| -------------------------- | --------- | -------------------------------- |
+| `dialog_path`              | `"dialog"`| 对话持久化目录（相对于工作目录） |
+| `token_count_estimate_divisor` | `4.0` | 基于字节的 token 估算除数     |
+
+**`running.light_context_config.context_compact_config` 字段：**
 
 | 参数                          | 默认值 | 说明                                                             |
 | ----------------------------- | ------ | ---------------------------------------------------------------- |
-| `context_compact_enabled`     | `true` | 是否启用自动上下文压缩                                           |
-| `memory_compact_ratio`        | `0.75` | 触发压缩的阈值比例，达到 `max_input_length * ratio` 时压缩       |
-| `memory_reserve_ratio`        | `0.1`  | 压缩时保留的最近消息比例，保留 `max_input_length * ratio` tokens |
+| `enabled`                     | `true` | 是否启用自动上下文压缩                                           |
+| `compact_threshold_ratio`     | `0.8`  | 触发压缩的阈值比例，达到 `max_input_length * ratio` 时压缩       |
+| `reserve_threshold_ratio`     | `0.1`  | 压缩时保留的最近消息比例，保留 `max_input_length * ratio` tokens |
 | `compact_with_thinking_block` | `true` | 压缩时是否包含 thinking block                                    |
 
-**`running.tool_result_compact` 字段：**
+**`running.light_context_config.tool_result_pruning_config` 字段：**
 
-| 参数               | 默认值  | 说明                                       |
-| ------------------ | ------- | ------------------------------------------ |
-| `enabled`          | `true`  | 是否压缩超长工具输出                       |
-| `recent_n`         | `2`     | 最近 N 条消息使用 `recent_max_bytes` 阈值  |
-| `old_max_bytes`    | `3000`  | 旧消息的工具输出字节阈值                   |
-| `recent_max_bytes` | `50000` | 最近 `recent_n` 条消息的工具输出字节阈值   |
-| `retention_days`   | `5`     | 工具输出缓存文件的保留天数（超期自动清理） |
+| 参数                        | 默认值  | 说明                                       |
+| --------------------------- | ------- | ------------------------------------------ |
+| `enabled`                   | `true`  | 是否修剪超长工具输出                       |
+| `pruning_recent_n`          | `2`     | 最近 N 条消息使用较高阈值                  |
+| `pruning_old_msg_max_bytes` | `3000`  | 旧消息的工具输出字节阈值                   |
+| `pruning_recent_msg_max_bytes` | `50000` | 最近 `pruning_recent_n` 条消息的工具输出字节阈值 |
+| `offload_retention_days`    | `5`     | 工具输出缓存文件的保留天数（超期自动清理） |
 
 **计算关系：**
 
-- `memory_compact_threshold` = `max_input_length × memory_compact_ratio`（触发压缩的阈值）
-- `memory_compact_reserve` = `max_input_length × memory_reserve_ratio`（保留的最近消息 tokens）
+- `memory_compact_threshold` = `max_input_length × compact_threshold_ratio`（触发压缩的阈值）
+- `memory_compact_reserve` = `max_input_length × reserve_threshold_ratio`（保留的最近消息 tokens）
 
 **示例配置：**
 
@@ -302,15 +311,20 @@ graph TB
   "agents": {
     "running": {
       "max_input_length": 128000,
-      "context_compact": {
-        "memory_compact_ratio": 0.7,
-        "memory_reserve_ratio": 0.1
-      },
-      "tool_result_compact": {
-        "enabled": true,
-        "recent_n": 3,
-        "old_max_bytes": 3000,
-        "recent_max_bytes": 50000
+      "context_manager_backend": "light",
+      "light_context_config": {
+        "dialog_path": "dialog",
+        "context_compact_config": {
+          "enabled": true,
+          "compact_threshold_ratio": 0.8,
+          "reserve_threshold_ratio": 0.1
+        },
+        "tool_result_pruning_config": {
+          "enabled": true,
+          "pruning_recent_n": 2,
+          "pruning_old_msg_max_bytes": 3000,
+          "pruning_recent_msg_max_bytes": 50000
+        }
       }
     }
   }

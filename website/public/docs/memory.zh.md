@@ -74,13 +74,32 @@ graph LR
 
 ## 记忆配置
 
+### 配置结构
+
+记忆配置位于 `agent.json` 的 `running.reme_light_memory_config` 中：
+
+| 配置项                           | 说明                                                                        | 默认值         |
+| -------------------------------- | --------------------------------------------------------------------------- | -------------- |
+| `summarize_when_compact`         | 是否在上下文压缩时后台保存长期记忆（调用 `summary_memory` 写入文件）        | `true`         |
+| `summarize_interval`             | 每隔 N 次用户查询进行总结。null 表示禁用周期总结                            | `null`         |
+| `dream_cron`                     | 梦境记忆优化任务的 Cron 表达式（空字符串表示禁用）                          | `"0 23 * * *"` |
+| `rebuild_memory_index_on_start`  | 启动时是否清空并重建记忆搜索索引；设为 `false` 可跳过重建，仅监控新文件变更 | `false`        |
+| `recursive_file_watcher`         | 是否递归监控记忆目录（包含子目录如 `memory/subdirectory/*`）                | `false`        |
+
+### 强制记忆搜索配置
+
+在 `running.reme_light_memory_config.force_memory_search_config` 中配置：
+
+| 配置项        | 说明                                               | 默认值  |
+| ------------- | -------------------------------------------------- | ------- |
+| `enabled`     | 是否在每次对话时强制执行记忆搜索                   | `false` |
+| `max_results` | 强制搜索时最多返回的结果数                         | `1`     |
+| `min_score`   | 强制搜索时的最低相关性分数阈值（0.0 ~ 1.0）        | `0.1`   |
+| `timeout`     | 强制搜索超时时间（秒）                             | `10.0`  |
+
 ### Embedding 配置（可选）
 
-Embedding 配置用于向量语义搜索，配置优先级为：**配置文件 > 环境变量 > 默认值**。
-
-#### 通过配置文件配置（推荐）
-
-在 `agent.json` 的 `running.embedding_config` 中配置：
+Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_config.embedding_model_config`：
 
 | 配置项             | 说明                                  | 默认值   |
 | ------------------ | ------------------------------------- | -------- |
@@ -91,7 +110,7 @@ Embedding 配置用于向量语义搜索，配置优先级为：**配置文件 >
 | `dimensions`       | 向量维度，用于初始化向量数据库        | `1024`   |
 | `enable_cache`     | 是否启用 Embedding 缓存               | `true`   |
 | `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数 | `false`  |
-| `max_cache_size`   | Embedding 缓存最大条目数              | `2000`   |
+| `max_cache_size`   | Embedding 缓存最大条目数              | `3000`   |
 | `max_input_length` | 单次 Embedding 最大输入长度           | `8192`   |
 | `max_batch_size`   | Embedding 批处理最大数量              | `10`     |
 
@@ -118,19 +137,6 @@ Embedding 配置用于向量语义搜索，配置优先级为：**配置文件 >
 | `FTS_ENABLED` | 是否启用全文检索 | `true` |
 
 > 即使不配置 Embedding，启用全文检索仍可通过 BM25 进行关键词搜索。
-
-### 记忆总结配置
-
-在 `agent.json` 的 `running.memory_summary` 中配置：
-
-| 配置项                           | 说明                                                                        | 默认值         |
-| -------------------------------- | --------------------------------------------------------------------------- | -------------- |
-| `memory_summary_enabled`         | 是否在上下文压缩时后台保存长期记忆（调用 `summary_memory` 写入文件）        | `true`         |
-| `dream_cron`                     | 梦境记忆优化任务的 Cron 表达式（空字符串表示禁用）                          | `"0 23 * * *"` |
-| `force_memory_search` **(BETA)** | 是否在每次对话时强制执行记忆搜索，并将结果注入上下文                        | `false`        |
-| `force_max_results`              | 强制搜索时最多返回的结果数                                                  | `1`            |
-| `force_min_score`                | 强制搜索时的最低相关性分数阈值（0.0 ~ 1.0）                                 | `0.3`          |
-| `rebuild_memory_index_on_start`  | 启动时是否清空并重建记忆搜索索引；设为 `false` 可跳过重建，仅监控新文件变更 | `false`        |
 
 ---
 
