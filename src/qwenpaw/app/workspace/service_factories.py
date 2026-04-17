@@ -169,6 +169,7 @@ async def create_mcp_config_watcher(ws: "Workspace", _):
     return watcher
     # pylint: enable=protected-access
 
+
 async def reload_channel_service(ws, cm) -> None:
     """Update reused channel_manager to point to the new runner.
 
@@ -186,6 +187,8 @@ async def reload_channel_service(ws, cm) -> None:
         ch._process = new_process
     cm.set_workspace(ws)
     import logging
+
     logging.getLogger(__name__).info(
-        "channel_manager reload: updated %d channels to new runner", len(cm.channels)
+        "channel_manager reload: updated %d channels to new runner",
+        len(cm.channels),
     )

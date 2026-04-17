@@ -352,9 +352,13 @@ class Workspace:
             # 3. Refresh reused channel_manager to point to new runner
             cm = self._service_manager.services.get("channel_manager")
             runner = self._service_manager.services.get("runner")
-            if (cm and runner
-                    and "channel_manager" in self._service_manager.reused_services):
+            if (
+                cm
+                and runner
+                and "channel_manager" in self._service_manager.reused_services
+            ):
                 from .service_factories import reload_channel_service
+
                 await reload_channel_service(self, cm)
 
             self._started = True

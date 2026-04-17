@@ -655,11 +655,16 @@ async def remove_from_whitelist(
 # different agents is safe because each gets its own state dict.
 _whatsapp_pair_states: dict[str, dict] = {}
 
+
 def _get_wa_pair_state(agent_id: str) -> dict:
     """Get or create per-agent WhatsApp pairing state."""
     if agent_id not in _whatsapp_pair_states:
         _whatsapp_pair_states[agent_id] = {
-            "client": None, "code": None, "status": "idle", "qr_data": None, "task": None,
+            "client": None,
+            "code": None,
+            "status": "idle",
+            "qr_data": None,
+            "task": None,
         }
     return _whatsapp_pair_states[agent_id]
 
@@ -678,13 +683,16 @@ def _get_wa_auth_dir(agent) -> str:
     """
     from pathlib import Path
     from ...constant import WORKING_DIR
+
     wa_cfg = getattr(agent.config.channels, "whatsapp", None)
     explicit = (getattr(wa_cfg, "auth_dir", "") if wa_cfg else "") or ""
     if explicit:
         return explicit
     ws = getattr(agent, "workspace_dir", None)
     if ws:
-        return str(Path(ws).expanduser() / "credentials" / "whatsapp" / "default")
+        return str(
+            Path(ws).expanduser() / "credentials" / "whatsapp" / "default",
+        )
     return str(WORKING_DIR / "credentials" / "whatsapp" / "default")
 
 
@@ -696,14 +704,16 @@ def _get_wa_auth_dir(agent) -> str:
 async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     """Start WhatsApp pair code auth. Requires E.164 phone number."""
     import re
+
     E164_RE = re.compile(r"^\+[1-9]\d{4,14}$")
     if not phone or not E164_RE.match(phone):
         raise HTTPException(
             status_code=400,
             detail="Phone number required in E.164 format "
-                   "(^\\+[1-9]\\d{4,14}$, e.g. +85212345678)",
+            "(^\\+[1-9]\\d{4,14}$, e.g. +85212345678)",
         )
     import asyncio
+
     try:
         from neonize.aioze.client import NewAClient
         from neonize.events import ConnectedEv
@@ -711,15 +721,17 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
         raise HTTPException(
             status_code=500,
             detail="neonize-qwenpaw not installed. "
-                   "Install: pip install qwenpaw[whatsapp]",
+            "Install: pip install qwenpaw[whatsapp]",
         )
 
     from ..agent_context import get_agent_for_request
+
     agent = await get_agent_for_request(request)
     auth_dir = _get_wa_auth_dir(agent)
     state = _get_wa_pair_state(agent.agent_id)
 
     from pathlib import Path
+
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
     Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
 
@@ -755,9 +767,11 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     @client.qr
     async def on_qr(c, qr_bytes):
         import base64
+
         try:
             import segno
             import io
+
             qr = segno.make_qr(qr_bytes)
             buf = io.BytesIO()
             qr.save(buf, kind="png", scale=5, border=2)
@@ -794,6 +808,7 @@ async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
 async def check_whatsapp_pair_status(request: Request) -> dict:
     """Check current WhatsApp pairing status."""
     from ..agent_context import get_agent_for_request
+
     agent = await get_agent_for_request(request)
     state = _get_wa_pair_state(agent.agent_id)
     result = {"status": state["status"]}
@@ -811,6 +826,7 @@ async def check_whatsapp_pair_status(request: Request) -> dict:
 async def stop_whatsapp_pair(request: Request) -> dict:
     """Stop the WhatsApp pairing process."""
     from ..agent_context import get_agent_for_request
+
     agent = await get_agent_for_request(request)
     state = _get_wa_pair_state(agent.agent_id)
     client = state.get("client")
@@ -819,7 +835,15 @@ async def stop_whatsapp_pair(request: Request) -> dict:
             await client.disconnect()
         except Exception:
             pass
-    state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
+    state.update(
+        {
+            "client": None,
+            "code": None,
+            "status": "idle",
+            "qr_data": None,
+            "task": None,
+        },
+    )
     return {"status": "stopped"}
 
 
@@ -832,6 +856,7 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     import asyncio
     import base64
     import io
+
     try:
         from neonize.aioze.client import NewAClient
         from neonize.events import ConnectedEv
@@ -840,15 +865,17 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
         raise HTTPException(
             status_code=500,
             detail="neonize-qwenpaw or segno not installed. "
-                   "Install: pip install qwenpaw[whatsapp]",
+            "Install: pip install qwenpaw[whatsapp]",
         )
 
     from ..agent_context import get_agent_for_request
+
     agent = await get_agent_for_request(request)
     auth_dir = _get_wa_auth_dir(agent)
     state = _get_wa_pair_state(agent.agent_id)
 
     from pathlib import Path
+
     db_path = str(Path(auth_dir).expanduser() / "neonize.db")
     Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
 
@@ -928,6 +955,7 @@ async def unbind_whatsapp(request: Request) -> dict:
     from pathlib import Path as _P
 
     from ..agent_context import get_agent_for_request
+
     agent = await get_agent_for_request(request)
     auth_dir = _get_wa_auth_dir(agent)
     state = _get_wa_pair_state(agent.agent_id)
@@ -950,8 +978,19 @@ async def unbind_whatsapp(request: Request) -> dict:
     db_path = _P(auth_dir).expanduser() / "neonize.db"
     if db_path.exists():
         db_path.unlink()
-        state.update({"client": None, "code": None, "status": "idle", "qr_data": None, "task": None})
-        return {"status": "unbound", "detail": "Session deleted. Restart QwenPaw to re-pair."}
+        state.update(
+            {
+                "client": None,
+                "code": None,
+                "status": "idle",
+                "qr_data": None,
+                "task": None,
+            },
+        )
+        return {
+            "status": "unbound",
+            "detail": "Session deleted. Restart QwenPaw to re-pair.",
+        }
     return {"status": "idle", "detail": "No session found."}
 
 
@@ -964,6 +1003,7 @@ async def get_whatsapp_status(request: Request) -> dict:
     try:
         from pathlib import Path
         from ..agent_context import get_agent_for_request
+
         agent = await get_agent_for_request(request)
         auth_dir = _get_wa_auth_dir(agent)
         db_path = Path(auth_dir).expanduser() / "neonize.db"
@@ -971,6 +1011,7 @@ async def get_whatsapp_status(request: Request) -> dict:
             return {"linked": False, "phone": None}
         import asyncio
         import sqlite3
+
         def _check_linked():
             conn = sqlite3.connect(str(db_path))
             try:
@@ -992,6 +1033,7 @@ async def get_whatsapp_status(request: Request) -> dict:
                 return (False, None)
             finally:
                 conn.close()
+
         linked, phone = await asyncio.to_thread(_check_linked)
         if linked:
             return {"linked": True, "phone": phone}

@@ -11,6 +11,7 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_channel(name="test"):
     ch = MagicMock()
     ch.channel = name
@@ -40,12 +41,14 @@ def _make_mock_workspace(runner, channel_manager=None):
 # Tests for reload_channel_service
 # ---------------------------------------------------------------------------
 
-class TestReloadChannelService:
 
+class TestReloadChannelService:
     @pytest.mark.asyncio
     async def test_updates_all_channels_process(self):
         """After reload, all channels should point to new runner."""
-        from qwenpaw.app.workspace.service_factories import reload_channel_service
+        from qwenpaw.app.workspace.service_factories import (
+            reload_channel_service,
+        )
 
         old_runner = MagicMock()
         old_runner.stream_query = MagicMock(name="old_stream_query")
@@ -70,7 +73,9 @@ class TestReloadChannelService:
     @pytest.mark.asyncio
     async def test_calls_set_workspace(self):
         """Reload should update workspace reference on channel_manager."""
-        from qwenpaw.app.workspace.service_factories import reload_channel_service
+        from qwenpaw.app.workspace.service_factories import (
+            reload_channel_service,
+        )
 
         runner = MagicMock()
         runner.stream_query = MagicMock()
@@ -84,7 +89,9 @@ class TestReloadChannelService:
     @pytest.mark.asyncio
     async def test_no_runner_skips_update(self):
         """If runner is not available, channels should not be modified."""
-        from qwenpaw.app.workspace.service_factories import reload_channel_service
+        from qwenpaw.app.workspace.service_factories import (
+            reload_channel_service,
+        )
 
         old_process = MagicMock(name="old")
         ch = _make_mock_channel()
@@ -103,7 +110,9 @@ class TestReloadChannelService:
     @pytest.mark.asyncio
     async def test_empty_channels_no_error(self):
         """Reload with zero channels should not raise."""
-        from qwenpaw.app.workspace.service_factories import reload_channel_service
+        from qwenpaw.app.workspace.service_factories import (
+            reload_channel_service,
+        )
 
         runner = MagicMock()
         runner.stream_query = MagicMock()
@@ -117,7 +126,9 @@ class TestReloadChannelService:
     @pytest.mark.asyncio
     async def test_multiple_reloads_idempotent(self):
         """Calling reload twice should work and always point to latest runner."""
-        from qwenpaw.app.workspace.service_factories import reload_channel_service
+        from qwenpaw.app.workspace.service_factories import (
+            reload_channel_service,
+        )
 
         runner1 = MagicMock()
         runner1.stream_query = MagicMock(name="r1")
@@ -140,8 +151,8 @@ class TestReloadChannelService:
 # Tests for ServiceDescriptor reusable flag
 # ---------------------------------------------------------------------------
 
-class TestChannelManagerReusable:
 
+class TestChannelManagerReusable:
     def test_channel_manager_descriptor_is_reusable(self):
         """channel_manager must be marked reusable for hot-reload to work."""
         from qwenpaw.app.workspace.service_manager import ServiceManager
@@ -151,6 +162,7 @@ class TestChannelManagerReusable:
         # Simulate workspace registration (we can't easily call _register_services
         # so just check the descriptor class supports it)
         from qwenpaw.app.workspace.service_manager import ServiceDescriptor
+
         desc = ServiceDescriptor(
             name="channel_manager",
             service_class=None,
@@ -166,11 +178,13 @@ class TestChannelManagerReusable:
         )
 
         sm = ServiceManager(workspace=MagicMock())
-        sm.register(ServiceDescriptor(
-            name="channel_manager",
-            service_class=None,
-            reusable=True,
-        ))
+        sm.register(
+            ServiceDescriptor(
+                name="channel_manager",
+                service_class=None,
+                reusable=True,
+            ),
+        )
         mock_cm = MagicMock()
         sm.services["channel_manager"] = mock_cm
 
@@ -186,11 +200,13 @@ class TestChannelManagerReusable:
         )
 
         sm = ServiceManager(workspace=MagicMock())
-        sm.register(ServiceDescriptor(
-            name="runner",
-            service_class=None,
-            reusable=False,
-        ))
+        sm.register(
+            ServiceDescriptor(
+                name="runner",
+                service_class=None,
+                reusable=False,
+            ),
+        )
         sm.services["runner"] = MagicMock()
 
         reusable = sm.get_reusable_services()
