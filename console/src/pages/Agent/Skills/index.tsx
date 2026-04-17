@@ -748,7 +748,7 @@ function SkillsPage() {
               onChange={setSearchTags}
               searchValue={searchQuery}
               onSearch={setSearchQuery}
-              open={filterOpen}
+              open={filterOpen && allTags.length > 0}
               onDropdownVisibleChange={setFilterOpen}
               allowClear
               maxTagCount="responsive"

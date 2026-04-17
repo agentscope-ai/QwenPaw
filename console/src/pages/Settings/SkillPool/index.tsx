@@ -161,7 +161,7 @@ function SkillPoolPage() {
                 onChange={pool.setSearchTags}
                 searchValue={pool.searchQuery}
                 onSearch={pool.setSearchQuery}
-                open={pool.filterOpen}
+                open={pool.filterOpen && pool.allTags.length > 0}
                 onDropdownVisibleChange={pool.setFilterOpen}
                 allowClear
                 maxTagCount="responsive"
