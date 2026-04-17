@@ -45,17 +45,19 @@ async def test_hint_injection():
     else:
         print(f"  SKIP: Skills dir not found: {skills_dir}")
 
-    # Test 3: Verify reply() modifies user message with hint
-    print("\n[Test 3] Reply method hint injection check")
+    # Test 3: Verify reply() uses system message with mark for hint injection
+    print("\n[Test 3] Reply method hint injection check (system message approach)")
     with open(os.path.join(os.path.dirname(__file__), 'src/copaw/agents/react_agent.py')) as f:
         source = f.read()
 
     assert '_build_skill_hint(query)' in source, "reply() should call _build_skill_hint"
-    assert 'target.content = hint + content' in source, "reply() should prepend hint to content"
-    assert '[Skill Hint] Relevant skills for this query:' in source, "Hint text format correct"
+    assert 'hint_msg = Msg(' in source, "reply() should create hint_msg as system message"
+    assert 'marks="skill_hint"' in source, "reply() should add hint with skill_hint mark"
+    assert 'delete_by_mark("skill_hint")' in source, "reply() should cleanup hint by mark"
     print("  PASS: reply() calls _build_skill_hint(query)")
-    print("  PASS: reply() prepends hint to user message content")
-    print("  PASS: Hint text format: '[Skill Hint] Relevant skills...'")
+    print("  PASS: reply() creates hint_msg = Msg(role=system)")
+    print("  PASS: reply() adds hint with mark=\"skill_hint\"")
+    print("  PASS: reply() cleans up hint via delete_by_mark")
 
     # Test 4: Verify tool list is NOT modified (KV cache preservation)
     print("\n[Test 4] KV Cache preservation check")
