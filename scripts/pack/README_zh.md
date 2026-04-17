@@ -10,7 +10,7 @@
 ## 系统要求
 
 - **Windows**: Windows 10 或更高版本
-- **macOS**: macOS 14 (Sonoma) 或更高版本，推荐 Apple Silicon (M1/M2/M3/M4) 以获得 MLX 支持
+- **macOS**: macOS 14 (Sonoma) 或更高版本，推荐 Apple Silicon (M1/M2/M3/M4)
 
 ## 前置
 

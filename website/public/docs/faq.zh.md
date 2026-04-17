@@ -78,7 +78,7 @@ docker run -p 127.0.0.1:8088:8088 \
 2. 如果你是通过 pip 安装，在终端中执行以下命令升级：
 
 ```
-pip install --upgrade qwenpaw
+qwenpaw update
 ```
 
 3. 如果你是从源码安装，进入项目目录并拉取最新代码后重新安装：
@@ -86,6 +86,9 @@ pip install --upgrade qwenpaw
 ```
 cd QwenPaw
 git pull origin main
+cd console && npm ci && npm run build
+cd .. && mkdir -p src/qwenpaw/console
+cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 

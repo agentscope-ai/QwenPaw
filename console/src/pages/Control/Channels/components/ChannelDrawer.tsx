@@ -503,6 +503,13 @@ export function ChannelDrawer({
             >
               <Input.Password />
             </Form.Item>
+            <Form.Item
+              name="ack_message"
+              label={t("channels.ackMessage")}
+              tooltip={t("channels.ackMessageTooltip")}
+            >
+              <Input placeholder={t("channels.ackMessagePlaceholder")} />
+            </Form.Item>
           </>
         );
 

@@ -1,7 +1,7 @@
 # QwenPaw Installer for Windows (self-contained: includes uv download via GitHub)
 # Usage: irm <url>/install.ps1 | iex
 #    or: .\install.ps1 [-Version X.Y.Z] [-FromSource] [-SourceDir DIR]
-#                            [-Extras "llamacpp,mlx"] [-UvPath PATH]
+#                            [-Extras "dev,whisper"] [-UvPath PATH]
 #
 # Installs QwenPaw into ~/.qwenpaw with a uv-managed Python environment.
 # Users do NOT need Python pre-installed — uv handles everything.
@@ -51,7 +51,7 @@ Options:
   -FromSource           Install from source (requires git, or use -SourceDir)
   -SourceDir <DIR>      Local source directory (used with -FromSource)
   -Extras <EXTRAS>      Comma-separated optional extras to install
-                        (e.g. llamacpp, mlx, llamacpp,mlx)
+                        (e.g. dev, whisper)
   -UvPath <PATH>        Path to a pre-installed uv.exe (skips all auto-install)
   -Help                 Show this help
 

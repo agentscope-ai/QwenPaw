@@ -165,6 +165,7 @@ class QQConfig(BaseChannelConfig):
     client_secret: str = ""
     markdown_enabled: bool = True
     max_reconnect_attempts: int = 100
+    ack_message: str = ""
 
 
 class OneBotConfig(BaseChannelConfig):

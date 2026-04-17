@@ -53,12 +53,15 @@
     "tools": "ツール",
     "voiceTranscription": "音声文字起こし",
     "agents": "エージェント管理",
-    "debug": "デバッグ"
+    "debug": "デバッグ",
+    "plugins": "プラグイン"
   },
   "debug": {
     "title": "デバッグ",
-    "desc": "CoPaw バックエンドのデーモンログを表示し、問題の調査に役立てます。このページを開いている間は自動で更新されます。",
-    "level": { "all": "すべて" },
+    "desc": "バックエンドのデーモンログを表示し、問題の調査に役立てます。このページを開いている間は自動で更新されます。",
+    "level": {
+      "all": "すべて"
+    },
     "backend": {
       "title": "バックエンドログ",
       "autoRefresh": "自動更新",
@@ -272,6 +275,7 @@
     "broadcastTitle": "{{name}} をブロードキャスト",
     "importBuiltin": "ビルトインを取り込む",
     "importBuiltinHint": "ソースからビルトインスキルをプールに取り込みます",
+    "importBuiltinAlertHint": "{{count}} 件のビルトイン変更を確認してください",
     "importHubHint": "URL経由でスキルをインポート",
     "uploadZipHint": "Zip経由でアップロード",
     "importBuiltinSuccess": "ビルトインを取り込みました: {{names}}",
@@ -285,6 +289,11 @@
     "importStatusMissing": "プールにありません",
     "importStatusCurrent": "最新です",
     "importStatusConflict": "競合",
+    "builtinNoticeSummary": "{{count}} 件のビルトイン変更が見つかりました",
+    "builtinNoticeLineAdded": "追加: {{names}}",
+    "builtinNoticeLineMissing": "不足: {{names}}",
+    "builtinNoticeLineUpdated": "更新: {{names}}",
+    "builtinNoticeLineRemoved": "削除: {{names}}",
     "zipImport": "ZIPインポート",
     "create": "作成",
     "edit": "編集",
@@ -491,6 +500,9 @@
     "filterToolMessagesTooltip": "ツール呼び出しと出力メッセージをユーザーに表示します（オフにすると非表示）",
     "filterThinking": "思考過程を表示",
     "filterThinkingTooltip": "モデルの思考・推論内容をユーザーに表示します（オフにすると非表示）",
+    "ackMessage": "即時確認メッセージ",
+    "ackMessageTooltip": "メッセージ受信時にエージェント処理の前に即時返信を送信します。空欄で無効化。",
+    "ackMessagePlaceholder": "⏳ 処理中...",
     "notSet": "未設定",
     "clickCardToEdit": "カードをクリックして編集",
     "settings": "設定",

@@ -53,12 +53,15 @@
     "tokenUsage": "Использование токенов",
     "voiceTranscription": "Транскрипция голоса",
     "agents": "Управление агентами",
-    "debug": "Отладка"
+    "debug": "Отладка",
+    "plugins": "Плагины"
   },
   "debug": {
     "title": "Отладка",
-    "desc": "Просмотр файла логов backend-демона CoPaw для диагностики. Пока открыта эта страница, логи обновляются автоматически.",
-    "level": { "all": "Все" },
+    "desc": "Просмотр файла логов backend-демона для диагностики. Пока открыта эта страница, логи обновляются автоматически.",
+    "level": {
+      "all": "Все"
+    },
     "backend": {
       "title": "Backend-логи",
       "autoRefresh": "Автообновление",
@@ -277,6 +280,7 @@
     "broadcastTitle": "Транслировать {{name}}",
     "importBuiltin": "Импорт встроенных",
     "importBuiltinHint": "Импортировать встроенные навыки из исходников в пул",
+    "importBuiltinAlertHint": "Требуют внимания {{count}} изменений встроенных навыков",
     "importHubHint": "Импорт навыков через URL",
     "uploadZipHint": "Загрузить через Zip",
     "importBuiltinSuccess": "Встроенные навыки импортированы: {{names}}",
@@ -290,6 +294,11 @@
     "importStatusMissing": "Отсутствует в пуле",
     "importStatusCurrent": "Уже актуален",
     "importStatusConflict": "Конфликт",
+    "builtinNoticeSummary": "Обнаружено {{count}} изменений встроенных навыков",
+    "builtinNoticeLineAdded": "Добавлено: {{names}}",
+    "builtinNoticeLineMissing": "Отсутствует: {{names}}",
+    "builtinNoticeLineUpdated": "Обновлено: {{names}}",
+    "builtinNoticeLineRemoved": "Удалено: {{names}}",
     "zipImport": "ZIP-импорт",
     "create": "Создать",
     "edit": "Редактировать",
@@ -496,6 +505,9 @@
     "filterToolMessagesTooltip": "Показывать пользователям вызовы инструментов и их вывод (выключите, чтобы скрыть)",
     "filterThinking": "Показывать рассуждения",
     "filterThinkingTooltip": "Показывать пользователям рассуждения модели (выключите, чтобы скрыть)",
+    "ackMessage": "Сообщение подтверждения",
+    "ackMessageTooltip": "Отправить мгновенный ответ при получении сообщения до начала обработки агентом. Оставьте пустым для отключения.",
+    "ackMessagePlaceholder": "⏳ Обработка...",
     "notSet": "Не задано",
     "clickCardToEdit": "Нажмите на карточку для редактирования",
     "settings": "Настройки",
@@ -915,7 +927,6 @@
     "perMillionIn": "/1M вх.",
     "perMillionOut": "/1M исх."
   },
-
   "agentConfig": {
     "title": "Конфигурация",
     "description": "Настройка параметров выполнения агента",

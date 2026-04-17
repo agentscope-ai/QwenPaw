@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import argparse
 import os
-import platform
 import random
 import string
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -147,87 +145,11 @@ def main() -> int:
                 "pip",
             ],
         )
-        # Try to install llama-cpp-python from prebuilt wheel first
-        # Security: Use two-step download+install to isolate third-party index
-        # usage and avoid supply-chain risk from --extra-index-url affecting
-        # dependency resolution of other packages.
-        # See: https://pypi.org/project/llama-cpp-python/
-        print("Attempting to install llama-cpp-python from prebuilt wheel...")
-        needs_llama_compile = False
-
-        # Determine the appropriate wheel index URL based on platform
-        system = platform.system().lower()
-        if system == "darwin":
-            # macOS: use Metal-enabled wheel (macOS 11.0+, Python 3.10-3.12)
-            wheel_index = "https://abetlen.github.io/llama-cpp-python/whl/metal"
-            print("Using Metal-enabled wheel for macOS")
-        else:
-            # Windows/Linux: use CPU wheel
-            wheel_index = "https://abetlen.github.io/llama-cpp-python/whl/cpu"
-            print(f"Using CPU wheel for {system}")
-
-        try:
-            # Step 1: Download wheel from third-party index to temp directory
-            # This ensures only llama-cpp-python is fetched from third-party
-            with tempfile.TemporaryDirectory() as tmpdir:
-                print(f"Downloading llama-cpp-python wheel to {tmpdir}...")
-                _run(
-                    [
-                        conda,
-                        "run",
-                        "-n",
-                        env_name,
-                        "python",
-                        "-m",
-                        "pip",
-                        "download",
-                        "--only-binary=llama-cpp-python",
-                        "--extra-index-url",
-                        wheel_index,
-                        "--dest",
-                        tmpdir,
-                        "llama-cpp-python>=0.3.0",
-                    ],
-                )
-                # Step 2: Install from local wheel (no third-party index)
-                # Use --no-index to prevent fallback to PyPI, --find-links for
-                # local wheel dir. Dependencies will be resolved from PyPI when
-                # installing qwenpaw[full] later.
-                print("Installing llama-cpp-python from downloaded wheel...")
-                _run(
-                    [
-                        conda,
-                        "run",
-                        "-n",
-                        env_name,
-                        "python",
-                        "-m",
-                        "pip",
-                        "install",
-                        "--find-links",
-                        tmpdir,
-                        "--no-index",
-                        "llama-cpp-python",
-                    ],
-                )
-            print("Successfully installed llama-cpp-python from prebuilt wheel")
-        except subprocess.CalledProcessError:
-            print(
-                "Prebuilt wheel not available, will compile from source when "
-                "installing qwenpaw[full]"
-            )
-            needs_llama_compile = True
 
         # Install qwenpaw with all dependencies
         # Scope CMAKE_ARGS to this specific command to avoid affecting other
         # CMake-based packages. Only set if we need to compile from source.
         install_env = {}
-        if needs_llama_compile:
-            print(
-                "Will compile llama-cpp-python from source with CMAKE_ARGS="
-                "-DGGML_METAL=off"
-            )
-            install_env = {"CMAKE_ARGS": "-DGGML_METAL=off"}
 
         _run(
             [

@@ -42,6 +42,7 @@ export interface FeishuConfig extends BaseChannelConfig {
 export interface QQConfig extends BaseChannelConfig {
   app_id: string;
   client_secret: string;
+  ack_message?: string;
 }
 
 export interface TelegramConfig extends BaseChannelConfig {
