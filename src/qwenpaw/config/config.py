@@ -299,6 +299,49 @@ class WeixinConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
 
 
+class SignalConfig(BaseChannelConfig):
+    """Signal channel via signal-cli subprocess (stdin/stdout JSON-RPC).
+
+    signal-cli is spawned as a child process in ``jsonRpc`` mode; requests
+    and notifications flow over stdin/stdout pipes. No HTTP port or Docker
+    container is required — only the ``signal-cli`` binary (or a GraalVM
+    native-image build) on the user's PATH and an already-linked account.
+    """
+
+    account: str = ""
+    """Linked bot phone number in E.164 form (e.g. +85251159218)."""
+
+    account_uuid: str = ""
+    """Bot account UUID (optional, used for mention detection in groups)."""
+
+    signal_cli_path: str = "signal-cli"
+    """Path to the signal-cli binary. Looked up on PATH when not absolute."""
+
+    data_dir: str = ""
+    """signal-cli data directory (``-c`` flag). Empty means:
+    ``workspace_dir/credentials/signal/default`` when the agent has a
+    workspace, otherwise ``WORKING_DIR/credentials/signal/default``.
+    ``~``-expansion is applied. signal-cli's own default
+    (``~/.local/share/signal-cli/``) is never used unless explicitly
+    set here."""
+
+    extra_args: List[str] = Field(default_factory=list)
+    """Extra args to append to the signal-cli command line (e.g.
+    ``["--trust-new-identities", "always"]``)."""
+
+    send_read_receipts: bool = True
+    show_typing: Optional[bool] = True
+    text_chunk_limit: int = 4000
+
+    groups: List[str] = Field(default_factory=list)
+    group_allow_from: List[str] = Field(default_factory=list)
+
+    ack_reaction_thinking: str = "🤔"
+    ack_reaction_done: str = "👀"
+    ack_reaction_error: str = "⚠️"
+    reply_to_trigger: bool = True
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -318,6 +361,7 @@ class ChannelConfig(BaseModel):
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
     weixin: WeixinConfig = WeixinConfig()
+    signal: SignalConfig = SignalConfig()
     onebot: OneBotConfig = OneBotConfig()
 
 
@@ -1356,6 +1400,7 @@ ChannelConfigUnion = Union[
     WecomConfig,
     XiaoYiConfig,
     WeixinConfig,
+    SignalConfig,
 ]
 
 

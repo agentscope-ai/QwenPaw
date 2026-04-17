@@ -26,6 +26,7 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
     "https://gw.alicdn.com/imgextra/i1/O1CN01HWtzmr1hkK9beQICJ_!!6000000004315-2-tps-400-400.png",
   weixin:
     "https://gw.alicdn.com/imgextra/i4/O1CN01GsAob11fkfDWVIb3R_!!6000000004045-2-tps-400-400.png",
+  signal: "https://upload.wikimedia.org/wikipedia/commons/8/8d/Signal-Logo.svg",
 };
 
 export const CHANNEL_DEFAULT_ICON_URL =

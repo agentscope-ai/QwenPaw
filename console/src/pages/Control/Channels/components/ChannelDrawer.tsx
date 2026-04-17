@@ -12,11 +12,12 @@ import { Alert, ConfigProvider, Spin } from "antd";
 import { LinkOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import { useChannelQrcode } from "./useChannelQrcode";
 import styles from "../index.module.less";
 import { useTheme } from "../../../../contexts/ThemeContext";
+import api from "../../../../api";
 
 const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "telegram",
@@ -29,6 +30,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "weixin",
   "imessage",
   "onebot",
+  "signal",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -52,6 +54,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
+  signal: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Signal",
 };
 
 // Doc ZH URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -72,6 +75,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
     "https://developer.huawei.com/consumer/cn/doc/service/openclaw-0000002518410344",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
+  signal: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Signal",
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";
@@ -193,6 +197,179 @@ export function ChannelDrawer({
     ),
   });
 
+  // ── Signal link flow state ──────────────────────────────────────────
+  // Parallels WhatsApp's waPhone / waQrImage / waPairStatus pattern but
+  // with signal-cli subprocess semantics: no phone-number param (the
+  // subprocess returns one), QR is the only path (no pair-code fallback).
+  const [sigLinked, setSigLinked] = useState(false);
+  const [sigPhone, setSigPhone] = useState<string>("");
+  // UUID is not shown in the drawer but is stored on the form; the
+  // setter is still useful for that purpose (hence the _ prefix — it
+  // signals "intentionally unread state" to Copilot / strict-TS).
+  const [, setSigUuid] = useState<string>("");
+  const [sigQrImage, setSigQrImage] = useState<string>("");
+  const [sigPairStatus, setSigPairStatus] = useState<string>("idle");
+  const [sigPairLoading, setSigPairLoading] = useState(false);
+  const [sigDeviceName, setSigDeviceName] = useState<string>("QwenPaw");
+  const sigPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Directory options for the Signal drawer dropdowns. Populated from
+  // backend /channels/signal/{contacts,groups} when linked.
+  const [sigContacts, setSigContacts] = useState<
+    Array<{ number: string; uuid: string; name: string }>
+  >([]);
+  const [sigGroups, setSigGroups] = useState<
+    Array<{ id: string; blocked: boolean }>
+  >([]);
+
+  const stopSigPoll = useCallback(() => {
+    if (sigPollRef.current) {
+      clearInterval(sigPollRef.current);
+      sigPollRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeKey === "signal") {
+      api
+        .getSignalStatus()
+        .then((s) => {
+          setSigLinked(Boolean(s.linked));
+          if (s.linked) {
+            setSigPairStatus("linked");
+            if (s.phone) setSigPhone(s.phone);
+            if (s.uuid) setSigUuid(s.uuid);
+            // Auto-populate account / account_uuid from the authoritative
+            // signal-cli account store. Users shouldn't have to type in the
+            // phone number after linking — the backend already knows it.
+            // Only fill when the form field is empty to avoid clobbering a
+            // user-entered override.
+            const currentAccount = form.getFieldValue("account");
+            const currentUuid = form.getFieldValue("account_uuid");
+            const patch: Record<string, string> = {};
+            if (!currentAccount && s.phone) patch.account = s.phone;
+            if (!currentUuid && s.uuid) patch.account_uuid = s.uuid;
+            if (Object.keys(patch).length) form.setFieldsValue(patch);
+            // Fetch contacts + groups to populate the allow_from /
+            // group_allow_from / groups dropdowns so users don't have
+            // to type raw phone numbers or base64 group ids.
+            api
+              .listSignalContacts()
+              .then((r) => setSigContacts(r.contacts || []))
+              .catch(() => setSigContacts([]));
+            api
+              .listSignalGroups()
+              .then((r) => setSigGroups(r.groups || []))
+              .catch(() => setSigGroups([]));
+          } else {
+            setSigContacts([]);
+            setSigGroups([]);
+          }
+        })
+        .catch(() => {
+          /* ignore — endpoint may be 404 on older backends */
+        });
+    }
+    return () => {
+      stopSigPoll();
+    };
+  }, [activeKey, stopSigPoll, form]);
+
+  const handleSignalLink = useCallback(async () => {
+    stopSigPoll();
+    setSigPairLoading(true);
+    setSigQrImage("");
+    setSigPairStatus("starting");
+    try {
+      const data = await api.startSignalLink(sigDeviceName || "QwenPaw");
+      if (data.qr_image) {
+        setSigQrImage(data.qr_image);
+        setSigPairStatus(data.status || "waiting_qr");
+      }
+      // Poll for completion. Slightly longer interval than WhatsApp
+      // (3s) because signal-cli link rarely confirms in under 10s.
+      sigPollRef.current = setInterval(async () => {
+        try {
+          const s = await api.checkSignalLinkStatus();
+          if (s.status === "linked") {
+            stopSigPoll();
+            setSigQrImage("");
+            setSigPairStatus("linked");
+            setSigLinked(true);
+            if (s.phone) setSigPhone(s.phone);
+            if (s.uuid) setSigUuid(s.uuid);
+            setSigPairLoading(false);
+            form.setFieldsValue({
+              account: s.phone || "",
+              account_uuid: s.uuid || "",
+            });
+            // Auto-persist account + account_uuid to agent config so the
+            // Signal channel can start against the linked account without
+            // the user having to click Save. Other form fields (enabled,
+            // policies, etc.) still require explicit Save — we only push
+            // the two values signal-cli itself just authoritative-told us.
+            if (s.phone || s.uuid) {
+              const allFields = form.getFieldsValue();
+              const persisted: Record<string, unknown> = {
+                ...allFields,
+                account: s.phone || allFields.account || "",
+                account_uuid: s.uuid || allFields.account_uuid || "",
+                filter_tool_messages: !allFields.filter_tool_messages,
+                filter_thinking: !allFields.filter_thinking,
+              };
+              api
+                .updateChannelConfig(
+                  "signal",
+                  persisted as unknown as Parameters<
+                    typeof api.updateChannelConfig
+                  >[1],
+                )
+                .catch((err) => {
+                  // Non-fatal: user can still click Save manually.
+                  console.warn("signal: auto-persist after link failed:", err);
+                });
+            }
+            message.success(t("channels.signalLinkSuccess"));
+          } else if (s.status === "error") {
+            stopSigPoll();
+            setSigPairStatus("error");
+            setSigPairLoading(false);
+            message.error(s.error || t("channels.signalLinkFailed"));
+          }
+        } catch {
+          /* transient — keep polling */
+        }
+      }, 3000);
+    } catch (err) {
+      const msg = (err as Error)?.message || t("channels.signalLinkFailed");
+      message.error(msg);
+      setSigPairStatus("error");
+      // Error-path terminal state: clear loading immediately. The previous
+      // unconditional `finally` fired right after the polling interval was
+      // scheduled, which flipped the spinner off while the link flow was
+      // still in progress. Loading now only clears on terminal states —
+      // inline clears inside the poll loop (linked / error branches) handle
+      // the happy path and the server-reported error.
+      setSigPairLoading(false);
+    }
+  }, [sigDeviceName, stopSigPoll, form, message, t]);
+
+  const handleSignalUnbind = useCallback(async () => {
+    stopSigPoll();
+    try {
+      await api.unbindSignal();
+      setSigLinked(false);
+      setSigPhone("");
+      setSigUuid("");
+      setSigQrImage("");
+      setSigPairStatus("idle");
+      form.setFieldsValue({ account: "", account_uuid: "" });
+      message.success(t("channels.signalUnlinkSuccess"));
+    } catch (err) {
+      const msg = (err as Error)?.message || t("channels.signalUnlinkFailed");
+      message.error(msg);
+    }
+  }, [stopSigPoll, form, message, t]);
+
   // ── Access control fields (shared across multiple channels) ──────────────
 
   const renderAccessControlFields = () => (
@@ -241,6 +418,27 @@ export function ChannelDrawer({
           mode="tags"
           placeholder={t("channels.allowFromPlaceholder")}
           tokenSeparators={[","]}
+          // For Signal, populate with known contacts from
+          // signal-cli's account.db — value is the phone (preferred,
+          // since allowlist often matches on phone), with UUID shown in
+          // the option label. Users can still type free-form to add
+          // values not in the directory (e.g. uuid: prefix or unknown
+          // phones).
+          options={
+            activeKey === "signal" && sigContacts.length
+              ? sigContacts.map((c) => {
+                  const value = c.number || (c.uuid ? `uuid:${c.uuid}` : "");
+                  const label = [
+                    c.name,
+                    c.number,
+                    c.uuid && `uuid:${c.uuid.slice(0, 8)}…`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return { value, label: label || value };
+                })
+              : undefined
+          }
         />
       </Form.Item>
     </>
@@ -956,6 +1154,228 @@ export function ChannelDrawer({
               label={t("channels.onebotShareSessionInGroup")}
               valuePropName="checked"
               tooltip={t("channels.onebotShareSessionInGroupTooltip")}
+            >
+              <Switch />
+            </Form.Item>
+          </>
+        );
+
+      case "signal":
+        return (
+          <>
+            <Form.Item label={t("channels.signalConnection")}>
+              {sigLinked || sigPairStatus === "linked" ? (
+                <>
+                  <Alert
+                    type="success"
+                    showIcon
+                    message={t("channels.signalLinked")}
+                    description={
+                      sigPhone
+                        ? `${t("channels.signalLinkedAs")}: ${sigPhone}`
+                        : t("channels.signalSessionActive")
+                    }
+                    style={{ marginBottom: 12 }}
+                  />
+                  <Button
+                    danger
+                    block
+                    loading={sigPairLoading}
+                    onClick={handleSignalUnbind}
+                  >
+                    {t("channels.signalUnlinkDevice")}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Input
+                    placeholder={t("channels.signalDeviceNamePlaceholder")}
+                    value={sigDeviceName}
+                    onChange={(e) => setSigDeviceName(e.target.value)}
+                    style={{ marginBottom: 8 }}
+                  />
+                  <Button
+                    type="primary"
+                    block
+                    loading={sigPairLoading}
+                    onClick={handleSignalLink}
+                  >
+                    {t("channels.signalLinkDevice")}
+                  </Button>
+                  {sigQrImage && (
+                    <div style={{ textAlign: "center", marginTop: 12 }}>
+                      <img
+                        src={`data:image/png;base64,${sigQrImage}`}
+                        alt="Signal link QR"
+                        style={{ width: 220, height: 220 }}
+                      />
+                      <div
+                        style={{
+                          marginTop: 8,
+                          fontSize: 12,
+                          opacity: 0.7,
+                        }}
+                      >
+                        {t("channels.signalScanInstructions")}
+                      </div>
+                    </div>
+                  )}
+                  {sigPairStatus === "error" && (
+                    <div style={{ marginTop: 8 }}>
+                      <Alert
+                        type="error"
+                        showIcon
+                        message={t("channels.signalLinkFailed")}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </Form.Item>
+            {/*
+              account + account_uuid are read-only: they're the identity
+              signal-cli itself authoritative-told us (populated from the
+              linked account store on drawer open, or from the link-device
+              flow's success handler). Letting users type a different
+              phone here would silently detach the channel config from
+              the actual session data_dir — the channel would either fail
+              to start ("User +XXX is not registered") or connect to a
+              different account than the UI shows. Better to force users
+              through the Link Device flow to change these.
+            */}
+            <Form.Item
+              name="account"
+              label={t("channels.signalAccount")}
+              tooltip={t("channels.signalAccountTooltip")}
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="+85212345678" readOnly />
+            </Form.Item>
+            <Form.Item
+              name="account_uuid"
+              label={t("channels.signalAccountUuid")}
+              tooltip={t("channels.signalAccountUuidTooltip")}
+            >
+              <Input
+                placeholder="447e962a-0000-0000-0000-000000000000"
+                readOnly
+              />
+            </Form.Item>
+            <Form.Item
+              name="signal_cli_path"
+              label={t("channels.signalCliPath")}
+              tooltip={t("channels.signalCliPathTooltip")}
+            >
+              <Input placeholder={t("channels.signalCliPathPlaceholder")} />
+            </Form.Item>
+            <Form.Item
+              name="data_dir"
+              label={t("channels.signalDataDir")}
+              tooltip={t("channels.signalDataDirTooltip")}
+            >
+              <Input placeholder={t("channels.signalDataDirPlaceholder")} />
+            </Form.Item>
+            <Form.Item
+              name="extra_args"
+              label={t("channels.signalExtraArgs")}
+              tooltip={t("channels.signalExtraArgsTooltip")}
+              initialValue={[]}
+            >
+              <Select
+                mode="tags"
+                placeholder={t("channels.signalExtraArgsPlaceholder")}
+                tokenSeparators={[","]}
+              />
+            </Form.Item>
+            <Form.Item
+              name="show_typing"
+              label={t("channels.signalShowTyping")}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="send_read_receipts"
+              label={t("channels.signalSendReadReceipts")}
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="text_chunk_limit"
+              label={t("channels.signalTextChunkLimit")}
+              tooltip={t("channels.signalTextChunkLimitTooltip")}
+            >
+              <InputNumber
+                min={100}
+                max={10000}
+                style={{ width: "100%" }}
+                placeholder="4000"
+              />
+            </Form.Item>
+            <Form.Item
+              name="groups"
+              label={t("channels.signalGroups")}
+              tooltip={t("channels.signalGroupsTooltip")}
+              initialValue={[]}
+            >
+              <Select
+                mode="tags"
+                placeholder={t("channels.signalGroupsPlaceholder")}
+                tokenSeparators={[","]}
+                // Populated from signal-cli's group_v2 table. Group names
+                // are in a protobuf BLOB we don't decode yet, so the
+                // label is just a truncated base64 id — still lets users
+                // pick without typing 40-char strings. Free-form tag
+                // input still works for custom entries.
+                options={
+                  sigGroups.length
+                    ? sigGroups.map((g) => ({
+                        value: g.id,
+                        label: `${g.id.slice(0, 20)}…${
+                          g.blocked ? " (blocked)" : ""
+                        }`,
+                      }))
+                    : undefined
+                }
+              />
+            </Form.Item>
+            <Form.Item
+              name="group_allow_from"
+              label={t("channels.signalGroupAllowFrom")}
+              tooltip={t("channels.signalGroupAllowFromTooltip")}
+              initialValue={[]}
+            >
+              <Select
+                mode="tags"
+                placeholder={t("channels.signalGroupAllowFromPlaceholder")}
+                tokenSeparators={[","]}
+                options={
+                  sigContacts.length
+                    ? [
+                        { value: "*", label: "* (everyone)" },
+                        ...sigContacts.map((c) => {
+                          const value =
+                            c.number || (c.uuid ? `uuid:${c.uuid}` : "");
+                          const label = [
+                            c.name,
+                            c.number,
+                            c.uuid && `uuid:${c.uuid.slice(0, 8)}…`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ");
+                          return { value, label: label || value };
+                        }),
+                      ]
+                    : undefined
+                }
+              />
+            </Form.Item>
+            <Form.Item
+              name="reply_to_trigger"
+              label={t("channels.signalReplyToTrigger")}
+              tooltip={t("channels.signalReplyToTriggerTooltip")}
+              valuePropName="checked"
             >
               <Switch />
             </Form.Item>

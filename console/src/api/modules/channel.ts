@@ -40,4 +40,50 @@ export const channelApi = {
         channel,
       )}/qrcode/status?token=${encodeURIComponent(token)}`,
     ),
+
+  // ── Signal device-link flow ──────────────────────────────────────────
+  // Spawns `signal-cli link`, returns a PNG QR + link URL. Status polling
+  // flips from "waiting_qr" to "linked" when the user scans in Signal.
+  startSignalLink: (device_name?: string) =>
+    request<{
+      status: string;
+      qr_image?: string;
+      link_url?: string;
+    }>("/config/channels/signal/link", {
+      method: "POST",
+      body: JSON.stringify({ device_name: device_name || "QwenPaw" }),
+    }),
+  checkSignalLinkStatus: () =>
+    request<{
+      status: string;
+      qr_image?: string;
+      link_url?: string;
+      phone?: string;
+      uuid?: string;
+      error?: string;
+    }>("/config/channels/signal/link/status"),
+  stopSignalLink: () =>
+    request<{ status: string }>("/config/channels/signal/link/stop", {
+      method: "POST",
+    }),
+  unbindSignal: () =>
+    request<{ status: string; detail?: string }>(
+      "/config/channels/signal/unbind",
+      { method: "POST" },
+    ),
+  getSignalStatus: () =>
+    request<{
+      linked: boolean;
+      phone?: string | null;
+      uuid?: string | null;
+      error?: string;
+    }>("/config/channels/signal/status"),
+  listSignalContacts: () =>
+    request<{
+      contacts: Array<{ number: string; uuid: string; name: string }>;
+    }>("/config/channels/signal/contacts"),
+  listSignalGroups: () =>
+    request<{ groups: Array<{ id: string; blocked: boolean }> }>(
+      "/config/channels/signal/groups",
+    ),
 };
