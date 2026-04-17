@@ -284,7 +284,12 @@ export function ChannelDrawer({
       const msg = (err as Error)?.message || t("channels.signalLinkFailed");
       message.error(msg);
       setSigPairStatus("error");
-    } finally {
+      // Error-path terminal state: clear loading immediately. The previous
+      // unconditional `finally` fired right after the polling interval was
+      // scheduled, which flipped the spinner off while the link flow was
+      // still in progress. Loading now only clears on terminal states —
+      // inline clears inside the poll loop (linked / error branches) handle
+      // the happy path and the server-reported error.
       setSigPairLoading(false);
     }
   }, [sigDeviceName, stopSigPoll, form, message, t]);

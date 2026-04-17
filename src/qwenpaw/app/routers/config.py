@@ -698,19 +698,31 @@ def _get_signal_cli_path(agent) -> str:
 
 
 def _read_signal_accounts(data_dir: "Path") -> dict:
-    """Read ``<data_dir>/data/accounts.json`` and return its parsed content.
+    """Read ``<data_dir>/data/accounts.json`` and return a normalized dict.
 
-    Returns an empty dict with an empty ``accounts`` list if the file is
-    missing or malformed — callers treat that as "not linked yet".
+    Always returns a ``dict`` whose ``accounts`` key is a ``list``. If the
+    file is missing, malformed, or doesn't match the expected shape (e.g.
+    top-level is an array, or ``accounts`` is absent / non-list), fall back
+    to ``{"accounts": []}`` so callers can uniformly call
+    ``accounts.get("accounts", [])`` without exception handling.
     """
     import json
     accounts_file = data_dir / "data" / "accounts.json"
     if not accounts_file.exists():
         return {"accounts": []}
     try:
-        return json.loads(accounts_file.read_text())
+        parsed = json.loads(accounts_file.read_text())
     except Exception:
         return {"accounts": []}
+    if not isinstance(parsed, dict):
+        return {"accounts": []}
+    accounts = parsed.get("accounts")
+    if not isinstance(accounts, list):
+        return {"accounts": []}
+    # Filter entries to dicts, dropping anything malformed (non-dict entries
+    # would break downstream ``.get("number")`` calls).
+    parsed["accounts"] = [a for a in accounts if isinstance(a, dict)]
+    return parsed
 
 
 class SignalLinkBody(BaseModel):
@@ -1154,14 +1166,21 @@ async def get_signal_status(request: Request) -> dict:
     try:
         data_dir = _get_signal_data_dir(agent)
         accounts = _read_signal_accounts(data_dir)
-        entries = accounts.get("accounts") or []
-        if not entries:
-            return {"linked": False, "phone": None, "uuid": None}
-        first = entries[0]
-        return {
-            "linked": True,
-            "phone": first.get("number") or None,
-            "uuid": first.get("uuid") or None,
-        }
     except Exception as e:
-        return {"linked": False, "error": str(e)}
+        # Resolving data_dir / reading the account store failed
+        # unexpectedly. Surface a real non-2xx so the Console can
+        # distinguish this from "simply not linked".
+        logger.exception("signal: get_status failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read Signal account store: {e}",
+        )
+    entries = accounts.get("accounts") or []
+    if not entries:
+        return {"linked": False, "phone": None, "uuid": None}
+    first = entries[0]
+    return {
+        "linked": True,
+        "phone": first.get("number") or None,
+        "uuid": first.get("uuid") or None,
+    }

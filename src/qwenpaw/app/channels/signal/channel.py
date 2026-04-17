@@ -745,6 +745,10 @@ class SignalChannel(BaseChannel):
             r"|\+(\d{7,15})"
             r"|uuid:([0-9a-f]{8}[0-9a-f-]*)"
             r")",
+            # UUIDs from Signal can be lowercase or uppercase hex; make
+            # the whole pattern case-insensitive so Mixed/UPPER uuid
+            # mentions also compile to structured Signal mentions.
+            re.IGNORECASE,
         )
         out: List[str] = []
         mentions: List[Dict[str, Any]] = []
@@ -919,16 +923,29 @@ class SignalChannel(BaseChannel):
             to_handle = group_id
 
         img_re = re.compile(r"\[Image: (file:///[^\]]+|/[^\]]+)\]")
-        safe_dir = str(self._media_dir.resolve())
+        safe_dir = self._media_dir.resolve()
         att_paths: List[str] = []
         for m in img_re.findall(text):
             p = m.replace("file://", "") if m.startswith("file://") else m
             try:
-                resolved = str(Path(p).resolve())
+                resolved = Path(p).resolve()
             except Exception:
                 continue
-            if resolved.startswith(safe_dir) and os.path.isfile(resolved):
-                att_paths.append(resolved)
+            # Use is_relative_to for proper path containment — str.startswith
+            # would let /media/signal2/foo masquerade as being under /media/signal/.
+            try:
+                is_contained = resolved.is_relative_to(safe_dir)
+            except (ValueError, AttributeError):
+                # Python <3.9 or cross-drive paths: fall back to commonpath.
+                try:
+                    is_contained = (
+                        os.path.commonpath([str(resolved), str(safe_dir)])
+                        == str(safe_dir)
+                    )
+                except ValueError:
+                    is_contained = False
+            if is_contained and resolved.is_file():
+                att_paths.append(str(resolved))
                 text = text.replace(f"[Image: {m}]", "").strip()
                 logger.info("signal: extracted image attachment: %s", resolved)
             elif os.path.isfile(p):
@@ -937,12 +954,29 @@ class SignalChannel(BaseChannel):
                 )
                 text = text.replace(f"[Image: {m}]", "").strip()
 
-        plain_text, styles = _markdown_to_signal(text)
+        # Order here matters. signal-cli wants style ranges AND mention
+        # ranges to index into the exact plain-text string we hand over.
+        # The old order was: strip markdown → compile mentions, but
+        # compile-mentions replaces each "@+phone (Name)" (variable length)
+        # with a single U+FFFC, shifting every style start offset computed
+        # against the pre-rewrite text.
+        #
+        # New order: compile mentions first so U+FFFC placeholders are in
+        # place, then strip markdown. Markdown stripping only *removes*
+        # characters, so U+FFFC positions survive verbatim in the output.
+        # Finally, recompute mention start offsets by scanning the final
+        # plain_text for U+FFFC positions — one per placeholder, in order.
+        text_with_ffc, tentative_mentions = self._compile_outbound_mentions(text)
+        plain_text, styles = _markdown_to_signal(text_with_ffc)
         text_style_params = [
             f"{s['start']}:{s['length']}:{s['style']}" for s in styles
         ] if styles else None
-
-        plain_text, mention_dicts = self._compile_outbound_mentions(plain_text)
+        ffc_positions = [i for i, c in enumerate(plain_text) if c == "\ufffc"]
+        mention_dicts: List[Dict[str, Any]] = []
+        for pos, entry in zip(ffc_positions, tentative_mentions):
+            entry = dict(entry)
+            entry["start"] = pos
+            mention_dicts.append(entry)
         text = plain_text
 
         chunks = self._chunk_text(text) if text.strip() else [""]

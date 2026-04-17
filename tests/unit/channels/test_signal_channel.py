@@ -299,13 +299,19 @@ async def test_group_with_mention_enqueues_and_injects_history() -> None:
         },
     })
     assert len(enqueue_calls) == 1
-    texts = [
-        p.text for p in enqueue_calls[0].channel_meta.get("content_parts", [])
-        if hasattr(p, "text")
-    ] if False else [
-        p.text for p in enqueue_calls[0].input[-1].content
-        if hasattr(p, "text") and p.text
-    ] if hasattr(enqueue_calls[0], "input") else []
+    # Collect text chunks from the enqueued request and assert that the
+    # group-history context snippet actually made it into the prompt.
+    texts = (
+        [
+            p.text for p in enqueue_calls[0].input[-1].content
+            if hasattr(p, "text") and p.text
+        ]
+        if hasattr(enqueue_calls[0], "input")
+        else []
+    )
+    assert any("weather is nice" in t for t in texts), (
+        "group-history context should have been injected into the prompt"
+    )
     # History should be drained after injection
     assert ch._group_history.get(group_id) == []
 
