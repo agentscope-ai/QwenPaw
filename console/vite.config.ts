@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
@@ -34,6 +35,18 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: 5173,
+    },
+    test: {
+      globals: true,
+      environment: "jsdom",
+      setupFiles: ["./src/test/setup.ts"],
+      css: true,
+      exclude: [
+        "**/node_modules/**",
+        "**/dist/**",
+        // 旧测试用 node:test，与 vitest 不兼容，待迁移
+        "**/testConnectionMessage.test.ts",
+      ],
     },
     optimizeDeps: {
       include: ["diff"],
