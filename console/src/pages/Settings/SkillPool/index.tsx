@@ -1,4 +1,5 @@
 import { Button, Select, Tooltip } from "@agentscope-ai/design";
+import { Badge } from "antd";
 import {
   AppstoreOutlined,
   CloseOutlined,
@@ -22,6 +23,7 @@ import {
   PoolSkillListItem,
   PoolSkillDrawer,
 } from "./components";
+import { getBuiltinNoticeLines } from "./builtinNotice";
 import { useSkillPool } from "./useSkillPool";
 import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import { PageHeader } from "@/components/PageHeader";
@@ -30,6 +32,7 @@ import styles from "./index.module.less";
 function SkillPoolPage() {
   const { t } = useTranslation();
   const pool = useSkillPool();
+  const builtinNoticeLines = getBuiltinNoticeLines(pool.builtinNotice, t);
   const {
     visibleItems: visibleSkills,
     hasMore,
@@ -98,14 +101,32 @@ function SkillPoolPage() {
                       {t("skillPool.broadcast")}
                     </Button>
                   </Tooltip>
-                  <Tooltip title={t("skillPool.importBuiltinHint")}>
-                    <Button
-                      type="default"
-                      icon={<SyncOutlined />}
-                      onClick={() => void pool.openImportBuiltin()}
+                  <Tooltip
+                    title={
+                      pool.hasUnseenBuiltinNotice
+                        ? builtinNoticeLines.length > 0
+                          ? builtinNoticeLines.map((line) => (
+                              <div key={line}>{line}</div>
+                            ))
+                          : t("skillPool.importBuiltinAlertHint", {
+                              count: pool.builtinNoticeTotal,
+                            })
+                        : t("skillPool.importBuiltinHint")
+                    }
+                  >
+                    <Badge
+                      dot={pool.hasUnseenBuiltinNotice}
+                      color="rgba(255, 157, 77, 1)"
+                      offset={[4, 8]}
                     >
-                      {t("skillPool.importBuiltin")}
-                    </Button>
+                      <Button
+                        type="default"
+                        icon={<SyncOutlined />}
+                        onClick={() => void pool.openImportBuiltin()}
+                      >
+                        {t("skillPool.importBuiltin")}
+                      </Button>
+                    </Badge>
                   </Tooltip>
                 </div>
                 <div className={styles.headerActionsRight}>
@@ -262,6 +283,8 @@ function SkillPoolPage() {
         open={pool.importBuiltinModalOpen}
         loading={pool.importBuiltinLoading}
         sources={pool.builtinSources}
+        notice={pool.builtinNotice}
+        defaultSelectedNames={pool.builtinNotice?.actionable_skill_names}
         onCancel={pool.closeImportBuiltin}
         onConfirm={pool.handleImportBuiltins}
       />
