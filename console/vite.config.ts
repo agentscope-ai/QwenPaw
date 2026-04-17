@@ -41,6 +41,24 @@ export default defineConfig(({ mode }) => {
       environment: "jsdom",
       setupFiles: ["./src/test/setup.ts"],
       css: true,
+      // @agentscope-ai/* 只有 module 字段无 main，直接 alias 到具体文件
+      deps: {
+        inline: [/@agentscope-ai\//],
+      },
+      alias: {
+        "@agentscope-ai/chat": path.resolve(
+          __dirname,
+          "node_modules/@agentscope-ai/chat/lib/index.js",
+        ),
+        "@agentscope-ai/design": path.resolve(
+          __dirname,
+          "node_modules/@agentscope-ai/design/lib/index.js",
+        ),
+        "@agentscope-ai/icons": path.resolve(
+          __dirname,
+          "node_modules/@agentscope-ai/icons/index.js",
+        ),
+      },
       exclude: [
         "**/node_modules/**",
         "**/dist/**",
