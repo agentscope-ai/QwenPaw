@@ -66,6 +66,7 @@ from ..agents.context import BaseContextManager
 
 if TYPE_CHECKING:
     from ..config.config import AgentProfileConfig
+    from .context import AgentContext
 
 logger = logging.getLogger(__name__)
 
@@ -186,9 +187,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         # Configure context manager memory if available
         if self.context_manager is not None:
-            memory = self.context_manager.get_in_memory_memory()
-            if memory is not None:
-                self.memory = memory
+            self.memory: "AgentContext" = self.context_manager.get_agent_context()
             logger.debug("Context manager configured")
 
         # Setup command handler

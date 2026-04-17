@@ -1,15 +1,13 @@
 """Abstract base class for context managers."""
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from agentscope.message import Msg
 
+from .agent_context import AgentContext
 from ..utils.registry import Registry
 from ...config.config import load_agent_config
-
-if TYPE_CHECKING:
-    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
 
 logger = logging.getLogger(__name__)
 
@@ -177,11 +175,12 @@ class BaseContextManager(ABC):
         """
 
     @abstractmethod
-    def get_in_memory_memory(self, **kwargs) -> "ReMeInMemoryMemory | None":
-        """Return the ``ReMeInMemoryMemory`` object attached to this agent.
+    def get_agent_context(self, **kwargs) -> AgentContext:
+        """Return the ``AgentContext`` object attached to this agent.
 
-        ``ReMeInMemoryMemory`` provides a token-aware view over the active
-        message list and is used by the agent loop for accurate token
+        ``AgentContext`` is a custom ``InMemoryMemory`` implementation
+        with token-aware message handling, dialog persistence, and context
+        compression support. It is used by the agent loop for accurate token
         counting and context-window management.
 
         Args:
@@ -189,8 +188,8 @@ class BaseContextManager(ABC):
                 to attach to the returned object).
 
         Returns:
-            The in-memory memory instance configured with the agent's token
-            counter, or ``None`` if the backing store is unavailable.
+            The agent context instance configured with the agent's token
+            counter.
         """
 
 

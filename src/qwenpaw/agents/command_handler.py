@@ -16,7 +16,7 @@ from ..exceptions import SystemCommandException
 
 if TYPE_CHECKING:
     from .memory import BaseMemoryManager
-    from .context import BaseContextManager
+    from .context import AgentContext, BaseContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def __init__(
         self,
         agent_name: str,
-        memory,
+        memory: "AgentContext",
         memory_manager: "BaseMemoryManager | None" = None,
         context_manager: "BaseContextManager | None" = None,
     ):
@@ -73,12 +73,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         Args:
             agent_name: Name of the agent for message creation
-            memory: Agent's in-memory memory instance
+            memory: Agent's context instance (AgentContext)
             memory_manager: Optional memory manager instance
             context_manager: Optional context manager instance
         """
         self.agent_name = agent_name
-        self.memory = memory
+        self.memory: "AgentContext" = memory
         self.memory_manager = memory_manager
         self.context_manager = context_manager
 
@@ -161,7 +161,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         await self.memory.update_compressed_summary(compact_content)
         updated_count = len(messages)
-        self.memory.clear_content()
+        await self.memory.clear_content()
         return await self._make_system_msg(
             f"**Compact Complete!**\n\n"
             f"- Messages compacted: {updated_count}\n"
@@ -189,7 +189,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self.memory_manager.add_summarize_task(messages=messages)
         self.memory.clear_compressed_summary()
 
-        self.memory.clear_content()
+        await self.memory.clear_content()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
@@ -202,7 +202,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /clear command."""
-        self.memory.clear_content()
+        await self.memory.clear_content()
         self.memory.clear_compressed_summary()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"

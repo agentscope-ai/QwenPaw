@@ -558,6 +558,11 @@ class LightContextConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    dialog_path: str = Field(
+        default="dialog",
+        description="Path for dialog persistence to jsonl files relative to working_dir.",
+    )
+
     token_count_estimate_divisor: float = Field(
         default=4,
         ge=2,

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentscope.message import Msg, TextBlock
 
+from .agent_context import AgentContext
 from .base_context_manager import BaseContextManager, context_registry
 from ..utils import check_valid_messages, get_token_counter
 from ..utils.reme_mixin import ReMeLightMixin, _detect_memory_manager_backend
@@ -15,8 +16,6 @@ from ...config.config import load_agent_config
 from ...constant import EnvVarLoader, MEMORY_COMPACT_KEEP_RECENT
 
 if TYPE_CHECKING:
-    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
-
     from ..react_agent import QwenPawAgent
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 class LightContextManager(ReMeLightMixin, BaseContextManager):
     """ReMeLight-backed context manager for agents.
 
-    Handles conversation context compaction and the in-memory memory object.
+    Handles conversation context compaction and the agent context object.
     Delegates to a ``ReMeLight`` instance for all heavy lifting.
 
     Responsibilities:
@@ -34,7 +33,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
     - Context-size checking via _check_context()
     - Message compaction via _compact_context()
     - Context summarization via summarize_context()
-    - In-memory memory retrieval via get_in_memory_memory()
+    - Agent context retrieval via get_agent_context()
     """
 
     def __init__(self, working_dir: str, agent_id: str):
@@ -131,13 +130,13 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
         return await self._reme.check_context(**kwargs)
 
     async def _compact_context(
-        self,
-        messages: list[Msg],
-        previous_summary: str = "",
-        extra_instruction: str = "",
-        as_llm: Any = None,
-        as_llm_formatter: Any = None,
-        **_kwargs,
+            self,
+            messages: list[Msg],
+            previous_summary: str = "",
+            extra_instruction: str = "",
+            as_llm: Any = None,
+            as_llm_formatter: Any = None,
+            **_kwargs,
     ) -> str:
         """Compact messages into a condensed summary.
 
@@ -212,9 +211,9 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
         await agent.print(msg)
 
     async def pre_reply(
-        self,
-        agent: "QwenPawAgent",
-        kwargs: dict[str, Any],
+            self,
+            agent: "QwenPawAgent",
+            kwargs: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Augment ``msg`` with retrieved memory results before reply.
 
@@ -268,9 +267,9 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
         return None
 
     async def pre_reasoning(
-        self,
-        agent: "QwenPawAgent",
-        kwargs: dict[str, Any],
+            self,
+            agent: "QwenPawAgent",
+            kwargs: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Check context size and compact memory when threshold is exceeded.
 
@@ -346,7 +345,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
                 keep_length: int = MEMORY_COMPACT_KEEP_RECENT
                 messages_length = len(messages)
                 while keep_length > 0 and not check_valid_messages(
-                    messages[max(messages_length - keep_length, 0) :],
+                        messages[max(messages_length - keep_length, 0):],
                 ):
                     keep_length -= 1
 
@@ -413,10 +412,10 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
         return None
 
     async def post_acting(
-        self,
-        agent: "QwenPawAgent",
-        kwargs: dict[str, Any],
-        output: Any,
+            self,
+            agent: "QwenPawAgent",
+            kwargs: dict[str, Any],
+            output: Any,
     ) -> Msg | None:
         """Truncate oversized tool-call results after each acting step."""
         if getattr(agent, self._POST_ACTING_REENTRANCY, False):
@@ -450,10 +449,10 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
         return None
 
     async def post_reply(
-        self,
-        agent: "QwenPawAgent",
-        kwargs: dict[str, Any],
-        output: Any,
+            self,
+            agent: "QwenPawAgent",
+            kwargs: dict[str, Any],
+            output: Any,
     ) -> Msg | None:
         """Summarize memory periodically based on user query count.
 
@@ -483,12 +482,14 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
 
         return None
 
-    def get_in_memory_memory(self, **_kwargs) -> "ReMeInMemoryMemory":
-        """Retrieve the in-memory memory object with token counting support."""
-        self._warn_if_version_mismatch()
-        if self._reme is None:
-            return None
+    def get_agent_context(self, **_kwargs) -> AgentContext:
+        """Retrieve the agent context object with token counting support."""
         agent_config = load_agent_config(self.agent_id)
-        return self._reme.get_in_memory_memory(
-            as_token_counter=get_token_counter(agent_config),
+        dialog_path = os.path.join(
+            self.working_dir,
+            agent_config.running.light_context_config.dialog_path,
+        )
+        return AgentContext(
+            token_counter=get_token_counter(agent_config),
+            dialog_path=dialog_path,
         )

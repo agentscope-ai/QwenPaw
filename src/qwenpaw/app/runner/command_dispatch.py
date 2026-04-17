@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .runner import AgentRunner
+    from ...agents.context import AgentContext
 
 
 def _get_last_user_text(msgs) -> str | None:
@@ -235,13 +236,7 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
 
     # Conversation path: lightweight memory + CommandHandler
     context_manager = runner.context_manager
-    memory = (
-        context_manager.get_in_memory_memory()
-        if context_manager is not None
-        else runner.memory_manager.get_in_memory_memory()
-        if runner.memory_manager is not None
-        else None
-    )
+    memory: "AgentContext" = context_manager.get_agent_context()
     session_state = await runner.session.get_session_state_dict(
         session_id=session_id,
         user_id=user_id,
