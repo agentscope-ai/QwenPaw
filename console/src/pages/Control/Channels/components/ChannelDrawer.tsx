@@ -230,6 +230,17 @@ export function ChannelDrawer({
             setSigPairStatus("linked");
             if (s.phone) setSigPhone(s.phone);
             if (s.uuid) setSigUuid(s.uuid);
+            // Auto-populate account / account_uuid from the authoritative
+            // signal-cli account store. Users shouldn't have to type in the
+            // phone number after linking — the backend already knows it.
+            // Only fill when the form field is empty to avoid clobbering a
+            // user-entered override.
+            const currentAccount = form.getFieldValue("account");
+            const currentUuid = form.getFieldValue("account_uuid");
+            const patch: Record<string, string> = {};
+            if (!currentAccount && s.phone) patch.account = s.phone;
+            if (!currentUuid && s.uuid) patch.account_uuid = s.uuid;
+            if (Object.keys(patch).length) form.setFieldsValue(patch);
           }
         })
         .catch(() => {
@@ -239,7 +250,7 @@ export function ChannelDrawer({
     return () => {
       stopSigPoll();
     };
-  }, [activeKey, stopSigPoll]);
+  }, [activeKey, stopSigPoll, form]);
 
   const handleSignalLink = useCallback(async () => {
     stopSigPoll();
@@ -269,6 +280,32 @@ export function ChannelDrawer({
               account: s.phone || "",
               account_uuid: s.uuid || "",
             });
+            // Auto-persist account + account_uuid to agent config so the
+            // Signal channel can start against the linked account without
+            // the user having to click Save. Other form fields (enabled,
+            // policies, etc.) still require explicit Save — we only push
+            // the two values signal-cli itself just authoritative-told us.
+            if (s.phone || s.uuid) {
+              const allFields = form.getFieldsValue();
+              const persisted: Record<string, unknown> = {
+                ...allFields,
+                account: s.phone || allFields.account || "",
+                account_uuid: s.uuid || allFields.account_uuid || "",
+                filter_tool_messages: !allFields.filter_tool_messages,
+                filter_thinking: !allFields.filter_thinking,
+              };
+              api
+                .updateChannelConfig(
+                  "signal",
+                  persisted as unknown as Parameters<
+                    typeof api.updateChannelConfig
+                  >[1],
+                )
+                .catch((err) => {
+                  // Non-fatal: user can still click Save manually.
+                  console.warn("signal: auto-persist after link failed:", err);
+                });
+            }
             message.success(t("channels.signalLinkSuccess"));
           } else if (s.status === "error") {
             stopSigPoll();
