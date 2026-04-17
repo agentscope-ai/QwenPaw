@@ -57,8 +57,16 @@ from acp.schema import (
     SseMcpServer,
     TextContentBlock,
 )
+from agentscope.message import Msg
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    AgentRequest,
+    Message,
+)
 
 from ...__version__ import __version__
+from ...constant import WORKING_DIR
+from ...providers.models import ModelSlotConfig
+from ...providers.provider_manager import ProviderManager
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +350,6 @@ class QwenPawACPAgent(Agent):
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._workspace: Any | None = None
         self._workspace_ready = False
-        self._session_mode: str = self.MODE_DEFAULT
 
     def on_connect(self, conn: Client) -> None:
         self._conn = conn
@@ -356,7 +363,7 @@ class QwenPawACPAgent(Agent):
         if self._agent_id is not None:
             return self._agent_id
 
-        from ...config import load_config
+        from ...config.utils import load_config
 
         config = load_config()
         agents_cfg = getattr(config, "agents", None)
@@ -373,15 +380,17 @@ class QwenPawACPAgent(Agent):
         """Return the effective workspace directory."""
         if self._workspace_dir is not None:
             return self._workspace_dir
-
-        from ...constant import WORKING_DIR
-
         return WORKING_DIR / "workspaces" / agent_id
 
     async def _ensure_workspace(self) -> Any:
         """Boot a full ``Workspace`` (once) and return its runner."""
         if self._workspace is not None and self._workspace_ready:
-            return self._workspace.runner
+            runner = self._workspace.runner
+            if runner is None:
+                raise RuntimeError(
+                    "Workspace runner is not available after startup",
+                )
+            return runner
 
         from ...app.workspace.workspace import Workspace
 
@@ -395,8 +404,12 @@ class QwenPawACPAgent(Agent):
         await workspace.start()
 
         runner = workspace.runner
-        if runner is not None:
-            await runner.init_handler()
+        if runner is None:
+            raise RuntimeError(
+                "Workspace started but runner is not available. "
+                "Check agent configuration and workspace setup.",
+            )
+        await runner.init_handler()
 
         self._workspace = workspace
         self._workspace_ready = True
@@ -464,7 +477,7 @@ class QwenPawACPAgent(Agent):
         self._sessions[session_id] = {
             "cwd": cwd,
             "user_id": f"acp_{session_id[:8]}",
-            "mcp_servers": mcp_servers,
+            "mode": self.MODE_DEFAULT,
         }
         logger.info(
             "ACP new_session: id=%s cwd=%s",
@@ -473,7 +486,7 @@ class QwenPawACPAgent(Agent):
         )
         return NewSessionResponse(
             session_id=session_id,
-            config_options=self._build_config_options(),
+            config_options=self._build_config_options(session_id),
         )
 
     async def load_session(  # pylint: disable=unused-argument
@@ -488,7 +501,7 @@ class QwenPawACPAgent(Agent):
         self._sessions[session_id] = {
             "cwd": cwd,
             "user_id": f"acp_{session_id[:8]}",
-            "mcp_servers": mcp_servers,
+            "mode": self.MODE_DEFAULT,
         }
         logger.info(
             "ACP load_session: id=%s cwd=%s",
@@ -526,12 +539,6 @@ class QwenPawACPAgent(Agent):
         cancel_event = asyncio.Event()
         self._cancel_events[session_id] = cancel_event
 
-        from agentscope.message import Msg
-        from agentscope_runtime.engine.schemas.agent_schemas import (
-            AgentRequest,
-            Message,
-        )
-
         msgs = [
             Msg(
                 name="user",
@@ -540,8 +547,9 @@ class QwenPawACPAgent(Agent):
             ),
         ]
 
+        session_mode = session_info.get("mode", self.MODE_DEFAULT)
         request_context: dict[str, str] = {}
-        if self._session_mode == self.MODE_BYPASS:
+        if session_mode == self.MODE_BYPASS:
             request_context["_headless_tool_guard"] = "false"
 
         request = AgentRequest(
@@ -647,7 +655,7 @@ class QwenPawACPAgent(Agent):
             self._sessions[session_id] = {
                 "cwd": cwd,
                 "user_id": f"acp_{session_id[:8]}",
-                "mcp_servers": mcp_servers,
+                "mode": self.MODE_DEFAULT,
             }
         else:
             self._sessions[session_id]["cwd"] = cwd
@@ -672,6 +680,11 @@ class QwenPawACPAgent(Agent):
                 model_id,
             )
             return None
+        logger.info(
+            "Model switched to %s for agent %s",
+            model_id,
+            self._resolve_agent_id(),
+        )
         return SetSessionModelResponse()
 
     async def set_config_option(  # pylint: disable=unused-argument
@@ -694,9 +707,17 @@ class QwenPawACPAgent(Agent):
                     f"Must be '{self.MODE_DEFAULT}' or "
                     f"'{self.MODE_BYPASS}'.",
                 )
-            self._session_mode = str(value)
+            str_value = str(value)
+            if str_value == self.MODE_BYPASS:
+                logger.warning(
+                    "Tool guard DISABLED for session %s — all tool "
+                    "calls will bypass security checks.",
+                    session_id,
+                )
+            if session_id in self._sessions:
+                self._sessions[session_id]["mode"] = str_value
             return SetSessionConfigOptionResponse(
-                config_options=self._build_config_options(),
+                config_options=self._build_config_options(session_id),
             )
         return None
 
@@ -739,8 +760,8 @@ class QwenPawACPAgent(Agent):
     ) -> dict[str, Any] | None:
         """Retrieve and clear token usage recorded for *session_id*.
 
-        Returns a ``_meta``-shaped dict with ``usage`` and ``durationMs``
-        keys, matching the format used by QwenCode, or ``None`` if no
+        Returns a ``_meta``-shaped dict with ``usage`` keys,
+        matching the format used by QwenCode, or ``None`` if no
         usage was recorded.
         """
         try:
@@ -763,18 +784,30 @@ class QwenPawACPAgent(Agent):
             },
         }
 
+    def _get_session_mode(self, session_id: str) -> str:
+        """Return the current mode for *session_id*."""
+        info = self._sessions.get(session_id)
+        if info is not None:
+            return info.get("mode", self.MODE_DEFAULT)
+        return self.MODE_DEFAULT
+
     def _build_config_options(
         self,
+        session_id: str,
     ) -> list[SessionConfigOptionSelect]:
         """Return the current set of session config options."""
+        current_mode = self._get_session_mode(session_id)
         return [
             SessionConfigOptionSelect(
                 type="select",
                 id=self.MODE_CONFIG_ID,
                 name="Session Mode",
                 category="mode",
-                description=("Controls tool guard and permission behavior"),
-                current_value=self._session_mode,
+                description=(
+                    "Controls tool guard and permission behavior. "
+                    "'Bypass Permissions' disables all security checks."
+                ),
+                current_value=current_mode,
                 options=[
                     SessionConfigSelectOption(
                         value=self.MODE_DEFAULT,
@@ -784,7 +817,7 @@ class QwenPawACPAgent(Agent):
                     SessionConfigSelectOption(
                         value=self.MODE_BYPASS,
                         name="Bypass Permissions",
-                        description=("Skip tool guard checks"),
+                        description=("Skip all tool guard security checks"),
                     ),
                 ],
             ),
@@ -794,14 +827,18 @@ class QwenPawACPAgent(Agent):
         self,
         model_spec: str,
     ) -> None:
-        """Switch the active model via ``ProviderManager``.
+        """Switch the active model for the current agent.
+
+        Validates the provider/model pair exists, then writes the
+        choice into ``agent.json`` so ``create_model_and_formatter``
+        picks it up on the next ``prompt()`` call.  The global
+        ``ProviderManager`` state is **not** modified — the change
+        is scoped to this agent only.
 
         *model_spec* should be ``"provider_id:model_id"``.
         Falls back to treating the whole string as *model_id* with
-        an empty provider search.
+        an automatic provider search.
         """
-        from ...providers.provider_manager import ProviderManager
-
         if ":" in model_spec:
             provider_id, model_id = model_spec.split(":", 1)
         else:
@@ -810,9 +847,17 @@ class QwenPawACPAgent(Agent):
         manager = ProviderManager.get_instance()
 
         if provider_id:
-            await manager.activate_model(provider_id, model_id)
+            provider = manager.get_provider(provider_id)
+            if not provider:
+                raise ValueError(
+                    f"Provider {provider_id!r} not found",
+                )
+            if not provider.has_model(model_id):
+                raise ValueError(
+                    f"Model {model_id!r} not found in "
+                    f"provider {provider_id!r}",
+                )
         else:
-            # Search all providers for this model_id.
             all_infos = await manager.list_provider_info()
             matched = False
             for pinfo in all_infos:
@@ -820,13 +865,26 @@ class QwenPawACPAgent(Agent):
                     pinfo.extra_models,
                 )
                 if any(m.id == model_id for m in all_models):
-                    await manager.activate_model(pinfo.id, model_id)
+                    provider_id = pinfo.id
                     matched = True
                     break
             if not matched:
                 raise ValueError(
                     f"Model {model_id!r} not found in any provider",
                 )
+
+        from ...config.config import (
+            load_agent_config,
+            save_agent_config,
+        )
+
+        agent_id = self._resolve_agent_id()
+        agent_config = load_agent_config(agent_id)
+        agent_config.active_model = ModelSlotConfig(
+            provider_id=provider_id,
+            model=model_id,
+        )
+        save_agent_config(agent_id, agent_config)
 
 
 async def run_qwenpaw_agent(
