@@ -473,11 +473,15 @@ class SignalChannel(BaseChannel):
                     # an empty-allowlist + allowlist mode to silently allow
                     # every DM through.)
                     if not self._is_source_allowed(source, source_uuid):
-                        logger.debug(
-                            "signal: blocked DM from %s by dm_policy allowlist "  # noqa: E501
-                            "(allow_from=%s)",
+                        # INFO level (not DEBUG) so operators can diagnose
+                        # "why didn't my DM go through" without flipping
+                        # the whole app's log level. Low-volume by nature
+                        # — only fires once per blocked DM.
+                        logger.info(
+                            "signal: blocked DM from %s (dm_policy=allowlist, "  # noqa: E501
+                            "allow_from=%d entries)",
                             source or source_uuid,
-                            self.allow_from,
+                            len(self.allow_from or []),
                         )
                         return
 
