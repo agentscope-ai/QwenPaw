@@ -748,7 +748,7 @@ function SkillsPage() {
               onChange={setSearchTags}
               searchValue={searchQuery}
               onSearch={setSearchQuery}
-              open={filterOpen}
+              open={filterOpen && allTags.length > 0}
               onDropdownVisibleChange={setFilterOpen}
               allowClear
               maxTagCount="responsive"
@@ -896,14 +896,16 @@ function SkillsPage() {
                   </div>
                 </div>
                 <div className={styles.listItemRight}>
-                  <Switch
-                    checked={skill.enabled}
-                    disabled={batchModeEnabled}
-                    onChange={async () => {
-                      await toggleEnabled(skill);
-                      await refreshSkills();
-                    }}
-                  />
+                  <span onClick={(e) => e.stopPropagation()}>
+                    <Switch
+                      checked={skill.enabled}
+                      disabled={batchModeEnabled}
+                      onChange={async () => {
+                        await toggleEnabled(skill);
+                        await refreshSkills();
+                      }}
+                    />
+                  </span>
                   <Button
                     danger
                     disabled={batchModeEnabled}

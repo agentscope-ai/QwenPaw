@@ -58,7 +58,7 @@
   },
   "debug": {
     "title": "デバッグ",
-    "desc": "CoPaw バックエンドのデーモンログを表示し、問題の調査に役立てます。このページを開いている間は自動で更新されます。",
+    "desc": "バックエンドのデーモンログを表示し、問題の調査に役立てます。このページを開いている間は自動で更新されます。",
     "level": {
       "all": "すべて"
     },
@@ -275,6 +275,7 @@
     "broadcastTitle": "{{name}} をブロードキャスト",
     "importBuiltin": "ビルトインを取り込む",
     "importBuiltinHint": "ソースからビルトインスキルをプールに取り込みます",
+    "importBuiltinAlertHint": "{{count}} 件のビルトイン変更を確認してください",
     "importHubHint": "URL経由でスキルをインポート",
     "uploadZipHint": "Zip経由でアップロード",
     "importBuiltinSuccess": "ビルトインを取り込みました: {{names}}",
@@ -288,6 +289,11 @@
     "importStatusMissing": "プールにありません",
     "importStatusCurrent": "最新です",
     "importStatusConflict": "競合",
+    "builtinNoticeSummary": "{{count}} 件のビルトイン変更が見つかりました",
+    "builtinNoticeLineAdded": "追加: {{names}}",
+    "builtinNoticeLineMissing": "不足: {{names}}",
+    "builtinNoticeLineUpdated": "更新: {{names}}",
+    "builtinNoticeLineRemoved": "削除: {{names}}",
     "zipImport": "ZIPインポート",
     "create": "作成",
     "edit": "編集",
@@ -705,6 +711,9 @@
     "selectModel": "モデルを選択",
     "llmModelUpdated": "LLMモデルを更新しました",
     "failedToSave": "保存に失敗しました",
+    "freeModelWarningTitle": "無料モデルのリスク警告",
+    "freeModelWarningMessage": "無料モデルを使用しています。安定性やプライバシー漏えいのリスクがある可能性があります。詳細は以下のリンクを参照してください。",
+    "freeModelWarningDontShowAgain": "今後は表示しない",
     "saved": "保存しました",
     "save": "保存",
     "cancel": "キャンセル",

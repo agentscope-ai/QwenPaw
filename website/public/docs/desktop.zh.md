@@ -73,23 +73,25 @@
 ### 常见问题
 
 **Q: 应用启动后窗口白屏，无法正常显示？**
+
 A: 这通常是因为系统缺少 **Microsoft WebView2** 运行时（部分 Windows 10 系统未预装）。
 请前往微软官网下载并安装：
 [Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
 安装完成后重启应用即可。
 
 **Q: 应用启动后没有反应？**
+
 A: 使用 "QwenPaw Desktop (Debug)" 模式启动，查看终端输出的错误信息
 
 **Q: 如何卸载？**
+
 A: 在 Windows 设置 → 应用 → 已安装的应用 → 找到 "QwenPaw Desktop" → 卸载
 
 **Q: 安装包是否安全？**
-A:
 
-- 应用未经过 **Microsoft 代码签名**（成本 $200-800/年），Windows Defender SmartScreen 会显示警告
-- 这是正常现象，点击 "更多信息" → "仍要运行" 即可
-- 代码完全开源，构建过程在 GitHub Actions 上透明可查
+A: 应用未经过 **Microsoft 代码签名**（成本 $200-800/年），Windows Defender SmartScreen 会显示警告
+这是正常现象，点击 "更多信息" → "仍要运行" 即可
+代码完全开源，构建过程在 GitHub Actions 上透明可查
 
 ---
 
@@ -204,25 +206,27 @@ tail -f ~/.qwenpaw/desktop.log
 ### 常见问题
 
 **Q: 双击后没有任何反应？**
-A:
+
+A: 请尝试以下步骤：
 
 1. 检查 `~/.qwenpaw/desktop.log` 文件查看错误
 2. 使用上述终端命令启动，查看实时输出
 
 **Q: 提示"Apple 无法验证此应用"？**
+
 A: 按照上述"解除系统安全限制"步骤操作
 
 **Q: 如何卸载？**
+
 A: 将 `QwenPaw.app` 拖到废纸篓，然后删除 `~/.qwenpaw` 配置文件夹
 
 **Q: Intel Mac 可以用吗？**
+
 A: 可以运行，但无法使用 MLX 模型加速（MLX 仅支持 Apple Silicon）
 
 **Q: 应用为什么没有签名，为什么系统会提示有风险？**
 
-A:
-
-当前采用
+A: 当前采用
 
 - ✅ **开源透明**：所有代码和构建流程公开在 GitHub
 - ✅ **CI/CD 可验证**：GitHub Actions 自动构建，日志可查

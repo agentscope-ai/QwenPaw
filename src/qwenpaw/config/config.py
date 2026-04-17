@@ -1143,8 +1143,23 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         "chat_with_agent": BuiltinToolConfig(
             name="chat_with_agent",
             enabled=True,
-            description="Send a message to another configured agent",
+            description=(
+                "Send a message to another configured agent and wait for "
+                "the response"
+            ),
             icon="💬",
+        ),
+        "submit_to_agent": BuiltinToolConfig(
+            name="submit_to_agent",
+            enabled=True,
+            description="Submit a background task to another configured agent",
+            icon="📨",
+        ),
+        "check_agent_task": BuiltinToolConfig(
+            name="check_agent_task",
+            enabled=True,
+            description="Check the status of a background agent task",
+            icon="⏳",
         ),
     }
 
@@ -1201,6 +1216,8 @@ def build_local_agent_tools_config() -> ToolsConfig:
         {
             "list_agents",
             "chat_with_agent",
+            "submit_to_agent",
+            "check_agent_task",
             "execute_shell_command",
             "read_file",
             "write_file",

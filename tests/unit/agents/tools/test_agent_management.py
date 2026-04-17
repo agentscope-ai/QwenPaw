@@ -249,7 +249,9 @@ async def test_list_agents_uses_to_thread(monkeypatch):
     assert '"id": "bot_a"' in response.content[0].get("text", "")
 
 
-async def test_chat_with_agent_formats_finished_background_result(monkeypatch):
+async def test_check_agent_task_formats_finished_background_result(
+    monkeypatch,
+):
     monkeypatch.setattr(
         agent_management,
         "get_agent_chat_task_status",
@@ -269,13 +271,7 @@ async def test_chat_with_agent_formats_finished_background_result(monkeypatch):
         },
     )
 
-    response = await agent_management.chat_with_agent(
-        from_agent="bot_a",
-        to_agent="bot_b",
-        text="hello",
-        background=True,
-        task_id="task-1",
-    )
+    response = await agent_management.check_agent_task("task-1")
 
     text = response.content[0].get("text", "")
     assert "[TASK_ID: task-1]" in text
@@ -356,11 +352,15 @@ async def test_chat_with_agent_normalizes_agent_ids(monkeypatch):
         "agent_exists",
         lambda _to_agent, _base_url=None: True,
     )
+    monkeypatch.setattr(
+        agent_management,
+        "resolve_calling_agent_id",
+        lambda _from_agent=None: "bot_a",
+    )
 
     response = await agent_management.chat_with_agent(
         to_agent='  "bot_b"  ',
         text="Need help",
-        from_agent="  'bot_a'  ",
     )
 
     assert captured["to_agent"] == "bot_b"

@@ -61,7 +61,7 @@
   },
   "debug": {
     "title": "Debug",
-    "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
+    "desc": "View the backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
     "level": {
       "all": "All"
     },
@@ -331,6 +331,7 @@
     "broadcastTitle": "Broadcast {{name}}",
     "importBuiltin": "Update Built-in Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
+    "importBuiltinAlertHint": "{{count}} built-in changes need review",
     "importHubHint": "Import skills via URL",
     "uploadZipHint": "Upload via Zip",
     "importBuiltinSuccess": "Built-ins imported: {{names}}",
@@ -344,6 +345,11 @@
     "importStatusMissing": "Missing in pool",
     "importStatusCurrent": "Already current",
     "importStatusConflict": "Conflict",
+    "builtinNoticeSummary": "{{count}} built-in changes detected",
+    "builtinNoticeLineAdded": "Added: {{names}}",
+    "builtinNoticeLineMissing": "Missing: {{names}}",
+    "builtinNoticeLineUpdated": "Updated: {{names}}",
+    "builtinNoticeLineRemoved": "Removed: {{names}}",
     "zipImport": "ZIP Import",
     "create": "Create",
     "edit": "Edit",
@@ -767,6 +773,9 @@
     "selectModel": "Select a model",
     "llmModelUpdated": "LLM Model updated",
     "failedToSave": "Failed to save",
+    "freeModelWarningTitle": "Free Model Risk Warning",
+    "freeModelWarningMessage": "You are using a free model. It may have stability and privacy leakage risks. See the provider website for details:",
+    "freeModelWarningDontShowAgain": "Do not show this again",
     "saved": "Saved",
     "save": "Save",
     "cancel": "Cancel",

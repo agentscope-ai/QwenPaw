@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for copaw.utils.logging (S级模块).
+"""Unit tests for utils.logging (S级模块).
 
 S级: Core utilities with high risk of cascading failures.
 High coverage expected as this is stable infrastructure.
@@ -180,18 +180,18 @@ class TestSetupLogger:
         assert isinstance(logger.handlers[0], logging.StreamHandler)
 
 
-class TestAddCopawFileHandler:
+class TestAddFileHandler:
     """Test file handler addition."""
 
     def test_creates_log_directory(self, tmp_path):
         """S级: Creates log directory if it doesn't exist."""
-        log_path = tmp_path / "logs" / "copaw.log"
+        log_path = tmp_path / "logs" / "qwenpaw.log"
         add_project_file_handler(log_path)
         assert log_path.parent.exists()
 
     def test_idempotent_same_path(self, tmp_path):
         """S级: Same path twice doesn't duplicate handlers."""
-        log_path = tmp_path / "copaw.log"
+        log_path = tmp_path / "qwenpaw.log"
 
         # First call
         add_project_file_handler(log_path)
@@ -204,7 +204,7 @@ class TestAddCopawFileHandler:
 
     def test_adds_file_handler(self, tmp_path):
         """S级: File handler is added to logger."""
-        log_path = tmp_path / "copaw.log"
+        log_path = tmp_path / "qwenpaw.log"
 
         # Clear handlers first
         logger = logging.getLogger(LOG_NAMESPACE)

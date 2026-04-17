@@ -39,6 +39,8 @@ from .tools import (
     browser_use,
     delegate_external_agent,
     chat_with_agent,
+    check_agent_task,
+    submit_to_agent,
     desktop_screenshot,
     edit_file,
     execute_shell_command,
@@ -246,6 +248,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "delegate_external_agent": delegate_external_agent,
             "list_agents": list_agents,
             "chat_with_agent": chat_with_agent,
+            "submit_to_agent": submit_to_agent,
+            "check_agent_task": check_agent_task,
         }
 
         multimodal = get_active_model_supports_multimodal()

@@ -52,13 +52,13 @@ from ..constant import (
     WORKING_DIR,
     EnvVarLoader,
 )
-from ..utils.logging import LOG_NAMESPACE
+from ..utils.logging import LOG_FILE_BASENAME
 from ..utils.system_info import summarize_python_environment
 from ..providers.provider import Provider
 
 
 # Log file opened on app startup (see ``qwenpaw.app._app`` lifespan).
-APP_LOG_BASENAME = f"{LOG_NAMESPACE}.log"
+APP_LOG_BASENAME = LOG_FILE_BASENAME
 
 # Built-in local llama.cpp provider id; legacy configs may still use
 # copaw-local.
@@ -1268,10 +1268,7 @@ def console_static_diagnostic_notes() -> list[str]:
         )
     else:
         notes.append(
-            "source checkout not detected (normal for wheel installs) — use "
-            "a git checkout to run the npm bundle fix, or point "
-            "QWENPAW_CONSOLE_STATIC_DIR (or legacy COPAW_CONSOLE_STATIC_DIR) "
-            "at a directory that contains index.html.",
+            "source checkout not detected (normal for wheel installs)",
         )
     return notes
 
