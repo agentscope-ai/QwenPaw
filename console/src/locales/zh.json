@@ -60,8 +60,10 @@
   },
   "debug": {
     "title": "调试",
-    "desc": "查看 CoPaw 后端守护进程日志文件，便于排查问题。在此页面打开时日志会自动刷新。",
-    "level": { "all": "全部" },
+    "desc": "查看后端守护进程日志文件，便于排查问题。在此页面打开时日志会自动刷新。",
+    "level": {
+      "all": "全部"
+    },
     "backend": {
       "title": "后端日志",
       "autoRefresh": "自动刷新",
@@ -946,7 +948,6 @@
     "perMillionIn": "/1M 输入",
     "perMillionOut": "/1M 输出"
   },
-
   "agentConfig": {
     "title": "运行配置",
     "description": "配置智能体运行参数",

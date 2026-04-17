@@ -60,7 +60,7 @@
   },
   "debug": {
     "title": "Debug",
-    "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
+    "desc": "View the backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
     "level": { "all": "All" },
     "backend": {
       "title": "Backend logs",
