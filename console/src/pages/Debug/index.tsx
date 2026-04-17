@@ -269,7 +269,7 @@ export default function DebugPage() {
           </Space>
 
           {backendLogs?.path && (
-            <Text type="secondary">
+            <Text type="secondary" className="debug-log-path">
               <Text strong>{t("debug.backend.path", "Log file")}:</Text>{" "}
               {backendLogs.path}
             </Text>
@@ -290,12 +290,11 @@ export default function DebugPage() {
 
           <Spin spinning={initialLoading} tip={t("common.loading", "Loading")}>
             <div
+              className="debug-log-container"
               style={{
-                border: "1px solid rgba(0,0,0,0.06)",
                 borderRadius: 8,
                 padding: 12,
                 minHeight: 120,
-                background: "rgba(0,0,0,0.02)",
                 fontFamily:
                   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
                 fontSize: 12,
