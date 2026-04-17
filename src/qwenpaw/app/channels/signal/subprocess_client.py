@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=line-too-long
+# pylint: disable=too-many-instance-attributes,too-many-arguments
+# pylint: disable=broad-exception-caught,protected-access
 """Signal subprocess client: signal-cli jsonRpc over stdin/stdout.
 
 Spawns `signal-cli -a <account> --output=json jsonRpc` as a child process and
@@ -79,30 +82,33 @@ class SignalSubprocessClient:
         self._stopping = False
         if not self._binary_available():
             logger.error(
-                "signal-cli not found (looked for %r). Signal channel disabled.\n"
+                "signal-cli not found (looked for %r). Signal channel disabled.\n"  # noqa: E501
                 "  Install — pick the distribution for your platform:\n"
-                "    Linux x86_64: download signal-cli-X.Y.Z-Linux-native.tar.gz\n"
-                "                  (~97 MB, self-contained, no Java runtime needed)\n"
-                "                  https://github.com/AsamK/signal-cli/releases\n"
-                "    Linux ARM64 / macOS / Windows: download signal-cli-X.Y.Z.tar.gz\n"
+                "    Linux x86_64: download signal-cli-X.Y.Z-Linux-native.tar.gz\n"  # noqa: E501
+                "                  (~97 MB, self-contained, no Java runtime needed)\n"  # noqa: E501
+                "                  https://github.com/AsamK/signal-cli/releases\n"  # noqa: E501
+                "    Linux ARM64 / macOS / Windows: download signal-cli-X.Y.Z.tar.gz\n"  # noqa: E501
                 "                  (~98 MB JAR bundle, requires Java 21+)\n"
                 "                  + brew install openjdk@21 (mac) /\n"
-                "                    apt install openjdk-21-jre (Debian/Ubuntu) /\n"
+                "                    apt install openjdk-21-jre (Debian/Ubuntu) /\n"  # noqa: E501
                 "                    MSI installer (Windows)\n"
                 "  Then either put signal-cli on your $PATH or set\n"
-                "  channels.signal.signal_cli_path to an absolute path in config.",
+                "  channels.signal.signal_cli_path to an absolute path in config.",  # noqa: E501
                 self._signal_cli_path,
             )
             return False
         self._supervisor_task = asyncio.create_task(
-            self._supervise(), name="signal_supervisor",
+            self._supervise(),
+            name="signal_supervisor",
         )
         # Wait for first successful spawn (or initial failure)
         try:
             await asyncio.wait_for(self._connected.wait(), timeout=10.0)
             return True
         except asyncio.TimeoutError:
-            logger.error("signal: subprocess failed to become ready within 10s")
+            logger.error(
+                "signal: subprocess failed to become ready within 10s",
+            )
             return False
 
     async def disconnect(self) -> None:
@@ -118,7 +124,9 @@ class SignalSubprocessClient:
         await self._terminate_proc()
         self._connected.clear()
         # Fail any remaining pending futures
-        self._fail_pending(ConnectionResetError("signal subprocess disconnected"))
+        self._fail_pending(
+            ConnectionResetError("signal subprocess disconnected"),
+        )
         logger.info("signal: subprocess client stopped")
 
     async def call(
@@ -128,11 +136,19 @@ class SignalSubprocessClient:
         timeout: float = _RPC_TIMEOUT,
     ) -> Any:
         """Issue a JSON-RPC request and await the response."""
-        if not self._connected.is_set() or not self._proc or self._proc.returncode is not None:
+        if (
+            not self._connected.is_set()
+            or not self._proc
+            or self._proc.returncode is not None
+        ):
             raise ConnectionError("signal subprocess not connected")
         req_id = self._next_id
         self._next_id += 1
-        payload: Dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
+        payload: Dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": method,
+        }
         if params:
             payload["params"] = params
         loop = asyncio.get_running_loop()
@@ -224,7 +240,10 @@ class SignalSubprocessClient:
             return False
 
     async def send_typing(
-        self, target: str, start: bool = True, is_group: bool = False,
+        self,
+        target: str,
+        start: bool = True,
+        is_group: bool = False,
     ) -> None:
         method = "sendTyping" if start else "stopTyping"
         params: Dict[str, Any] = {"account": self._account}
@@ -239,20 +258,25 @@ class SignalSubprocessClient:
             pass
 
     async def download_attachment(
-        self, attachment_id: str, dest_dir: Path,
+        self,
+        attachment_id: str,
+        dest_dir: Path,
     ) -> Optional[Path]:
         """Download an attachment. signal-cli >=0.13 autosaves to
         ~/.local/share/signal-cli/attachments/<id>; we try that first, then
         fall back to the getAttachment RPC (which returns base64 data)."""
         # Fast path: file already saved by signal-cli
-        default_dir = Path.home() / ".local" / "share" / "signal-cli" / "attachments"
+        default_dir = (
+            Path.home() / ".local" / "share" / "signal-cli" / "attachments"
+        )
         candidate = default_dir / attachment_id
         if candidate.is_file():
             return candidate
         # RPC fallback
         try:
             result = await self.call(
-                "getAttachment", {"account": self._account, "id": attachment_id},
+                "getAttachment",
+                {"account": self._account, "id": attachment_id},
             )
         except Exception as e:
             logger.error("signal: getAttachment failed: %s", e)
@@ -283,7 +307,10 @@ class SignalSubprocessClient:
 
     def _binary_available(self) -> bool:
         # Allow absolute paths; otherwise look on PATH
-        if os.path.sep in self._signal_cli_path or self._signal_cli_path.startswith("./"):
+        if (
+            os.path.sep in self._signal_cli_path
+            or self._signal_cli_path.startswith("./")
+        ):
             return Path(self._signal_cli_path).is_file()
         return shutil.which(self._signal_cli_path) is not None
 
@@ -306,7 +333,8 @@ class SignalSubprocessClient:
                 if self._stopping:
                     return
                 logger.warning(
-                    "signal: subprocess spawn failed; retrying in %.0fs", backoff,
+                    "signal: subprocess spawn failed; retrying in %.0fs",
+                    backoff,
                 )
                 try:
                     await asyncio.sleep(backoff)
@@ -324,7 +352,9 @@ class SignalSubprocessClient:
                 return
             logger.warning("signal: subprocess exited with code %s", rc)
             self._connected.clear()
-            self._fail_pending(ConnectionResetError("signal subprocess exited"))
+            self._fail_pending(
+                ConnectionResetError("signal subprocess exited"),
+            )
             if self._stopping:
                 return
             logger.info("signal: respawning in %.0fs", backoff)
@@ -343,7 +373,8 @@ class SignalSubprocessClient:
             except OSError as e:
                 logger.error(
                     "signal: failed to create data_dir %s: %s",
-                    self._data_dir, e,
+                    self._data_dir,
+                    e,
                 )
                 return False
         cmd = self._build_cmd()
@@ -363,10 +394,12 @@ class SignalSubprocessClient:
             return False
         # Start reader / stderr tasks
         self._reader_task = asyncio.create_task(
-            self._read_stdout(), name="signal_reader",
+            self._read_stdout(),
+            name="signal_reader",
         )
         self._stderr_task = asyncio.create_task(
-            self._read_stderr(), name="signal_stderr",
+            self._read_stderr(),
+            name="signal_stderr",
         )
         self._connected.set()
         return True
@@ -383,7 +416,9 @@ class SignalSubprocessClient:
             try:
                 await asyncio.wait_for(proc.wait(), timeout=_TERM_GRACE_SEC)
             except asyncio.TimeoutError:
-                logger.warning("signal: SIGTERM grace expired; sending SIGKILL")
+                logger.warning(
+                    "signal: SIGTERM grace expired; sending SIGKILL",
+                )
                 try:
                     proc.kill()
                 except ProcessLookupError:
@@ -418,7 +453,10 @@ class SignalSubprocessClient:
                 try:
                     msg = json.loads(text)
                 except json.JSONDecodeError:
-                    logger.debug("signal: non-JSON stdout line ignored: %s", text[:200])
+                    logger.debug(
+                        "signal: non-JSON stdout line ignored: %s",
+                        text[:200],
+                    )
                     continue
                 await self._dispatch(msg)
         except asyncio.CancelledError:
@@ -445,13 +483,19 @@ class SignalSubprocessClient:
 
     async def _dispatch(self, msg: Dict[str, Any]) -> None:
         # Response to a pending call
-        if "id" in msg and (msg.get("jsonrpc") == "2.0" or "result" in msg or "error" in msg):
+        if "id" in msg and (
+            msg.get("jsonrpc") == "2.0" or "result" in msg or "error" in msg
+        ):
             req_id = msg["id"]
             try:
                 req_id_int = int(req_id)
             except (TypeError, ValueError):
                 req_id_int = None
-            fut = self._pending.pop(req_id_int, None) if req_id_int is not None else None
+            fut = (
+                self._pending.pop(req_id_int, None)
+                if req_id_int is not None
+                else None
+            )
             if fut and not fut.done():
                 err = msg.get("error")
                 if err:

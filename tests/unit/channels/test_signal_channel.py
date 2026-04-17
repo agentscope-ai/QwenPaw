@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
+# pylint: disable=protected-access,wrong-import-position
+# pylint: disable=unused-variable,use-implicit-booleaness-not-comparison
+# pylint: disable=line-too-long,unused-import,unused-argument
+# pylint: disable=using-constant-test
 """Unit tests for the Signal channel (subprocess JSON-RPC transport).
 
 The transport (SignalSubprocessClient) is replaced with a fake that
@@ -21,6 +24,7 @@ from qwenpaw.app.channels.signal.channel import (
 
 
 # ───────────────────────────── fakes ─────────────────────────────────
+
 
 class FakeClient:
     """Records outbound calls, exposes `connected` flag, pushes
@@ -52,16 +56,18 @@ class FakeClient:
         text_style: Optional[List[str]] = None,
         mentions: Optional[List[str]] = None,
     ) -> Optional[int]:
-        self.sent.append({
-            "target": target,
-            "text": text,
-            "is_group": is_group,
-            "quote_timestamp": quote_timestamp,
-            "quote_author": quote_author,
-            "attachments": list(attachments or []),
-            "text_style": list(text_style or []),
-            "mentions": list(mentions or []),
-        })
+        self.sent.append(
+            {
+                "target": target,
+                "text": text,
+                "is_group": is_group,
+                "quote_timestamp": quote_timestamp,
+                "quote_author": quote_author,
+                "attachments": list(attachments or []),
+                "text_style": list(text_style or []),
+                "mentions": list(mentions or []),
+            },
+        )
         return 1_700_000_000
 
     async def send_reaction(self, *args, **kwargs) -> bool:
@@ -77,8 +83,10 @@ class FakeClient:
 
 # ───────────────────────────── helpers ───────────────────────────────
 
+
 def _make_channel(**overrides: Any) -> SignalChannel:
     """Build a SignalChannel with the subprocess client swapped for a fake."""
+
     async def _noop_process(_request):
         if False:
             yield None  # pragma: no cover
@@ -97,6 +105,7 @@ def _make_channel(**overrides: Any) -> SignalChannel:
 
 
 # ───────────────────────────── markdown ──────────────────────────────
+
 
 def test_markdown_bold_produces_text_style_range() -> None:
     plain, styles = _markdown_to_signal("hello **world** foo")
@@ -121,6 +130,7 @@ def test_markdown_monospace_and_italic() -> None:
 
 
 # ───────────────────────────── outbound mentions ─────────────────────
+
 
 def test_compile_outbound_mentions_phone_bare() -> None:
     text, mentions = SignalChannel._compile_outbound_mentions(
@@ -148,6 +158,7 @@ def test_compile_outbound_mentions_name_with_phone_parens() -> None:
 
 # ───────────────────────────── outbound send ─────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_send_sets_target_and_style_and_mention_params() -> None:
     ch = _make_channel()
@@ -167,9 +178,7 @@ async def test_send_sets_target_and_style_and_mention_params() -> None:
     # Bold style in `text_style`
     assert any(s.endswith(":BOLD") for s in frame["text_style"])
     # Mention compiled to "start:1:+number" form
-    assert any(
-        m.split(":")[-1] == "+85298349370" for m in frame["mentions"]
-    )
+    assert any(m.split(":")[-1] == "+85298349370" for m in frame["mentions"])
 
 
 @pytest.mark.asyncio
@@ -213,6 +222,7 @@ async def test_send_disabled_channel_is_noop() -> None:
 
 # ───────────────────────────── inbound ───────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_inbound_dm_enqueues_agent_request() -> None:
     enqueue_calls: List[Any] = []
@@ -249,17 +259,19 @@ async def test_group_without_mention_buffers_into_history() -> None:
     ch.client.connected = True
 
     group_id = "GID=="
-    await ch._on_notification({
-        "envelope": {
-            "sourceNumber": "+85211111111",
-            "sourceName": "Bob",
-            "timestamp": 1,
-            "dataMessage": {
-                "message": "casual chat",
-                "groupInfo": {"groupId": group_id},
+    await ch._on_notification(
+        {
+            "envelope": {
+                "sourceNumber": "+85211111111",
+                "sourceName": "Bob",
+                "timestamp": 1,
+                "dataMessage": {
+                    "message": "casual chat",
+                    "groupInfo": {"groupId": group_id},
+                },
             },
         },
-    })
+    )
     # Nothing sent, but history now has the line
     assert group_id in ch._group_history
     assert ch._group_history[group_id][0]["body"] == "casual chat"
@@ -274,49 +286,57 @@ async def test_group_with_mention_enqueues_and_injects_history() -> None:
 
     group_id = "GID=="
     # Prior unmentioned chatter → captured as history
-    await ch._on_notification({
-        "envelope": {
-            "sourceNumber": "+85211111111",
-            "sourceName": "Bob",
-            "timestamp": 1,
-            "dataMessage": {
-                "message": "weather is nice",
-                "groupInfo": {"groupId": group_id},
+    await ch._on_notification(
+        {
+            "envelope": {
+                "sourceNumber": "+85211111111",
+                "sourceName": "Bob",
+                "timestamp": 1,
+                "dataMessage": {
+                    "message": "weather is nice",
+                    "groupInfo": {"groupId": group_id},
+                },
             },
         },
-    })
+    )
     # Now a mention triggers the bot
-    await ch._on_notification({
-        "envelope": {
-            "sourceNumber": "+85222222222",
-            "sourceName": "Carol",
-            "timestamp": 2,
-            "dataMessage": {
-                "message": "@+85251159218 summarise",
-                "mentions": [{"number": "+85251159218", "start": 0, "length": 1}],
-                "groupInfo": {"groupId": group_id},
+    await ch._on_notification(
+        {
+            "envelope": {
+                "sourceNumber": "+85222222222",
+                "sourceName": "Carol",
+                "timestamp": 2,
+                "dataMessage": {
+                    "message": "@+85251159218 summarise",
+                    "mentions": [
+                        {"number": "+85251159218", "start": 0, "length": 1},
+                    ],
+                    "groupInfo": {"groupId": group_id},
+                },
             },
         },
-    })
+    )
     assert len(enqueue_calls) == 1
     # Collect text chunks from the enqueued request and assert that the
     # group-history context snippet actually made it into the prompt.
     texts = (
         [
-            p.text for p in enqueue_calls[0].input[-1].content
+            p.text
+            for p in enqueue_calls[0].input[-1].content
             if hasattr(p, "text") and p.text
         ]
         if hasattr(enqueue_calls[0], "input")
         else []
     )
-    assert any("weather is nice" in t for t in texts), (
-        "group-history context should have been injected into the prompt"
-    )
+    assert any(
+        "weather is nice" in t for t in texts
+    ), "group-history context should have been injected into the prompt"
     # History should be drained after injection
     assert ch._group_history.get(group_id) == []
 
 
 # ───────────────────────────── allowlist ─────────────────────────────
+
 
 def test_is_source_allowed_phone() -> None:
     ch = _make_channel(dm_policy="allowlist", allow_from=["+85298765432"])
@@ -330,10 +350,14 @@ def test_is_source_allowed_uuid_prefix() -> None:
         allow_from=["uuid:abcd1234-0000-0000-0000-000000000000"],
     )
     assert ch._is_source_allowed("", "abcd1234-0000-0000-0000-000000000000")
-    assert not ch._is_source_allowed("", "11111111-0000-0000-0000-000000000000")
+    assert not ch._is_source_allowed(
+        "",
+        "11111111-0000-0000-0000-000000000000",
+    )
 
 
 # ───────────────────────────── bot self-mention strip ────────────────
+
 
 def test_strip_bot_self_mention_plain_phone() -> None:
     ch = _make_channel()
@@ -349,8 +373,10 @@ def test_strip_bot_self_mention_name_with_id() -> None:
 
 # ───────────────────────────── data_dir resolution ───────────────────
 
+
 def test_data_dir_resolves_from_explicit(tmp_path) -> None:
     from qwenpaw.app.channels.signal.channel import _resolve_signal_data_dir
+
     custom = tmp_path / "custom-dir"
     resolved = _resolve_signal_data_dir(str(custom), None)
     assert resolved == custom
@@ -358,6 +384,7 @@ def test_data_dir_resolves_from_explicit(tmp_path) -> None:
 
 def test_data_dir_resolves_from_workspace_dir(tmp_path) -> None:
     from qwenpaw.app.channels.signal.channel import _resolve_signal_data_dir
+
     ws = tmp_path / "agent-ws"
     resolved = _resolve_signal_data_dir("", ws)
     assert resolved == ws / "credentials" / "signal" / "default"
@@ -369,6 +396,7 @@ def test_data_dir_resolves_from_working_dir_fallback() -> None:
         _resolve_signal_data_dir,
         _DEFAULT_DATA_DIR,
     )
+
     resolved = _resolve_signal_data_dir("", None)
     assert resolved == _DEFAULT_DATA_DIR
 
@@ -377,13 +405,14 @@ def test_data_dir_explicit_expands_tilde(tmp_path) -> None:
     """Explicit ``~/foo`` is expanded to the user's home."""
     from pathlib import Path as _P
     from qwenpaw.app.channels.signal.channel import _resolve_signal_data_dir
+
     resolved = _resolve_signal_data_dir("~/foo", None)
     assert str(resolved).startswith(str(_P.home()))
     assert resolved.name == "foo"
 
 
 def test_channel_stores_resolved_data_dir(tmp_path) -> None:
-    """SignalChannel(workspace_dir=...) picks up the workspace-scoped default."""
+    """SignalChannel(workspace_dir=...) picks up the workspace-scoped default."""  # noqa: E501
     ws = tmp_path / "ws"
     ch = _make_channel(workspace_dir=ws, account="+85251159218")
     assert ch._data_dir == ws / "credentials" / "signal" / "default"
@@ -391,11 +420,13 @@ def test_channel_stores_resolved_data_dir(tmp_path) -> None:
 
 # ───────────────────────────── subprocess -c flag ────────────────────
 
+
 def test_subprocess_cmd_includes_config_flag(tmp_path) -> None:
     """data_dir string/Path produces `-c <path>` before `-a`."""
     from qwenpaw.app.channels.signal.subprocess_client import (
         SignalSubprocessClient,
     )
+
     target = tmp_path / "signal-data"
     client = SignalSubprocessClient(
         account="+85251159218",
@@ -414,6 +445,7 @@ def test_subprocess_cmd_no_config_flag_when_unset() -> None:
     from qwenpaw.app.channels.signal.subprocess_client import (
         SignalSubprocessClient,
     )
+
     for v in (None, ""):
         client = SignalSubprocessClient(account="+1", data_dir=v)
         cmd = client._build_cmd()
@@ -421,6 +453,7 @@ def test_subprocess_cmd_no_config_flag_when_unset() -> None:
 
 
 # ───────────────────────────── mention prefix collision ──────────────
+
 
 def test_is_mentioned_plain_text_phone() -> None:
     """Account +85298349370 in body '@+85298349370 hello' → mentioned."""
@@ -453,8 +486,10 @@ def test_is_mentioned_via_structured_mention() -> None:
 
 # ───────────────────────────── link-endpoint helpers ─────────────────
 
+
 def test_read_signal_accounts_missing_file(tmp_path) -> None:
     from qwenpaw.app.routers.config import _read_signal_accounts
+
     res = _read_signal_accounts(tmp_path / "does-not-exist")
     assert res == {"accounts": []}
 
@@ -462,15 +497,22 @@ def test_read_signal_accounts_missing_file(tmp_path) -> None:
 def test_read_signal_accounts_valid_file(tmp_path) -> None:
     import json as _json
     from qwenpaw.app.routers.config import _read_signal_accounts
+
     data_dir = tmp_path / "sig"
     (data_dir / "data").mkdir(parents=True)
-    (data_dir / "data" / "accounts.json").write_text(_json.dumps({
-        "accounts": [{
-            "number": "+85298349370",
-            "uuid": "447e962a-0000-0000-0000-000000000000",
-            "path": "some/path",
-        }],
-    }))
+    (data_dir / "data" / "accounts.json").write_text(
+        _json.dumps(
+            {
+                "accounts": [
+                    {
+                        "number": "+85298349370",
+                        "uuid": "447e962a-0000-0000-0000-000000000000",
+                        "path": "some/path",
+                    },
+                ],
+            },
+        ),
+    )
     res = _read_signal_accounts(data_dir)
     assert res["accounts"][0]["number"] == "+85298349370"
     assert res["accounts"][0]["uuid"].startswith("447e962a")
@@ -479,6 +521,7 @@ def test_read_signal_accounts_valid_file(tmp_path) -> None:
 def test_read_signal_accounts_malformed_file(tmp_path) -> None:
     """Garbage JSON → empty accounts (treated as not-linked)."""
     from qwenpaw.app.routers.config import _read_signal_accounts
+
     data_dir = tmp_path / "sig"
     (data_dir / "data").mkdir(parents=True)
     (data_dir / "data" / "accounts.json").write_text("not json {{")
@@ -487,6 +530,7 @@ def test_read_signal_accounts_malformed_file(tmp_path) -> None:
 
 def test_get_signal_link_state_idempotent() -> None:
     from qwenpaw.app.routers.config import _get_signal_link_state
+
     s1 = _get_signal_link_state("test-agent-zzz")
     s2 = _get_signal_link_state("test-agent-zzz")
     # Same dict object — idempotent and preserves in-flight state.
