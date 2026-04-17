@@ -808,7 +808,7 @@ class ToolGuardMixin:
     def _severity_emoji_and_labels(
         severity: GuardSeverity,
     ) -> tuple[str, str, str]:
-        """Return (emoji, english_label, chinese_label) for a severity level."""
+        """Return emoji plus English and Chinese labels for severity."""
         high = (GuardSeverity.CRITICAL, GuardSeverity.HIGH)
         emoji = "🔴" if severity in high else "🟡"
         labels: dict[GuardSeverity, tuple[str, str]] = {
