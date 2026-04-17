@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 _EXPECTED_REME_VERSION = "0.3.1.8"
 
 
-def _detect_memory_backend() -> str:
+def _detect_memory_manager_backend() -> str:
     """Detect the memory store backend from environment variables.
 
     Resolves ``MEMORY_STORE_BACKEND`` with the following priority:
@@ -108,7 +108,7 @@ class ReMeLightMixin:
     def get_embedding_config(self) -> dict:
         """Return embedding config with priority: config > env var > default."""
         self._warn_if_version_mismatch()
-        cfg = load_agent_config(self.agent_id).running.embedding_config
+        cfg = load_agent_config(self.agent_id).running.reme_light_memory_config.embedding_model_config
         return {
             "backend": cfg.backend,
             "api_key": cfg.api_key

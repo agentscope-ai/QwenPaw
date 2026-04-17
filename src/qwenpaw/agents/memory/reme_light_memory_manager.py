@@ -19,7 +19,7 @@ from ..tools import read_file, write_file, edit_file
 from ..utils import get_token_counter
 from ..utils.reme_mixin import (
     ReMeLightMixin,
-    _detect_memory_backend,
+    _detect_memory_manager_backend,
 )
 from ...config import load_config
 from ...config.config import load_agent_config
@@ -52,7 +52,7 @@ class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
             f"agent_id={agent_id}, working_dir={working_dir}",
         )
 
-        memory_backend = _detect_memory_backend()
+        memory_manager_backend = _detect_memory_manager_backend()
 
         from reme.reme_light import ReMeLight
 
@@ -73,7 +73,7 @@ class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
 
         agent_config = load_agent_config(self.agent_id)
         rebuild_on_start = (
-            agent_config.running.memory_summary.rebuild_memory_index_on_start
+            agent_config.running.reme_light_memory_config.rebuild_memory_index_on_start
         )
 
         store_name = "memory"
@@ -84,14 +84,14 @@ class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
         )
 
         recursive_file_watcher = (
-            agent_config.running.memory_summary.recursive_file_watcher
+            agent_config.running.reme_light_memory_config.recursive_file_watcher
         )
 
         self._reme = ReMeLight(
             working_dir=working_dir,
             default_embedding_model_config=emb_config,
             default_file_store_config={
-                "backend": memory_backend,
+                "backend": memory_manager_backend,
                 "store_name": store_name,
                 "vector_enabled": vector_enabled,
                 "fts_enabled": fts_enabled,
@@ -222,11 +222,11 @@ class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
     async def summarize(self, messages: list[Msg], **_kwargs) -> str:
         """Generate a summary of the given messages and persist to memory."""
         agent_config = load_agent_config(self.agent_id)
-        cc = agent_config.running.context_compact
+        cc = agent_config.running.light_context_config.context_compact_config
         chat_model, formatter = create_model_and_formatter(self.agent_id)
 
         set_current_workspace_dir(Path(self.working_dir))
-        recent_max_bytes = agent_config.running.tool_result_compact.recent_max_bytes
+        recent_max_bytes = agent_config.running.light_context_config.tool_result_pruning_config.pruning_recent_msg_max_bytes
         set_current_recent_max_bytes(recent_max_bytes)
 
         return await self._reme.summary_memory(
@@ -237,7 +237,7 @@ class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
             toolkit=self.summary_toolkit,
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
-            compact_ratio=cc.memory_compact_ratio,
+            compact_ratio=cc.compact_threshold_ratio,
             timezone=load_config().user_timezone or None,
             add_thinking_block=cc.compact_with_thinking_block,
         )
@@ -275,9 +275,9 @@ class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
             return msgs
 
         agent_config = load_agent_config(self.agent_id)
-        ms = agent_config.running.memory_summary
-        max_results = ms.force_max_results
-        min_score = ms.force_min_score
+        ms = agent_config.running.reme_light_memory_config.force_memory_search_config
+        max_results = ms.max_results
+        min_score = ms.min_score
 
         result = await self.memory_search(query=query, max_results=max_results, min_score=min_score)
         content_blocks = result.content
@@ -328,7 +328,7 @@ class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
 
         set_current_workspace_dir(Path(self.working_dir))
         recent_max_bytes = (
-            agent_config.running.tool_result_compact.recent_max_bytes
+            agent_config.running.light_context_config.tool_result_pruning_config.pruning_recent_msg_max_bytes
         )
         set_current_recent_max_bytes(recent_max_bytes)
 

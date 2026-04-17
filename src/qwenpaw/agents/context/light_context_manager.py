@@ -10,7 +10,7 @@ from agentscope.message import Msg, TextBlock
 
 from .base_context_manager import BaseContextManager, context_registry
 from ..utils import check_valid_messages, get_token_counter
-from ..utils.reme_mixin import ReMeLightMixin, _detect_memory_backend
+from ..utils.reme_mixin import ReMeLightMixin, _detect_memory_manager_backend
 from ...config.config import load_agent_config
 from ...constant import EnvVarLoader, MEMORY_COMPACT_KEEP_RECENT
 
@@ -53,7 +53,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             f"agent_id={agent_id}, working_dir={working_dir}",
         )
 
-        memory_backend = _detect_memory_backend()
+        memory_manager_backend = _detect_memory_manager_backend()
 
         from reme.reme_light import ReMeLight
 
@@ -79,14 +79,14 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             working_dir=working_dir,
             default_embedding_model_config=emb_config,
             default_file_store_config={
-                "backend": memory_backend,
+                "backend": memory_manager_backend,
                 "store_name": store_name,
                 "vector_enabled": vector_enabled,
                 "fts_enabled": fts_enabled,
             },
             default_file_watcher_config={
                 "rebuild_index_on_start": False,
-                "recursive": agent_config.running.memory_summary.recursive_file_watcher,
+                "recursive": agent_config.running.reme_light_memory_config.recursive_file_watcher,
             },
         )
 
@@ -144,7 +144,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
         Returns the compacted string, or empty string on failure.
         """
         agent_config = load_agent_config(self.agent_id)
-        cc = agent_config.running.context_compact
+        cc = agent_config.running.light_context_config.context_compact_config
 
         compact_kwargs = dict(
             messages=messages,
@@ -153,7 +153,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             as_token_counter=get_token_counter(agent_config),
             language=agent_config.language,
             max_input_length=agent_config.running.max_input_length,
-            compact_ratio=cc.memory_compact_ratio,
+            compact_ratio=cc.compact_threshold_ratio,
             previous_summary=previous_summary,
             return_dict=True,
             add_thinking_block=cc.compact_with_thinking_block,
@@ -218,7 +218,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
     ) -> dict[str, Any] | None:
         """Augment ``msg`` with retrieved memory results before reply.
 
-        When ``force_memory_search`` is enabled, calls
+        When ``force_memory_search_config.enabled`` is enabled, calls
         ``memory_manager.retrieve()`` which appends a synthetic
         tool-use / tool-result message pair carrying the relevant memory
         snippets.  The augmented message list is returned as modified
@@ -239,9 +239,9 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             return None
 
         agent_config = load_agent_config(self.agent_id)
-        ms = agent_config.running.memory_summary
+        ms = agent_config.running.reme_light_memory_config.force_memory_search_config
 
-        if not ms.force_memory_search:
+        if not ms.enabled:
             return None
 
         memory_manager = agent.memory_manager
@@ -253,7 +253,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
         try:
             augmented = await asyncio.wait_for(
                 memory_manager.retrieve(msgs),
-                timeout=ms.force_memory_search_timeout,
+                timeout=ms.timeout,
             )
         except BaseException as e:
             logger.warning(
@@ -299,9 +299,15 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
                 text=(system_prompt or "") + (compressed_summary or ""),
             )
 
-            left_compact_threshold = (
-                running_config.memory_compact_threshold - str_token_count
+            memory_compact_threshold = int(
+                running_config.max_input_length
+                * running_config.light_context_config.context_compact_config.compact_threshold_ratio
             )
+            memory_compact_reserve = int(
+                running_config.max_input_length
+                * running_config.light_context_config.context_compact_config.reserve_threshold_ratio
+            )
+            left_compact_threshold = memory_compact_threshold - str_token_count
 
             if left_compact_threshold <= 0:
                 logger.warning(
@@ -323,7 +329,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             ) = await self._check_context(
                 messages=messages,
                 memory_compact_threshold=left_compact_threshold,
-                memory_compact_reserve=running_config.memory_compact_reserve,
+                memory_compact_reserve=memory_compact_reserve,
                 as_token_counter=token_counter,
             )
 
@@ -354,7 +360,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             if not messages_to_compact:
                 return None
 
-            if running_config.memory_summary.memory_summary_enabled:
+            if running_config.reme_light_memory_config.memory_summarize_enabled:
                 memory_manager.add_summarize_task(
                     messages=messages_to_compact,
                 )
@@ -364,7 +370,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
                 "🔄 Context compaction started...",
             )
 
-            if running_config.context_compact.context_compact_enabled:
+            if running_config.light_context_config.context_compact_config.enabled:
                 compact_content = await self._compact_context(
                     messages=messages_to_compact,
                     previous_summary=memory.get_compressed_summary(),
@@ -419,7 +425,7 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
 
         try:
             agent_config = load_agent_config(self.agent_id)
-            trc = agent_config.running.tool_result_compact
+            trc = agent_config.running.light_context_config.tool_result_pruning_config
             if not trc.enabled:
                 return None
 
@@ -427,10 +433,10 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             messages = await memory.get_memory(prepend_summary=False)
             await self._compact_tool_result(
                 messages=messages,
-                recent_n=trc.recent_n,
-                old_max_bytes=trc.old_max_bytes,
-                recent_max_bytes=trc.recent_max_bytes,
-                retention_days=trc.retention_days,
+                recent_n=trc.pruning_recent_n,
+                old_max_bytes=trc.pruning_old_msg_max_bytes,
+                recent_max_bytes=trc.pruning_recent_msg_max_bytes,
+                retention_days=trc.offload_retention_days,
             )
         except Exception as e:
             logger.exception(

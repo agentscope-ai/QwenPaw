@@ -625,7 +625,7 @@ def get_dream_cron(agent_id: Optional[str] = None) -> str:
     if agent_id is not None:
         try:
             agent_config = load_agent_config(agent_id)
-            return agent_config.running.memory_summary.dream_cron
+            return agent_config.running.reme_light_memory_config.dream_cron
         except Exception:
             return ""
     # Legacy: return empty string if no agent_id provided

@@ -268,33 +268,36 @@ def get_token_counter(
         Token counters are cached by their configuration tuple and counter
         type to enable reuse across agents with identical settings.
     """
-    cc = agent_config.running.context_compact
+    lc = agent_config.running.light_context_config
 
     if use_estimate:
         return EstimateTokenCounter(
-            token_count_estimate_divisor=cc.token_count_estimate_divisor,
+            token_count_estimate_divisor=lc.token_count_estimate_divisor,
         )
     else:
+        # Use default values for tokenizer model and mirror settings
+        token_count_model = "default"
+        token_count_use_mirror = False
         config_key = (
             "hf",
-            cc.token_count_model,
-            cc.token_count_use_mirror,
+            token_count_model,
+            token_count_use_mirror,
         )
         if config_key not in _token_counter_cache:
             _token_counter_cache[config_key] = TokenCounter(
-                token_count_model=cc.token_count_model,
-                token_count_use_mirror=cc.token_count_use_mirror,
-                token_count_estimate_divisor=cc.token_count_estimate_divisor,
+                token_count_model=token_count_model,
+                token_count_use_mirror=token_count_use_mirror,
+                token_count_estimate_divisor=lc.token_count_estimate_divisor,
             )
             logger.info(
                 f"Token counter created with "
-                f"model={cc.token_count_model}, "
-                f"mirror={cc.token_count_use_mirror}, "
-                f"divisor={cc.token_count_estimate_divisor}",
+                f"model={token_count_model}, "
+                f"mirror={token_count_use_mirror}, "
+                f"divisor={lc.token_count_estimate_divisor}",
             )
         else:
             _token_counter_cache[
                 config_key
-            ].token_count_estimate_divisor = cc.token_count_estimate_divisor
+            ].token_count_estimate_divisor = lc.token_count_estimate_divisor
 
     return _token_counter_cache[config_key]

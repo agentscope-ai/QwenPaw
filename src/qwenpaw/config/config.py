@@ -351,12 +351,51 @@ class AgentsDefaultsConfig(BaseModel):
     heartbeat: Optional[HeartbeatConfig] = None
 
 
-class EmbeddingConfig(BaseModel):
+class ForceMemorySearchConfig(BaseModel):
+    """Force memory search configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description="Whether to force memory search on every turn",
+    )
+
+    max_results: int = Field(
+        default=1,
+        ge=1,
+        description=(
+            "Maximum number of results to return when force memory"
+            " search is enabled"
+        ),
+    )
+
+    min_score: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum relevance score for results when force memory"
+            " search is enabled"
+        ),
+    )
+
+    timeout: float = Field(
+        default=10.0,
+        gt=0.0,
+        description=(
+            "Timeout in seconds for force memory search. Increase this value"
+            " when using remote embedding APIs that may have higher latency."
+        ),
+    )
+
+
+class EmbeddingModelConfig(BaseModel):
     """Embedding model configuration."""
 
     model_config = ConfigDict(extra="ignore")
 
-    backend: str = Field(
+    backend: Literal["openai"] = Field(
         default="openai",
         description="Embedding backend (openai, etc.)",
     )
@@ -386,108 +425,12 @@ class EmbeddingConfig(BaseModel):
     )
 
 
-class ContextCompactConfig(BaseModel):
-    """Context compaction and token-counting configuration."""
+class ReMeLightMemoryConfig(BaseModel):
+    """ReMeLight memory manager configuration."""
 
     model_config = ConfigDict(extra="ignore")
 
-    token_count_model: str = Field(
-        default="default",
-        description="Model to use for token counting",
-    )
-
-    token_count_use_mirror: bool = Field(
-        default=False,
-        description="Whether to use HuggingFace mirror for token counting",
-    )
-
-    token_count_estimate_divisor: float = Field(
-        default=4,
-        ge=2,
-        le=5,
-        description=(
-            "Divisor for byte-based token estimation (byte_len / divisor)"
-        ),
-    )
-
-    context_compact_enabled: bool = Field(
-        default=True,
-        description="Whether to enable automatic context compaction",
-    )
-
-    memory_compact_ratio: float = Field(
-        default=0.75,
-        ge=0.3,
-        le=0.9,
-        description=(
-            "Compaction trigger threshold ratio: compaction is triggered when "
-            "the context length reaches this fraction of max_input_length"
-        ),
-    )
-
-    memory_reserve_ratio: float = Field(
-        default=0.1,
-        ge=0.05,
-        le=0.3,
-        description=(
-            "Context reserve threshold ratio: the most recent fraction of the "
-            "context is preserved after compaction to maintain continuity"
-        ),
-    )
-
-    compact_with_thinking_block: bool = Field(
-        default=True,
-        description="Whether to include thinking blocks when compacting",
-    )
-
-
-class ToolResultCompactConfig(BaseModel):
-    """Tool result compaction thresholds and retention configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    enabled: bool = Field(
-        default=True,
-        description="Whether to enable tool result compaction",
-    )
-
-    recent_n: int = Field(
-        default=2,
-        ge=1,
-        le=10,
-        description="Number of recent messages to use recent_max_bytes for",
-    )
-
-    old_max_bytes: int = Field(
-        default=3000,
-        ge=100,
-        description=(
-            "Byte threshold for old messages in tool result compaction"
-        ),
-    )
-
-    recent_max_bytes: int = Field(
-        default=50000,
-        ge=1000,
-        description=(
-            "Byte threshold for recent messages in tool result compaction"
-        ),
-    )
-
-    retention_days: int = Field(
-        default=5,
-        ge=1,
-        le=10,
-        description="Number of days to retain tool result files",
-    )
-
-
-class MemorySummaryConfig(BaseModel):
-    """Memory summarization and search configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    memory_summary_enabled: bool = Field(
+    memory_summarize_enabled: bool = Field(
         default=True,
         description="Whether to enable memory summarization during compaction",
     )
@@ -495,40 +438,15 @@ class MemorySummaryConfig(BaseModel):
     dream_cron: str = Field(
         default="0 23 * * *",
         description="Cron expression for dream-based memory optimization job "
-        "(empty to disable)",
+                    "(empty to disable)",
     )
 
-    force_memory_search: bool = Field(
-        default=False,
-        description="Whether to force memory search on every turn",
+    force_memory_search_config: ForceMemorySearchConfig = Field(
+        default_factory=ForceMemorySearchConfig,
     )
 
-    force_max_results: int = Field(
-        default=1,
-        ge=1,
-        description=(
-            "Maximum number of results to return when force memory"
-            " search is enabled"
-        ),
-    )
-
-    force_min_score: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Minimum relevance score for results when force memory"
-            " search is enabled"
-        ),
-    )
-
-    force_memory_search_timeout: float = Field(
-        default=10.0,
-        gt=0.0,
-        description=(
-            "Timeout in seconds for force memory search. Increase this value"
-            " when using remote embedding APIs that may have higher latency."
-        ),
+    embedding_model_config: EmbeddingModelConfig = Field(
+        default_factory=EmbeddingModelConfig,
     )
 
     rebuild_memory_index_on_start: bool = Field(
@@ -547,6 +465,105 @@ class MemorySummaryConfig(BaseModel):
             "Set to True to include subdirectories like memory/subdirectory/* "
             "in vector search indexing."
         ),
+    )
+
+
+class ContextCompactConfig(BaseModel):
+    """Context compaction configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether to enable automatic context compaction",
+    )
+
+    compact_threshold_ratio: float = Field(
+        default=0.8,
+        ge=0.1,
+        le=0.9,
+        description=(
+            "Compaction trigger threshold ratio: compaction is triggered when "
+            "the context length reaches this fraction of max_input_length"
+        ),
+    )
+
+    reserve_threshold_ratio: float = Field(
+        default=0.1,
+        ge=0,
+        le=0.3,
+        description=(
+            "Context reserve threshold ratio: the most recent fraction of the "
+            "context is preserved after compaction to maintain continuity"
+        ),
+    )
+
+    compact_with_thinking_block: bool = Field(
+        default=True,
+        description="Whether to include thinking blocks when compacting",
+    )
+
+
+class ToolResultPruningConfig(BaseModel):
+    """Tool result pruning configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether to enable tool result compaction",
+    )
+
+    pruning_recent_n: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Number of recent messages to use recent_max_bytes for",
+    )
+
+    pruning_old_msg_max_bytes: int = Field(
+        default=3000,
+        ge=100,
+        description=(
+            "Byte threshold for old messages in tool result compaction"
+        ),
+    )
+
+    pruning_recent_msg_max_bytes: int = Field(
+        default=50000,
+        ge=1000,
+        description=(
+            "Byte threshold for recent messages in tool result compaction"
+        ),
+    )
+
+    offload_retention_days: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Number of days to retain tool result files",
+    )
+
+
+class LightContextConfig(BaseModel):
+    """Light context manager configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    token_count_estimate_divisor: float = Field(
+        default=4,
+        ge=2,
+        le=5,
+        description=(
+            "Divisor for byte-based token estimation (byte_len / divisor)"
+        ),
+    )
+
+    context_compact_config: ContextCompactConfig = Field(
+        default_factory=ContextCompactConfig,
+    )
+    tool_result_pruning_config: ToolResultPruningConfig = Field(
+        default_factory=ToolResultPruningConfig,
     )
 
 
@@ -674,56 +691,19 @@ class AgentsRunningConfig(BaseModel):
         description="Maximum length for /history command output",
     )
 
-    context_compact: ContextCompactConfig = Field(
-        default_factory=ContextCompactConfig,
-        description="Context compaction configuration",
+    context_manager_backend: str = Field(default="light")
+
+    light_context_config: LightContextConfig = Field(
+        default_factory=LightContextConfig,
     )
 
-    tool_result_compact: ToolResultCompactConfig = Field(
-        default_factory=ToolResultCompactConfig,
-        description="Tool result compaction configuration",
+    memory_manager_backend: str = Field(default="ReMeLight")
+
+    reme_light_memory_config: ReMeLightMemoryConfig = Field(
+        default_factory=ReMeLightMemoryConfig,
     )
 
-    memory_summary: MemorySummaryConfig = Field(
-        default_factory=MemorySummaryConfig,
-        description="Memory summarization and search configuration",
-    )
-
-    embedding_config: EmbeddingConfig = Field(
-        default_factory=EmbeddingConfig,
-        description="Embedding model configuration",
-    )
-
-    memory_manager_backend: Literal["ReMeLight"] = Field(
-        default="ReMeLight",
-        description=(
-            "Memory manager backend type. "
-            "Currently only 'ReMeLight' is supported."
-        ),
-    )
-
-    context_manager_backend: Literal["light"] = Field(
-        default="light",
-        description=(
-            "Context manager backend type. "
-            "Currently only 'light' is supported."
-        ),
-    )
-
-    @property
-    def memory_compact_reserve(self) -> int:
-        """Memory compact reserve size (tokens)."""
-        return int(
-            self.max_input_length * self.context_compact.memory_reserve_ratio,
-        )
-
-    @property
-    def memory_compact_threshold(self) -> int:
-        """Memory compact threshold size (tokens)."""
-        return int(
-            self.max_input_length * self.context_compact.memory_compact_ratio,
-        )
-
+    
 
 class AgentsLLMRoutingConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
