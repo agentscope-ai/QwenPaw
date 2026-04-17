@@ -466,8 +466,19 @@ class SignalChannel(BaseChannel):
             else:
                 # DM: implicitly addressed to the bot.
                 bot_mentioned_actual = True
-                if self.dm_policy == "allowlist" and self.allow_from:
+                if self.dm_policy == "allowlist":
+                    # Empty allowlist in allowlist mode ⇒ reject everyone.
+                    # (Dropping the `and self.allow_from` guard that previously
+                    # short-circuited this check for empty list, which caused
+                    # an empty-allowlist + allowlist mode to silently allow
+                    # every DM through.)
                     if not self._is_source_allowed(source, source_uuid):
+                        logger.debug(
+                            "signal: blocked DM from %s by dm_policy allowlist "  # noqa: E501
+                            "(allow_from=%s)",
+                            source or source_uuid,
+                            self.allow_from,
+                        )
                         return
 
             logger.info(

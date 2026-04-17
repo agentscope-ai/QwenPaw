@@ -356,6 +356,38 @@ def test_is_source_allowed_uuid_prefix() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_dm_allowlist_empty_rejects_all() -> None:
+    """Regression: DM `allowlist` policy + empty `allow_from` ⇒ block everyone.
+
+    Earlier the guard was ``if self.dm_policy == "allowlist" and self.allow_from``,
+    which short-circuited on an empty list — so setting policy to allowlist
+    and clearing the list silently let every DM through. Ensure the check
+    now runs unconditionally for allowlist mode.
+    """
+    enqueue_calls: List[Any] = []
+    ch = _make_channel(dm_policy="allowlist", allow_from=[])
+    ch._enqueue = enqueue_calls.append
+    ch.client.connected = True
+
+    notification = {
+        "envelope": {
+            "sourceNumber": "+85299999999",
+            "sourceUuid": "ffffffff-0000-0000-0000-000000000000",
+            "sourceName": "Stranger",
+            "timestamp": 1_700_000_000,
+            "dataMessage": {"message": "hi bot"},
+        },
+    }
+    await ch._on_notification(notification)
+
+    # Message should be dropped — nothing enqueued to the agent runner.
+    assert enqueue_calls == [], (
+        "DM from non-allowlisted sender was not blocked when allow_from "
+        "is empty + dm_policy=allowlist"
+    )
+
+
 # ───────────────────────────── bot self-mention strip ────────────────
 
 
