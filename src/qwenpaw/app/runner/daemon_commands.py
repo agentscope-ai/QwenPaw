@@ -15,8 +15,9 @@ from typing import Any, Callable, Optional, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
-from ...constant import WORKING_DIR, PROJECT_NAME
+from ...constant import WORKING_DIR
 from ...config import load_config
+from ...utils.logging import LOG_NAMESPACE, LOG_FILE_PATH
 
 if TYPE_CHECKING:
     from ...config.config import AgentProfileConfig
@@ -44,8 +45,7 @@ DAEMON_SHORT_ALIASES = {
     "approve": "approve",
 }
 
-LOG_NAMESPACE = PROJECT_NAME.lower()
-LOG_PATH = WORKING_DIR / f"{LOG_NAMESPACE}.log"
+LOG_PATH = LOG_FILE_PATH
 
 
 @dataclass

@@ -190,7 +190,7 @@ export default function DebugPage() {
         message={t("debug.title", "Debug")}
         description={t(
           "debug.desc",
-          "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
+          "View backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
         )}
       />
 

@@ -7,6 +7,7 @@ import Header from "../Header";
 import ConsoleCronBubble from "../../components/ConsoleCronBubble";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { lazyWithRetry } from "../../utils/lazyWithRetry";
+import { usePlugins } from "../../plugins/PluginContext";
 import styles from "../index.module.less";
 
 // Chat is eagerly loaded (default landing page)
@@ -78,7 +79,18 @@ export default function MainLayout() {
   const { t } = useTranslation();
   const location = useLocation();
   const currentPath = location.pathname;
-  const selectedKey = pathToKey[currentPath] || "chat";
+  const { pluginRoutes } = usePlugins();
+
+  // Resolve selected key: check static routes first, then plugin routes
+  let selectedKey = pathToKey[currentPath] || "";
+  if (!selectedKey) {
+    const matchedPlugin = pluginRoutes.find(
+      (route) => currentPath === route.path,
+    );
+    selectedKey = matchedPlugin
+      ? matchedPlugin.path.replace(/^\//, "")
+      : "chat";
+  }
 
   return (
     <Layout className={styles.mainLayout}>
@@ -120,6 +132,15 @@ export default function MainLayout() {
                     element={<VoiceTranscriptionPage />}
                   />
                   <Route path="/debug" element={<DebugPage />} />
+
+                  {/* Plugin routes — dynamically injected at runtime */}
+                  {pluginRoutes.map((route) => (
+                    <Route
+                      key={route.path}
+                      path={route.path}
+                      element={<route.component />}
+                    />
+                  ))}
                 </Routes>
               </Suspense>
             </ChunkErrorBoundary>

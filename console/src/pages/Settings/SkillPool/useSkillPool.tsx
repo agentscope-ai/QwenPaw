@@ -13,6 +13,7 @@ import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
   BuiltinImportSpec,
+  BuiltinUpdateNotice,
   PoolSkillSpec,
   WorkspaceSkillSummary,
 } from "../../../api/types";
@@ -45,10 +46,35 @@ type BroadcastConflict =
       source_version_text: string;
     };
 
+const BUILTIN_NOTICE_ACK_STORAGE_KEY = "qwenpaw.skill-pool.builtin-notice.ack";
+
+function readBuiltinNoticeAcknowledgement(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return localStorage.getItem(BUILTIN_NOTICE_ACK_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeBuiltinNoticeAcknowledgement(fingerprint: string): void {
+  if (typeof window === "undefined" || !fingerprint) return;
+  try {
+    localStorage.setItem(BUILTIN_NOTICE_ACK_STORAGE_KEY, fingerprint);
+  } catch {
+    // Ignore storage failures and fall back to in-memory state.
+  }
+}
+
 export function useSkillPool() {
   const { t } = useTranslation();
   const [skills, setSkills] = useState<PoolSkillSpec[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceSkillSummary[]>([]);
+  const [builtinNotice, setBuiltinNotice] =
+    useState<BuiltinUpdateNotice | null>(null);
+  const [builtinNoticeAck, setBuiltinNoticeAck] = useState<string>(() =>
+    readBuiltinNoticeAcknowledgement(),
+  );
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<PoolMode | null>(null);
   const [activeSkill, setActiveSkill] = useState<PoolSkillSpec | null>(null);
@@ -84,6 +110,16 @@ export function useSkillPool() {
     () => filteredSkills.slice().sort((a, b) => a.name.localeCompare(b.name)),
     [filteredSkills],
   );
+  const hasUnseenBuiltinNotice = useMemo(
+    () =>
+      Boolean(
+        builtinNotice?.has_updates &&
+          builtinNotice.fingerprint &&
+          builtinNotice.fingerprint !== builtinNoticeAck,
+      ),
+    [builtinNotice, builtinNoticeAck],
+  );
+  const builtinNoticeTotal = builtinNotice?.total_changes || 0;
 
   const confirmOverwrite = (title: string, content: ReactNode) =>
     new Promise<boolean>((resolve) => {
@@ -140,17 +176,31 @@ export function useSkillPool() {
   // Use ref to cache data and avoid unnecessary reloads
   const dataLoadedRef = useRef(false);
 
+  const markBuiltinNoticeSeen = useCallback(
+    (fingerprint?: string) => {
+      const nextFingerprint = String(
+        fingerprint || builtinNotice?.fingerprint || "",
+      ).trim();
+      if (!nextFingerprint) return;
+      writeBuiltinNoticeAcknowledgement(nextFingerprint);
+      setBuiltinNoticeAck(nextFingerprint);
+    },
+    [builtinNotice],
+  );
+
   const loadData = useCallback(async (forceReload = false) => {
     if (dataLoadedRef.current && !forceReload) return;
 
     setLoading(true);
     try {
-      const [poolSkills, workspaceSummaries] = await Promise.all([
+      const [poolSkills, workspaceSummaries, notice] = await Promise.all([
         api.listSkillPoolSkills(),
         api.listSkillWorkspaces(),
+        api.getPoolBuiltinNotice(),
       ]);
       setSkills(poolSkills);
       setWorkspaces(workspaceSummaries);
+      setBuiltinNotice(notice);
       dataLoadedRef.current = true;
     } catch (error) {
       message.error(
@@ -165,12 +215,14 @@ export function useSkillPool() {
     setLoading(true);
     try {
       invalidateSkillCache({ pool: true, workspaces: true });
-      const [poolSkills, workspaceSummaries] = await Promise.all([
+      const [poolSkills, workspaceSummaries, notice] = await Promise.all([
         api.refreshSkillPool(),
         api.listSkillWorkspaces(),
+        api.getPoolBuiltinNotice(),
       ]);
       setSkills(poolSkills);
       setWorkspaces(workspaceSummaries);
+      setBuiltinNotice(notice);
       dataLoadedRef.current = true;
     } catch (error) {
       message.error(
@@ -211,9 +263,16 @@ export function useSkillPool() {
   const openImportBuiltin = async () => {
     try {
       setImportBuiltinLoading(true);
-      const sources = await api.listPoolBuiltinSources();
+      const [sources, notice] = await Promise.all([
+        api.listPoolBuiltinSources(),
+        api.getPoolBuiltinNotice(),
+      ]);
       setBuiltinSources(sources);
+      setBuiltinNotice(notice);
       setImportBuiltinModalOpen(true);
+      if (notice.has_updates && notice.fingerprint) {
+        markBuiltinNoticeSeen(notice.fingerprint);
+      }
     } catch (error) {
       message.error(
         error instanceof Error
@@ -816,6 +875,9 @@ export function useSkillPool() {
     zipInputRef,
     importBuiltinModalOpen,
     builtinSources,
+    builtinNotice,
+    builtinNoticeTotal,
+    hasUnseenBuiltinNotice,
     importBuiltinLoading,
     importModalOpen,
     importing,
