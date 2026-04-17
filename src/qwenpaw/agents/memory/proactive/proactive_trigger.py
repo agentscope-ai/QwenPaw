@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 # Global storage for proactive configurations per session
 proactive_configs: Dict[str, ProactiveConfig] = {}
 proactive_tasks: Dict[str, asyncio.Task] = {}
-proactive_responder_tasks: Dict[str, asyncio.Task] = {}
 
 
 def enable_proactive_for_session(
@@ -180,12 +179,8 @@ async def _handle_proactive_trigger(
 
     try:
         responder_task = asyncio.create_task(
-            generate_proactive_response(
-                session_id,
-                workspace=workspace,  # Pass workspace here
-            ),
+            generate_proactive_response(workspace),
         )
-        proactive_responder_tasks[session_id] = responder_task
 
         proactive_msg = await responder_task
 
@@ -199,9 +194,6 @@ async def _handle_proactive_trigger(
     except Exception as e:
         logger.error(f"Error in proactive responder: {e}")
     finally:
-        if session_id in proactive_responder_tasks:
-            del proactive_responder_tasks[session_id]
-
         if session_id in proactive_configs:
             proactive_configs[session_id].running_task_id = None
 
@@ -277,5 +269,5 @@ async def proactive_trigger_loop(
         except asyncio.CancelledError:
             logger.info("Proactive trigger loop cancelled")
             break
-        except BaseException as e:
+        except Exception as e:
             logger.error(f"Error in proactive trigger loop: {e}")

@@ -38,7 +38,6 @@ logger = logging.getLogger(__name__)
 
 
 async def generate_proactive_response(
-    session_id: str,
     workspace: Workspace,
 ) -> Optional[Msg]:
     """Main function to generate proactive response based on memory."""
@@ -46,8 +45,6 @@ async def generate_proactive_response(
     active_agent_id = get_current_agent_id()
 
     agent = await _initialize_single_proactive_agent(
-        session_id,
-        workspace,
         active_agent_id,
     )
 
@@ -99,8 +96,6 @@ async def generate_proactive_response(
 
 
 async def _initialize_single_proactive_agent(
-    session_id: str,
-    workspace: Workspace,
     agent_id: str = "proactive",
 ) -> ReActAgent:
     """Initialize a single proactive agent instance."""
@@ -226,19 +221,11 @@ async def _generate_final_message(
         language=agent_language,
     )
 
-    proactive_msg_content = await send_proactive_message_via_http(
+    await send_proactive_message_via_http(
         active_agent_id=active_agent_id,
         proactive_content=proactive_content,
         timeout_seconds=300,
     )
-
-    if proactive_msg_content:
-        return Msg(
-            name="Proactive_Assistant",
-            role="assistant",
-            content=f"[PROACTIVE] {proactive_msg_content}",
-            timestamp=datetime.now(),
-        )
 
     return None
 
@@ -248,8 +235,10 @@ async def send_proactive_message_via_http(
     proactive_content: str,
     timeout_seconds: int = 60,
 ) -> str:
-    from ...tools.agent_management import resolve_agent_api_base_url
     """Send a proactive message by directly calling the QwenPaw API."""
+
+    from ...tools.agent_management import resolve_agent_api_base_url
+
     session_id = f"proactive_mode:{active_agent_id}"
 
     request_payload = {
@@ -311,7 +300,7 @@ async def send_proactive_message_via_http(
     except Exception as e:
         logger.error("Error calling QwenPaw API for proactive message: %s", e)
 
-    return proactive_content
+    return None
 
 
 async def _was_interrupted(

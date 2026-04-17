@@ -2,17 +2,8 @@
 """Type definitions for proactive conversation feature."""
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 from datetime import datetime
-
-
-class ProactiveStatus(Enum):
-    """Status of proactive feature."""
-
-    DISABLED = "disabled"
-    ENABLED = "enabled"
-    RUNNING = "running"
 
 
 @dataclass
@@ -44,12 +35,3 @@ class ProactiveQueryResult:
     success: bool
     data: Optional[str] = None
     error: Optional[str] = None
-
-
-@dataclass
-class ProactiveMemoryContext:
-    """Memory context for proactive agent."""
-
-    session_context: str
-    file_memories: list[str]
-    max_chars: int = 100000
