@@ -63,10 +63,9 @@ export const channelApi = {
       error?: string;
     }>("/config/channels/signal/link/status"),
   stopSignalLink: () =>
-    request<{ status: string }>(
-      "/config/channels/signal/link/stop",
-      { method: "POST" },
-    ),
+    request<{ status: string }>("/config/channels/signal/link/stop", {
+      method: "POST",
+    }),
   unbindSignal: () =>
     request<{ status: string; detail?: string }>(
       "/config/channels/signal/unbind",

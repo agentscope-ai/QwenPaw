@@ -428,7 +428,11 @@ export function ChannelDrawer({
             activeKey === "signal" && sigContacts.length
               ? sigContacts.map((c) => {
                   const value = c.number || (c.uuid ? `uuid:${c.uuid}` : "");
-                  const label = [c.name, c.number, c.uuid && `uuid:${c.uuid.slice(0, 8)}…`]
+                  const label = [
+                    c.name,
+                    c.number,
+                    c.uuid && `uuid:${c.uuid.slice(0, 8)}…`,
+                  ]
                     .filter(Boolean)
                     .join(" · ");
                   return { value, label: label || value };
@@ -1321,7 +1325,9 @@ export function ChannelDrawer({
                   sigGroups.length
                     ? sigGroups.map((g) => ({
                         value: g.id,
-                        label: `${g.id.slice(0, 20)}…${g.blocked ? " (blocked)" : ""}`,
+                        label: `${g.id.slice(0, 20)}…${
+                          g.blocked ? " (blocked)" : ""
+                        }`,
                       }))
                     : undefined
                 }
@@ -1342,8 +1348,13 @@ export function ChannelDrawer({
                     ? [
                         { value: "*", label: "* (everyone)" },
                         ...sigContacts.map((c) => {
-                          const value = c.number || (c.uuid ? `uuid:${c.uuid}` : "");
-                          const label = [c.name, c.number, c.uuid && `uuid:${c.uuid.slice(0, 8)}…`]
+                          const value =
+                            c.number || (c.uuid ? `uuid:${c.uuid}` : "");
+                          const label = [
+                            c.name,
+                            c.number,
+                            c.uuid && `uuid:${c.uuid.slice(0, 8)}…`,
+                          ]
                             .filter(Boolean)
                             .join(" · ");
                           return { value, label: label || value };

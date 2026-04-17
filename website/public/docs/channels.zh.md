@@ -738,10 +738,10 @@ Signal 频道通过 **stdin/stdout 子进程** 方式直接调用官方 [`signal
 
 按平台选对应的分发包即可，两者都提供同名 `signal-cli` 命令：
 
-| 平台                             | 分发包                                                                                                    | 安装方式                                                                                                                 |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **Linux x86_64**                | Native-image（GraalVM 编译，约 97 MB，自包含 ELF，无需 Java 运行时）                                         | 从 [Releases](https://github.com/AsamK/signal-cli/releases) 下载 `signal-cli-X.Y.Z-Linux-native.tar.gz`，解压到 `/opt/signal-cli/` 并建立 `/usr/local/bin/` 软链接 |
-| **Linux ARM64 / macOS / Windows** | JAR 包（约 98 MB，需 Java 21+）                                                                            | 从 Releases 下载 `signal-cli-X.Y.Z.tar.gz`，另装 Java 21（macOS `brew install openjdk@21`、Debian/Ubuntu `apt install openjdk-21-jre`、Windows 走 MSI 安装包） |
+| 平台                              | 分发包                                                               | 安装方式                                                                                                                                                           |
+| --------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Linux x86_64**                  | Native-image（GraalVM 编译，约 97 MB，自包含 ELF，无需 Java 运行时） | 从 [Releases](https://github.com/AsamK/signal-cli/releases) 下载 `signal-cli-X.Y.Z-Linux-native.tar.gz`，解压到 `/opt/signal-cli/` 并建立 `/usr/local/bin/` 软链接 |
+| **Linux ARM64 / macOS / Windows** | JAR 包（约 98 MB，需 Java 21+）                                      | 从 Releases 下载 `signal-cli-X.Y.Z.tar.gz`，另装 Java 21（macOS `brew install openjdk@21`、Debian/Ubuntu `apt install openjdk-21-jre`、Windows 走 MSI 安装包）     |
 
 > JAR 包内带有 `bin/signal-cli` shell 封装脚本，会自动引导 JVM，因此无论哪种架构，你的 `signal_cli_path` 都指向同一个命令名。
 
@@ -806,18 +806,18 @@ cat ~/.local/share/signal-cli/data/accounts.json
 
 **Signal 特有字段：**
 
-| 字段                  | 类型         | 默认值               | 说明                                                                                                            |
-| -------------------- | ------------ | -------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `account`            | string       | `""`（必填）         | 在 signal-cli 注册的电话号码，E.164 格式                                                                          |
-| `account_uuid`       | string       | `""`                 | Bot 账号的 UUID（取自 `accounts.json`），用于检测群内 @机器人自己                                                 |
-| `signal_cli_path`    | string       | `"signal-cli"`       | signal-cli 二进制的路径或 `$PATH` 中的名称。若未在 `$PATH`，请填绝对路径                                          |
-| `data_dir`           | string       | `""`                 | signal-cli 数据目录（对应 `-c` 参数）。留空则解析为 `<workspace_dir>/credentials/signal/default` 或 `<WORKING_DIR>/credentials/signal/default`；支持绝对路径或 `~/` 开头。除非在此字段显式填入，signal-cli 自身的 `~/.local/share/signal-cli/` 不会被使用。 |
-| `extra_args`         | list[str]    | `[]`                 | 追加到 spawn 命令尾部的额外参数，如 `["--trust-new-identities", "always"]`                                        |
-| `show_typing`        | bool         | `true`               | 生成响应期间持续刷新 "输入中" 状态                                                                                 |
-| `send_read_receipts` | bool         | `true`               | 发送已读回执                                                                                                     |
-| `text_chunk_limit`   | int          | `4000`               | 单条消息最大字符数                                                                                               |
-| `groups`             | list         | `[]`                 | 群组 internal-id 白名单（来自 `signal-cli listGroups`，类似 `sBlO8LhzR42X...=` 的 base64 字符串）                  |
-| `group_allow_from`   | list         | `[]`                 | 谁可以在群内触发机器人。`["*"]` = 所有人；支持 `+电话` 或 `uuid:...`                                               |
+| 字段                 | 类型      | 默认值         | 说明                                                                                                                                                                                                                                                        |
+| -------------------- | --------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `account`            | string    | `""`（必填）   | 在 signal-cli 注册的电话号码，E.164 格式                                                                                                                                                                                                                    |
+| `account_uuid`       | string    | `""`           | Bot 账号的 UUID（取自 `accounts.json`），用于检测群内 @机器人自己                                                                                                                                                                                           |
+| `signal_cli_path`    | string    | `"signal-cli"` | signal-cli 二进制的路径或 `$PATH` 中的名称。若未在 `$PATH`，请填绝对路径                                                                                                                                                                                    |
+| `data_dir`           | string    | `""`           | signal-cli 数据目录（对应 `-c` 参数）。留空则解析为 `<workspace_dir>/credentials/signal/default` 或 `<WORKING_DIR>/credentials/signal/default`；支持绝对路径或 `~/` 开头。除非在此字段显式填入，signal-cli 自身的 `~/.local/share/signal-cli/` 不会被使用。 |
+| `extra_args`         | list[str] | `[]`           | 追加到 spawn 命令尾部的额外参数，如 `["--trust-new-identities", "always"]`                                                                                                                                                                                  |
+| `show_typing`        | bool      | `true`         | 生成响应期间持续刷新 "输入中" 状态                                                                                                                                                                                                                          |
+| `send_read_receipts` | bool      | `true`         | 发送已读回执                                                                                                                                                                                                                                                |
+| `text_chunk_limit`   | int       | `4000`         | 单条消息最大字符数                                                                                                                                                                                                                                          |
+| `groups`             | list      | `[]`           | 群组 internal-id 白名单（来自 `signal-cli listGroups`，类似 `sBlO8LhzR42X...=` 的 base64 字符串）                                                                                                                                                           |
+| `group_allow_from`   | list      | `[]`           | 谁可以在群内触发机器人。`["*"]` = 所有人；支持 `+电话` 或 `uuid:...`                                                                                                                                                                                        |
 
 ### 功能
 
