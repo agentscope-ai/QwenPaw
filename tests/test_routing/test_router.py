@@ -3,8 +3,8 @@
 
 import pytest
 
-from copaw.routing.config import SemanticRoutingConfig
-from copaw.routing.router import SkillRouter
+from qwenpaw.routing.config import SemanticRoutingConfig
+from qwenpaw.routing.router import SkillRouter
 
 
 def _make_skills(n: int) -> list[dict]:

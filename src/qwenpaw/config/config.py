@@ -1563,8 +1563,8 @@ try:
     from ..routing.config import SemanticRoutingConfig
     Config.model_rebuild()
 except ImportError:
-    # Optional dependencies not available; rebuild with string resolution
-    Config.model_rebuild(_raise_errors=False)
+    # Optional dependencies not available; safe to skip
+    pass
 
 
 ChannelConfigUnion = Union[

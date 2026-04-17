@@ -4,7 +4,7 @@
 import json
 import pytest
 
-from copaw.routing.models import IndexItem, SearchHit, RoutingResult
+from qwenpaw.routing.models import IndexItem, SearchHit, RoutingResult
 
 
 class TestIndexItem:

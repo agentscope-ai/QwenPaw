@@ -11,7 +11,7 @@ from pathlib import Path
 # Add CoPaw source to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from copaw.agents.react_agent import CoPawAgent
+from qwenpaw.agents.react_agent import CoPawAgent
 
 
 async def test_hint_injection():
@@ -31,7 +31,7 @@ async def test_hint_injection():
 
     # Test 2: Verify _read_skill_metas can read skill metadata from disk
     print("\n[Test 2] Skill meta reading from disk")
-    skills_dir = Path(os.path.expanduser("~/.copaw/workspaces/default/skills"))
+    skills_dir = Path(os.path.expanduser("~/.qwenpaw/workspaces/default/skills"))
     if skills_dir.exists():
         skill_dirs = [d for d in os.listdir(skills_dir) if os.path.isdir(skills_dir / d)]
         if skill_dirs:
@@ -47,7 +47,7 @@ async def test_hint_injection():
 
     # Test 3: Verify reply() uses system message with mark for hint injection
     print("\n[Test 3] Reply method hint injection check (system message approach)")
-    with open(os.path.join(os.path.dirname(__file__), 'src/copaw/agents/react_agent.py')) as f:
+    with open(os.path.join(os.path.dirname(__file__), 'src/qwenpaw/agents/react_agent.py')) as f:
         source = f.read()
 
     assert '_build_skill_hint(query)' in source, "reply() should call _build_skill_hint"

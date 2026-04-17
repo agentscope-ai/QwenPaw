@@ -5,7 +5,7 @@ Supports two embedding backends:
 1. **API mode** — uses CoPaw's existing EmbeddingConfig (OpenAI-compatible
    embedding API, e.g. DashScope, OpenAI).  No extra dependencies needed.
 2. **Local mode** — uses sentence-transformers + FAISS.  Requires
-   ``pip install copaw[semantic]``.
+   ``pip install qwenpaw[semantic]``.
 
 API mode is preferred when EmbeddingConfig is configured.  Local mode is
 the fallback.  All heavy imports are deferred so the module is safe to
@@ -54,8 +54,8 @@ def _get_embedding_config() -> dict[str, Any] | None:
     etc., or None.
     """
     try:
-        from copaw.config.utils import load_config
-        from copaw.config.config import load_agent_config
+        from qwenpaw.config.utils import load_config
+        from qwenpaw.config.config import load_agent_config
 
         config = load_config()
         agent_id = config.agents.active_agent or "default"
@@ -113,8 +113,8 @@ def _apply_hf_mirror_if_needed() -> None:
     if os.environ.get("HF_ENDPOINT"):
         return
     try:
-        from copaw.config.utils import load_config
-        from copaw.config.config import load_agent_config
+        from qwenpaw.config.utils import load_config
+        from qwenpaw.config.config import load_agent_config
 
         config = load_config()
         agent_id = config.agents.active_agent or "default"
@@ -202,7 +202,7 @@ class SemanticIndex:
         raise RuntimeError(
             "No embedding backend available. "
             "Configure Embedding API in Agent Config, "
-            "or install: pip install copaw[semantic]"
+            "or install: pip install qwenpaw[semantic]"
         )
 
     # ------------------------------------------------------------------

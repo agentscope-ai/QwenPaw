@@ -1287,7 +1287,7 @@
     "saveLevelSuccess": "工具执行安全级别已保存",
     "saveLevelFailed": "保存工具执行安全级别失败",
     "semanticRoutingTitle": "语义技能路由",
-    "semanticRoutingHint": "使用 embedding 语义匹配为每次查询推荐最相关的 skills，帮助 agent 更准确地选择工具。不改变工具列表，KV Cache 友好。如果上方已配置 Embedding API 则自动使用，否则使用本地模型（pip install copaw[semantic]）。",
+    "semanticRoutingHint": "使用 embedding 语义匹配为每次查询推荐最相关的 skills，帮助 agent 更准确地选择工具。不改变工具列表，KV Cache 友好。如果上方已配置 Embedding API 则自动使用，否则使用本地模型（pip install qwenpaw[semantic]）。",
     "semanticRoutingEnabled": "启用",
     "semanticRoutingEnabledTooltip": "启用后，每次查询会在用户消息中附加 Top-K 个最相关 skills 的推荐提示，引导 agent 优先选择匹配的工具。",
     "semanticRoutingTopK": "Top-K 技能数",

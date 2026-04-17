@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for SemanticRoutingConfig defaults and validation."""
 
-from copaw.routing.config import SemanticRoutingConfig
+from qwenpaw.routing.config import SemanticRoutingConfig
 
 
 class TestSemanticRoutingConfigDefaults:

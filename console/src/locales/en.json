@@ -1424,7 +1424,7 @@
     "saveLevelSuccess": "Tool execution security level saved",
     "saveLevelFailed": "Failed to save tool execution security level",
     "semanticRoutingTitle": "Semantic Skill Routing",
-    "semanticRoutingHint": "Uses embedding to recommend the most relevant skills per query, helping the agent choose the right tool more accurately. Does not modify the tool list — KV cache friendly. Automatically uses Embedding API if configured above, otherwise falls back to local model (pip install copaw[semantic]).",
+    "semanticRoutingHint": "Uses embedding to recommend the most relevant skills per query, helping the agent choose the right tool more accurately. Does not modify the tool list — KV cache friendly. Automatically uses Embedding API if configured above, otherwise falls back to local model (pip install qwenpaw[semantic]).",
     "semanticRoutingEnabled": "Enable",
     "semanticRoutingEnabledTooltip": "When enabled, each query includes a hint with the top-K most relevant skills, guiding the agent to prioritize matching tools.",
     "semanticRoutingTopK": "Top-K Skills",
