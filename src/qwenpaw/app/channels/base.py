@@ -1320,6 +1320,24 @@ class BaseChannel(ABC):
         """
         raise NotImplementedError
 
+    async def begin_subthread(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        title: str,
+    ) -> str:
+        """Create a sub-thread scoped to *session_id* and return the new
+        session_id that routes to it.
+
+        Used by cron dispatch to isolate job output from the parent channel.
+        Default implementation is a no-op that returns *session_id* unchanged —
+        channels without native thread support (WeChat, iMessage, etc.) inherit
+        this. Channels with thread semantics (Discord, Slack, Feishu) override
+        to create a thread and return a thread-scoped session_id.
+        """
+        return session_id
+
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
         """Map cron dispatch target to channel-specific to_handle.
 

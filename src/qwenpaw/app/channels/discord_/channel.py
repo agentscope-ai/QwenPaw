@@ -655,6 +655,61 @@ class DiscordChannel(BaseChannel):
         if self._client:
             await self._client.close()
 
+    # Discord caps thread names at 100 chars (see discord.Thread.name docs).
+    _DISCORD_THREAD_NAME_MAX: int = 100
+
+    async def begin_subthread(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        title: str,
+    ) -> str:
+        """Create a public Discord thread in the given channel and return a
+        session_id scoped to the thread.
+
+        Titles longer than Discord's 100-character limit are truncated.
+
+        Raises:
+            ChannelError: session_id is not a ``discord:ch:<id>`` handle
+                (DMs don't support threads) or the Discord client is not
+                ready.
+        """
+        if not self.enabled or not self._client or not self._client.is_ready():
+            raise ChannelError(
+                channel_name="discord",
+                message="Discord client is not ready",
+            )
+        route = self._route_from_handle(session_id)
+        channel_id = route.get("channel_id")
+        if not channel_id:
+            raise ChannelError(
+                channel_name="discord",
+                message=(
+                    "begin_subthread requires a discord:ch:<id> session_id "
+                    f"(got: {session_id})"
+                ),
+            )
+        import discord  # pylint: disable=import-outside-toplevel
+
+        safe_title = title[: self._DISCORD_THREAD_NAME_MAX]
+        cid = int(channel_id)
+        parent = self._client.get_channel(cid)
+        if parent is None:
+            parent = await self._client.fetch_channel(cid)
+        thread = await parent.create_thread(
+            name=safe_title,
+            type=discord.ChannelType.public_thread,
+            auto_archive_duration=1440,
+        )
+        logger.info(
+            "discord begin_subthread: thread=%s title=%s parent=%s",
+            thread.id,
+            safe_title,
+            channel_id,
+        )
+        return f"discord:ch:{thread.id}"
+
     def resolve_session_id(
         self,
         sender_id: str,

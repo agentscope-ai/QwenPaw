@@ -155,6 +155,14 @@ class CronJobSpec(BaseModel):
                 raise ConfigurationException(
                     message="task_type is text but text is empty",
                 )
+            if self.dispatch.create_thread:
+                raise ConfigurationException(
+                    message=(
+                        "create_thread is only supported for agent jobs "
+                        "(task_type=agent); text jobs send a single message "
+                        "and cannot be routed to a sub-thread"
+                    ),
+                )
             self.request = None
         elif self.task_type == "agent":
             if self.request is None:
