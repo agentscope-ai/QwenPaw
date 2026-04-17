@@ -1285,23 +1285,38 @@ class BaseChannel(ABC):
         show_tool_details is global config (not in channel config), so we
         preserve from self. filter_tool_messages and filter_thinking are
         per-channel config, so we read from new config.
+
+        workspace_dir is the agent's per-agent credential/state root. It
+        is NOT in `config` (it's agent-level, not channel-level), so we
+        must carry it across from self — otherwise channels that rely on
+        the workspace_dir fallback in their `data_dir`/`auth_dir`
+        resolver (WhatsApp, Signal, …) silently fall back to the
+        install-wide WORKING_DIR on hot reload, breaking per-agent
+        credential isolation. Subclasses that accept `workspace_dir` in
+        `from_config` store it as `self._workspace_dir`; we introspect
+        that here and pass it back. Channels without that attribute are
+        unaffected.
         """
-        return self.__class__.from_config(
-            process=self._process,
-            config=config,
-            on_reply_sent=self._on_reply_sent,
-            show_tool_details=getattr(self, "_show_tool_details", True),
-            filter_tool_messages=getattr(
+        kwargs = {
+            "process": self._process,
+            "config": config,
+            "on_reply_sent": self._on_reply_sent,
+            "show_tool_details": getattr(self, "_show_tool_details", True),
+            "filter_tool_messages": getattr(
                 config,
                 "filter_tool_messages",
                 False,
             ),
-            filter_thinking=getattr(
+            "filter_thinking": getattr(
                 config,
                 "filter_thinking",
                 False,
             ),
-        )
+        }
+        ws = getattr(self, "_workspace_dir", None)
+        if ws is not None:
+            kwargs["workspace_dir"] = ws
+        return self.__class__.from_config(**kwargs)
 
     async def start(self) -> None:
         raise NotImplementedError
