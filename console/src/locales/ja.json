@@ -53,12 +53,15 @@
     "tools": "ツール",
     "voiceTranscription": "音声文字起こし",
     "agents": "エージェント管理",
-    "debug": "デバッグ"
+    "debug": "デバッグ",
+    "plugins": "プラグイン"
   },
   "debug": {
     "title": "デバッグ",
     "desc": "CoPaw バックエンドのデーモンログを表示し、問題の調査に役立てます。このページを開いている間は自動で更新されます。",
-    "level": { "all": "すべて" },
+    "level": {
+      "all": "すべて"
+    },
     "backend": {
       "title": "バックエンドログ",
       "autoRefresh": "自動更新",

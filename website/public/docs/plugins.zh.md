@@ -9,6 +9,8 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 - **自定义 Provider**：添加新的 LLM Provider 和模型
 - **生命周期钩子**：在应用启动/关闭时执行自定义代码
 - **魔法命令**：注册自定义的 `/command` 命令
+- **前端页面**：向侧边栏添加自定义页面
+- **工具渲染器**：自定义工具调用结果的展示方式
 
 ## 插件管理
 
@@ -130,20 +132,64 @@ api.register_shutdown_hook(
 
 通过 monkey patch 改写用户输入，将命令转换为 Agent 可理解的 prompt。
 
+### 4. 前端页面插件
+
+向 QwenPaw 控制台侧边栏添加自定义页面，构建全新的 UI 界面。
+
+**示例场景**：
+
+- 展示日志、监控数据等可视化内容
+- 提供插件自身的配置管理界面
+- 集成第三方工具的嵌入页面
+
+**核心 API**：
+
+```ts
+window.QwenPaw.registerRoutes?.(pluginId, [
+  {
+    path: "/plugin/my-plugin/page",
+    component: MyPage,
+    label: "My Page",
+    icon: "📊",
+    priority: 10, // 越小越靠上，默认 0
+  },
+]);
+```
+
+### 5. 工具渲染插件
+
+自定义 Agent 工具调用结果在聊天界面中的展示方式，替代默认的纯文本展示。
+
+**示例场景**：
+
+- 将图片路径渲染为 `<img>` 预览
+- 将结构化数据渲染为表格或卡片
+- 为特定工具输出添加交互操作按钮
+
+**核心 API**：
+
+```ts
+window.QwenPaw.registerToolRender?.(pluginId, {
+  my_tool_name: MyToolCard, // key = Agent 返回的工具名称
+});
+```
+
 ## 插件开发
 
-### 基本结构
+### 后端插件
+
+#### 基本结构
 
 每个插件至少需要两个文件：
 
 ```
 my-plugin/
 ├── plugin.json      # 插件清单（必需）
-├── plugin.py        # 入口点（必需）
+├── plugin.py        # 入口点（后端必需）
 └── README.md        # 文档（推荐）
 ```
 
-### plugin.json
+#### plugin.json
 
 ```json
 {
@@ -152,14 +198,16 @@ my-plugin/
   "version": "1.0.0",
   "description": "Plugin description",
   "author": "Your Name",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
   "min_version": "0.1.0",
   "meta": {}
 }
 ```
 
-### plugin.py
+#### plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -194,6 +242,210 @@ class MyPlugin:
 plugin = MyPlugin()
 ```
 
+### 前端插件
+
+前端插件可以向 QwenPaw 侧边栏添加自定义页面，也可以自定义工具调用结果的渲染方式 —— 全部打包为一个 JavaScript 文件，运行时动态加载。
+
+#### 工作原理
+
+1. 插件打包为 **ES 模块**（`dist/index.js`）。
+2. QwenPaw 启动时通过 Blob URL 和 `import()` 加载该文件。
+3. 插件调用 `window.QwenPaw.registerRoutes` / `window.QwenPaw.registerToolRender` 完成注册。
+4. 宿主应用通过 `window.QwenPaw.host` 暴露共享库（React、antd 等），无需打包进插件。
+
+#### 宿主 API（`window.QwenPaw.host`）
+
+| 名称              | 类型                       | 说明              |
+| ----------------- | -------------------------- | ----------------- |
+| `React`           | `typeof React`             | React 运行时      |
+| `antd`            | `typeof antd`              | Ant Design 组件库 |
+| `getApiUrl(path)` | `(path: string) => string` | 构造完整 API URL  |
+| `getApiToken()`   | `() => string`             | 当前认证 Token    |
+
+#### 注册 API
+
+##### `window.QwenPaw.registerRoutes(pluginId, routes)`
+
+向侧边栏添加页面。
+
+```ts
+window.QwenPaw.registerRoutes?.(pluginId, [
+  {
+    path: "/plugin/my-plugin/page", // 唯一 URL 路径
+    component: MyPageComponent, // React 组件
+    label: "My Page", // 侧边栏显示名称
+    icon: "📊", // 图标（Emoji）
+    priority: 10, // 越小越靠上（默认 0）
+  },
+]);
+```
+
+##### `window.QwenPaw.registerToolRender(pluginId, renderers)`
+
+自定义工具调用结果在聊天中的展示方式。
+
+```ts
+window.QwenPaw.registerToolRender?.(pluginId, {
+  my_tool_name: MyToolCard, // key = Agent 返回的工具名称
+});
+```
+
+#### 最简示例："Welcome to QwenPaw"
+
+这是最简单的前端插件 —— 只有一个页面，无需调用 API。
+
+##### 文件结构
+
+```
+welcome-plugin/
+├── plugin.json
+├── src/
+│   └── index.ts
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
+
+##### plugin.json
+
+```json
+{
+  "id": "welcome-plugin",
+  "name": "Welcome Plugin",
+  "version": "1.0.0",
+  "description": "最简前端页面插件",
+  "author": "Your Name",
+  "entry": {
+    "frontend": "dist/index.js"
+  }
+}
+```
+
+##### src/index.ts
+
+```ts
+const { React, antd } = (window as any).QwenPaw.host;
+const { Typography, Card } = antd;
+const { Title, Paragraph } = Typography;
+
+function WelcomePage() {
+  return React.createElement(
+    Card,
+    { style: { maxWidth: 480, margin: "40px auto" } },
+    React.createElement(Title, { level: 2 }, "Welcome to QwenPaw 👋"),
+    React.createElement(Paragraph, null, "插件系统运行正常！"),
+  );
+}
+
+class WelcomePlugin {
+  readonly id = "welcome-plugin";
+
+  setup(): void {
+    (window as any).QwenPaw.registerRoutes?.(this.id, [
+      {
+        path: "/plugin/welcome-plugin/home",
+        component: WelcomePage,
+        label: "Welcome",
+        icon: "👋",
+        priority: 5,
+      },
+    ]);
+  }
+}
+
+new WelcomePlugin().setup();
+```
+
+##### vite.config.ts
+
+```ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  build: {
+    lib: {
+      entry: "src/index.ts",
+      formats: ["es"],
+      fileName: () => "index.js",
+    },
+    rollupOptions: {
+      external: ["react", "react-dom"],
+    },
+  },
+});
+```
+
+##### tsconfig.json
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": false,
+    "noImplicitAny": false
+  }
+}
+```
+
+##### package.json
+
+```json
+{
+  "name": "welcome-plugin",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "typescript": "^5.0.0"
+  }
+}
+```
+
+##### 构建与安装
+
+```bash
+npm install
+npm run build
+# dist/index.js 构建完成
+
+# 将插件复制到 QwenPaw 插件目录
+cp -r . ~/.qwenpaw/plugins/welcome-plugin/
+
+# 重启 QwenPaw，侧边栏将出现 "Welcome" 页面
+qwenpaw app
+```
+
+#### 路由优先级
+
+`priority` 字段控制所有插件的侧边栏排列顺序：
+
+- **值越小，位置越靠上**
+- 默认值为 `0`
+- 优先级相同时保持注册顺序
+
+```ts
+// 排在最前面
+{ ..., priority: 0 }
+
+// 排在 priority=0 之后
+{ ..., priority: 10 }
+
+// 排在最后
+{ ..., priority: 100 }
+```
+
+#### 前端插件最佳实践
+
+1. **始终使用 `window.QwenPaw.host`** 获取 React 和 antd —— 不要打包进插件。
+2. **使用 `getApiUrl(path)`** 发起所有 API 请求，自动处理 base URL 和认证。
+3. **使用 `getApiToken()`** 在手动 `fetch` 时附加 Bearer Token。
+4. **使用类模式**，通过 `setup()` 方法完成注册，结构清晰易维护。
+5. **设置 `priority`** 控制页面在侧边栏中的排列位置。
+
 ## 使用示例
 
 ### 示例 1：添加自定义 Provider
@@ -216,7 +468,9 @@ cd my-llm-provider
   "version": "1.0.0",
   "description": "Custom LLM provider for enterprise",
   "author": "Your Name",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": ["httpx>=0.24.0"],
   "min_version": "0.1.0",
   "meta": {
@@ -352,7 +606,9 @@ cd monitoring-hook
   "version": "1.0.0",
   "description": "Initialize monitoring service at startup",
   "author": "Your Name",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
   "min_version": "0.1.0"
 }
@@ -439,7 +695,9 @@ cd status-command
   "version": "1.0.0",
   "description": "Custom status command",
   "author": "Your Name",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
   "min_version": "0.1.0"
 }

@@ -2,18 +2,8 @@
  * PluginContext.tsx
  *
  * Reactive plugin context for the host application.
- *
- * ─ Architecture ─────────────────────────────────────────────────────────────────
- *
- *  Plugin bundles execute → call register_routes / register_tool_render
- *        ↓
- *  PluginSystem singleton (hostExternals.ts) — stores data + notifies listeners
- *        ↓
- *  PluginProvider subscribes via pluginSystem.subscribe()
- *        ↓
- *  usePlugins() — consumed by Chat, Sidebar, MainLayout
- *
- * ─ Consumer API ─────────────────────────────────────────────────────────────────
+ * Subscribes to the PluginSystem singleton and exposes plugin-registered
+ * routes and tool renderers to any component via usePlugins().
  *
  *  const { toolRenderConfig, pluginRoutes, loading, error } = usePlugins();
  */

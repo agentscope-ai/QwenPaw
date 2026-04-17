@@ -1,19 +1,9 @@
 /**
  * hostExternals.ts
  *
- * 1. Exposes shared host dependencies on `window.__QWENPAW__` so plugin
- *    bundles can use React / antd without bundling their own copies.
- *
- * 2. Owns the `PluginSystem` singleton — a reactive registry that plugins
- *    write to and the host reads from via subscribe/notify.
- *
- * 3. Installs two ergonomic window functions for plugin authors:
- *
- *      window.register_routes(pluginId, routes[])
- *      window.register_tool_render(pluginId, renderers{})
- *
- *    Plugins can call either, both, or neither.  Each call is additive and
- *    triggers a host re-render automatically.
+ * Exposes shared host dependencies and a reactive plugin registry on
+ * `window.QwenPaw` so plugin bundles can register routes and tool renderers
+ * without bundling their own copies of React / antd.
  *
  * Call `installHostExternals()` once at application startup (main.tsx).
  */
@@ -30,7 +20,8 @@ declare const VITE_API_BASE_URL: string;
 // Public types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface CoPawHostExternals {
+/** Shared host dependencies exposed to plugin bundles via `window.QwenPaw.host`. */
+export interface HostExternals {
   React: typeof React;
   ReactDOM: typeof ReactDOM;
   antd: typeof antd;
@@ -52,7 +43,7 @@ export interface PluginRouteDeclaration {
   priority?: number;
 }
 
-/** Internal per-plugin record accumulated by register_routes / register_tool_render. */
+/** Internal per-plugin registration record. */
 export interface PluginRegistration {
   pluginId: string;
   routes: PluginRouteDeclaration[];
@@ -67,7 +58,7 @@ class PluginSystem {
   private records = new Map<string, PluginRegistration>();
   private listeners = new Set<() => void>();
 
-  // ── Write API (called by window.register_*) ──────────────────────────────
+  // ── Write API ───────────────────────────────────────────────────────────
 
   addRoutes(pluginId: string, routes: PluginRouteDeclaration[]): void {
     const rec = this._record(pluginId);
@@ -130,27 +121,22 @@ export const pluginSystem = new PluginSystem();
 // Global declarations
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Namespace object. */
+export interface WindowNamespace {
+  /** Shared host dependencies (React, antd, API helpers). */
+  host: HostExternals;
+  /** Register page routes for a plugin. */
+  registerRoutes?: (pluginId: string, routes: PluginRouteDeclaration[]) => void;
+  /** Register tool-call renderers for a plugin. */
+  registerToolRender?: (
+    pluginId: string,
+    renderers: Record<string, React.FC<any>>,
+  ) => void;
+}
+
 declare global {
   interface Window {
-    __QWENPAW__: CoPawHostExternals;
-    /**
-     * Register page routes for a plugin.
-     * @param pluginId  - Unique plugin id (must match plugin.json `id`).
-     * @param routes    - Array of route declarations.
-     */
-    register_routes?: (
-      pluginId: string,
-      routes: PluginRouteDeclaration[],
-    ) => void;
-    /**
-     * Register tool-call renderers for a plugin.
-     * @param pluginId  - Unique plugin id.
-     * @param renderers - Map of tool-name → React component.
-     */
-    register_tool_render?: (
-      pluginId: string,
-      renderers: Record<string, React.FC<any>>,
-    ) => void;
+    QwenPaw: WindowNamespace;
   }
 }
 
@@ -162,9 +148,12 @@ export function installHostExternals(): void {
   const apiBaseUrl =
     typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
 
-  // Shared host dependencies — plugins access these via window.__QWENPAW__
-  if (!window.__QWENPAW__) {
-    window.__QWENPAW__ = {
+  if (!window.QwenPaw) {
+    (window as any).QwenPaw = {} as WindowNamespace;
+  }
+
+  if (!window.QwenPaw.host) {
+    window.QwenPaw.host = {
       React,
       ReactDOM,
       antd,
@@ -175,21 +164,20 @@ export function installHostExternals(): void {
     };
   }
 
-  // Plugin registration APIs
-  if (!window.register_routes) {
-    window.register_routes = (pluginId, routes) => {
+  if (!window.QwenPaw.registerRoutes) {
+    window.QwenPaw.registerRoutes = (pluginId, routes) => {
       pluginSystem.addRoutes(pluginId, routes);
       console.info(
-        `[plugin:${pluginId}] register_routes → ${routes.length} route(s)`,
+        `[plugin:${pluginId}] registerRoutes → ${routes.length} route(s)`,
       );
     };
   }
 
-  if (!window.register_tool_render) {
-    window.register_tool_render = (pluginId, renderers) => {
+  if (!window.QwenPaw.registerToolRender) {
+    window.QwenPaw.registerToolRender = (pluginId, renderers) => {
       pluginSystem.addToolRenderers(pluginId, renderers);
       console.info(
-        `[plugin:${pluginId}] register_tool_render → ${Object.keys(
+        `[plugin:${pluginId}] registerToolRender → ${Object.keys(
           renderers,
         ).join(", ")}`,
       );

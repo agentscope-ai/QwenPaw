@@ -1,11 +1,15 @@
 {
-  "name": "view-image-plugin-ui",
+  "name": "clock-widget-plugin-ui",
   "version": "1.0.0",
   "private": true,
-  "description": "Frontend UI for the view-image-plugin — renders view_image tool calls as image previews",
+  "description": "Frontend UI for the clock-widget-plugin example",
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.0",
+    "echarts": "^5.4.0"
   },
   "devDependencies": {
     "@types/react": "^18.0.0",

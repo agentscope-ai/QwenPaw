@@ -1,16 +1,11 @@
 /**
  * usePluginLoader.ts — plugin loading utility
  *
- * Responsible only for the *network* layer:
- *   1. GET /api/plugins → list of plugin manifests.
- *   2. For each plugin that has a `frontend_entry`, fetch the JS source,
- *      wrap it in a same-origin Blob URL, and execute it via dynamic import.
+ * Fetches the plugin list, downloads each frontend bundle, and executes it
+ * via a same-origin Blob URL so plugins can self-register into the
+ * `pluginSystem` singleton (hostExternals.ts).
  *
- * Executed plugins call `window.register_routes` / `window.register_tool_render`,
- * which write into the `pluginSystem` singleton (hostExternals.ts).  React state
- * is managed by `PluginContext.tsx` via `pluginSystem.subscribe()`.
- *
- * This module exports `loadAllPlugins()` — the single function PluginContext calls.
+ * Exports `loadAllPlugins()` — the single function PluginContext calls.
  */
 
 import { getApiUrl, getApiToken } from "../api/config";
@@ -38,9 +33,8 @@ function resolveUrl(pluginId: string, apiPath: string): string {
 }
 
 /**
- * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and execute
- * it via dynamic import().  The plugin calls register_routes / register_tool_render
- * during execution.  Blob URL is revoked immediately after import.
+ * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and
+ * execute it via dynamic import.  Blob URL is revoked immediately after.
  */
 async function executePluginScript(entryUrl: string): Promise<void> {
   const token = getApiToken();

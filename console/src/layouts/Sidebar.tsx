@@ -373,7 +373,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   if (pluginRoutes.length > 0) {
     settingsMenuItems.push({
       key: "plugins-group",
-      label: collapsed ? null : "Plugins",
+      label: collapsed ? null : t("nav.plugins"),
       children: pluginRoutes.map((route) => ({
         key: route.path.replace(/^\//, ""),
         label: collapsed ? null : route.label,

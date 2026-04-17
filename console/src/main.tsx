@@ -3,7 +3,7 @@ import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
 
-// Expose host dependencies (React, antd, etc.) on window.__QWENPAW__
+// Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
 installHostExternals();
 

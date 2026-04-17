@@ -12,8 +12,9 @@ export default defineConfig({
       fileName: () => "index.js",
     },
     rollupOptions: {
-      // React is provided by the host app via window.QwenPaw.host as `RE`.
-      // Do NOT bundle it.
+      // React/ReactDOM are provided by the host via window.__HOST_CONTEXT__.
+      // Do NOT bundle them.
+      // dayjs is a plain JS lib with no React dependency — bundle it directly.
       external: ["react", "react-dom"],
     },
   },

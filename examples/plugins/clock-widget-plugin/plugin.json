@@ -1,0 +1,11 @@
+{
+  "id": "clock-widget-plugin",
+  "name": "Chart Widget Plugin",
+  "version": "2.0.0",
+  "description": "Real-time line chart and pie chart powered by ECharts (bundled). React/antd come from the host via window.__HOST_CONTEXT__.",
+  "author": "QwenPaw",
+  "entry": {
+    "frontend": "dist/index.js",
+    "backend": null
+  }
+}

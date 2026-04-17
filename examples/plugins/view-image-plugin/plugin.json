@@ -1,11 +1,11 @@
 {
-    "id": "view-image-plugin",
-    "name": "View Image Plugin",
-    "version": "1.0.0",
-    "description": "Custom renderer for the view_image tool — displays the image returned by the tool call with a collapsible JSON inspector.",
-    "author": "QwenPaw",
-    "entry": {
-        "frontend": "dist/index.js",
-        "backend": null
-    }
+  "id": "view-image-plugin",
+  "name": "View Image Plugin",
+  "version": "1.0.0",
+  "description": "Custom renderer for the view_image tool — displays the image returned by the tool call with a collapsible JSON inspector.",
+  "author": "QwenPaw",
+  "entry": {
+    "frontend": "dist/index.js",
+    "backend": null
+  }
 }

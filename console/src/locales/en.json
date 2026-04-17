@@ -56,12 +56,15 @@
     "security": "Security",
     "tokenUsage": "Token Usage",
     "voiceTranscription": "Voice Transcription",
-    "debug": "Debug"
+    "debug": "Debug",
+    "plugins": "Plugins"
   },
   "debug": {
     "title": "Debug",
     "desc": "View the CoPaw backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
-    "level": { "all": "All" },
+    "level": {
+      "all": "All"
+    },
     "backend": {
       "title": "Backend logs",
       "autoRefresh": "Auto refresh",
@@ -969,7 +972,6 @@
     "perMillionIn": "/1M in",
     "perMillionOut": "/1M out"
   },
-
   "agentConfig": {
     "title": "Configuration",
     "description": "Configure agent runtime parameters",

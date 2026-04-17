@@ -4,20 +4,11 @@
  * Demonstrates how to create a page-level plugin that appears in the
  * sidebar and renders a custom page.
  *
- * ## Plugin contract
- *
- * Access shared dependencies via `window.__QWENPAW__` (React, antd, …).
- * Register capabilities by implementing `setup()` in the plugin class:
- *   - `window.register_routes(id, routes[])`     — page-level routes
- *   - `window.register_tool_render(id, renderers)` — tool message renderers
- *
- * ## Build & Install
- *
- *   npm install && npm run build
- *   cp -r . ~/.qwenpaw/plugins/hello-world-plugin
+ * Build:   npm install && npm run build
+ * Install: cp -r . ~/.qwenpaw/plugins/hello-world-plugin
  */
 
-const { React, antd } = (window as any).__QWENPAW__;
+const { React, antd } = (window as any).QwenPaw.host;
 const { Card, Typography, Space, Tag, Divider, Button } = antd;
 const { Title, Paragraph, Text: AntText } = Typography;
 const { useState, useEffect, useCallback } = React;
@@ -196,12 +187,12 @@ function HelloDashboard() {
           React.createElement(
             Title,
             { level: 5, style: { margin: "0 0 8px" } },
-            "2. Register with register_routes / register_tool_render",
+            "2. Register with QwenPaw.registerRoutes / QwenPaw.registerToolRender",
           ),
           React.createElement(
             "pre",
             { style: styles.codeBlock },
-            'const { React, antd } = window.__QWENPAW__;\n\nclass MyPlugin {\n  readonly id = "my-plugin";\n\n  setup() {\n    window.register_routes?.(this.id, [\n      { path: "/plugin/my-plugin/page", component: MyPage, label: "My Page", icon: "📊", priority: 10 },\n    ]);\n    window.register_tool_render?.(this.id, { my_tool: MyToolCard });\n  }\n}\n\nnew MyPlugin().setup();',
+            'const { React, antd } = window.QwenPaw.host;\n\nclass MyPlugin {\n  readonly id = "my-plugin";\n\n  setup() {\n    window.QwenPaw.registerRoutes?.(this.id, [\n      { path: "/plugin/my-plugin/page", component: MyPage, label: "My Page", icon: "📊", priority: 10 },\n    ]);\n    window.QwenPaw.registerToolRender?.(this.id, { my_tool: MyToolCard });\n  }\n}\n\nnew MyPlugin().setup();',
           ),
         ),
         React.createElement(
@@ -233,7 +224,7 @@ class HelloWorldPlugin {
   }
 
   private registerRoutes(): void {
-    (window as any).register_routes?.(this.id, [
+    (window as any).QwenPaw.registerRoutes?.(this.id, [
       {
         path: "/plugin/hello-world-plugin/dashboard",
         component: HelloDashboard,
