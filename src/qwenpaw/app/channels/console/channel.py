@@ -400,25 +400,25 @@ class ConsoleChannel(BaseChannel):
                     if usage_data and hasattr(event, "usage"):
                         setattr(event, "usage", usage_data)
 
-                # Check if we should filter this event based on filter configurations
+                # Check if we should filter this event
                 should_yield = True
 
                 if obj == "message" and (
                     self._filter_thinking or self._filter_tool_messages
                 ):
-                    # Use the renderer to check if this message would be filtered
+                    # Use renderer to check if this message is filtered
                     parts = self._message_to_content_parts(event)
-                    # If parts is empty, it means the renderer filtered out this message
+                    # If parts is empty, renderer filtered out this message
                     if not parts:
                         should_yield = False
 
-                # Additionally, check if it's a reasoning message when filter_thinking is enabled
+                # Check if it's a reasoning message when filter_thinking is on
                 if self._filter_thinking and obj == "message":
                     msg_type = getattr(event, "type", None)
                     if msg_type == MessageType.REASONING:
                         should_yield = False
 
-                # Check if it's a tool-related message when filter_tool_messages is enabled
+                # Check if it's a tool message when filter_tool_messages is on
                 if self._filter_tool_messages and obj == "message":
                     msg_type = getattr(event, "type", None)
                     if msg_type in [
