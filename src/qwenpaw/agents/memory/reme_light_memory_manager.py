@@ -2,6 +2,7 @@
 # pylint: disable=too-many-branches
 # mypy: ignore-errors
 """ReMeLight-backed memory manager for agents."""
+
 import importlib.metadata
 import json
 import logging
@@ -30,7 +31,7 @@ from qwenpaw.config.context import (
 from qwenpaw.constant import EnvVarLoader
 
 if TYPE_CHECKING:
-    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
+    from .protocols import InMemoryMemoryProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -50,19 +51,30 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     - Vector and full-text search via memory_search()
     """
 
-    def __init__(self, working_dir: str, agent_id: str):
+    def __init__(
+        self,
+        working_dir: str,
+        agent_id: str,
+        backend_config: dict | None = None,
+    ):
         """Initialize with ReMeLight.
 
         Args:
             working_dir: Working directory for memory storage.
             agent_id: Agent ID for config loading.
+            backend_config: Optional backend-specific config (unused by
+                ReMeLight, accepted for interface compatibility).
 
         Embedding priority: config > env var (EMBEDDING_API_KEY /
         EMBEDDING_BASE_URL / EMBEDDING_MODEL_NAME).
         Backend: MEMORY_STORE_BACKEND env var (auto/local/chroma,
         default auto).
         """
-        super().__init__(working_dir=working_dir, agent_id=agent_id)
+        super().__init__(
+            working_dir=working_dir,
+            agent_id=agent_id,
+            backend_config=backend_config,
+        )
         self._reme_version_ok: bool = self._check_reme_version()
         self._reme = None
 
@@ -146,6 +158,20 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
         self.summary_toolkit.register_tool_function(read_file)
         self.summary_toolkit.register_tool_function(write_file)
         self.summary_toolkit.register_tool_function(edit_file)
+
+    # ------------------------------------------------------------------
+    # Backend metadata
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def backend_name(cls) -> str:
+        """Return the unique identifier for this memory backend."""
+        return "remelight"
+
+    @classmethod
+    def backend_label(cls) -> str:
+        """Return a human-readable label for this memory backend."""
+        return "ReMeLight"
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -434,7 +460,10 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             min_score=min_score,
         )
 
-    def get_in_memory_memory(self, **_kwargs) -> "ReMeInMemoryMemory | None":
+    def get_in_memory_memory(
+        self,
+        **_kwargs,
+    ) -> "InMemoryMemoryProtocol | None":
         """Retrieve the in-memory memory object with token counting support."""
         self._warn_if_version_mismatch()
         if self._reme is None:

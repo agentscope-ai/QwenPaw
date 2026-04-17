@@ -491,8 +491,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "**Long-Term Memory Not Available**\n\n"
                 "- `_long_term_memory` attribute does not exist "
                 "on this memory instance\n"
-                "- This feature requires a ReMeInMemoryMemory-compatible"
-                " memory backend",
+                "- This feature requires a memory backend that supports "
+                "long-term memory",
             )
         if not long_term_memory:
             return await self._make_system_msg(

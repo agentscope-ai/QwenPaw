@@ -36,12 +36,29 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_memory_class(backend: str) -> type:
-    """Return the memory manager class for the given backend name."""
+    """Return the memory manager class for the given backend name.
+
+    Checks built-in backends first, then plugin-registered backends.
+    """
     from ...agents.memory import ReMeLightMemoryManager
 
-    if backend == "remelight":
-        return ReMeLightMemoryManager
+    # Built-in backends
+    _builtins = {
+        "remelight": ReMeLightMemoryManager,
+    }
+    if backend in _builtins:
+        return _builtins[backend]
+
+    # Check plugin-registered backends
+    from ...plugins.registry import PluginRegistry
+
+    registry = PluginRegistry()
+    reg = registry.get_memory_backend(backend)
+    if reg is not None:
+        return reg.backend_class
+
     raise ConfigurationException(
+        config_key="memory_manager_backend",
         message=f"Unsupported memory manager backend: '{backend}'",
     )
 
@@ -178,6 +195,7 @@ class Workspace:
                 init_args=lambda ws: {
                     "working_dir": str(ws.workspace_dir),
                     "agent_id": ws.agent_id,
+                    "backend_config": ws._config.running.memory_backend_config,
                 },
                 post_init=lambda ws, mm: setattr(
                     ws._service_manager.services["runner"],
