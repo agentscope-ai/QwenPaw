@@ -17,14 +17,16 @@ async def _create_discord_thread(
     title: str,
 ) -> str:
     """Create a Discord thread in the given channel. Returns the thread ID."""
-    import discord
+    import discord  # pylint: disable=import-outside-toplevel
 
     ch = await channel_manager.get_channel("discord")
-    if ch is None or ch._client is None:
+    # pylint: disable=protected-access
+    client = getattr(ch, "_client", None) if ch else None
+    if client is None:
         raise RuntimeError("Discord channel not available")
-    parent = ch._client.get_channel(int(channel_id))
+    parent = client.get_channel(int(channel_id))
     if parent is None:
-        parent = await ch._client.fetch_channel(int(channel_id))
+        parent = await client.fetch_channel(int(channel_id))
     thread = await parent.create_thread(
         name=title,
         type=discord.ChannelType.public_thread,
@@ -90,9 +92,9 @@ class CronExecutor:
         if job.dispatch.create_thread and job.dispatch.channel == "discord":
             channel_id = target_session_id.split(":")[-1]
             date_str = datetime.now().strftime("%Y-%m-%d")
-            title = (job.dispatch.thread_title or job.name + " {date}").replace(
-                "{date}", date_str,
-            )
+            title = (
+                job.dispatch.thread_title or job.name + " {date}"
+            ).replace("{date}", date_str)
             thread_id = await _create_discord_thread(
                 self._channel_manager,
                 channel_id,
