@@ -7,7 +7,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Union
+from typing import Any, AsyncGenerator, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from starlette.responses import StreamingResponse
@@ -29,6 +29,16 @@ def _safe_filename(name: str) -> str:
     """Safe basename, alphanumeric/./-/_, max 200 chars."""
     base = Path(name).name if name else "file"
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
+
+
+def _normalize_ui_language(raw: Any) -> str | None:
+    """Normalize incoming UI language to one of en/zh/ru/ja."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    short = raw.strip().lower().split(",")[0].split("-")[0]
+    if short in {"en", "zh", "ru", "ja"}:
+        return short
+    return None
 
 
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
@@ -124,6 +134,20 @@ async def post_console_chat(
         native_payload = _extract_session_and_payload(request_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # Prefer explicit UI language from body, then request headers.
+    # This keeps backend guard messages aligned with frontend locale.
+    meta = native_payload.get("meta")
+    ui_lang = None
+    if isinstance(meta, dict):
+        ui_lang = _normalize_ui_language(meta.get("ui_language"))
+    if ui_lang is None:
+        ui_lang = _normalize_ui_language(request.headers.get("X-UI-Language"))
+    if ui_lang is None:
+        ui_lang = _normalize_ui_language(request.headers.get("Accept-Language"))
+    if ui_lang is not None and isinstance(meta, dict):
+        meta["ui_language"] = ui_lang
+
     session_id = console_channel.resolve_session_id(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],

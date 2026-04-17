@@ -639,8 +639,10 @@ export default function ChatPage() {
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      const uiLanguage = consoleUiLanguageForPayload(i18n);
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        "X-UI-Language": uiLanguage,
         ...buildAuthHeaders(),
       };
 
@@ -682,7 +684,7 @@ export default function ChatPage() {
         channel: window.currentChannel || session?.channel || DEFAULT_CHANNEL,
         stream: true,
         ...biz_params,
-        ui_language: consoleUiLanguageForPayload(i18n),
+        ui_language: uiLanguage,
       };
 
       const backendChatId =
