@@ -124,7 +124,12 @@ chat_with_agent(
 
 `chat_with_agent` 回复示例：
 ```text
-[SESSION: xxx]\n下面是我为你制定的执行计划：..."
+[SESSION: xxx]
+
+下面是我为你制定的执行计划：
+
+1. ...
+2. ...
 ```
 - 其中 `xxx` 是本次对话的 `session_id`，你需要记录下来以便后续追问细化，一般是一个较长的字符串，例如 `local_agent:to:strong_agent:1776406127168:e11b08d8`
 

@@ -1512,7 +1512,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 {
                     "base_url": "",
                     "extra_models": [],
-                }
+                },
             )
 
         local_models = self.get_provider("qwenpaw-local").extra_models
