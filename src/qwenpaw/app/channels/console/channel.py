@@ -400,15 +400,46 @@ class ConsoleChannel(BaseChannel):
                     if usage_data and hasattr(event, "usage"):
                         setattr(event, "usage", usage_data)
 
-                if hasattr(event, "model_dump_json"):
-                    data = event.model_dump_json()
-                elif hasattr(event, "json"):
-                    data = event.json()
-                else:
-                    data = json.dumps({"text": str(event)})
-                yield f"data: {data}\n\n"
+                # Check if we should filter this event based on filter configurations
+                should_yield = True
 
-                if obj == "message" and status == RunStatus.Completed:
+                if obj == "message" and (self._filter_thinking or self._filter_tool_messages):
+                    # Use the renderer to check if this message would be filtered
+                    parts = self._message_to_content_parts(event)
+                    # If parts is empty, it means the renderer filtered out this message
+                    if not parts:
+                        should_yield = False
+
+                # Additionally, check if it's a reasoning message when filter_thinking is enabled
+                if self._filter_thinking and obj == "message":
+                    msg_type = getattr(event, "type", None)
+                    if msg_type == MessageType.REASONING:
+                        should_yield = False
+
+                # Check if it's a tool-related message when filter_tool_messages is enabled
+                if self._filter_tool_messages and obj == "message":
+                    msg_type = getattr(event, "type", None)
+                    if msg_type in [
+                        MessageType.FUNCTION_CALL,
+                        MessageType.PLUGIN_CALL,
+                        MessageType.MCP_TOOL_CALL,
+                        MessageType.FUNCTION_CALL_OUTPUT,
+                        MessageType.PLUGIN_CALL_OUTPUT,
+                        MessageType.MCP_TOOL_CALL_OUTPUT,
+                    ]:
+                        should_yield = False
+
+                # Only yield the event if it passes all filters
+                if should_yield:
+                    if hasattr(event, "model_dump_json"):
+                        data = event.model_dump_json()
+                    elif hasattr(event, "json"):
+                        data = event.json()
+                    else:
+                        data = json.dumps({"text": str(event)})
+                    yield f"data: {data}\n\n"
+
+                if should_yield and obj == "message" and status == RunStatus.Completed:
                     media_message = await self._extract_media_message(event)
                     if media_message:
                         yield f"data: {media_message.model_dump_json()}\n\n"
