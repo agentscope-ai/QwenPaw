@@ -99,6 +99,17 @@ class DispatchSpec(BaseModel):
     target: DispatchTarget
     mode: Literal["stream", "final"] = Field(default="stream")
     meta: Dict[str, Any] = Field(default_factory=dict)
+    create_thread: bool = Field(
+        default=False,
+        description="Create a Discord thread before dispatching. "
+        "All agent output goes to the thread instead of the channel.",
+    )
+    thread_title: Optional[str] = Field(
+        default=None,
+        description="Thread title template. "
+        "{date} is replaced with YYYY-MM-DD. "
+        "Defaults to job name + date.",
+    )
 
 
 class JobRuntimeSpec(BaseModel):

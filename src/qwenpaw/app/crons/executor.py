@@ -3,11 +3,40 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any, Dict
 
 from .models import CronJobSpec
 
 logger = logging.getLogger(__name__)
+
+
+async def _create_discord_thread(
+    channel_manager: Any,
+    channel_id: str,
+    title: str,
+) -> str:
+    """Create a Discord thread in the given channel. Returns the thread ID."""
+    import discord
+
+    ch = await channel_manager.get_channel("discord")
+    if ch is None or ch._client is None:
+        raise RuntimeError("Discord channel not available")
+    parent = ch._client.get_channel(int(channel_id))
+    if parent is None:
+        parent = await ch._client.fetch_channel(int(channel_id))
+    thread = await parent.create_thread(
+        name=title,
+        type=discord.ChannelType.public_thread,
+        auto_archive_duration=1440,
+    )
+    logger.info(
+        "cron created thread: id=%s title=%s parent=%s",
+        thread.id,
+        title,
+        channel_id,
+    )
+    return str(thread.id)
 
 
 class CronExecutor:
@@ -21,6 +50,9 @@ class CronExecutor:
         - task_type text: send fixed text to channel
         - task_type agent: ask agent with prompt, send reply to channel (
             stream_query + send_event)
+
+        When dispatch.create_thread is True (agent jobs only), a Discord
+        thread is created first and all output is routed there.
         """
         target_user_id = job.dispatch.target.user_id
         target_session_id = job.dispatch.target.session_id
@@ -52,12 +84,32 @@ class CronExecutor:
             return
 
         # agent: run request as the dispatch target user so context matches
+        assert job.request is not None
+
+        # Create thread if requested — rewrite session to thread
+        if job.dispatch.create_thread and job.dispatch.channel == "discord":
+            channel_id = target_session_id.split(":")[-1]
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            title = (job.dispatch.thread_title or job.name + " {date}").replace(
+                "{date}", date_str,
+            )
+            thread_id = await _create_discord_thread(
+                self._channel_manager,
+                channel_id,
+                title,
+            )
+            target_session_id = f"discord:ch:{thread_id}"
+            logger.info(
+                "cron thread-first: job_id=%s thread_session=%s",
+                job.id,
+                target_session_id,
+            )
+
         logger.info(
             "cron agent: job_id=%s channel=%s stream_query then send_event",
             job.id,
             job.dispatch.channel,
         )
-        assert job.request is not None
         req: Dict[str, Any] = job.request.model_dump(mode="json")
         req["user_id"] = target_user_id or "cron"
         req["session_id"] = target_session_id or f"cron:{job.id}"
