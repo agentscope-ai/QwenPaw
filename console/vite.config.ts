@@ -65,6 +65,19 @@ export default defineConfig(({ mode }) => {
         // 旧测试用 node:test，与 vitest 不兼容，待迁移
         "**/testConnectionMessage.test.ts",
       ],
+      coverage: {
+        provider: "v8",
+        reporter: ["text", "html", "json", "lcov"],
+        include: ["src/**/*.{ts,tsx}"],
+        exclude: [
+          "src/test/**",
+          "src/**/*.d.ts",
+          "src/main.tsx",
+          "src/vite-env.d.ts",
+        ],
+        // 第一阶段：记录基线，不强制卡点
+        // 后续稳定后可开启：thresholds: { statements: 60, functions: 60 }
+      },
     },
     optimizeDeps: {
       include: ["diff"],
