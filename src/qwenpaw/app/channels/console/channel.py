@@ -403,7 +403,9 @@ class ConsoleChannel(BaseChannel):
                 # Check if we should filter this event based on filter configurations
                 should_yield = True
 
-                if obj == "message" and (self._filter_thinking or self._filter_tool_messages):
+                if obj == "message" and (
+                    self._filter_thinking or self._filter_tool_messages
+                ):
                     # Use the renderer to check if this message would be filtered
                     parts = self._message_to_content_parts(event)
                     # If parts is empty, it means the renderer filtered out this message
@@ -439,7 +441,11 @@ class ConsoleChannel(BaseChannel):
                         data = json.dumps({"text": str(event)})
                     yield f"data: {data}\n\n"
 
-                if should_yield and obj == "message" and status == RunStatus.Completed:
+                if (
+                    should_yield
+                    and obj == "message"
+                    and status == RunStatus.Completed
+                ):
                     media_message = await self._extract_media_message(event)
                     if media_message:
                         yield f"data: {media_message.model_dump_json()}\n\n"
