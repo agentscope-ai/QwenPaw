@@ -185,17 +185,17 @@ class AsMsgHandler:
     async def format_msgs_to_str(
             self,
             messages: list[Msg],
-            memory_compact_threshold: int,
+            context_compact_threshold: int,
             include_thinking: bool = True,
     ) -> str:
         """Format list of messages to a single formatted string.
 
         Messages are processed in reverse order (newest first) and older
-        messages are skipped when token count exceeds memory_compact_threshold.
+        messages are skipped when token count exceeds context_compact_threshold.
 
         Args:
             messages: List of Msg objects to format.
-            memory_compact_threshold: Maximum token count before skipping older messages.
+            context_compact_threshold: Maximum token count before skipping older messages.
             include_thinking: Whether to include thinking blocks in output.
         """
         if not messages:
@@ -210,17 +210,17 @@ class AsMsgHandler:
             content_token_count = await self.count_str_token(formatted_content)
 
             is_latest = i == len(messages) - 1
-            if not is_latest and total_token_count + content_token_count > memory_compact_threshold:
+            if not is_latest and total_token_count + content_token_count > context_compact_threshold:
                 logger.info(
                     f"Skipping older messages: adding {content_token_count} tokens would exceed threshold "
-                    f"{memory_compact_threshold} (current: {total_token_count})",
+                    f"{context_compact_threshold} (current: {total_token_count})",
                 )
                 break
 
-            if is_latest and content_token_count > memory_compact_threshold:
+            if is_latest and content_token_count > context_compact_threshold:
                 logger.warning(
                     f"Latest message alone ({content_token_count} tokens) exceeds threshold "
-                    f"{memory_compact_threshold}, including it anyway.",
+                    f"{context_compact_threshold}, including it anyway.",
                 )
 
             formatted_parts.append(formatted_content)
@@ -255,18 +255,18 @@ class AsMsgHandler:
     async def context_check(
             self,
             messages: list[Msg],
-            memory_compact_threshold: int,
-            memory_compact_reserve: int,
+            context_compact_threshold: int,
+            context_compact_reserve: int,
     ) -> tuple[list[Msg], list[Msg], bool]:
         """Check if context exceeds threshold and split messages accordingly.
 
-        Only when total tokens exceed memory_compact_threshold, messages are split into
+        Only when total tokens exceed context_compact_threshold, messages are split into
         messages_to_keep (within reserve limit) and messages_to_compact (older messages).
 
         Args:
             messages: List of Msg objects to check.
-            memory_compact_threshold: Maximum token count threshold to trigger compaction.
-            memory_compact_reserve: Token limit for messages to keep.
+            context_compact_threshold: Maximum token count threshold to trigger compaction.
+            context_compact_reserve: Token limit for messages to keep.
 
         Returns:
             A tuple of (messages_to_compact, messages_to_keep, tools_aligned):
@@ -286,7 +286,7 @@ class AsMsgHandler:
             total_tokens += stat.total_tokens
 
         # If total tokens don't exceed threshold, no split needed
-        if total_tokens < memory_compact_threshold:
+        if total_tokens < context_compact_threshold:
             return [], messages, True
 
         # Collect all tool_use ids and their message indices
@@ -318,10 +318,10 @@ class AsMsgHandler:
             msg, stat = msg_stats[i]
 
             # Check if adding this message would exceed reserve limit
-            if accumulated_tokens + stat.total_tokens > memory_compact_reserve:
+            if accumulated_tokens + stat.total_tokens > context_compact_reserve:
                 logger.info(
                     f"Context check: adding message {i} with {stat.total_tokens} tokens would exceed reserve "
-                    f"{memory_compact_reserve} (current: {accumulated_tokens})",
+                    f"{context_compact_reserve} (current: {accumulated_tokens})",
                 )
                 break
 
@@ -344,10 +344,10 @@ class AsMsgHandler:
                         extra_tokens += dep_stat.total_tokens
 
             # Check if we can fit this message plus its dependencies within reserve
-            if accumulated_tokens + stat.total_tokens + extra_tokens > memory_compact_reserve:
+            if accumulated_tokens + stat.total_tokens + extra_tokens > context_compact_reserve:
                 logger.info(
                     f"Context check: message {i} requires {extra_tokens} extra tokens for tool_use dependencies, "
-                    f"total would exceed reserve {memory_compact_reserve}",
+                    f"total would exceed reserve {context_compact_reserve}",
                 )
                 break
 
@@ -372,8 +372,8 @@ class AsMsgHandler:
         logger.info(
             f"Context check result: {len(messages_to_compact)} messages to compact, "
             f"{len(messages_to_keep)} messages to keep, "
-            f"total tokens: {total_tokens}, threshold: {memory_compact_threshold}, "
-            f"reserve: {memory_compact_reserve}, kept tokens: {accumulated_tokens}, "
+            f"total tokens: {total_tokens}, threshold: {context_compact_threshold}, "
+            f"reserve: {context_compact_reserve}, kept tokens: {accumulated_tokens}, "
             f"tools_aligned: {tools_aligned}",
         )
 

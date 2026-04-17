@@ -1,20 +1,32 @@
-"""ReMeLight-backed context manager for agents."""
+"""Context manager for agents with compaction support."""
 import asyncio
-import json
 import logging
 import os
+import sys
 import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
 
 from .agent_context import AgentContext
+from .as_msg_handler import AsMsgHandler
 from .base_context_manager import BaseContextManager, context_registry
+from .compactor_prompts import (
+    INITIAL_USER_MESSAGE_EN,
+    INITIAL_USER_MESSAGE_ZH,
+    SYSTEM_PROMPT_EN,
+    SYSTEM_PROMPT_ZH,
+    UPDATE_USER_MESSAGE_EN,
+    UPDATE_USER_MESSAGE_ZH,
+)
+from ..tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
 from ..utils import check_valid_messages, get_token_counter
-from ..utils.reme_mixin import ReMeLightMixin, _detect_memory_manager_backend
 from ...config.config import load_agent_config
-from ...constant import EnvVarLoader, MEMORY_COMPACT_KEEP_RECENT
-
+from ...constant import MEMORY_COMPACT_KEEP_RECENT, TRUNCATION_NOTICE_MARKER
+from ..utils.estimate_token_counter import EstimatedTokenCounter
 if TYPE_CHECKING:
     from ..react_agent import QwenPawAgent
 
@@ -22,71 +34,29 @@ logger = logging.getLogger(__name__)
 
 
 @context_registry.register("light")
-class LightContextManager(ReMeLightMixin, BaseContextManager):
-    """ReMeLight-backed context manager for agents.
+class LightContextManager(BaseContextManager):
+    """Context manager for agents with compaction support.
 
     Handles conversation context compaction and the agent context object.
-    Delegates to a ``ReMeLight`` instance for all heavy lifting.
 
     Responsibilities:
     - Tool-result compaction via _compact_tool_result()
     - Context-size checking via _check_context()
     - Message compaction via _compact_context()
-    - Context summarization via summarize_context()
     - Agent context retrieval via get_agent_context()
     """
 
     def __init__(self, working_dir: str, agent_id: str):
-        """Initialize with ReMeLight.
+        """Initialize context manager.
 
         Args:
             working_dir: Working directory for context storage.
             agent_id: Agent ID for config loading.
         """
         super().__init__(working_dir=working_dir, agent_id=agent_id)
-        self._reme_version_ok: bool = self._check_reme_version()
-        self._reme = None
-
         logger.info(
             f"LightContextManager init: "
             f"agent_id={agent_id}, working_dir={working_dir}",
-        )
-
-        memory_manager_backend = _detect_memory_manager_backend()
-
-        from reme.reme_light import ReMeLight
-
-        emb_config = self.get_embedding_config()
-        vector_enabled = bool(emb_config["base_url"]) and bool(
-            emb_config["model_name"],
-        )
-
-        log_cfg = {
-            **emb_config,
-            "api_key": self._mask_key(emb_config["api_key"]),
-        }
-        logger.info(
-            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
-        )
-
-        fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
-
-        agent_config = load_agent_config(self.agent_id)
-
-        store_name = "context"
-        self._reme = ReMeLight(
-            working_dir=working_dir,
-            default_embedding_model_config=emb_config,
-            default_file_store_config={
-                "backend": memory_manager_backend,
-                "store_name": store_name,
-                "vector_enabled": vector_enabled,
-                "fts_enabled": fts_enabled,
-            },
-            default_file_watcher_config={
-                "rebuild_index_on_start": False,
-                "recursive": agent_config.running.reme_light_memory_config.recursive_file_watcher,
-            },
         )
 
     # ------------------------------------------------------------------
@@ -94,40 +64,256 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the ReMeLight lifecycle."""
-        self._warn_if_version_mismatch()
-        if self._reme is None:
-            return
-        await self._reme.start()
+        """Start the context manager lifecycle."""
 
     async def close(self) -> bool:
-        """Close ReMeLight and perform cleanup."""
-        self._warn_if_version_mismatch()
-        logger.info(
-            f"LightContextManager closing: agent_id={self.agent_id}",
-        )
-        if self._reme is None:
-            return True
-        result = await self._reme.close()
-        logger.info(
-            f"LightContextManager closed: "
-            f"agent_id={self.agent_id}, result={result}",
-        )
-        return result
+        """Close context manager and cleanup expired tool result files."""
+        logger.info(f"LightContextManager closing: agent_id={self.agent_id}")
+        self._cleanup_expired_tool_result_files()
+        logger.info(f"LightContextManager closed: agent_id={self.agent_id}")
+        return True
 
-    async def _compact_tool_result(self, **kwargs):
-        """Compact tool results by truncating large outputs."""
-        self._warn_if_version_mismatch()
-        if self._reme is None:
-            return None
-        return await self._reme.compact_tool_result(**kwargs)
+    def _cleanup_expired_tool_result_files(self) -> int:
+        """Clean up tool result files older than retention_days.
 
-    async def _check_context(self, **kwargs):
-        """Check context size and determine if compaction is needed."""
-        self._warn_if_version_mismatch()
-        if self._reme is None:
-            return None
-        return await self._reme.check_context(**kwargs)
+        Returns:
+            Number of files successfully deleted.
+        """
+        agent_config = load_agent_config(self.agent_id)
+        trc = agent_config.running.light_context_config.tool_result_pruning_config
+        tool_result_dir = Path(self.working_dir) / trc.tool_results_cache
+        retention_days = trc.offload_retention_days
+
+        if not tool_result_dir.exists():
+            return 0
+
+        cutoff = datetime.now() - timedelta(days=retention_days)
+        deleted = failed = 0
+
+        for fp in tool_result_dir.glob("*.txt"):
+            try:
+                stat = os.stat(fp)
+                if sys.platform == "win32":
+                    ts = stat.st_ctime  # creation time on Windows
+                else:
+                    ts = getattr(stat, "st_birthtime", stat.st_mtime)  # macOS/BSD; Linux fallback to mtime
+                if datetime.fromtimestamp(ts) < cutoff:
+                    fp.unlink()
+                    deleted += 1
+            except FileNotFoundError:
+                pass  # deleted by another process between glob and stat/unlink
+            except Exception as e:
+                failed += 1
+                logger.warning("Failed to delete %s: %s", fp, e)
+
+        if deleted or failed:
+            logger.info("Cleaned up %d expired tool result files (%d failed)", deleted, failed)
+        return deleted
+
+    def _truncate_tool_result(
+        self,
+        content: str,
+        max_bytes: int,
+        encoding: str = "utf-8",
+    ) -> str:
+        """Truncate tool result content, saving full content to file if needed.
+
+        Args:
+            content: The content to truncate.
+            max_bytes: Maximum bytes allowed.
+            encoding: Character encoding.
+
+        Returns:
+            Truncated content with notice if truncated, or original if under limit.
+        """
+        if not content:
+            return content
+
+        try:
+            # Already truncated content - retruncate with new limit
+            if TRUNCATION_NOTICE_MARKER in content:
+                return truncate_text_output(content, max_bytes=max_bytes, encoding=encoding)
+
+            # Check if content fits within limit (with small slack)
+            if len(content.encode(encoding)) <= max_bytes + 100:
+                return content
+
+            # Save full content to file
+            agent_config = load_agent_config(self.agent_id)
+            trc = agent_config.running.light_context_config.tool_result_pruning_config
+            tool_result_dir = Path(self.working_dir) / trc.tool_results_cache
+            tool_result_dir.mkdir(parents=True, exist_ok=True)
+
+            saved_path: str | None = None
+            fp = tool_result_dir / f"{uuid.uuid4().hex}.txt"
+            fp.write_text(content, encoding=encoding)
+            saved_path = str(fp)
+
+            # Truncate and include file path in notice
+            return truncate_text_output(
+                content,
+                start_line=1,
+                total_lines=content.count("\n") + 1,
+                max_bytes=max_bytes,
+                file_path=saved_path,
+                encoding=encoding,
+            )
+        except Exception as e:
+            logger.warning("Failed to truncate tool result content: %s", e)
+            return content
+
+    def _compact_output(
+        self,
+        output: str | list[dict],
+        max_bytes: int,
+        encoding: str = "utf-8",
+    ) -> str | list[dict]:
+        """Compact output by truncating to max_bytes.
+
+        Args:
+            output: The output to compact (str or list[dict]).
+            max_bytes: Maximum bytes allowed.
+            encoding: Character encoding.
+
+        Returns:
+            Compacted output.
+        """
+        if isinstance(output, str):
+            return self._truncate_tool_result(output, max_bytes, encoding)
+        if isinstance(output, list):
+            for block in output:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    block["text"] = self._truncate_tool_result(
+                        block.get("text", ""), max_bytes, encoding
+                    )
+        return output
+
+    async def _compact_tool_result(
+        self,
+        messages: list[Msg],
+        recent_n: int = 1,
+        old_max_bytes: int = 3000,
+        recent_max_bytes: int = DEFAULT_MAX_BYTES,
+        retention_days: int = 3,
+        **_kwargs,
+    ) -> list[Msg]:
+        """Process all messages, truncating large tool results.
+
+        Args:
+            messages: List of messages to process.
+            recent_n: Number of recent messages to treat with recent_max_bytes.
+            old_max_bytes: Maximum bytes for older tool results.
+            recent_max_bytes: Maximum bytes for recent tool results.
+            retention_days: Days to retain offloaded files (unused here, set in init).
+
+        Returns:
+            Processed messages list.
+        """
+        if not messages:
+            return messages
+
+        # Count recent tool_result messages from the end
+        recent_count = 0
+        for msg in reversed(messages):
+            if not isinstance(msg.content, list) or not any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in msg.content
+            ):
+                break
+            recent_count += 1
+        split_index = max(0, len(messages) - max(recent_count, recent_n))
+
+        # Detect tool_use IDs for md file reads and chat_with_agent
+        md_file_tool_ids = set()
+        try:
+            for msg in messages:
+                if not isinstance(msg.content, list):
+                    continue
+
+                for block in msg.content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_id = block.get("id", "")
+                        if not tool_id:
+                            continue
+
+                        tool_name = block.get("name", "").lower()
+                        raw_input = (block.get("raw_input") or "").lower()
+
+                        if tool_name == "read_file" and ".md" in raw_input:
+                            md_file_tool_ids.add(tool_id)
+
+                        if tool_name == "chat_with_agent":
+                            md_file_tool_ids.add(tool_id)
+        except Exception as e:
+            logger.warning("Failed to detect md file tool ids: %s", e)
+
+        # Compact tool_result blocks
+        for idx, msg in enumerate(messages):
+            if not isinstance(msg.content, list):
+                continue
+            is_recent = idx >= split_index
+            max_bytes = recent_max_bytes if is_recent else old_max_bytes
+
+            for block in msg.content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    tool_id = block.get("id", "")
+                    output = block.get("output")
+                    if not output:
+                        continue
+
+                    # Use recent_max_bytes for md file tool results
+                    effective_max_bytes = (
+                        recent_max_bytes if tool_id in md_file_tool_ids else max_bytes
+                    )
+                    block["output"] = self._compact_output(output, effective_max_bytes)
+
+        return messages
+
+    async def _check_context(
+            self,
+            messages: list[Msg],
+            context_compact_threshold: int,
+            context_compact_reserve: int,
+            as_token_counter: EstimatedTokenCounter,
+    ) -> tuple[list[Msg], list[Msg], bool]:
+        """Check context size and determine if compaction is needed.
+
+        Uses AsMsgHandler to analyze messages and split them into
+        messages_to_compact and messages_to_keep based on token thresholds.
+
+        Args:
+            messages: List of conversation messages to check.
+            context_compact_threshold: Token threshold triggering compaction.
+            context_compact_reserve: Token limit for messages to keep.
+            as_token_counter: Token counter instance.
+
+        Returns:
+            Tuple of (messages_to_compact, messages_to_keep, is_valid):
+            - messages_to_compact: Older messages exceeding reserve limit.
+            - messages_to_keep: Recent messages within reserve limit.
+            - is_valid: True if tool_use/tool_result ids are aligned.
+        """
+        msg_handler = AsMsgHandler(as_token_counter)
+        return await msg_handler.context_check(
+            messages=messages,
+            context_compact_threshold=context_compact_threshold,
+            context_compact_reserve=context_compact_reserve,
+        )
+
+    @staticmethod
+    def _is_valid_summary(content: str) -> bool:
+        """Check if the summary content is valid.
+
+        Args:
+            content: The summary content to validate.
+
+        Returns:
+            True if valid, False otherwise.
+        """
+        if not content or not content.strip():
+            return False
+        if "##" not in content:
+            return False
+        return True
 
     async def _compact_context(
             self,
@@ -136,63 +322,130 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             extra_instruction: str = "",
             as_llm: Any = None,
             as_llm_formatter: Any = None,
+            as_token_counter: EstimatedTokenCounter | None = None,
+            language: str = "en",
+            max_input_length: int = 100000,
+            compact_ratio: float = 0.5,
+            add_thinking_block: bool = True,
+            return_dict: bool = True,
             **_kwargs,
-    ) -> str:
+    ) -> str | dict:
         """Compact messages into a condensed summary.
 
-        Returns the compacted string, or empty string on failure.
+        Args:
+            messages: List of messages to compact.
+            previous_summary: Previous summary to update.
+            extra_instruction: Extra instruction for compaction.
+            as_llm: LLM model instance.
+            as_llm_formatter: Formatter for LLM output.
+            as_token_counter: Token counter instance.
+            language: Language for prompts ("en" or "zh").
+            max_input_length: Maximum input length for token calculation.
+            compact_ratio: Ratio for compact threshold calculation.
+            add_thinking_block: Whether to include thinking blocks.
+            return_dict: Whether to return dict with metadata.
+
+        Returns:
+            Compacted summary string, or dict with metadata if return_dict=True.
         """
+        if not messages:
+            if return_dict:
+                return {"user_message": "", "history_compact": "", "is_valid": False}
+            return ""
+
         agent_config = load_agent_config(self.agent_id)
         cc = agent_config.running.light_context_config.context_compact_config
 
-        compact_kwargs = dict(
+        # Use provided token counter or get from config
+        token_counter = as_token_counter or get_token_counter(agent_config)
+
+        msg_handler = AsMsgHandler(token_counter)
+        before_token_count = await msg_handler.count_msgs_token(messages)
+
+        # Calculate compact threshold
+        memory_compact_threshold = int(max_input_length * compact_ratio)
+
+        history_formatted_str: str = await msg_handler.format_msgs_to_str(
             messages=messages,
-            as_llm=as_llm,
-            as_llm_formatter=as_llm_formatter,
-            as_token_counter=get_token_counter(agent_config),
-            language=agent_config.language,
-            max_input_length=agent_config.running.max_input_length,
-            compact_ratio=cc.compact_threshold_ratio,
-            previous_summary=previous_summary,
-            return_dict=True,
-            add_thinking_block=cc.compact_with_thinking_block,
+            context_compact_threshold=memory_compact_threshold,
+            include_thinking=add_thinking_block,
         )
-        if extra_instruction:
-            compact_kwargs["extra_instruction"] = extra_instruction
+        after_token_count = await msg_handler.count_str_token(history_formatted_str)
+        logger.info(
+            f"Compactor before_token_count={before_token_count} "
+            f"after_token_count={after_token_count}",
+        )
 
-        result = await self._reme.compact_memory(**compact_kwargs)
-
-        if isinstance(result, str):
-            logger.error(
-                "compact_context returned str instead of dict, "
-                f"result: {result[:200]}... "
-                "Please install the latest reme package.",
-            )
-            return result
-
-        if not result.get("is_valid", True):
-            unique_id = uuid.uuid4().hex[:8]
-            filepath = os.path.join(
-                agent_config.workspace_dir,
-                f"compact_invalid_{unique_id}.json",
-            )
-            try:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    json.dump(result, f, ensure_ascii=False, indent=2)
-                logger.error(
-                    f"Invalid compact result saved to {filepath}. "
-                    f"user_msg: {result.get('user_message', '')[:200]}..., "
-                    "history_compact: "
-                    f"{result.get('history_compact', '')[:200]}...",
-                )
-                logger.error(
-                    "Please upload the log to github issues",
-                )
-            except Exception as _e:
-                logger.error(f"Failed to save invalid compact result: {_e}")
+        if not history_formatted_str:
+            logger.warning(f"No history to compact. messages={messages}")
+            if return_dict:
+                return {"user_message": "", "history_compact": "", "is_valid": False}
             return ""
 
-        return result.get("history_compact", "")
+        # Select prompts based on language
+        is_zh = language.lower() == "zh"
+        system_prompt = SYSTEM_PROMPT_ZH if is_zh else SYSTEM_PROMPT_EN
+        initial_user_msg = INITIAL_USER_MESSAGE_ZH if is_zh else INITIAL_USER_MESSAGE_EN
+        update_user_msg = UPDATE_USER_MESSAGE_ZH if is_zh else UPDATE_USER_MESSAGE_EN
+
+        # Create ReActAgent for compaction
+        agent = ReActAgent(
+            name="qwenpaw_compactor",
+            model=as_llm,
+            sys_prompt=system_prompt,
+            formatter=as_llm_formatter,
+        )
+        agent.set_console_output_enabled(False)
+
+        # Build user message
+        if previous_summary:
+            user_message: str = (
+                f"# conversation\n{history_formatted_str}\n\n"
+                f"# previous-summary\n{previous_summary}\n\n{update_user_msg}"
+            )
+        else:
+            user_message: str = (
+                f"# conversation\n{history_formatted_str}\n\n{initial_user_msg}"
+            )
+
+        if extra_instruction:
+            user_message += f"\n\n# extra-instruction\n{extra_instruction}"
+
+        logger.info(
+            f"Compactor sys_prompt={agent.sys_prompt} "
+            f"user_message={user_message[:500]}...",
+        )
+
+        compact_msg: Msg = await agent.reply(
+            Msg(
+                name="compactor",
+                role="user",
+                content=user_message,
+            ),
+        )
+
+        history_compact: str = compact_msg.get_text_content()
+        is_valid: bool = self._is_valid_summary(history_compact)
+
+        if not is_valid:
+            logger.warning(f"Invalid summary result: {history_compact[:200]}...")
+            if return_dict:
+                return {
+                    "user_message": user_message,
+                    "history_compact": history_compact,
+                    "is_valid": False,
+                }
+            return ""
+
+        logger.info(f"Compactor Result:\n{history_compact[:500]}...")
+
+        if return_dict:
+            return {
+                "user_message": user_message,
+                "history_compact": history_compact,
+                "is_valid": True,
+            }
+        return history_compact
 
     # ------------------------------------------------------------------
     # Agent lifecycle hook methods
@@ -298,19 +551,19 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
                 text=(system_prompt or "") + (compressed_summary or ""),
             )
 
-            memory_compact_threshold = int(
+            context_compact_threshold = int(
                 running_config.max_input_length
                 * running_config.light_context_config.context_compact_config.compact_threshold_ratio
             )
-            memory_compact_reserve = int(
+            context_compact_reserve = int(
                 running_config.max_input_length
                 * running_config.light_context_config.context_compact_config.reserve_threshold_ratio
             )
-            left_compact_threshold = memory_compact_threshold - str_token_count
+            left_compact_threshold = context_compact_threshold - str_token_count
 
             if left_compact_threshold <= 0:
                 logger.warning(
-                    "The memory_compact_threshold is set too low; "
+                    "The context_compact_threshold is set too low; "
                     "the combined token length of system_prompt and "
                     "compressed_summary exceeds the configured threshold. "
                     "Alternatively, you could use /clear to reset the context "
@@ -327,8 +580,8 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
                 is_valid,
             ) = await self._check_context(
                 messages=messages,
-                memory_compact_threshold=left_compact_threshold,
-                memory_compact_reserve=memory_compact_reserve,
+                context_compact_threshold=left_compact_threshold,
+                context_compact_reserve=context_compact_reserve,
                 as_token_counter=token_counter,
             )
 
@@ -370,11 +623,17 @@ class LightContextManager(ReMeLightMixin, BaseContextManager):
             )
 
             if running_config.light_context_config.context_compact_config.enabled:
+                cc = running_config.light_context_config.context_compact_config
                 compact_content = await self._compact_context(
                     messages=messages_to_compact,
                     previous_summary=memory.get_compressed_summary(),
                     as_llm=agent.model,
                     as_llm_formatter=agent.formatter,
+                    as_token_counter=token_counter,
+                    language=agent_config.language,
+                    max_input_length=running_config.max_input_length,
+                    compact_ratio=cc.compact_threshold_ratio,
+                    add_thinking_block=cc.compact_with_thinking_block,
                 )
                 if not compact_content:
                     await self._print_status_message(

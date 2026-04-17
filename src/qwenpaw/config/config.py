@@ -552,6 +552,11 @@ class ToolResultPruningConfig(BaseModel):
         description="Number of days to retain tool result files",
     )
 
+    tool_results_cache: str = Field(
+        default="tool_results",
+        description="Directory name for tool result cache files relative to working_dir",
+    )
+
 
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""

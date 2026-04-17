@@ -1,6 +1,8 @@
 """ReMeLight-backed memory manager for agents."""
+import importlib.metadata
 import json
 import logging
+import platform
 import shutil
 import uuid
 from datetime import datetime
@@ -17,10 +19,6 @@ from .prompts import get_memory_prompt
 from ..model_factory import create_model_and_formatter
 from ..tools import read_file, write_file, edit_file
 from ..utils import get_token_counter
-from ..utils.reme_mixin import (
-    ReMeLightMixin,
-    _detect_memory_manager_backend,
-)
 from ...config import load_config
 from ...config.config import load_agent_config
 from ...config.context import (
@@ -32,10 +30,47 @@ from ...constant import EnvVarLoader
 logger = logging.getLogger(__name__)
 
 _REME_STORE_VERSION = "v1"
+_EXPECTED_REME_VERSION = "0.3.1.8"
+
+
+def _detect_memory_manager_backend() -> str:
+    """Detect the memory store backend from environment variables.
+
+    Resolves ``MEMORY_STORE_BACKEND`` with the following priority:
+    - ``local``: always used on Windows
+    - ``chroma``: used when ``chromadb`` is importable (non-Windows)
+    - falls back to ``local`` when ``chromadb`` is unavailable
+
+    Returns:
+        Backend name string: ``"local"``, ``"chroma"``, or any explicitly
+        configured value.
+    """
+    backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
+    if backend_env != "auto":
+        return backend_env
+
+    if platform.system() == "Windows":
+        return "local"
+
+    try:
+        import chromadb  # noqa: F401 pylint: disable=unused-import
+
+        return "chroma"
+    except Exception as e:
+        logger.warning(
+            f"""
+chromadb import failed, falling back to `local` backend.
+This is often caused by an outdated system SQLite (requires >= 3.35).
+Please upgrade your system SQLite to >= 3.35.
+See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
+| Error: {e}
+            """,
+        )
+        return "local"
 
 
 @memory_registry.register("ReMeLight")
-class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
+class ReMeLightMemoryManager(BaseMemoryManager):
     """Memory manager backed by ReMeLight.
 
     Delegates lifecycle, search, and compaction to a ``ReMeLight`` instance
@@ -106,6 +141,59 @@ class ReMeLightMemoryManager(ReMeLightMixin, BaseMemoryManager):
         self.summary_toolkit.register_tool_function(read_file)
         self.summary_toolkit.register_tool_function(write_file)
         self.summary_toolkit.register_tool_function(edit_file)
+
+    @staticmethod
+    def _mask_key(key: str) -> str:
+        """Mask an API key, showing only the first 5 characters."""
+        return key[:5] + "*" * (len(key) - 5) if len(key) > 5 else key
+
+    @staticmethod
+    def _check_reme_version() -> bool:
+        """Return ``False`` (and warn) when the installed reme-ai version
+        does not match the expected version."""
+        try:
+            installed = importlib.metadata.version("reme-ai")
+        except importlib.metadata.PackageNotFoundError:
+            return True
+        if installed != _EXPECTED_REME_VERSION:
+            logger.warning(
+                f"reme-ai version mismatch: installed={installed}, "
+                f"expected={_EXPECTED_REME_VERSION}. "
+                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
+                " to align.",
+            )
+            return False
+        return True
+
+    def _warn_if_version_mismatch(self) -> None:
+        """Warn once per call if the cached version check failed."""
+        if not self._reme_version_ok:
+            logger.warning(
+                "reme-ai version mismatch, "
+                f"expected={_EXPECTED_REME_VERSION}. "
+                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
+                " to align.",
+            )
+
+    def get_embedding_config(self) -> dict:
+        """Return embedding config with priority: config > env var > default."""
+        self._warn_if_version_mismatch()
+        cfg = load_agent_config(self.agent_id).running.reme_light_memory_config.embedding_model_config
+        return {
+            "backend": cfg.backend,
+            "api_key": cfg.api_key
+            or EnvVarLoader.get_str("EMBEDDING_API_KEY"),
+            "base_url": cfg.base_url
+            or EnvVarLoader.get_str("EMBEDDING_BASE_URL"),
+            "model_name": cfg.model_name
+            or EnvVarLoader.get_str("EMBEDDING_MODEL_NAME"),
+            "dimensions": cfg.dimensions,
+            "enable_cache": cfg.enable_cache,
+            "use_dimensions": cfg.use_dimensions,
+            "max_cache_size": cfg.max_cache_size,
+            "max_input_length": cfg.max_input_length,
+            "max_batch_size": cfg.max_batch_size,
+        }
 
     @staticmethod
     def _resolve_rebuild_on_start(
