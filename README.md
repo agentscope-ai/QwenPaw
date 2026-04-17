@@ -136,18 +136,6 @@ No Python setup required, one command installs everything. The script will autom
 curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash
 ```
 
-To install with Ollama support:
-
-```bash
-curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash -s -- --extras ollama
-```
-
-To install with multiple extras (e.g., Ollama + local):
-
-```bash
-curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash -s -- --extras ollama,local
-```
-
 **Windows (CMD):**
 
 ```CMD

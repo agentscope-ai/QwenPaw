@@ -137,18 +137,6 @@ qwenpaw app
 curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash
 ```
 
-如需安装 Ollama 支持：
-
-```bash
-curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash -s -- --extras ollama
-```
-
-如需安装多个扩展（例如 Ollama + local）：
-
-```bash
-curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash -s -- --extras ollama,local
-```
-
 **Windows (CMD):**
 
 ```CMD
