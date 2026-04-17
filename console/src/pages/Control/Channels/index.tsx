@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
@@ -61,6 +61,22 @@ function ChannelsPage() {
       filter_thinking: !channelConfig.filter_thinking,
     });
   };
+
+  // Re-populate the drawer form whenever the underlying config for the
+  // active channel changes — e.g. the user switches agent while the drawer
+  // is open, or background hot-reload mutates agent config. Without this,
+  // the form keeps displaying the previous agent's values until the user
+  // reopens the drawer or refreshes the page.
+  useEffect(() => {
+    if (!drawerOpen || !activeKey) return;
+    const channelConfig = channels[activeKey];
+    if (!channelConfig) return;
+    form.setFieldsValue({
+      ...channelConfig,
+      filter_tool_messages: !channelConfig.filter_tool_messages,
+      filter_thinking: !channelConfig.filter_thinking,
+    });
+  }, [channels, activeKey, drawerOpen, form]);
 
   const handleDrawerClose = () => {
     setDrawerOpen(false);

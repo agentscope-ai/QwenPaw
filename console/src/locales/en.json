@@ -632,7 +632,7 @@
     "onebotShareSessionInGroup": "Share Session in Group",
     "onebotShareSessionInGroupTooltip": "When enabled, all group members share the same conversation session. When disabled, each member has their own session.",
     "signalAccount": "Bot Phone Number",
-    "signalAccountTooltip": "Linked Signal account in E.164 form (e.g. +85298349370). Must be already registered or linked with signal-cli before enabling.",
+    "signalAccountTooltip": "Linked Signal account in E.164 form (e.g. +85212345678). Must be already registered or linked with signal-cli before enabling.",
     "signalAccountUuid": "Bot Account UUID",
     "signalAccountUuidTooltip": "Bot account UUID (optional). Used for reliable mention detection in groups. Find with 'signal-cli -u <phone> listAccounts'.",
     "signalCliPath": "signal-cli Path",

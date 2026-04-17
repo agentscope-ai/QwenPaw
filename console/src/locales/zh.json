@@ -607,7 +607,7 @@
     "onebotShareSessionInGroup": "群聊共享会话",
     "onebotShareSessionInGroupTooltip": "开启后，群内所有成员共享同一个会话。关闭后，每个成员拥有独立会话。",
     "signalAccount": "机器人手机号",
-    "signalAccountTooltip": "已关联的 Signal 账号（E.164 格式，如 +85298349370）。启用前必须已通过 signal-cli 注册或关联。",
+    "signalAccountTooltip": "已关联的 Signal 账号（E.164 格式，如 +85212345678）。启用前必须已通过 signal-cli 注册或关联。",
     "signalAccountUuid": "机器人账号 UUID",
     "signalAccountUuidTooltip": "机器人账号 UUID（可选）。用于在群聊中可靠识别 @机器人 的消息。可通过 signal-cli -u <手机号> listAccounts 获取。",
     "signalCliPath": "signal-cli 路径",
