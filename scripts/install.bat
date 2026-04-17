@@ -3,7 +3,7 @@ setlocal EnableDelayedExpansion
 
 REM QwenPaw Installer for Windows (cmd.exe / batch)
 REM Usage: install.bat [-Version X.Y.Z] [-FromSource] [-SourceDir DIR]
-REM                         [-Extras "llamacpp,mlx"] [-UvPath PATH] [-Help]
+REM                         [-Extras "dev,whisper"] [-UvPath PATH] [-Help]
 REM
 REM Installs QwenPaw into %USERPROFILE%\.qwenpaw with a uv-managed Python environment.
 REM Users do NOT need Python pre-installed -- uv handles everything.

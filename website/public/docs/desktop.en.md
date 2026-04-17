@@ -99,8 +99,8 @@ A:
 
 - **Operating System**: macOS 14 (Sonoma) or later
 - **Architecture**:
-  - ✅ **Apple Silicon (M1/M2/M3/M4)** - Recommended, supports MLX local model acceleration
-  - ⚠️ Intel chips - May work, but cannot use MLX acceleration features
+  - ✅ **Apple Silicon (M1/M2/M3/M4)** - Recommended
+  - ⚠️ Intel chips - May works, but may not be able to use built-in local model services
 
 ### Installation Steps
 
@@ -216,7 +216,7 @@ A: Follow the "Bypassing System Security Restrictions" steps above
 A: Drag `QwenPaw.app` to the Trash, then delete the `~/.qwenpaw` configuration folder
 
 **Q: Can I use it on Intel Mac?**
-A: Yes, but you cannot use MLX model acceleration (MLX only supports Apple Silicon)
+A: Yes, but may not be able to use built-in local model services
 
 **Q: Why is the app not signed, and why does the system show a risk warning?**
 

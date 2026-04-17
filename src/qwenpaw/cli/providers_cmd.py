@@ -441,7 +441,7 @@ def configure_providers_interactive(*, use_defaults: bool = False) -> None:
     while True:
         pid = configure_provider_api_key_interactive()
 
-        # For local providers (llamacpp, mlx, ollama),
+        # For local providers
         # skip to model activation directly
         manager = _manager()
         defn = manager.get_provider(pid)
