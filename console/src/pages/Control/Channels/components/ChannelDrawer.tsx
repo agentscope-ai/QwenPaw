@@ -1221,20 +1221,34 @@ export function ChannelDrawer({
                 </>
               )}
             </Form.Item>
+            {/*
+              account + account_uuid are read-only: they're the identity
+              signal-cli itself authoritative-told us (populated from the
+              linked account store on drawer open, or from the link-device
+              flow's success handler). Letting users type a different
+              phone here would silently detach the channel config from
+              the actual session data_dir — the channel would either fail
+              to start ("User +XXX is not registered") or connect to a
+              different account than the UI shows. Better to force users
+              through the Link Device flow to change these.
+            */}
             <Form.Item
               name="account"
               label={t("channels.signalAccount")}
               tooltip={t("channels.signalAccountTooltip")}
               rules={[{ required: true }]}
             >
-              <Input placeholder="+85212345678" />
+              <Input placeholder="+85212345678" readOnly />
             </Form.Item>
             <Form.Item
               name="account_uuid"
               label={t("channels.signalAccountUuid")}
               tooltip={t("channels.signalAccountUuidTooltip")}
             >
-              <Input placeholder="447e962a-0000-0000-0000-000000000000" />
+              <Input
+                placeholder="447e962a-0000-0000-0000-000000000000"
+                readOnly
+              />
             </Form.Item>
             <Form.Item
               name="signal_cli_path"
