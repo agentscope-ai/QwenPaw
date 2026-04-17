@@ -118,21 +118,22 @@ class MultiAgentManager:
 
             async with self._lock:
                 self.agents[agent_id] = instance
-                self._pending_starts.pop(agent_id, None)
 
             elapsed = time.perf_counter() - t0
-            event.set()
             logger.debug(
                 f"Workspace created and started: {agent_id} "
                 f"({elapsed:.3f}s)",
             )
             return instance
         except Exception as e:
+            logger.error(f"Failed to start workspace {agent_id}: {e}")
+            raise
+        finally:
+            # Always clean up pending state and signal waiters
+            # This handles cancellation (CancelledError) and all other cases
             async with self._lock:
                 self._pending_starts.pop(agent_id, None)
             event.set()
-            logger.error(f"Failed to start workspace {agent_id}: {e}")
-            raise
 
     async def _graceful_stop_old_instance(
         self,

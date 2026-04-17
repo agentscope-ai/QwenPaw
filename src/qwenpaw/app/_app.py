@@ -15,7 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
-
 from agentscope_runtime.engine.schemas.exception import (
     AppBaseException,
 )
@@ -432,13 +431,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             # Print server URL again so it's visible after background logs
             from ..config.utils import read_last_api
+            from ..utils.startup_display import print_ready_banner
 
             api_info = read_last_api()
-            if api_info:
-                host, port = api_info
-                logger.info(f"✨ QwenPaw ready! → http://{host}:{port}")
-            else:
-                logger.info("✨ QwenPaw ready!")
+            print_ready_banner(api_info)
         except Exception:
             logger.error(
                 "Background startup encountered an error",
