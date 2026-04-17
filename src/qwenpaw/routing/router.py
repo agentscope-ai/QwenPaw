@@ -47,14 +47,14 @@ class SkillRouter:
         """Filter *skills* by semantic relevance to *query*.
 
         Each element in *skills* should be a dict with at least
-        ``name`` and ``description`` keys (matching CoPaw's skill
+        ``name`` and ``description`` keys (matching QwenPaw's skill
         metadata format from ``_build_skill_metadata``).
 
         When ``len(skills) <= top_k`` the full list is returned
         without vector retrieval (bypass mode).
 
         On any failure the method returns a bypass result so that
-        CoPaw's original behaviour is preserved.
+        QwenPaw's original behaviour is preserved.
         """
         top_k = self._config.top_k
         total = len(skills)
@@ -118,7 +118,7 @@ class SkillRouter:
 
     @staticmethod
     def _skills_to_items(skills: list[dict[str, Any]]) -> list[IndexItem]:
-        """Convert CoPaw skill metadata dicts to IndexItems."""
+        """Convert QwenPaw skill metadata dicts to IndexItems."""
         items: list[IndexItem] = []
         for sk in skills:
             name = sk.get("name", "")

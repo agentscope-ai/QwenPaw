@@ -2,7 +2,7 @@
 """Semantic index for skill and tool retrieval.
 
 Supports two embedding backends:
-1. **API mode** — uses CoPaw's existing EmbeddingConfig (OpenAI-compatible
+1. **API mode** — uses QwenPaw's existing EmbeddingConfig (OpenAI-compatible
    embedding API, e.g. DashScope, OpenAI).  No extra dependencies needed.
 2. **Local mode** — uses sentence-transformers + FAISS.  Requires
    ``pip install qwenpaw[semantic]``.
@@ -48,7 +48,7 @@ def _normalize(vectors: np.ndarray) -> np.ndarray:
 
 
 def _get_embedding_config() -> dict[str, Any] | None:
-    """Try to load CoPaw's EmbeddingConfig for the active agent.
+    """Try to load QwenPaw's EmbeddingConfig for the active agent.
 
     Returns a dict with base_url, api_key, model_name, max_batch_size
     etc., or None.
@@ -82,7 +82,7 @@ def _embed_via_api(
 ) -> np.ndarray:
     """Call an OpenAI-compatible embedding API and return vectors.
 
-    Uses ``httpx`` which is already a CoPaw core dependency.
+    Uses ``httpx`` which is already a QwenPaw core dependency.
     Batches requests to respect API limits per ``EmbeddingConfig.max_batch_size``.
     """
     import httpx
@@ -109,7 +109,7 @@ def _embed_via_api(
 
 
 def _apply_hf_mirror_if_needed() -> None:
-    """Ensure HF_ENDPOINT is set when CoPaw's mirror config is on."""
+    """Ensure HF_ENDPOINT is set when QwenPaw's mirror config is on."""
     if os.environ.get("HF_ENDPOINT"):
         return
     try:
@@ -138,7 +138,7 @@ class SemanticIndex:
 
     Automatically selects the best available backend:
     1. API mode (EmbeddingConfig configured) — zero extra deps
-    2. Local mode (sentence-transformers + faiss-cpu installed)
+    2. Local mode (sentence-transformers installed)
 
     Parameters
     ----------
@@ -327,35 +327,15 @@ class SemanticIndex:
         vec_path = self._persist_dir / "vectors.npy"
         meta_path = self._persist_dir / "metadata.json"
 
-        # Also check legacy FAISS format
-        faiss_path = self._persist_dir / "index.faiss"
-
         if not meta_path.exists():
             return False
-        if not vec_path.exists() and not faiss_path.exists():
+        if not vec_path.exists():
             return False
 
         try:
             raw = json.loads(meta_path.read_text(encoding="utf-8"))
-            version = raw.get("version", 1)
 
-            if version == 2 and vec_path.exists():
-                # New numpy format
-                self._vectors = np.load(str(vec_path))
-            elif version == 1 and faiss_path.exists():
-                # Legacy FAISS format — migrate to numpy
-                import faiss
-
-                idx = faiss.read_index(str(faiss_path))
-                n = idx.ntotal
-                dim = idx.d
-                self._vectors = np.zeros((n, dim), dtype=np.float32)
-                for i in range(n):
-                    self._vectors[i] = idx.reconstruct(i)
-                logger.info("Migrated legacy FAISS index to numpy format")
-            else:
-                self._cleanup_persist()
-                return False
+            self._vectors = np.load(str(vec_path))
 
             self._items = [
                 IndexItem(
@@ -426,7 +406,7 @@ class SemanticIndex:
         """Remove stale persisted files."""
         if self._persist_dir is None:
             return
-        for name in ("index.faiss", "metadata.json", "vectors.npy"):
+        for name in ("metadata.json", "vectors.npy"):
             p = self._persist_dir / name
             if p.exists():
                 try:

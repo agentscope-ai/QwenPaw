@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Configuration models for semantic skill routing.
 
-Uses Pydantic BaseModel following CoPaw's config pattern.
+Uses Pydantic BaseModel following QwenPaw's config pattern.
 No heavy dependencies — safe to import unconditionally.
 """
 

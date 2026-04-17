@@ -2,7 +2,7 @@
 """Data models for semantic skill routing.
 
 Pure Python dataclasses with no heavy dependencies — safe to import
-regardless of whether sentence-transformers / faiss are installed.
+regardless of whether sentence-transformers is installed.
 """
 
 from __future__ import annotations

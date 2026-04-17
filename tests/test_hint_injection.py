@@ -8,10 +8,10 @@ import sys
 import os
 from pathlib import Path
 
-# Add CoPaw source to path
+# Add QwenPaw source to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from qwenpaw.agents.react_agent import CoPawAgent
+from qwenpaw.agents.react_agent import QwenPawAgent
 
 
 async def test_hint_injection():
@@ -22,9 +22,9 @@ async def test_hint_injection():
 
     # Test 1: Verify _build_skill_hint exists and is callable
     print("\n[Test 1] Method existence check")
-    assert hasattr(CoPawAgent, '_build_skill_hint'), "Missing _build_skill_hint"
-    assert hasattr(CoPawAgent, '_read_skill_metas'), "Missing _read_skill_metas"
-    assert not hasattr(CoPawAgent, '_apply_semantic_routing'), "Old _apply_semantic_routing should be removed"
+    assert hasattr(QwenPawAgent, '_build_skill_hint'), "Missing _build_skill_hint"
+    assert hasattr(QwenPawAgent, '_read_skill_metas'), "Missing _read_skill_metas"
+    assert not hasattr(QwenPawAgent, '_apply_semantic_routing'), "Old _apply_semantic_routing should be removed"
     print("  PASS: _build_skill_hint exists")
     print("  PASS: _read_skill_metas exists")
     print("  PASS: _apply_semantic_routing removed (KV cache friendly)")
@@ -35,7 +35,7 @@ async def test_hint_injection():
     if skills_dir.exists():
         skill_dirs = [d for d in os.listdir(skills_dir) if os.path.isdir(skills_dir / d)]
         if skill_dirs:
-            metas = CoPawAgent._read_skill_metas(skill_dirs[:3], skills_dir)
+            metas = QwenPawAgent._read_skill_metas(skill_dirs[:3], skills_dir)
             print(f"  PASS: Read {len(metas)} skill metas from disk")
             for m in metas[:2]:
                 desc = m.get("description", "")[:60]

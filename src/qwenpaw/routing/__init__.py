@@ -3,11 +3,11 @@
 
 Provides optional embedding-based skill retrieval and filtering.
 Supports two backends:
-1. API mode — uses CoPaw's EmbeddingConfig (zero extra deps)
-2. Local mode — requires sentence-transformers + faiss-cpu
+1. API mode — uses QwenPaw's EmbeddingConfig (zero extra deps)
+2. Local mode — requires sentence-transformers
 
 When neither backend is available and the feature is enabled,
-CoPaw falls back to its original skill selection logic.
+QwenPaw falls back to its original skill selection logic.
 """
 
 import logging
@@ -28,7 +28,7 @@ def is_routing_available() -> bool:
     """Check if any embedding backend is available.
 
     Returns True if either:
-    - CoPaw's EmbeddingConfig has API configured, OR
+    - QwenPaw's EmbeddingConfig has API configured, OR
     - sentence-transformers is installed (local mode)
     """
     if _LOCAL_AVAILABLE:
