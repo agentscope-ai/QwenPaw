@@ -15,6 +15,7 @@ import httpx
 import pytest
 
 import qwenpaw.local_models.llamacpp as downloader_module
+from qwenpaw.constant import DEFAULT_LOCAL_PROVIDER_DIR
 from qwenpaw.local_models.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
@@ -902,6 +903,8 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
                 str(model_path.resolve()),
                 "--alias",
                 "demo-model",
+                "--log-file",
+                str(DEFAULT_LOCAL_PROVIDER_DIR / "llama-server.log"),
                 "--gpu-layers",
                 "auto",
             ],
@@ -1043,6 +1046,11 @@ async def test_setup_server_passes_mmproj_argument(
                 str(model_file.resolve()),
                 "--alias",
                 "vision-model",
+                "--log-file",
+                str(
+                    DEFAULT_LOCAL_PROVIDER_DIR
+                    / "llama-server.log"
+                ),
                 "--gpu-layers",
                 "auto",
                 "--mmproj",

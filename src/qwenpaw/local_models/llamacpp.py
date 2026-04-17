@@ -138,9 +138,9 @@ class LlamaCppBackend:
             return int(latest_version[1:]) > int(
                 (await self.get_version()),
             )
-        except Exception:
-            logger.warning("Failed to check for llama.cpp updates")
-            return True
+        except Exception as exc:
+            logger.warning(f"Failed to check for llama.cpp updates: {exc}")
+            return False
 
     def download(
         self,
@@ -365,9 +365,12 @@ class LlamaCppBackend:
             str(resolved_model_path),
             "--alias",
             model_name,
+            "--log-file",
+            str(DEFAULT_LOCAL_PROVIDER_DIR / f"llama-server.log"),
             "--gpu-layers",
             "auto",
         ]
+        logger.info("Start llama.cpp server with command:\n  > %s", " ".join(command))
         if max_context_length is not None:
             command.extend(["--ctx-size", str(max_context_length)])
         if resolved_mmproj_path is not None:
