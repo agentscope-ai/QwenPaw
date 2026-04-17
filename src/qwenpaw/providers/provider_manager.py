@@ -1505,6 +1505,16 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
     async def _resume_local_model(self, local_manager) -> None:
         """Resume the active local model server from the previous run."""
+
+        def _clear_local_provider():
+            self.update_provider(
+                "qwenpaw-local",
+                {
+                    "base_url": "",
+                    "extra_models": [],
+                }
+            )
+
         local_models = self.get_provider("qwenpaw-local").extra_models
         model_id = local_models[0].id if local_models else None
         if model_id is None:
@@ -1516,6 +1526,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 "Skipping local model restore because"
                 " llama.cpp is not installed.",
             )
+            _clear_local_provider()
             return
 
         if not local_manager.is_model_downloaded(model_id):
@@ -1524,6 +1535,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 " model is not downloaded: %s",
                 model_id,
             )
+            _clear_local_provider()
             return
 
         try:
@@ -1534,6 +1546,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 model_id,
                 exc,
             )
+            _clear_local_provider()
             return
 
         self.update_provider(
