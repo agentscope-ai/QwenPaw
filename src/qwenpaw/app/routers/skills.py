@@ -39,6 +39,7 @@ from ...agents.skills_manager import (
     _get_skill_mtime,
     _mutate_json,
     _read_skill_from_dir,
+    get_pool_builtin_update_notice,
     get_pool_builtin_sync_status,
     get_pool_skill_manifest_path,
     get_skill_pool_dir,
@@ -148,6 +149,24 @@ class BuiltinImportSpec(BaseModel):
     current_version_text: str = ""
     current_source: str = ""
     status: str = ""
+
+
+class BuiltinRemovedSpec(BaseModel):
+    name: str
+    description: str = ""
+    current_version_text: str = ""
+    current_source: str = ""
+
+
+class BuiltinUpdateNotice(BaseModel):
+    fingerprint: str = ""
+    has_updates: bool = False
+    total_changes: int = 0
+    actionable_skill_names: list[str] = Field(default_factory=list)
+    added: list[BuiltinImportSpec] = Field(default_factory=list)
+    missing: list[BuiltinImportSpec] = Field(default_factory=list)
+    updated: list[BuiltinImportSpec] = Field(default_factory=list)
+    removed: list[BuiltinRemovedSpec] = Field(default_factory=list)
 
 
 class ImportBuiltinRequest(BaseModel):
@@ -651,6 +670,31 @@ async def list_pool_builtin_sources() -> list[BuiltinImportSpec]:
     return [
         BuiltinImportSpec(**item) for item in list_builtin_import_candidates()
     ]
+
+
+@router.get("/pool/builtin-notice")
+async def get_pool_builtin_notice() -> BuiltinUpdateNotice:
+    notice = get_pool_builtin_update_notice()
+    return BuiltinUpdateNotice(
+        fingerprint=str(notice.get("fingerprint", "") or ""),
+        has_updates=bool(notice.get("has_updates", False)),
+        total_changes=int(notice.get("total_changes", 0) or 0),
+        actionable_skill_names=[
+            str(name)
+            for name in notice.get("actionable_skill_names", [])
+            if str(name)
+        ],
+        added=[BuiltinImportSpec(**item) for item in notice.get("added", [])],
+        missing=[
+            BuiltinImportSpec(**item) for item in notice.get("missing", [])
+        ],
+        updated=[
+            BuiltinImportSpec(**item) for item in notice.get("updated", [])
+        ],
+        removed=[
+            BuiltinRemovedSpec(**item) for item in notice.get("removed", [])
+        ],
+    )
 
 
 @router.post("")

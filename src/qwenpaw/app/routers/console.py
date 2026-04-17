@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from starlette.responses import StreamingResponse
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
-from ...constant import WORKING_DIR
+from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
 
 
@@ -240,8 +240,8 @@ async def get_backend_debug_logs(
         description="Number of trailing log lines to return",
     ),
 ) -> dict:
-    """Return the tail of WORKING_DIR/copaw.log for the debug UI."""
-    log_path = (WORKING_DIR / "copaw.log").resolve()
+    """Return the tail of the project log file for the debug UI."""
+    log_path = LOG_FILE_PATH.resolve()
     try:
         st = log_path.stat()
         return {
