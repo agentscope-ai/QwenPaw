@@ -58,7 +58,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-[2026-04-16] We've released **v1.1.2**! See the full [v1.1.2 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+[2026-04-17] We've released **v1.1.2**! See the full [v1.1.2 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 - **[v1.1.2] Added**: Mission Mode (`/mission`) for autonomous, multi-phase task execution; ACP protocol for external agent delegation; `qwenpaw doctor` diagnostic command; `qwenpaw agents create` CLI agent creation; scheduled memory consolidation (Dream); new Debug page.
 - **[v1.1.2] Changed**: Agent communication tools split into synchronous/asynchronous modes; provider list sorted by availability.
