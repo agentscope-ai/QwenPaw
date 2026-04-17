@@ -1184,3 +1184,129 @@ async def get_signal_status(request: Request) -> dict:
         "phone": first.get("number") or None,
         "uuid": first.get("uuid") or None,
     }
+
+
+# ── Signal directory endpoints (list known contacts + groups) ─────────────
+# Read directly from signal-cli's account.db SQLite (opened in URI read-only
+# mode so it doesn't contend with the running jsonRpc daemon's write lock).
+# Used by the Console drawer to populate dropdowns for groups /
+# allow_from / group_allow_from instead of forcing users to type raw UUIDs
+# or base64 group-ids.
+
+
+def _signal_account_db_path(data_dir: "_P") -> Optional["_P"]:
+    """Resolve the SQLite account DB path for the first linked account.
+
+    Returns ``<data_dir>/data/<path>.d/account.db`` where ``<path>`` is the
+    opaque directory name signal-cli picked (e.g. ``750890``). Reads
+    accounts.json to discover it. Returns None if no linked account.
+    """
+    accounts = _read_signal_accounts(data_dir)
+    entries = accounts.get("accounts") or []
+    if not entries:
+        return None
+    path = entries[0].get("path") or ""
+    if not path:
+        return None
+    db = data_dir / "data" / f"{path}.d" / "account.db"
+    if not db.exists():
+        return None
+    return db
+
+
+@router.get(
+    "/channels/signal/contacts",
+    summary="List known Signal contacts (from signal-cli store)",
+)
+async def list_signal_contacts(request: Request) -> dict:
+    """Return ``{contacts: [{number, uuid, name}, ...]}``.
+
+    Read from ``account.db`` in SQLite URI read-only mode so it doesn't
+    contend with the running jsonRpc daemon. ``name`` is the first
+    non-empty of: user-set ``given_name + family_name``, ``nick_name``, or
+    profile ``profile_given_name + profile_family_name``.
+    """
+    import sqlite3
+    from ..agent_context import get_agent_for_request
+    agent = await get_agent_for_request(request)
+    data_dir = _get_signal_data_dir(agent)
+    db = _signal_account_db_path(data_dir)
+    if db is None:
+        return {"contacts": []}
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        cur = conn.cursor()
+        rows = cur.execute(
+            """
+            SELECT number, aci, given_name, family_name,
+                   nick_name, profile_given_name, profile_family_name
+            FROM recipient
+            WHERE (number IS NOT NULL AND number != '')
+               OR (aci IS NOT NULL AND aci != '')
+            ORDER BY COALESCE(profile_given_name, given_name, nick_name, number, aci)
+            """,
+        ).fetchall()
+    except Exception as e:
+        logger.warning("signal: list_contacts SQLite read failed: %s", e)
+        return {"contacts": []}
+    finally:
+        conn.close()
+
+    contacts = []
+    for (number, aci, gn, fn, nn, pgn, pfn) in rows:
+        parts = [p for p in (gn, fn) if p]
+        display = " ".join(parts) if parts else ""
+        if not display and nn:
+            display = nn
+        if not display:
+            pparts = [p for p in (pgn, pfn) if p]
+            display = " ".join(pparts) if pparts else ""
+        contacts.append({
+            "number": number or "",
+            "uuid": aci or "",
+            "name": display or "",
+        })
+    return {"contacts": contacts}
+
+
+@router.get(
+    "/channels/signal/groups",
+    summary="List known Signal groups (from signal-cli store)",
+)
+async def list_signal_groups(request: Request) -> dict:
+    """Return ``{groups: [{id, blocked}, ...]}``.
+
+    ``id`` is the **base64 group-id** — the same form used in
+    ``channels.signal.groups`` config allowlist. signal-cli stores group
+    metadata (name, members) as a protobuf BLOB in ``group_data``, which
+    this endpoint does NOT decode; users see raw ids but can match them
+    against Signal app's group screen by group-id hash visible in Signal
+    Desktop's debug info. Later work may add a protobuf-parsed name.
+    """
+    import base64
+    import sqlite3
+    from ..agent_context import get_agent_for_request
+    agent = await get_agent_for_request(request)
+    data_dir = _get_signal_data_dir(agent)
+    db = _signal_account_db_path(data_dir)
+    if db is None:
+        return {"groups": []}
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        cur = conn.cursor()
+        rows = cur.execute(
+            "SELECT group_id, blocked FROM group_v2 ORDER BY _id",
+        ).fetchall()
+    except Exception as e:
+        logger.warning("signal: list_groups SQLite read failed: %s", e)
+        return {"groups": []}
+    finally:
+        conn.close()
+
+    groups = []
+    for (gid_blob, blocked) in rows:
+        if not gid_blob:
+            continue
+        gid_b64 = base64.b64encode(gid_blob).decode("ascii")
+        groups.append({"id": gid_b64, "blocked": bool(blocked)})
+    return {"groups": groups}
