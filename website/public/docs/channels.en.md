@@ -768,14 +768,14 @@ The session is persisted under `$WORKING_DIR/credentials/whatsapp/default/neoniz
 
 **WhatsApp-specific fields:**
 
-| Field                | Type    | Default            | Description                                                          |
-| -------------------- | ------- | ------------------ | -------------------------------------------------------------------- |
-| `auth_dir`           | string  | `""`               | Directory for neonize-qwenpaw session DB. Defaults to `$WORKING_DIR/credentials/whatsapp/default` (follows `QWENPAW_WORKING_DIR` / legacy `~/.copaw` / `~/.qwenpaw`) |
-| `send_read_receipts` | bool    | `true`             | Send read receipts (double blue ticks)                               |
-| `self_chat_mode`     | bool    | `false`            | Process messages sent from the bot's own number (for self-commands)  |
-| `text_chunk_limit`   | int     | `4096`             | Maximum characters per outgoing message (longer replies are split)   |
-| `groups`             | list    | `[]`               | Group JID allowlist (e.g. `"120363421135228220@g.us"`)                |
-| `group_allow_from`   | list    | `[]`               | Who can trigger the bot in groups. `["*"]` = everyone                |
+| Field                | Type   | Default | Description                                                                                                                                                          |
+| -------------------- | ------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth_dir`           | string | `""`    | Directory for neonize-qwenpaw session DB. Defaults to `$WORKING_DIR/credentials/whatsapp/default` (follows `QWENPAW_WORKING_DIR` / legacy `~/.copaw` / `~/.qwenpaw`) |
+| `send_read_receipts` | bool   | `true`  | Send read receipts (double blue ticks)                                                                                                                               |
+| `self_chat_mode`     | bool   | `false` | Process messages sent from the bot's own number (for self-commands)                                                                                                  |
+| `text_chunk_limit`   | int    | `4096`  | Maximum characters per outgoing message (longer replies are split)                                                                                                   |
+| `groups`             | list   | `[]`    | Group JID allowlist (e.g. `"120363421135228220@g.us"`)                                                                                                               |
+| `group_allow_from`   | list   | `[]`    | Who can trigger the bot in groups. `["*"]` = everyone                                                                                                                |
 
 ### Features
 

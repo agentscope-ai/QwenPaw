@@ -42,8 +42,15 @@ export const channelApi = {
     ),
 
   startWhatsappPair: (phone?: string) =>
-    request<{ status: string; pair_code?: string; qr_image?: string; phone?: string }>(
-      `/config/channels/whatsapp/pair${phone ? `?phone=${encodeURIComponent(phone)}` : ""}`,
+    request<{
+      status: string;
+      pair_code?: string;
+      qr_image?: string;
+      phone?: string;
+    }>(
+      `/config/channels/whatsapp/pair${
+        phone ? `?phone=${encodeURIComponent(phone)}` : ""
+      }`,
       { method: "POST" },
     ),
   checkWhatsappPairStatus: () =>
@@ -51,7 +58,9 @@ export const channelApi = {
       "/config/channels/whatsapp/pair/status",
     ),
   stopWhatsappPair: () =>
-    request<{ status: string }>("/config/channels/whatsapp/pair/stop", { method: "POST" }),
+    request<{ status: string }>("/config/channels/whatsapp/pair/stop", {
+      method: "POST",
+    }),
   getWhatsappQrcode: () =>
     request<{ status: string; qr_image?: string }>(
       "/config/channels/whatsapp/qrcode",
@@ -63,5 +72,7 @@ export const channelApi = {
       { method: "POST" },
     ),
   getWhatsappStatus: () =>
-    request<{ linked: boolean; phone?: string }>("/config/channels/whatsapp/status"),
+    request<{ linked: boolean; phone?: string }>(
+      "/config/channels/whatsapp/status",
+    ),
 };

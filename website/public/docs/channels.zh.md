@@ -768,14 +768,14 @@ WhatsApp 频道使用 [neonize-qwenpaw](https://github.com/joe2643/neonize-qwenp
 
 **WhatsApp 特有字段：**
 
-| 字段                  | 类型    | 默认值            | 说明                                                    |
-| -------------------- | ------- | ---------------- | ------------------------------------------------------ |
-| `auth_dir`           | string  | `""`             | neonize 会话数据目录。默认 `$WORKING_DIR/credentials/whatsapp/default`（跟随 `QWENPAW_WORKING_DIR` / 旧目录 `~/.copaw` / `~/.qwenpaw`） |
-| `send_read_receipts` | bool    | `true`           | 发送已读回执（蓝色双勾）                                    |
-| `self_chat_mode`     | bool    | `false`          | 处理自己号码发出的消息（用于自我命令）                         |
-| `text_chunk_limit`   | int     | `4096`           | 单条消息最大字符数（超出时自动分段）                          |
-| `groups`             | list    | `[]`             | 群组 JID 白名单（例如 `"120363421135228220@g.us"`）         |
-| `group_allow_from`   | list    | `[]`             | 谁可以在群内触发机器人。`["*"]` = 所有人                     |
+| 字段                 | 类型   | 默认值  | 说明                                                                                                                                    |
+| -------------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth_dir`           | string | `""`    | neonize 会话数据目录。默认 `$WORKING_DIR/credentials/whatsapp/default`（跟随 `QWENPAW_WORKING_DIR` / 旧目录 `~/.copaw` / `~/.qwenpaw`） |
+| `send_read_receipts` | bool   | `true`  | 发送已读回执（蓝色双勾）                                                                                                                |
+| `self_chat_mode`     | bool   | `false` | 处理自己号码发出的消息（用于自我命令）                                                                                                  |
+| `text_chunk_limit`   | int    | `4096`  | 单条消息最大字符数（超出时自动分段）                                                                                                    |
+| `groups`             | list   | `[]`    | 群组 JID 白名单（例如 `"120363421135228220@g.us"`）                                                                                     |
+| `group_allow_from`   | list   | `[]`    | 谁可以在群内触发机器人。`["*"]` = 所有人                                                                                                |
 
 ### 功能
 
