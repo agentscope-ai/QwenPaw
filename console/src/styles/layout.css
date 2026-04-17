@@ -305,7 +305,7 @@ html.dark-mode .ant-select-item {
 
 html.dark-mode .qwenpaw-select-item-empty,
 html.dark-mode .ant-select-item-empty {
-  color: rgba(255, 255, 255, 0.65) !important;
+  color: rgba(255, 255, 255, 0.65);
 }
 
 html.dark-mode .qwenpaw-select-item-option-active,
