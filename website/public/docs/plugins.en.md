@@ -292,7 +292,7 @@ window.QwenPaw.registerToolRender?.(pluginId, {
 
 #### Minimal Example: "Welcome to QwenPaw"
 
-This is the simplest possible frontend plugin — one page, no API calls.
+This is the simplest possible frontend plugin — one page, no API calls. Written in TSX for clean, readable JSX syntax.
 
 ##### File structure
 
@@ -300,7 +300,7 @@ This is the simplest possible frontend plugin — one page, no API calls.
 welcome-plugin/
 ├── plugin.json
 ├── src/
-│   └── index.ts
+│   └── index.tsx
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts
@@ -321,23 +321,19 @@ welcome-plugin/
 }
 ```
 
-##### src/index.ts
+##### src/index.tsx
 
-```ts
+```tsx
 const { React, antd } = (window as any).QwenPaw.host;
 const { Typography, Card } = antd;
 const { Title, Paragraph } = Typography;
 
 function WelcomePage() {
-  return React.createElement(
-    Card,
-    { style: { maxWidth: 480, margin: "40px auto" } },
-    React.createElement(Title, { level: 2 }, "Welcome to QwenPaw 👋"),
-    React.createElement(
-      Paragraph,
-      null,
-      "Your plugin system is working correctly.",
-    ),
+  return (
+    <Card style={{ maxWidth: 480, margin: "40px auto" }}>
+      <Title level={2}>Welcome to QwenPaw 👋</Title>
+      <Paragraph>Your plugin system is working correctly.</Paragraph>
+    </Card>
   );
 }
 
@@ -364,11 +360,13 @@ new WelcomePlugin().setup();
 
 ```ts
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  plugins: [react({ jsxRuntime: "classic" })],
   build: {
     lib: {
-      entry: "src/index.ts",
+      entry: "src/index.tsx",
       formats: ["es"],
       fileName: () => "index.js",
     },
@@ -379,6 +377,8 @@ export default defineConfig({
 });
 ```
 
+> **Why `jsxRuntime: "classic"`?** The classic runtime compiles `<Card>` into `React.createElement(Card, ...)` using the module-level `React` variable from `window.QwenPaw.host`. The automatic runtime would try to import from `react/jsx-runtime`, which isn't available in the plugin environment.
+
 ##### tsconfig.json
 
 ```json
@@ -387,9 +387,12 @@ export default defineConfig({
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react",
     "strict": false,
-    "noImplicitAny": false
-  }
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
 }
 ```
 
@@ -404,7 +407,8 @@ export default defineConfig({
   },
   "devDependencies": {
     "vite": "^5.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
   }
 }
 ```
@@ -447,8 +451,9 @@ The `priority` field controls sidebar ordering across all plugins:
 1. **Always use `window.QwenPaw.host`** to access React and antd — never bundle them.
 2. **Use `getApiUrl(path)`** for all API calls — it handles auth and base URL automatically.
 3. **Use `getApiToken()`** for manual `fetch` calls that need the Bearer token.
-4. **Use the class-based pattern** with a `setup()` method for clean registration.
-5. **Set a `priority`** to control where your page appears in the sidebar.
+4. **Write components in TSX** — use `@vitejs/plugin-react` with `jsxRuntime: "classic"` so JSX compiles to `React.createElement` via the host-provided `React`.
+5. **Use the class-based pattern** with a `setup()` method for clean registration.
+6. **Set a `priority`** to control where your page appears in the sidebar.
 
 ## Usage Examples
 

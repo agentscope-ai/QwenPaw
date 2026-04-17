@@ -1,19 +1,23 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  plugins: [
+    // Classic JSX runtime: <Card> → React.createElement(Card, ...)
+    // React is injected at the top of index.tsx from window.QwenPaw.host,
+    // so the JSX transform references the host-provided React — no bundle.
+    react({ jsxRuntime: "classic" }),
+  ],
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
   build: {
     lib: {
-      entry: "src/index.ts",
-      // ESM format — loaded via Blob URL + dynamic import() by the host app
+      entry: "src/index.tsx",
       formats: ["es"],
       fileName: () => "index.js",
     },
     rollupOptions: {
-      // React is provided by the host app via the `host` object passed to
-      // register(). Do NOT bundle it — the plugin accesses it at runtime.
       external: ["react", "react-dom"],
     },
   },

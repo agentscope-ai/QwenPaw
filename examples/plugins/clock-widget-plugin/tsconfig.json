@@ -3,11 +3,14 @@
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react",
     "strict": false,
     "noImplicitAny": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "dist"
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

@@ -292,7 +292,7 @@ window.QwenPaw.registerToolRender?.(pluginId, {
 
 #### 最简示例："Welcome to QwenPaw"
 
-这是最简单的前端插件 —— 只有一个页面，无需调用 API。
+这是最简单的前端插件 —— 只有一个页面，无需调用 API。使用 TSX 编写，JSX 语法更清晰易读。
 
 ##### 文件结构
 
@@ -300,7 +300,7 @@ window.QwenPaw.registerToolRender?.(pluginId, {
 welcome-plugin/
 ├── plugin.json
 ├── src/
-│   └── index.ts
+│   └── index.tsx
 ├── package.json
 ├── tsconfig.json
 └── vite.config.ts
@@ -321,19 +321,19 @@ welcome-plugin/
 }
 ```
 
-##### src/index.ts
+##### src/index.tsx
 
-```ts
+```tsx
 const { React, antd } = (window as any).QwenPaw.host;
 const { Typography, Card } = antd;
 const { Title, Paragraph } = Typography;
 
 function WelcomePage() {
-  return React.createElement(
-    Card,
-    { style: { maxWidth: 480, margin: "40px auto" } },
-    React.createElement(Title, { level: 2 }, "Welcome to QwenPaw 👋"),
-    React.createElement(Paragraph, null, "插件系统运行正常！"),
+  return (
+    <Card style={{ maxWidth: 480, margin: "40px auto" }}>
+      <Title level={2}>Welcome to QwenPaw 👋</Title>
+      <Paragraph>插件系统运行正常！</Paragraph>
+    </Card>
   );
 }
 
@@ -360,11 +360,13 @@ new WelcomePlugin().setup();
 
 ```ts
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  plugins: [react({ jsxRuntime: "classic" })],
   build: {
     lib: {
-      entry: "src/index.ts",
+      entry: "src/index.tsx",
       formats: ["es"],
       fileName: () => "index.js",
     },
@@ -375,6 +377,8 @@ export default defineConfig({
 });
 ```
 
+> **为什么用 `jsxRuntime: "classic"`？** classic 运行时将 `<Card>` 编译为 `React.createElement(Card, ...)`，使用模块顶层声明的 `React` 变量（来自 `window.QwenPaw.host`）。若使用 automatic 运行时，编译器会尝试从 `react/jsx-runtime` 导入，而插件环境中该模块不存在。
+
 ##### tsconfig.json
 
 ```json
@@ -383,9 +387,12 @@ export default defineConfig({
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react",
     "strict": false,
-    "noImplicitAny": false
-  }
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
 }
 ```
 
@@ -400,7 +407,8 @@ export default defineConfig({
   },
   "devDependencies": {
     "vite": "^5.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
   }
 }
 ```
@@ -443,8 +451,9 @@ qwenpaw app
 1. **始终使用 `window.QwenPaw.host`** 获取 React 和 antd —— 不要打包进插件。
 2. **使用 `getApiUrl(path)`** 发起所有 API 请求，自动处理 base URL 和认证。
 3. **使用 `getApiToken()`** 在手动 `fetch` 时附加 Bearer Token。
-4. **使用类模式**，通过 `setup()` 方法完成注册，结构清晰易维护。
-5. **设置 `priority`** 控制页面在侧边栏中的排列位置。
+4. **使用 TSX 编写组件** —— 配合 `@vitejs/plugin-react` 的 `jsxRuntime: "classic"`，JSX 会编译为 `React.createElement`，使用 host 提供的 `React`。
+5. **使用类模式**，通过 `setup()` 方法完成注册，结构清晰易维护。
+6. **设置 `priority`** 控制页面在侧边栏中的排列位置。
 
 ## 使用示例
 
