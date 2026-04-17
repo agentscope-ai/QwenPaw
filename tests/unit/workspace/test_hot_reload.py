@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Tests for hot-reload channel_manager preservation and process swap."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -125,7 +125,7 @@ class TestReloadChannelService:
 
     @pytest.mark.asyncio
     async def test_multiple_reloads_idempotent(self):
-        """Calling reload twice should work and always point to latest runner."""
+        """Calling reload twice should work and always point to latest runner."""  # noqa: E501
         from qwenpaw.app.workspace.service_factories import (
             reload_channel_service,
         )
@@ -155,11 +155,7 @@ class TestReloadChannelService:
 class TestChannelManagerReusable:
     def test_channel_manager_descriptor_is_reusable(self):
         """channel_manager must be marked reusable for hot-reload to work."""
-        from qwenpaw.app.workspace.service_manager import ServiceManager
-
-        sm = ServiceManager(workspace=MagicMock())
-
-        # Simulate workspace registration (we can't easily call _register_services
+        # Simulate workspace registration (we can't easily call _register_services  # noqa: E501
         # so just check the descriptor class supports it)
         from qwenpaw.app.workspace.service_manager import ServiceDescriptor
 

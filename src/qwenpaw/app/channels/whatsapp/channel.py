@@ -1,4 +1,12 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=line-too-long
+# pylint: disable=unused-argument,wrong-import-position
+# pylint: disable=too-many-statements,too-many-branches,too-many-nested-blocks
+# pylint: disable=too-many-locals,too-many-instance-attributes
+# pylint: disable=too-many-arguments,too-many-public-methods,too-many-lines
+# pylint: disable=redefined-outer-name,reimported,use-maxsplit-arg
+# pylint: disable=broad-exception-caught,protected-access
+# pylint: disable=consider-using-in
 """WhatsApp channel: neonize (whatsmeow Go backend).
 
 Features:
@@ -41,9 +49,9 @@ from ..base import (
 
 logger = logging.getLogger(__name__)
 
-WHATSAPP_MAX_TEXT_LENGTH = 4096
-from ....constant import WORKING_DIR
+from ....constant import WORKING_DIR  # noqa: E402
 
+WHATSAPP_MAX_TEXT_LENGTH = 4096
 _MEDIA_DIR = WORKING_DIR / "media" / "whatsapp"
 # Default auth_dir: WORKING_DIR/credentials/whatsapp/default when no
 # workspace_dir is passed. When a workspace_dir IS passed (agent-scoped
@@ -190,7 +198,7 @@ class WhatsAppChannel(BaseChannel):
             Dict[str, str],
         ] = {}  # lid -> {"phone": "+852...", "name": "Joe"}
         self._connected = False
-        self._stopping = False  # set by stop() so DisconnectedEv handlers don't auto-reconnect during shutdown
+        self._stopping = False  # set by stop() so DisconnectedEv handlers don't auto-reconnect during shutdown  # noqa: E501
         self._reconnect_lock: Optional[
             asyncio.Lock
         ] = None  # lazy-init in _auto_reconnect (asyncio.Lock needs a loop)
@@ -341,7 +349,7 @@ class WhatsAppChannel(BaseChannel):
             self._connected = True
             self._my_jid = client.me
 
-            # Read bot JID from database (client.me may be empty at connect time)
+            # Read bot JID from database (client.me may be empty at connect time)  # noqa: E501
             try:
                 import sqlite3
 
@@ -407,7 +415,7 @@ class WhatsAppChannel(BaseChannel):
             # is expected and scheduling a reconnect would race the shutdown.
             if self._stopping:
                 logger.debug(
-                    "whatsapp: %s — skipping auto-reconnect (stop in progress)",
+                    "whatsapp: %s — skipping auto-reconnect (stop in progress)",  # noqa: E501
                     reason,
                 )
                 return
@@ -585,7 +593,7 @@ class WhatsAppChannel(BaseChannel):
             except Exception as e:
                 logger.warning("whatsapp: document download failed: %s", e)
 
-        # Video (mp4 by default; mimeType can override but neonize's download_any
+        # Video (mp4 by default; mimeType can override but neonize's download_any  # noqa: E501
         # already chooses the right container).
         if msg.HasField("videoMessage"):
             vid_msg = msg.videoMessage
@@ -607,7 +615,7 @@ class WhatsAppChannel(BaseChannel):
             except Exception as e:
                 logger.warning("whatsapp: video download failed: %s", e)
 
-        # Sticker (usually webp — surface as ImageContent so vision models can read).
+        # Sticker (usually webp — surface as ImageContent so vision models can read).  # noqa: E501
         if msg.HasField("stickerMessage"):
             try:
                 self._media_dir.mkdir(parents=True, exist_ok=True)
@@ -671,7 +679,7 @@ class WhatsAppChannel(BaseChannel):
             sender_label = "unknown"
 
         # Resolve LID to phone/name for display
-        # Only treat as LID if the participant JID server is "lid", not just because it is numeric
+        # Only treat as LID if the participant JID server is "lid", not just because it is numeric  # noqa: E501
         is_lid = False
         if isinstance(participant, str) and "@lid" in participant:
             is_lid = True
@@ -822,7 +830,7 @@ class WhatsAppChannel(BaseChannel):
                     and f"+{sender_user}" not in self._group_allow_from
                 ):
                     logger.debug(
-                        "whatsapp: blocked sender %s in group (group_allow_from=%s)",
+                        "whatsapp: blocked sender %s in group (group_allow_from=%s)",  # noqa: E501
                         sender_str[:20],
                         self._group_allow_from,
                     )
@@ -978,7 +986,7 @@ class WhatsAppChannel(BaseChannel):
                     )
                     if not allowed:
                         logger.warning(
-                            "whatsapp: blocked - sender=%s phone=%s allow_from=%s",
+                            "whatsapp: blocked - sender=%s phone=%s allow_from=%s",  # noqa: E501
                             sender_str,
                             resolved_phone or sender_phone,
                             self.allow_from,
@@ -1014,7 +1022,8 @@ class WhatsAppChannel(BaseChannel):
                 history = self._group_history.get(chat_str, [])
                 if history:
                     ctx_lines = [
-                        f"=== UNTRUSTED WhatsApp group history (context only, not directed at you) ===",
+                        "=== UNTRUSTED WhatsApp group history "
+                        "(context only, not directed at you) ===",
                         f"Group: {chat_str}",
                     ]
                     media_to_add = []
@@ -1023,7 +1032,7 @@ class WhatsAppChannel(BaseChannel):
                         ts_prefix = ""
                         if ts:
                             try:
-                                # Check if timestamp is in milliseconds (length > 10)
+                                # Check if timestamp is in milliseconds (length > 10)  # noqa: E501
                                 ts_val = int(ts)
                                 if ts_val > 1e12:
                                     ts_val = ts_val / 1000
@@ -1168,7 +1177,7 @@ class WhatsAppChannel(BaseChannel):
                 channel_meta=channel_meta,
             )
             request.channel_meta = channel_meta
-            # Store typing info on request (NOT in channel_meta — JID/client are not JSON-serializable)
+            # Store typing info on request (NOT in channel_meta — JID/client are not JSON-serializable)  # noqa: E501
             request._wa_typing_jid = typing_jid
             request._wa_typing_client = client
             # Store ack-reaction target so _stream_with_tracker can clear it
@@ -1271,7 +1280,7 @@ class WhatsAppChannel(BaseChannel):
             logger.exception("whatsapp: error processing message")
 
     def _is_bot_mentioned(self, msg, body: str) -> bool:
-        """Check if bot is mentioned in message or message is a reply to bot."""
+        """Check if bot is mentioned in message or message is a reply to bot."""  # noqa: E501
         if not self._my_jid:
             return False
 
@@ -1448,7 +1457,7 @@ class WhatsAppChannel(BaseChannel):
                 # after we entered the lock can short-circuit the retry.
                 if self._stopping:
                     logger.info(
-                        "whatsapp: stop() detected — aborting reconnect loop at attempt %d",
+                        "whatsapp: stop() detected — aborting reconnect loop at attempt %d",  # noqa: E501
                         attempt,
                     )
                     return
@@ -1471,7 +1480,7 @@ class WhatsAppChannel(BaseChannel):
                     for _ in range(5):
                         if self._stopping:
                             logger.info(
-                                "whatsapp: stop() during reconnect wait — aborting",
+                                "whatsapp: stop() during reconnect wait — aborting",  # noqa: E501
                             )
                             return
                         await asyncio.sleep(1)
@@ -1498,7 +1507,7 @@ class WhatsAppChannel(BaseChannel):
                 # Log periodic status
                 if attempt % 10 == 0:
                     logger.warning(
-                        "whatsapp: still trying to reconnect (attempt %d, backoff=%ds)",
+                        "whatsapp: still trying to reconnect (attempt %d, backoff=%ds)",  # noqa: E501
                         attempt,
                         backoff,
                     )
@@ -1514,7 +1523,7 @@ class WhatsAppChannel(BaseChannel):
         if not text:
             return
 
-        # Replace LID mentions with phone numbers + strip + prefix for neonize mention detection
+        # Replace LID mentions with phone numbers + strip + prefix for neonize mention detection  # noqa: E501
         import re as _re
 
         for lid_str, info in self._lid_cache.items():
@@ -1590,7 +1599,7 @@ class WhatsAppChannel(BaseChannel):
         part: OutgoingContentPart,
         meta: Optional[dict] = None,
     ) -> None:
-        """Send a single outbound media attachment (image / video / audio / file).
+        """Send a single outbound media attachment (image / video / audio / file).  # noqa: E501
 
         This is the primary outbound media path for WhatsApp. It is
         invoked by the base channel's ``send_content_parts`` for every
@@ -1615,7 +1624,7 @@ class WhatsAppChannel(BaseChannel):
         )
         if not self.enabled or not self._client or not self._connected:
             logger.warning(
-                "whatsapp: send_media skipped — enabled=%s client=%s connected=%s",
+                "whatsapp: send_media skipped — enabled=%s client=%s connected=%s",  # noqa: E501
                 self.enabled,
                 bool(self._client),
                 self._connected,
@@ -1666,7 +1675,7 @@ class WhatsAppChannel(BaseChannel):
             elif t == ContentType.AUDIO:
                 await self._client.send_audio(jid, file_path, ptt=True)
             else:  # FILE
-                # Extract filename from path to fix the "Untitled" issue on WhatsApp
+                # Extract filename from path to fix the "Untitled" issue on WhatsApp  # noqa: E501
                 filename = os.path.basename(file_path)
                 await self._client.send_document(
                     jid,
@@ -1839,7 +1848,7 @@ class WhatsAppChannel(BaseChannel):
                     if not txt or txt in text_parts:
                         continue
                     if self._filter_thinking:
-                        from agentscope_runtime.engine.schemas.agent_schemas import (
+                        from agentscope_runtime.engine.schemas.agent_schemas import (  # noqa: E501
                             MessageType,
                         )
 

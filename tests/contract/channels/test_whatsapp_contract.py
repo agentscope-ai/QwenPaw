@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=wrong-import-position
 """
 WhatsApp Channel Contract Test
 
@@ -23,7 +24,7 @@ import pytest
 # the test suite runs cleanly in `pip install qwenpaw[dev]` environments.
 pytest.importorskip("neonize")
 
-from tests.contract.channels import ChannelContractTest
+from tests.contract.channels import ChannelContractTest  # noqa: E402
 
 if TYPE_CHECKING:
     from qwenpaw.app.channels.base import BaseChannel

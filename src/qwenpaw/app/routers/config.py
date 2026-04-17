@@ -1,4 +1,10 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=line-too-long
+# pylint: disable=too-many-statements,too-many-branches,too-many-locals
+# pylint: disable=too-many-arguments,too-many-lines
+# pylint: disable=broad-exception-caught,duplicate-code
+# pylint: disable=redefined-outer-name,reimported,import-outside-toplevel
+# pylint: disable=raise-missing-from,unused-argument
 
 from datetime import datetime, timezone
 from typing import Any, List, Optional
@@ -699,7 +705,7 @@ def _get_wa_auth_dir(agent) -> str:
 @router.post(
     "/channels/whatsapp/pair",
     summary="Start WhatsApp pairing",
-    description="Start WhatsApp pairing. Returns a pair code to enter on your phone.",
+    description="Start WhatsApp pairing. Returns a pair code to enter on your phone.",  # noqa: E501
 )
 async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
     """Start WhatsApp pair code auth. Requires E.164 phone number."""
@@ -934,14 +940,14 @@ async def get_whatsapp_qrcode(request: Request) -> dict:
     # silently succeeding with an error payload.
     raise HTTPException(
         status_code=502,
-        detail="QR code not generated (WhatsApp client did not emit a QR within the timeout)",
+        detail="QR code not generated (WhatsApp client did not emit a QR within the timeout)",  # noqa: E501
     )
 
 
 @router.post(
     "/channels/whatsapp/unbind",
     summary="Unbind WhatsApp session",
-    description="Delete the WhatsApp session database so the next connection requires re-pairing.",
+    description="Delete the WhatsApp session database so the next connection requires re-pairing.",  # noqa: E501
 )
 async def unbind_whatsapp(request: Request) -> dict:
     """Delete neonize.db to force re-authentication on next start.

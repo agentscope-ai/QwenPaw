@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
+# pylint: disable=protected-access,wrong-import-position
+# pylint: disable=unused-variable,use-implicit-booleaness-not-comparison
 """Unit tests for WhatsApp channel."""
 from __future__ import annotations
 
@@ -36,13 +37,10 @@ for mod in _neonize_mods:
 _utils_mod = sys.modules["neonize.utils"]
 _utils_mod.build_jid = lambda user, server: MagicMock(User=user, Server=server)
 
-# Ensure NEONIZE_AVAILABLE is True so WhatsAppChannel can be instantiated
-from qwenpaw.app.channels.whatsapp import channel as _wa_mod
-
-_wa_mod.NEONIZE_AVAILABLE = True
-_wa_mod.NewAClient = MagicMock
-
-from agentscope_runtime.engine.schemas.agent_schemas import (
+# Ensure NEONIZE_AVAILABLE is True so WhatsAppChannel can be instantiated.
+# All imports below the sys.modules patching above are intentionally late
+# (E402 / wrong-import-position is by design and silenced inline).
+from agentscope_runtime.engine.schemas.agent_schemas import (  # noqa: E402
     TextContent,
     ImageContent,
     AudioContent,
@@ -50,15 +48,16 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     FileContent,
     ContentType,
 )
-
-from qwenpaw.app.channels.whatsapp.channel import (
+from qwenpaw.app.channels.whatsapp import channel as _wa_mod  # noqa: E402
+from qwenpaw.app.channels.whatsapp.channel import (  # noqa: E402
     WhatsAppChannel,
     _jid_to_str,
-    _str_to_jid,
     _is_group_jid,
-    _MEDIA_DIR,
     WHATSAPP_MAX_TEXT_LENGTH,
 )
+
+_wa_mod.NEONIZE_AVAILABLE = True
+_wa_mod.NewAClient = MagicMock
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +90,7 @@ def _make_proto_message(**fields):
 
         msg = _make_proto_message(conversation="hello")
         msg = _make_proto_message(
-            extendedTextMessage=MagicMock(text="hi", contextInfo=MagicMock(...)),
+            extendedTextMessage=MagicMock(text="hi", contextInfo=MagicMock(...)),  # noqa: E501
         )
     """
     msg = MagicMock()
@@ -506,7 +505,7 @@ class TestCheckAccess:
         )
 
     def test_dm_policy_open_allows(self):
-        """DM access is not blocked in _check_access (async check in _on_message)."""
+        """DM access is not blocked in _check_access (async check in _on_message)."""  # noqa: E501
         ch = _make_channel(dm_policy="open")
         assert (
             ch._check_access(
@@ -577,7 +576,7 @@ class TestGroupHistory:
         for h in history[-10:]:
             ctx_lines.append(f"  {h['sender']}: {h['body']}")
         ctx_text = (
-            "--- Recent group messages (context only, not directed at you) ---\n"
+            "--- Recent group messages (context only, not directed at you) ---\n"  # noqa: E501
             + "\n".join(ctx_lines)
         )
         content_parts = [TextContent(type=ContentType.TEXT, text=ctx_text)]
@@ -643,7 +642,8 @@ class TestGroupHistory:
         # Simulate injection format
         history = ch._group_history.get(chat_str, [])
         lines = [
-            "=== UNTRUSTED WhatsApp group history (context only, not directed at you) ===",
+            "=== UNTRUSTED WhatsApp group history "  # noqa: E501
+            "(context only, not directed at you) ===",
         ]
         for h in history[-10:]:
             line = f"  {h['sender']}: {h['body']}"
@@ -979,7 +979,7 @@ class TestChunkText:
 
     def test_chunking_prefers_newline_break(self):
         ch = _make_channel(text_chunk_limit=30)
-        # Chunk limit 30, half = 15. Newline must be at index > 15 to trigger break.
+        # Chunk limit 30, half = 15. Newline must be at index > 15 to trigger break.  # noqa: E501
         # "A" * 16 + "\n" puts newline at index 16, which is > 15.
         text = "A" * 16 + "\n" + "B" * 25
         chunks = ch._chunk_text(text)
@@ -1156,7 +1156,6 @@ class TestSlashCommandDetection:
         assert not body.lstrip().startswith("/")
 
     def test_slash_in_middle_not_command(self):
-        ch = _make_channel()
         body = "do /not detect this"
         assert not body.lstrip().startswith("/")
 
@@ -1431,11 +1430,11 @@ class TestTypingLoopPresencePanicPrevention:
 
         call_count = 0
 
-        async def flaky_send(*args):
+        async def flaky_send(*_args):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                raise Exception("transient error")
+                raise RuntimeError("transient error")
 
         ch._client._NewAClient__client = MagicMock()
         ch._client._NewAClient__client.SendChatPresence = flaky_send

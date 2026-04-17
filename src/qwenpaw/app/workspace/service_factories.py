@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,redefined-outer-name,reimported
+# pylint: disable=import-outside-toplevel
 """Service factory functions for workspace components.
 
 Factory functions are used by Workspace._register_services() to create
@@ -179,11 +181,13 @@ async def reload_channel_service(ws, cm) -> None:
     """
     from ..channels.utils import make_process_from_runner
 
+    # pylint: disable-next=protected-access
     runner = ws._service_manager.services.get("runner")
     if not runner:
         return
     new_process = make_process_from_runner(runner)
     for ch in cm.channels:
+        # pylint: disable-next=protected-access
         ch._process = new_process
     cm.set_workspace(ws)
     import logging
