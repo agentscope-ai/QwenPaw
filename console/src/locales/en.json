@@ -56,7 +56,8 @@
     "security": "Security",
     "tokenUsage": "Token Usage",
     "voiceTranscription": "Voice Transcription",
-    "debug": "Debug"
+    "debug": "Debug",
+    "plugins": "Plugins"
   },
   "debug": {
     "title": "Debug",
@@ -330,6 +331,7 @@
     "broadcastTitle": "Broadcast {{name}}",
     "importBuiltin": "Update Built-in Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
+    "importBuiltinAlertHint": "{{count}} built-in changes need review",
     "importHubHint": "Import skills via URL",
     "uploadZipHint": "Upload via Zip",
     "importBuiltinSuccess": "Built-ins imported: {{names}}",
@@ -343,6 +345,11 @@
     "importStatusMissing": "Missing in pool",
     "importStatusCurrent": "Already current",
     "importStatusConflict": "Conflict",
+    "builtinNoticeSummary": "{{count}} built-in changes detected",
+    "builtinNoticeLineAdded": "Added: {{names}}",
+    "builtinNoticeLineMissing": "Missing: {{names}}",
+    "builtinNoticeLineUpdated": "Updated: {{names}}",
+    "builtinNoticeLineRemoved": "Removed: {{names}}",
     "zipImport": "ZIP Import",
     "create": "Create",
     "edit": "Edit",

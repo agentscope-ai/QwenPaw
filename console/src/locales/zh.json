@@ -56,7 +56,8 @@
     "security": "安全",
     "tokenUsage": "Token 消耗",
     "voiceTranscription": "语音转写",
-    "debug": "调试"
+    "debug": "调试",
+    "plugins": "插件"
   },
   "debug": {
     "title": "调试",
@@ -294,6 +295,7 @@
     "broadcastTitle": "广播 {{name}}",
     "importBuiltin": "更新内置技能",
     "importBuiltinHint": "将内置技能更新到最新版本",
+    "importBuiltinAlertHint": "有 {{count}} 项内置技能变更需要查看",
     "importHubHint": "通过 URL的方式将技能导入",
     "uploadZipHint": "通过zip上传",
     "importBuiltinSuccess": "已导入内置技能：{{names}}",
@@ -307,6 +309,11 @@
     "importStatusMissing": "池中缺失",
     "importStatusCurrent": "已是最新",
     "importStatusConflict": "冲突",
+    "builtinNoticeSummary": "检测到 {{count}} 项内置技能变更",
+    "builtinNoticeLineAdded": "新增：{{names}}",
+    "builtinNoticeLineMissing": "缺失：{{names}}",
+    "builtinNoticeLineUpdated": "更新：{{names}}",
+    "builtinNoticeLineRemoved": "移除：{{names}}",
     "zipImport": "ZIP 导入",
     "create": "创建",
     "edit": "编辑",

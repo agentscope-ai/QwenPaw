@@ -18,6 +18,7 @@ import "dayjs/locale/ru";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import { PluginProvider } from "./plugins/PluginContext";
 import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
@@ -187,7 +188,9 @@ function AppInner() {
 function App() {
   return (
     <ThemeProvider>
-      <AppInner />
+      <PluginProvider>
+        <AppInner />
+      </PluginProvider>
     </ThemeProvider>
   );
 }

@@ -7,7 +7,7 @@ import platform
 import sys
 from pathlib import Path
 
-from ..constant import PROJECT_NAME
+from ..constant import PROJECT_NAME, WORKING_DIR
 
 # Rotating file handler limits (idempotent add avoids duplicate handlers)
 _LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
@@ -24,6 +24,10 @@ _LEVEL_MAP = {
 
 # Top-level name for this package; only loggers under this name are shown.
 LOG_NAMESPACE = PROJECT_NAME.lower()
+
+# Canonical log file name and path — import these instead of reconstructing.
+LOG_FILE_BASENAME = f"{LOG_NAMESPACE}.log"
+LOG_FILE_PATH = WORKING_DIR / LOG_FILE_BASENAME
 
 
 def _enable_windows_ansi() -> None:

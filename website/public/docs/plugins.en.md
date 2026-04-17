@@ -9,6 +9,8 @@ The plugin system supports the following extension capabilities:
 - **Custom Providers**: Add new LLM providers and models
 - **Lifecycle Hooks**: Execute custom code during application startup/shutdown
 - **Magic Commands**: Register custom `/command` commands
+- **Frontend Pages**: Add custom pages to the sidebar
+- **Tool Renderers**: Customize how tool-call results are displayed.
 
 ## Plugin Management
 
@@ -130,9 +132,53 @@ Register custom magic commands (like `/feedback`).
 
 Use monkey patching to rewrite user input, converting commands into prompts that the agent can understand.
 
+### 4. Frontend Page Plugins
+
+Add custom pages to the QwenPaw console sidebar, building entirely new UI views.
+
+**Use Cases**:
+
+- Display logs, monitoring data, or other visualizations
+- Provide a configuration management UI for your plugin
+- Embed third-party tool interfaces
+
+**Core API**:
+
+```ts
+window.QwenPaw.registerRoutes?.(pluginId, [
+  {
+    path: "/plugin/my-plugin/page",
+    component: MyPage,
+    label: "My Page",
+    icon: "📊",
+    priority: 10, // lower = higher in sidebar, default 0
+  },
+]);
+```
+
+### 5. Tool Renderer Plugins
+
+Customize how agent tool-call results are displayed in the chat, replacing the default plain-text output.
+
+**Use Cases**:
+
+- Render image paths as `<img>` previews
+- Display structured data as tables or cards
+- Add interactive action buttons for specific tool outputs
+
+**Core API**:
+
+```ts
+window.QwenPaw.registerToolRender?.(pluginId, {
+  my_tool_name: MyToolCard, // key = tool name returned by the agent
+});
+```
+
 ## Plugin Development
 
-### Basic Structure
+### Backend Plugins
+
+#### Basic Structure
 
 Each plugin requires at least two files:
 
@@ -143,7 +189,7 @@ my-plugin/
 └── README.md        # Documentation (recommended)
 ```
 
-### plugin.json
+#### plugin.json
 
 ```json
 {
@@ -152,14 +198,16 @@ my-plugin/
   "version": "1.0.0",
   "description": "Plugin description",
   "author": "Your Name",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
   "min_version": "0.1.0",
   "meta": {}
 }
 ```
 
-### plugin.py
+#### plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -194,6 +242,219 @@ class MyPlugin:
 plugin = MyPlugin()
 ```
 
+### Frontend Plugins
+
+Frontend plugins let you add custom pages to the QwenPaw sidebar and customize tool-call result rendering — all bundled as a single JavaScript file loaded at runtime.
+
+#### How it works
+
+1. The plugin bundle is built as an **ES module** (`dist/index.js`).
+2. At startup, QwenPaw loads the bundle via a Blob URL and `import()`.
+3. The bundle registers its UI via the `window.QwenPaw` APIs.
+4. The host app exposes shared libraries (React, antd, utilities) via `window.QwenPaw.host` — no need to bundle them.
+
+#### Host API (`window.QwenPaw.host`)
+
+| Name              | Type                       | Description           |
+| ----------------- | -------------------------- | --------------------- |
+| `React`           | `typeof React`             | React runtime         |
+| `antd`            | `typeof antd`              | Ant Design components |
+| `getApiUrl(path)` | `(path: string) => string` | Build full API URL    |
+| `getApiToken()`   | `() => string`             | Current auth token    |
+
+#### Registration APIs
+
+##### `window.QwenPaw.registerRoutes(pluginId, routes)`
+
+Add pages to the sidebar.
+
+```ts
+window.QwenPaw.registerRoutes?.(pluginId, [
+  {
+    path: "/plugin/my-plugin/page", // unique URL path
+    component: MyPageComponent, // React component
+    label: "My Page", // sidebar label
+    icon: "📊", // emoji icon
+    priority: 10, // lower = higher in sidebar (default: 0)
+  },
+]);
+```
+
+##### `window.QwenPaw.registerToolRender(pluginId, renderers)`
+
+Customize how a specific tool's result is displayed in the chat.
+
+```ts
+window.QwenPaw.registerToolRender?.(pluginId, {
+  my_tool_name: MyToolCard, // key = tool name returned by the agent
+});
+```
+
+#### Minimal Example: "Welcome to QwenPaw"
+
+This is the simplest possible frontend plugin — one page, no API calls. Written in TSX for clean, readable JSX syntax.
+
+##### File structure
+
+```
+welcome-plugin/
+├── plugin.json
+├── src/
+│   └── index.tsx
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
+
+##### plugin.json
+
+```json
+{
+  "id": "welcome-plugin",
+  "name": "Welcome Plugin",
+  "version": "1.0.0",
+  "description": "A minimal frontend page plugin",
+  "author": "Your Name",
+  "entry": {
+    "frontend": "dist/index.js"
+  }
+}
+```
+
+##### src/index.tsx
+
+```tsx
+const { React, antd } = (window as any).QwenPaw.host;
+const { Typography, Card } = antd;
+const { Title, Paragraph } = Typography;
+
+function WelcomePage() {
+  return (
+    <Card style={{ maxWidth: 480, margin: "40px auto" }}>
+      <Title level={2}>Welcome to QwenPaw 👋</Title>
+      <Paragraph>Your plugin system is working correctly.</Paragraph>
+    </Card>
+  );
+}
+
+class WelcomePlugin {
+  readonly id = "welcome-plugin";
+
+  setup(): void {
+    (window as any).QwenPaw.registerRoutes?.(this.id, [
+      {
+        path: "/plugin/welcome-plugin/home",
+        component: WelcomePage,
+        label: "Welcome",
+        icon: "👋",
+        priority: 5,
+      },
+    ]);
+  }
+}
+
+new WelcomePlugin().setup();
+```
+
+##### vite.config.ts
+
+```ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react({ jsxRuntime: "classic" })],
+  build: {
+    lib: {
+      entry: "src/index.tsx",
+      formats: ["es"],
+      fileName: () => "index.js",
+    },
+    rollupOptions: {
+      external: ["react", "react-dom"],
+    },
+  },
+});
+```
+
+> **Why `jsxRuntime: "classic"`?** The classic runtime compiles `<Card>` into `React.createElement(Card, ...)` using the module-level `React` variable from `window.QwenPaw.host`. The automatic runtime would try to import from `react/jsx-runtime`, which isn't available in the plugin environment.
+
+##### tsconfig.json
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react",
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+```
+
+##### package.json
+
+```json
+{
+  "name": "welcome-plugin",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "typescript": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0"
+  }
+}
+```
+
+##### Build and install
+
+```bash
+npm install
+npm run build
+# dist/index.js is ready
+
+# Copy plugin to QwenPaw plugin directory
+cp -r . ~/.qwenpaw/plugins/welcome-plugin/
+
+# Restart QwenPaw — the "Welcome" page will appear in the sidebar
+qwenpaw app
+```
+
+#### Route Priority
+
+The `priority` field controls sidebar ordering across all plugins:
+
+- **Lower value = higher position** in the sidebar
+- Default is `0`
+- Plugins with the same priority keep their registration order
+
+```ts
+// Appears first
+{ ..., priority: 0 }
+
+// Appears after priority-0 items
+{ ..., priority: 10 }
+
+// Appears last
+{ ..., priority: 100 }
+```
+
+#### Frontend Plugin Best Practices
+
+1. **Always use `window.QwenPaw.host`** to access React and antd — never bundle them.
+2. **Use `getApiUrl(path)`** for all API calls — it handles auth and base URL automatically.
+3. **Use `getApiToken()`** for manual `fetch` calls that need the Bearer token.
+4. **Write components in TSX** — use `@vitejs/plugin-react` with `jsxRuntime: "classic"` so JSX compiles to `React.createElement` via the host-provided `React`.
+5. **Use the class-based pattern** with a `setup()` method for clean registration.
+6. **Set a `priority`** to control where your page appears in the sidebar.
+
 ## Usage Examples
 
 ### Example 1: Add Custom Provider
@@ -216,7 +477,9 @@ cd my-llm-provider
   "version": "1.0.0",
   "description": "Custom LLM provider for enterprise",
   "author": "Your Name",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": ["httpx>=0.24.0"],
   "min_version": "0.1.0",
   "meta": {
@@ -352,7 +615,9 @@ cd monitoring-hook
   "version": "1.0.0",
   "description": "Initialize monitoring service at startup",
   "author": "Your Name",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
   "min_version": "0.1.0"
 }
@@ -439,7 +704,9 @@ cd status-command
   "version": "1.0.0",
   "description": "Custom status command",
   "author": "Your Name",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
   "min_version": "0.1.0"
 }

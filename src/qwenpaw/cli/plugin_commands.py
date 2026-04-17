@@ -311,7 +311,11 @@ def info(plugin_id: str):
     click.echo(f"ID: {manifest['id']}")
     click.echo(f"Description: {manifest.get('description', 'N/A')}")
     click.echo(f"Author: {manifest.get('author', 'N/A')}")
-    click.echo(f"Entry Point: {manifest.get('entry_point', 'plugin.py')}")
+    entry = manifest.get("entry", {})
+    if entry.get("backend"):
+        click.echo(f"Backend Entry: {entry['backend']}")
+    if entry.get("frontend"):
+        click.echo(f"Frontend Entry: {entry['frontend']}")
 
     if manifest.get("dependencies"):
         click.echo("Dependencies:")
@@ -385,20 +389,32 @@ def validate(path: str):
             manifest = json.load(f)
 
         # Validate required fields
-        required_fields = ["id", "name", "version", "entry_point"]
+        required_fields = ["id", "name", "version"]
         for field in required_fields:
             if field not in manifest:
                 click.echo(f"❌ Missing required field: {field}", err=True)
                 return
 
-        # Check entry point
-        entry_point = plugin_path / manifest["entry_point"]
-        if not entry_point.exists():
-            click.echo(
-                f"❌ Entry point not found: {manifest['entry_point']}",
-                err=True,
-            )
-            return
+        # Check entry points
+        entry = manifest.get("entry", {})
+        backend_entry = entry.get("backend")
+        if backend_entry:
+            backend_path = plugin_path / backend_entry
+            if not backend_path.exists():
+                click.echo(
+                    f"❌ Backend entry not found: {backend_entry}",
+                    err=True,
+                )
+                return
+
+        frontend_entry = entry.get("frontend")
+        if frontend_entry:
+            frontend_path = plugin_path / frontend_entry
+            if not frontend_path.exists():
+                click.echo(
+                    f"⚠️  Frontend entry not found: {frontend_entry} "
+                    f"(build may be required)",
+                )
 
         click.echo("✅ Plugin validation passed")
         click.echo(f"\nPlugin: {manifest['name']} (v{manifest['version']})")
