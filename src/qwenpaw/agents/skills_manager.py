@@ -992,7 +992,6 @@ def _build_skill_metadata(
         "name": skill_name,
         "description": str(post.get("description", "") or ""),
         "version_text": _extract_version(post),
-        "content_hash": _skill_content_hash_for_path(skill_dir / "SKILL.md"),
         "commit_text": "",
         "source": source,
         "protected": protected,
@@ -1114,15 +1113,13 @@ def _build_builtin_language_spec(
     else:
         current_source = str(current.get("source", "") or "")
         current_version_text = str(current.get("version_text", "") or "")
-        current_hash = _pool_skill_content_hash(skill_name, current)
         current_variant = variants.get(current_language)
         if current_source != "builtin":
             status = "conflict"
-        elif any(
-            packaged_variant.content_hash == current_hash
-            for packaged_variant in variants.values()
+        elif (
+            current_variant is not None
+            and current_version_text == current_variant.version_text
         ):
-            # Pool copy already matches one packaged builtin variant exactly.
             status = "current"
         elif (
             current_version_text
@@ -1132,8 +1129,6 @@ def _build_builtin_language_spec(
         ):
             status = "outdated"
         else:
-            # Version matches but content diverges, or we cannot map the copy
-            # to a packaged builtin version cleanly.
             status = "conflict"
     return {
         "language": language,
@@ -1369,11 +1364,11 @@ def _pool_builtin_matches_variant(
         registry,
         preferred_language=preferred_language,
     )
-    current_hash = _pool_skill_content_hash(skill_name, existing)
+    current_version_text = str(existing.get("version_text", "") or "")
     return (
         current_source == "builtin"
         and current_language == language
-        and current_hash == variant.content_hash
+        and current_version_text == variant.version_text
     )
 
 
@@ -1858,8 +1853,10 @@ def get_pool_builtin_sync_status(
                 "available_languages": sorted(variants.keys()),
             }
             continue
-        current_hash = _pool_skill_content_hash(name, pool_entry)
-        if current_hash != variant.content_hash:
+        current_version_text = str(
+            pool_entry.get("version_text", "") or "",
+        )
+        if current_version_text != variant.version_text:
             result[name] = {
                 "sync_status": "outdated",
                 "latest_version_text": variant.version_text,
@@ -2110,23 +2107,13 @@ def update_single_builtin(
 def _builtin_versions_match(
     *,
     pool_version_text: str,
-    pool_content_hash: str,
     workspace_version_text: str,
-    workspace_content_hash: str,
 ) -> bool:
-    hashes_match = bool(
-        pool_content_hash
-        and workspace_content_hash
-        and pool_content_hash == workspace_content_hash,
-    )
-    versions_match_without_hashes = bool(
+    return bool(
         pool_version_text
         and workspace_version_text
-        and pool_version_text == workspace_version_text
-        and not pool_content_hash
-        and not workspace_content_hash,
+        and pool_version_text == workspace_version_text,
     )
-    return hashes_match or versions_match_without_hashes
 
 
 def _extract_emoji_from_metadata(metadata: Any) -> str:
@@ -3437,25 +3424,13 @@ class SkillPoolService:
             and existing.get("source") == "builtin"
         ):
             pool_ver = entry.get("version_text", "")
-            pool_hash = str(entry.get("content_hash", "") or "")
             ws_ver = (existing.get("metadata") or {}).get(
                 "version_text",
                 "",
             )
-            ws_hash = str(
-                (existing.get("metadata") or {}).get("content_hash", "") or "",
-            )
-            if not ws_hash:
-                ws_hash = _skill_content_hash_for_path(
-                    get_workspace_skills_dir(workspace_dir)
-                    / final_name
-                    / "SKILL.md",
-                )
             if _builtin_versions_match(
                 pool_version_text=str(pool_ver or ""),
-                pool_content_hash=pool_hash,
                 workspace_version_text=str(ws_ver or ""),
-                workspace_content_hash=ws_hash,
             ):
                 return {
                     "success": True,
