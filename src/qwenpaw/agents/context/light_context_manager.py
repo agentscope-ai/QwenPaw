@@ -222,9 +222,15 @@ class LightContextManager(BaseContextManager):
             recent_count += 1
         split_index = max(0, len(messages) - max(recent_count, recent_n))
 
-        # Detect tool_use IDs for md file reads and chat_with_agent
-        md_file_tool_ids = set()
+        # Detect tool_use IDs for exempt file extensions and tool names
+        exempt_tool_ids: Set[str] = set()
         try:
+            # Load exempt lists from config
+            agent_config = load_agent_config(self.agent_id)
+            trc = agent_config.running.light_context_config.tool_result_pruning_config
+            exempt_extensions = set(ext.lower() for ext in trc.exempt_file_extensions)
+            exempt_tools = set(name.lower() for name in trc.exempt_tool_names)
+
             for msg in messages:
                 if not isinstance(msg.content, list):
                     continue
@@ -238,13 +244,19 @@ class LightContextManager(BaseContextManager):
                         tool_name = block.get("name", "").lower()
                         raw_input = (block.get("raw_input") or "").lower()
 
-                        if tool_name == "read_file" and ".md" in raw_input:
-                            md_file_tool_ids.add(tool_id)
+                        # Check if tool name is in exempt list
+                        if tool_name in exempt_tools:
+                            exempt_tool_ids.add(tool_id)
+                            continue
 
-                        if tool_name == "chat_with_agent":
-                            md_file_tool_ids.add(tool_id)
+                        # Check if file extension is in exempt list for read_file
+                        if tool_name == "read_file":
+                            for ext in exempt_extensions:
+                                if ext in raw_input:
+                                    exempt_tool_ids.add(tool_id)
+                                    break
         except Exception as e:
-            logger.warning("Failed to detect md file tool ids: %s", e)
+            logger.warning("Failed to detect exempt tool ids: %s", e)
 
         # Compact tool_result blocks
         for idx, msg in enumerate(messages):
@@ -260,9 +272,9 @@ class LightContextManager(BaseContextManager):
                     if not output:
                         continue
 
-                    # Use recent_max_bytes for md file tool results
+                    # Use recent_max_bytes for exempt tool results
                     effective_max_bytes = (
-                        recent_max_bytes if tool_id in md_file_tool_ids else max_bytes
+                        recent_max_bytes if tool_id in exempt_tool_ids else max_bytes
                     )
                     block["output"] = self._compact_output(output, effective_max_bytes)
 

@@ -1,4 +1,4 @@
-import { Form, Card, Switch, Input, Collapse } from "@agentscope-ai/design";
+import { Form, Card, Switch, Input, Collapse, Select } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
 import styles from "../index.module.less";
@@ -275,6 +275,40 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                     max={10}
                     step={1}
                     marks={{ 1: "1", 5: "5", 10: "10" }}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.exemptFileExtensions")}
+                  name={[
+                    "light_context_config",
+                    "tool_result_pruning_config",
+                    "exempt_file_extensions",
+                  ]}
+                  tooltip={t("agentConfig.exemptFileExtensionsTooltip")}
+                >
+                  <Select
+                    mode="tags"
+                    placeholder={t("agentConfig.exemptFileExtensionsPlaceholder")}
+                    tokenSeparators={[",", " "]}
+                    style={{ width: "100%" }}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.exemptToolNames")}
+                  name={[
+                    "light_context_config",
+                    "tool_result_pruning_config",
+                    "exempt_tool_names",
+                  ]}
+                  tooltip={t("agentConfig.exemptToolNamesTooltip")}
+                >
+                  <Select
+                    mode="tags"
+                    placeholder={t("agentConfig.exemptToolNamesPlaceholder")}
+                    tokenSeparators={[",", " "]}
+                    style={{ width: "100%" }}
                   />
                 </Form.Item>
               </>

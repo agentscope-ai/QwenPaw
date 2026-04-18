@@ -443,6 +443,11 @@ class ReMeLightMemoryConfig(BaseModel):
                     "heavy background task burden. Recommended: 5 or 10.",
     )
 
+    daily_memory_dir: str = Field(
+        default="memory",
+        description="Dir name to daily summary file",
+    )
+
     dream_cron: str = Field(
         default="0 23 * * *",
         description="Cron expression for dream-based memory optimization job "
@@ -555,6 +560,24 @@ class ToolResultPruningConfig(BaseModel):
     tool_results_cache: str = Field(
         default="tool_results",
         description="Directory name for tool result cache files relative to working_dir",
+    )
+
+    exempt_file_extensions: List[str] = Field(
+        default_factory=lambda: [".md"],
+        description=(
+            "File extensions exempt from tool result pruning. "
+            "Tool results for read_file operations on these file types "
+            "will use recent_max_bytes instead of old_max_bytes."
+        ),
+    )
+
+    exempt_tool_names: List[str] = Field(
+        default_factory=lambda: ["chat_with_agent"],
+        description=(
+            "Tool names exempt from tool result pruning. "
+            "Tool results from these tools will use recent_max_bytes "
+            "instead of old_max_bytes."
+        ),
     )
 
 

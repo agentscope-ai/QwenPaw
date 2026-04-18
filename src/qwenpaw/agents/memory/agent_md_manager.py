@@ -11,11 +11,30 @@ class AgentMdManager:
     """Manager for reading and writing markdown files in working and memory
     directories."""
 
-    def __init__(self, working_dir: str | Path):
-        """Initialize directories for working and memory markdown files."""
+    def __init__(
+        self,
+        working_dir: str | Path,
+        agent_id: str | None = None,
+    ):
+        """Initialize directories for working and memory markdown files.
+
+        Args:
+            working_dir: Path to agent's working directory
+            agent_id: Optional agent ID for loading memory_dir from config.
+                      If None, uses default "memory" directory.
+        """
         self.working_dir: Path = Path(working_dir)
         self.working_dir.mkdir(parents=True, exist_ok=True)
-        self.memory_dir: Path = self.working_dir / "memory"
+
+        # Dynamically get memory_dir from config if agent_id provided
+        if agent_id:
+            from ...config.config import load_agent_config
+            agent_config = load_agent_config(agent_id)
+            memory_dir_name = agent_config.running.reme_light_memory_config.daily_memory_dir
+        else:
+            memory_dir_name = "memory"
+
+        self.memory_dir: Path = self.working_dir / memory_dir_name
         self.memory_dir.mkdir(parents=True, exist_ok=True)
 
     def list_working_mds(self) -> list[dict]:

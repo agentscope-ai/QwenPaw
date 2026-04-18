@@ -19,6 +19,8 @@ export interface ToolResultPruningConfig {
   pruning_old_msg_max_bytes: number;
   pruning_recent_msg_max_bytes: number;
   offload_retention_days: number;
+  exempt_file_extensions: string[];
+  exempt_tool_names: string[];
 }
 
 export interface LightContextConfig {
