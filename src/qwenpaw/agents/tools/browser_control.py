@@ -14,6 +14,7 @@ import atexit
 from concurrent import futures
 import json
 import logging
+import shlex
 from pathlib import Path
 import signal
 import socket
@@ -37,6 +38,40 @@ from ...constant import WORKING_DIR, EnvVarLoader
 from .browser_snapshot import build_role_snapshot_from_aria
 
 logger = logging.getLogger(__name__)
+
+# Keywords used to validate executable_path — the binary filename must
+# contain at least one of these (case-insensitive) to be accepted.
+_TRUSTED_BROWSER_KEYWORDS = frozenset(
+    {
+        "chrome",     # Google Chrome
+        "chromium",   # Chromium (open-source)
+        "edge",       # Microsoft Edge
+        "firefox",    # Mozilla Firefox
+        "brave",      # Brave Browser
+        "vivaldi",    # Vivaldi Browser
+        "opera",      # Opera
+        "360se",      # 360 Secure Browser
+        "yandex",     # Yandex Browser
+        "tor",        # Tor Browser
+    }
+)
+
+
+def _validate_executable_path(executable_path: str) -> None:
+    """Raise ValueError if *executable_path* is not a trusted browser binary."""
+    if not executable_path:
+        return
+    name = Path(executable_path).name.lower()
+    if not any(kw in name for kw in _TRUSTED_BROWSER_KEYWORDS):
+        raise ValueError(
+            f"executable_path rejected: '{Path(executable_path).name}' "
+            f"does not match any trusted browser name "
+            f"(keywords: {', '.join(sorted(_TRUSTED_BROWSER_KEYWORDS))})"
+        )
+    if not Path(executable_path).is_file():
+        raise ValueError(
+            f"executable_path rejected: '{executable_path}' does not exist"
+        )
 
 
 def _resolve_output_path(path: str) -> str:
@@ -304,7 +339,12 @@ def _ensure_playwright_sync():
         ) from exc
 
 
-def _sync_browser_launch(state: dict, cdp_port: int = 0):
+def _sync_browser_launch(
+    state: dict,
+    cdp_port: int = 0,
+    browser_args: str = "",
+    executable_path: str = "",
+):
     """Launch browser using sync Playwright (for hybrid mode)."""
     sync_playwright = _ensure_playwright_sync()
     pw = sync_playwright().start()  # Start without context manager
@@ -320,8 +360,12 @@ def _sync_browser_launch(state: dict, cdp_port: int = 0):
         exe = default_path
     elif default_kind != "webkit":
         exe = _chromium_executable_path()
+    if executable_path:
+        exe = executable_path
 
     extra_args = list(_chromium_launch_args())
+    if browser_args:
+        extra_args.extend(shlex.split(browser_args, posix=sys.platform != "win32"))
     if cdp_port:
         extra_args.append(f"--remote-debugging-port={cdp_port}")
 
@@ -421,8 +465,12 @@ async def _start_managed_cdp_browser(
     state: dict,
     cdp_port: int = 0,
     ensure_pages: bool = False,
+    browser_args: str = "",
+    executable_path: str = "",
 ) -> None:
     default_kind, exe = _resolve_chromium_launch_target()
+    if executable_path:
+        exe = executable_path
     if not exe:
         if default_kind == "webkit" or sys.platform == "darwin":
             raise RuntimeError(
@@ -441,6 +489,7 @@ async def _start_managed_cdp_browser(
         user_data_dir=state["user_data_dir"],
         headless=state["headless"],
         cdp_port=chosen_cdp_port,
+        browser_args=browser_args,
     )
     try:
         await _wait_for_cdp_ready(chosen_cdp_port)
@@ -487,6 +536,7 @@ def _start_managed_chromium_process(
     user_data_dir: str,
     headless: bool,
     cdp_port: int,
+    browser_args: str = "",
 ) -> subprocess.Popen:
     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
     args = [
@@ -504,6 +554,8 @@ def _start_managed_chromium_process(
         "--password-store=basic",
     ]
     args.extend(_chromium_launch_args())
+    if browser_args:
+        args.extend(shlex.split(browser_args))
     if headless:
         args.extend(["--headless=new", "--disable-gpu"])
 
@@ -719,7 +771,11 @@ async def _ensure_browser(
             loop = asyncio.get_event_loop()
             pw, browser, context = await loop.run_in_executor(
                 _get_executor(),
-                lambda: _sync_browser_launch(state),
+                lambda: _sync_browser_launch(
+                    state,
+                    browser_args=state.get("_browser_args", ""),
+                    executable_path=state.get("_executable_path", ""),
+                ),
             )
             state["_sync_playwright"] = pw
             state["_sync_browser"] = browser
@@ -735,6 +791,8 @@ async def _ensure_browser(
                 await _start_managed_cdp_browser(
                     state,
                     ensure_pages=True,
+                    browser_args=state.get("_browser_args", ""),
+                    executable_path=state.get("_executable_path", ""),
                 )
             except Exception:
                 await _action_start(
@@ -779,7 +837,10 @@ async def _action_start(
     headed: bool = False,
     cdp_port: int = 0,
     private_mode: bool = False,
+    browser_args: str = "",
+    executable_path: str = "",
 ) -> ToolResponse:
+    _validate_executable_path(executable_path)
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
         browser_exists = (
@@ -852,12 +913,16 @@ async def _action_start(
                 state,
                 cdp_port=cdp_port,
                 ensure_pages=True,
+                browser_args=browser_args,
+                executable_path=executable_path,
             )
         elif _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
             pw, browser, context = await loop.run_in_executor(
                 _get_executor(),
-                lambda: _sync_browser_launch(state, cdp_port),
+                lambda: _sync_browser_launch(
+                    state, cdp_port, browser_args, executable_path
+                ),
             )
             state["_sync_playwright"] = pw
             state["_sync_browser"] = browser
@@ -873,7 +938,11 @@ async def _action_start(
             async_playwright = _ensure_playwright_async()
             pw = await async_playwright().start()
             default_kind, exe = _resolve_chromium_launch_target()
+            if executable_path:
+                exe = executable_path
             extra_args = list(_chromium_launch_args())
+            if browser_args:
+                extra_args.extend(shlex.split(browser_args, posix=sys.platform != "win32"))
             if cdp_port:
                 extra_args.append(f"--remote-debugging-port={cdp_port}")
 
@@ -891,9 +960,9 @@ async def _action_start(
                     # launch_persistent_context returns context directly; no separate browser object
                     _attach_context_listeners(state, context)
                     state["playwright"] = pw
-                    state[
-                        "browser"
-                    ] = None  # not needed for persistent context
+                    state["browser"] = (
+                        None  # not needed for persistent context
+                    )
                     state["context"] = context
                 else:
                     launch_kwargs = {"headless": state["headless"]}
@@ -933,6 +1002,9 @@ async def _action_start(
             state["launch_mode"] = "playwright"
         _touch_activity(state)
         _start_idle_watchdog(state)
+        # Store launch config for _ensure_browser fallback restarts
+        state["_browser_args"] = browser_args
+        state["_executable_path"] = executable_path
         msg = (
             "Browser started (visible window)"
             if not state["headless"]
@@ -3169,6 +3241,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
     headed: bool = False,
     cdp_port: int = 0,
     private_mode: bool = False,
+    browser_args: str = "",
+    executable_path: str = "",
     cdp_url: str = "",
     port: int = 0,
     port_min: int = 0,
@@ -3309,6 +3383,16 @@ async def browser_use(  # pylint: disable=R0911,R0912
             want the browser to be connectable by other local tools/workspaces
             via CDP. Default False. By default, QwenPaw prefers managed CDP for
             both headless and headed starts.
+        browser_args (str):
+            Extra Chromium launch arguments, e.g. "--incognito" or
+            "--proxy-server=http://127.0.0.1:7890". Multiple args separated by
+            space. Applied to all launch paths (headless, headed, managed CDP).
+            Default empty string (no extra args).
+        executable_path (str):
+            Custom browser executable path, e.g.
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".
+            When set, overrides the system default browser detection.
+            Default empty string (use system default).
         cdp_url (str):
             CDP base URL, e.g. "http://localhost:9222". Required for
             action=connect_cdp.
@@ -3352,6 +3436,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 headed=headed,
                 cdp_port=cdp_port,
                 private_mode=private_mode,
+                browser_args=browser_args,
+                executable_path=executable_path,
             )
         if action == "stop":
             return await _action_stop(state)
