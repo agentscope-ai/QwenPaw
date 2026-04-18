@@ -2,7 +2,7 @@
 name: dingtalk_channel_connect
 description: "Use a headed browser to automatically complete DingTalk channel integration for QwenPaw. Applicable when the user mentions DingTalk, developer console, Client ID, Client Secret, bot, Stream mode, binding or configuring a channel. Supports pausing when a login page is detected and resuming after the user logs in."
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🤖"
     requires: {}

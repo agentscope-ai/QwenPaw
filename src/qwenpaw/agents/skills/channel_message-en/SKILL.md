@@ -2,7 +2,7 @@
 name: channel_message
 description: Use this skill to proactively send a one-way message to a user/session/channel, usually only when the user explicitly asks to send to a channel/session or when proactive notification is needed. First query sessions with qwenpaw chats list, then push with qwenpaw channels send.
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "📤"
 ---

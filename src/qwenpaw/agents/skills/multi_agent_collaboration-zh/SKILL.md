@@ -2,7 +2,7 @@
 name: multi_agent_collaboration
 description: 当需要其他 agent 的专长、上下文或协作支持，或用户明确要求调用其他 agent 时，使用本 skill。先查询可用 agents，再用 qwenpaw agents chat 进行双向沟通。
 metadata:
-  builtin_skill_version: "1.3"
+  builtin_skill_version: "1.4"
   qwenpaw:
     emoji: "🤝"
 ---

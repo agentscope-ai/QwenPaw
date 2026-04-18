@@ -2,7 +2,7 @@
 name: make_plan
 description: 当需要向更强 Agent 请求执行计划时使用；用于获取分步骤、可落地的计划，并由你自己执行，而不是让对方代执行任务。
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🗺️"
 ---
