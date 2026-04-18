@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import copaw.providers.anthropic_provider as anthropic_provider_module
-from copaw.providers.anthropic_provider import AnthropicProvider
+import qwenpaw.providers.anthropic_provider as anthropic_provider_module
+from qwenpaw.providers.anthropic_provider import AnthropicProvider
 
 
 def _make_provider(is_custom: bool = False) -> AnthropicProvider:
@@ -84,7 +84,7 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
         "Claude Haiku",
         "claude-3-5-sonnet",
     ]
-    assert provider.models == []
+    assert not provider.models
 
 
 async def test_check_model_connection_success(monkeypatch) -> None:

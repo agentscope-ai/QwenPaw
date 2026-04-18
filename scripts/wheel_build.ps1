@@ -6,7 +6,7 @@ $RepoRoot = (Get-Item $PSScriptRoot).Parent.FullName
 Set-Location $RepoRoot
 
 $ConsoleDir = Join-Path $RepoRoot "console"
-$ConsoleDest = Join-Path $RepoRoot "src\copaw\console"
+$ConsoleDest = Join-Path $RepoRoot "src\qwenpaw\console"
 
 Write-Host "[wheel_build] Building console frontend..."
 Push-Location $ConsoleDir
@@ -19,7 +19,7 @@ try {
   Pop-Location
 }
 
-Write-Host "[wheel_build] Copying console/dist/* -> src/copaw/console/..."
+Write-Host "[wheel_build] Copying console/dist/* -> src/qwenpaw/console/..."
 if (Test-Path $ConsoleDest) {
   Remove-Item -Path (Join-Path $ConsoleDest "*") -Recurse -Force -ErrorAction SilentlyContinue
 } else {

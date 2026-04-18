@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { message } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "@/api/modules/agents";
 import type { AgentSummary } from "@/api/types/agents";
@@ -12,6 +12,7 @@ interface UseAgentsReturn {
   loadAgents: () => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
   toggleAgent: (agentId: string, enabled: boolean) => Promise<void>;
+  setAgents: (agents: AgentSummary[]) => void;
 }
 
 export function useAgents(): UseAgentsReturn {
@@ -20,14 +21,19 @@ export function useAgents(): UseAgentsReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const { setAgents: updateStoreAgents } = useAgentStore();
+  const { message } = useAppMessage();
+
+  const setAgentsState = (nextAgents: AgentSummary[]) => {
+    setAgents(nextAgents);
+    updateStoreAgents(nextAgents);
+  };
 
   const loadAgents = async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await agentsApi.listAgents();
-      setAgents(data.agents);
-      updateStoreAgents(data.agents);
+      setAgentsState(data.agents);
     } catch (err) {
       console.error("Failed to load agents:", err);
       const errorMsg =
@@ -75,5 +81,6 @@ export function useAgents(): UseAgentsReturn {
     loadAgents,
     deleteAgent,
     toggleAgent,
+    setAgents: setAgentsState,
   };
 }

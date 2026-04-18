@@ -1,34 +1,27 @@
-import { useState } from "react";
-import { Card, Button, Modal, message } from "@agentscope-ai/design";
+import React, { useState } from "react";
+import { Card, Button, Modal } from "@agentscope-ai/design";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../../../api/types";
 import { ProviderConfigModal } from "../modals/ProviderConfigModal";
 import { ModelManageModal } from "../modals/ModelManageModal";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import styles from "../../index.module.less";
-
-// export const PROVIDER_IMG_MAP = {
-
-// }
+import { providerIcon } from "../providerIcon";
 
 interface RemoteProviderCardProps {
   provider: ProviderInfo;
   activeModels: ActiveModelsInfo | null;
   onSaved: () => void;
-  isHover: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
 }
 
-export function RemoteProviderCard({
+export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   provider,
   activeModels,
   onSaved,
-  isHover,
-  onMouseEnter,
-  onMouseLeave,
 }: RemoteProviderCardProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [modalOpen, setModalOpen] = useState(false);
   const [modelManageOpen, setModelManageOpen] = useState(false);
 
@@ -60,7 +53,7 @@ export function RemoteProviderCard({
 
   let isConfigured = false;
 
-  if (provider.is_local) {
+  if (provider.id === "qwenpaw-local") {
     isConfigured = true;
   } else if (provider.is_custom && provider.base_url) {
     isConfigured = true;
@@ -101,34 +94,34 @@ export function RemoteProviderCard({
     : "none";
 
   return (
-    <Card
-      hoverable
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      className={`${styles.providerCard} ${
-        isAvailable ? styles.enabledCard : ""
-      } ${isHover ? styles.hover : styles.normal}`}
-    >
-      {/* Status Header */}
-      <div className={styles.cardStatusHeader}>
-        <span
-          className={styles.statusDot}
-          style={{
-            backgroundColor: statusDotColor,
-            boxShadow: statusDotShadow,
-          }}
+    <Card hoverable className={styles.providerCard}>
+      {/* Card Header with Icon and Status */}
+      <div className={styles.cardHeaderRow}>
+        <img
+          src={providerIcon(provider.id)}
+          alt={provider.name}
+          className={styles.providerIcon}
         />
-        <span
-          className={`${styles.statusText} ${
-            statusType === "enabled"
-              ? styles.enabled
-              : statusType === "partial"
-              ? styles.partial
-              : styles.disabled
-          }`}
-        >
-          {statusLabel}
-        </span>
+        <div className={styles.cardStatusHeader}>
+          <span
+            className={styles.statusDot}
+            style={{
+              backgroundColor: statusDotColor,
+              boxShadow: statusDotShadow,
+            }}
+          />
+          <span
+            className={`${styles.statusText} ${
+              statusType === "enabled"
+                ? styles.enabled
+                : statusType === "partial"
+                ? styles.partial
+                : styles.disabled
+            }`}
+          >
+            {statusLabel}
+          </span>
+        </div>
       </div>
 
       {/* Title Row */}
@@ -140,7 +133,7 @@ export function RemoteProviderCard({
       {/* Info Section */}
       <div className={styles.cardInfo}>
         <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Bot URL:</span>
+          <span className={styles.infoLabel}>Base URL:</span>
           {provider.base_url ? (
             <span className={styles.infoValue} title={provider.base_url}>
               {provider.base_url}
@@ -167,44 +160,41 @@ export function RemoteProviderCard({
         </div>
       </div>
 
-      {/* Actions - only show on hover */}
-      {isHover && (
-        <div className={styles.cardActions}>
+      <div className={styles.cardActions}>
+        <Button
+          type="default"
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            setModelManageOpen(true);
+          }}
+          className={styles.actionBtn}
+        >
+          {t("models.models")}
+        </Button>
+        <Button
+          type="default"
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            setModalOpen(true);
+          }}
+          className={styles.actionBtn}
+        >
+          {t("models.settings")}
+        </Button>
+        {provider.is_custom && (
           <Button
             type="default"
             size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              setModelManageOpen(true);
-            }}
+            danger
+            onClick={handleDeleteProvider}
             className={styles.actionBtn}
           >
-            {t("models.models")}
+            {t("common.delete")}
           </Button>
-          <Button
-            type="default"
-            size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              setModalOpen(true);
-            }}
-            className={styles.actionBtn}
-          >
-            {t("models.settings")}
-          </Button>
-          {provider.is_custom && (
-            <Button
-              type="default"
-              size="small"
-              danger
-              onClick={handleDeleteProvider}
-              className={styles.actionBtn}
-            >
-              {t("common.delete")}
-            </Button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       <ProviderConfigModal
         provider={provider}
@@ -221,4 +211,4 @@ export function RemoteProviderCard({
       />
     </Card>
   );
-}
+});

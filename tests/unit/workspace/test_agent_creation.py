@@ -2,7 +2,7 @@
 """Tests for agent creation with short UUID."""
 from unittest.mock import patch
 
-from copaw.config.config import (
+from qwenpaw.config.config import (
     AgentProfileConfig,
     generate_short_agent_id,
 )
@@ -43,7 +43,7 @@ def test_generate_short_id_collision_handling():
         return original_generate()
 
     with patch(
-        "copaw.app.routers.agents.generate_short_agent_id",
+        "qwenpaw.app.routers.agents.generate_short_agent_id",
         side_effect=mock_generate,
     ) as mock_fn:
         # Generate IDs until we get a unique one

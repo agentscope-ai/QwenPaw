@@ -3,6 +3,7 @@ import type {
   MCPClientInfo,
   MCPClientCreateRequest,
   MCPClientUpdateRequest,
+  MCPToolInfo,
 } from "../types";
 
 export const mcpApi = {
@@ -50,4 +51,10 @@ export const mcpApi = {
     request<{ message: string }>(`/mcp/${encodeURIComponent(clientKey)}`, {
       method: "DELETE",
     }),
+
+  /**
+   * List tools from a connected MCP server
+   */
+  listMCPTools: (clientKey: string) =>
+    request<MCPToolInfo[]>(`/mcp/${encodeURIComponent(clientKey)}/tools`),
 };

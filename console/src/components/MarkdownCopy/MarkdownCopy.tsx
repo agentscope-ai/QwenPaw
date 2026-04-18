@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { Button, message, Switch, Input } from "@agentscope-ai/design";
+import { Button, Switch, Input } from "@agentscope-ai/design";
 import { CopyOutlined } from "@ant-design/icons";
 import { XMarkdown } from "@ant-design/x-markdown";
 import { useTranslation } from "react-i18next";
 import type { CSSProperties } from "react";
+import { useAppMessage } from "../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../utils/markdown";
 import styles from "./index.module.less";
 
@@ -52,6 +53,7 @@ export function MarkdownCopy({
   onContentChange,
 }: MarkdownCopyProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [isCopying, setIsCopying] = useState(false);
   const [editContent, setEditContent] = useState(content);
   const [localShowMarkdown, setLocalShowMarkdown] = useState(showMarkdown);

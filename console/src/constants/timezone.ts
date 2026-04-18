@@ -1,21 +1,60 @@
-export const TIMEZONE_OPTIONS = [
-  { value: "America/Los_Angeles", label: "America/Los_Angeles (UTC-8)" },
-  { value: "America/Denver", label: "America/Denver (UTC-7)" },
-  { value: "America/Chicago", label: "America/Chicago (UTC-6)" },
-  { value: "America/New_York", label: "America/New_York (UTC-5)" },
-  { value: "America/Toronto", label: "America/Toronto (UTC-5)" },
-  { value: "UTC", label: "UTC" },
-  { value: "Europe/London", label: "Europe/London (UTC+0)" },
-  { value: "Europe/Paris", label: "Europe/Paris (UTC+1)" },
-  { value: "Europe/Berlin", label: "Europe/Berlin (UTC+1)" },
-  { value: "Europe/Moscow", label: "Europe/Moscow (UTC+3)" },
-  { value: "Asia/Dubai", label: "Asia/Dubai (UTC+4)" },
-  { value: "Asia/Shanghai", label: "Asia/Shanghai (UTC+8)" },
-  { value: "Asia/Hong_Kong", label: "Asia/Hong_Kong (UTC+8)" },
-  { value: "Asia/Singapore", label: "Asia/Singapore (UTC+8)" },
-  { value: "Asia/Tokyo", label: "Asia/Tokyo (UTC+9)" },
-  { value: "Asia/Seoul", label: "Asia/Seoul (UTC+9)" },
-  { value: "Australia/Sydney", label: "Australia/Sydney (UTC+10)" },
-  { value: "Australia/Melbourne", label: "Australia/Melbourne (UTC+10)" },
-  { value: "Pacific/Auckland", label: "Pacific/Auckland (UTC+12)" },
-];
+import { getTimeZones } from "@vvo/tzdb";
+
+const TIMEZONE_ID_SET = new Set([
+  "America/Los_Angeles",
+  "America/Denver",
+  "America/Chicago",
+  "America/New_York",
+  "America/Toronto",
+  "UTC",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Moscow",
+  "Asia/Dubai",
+  "Asia/Shanghai",
+  "Asia/Hong_Kong",
+  "Asia/Singapore",
+  "Asia/Tokyo",
+  "Asia/Seoul",
+  "Australia/Sydney",
+  "Australia/Melbourne",
+  "Pacific/Auckland",
+]);
+
+export interface TimezoneOption {
+  value: string; // for timezone id
+  label: string; // for display text
+}
+
+function getLocalizedName(tzName: string, lang: string): string {
+  const locale = { zh: "zh-CN", en: "en", ru: "ru", ja: "ja" }[lang] || "en";
+  try {
+    const parts = new Intl.DateTimeFormat(locale, {
+      timeZone: tzName,
+      timeZoneName: "long",
+    }).formatToParts(new Date());
+    return parts.find((p) => p.type === "timeZoneName")?.value || tzName;
+  } catch {
+    return tzName;
+  }
+}
+
+export function getTimezoneOptions(lang: string = "en"): TimezoneOption[] {
+  return getTimeZones({ includeUtc: true })
+    .filter(
+      (tz) =>
+        TIMEZONE_ID_SET.has(tz.name) ||
+        (tz.name === "Etc/UTC" && TIMEZONE_ID_SET.has("UTC")),
+    )
+    .sort((a, b) => a.currentTimeOffsetInMinutes - b.currentTimeOffsetInMinutes)
+    .map((tz) => {
+      const value = tz.name === "Etc/UTC" ? "UTC" : tz.name;
+      return {
+        value,
+        label: `${getLocalizedName(tz.name, lang)} (${
+          tz.currentTimeFormat.split(" ")[0]
+        }, ${value})`,
+      };
+    });
+}

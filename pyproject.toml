@@ -1,22 +1,24 @@
 [project]
-name = "copaw"
+name = "qwenpaw"
 dynamic = ["version"]
-description = "CoPaw is a **personal assistant** that runs in your own environment. It talks to you over multiple channels (DingTalk, Feishu, QQ, Discord, iMessage, etc.) and runs scheduled tasks according to your configuration. **What it can do is driven by Skills — the possibilities are open-ended.** Built-in skills include cron, PDF/Office handling, news digest, file reading, and more; you can add custom skills. All data and tasks run on your machine; no third-party hosting."
+description = "QwenPaw is a **personal assistant** that runs in your own environment. It talks to you over multiple channels (DingTalk, Feishu, QQ, Discord, iMessage, etc.) and runs scheduled tasks according to your configuration. **What it can do is driven by Skills — the possibilities are open-ended.** Built-in skills include cron, PDF/Office handling, news digest, file reading, and more; you can add custom skills. All data and tasks run on your machine; no third-party hosting."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "agentscope==1.0.18",
-    "agentscope-runtime==1.1.2b2",
+    "agentscope-runtime==1.1.4",
     "httpx>=0.27.0",
     "packaging>=24.0",
     "discord-py>=2.3",
     "dingtalk-stream>=0.24.3",
+    "alibabacloud-dingtalk>=2.2.42",
+    "alibabacloud-tea-openapi>=0.4.4",
     "uvicorn>=0.40.0",
     "apscheduler>=3.11.2,<4",
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.3.1.6",
+    "reme-ai==0.3.1.8",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -32,21 +34,29 @@ dependencies = [
     "shortuuid>=1.0.0",
     "google-genai>=1.67.0",
     "tzdata>=2024.1",
+    "cryptography>=43.0.0",
+    "keyring>=25.0.0",
     "pyyaml>=6.0",
     "json-repair>=0.30.0",
     "segno>=1.6.6",
+    "modelscope>=1.35.0",
+    "huggingface_hub>=0.20.0",
+    "pillow>=10.0.0",
+    # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)
+    "anyio>=4.0.0,<4.13.0",
+    "agent-client-protocol>=0.9.0",
 ]
 
 [tool.setuptools.dynamic]
-version = {attr = "copaw.__version__.__version__"}
+version = {attr = "qwenpaw.__version__.__version__"}
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
 include-package-data = true
 
 [tool.setuptools.package-data]
-# Dockerfile copies console build output to src/copaw/console/ (no dist subdir).
-"copaw" = [
+# Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
+"qwenpaw" = [
     "console/**",
     "agents/md_files/**",
     "agents/skills/**",
@@ -61,7 +71,13 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-copaw = "copaw.cli.main:cli"
+qwenpaw = "qwenpaw.cli.main:cli"
+copaw = "qwenpaw.cli.main:cli"
+
+# Optional doctor plugins: callable (DoctorRunContext) -> list[str]
+# [project.entry-points."qwenpaw.doctor"]
+# my_pkg = "my_pkg.doctor:doctor_notes"
+# Legacy group "copaw.doctor" is still loaded when present.
 
 [project.optional-dependencies]
 dev = [
@@ -73,25 +89,12 @@ dev = [
 ]
 local = [
     "huggingface_hub>=0.20.0",
-    "modelscope>=1.35.0",
-]
-llamacpp = [
-    "copaw[local]",
-    "llama-cpp-python>=0.3.0",
-]
-mlx = [
-    "copaw[local]",
-    "mlx-lm>=0.10.0; sys_platform == 'darwin'",
-]
-ollama = [
-    "ollama>=0.6.1",
 ]
 whisper = [
     "openai-whisper>=20231117",
 ]
 full = [
-    "copaw[local,ollama,llamacpp,whisper]",
-    "mlx-lm>=0.10.0; sys_platform == 'darwin'",
+    "qwenpaw[local,whisper]",
 ]
 
 [tool.pytest.ini_options]
@@ -99,4 +102,34 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "unit: marks tests as unit tests",
+    "contract: marks tests as contract tests",
+    "integration: marks tests as integration tests",
 ]
+testpaths = [
+    "tests",
+]
+
+[tool.coverage.run]
+source = ["src/qwenpaw"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "pass",
+]
+fail_under = 30
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"

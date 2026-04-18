@@ -1,17 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
 import { SaveOutlined } from "@ant-design/icons";
-import { Select, Button, message } from "@agentscope-ai/design";
+import { Select, Button, Card } from "@agentscope-ai/design";
 import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../../../../../hooks/useAppMessage";
+import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import styles from "../../index.module.less";
 
 interface ModelsSectionProps {
   providers: Array<{
     id: string;
     name: string;
-    models?: Array<{ id: string; name: string }>;
-    extra_models?: Array<{ id: string; name: string }>;
+    models?: Array<{ id: string; name: string; is_free?: boolean }>;
+    extra_models?: Array<{ id: string; name: string; is_free?: boolean }>;
     base_url?: string;
     api_key?: string;
     is_custom: boolean;
@@ -41,6 +43,7 @@ export function ModelsSection({
     undefined,
   );
   const [dirty, setDirty] = useState(false);
+  const { message } = useAppMessage();
 
   const currentSlot = activeModels?.active_llm;
 
@@ -87,6 +90,21 @@ export function ModelsSection({
   const handleSave = async () => {
     if (!selectedProviderId || !selectedModel) return;
 
+    const selectedProvider = providers.find((p) => p.id === selectedProviderId);
+    const selectedModelInfo = [
+      ...(selectedProvider?.models ?? []),
+      ...(selectedProvider?.extra_models ?? []),
+    ].find((model) => model.id === selectedModel);
+
+    if (selectedProvider && selectedModelInfo) {
+      const confirmed = await confirmFreeModelSwitch({
+        provider: selectedProvider,
+        model: selectedModelInfo,
+        t,
+      });
+      if (!confirmed) return;
+    }
+
     const body: ModelSlotRequest = {
       provider_id: selectedProviderId,
       model: selectedModel,
@@ -115,7 +133,7 @@ export function ModelsSection({
   const canSave = dirty && !!selectedProviderId && !!selectedModel;
 
   return (
-    <div className={styles.slotSection}>
+    <Card className={styles.slotSection} title={t("models.defaultLlm")}>
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
           <label className={styles.slotLabel}>{t("models.provider")}</label>
@@ -150,11 +168,10 @@ export function ModelsSection({
           />
         </div>
 
-        <div
-          className={styles.slotField}
-          style={{ flex: "0 0 auto", minWidth: "120px" }}
-        >
-          <label className={styles.slotLabel} style={{ visibility: "hidden" }}>
+        <div className={[styles.slotField, styles.slotActionField].join(" ")}>
+          <label
+            className={[styles.slotLabel, styles.visuallyHiddenLabel].join(" ")}
+          >
             {t("models.actions")}
           </label>
           <Button
@@ -170,6 +187,6 @@ export function ModelsSection({
         </div>
       </div>
       <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
-    </div>
+    </Card>
   );
 }

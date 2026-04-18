@@ -20,7 +20,6 @@ export function EmbeddingConfigCard() {
     <Card
       className={styles.formCard}
       title={t("agentConfig.embeddingConfigTitle")}
-      style={{ marginTop: 16 }}
     >
       <Alert
         type="warning"

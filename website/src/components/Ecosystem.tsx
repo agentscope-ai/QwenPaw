@@ -8,7 +8,7 @@ import {
   Zap,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { t, type Lang } from "../i18n";
+import { useTranslation } from "react-i18next";
 
 const ITEMS: Array<{
   key: string;
@@ -54,11 +54,13 @@ const ITEMS: Array<{
 ];
 
 interface EcosystemProps {
-  lang: Lang;
   delay?: number;
 }
 
-export function Ecosystem({ lang, delay = 0 }: EcosystemProps) {
+export function Ecosystem({ delay = 0 }: EcosystemProps) {
+  const { t, i18n } = useTranslation();
+  const isZh = i18n.resolvedLanguage === "zh";
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 20 }}
@@ -79,7 +81,7 @@ export function Ecosystem({ lang, delay = 0 }: EcosystemProps) {
           color: "var(--text)",
         }}
       >
-        {t(lang, "ecosystem.title")}
+        {t("ecosystem.title")}
       </h2>
       <p
         style={{
@@ -88,7 +90,7 @@ export function Ecosystem({ lang, delay = 0 }: EcosystemProps) {
           color: "var(--text-muted)",
         }}
       >
-        {t(lang, "ecosystem.sub")}
+        {t("ecosystem.sub")}
       </p>
       <div
         style={{
@@ -114,7 +116,7 @@ export function Ecosystem({ lang, delay = 0 }: EcosystemProps) {
             }}
           >
             <Icon size={16} strokeWidth={1.5} aria-hidden />
-            {lang === "zh" ? labelZh : labelEn}
+            {isZh ? labelZh : labelEn}
           </span>
         ))}
       </div>

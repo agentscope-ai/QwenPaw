@@ -1,6 +1,6 @@
-# CoPaw Website
+# QwenPaw Website
 
-Static site (Vite + React) for the CoPaw product. Built output is served with a minimal Node server that supports SPA fallback (e.g. direct access to `/docs/channels`).
+Static site (Vite + React) for the QwenPaw product. Built output is served with a minimal Node server that supports SPA fallback (e.g. direct access to `/docs/channels`).
 
 ## Prerequisites
 
@@ -83,11 +83,11 @@ Default port: **8088**. Override with `PORT=3000 pm2 start ecosystem.config.cjs`
 | Command                                        | Description                               |
 | ---------------------------------------------- | ----------------------------------------- |
 | `pm2 status`                                   | List apps and status                      |
-| `pm2 logs copaw-website`                       | Stream stdout/stderr logs                 |
-| `pm2 restart copaw-website`                    | Restart the app                           |
+| `pm2 logs qwenpaw-website`                     | Stream stdout/stderr logs                 |
+| `pm2 restart qwenpaw-website`                  | Restart the app                           |
 | `pm2 reload ecosystem.config.cjs --update-env` | Reload with latest config (zero-downtime) |
-| `pm2 stop copaw-website`                       | Stop the app                              |
-| `pm2 delete copaw-website`                     | Remove from PM2 (stop + delete)           |
+| `pm2 stop qwenpaw-website`                     | Stop the app                              |
+| `pm2 delete qwenpaw-website`                   | Remove from PM2 (stop + delete)           |
 
 ### 4. After code/build changes
 
@@ -107,4 +107,4 @@ bash scripts/website_build.sh
 ## Config
 
 - **Port**: Set in `ecosystem.config.cjs` (`env.PORT` / `args`) or env `PORT`. Default `8088`.
-- **App name**: `copaw-website` in `ecosystem.config.cjs` (used in `pm2 logs/restart`).
+- **App name**: `qwenpaw-website` in `ecosystem.config.cjs` (used in `pm2 logs/restart`).

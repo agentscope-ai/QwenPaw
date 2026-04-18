@@ -1,6 +1,13 @@
-import { Form, InputNumber, Select, Card, Alert } from "@agentscope-ai/design";
+import {
+  Form,
+  InputNumber,
+  Select,
+  Card,
+  Alert,
+  Switch,
+} from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { TIMEZONE_OPTIONS } from "../../../../constants/timezone";
+import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
 
 const LANGUAGE_OPTIONS = [
@@ -63,7 +70,7 @@ export function ReactAgentCard({
                 .toLowerCase()
                 .includes(input.toLowerCase())
             }
-            options={TIMEZONE_OPTIONS}
+            options={useTimezoneOptions()}
             onChange={onTimezoneChange}
             loading={savingTimezone}
             disabled={savingTimezone}
@@ -88,6 +95,15 @@ export function ReactAgentCard({
           />
         </Form.Item>
       </div>
+
+      <Form.Item
+        label={t("agentConfig.autoContinueOnTextOnly")}
+        name="auto_continue_on_text_only"
+        valuePropName="checked"
+        tooltip={t("agentConfig.autoContinueOnTextOnlyTooltip")}
+      >
+        <Switch />
+      </Form.Item>
 
       <Form.Item
         label={t("agentConfig.memoryManagerBackend")}

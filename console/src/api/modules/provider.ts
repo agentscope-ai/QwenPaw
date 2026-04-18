@@ -7,11 +7,19 @@ import type {
   ModelSlotRequest,
   CreateCustomProviderRequest,
   AddModelRequest,
+  ModelConfigRequest,
+  LocalActionResponse,
+  LocalModelConfig,
+  LocalModelConfigRequest,
   TestConnectionResponse,
   TestProviderRequest,
   TestModelRequest,
   DiscoverModelsResponse,
   ProbeMultimodalResponse,
+  SeriesResponse,
+  DiscoverExtendedResponse,
+  FilterModelsRequest,
+  FilterModelsResponse,
 } from "../types";
 
 function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
@@ -78,6 +86,29 @@ export const providerApi = {
       { method: "DELETE" },
     ),
 
+  configureModel: (
+    providerId: string,
+    modelId: string,
+    body: ModelConfigRequest,
+  ) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/config`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  configureLocalModelSettings: (body: LocalModelConfigRequest) =>
+    request<LocalActionResponse>(`/local-models/config`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  getLocalModelConfig: () => request<LocalModelConfig>("/local-models/config"),
+
   /* ---- Test Connection ---- */
 
   testProviderConnection: (providerId: string, body?: TestProviderRequest) =>
@@ -98,14 +129,21 @@ export const providerApi = {
       },
     ),
 
-  discoverModels: (providerId: string, body?: TestProviderRequest) =>
-    request<DiscoverModelsResponse>(
+  discoverModels: (
+    providerId: string,
+    body?: TestProviderRequest,
+    save: boolean = true,
+  ) => {
+    const url = new URL(
       `/models/${encodeURIComponent(providerId)}/discover`,
-      {
-        method: "POST",
-        body: body ? JSON.stringify(body) : undefined,
-      },
-    ),
+      window.location.origin,
+    );
+    url.searchParams.set("save", save.toString());
+    return request<DiscoverModelsResponse>(url.pathname + url.search, {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  },
 
   probeMultimodal: (providerId: string, modelId: string) =>
     request<ProbeMultimodalResponse>(
@@ -114,4 +152,21 @@ export const providerApi = {
       )}/probe-multimodal`,
       { method: "POST" },
     ),
+
+  /* ---- OpenRouter specific endpoints ---- */
+
+  getOpenRouterSeries: () =>
+    request<SeriesResponse>("/models/openrouter/series"),
+
+  discoverOpenRouterExtended: (body?: TestProviderRequest) =>
+    request<DiscoverExtendedResponse>("/models/openrouter/discover-extended", {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  filterOpenRouterModels: (body: FilterModelsRequest) =>
+    request<FilterModelsResponse>("/models/openrouter/models/filter", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

@@ -1,8 +1,8 @@
-import { Button, Form } from "@agentscope-ai/design";
+import { useState } from "react";
+import { Button, Form, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
 import {
-  PageHeader,
   ReactAgentCard,
   LlmRetryCard,
   LlmRateLimiterCard,
@@ -10,12 +10,13 @@ import {
   ToolResultCompactCard,
   MemorySummaryCard,
   EmbeddingConfigCard,
-  ContextManagementCard,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
+  const [activeTab, setActiveTab] = useState("reactAgent");
   const {
     form,
     loading,
@@ -59,34 +60,116 @@ function AgentConfigPage() {
 
   return (
     <div className={styles.configPage}>
-      <PageHeader />
-      <div className={styles.pageContent}>
-        <div className={styles.formContainer}>
-          <Form form={form} layout="vertical" className={styles.form}>
-            <ReactAgentCard
-              language={language}
-              savingLang={savingLang}
-              onLanguageChange={handleLanguageChange}
-              timezone={timezone}
-              savingTimezone={savingTimezone}
-              onTimezoneChange={handleTimezoneChange}
-            />
+      <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
 
-            <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
-
-            <LlmRateLimiterCard />
-
-            <ContextManagementCard />
-
-            <ContextCompactCard maxInputLength={maxInputLength} />
-
-            <ToolResultCompactCard />
-
-            <MemorySummaryCard />
-
-            <EmbeddingConfigCard />
-          </Form>
-        </div>
+      <div className={styles.content}>
+        <Form form={form} layout="vertical" className={styles.form}>
+          <Tabs
+            className={styles.mainTabs}
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            items={[
+              {
+                key: "reactAgent",
+                label: (
+                  <span className={styles.tabLabel}>
+                    {t("agentConfig.reactAgentTitle")}
+                  </span>
+                ),
+                children: (
+                  <div className={styles.tabContent}>
+                    <ReactAgentCard
+                      language={language}
+                      savingLang={savingLang}
+                      onLanguageChange={handleLanguageChange}
+                      timezone={timezone}
+                      savingTimezone={savingTimezone}
+                      onTimezoneChange={handleTimezoneChange}
+                    />
+                  </div>
+                ),
+              },
+              {
+                key: "llmRetry",
+                label: (
+                  <span className={styles.tabLabel}>
+                    {t("agentConfig.llmRetryTitle")}
+                  </span>
+                ),
+                children: (
+                  <div className={styles.tabContent}>
+                    <LlmRetryCard llmRetryEnabled={llmRetryEnabled} />
+                  </div>
+                ),
+              },
+              {
+                key: "llmRateLimiter",
+                label: (
+                  <span className={styles.tabLabel}>
+                    {t("agentConfig.llmRateLimiterTitle")}
+                  </span>
+                ),
+                children: (
+                  <div className={styles.tabContent}>
+                    <LlmRateLimiterCard />
+                  </div>
+                ),
+              },
+              {
+                key: "contextCompact",
+                label: (
+                  <span className={styles.tabLabel}>
+                    {t("agentConfig.contextCompactTitle")}
+                  </span>
+                ),
+                children: (
+                  <div className={styles.tabContent}>
+                    <ContextCompactCard maxInputLength={maxInputLength} />
+                  </div>
+                ),
+              },
+              {
+                key: "toolResultCompact",
+                label: (
+                  <span className={styles.tabLabel}>
+                    {t("agentConfig.toolResultCompactTitle")}
+                  </span>
+                ),
+                children: (
+                  <div className={styles.tabContent}>
+                    <ToolResultCompactCard />
+                  </div>
+                ),
+              },
+              {
+                key: "memorySummary",
+                label: (
+                  <span className={styles.tabLabel}>
+                    {t("agentConfig.memorySummaryTitle")}
+                  </span>
+                ),
+                children: (
+                  <div className={styles.tabContent}>
+                    <MemorySummaryCard />
+                  </div>
+                ),
+              },
+              {
+                key: "embeddingConfig",
+                label: (
+                  <span className={styles.tabLabel}>
+                    {t("agentConfig.embeddingConfigTitle")}
+                  </span>
+                ),
+                children: (
+                  <div className={styles.tabContent}>
+                    <EmbeddingConfigCard />
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </Form>
       </div>
 
       <div className={styles.footerActions}>

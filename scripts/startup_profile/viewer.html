@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐾 QwenPaw 启动性能分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #1a1a1a;
+        }
+
+        .container {
+            max-width: 95%;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.15);
+            backdrop-filter: blur(10px);
+        }
+
+        header {
+            text-align: center;
+            padding-bottom: 40px;
+            border-bottom: 2px solid #e5e7eb;
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        h1 {
+            font-size: 2.8em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            color: #6b7280;
+        }
+
+        .lang-toggle {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid #667eea;
+            color: #667eea;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .lang-toggle:hover {
+            background: rgba(102, 126, 234, 0.2);
+            transform: scale(1.05);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 80px 20px;
+            color: #6b7280;
+        }
+
+        .error {
+            text-align: center;
+            padding: 60px 20px;
+            color: #ef4444;
+        }
+
+        .section {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        h2 {
+            font-size: 1.8em;
+            color: #1f2937;
+            margin-bottom: 24px;
+            font-weight: 700;
+        }
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .summary-card {
+            background: linear-gradient(135deg, #f8fafc 0%, #e0f2fe 100%);
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s;
+        }
+
+        .summary-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .summary-label {
+            font-size: 14px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .summary-value {
+            font-size: 42px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Tab 样式 */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #6b7280;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            position: relative;
+            bottom: -2px;
+        }
+
+        .tab:hover {
+            color: #667eea;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .tab-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        th {
+            padding: 16px;
+            text-align: left;
+            font-weight: 700;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f3f4f6;
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+
+        .module-name {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            color: #374151;
+        }
+
+        .time-value {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 24px 0;
+        }
+
+        /* Timeline/Tree styles - 从根目录 viewer.html 复制 */
+        .timeline-item {
+            padding: 6px 12px;
+            margin: 4px 0;
+            background-color: #ffffff;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            position: relative;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.2s ease;
+            overflow-x: visible;
+            min-width: 500px;
+        }
+
+        .timeline-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -5px;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: #e2e8f0;
+        }
+
+        .timeline-item:hover {
+            background: linear-gradient(90deg, #f0f9ff, #e0f2fe);
+            transform: translateX(8px);
+            box-shadow: 4px 0 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .timeline-item.selected {
+            background-color: #e0e7ff;
+            border-radius: 12px;
+        }
+
+        /* 展开/折叠图标 */
+        .tree-toggle-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #e5e7eb;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #6b7280;
+            flex-shrink: 0;
+            transition: all 0.2s;
+            user-select: none;
+        }
+
+        .tree-toggle-icon:hover {
+            background: #d1d5db;
+            color: #374151;
+        }
+
+        .tree-toggle-icon.collapsed::before {
+            content: '▶';
+        }
+
+        .tree-toggle-icon.expanded::before {
+            content: '▼';
+        }
+
+        .tree-toggle-icon.no-children {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .timeline-children {
+            margin-left: 20px;
+            padding-left: 10px;
+            border-left: 1px solid #e2e8f0;
+            background: none;
+            box-shadow: none;
+        }
+
+        .timeline-sequence {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+            color: white;
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            flex-shrink: 0;
+            position: absolute;
+            left: 10px;
+        }
+
+        .timeline-function {
+            font-weight: 500;
+            font-size: 13px;
+            color: #0f172a;
+            flex: 1;
+        }
+
+        .timeline-meta {
+            font-size: 11px;
+            color: #6b7280;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .timeline-duration {
+            background: #e5e7eb;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: 500;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+
+        .children-count {
+            color: #9ca3af;
+            font-style: italic;
+        }
+
+        /* 性能颜色标记 */
+        .timeline-item.perf-fast::before {
+            background: #10b981;
+            width: 3px;
+        }
+
+        .timeline-item.perf-medium::before {
+            background: #f59e0b;
+            width: 3px;
+        }
+
+        .timeline-item.perf-slow::before {
+            background: #ef4444;
+            width: 3px;
+        }
+
+        .perf-fast .timeline-duration {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .perf-medium .timeline-duration {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .perf-slow .timeline-duration {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* 时间线容器 - 左右分栏布局 */
+        .timeline-container {
+            display: flex;
+            max-height: 800px;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            background: white;
+        }
+
+        .timeline-left {
+            width: 50%;
+            border-right: 2px solid #e5e7eb;
+            overflow-x: auto;
+            overflow-y: auto;
+            background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+        }
+
+        .timeline-right {
+            width: 50%;
+            padding: 30px;
+            background: white;
+            overflow-y: auto;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #9ca3af;
+        }
+
+        .empty-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .detail-panel {
+            display: none;
+        }
+
+        .detail-panel.active {
+            display: block;
+        }
+
+        .detail-header {
+            background: linear-gradient(135deg, #1f2937, #374151);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+
+        .detail-title {
+            font-size: 1.5em;
+            font-weight: 700;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        .detail-subtitle {
+            opacity: 0.8;
+            font-size: 0.9em;
+        }
+
+        .detail-section {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .detail-section h4 {
+            color: #1f2937;
+            margin-bottom: 16px;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .detail-item {
+            background: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .detail-label {
+            font-size: 12px;
+            color: #6b7280;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .detail-value {
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .code-block {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2em;
+            }
+            .summary {
+                grid-template-columns: 1fr;
+            }
+            .timeline-container {
+                flex-direction: column;
+                height: auto;
+            }
+            .timeline-left,
+            .timeline-right {
+                width: 100%;
+            }
+            .timeline-left {
+                max-height: 400px;
+            }
+            .detail-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 data-lang-zh="🐾 QwenPaw 启动性能分析" data-lang-en="🐾 QwenPaw Startup Performance">
+                🐾 QwenPaw 启动性能分析
+            </h1>
+            <p class="subtitle" id="subtitle">Loading...</p>
+            <button class="lang-toggle" onclick="toggleLanguage()">
+                <span id="langText">EN</span>
+            </button>
+        </header>
+
+        <div id="content" class="loading">
+            <div style="font-size: 48px; margin-bottom: 20px;">⏳</div>
+            <p data-lang-zh="正在加载数据..." data-lang-en="Loading data...">正在加载数据...</p>
+        </div>
+    </div>
+
+    <script>
+        let currentLang = 'zh';
+        let analysisData = null;
+
+        const translations = {
+            zh: {
+                title: '🐾 QwenPaw 启动性能分析',
+                subtitle: '生成时间',
+                totalTime: '总启动时间',
+                qwenpawModules: 'QwenPaw 模块',
+                thirdParty: '第三方库',
+                optimization: '优化潜力',
+                qwenpawTop: '📊 QwenPaw 模块耗时 Top 15',
+                thirdPartyTop: '📦 第三方库耗时 Top 10',
+                functionsTop: '⚡ 函数执行时间 Top 20',
+                callTree: '🌳 函数调用树',
+                suggestions: '🎯 优化建议',
+                rank: '排名',
+                module: '模块',
+                function: '函数',
+                time: '时间 (ms)',
+                totalTime: '总耗时',
+                calls: '调用次数',
+                avgTime: '平均耗时',
+                percentage: '占比',
+                error: '❌ 加载失败',
+                loading: '正在加载数据...'
+            },
+            en: {
+                title: '🐾 QwenPaw Startup Performance',
+                subtitle: 'Generated at',
+                totalTime: 'Total Startup Time',
+                qwenpawModules: 'QwenPaw Modules',
+                thirdParty: 'Third-party',
+                optimization: 'Optimization Potential',
+                qwenpawTop: '📊 QwenPaw Modules Top 15',
+                thirdPartyTop: '📦 Third-party Libraries Top 10',
+                functionsTop: '⚡ Function Execution Time Top 20',
+                callTree: '🌳 Function Call Tree',
+                suggestions: '🎯 Optimization Suggestions',
+                rank: 'Rank',
+                module: 'Module',
+                function: 'Function',
+                time: 'Time (ms)',
+                totalTime: 'Total Time',
+                calls: 'Calls',
+                avgTime: 'Avg Time',
+                percentage: 'Percentage',
+                error: '❌ Load Failed',
+                loading: 'Loading data...'
+            }
+        };
+
+        function t(key) {
+            return translations[currentLang][key] || key;
+        }
+
+        function toggleLanguage() {
+            currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            document.getElementById('langText').textContent = currentLang === 'zh' ? 'EN' : '中文';
+            if (analysisData) {
+                renderReport();
+            }
+        }
+
+        async function loadData() {
+            try {
+                const response = await fetch('analysis.json');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                analysisData = await response.json();
+                renderReport();
+            } catch (error) {
+                const errorMsgZh = `
+                    <div class="error">
+                        <h2>❌ 加载失败</h2>
+                        <p><strong>无法加载 analysis.json 文件</strong></p>
+                        <p style="margin-top: 15px;">可能原因：</p>
+                        <ul style="text-align: left; margin: 15px 40px; line-height: 1.8;">
+                            <li>未运行分析脚本生成数据</li>
+                            <li>浏览器安全限制（需要通过 HTTP 访问，不能用 file:// 协议）</li>
+                            <li>文件路径错误</li>
+                        </ul>
+                        <p style="margin-top: 15px;"><strong>解决方法：</strong></p>
+                        <ol style="text-align: left; margin: 15px 40px; line-height: 1.8;">
+                            <li>确保已运行: <code style="background: #f3f4f6; padding: 4px 8px; border-radius: 4px;">python scripts/startup_profile/analyze.py</code></li>
+                            <li>报告会自动启动HTTP服务器并打开浏览器</li>
+                        </ol>
+                        <pre style="margin-top: 15px; background: #f3f4f6; padding: 15px; border-radius: 8px; text-align: left; color: #ef4444;">${error.message}</pre>
+                    </div>
+                `;
+
+                const errorMsgEn = `
+                    <div class="error">
+                        <h2>❌ Load Failed</h2>
+                        <p><strong>Cannot load analysis.json file</strong></p>
+                        <p style="margin-top: 15px;">Possible reasons:</p>
+                        <ul style="text-align: left; margin: 15px 40px; line-height: 1.8;">
+                            <li>Analysis script not run yet</li>
+                            <li>Browser security restriction (need HTTP access, not file:// protocol)</li>
+                            <li>File path error</li>
+                        </ul>
+                        <p style="margin-top: 15px;"><strong>Solution:</strong></p>
+                        <ol style="text-align: left; margin: 15px 40px; line-height: 1.8;">
+                            <li>Run: <code style="background: #f3f4f6; padding: 4px 8px; border-radius: 4px;">python scripts/startup_profile/analyze.py</code></li>
+                            <li>Report will auto-start HTTP server and open browser</li>
+                        </ol>
+                        <pre style="margin-top: 15px; background: #f3f4f6; padding: 15px; border-radius: 8px; text-align: left; color: #ef4444;">${error.message}</pre>
+                    </div>
+                `;
+
+                document.getElementById('content').innerHTML = currentLang === 'zh' ? errorMsgZh : errorMsgEn;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderReport() {
+            const importAnalysis = analysisData.import_analysis || {};
+            const execAnalysis = analysisData.execution_analysis || {};
+            const genTime = analysisData.generated_at || '';
+            const summary = importAnalysis.summary || {};
+
+            document.querySelector('h1').textContent = t('title');
+            document.getElementById('subtitle').textContent = `${t('subtitle')}: ${genTime}`;
+
+            let html = '';
+
+            // Tabs
+            const importTime = (summary.total_ms || 0) / 1000;
+            const startupTime = (execAnalysis.metadata?.total_time || 0) / 1000;
+            const initTime = startupTime - importTime;
+
+            html += '<div class="tabs">';
+            html += `<button class="tab active" onclick="switchTab('import')">
+                ${currentLang === 'zh' ? '📦 Import 分析' : '📦 Import Analysis'}
+                <span class="tab-badge">${importTime.toFixed(1)}s</span>
+            </button>`;
+            html += `<button class="tab" onclick="switchTab('startup')">
+                ${currentLang === 'zh' ? '🚀 启动分析' : '🚀 Startup Analysis'}
+                <span class="tab-badge">${startupTime.toFixed(1)}s</span>
+            </button>`;
+            html += '</div>';
+
+            // Tab 1: Import Analysis
+            html += '<div id="tab-import" class="tab-content active">';
+
+            // Summary cards for Import tab
+            html += '<div class="summary">';
+            html += `<div class="summary-card">
+                <div class="summary-label">${currentLang === 'zh' ? 'Import 总时间' : 'Total Import Time'}</div>
+                <div class="summary-value">${(summary.total_ms || 0).toFixed(0)}ms</div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">${importTime.toFixed(2)}s</div>
+            </div>`;
+            html += `<div class="summary-card">
+                <div class="summary-label">${t('qwenpawModules')}</div>
+                <div class="summary-value">${(summary.total_qwenpaw_ms || 0).toFixed(0)}ms</div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">${((summary.total_qwenpaw_ms || 0) / (summary.total_ms || 1) * 100).toFixed(1)}%</div>
+            </div>`;
+            html += `<div class="summary-card">
+                <div class="summary-label">${t('thirdParty')}</div>
+                <div class="summary-value">${(summary.total_third_party_ms || 0).toFixed(0)}ms</div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">${((summary.total_third_party_ms || 0) / (summary.total_ms || 1) * 100).toFixed(1)}%</div>
+            </div>`;
+            html += '</div>';
+
+            // QwenPaw modules
+            const qwenpawImports = importAnalysis.qwenpaw_imports || [];
+            if (qwenpawImports.length > 0) {
+                html += '<div class="section">';
+                html += `<h2>${t('qwenpawTop')}</h2>`;
+                html += '<div class="chart-container"><canvas id="qwenpawChart"></canvas></div>';
+                html += '<table><thead><tr>';
+                html += `<th>${t('rank')}</th><th>${t('module')}</th><th>${t('time')}</th><th>${t('percentage')}</th>`;
+                html += '</tr></thead><tbody>';
+
+                qwenpawImports.slice(0, 15).forEach((imp, i) => {
+                    const pct = (imp.cumulative_ms / summary.total_ms * 100).toFixed(1);
+                    html += `<tr>
+                        <td>${i + 1}</td>
+                        <td><span class="module-name">${imp.package}</span></td>
+                        <td class="time-value">${imp.cumulative_ms.toFixed(2)}</td>
+                        <td>${pct}%</td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table></div>';
+            }
+
+            // Third-party libraries
+            const thirdParty = importAnalysis.third_party_imports || [];
+            if (thirdParty.length > 0) {
+                html += '<div class="section">';
+                html += `<h2>${t('thirdPartyTop')}</h2>`;
+                html += '<div class="chart-container"><canvas id="thirdPartyChart"></canvas></div>';
+                html += '<table><thead><tr>';
+                html += `<th>${t('rank')}</th><th>${t('module')}</th><th>${t('time')}</th><th>${t('percentage')}</th>`;
+                html += '</tr></thead><tbody>';
+
+                thirdParty.slice(0, 10).forEach((imp, i) => {
+                    const pct = (imp.cumulative_ms / summary.total_ms * 100).toFixed(1);
+                    html += `<tr>
+                        <td>${i + 1}</td>
+                        <td><span class="module-name">${imp.package}</span></td>
+                        <td class="time-value">${imp.cumulative_ms.toFixed(2)}</td>
+                        <td>${pct}%</td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table></div>';
+            }
+
+            // Close Import tab
+            html += '</div>';
+
+            // Tab 2: Startup Analysis
+            html += '<div id="tab-startup" class="tab-content">';
+
+            // Startup summary cards
+            const execMeta = execAnalysis.metadata || {};
+            const execTotalTime = execMeta.total_time || 0;
+
+            html += '<div class="summary">';
+            html += `<div class="summary-card">
+                <div class="summary-label">${currentLang === 'zh' ? '完整启动时间' : 'Full Startup Time'}</div>
+                <div class="summary-value">${execTotalTime.toFixed(0)}ms</div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">${(execTotalTime/1000).toFixed(2)}s</div>
+            </div>`;
+            html += `<div class="summary-card">
+                <div class="summary-label">${currentLang === 'zh' ? 'Import 耗时' : 'Import Time'}</div>
+                <div class="summary-value">${(summary.total_ms || 0).toFixed(0)}ms</div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">${((summary.total_ms || 0) / execTotalTime * 100).toFixed(1)}%</div>
+            </div>`;
+            html += `<div class="summary-card">
+                <div class="summary-label">${currentLang === 'zh' ? '初始化耗时' : 'Init Time'}</div>
+                <div class="summary-value">${(execTotalTime - (summary.total_ms || 0)).toFixed(0)}ms</div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">${((execTotalTime - (summary.total_ms || 0)) / execTotalTime * 100).toFixed(1)}%</div>
+            </div>`;
+            html += `<div class="summary-card">
+                <div class="summary-label">${currentLang === 'zh' ? '函数调用数' : 'Function Calls'}</div>
+                <div class="summary-value">${execMeta.total_events || 0}</div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 8px;">${execMeta.total_functions || 0} ${currentLang === 'zh' ? '个函数' : 'functions'}</div>
+            </div>`;
+            html += '</div>';
+
+            // 说明
+            html += '<div style="background: #dbeafe; border-left: 4px solid #3b82f6; padding: 16px; margin: 20px 0; border-radius: 8px;">';
+            html += `<strong>💡 ${currentLang === 'zh' ? '启动时间组成' : 'Startup Time Breakdown'}:</strong><br>`;
+            html += currentLang === 'zh'
+                ? `完整启动 (${(execTotalTime/1000).toFixed(2)}s) = Import (${importTime.toFixed(2)}s) + 初始化 (${initTime.toFixed(2)}s)<br>初始化包括：FastAPI 应用创建、路由注册、中间件配置、依赖注入等。`
+                : `Full Startup (${(execTotalTime/1000).toFixed(2)}s) = Import (${importTime.toFixed(2)}s) + Init (${initTime.toFixed(2)}s)<br>Init includes: FastAPI app creation, route registration, middleware config, dependency injection, etc.`;
+            html += '</div>';
+
+            // Function execution time
+            if (execAnalysis && execAnalysis.qwenpaw_functions) {
+                const functions = execAnalysis.qwenpaw_functions;
+                html += '<div class="section">';
+                html += `<h2>${t('functionsTop')}</h2>`;
+
+                // 添加说明
+                const noteZh = '<div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; color: #78350f;"><strong>📌 说明：</strong>函数耗时包含所有子函数的调用时间（累计时间）。例如，<code style="background: #fde68a; padding: 2px 6px; border-radius: 3px;">qwenpaw.app._app</code> 的耗时包含了它内部调用的所有子模块（如 <code style="background: #fde68a; padding: 2px 6px; border-radius: 3px;">qwenpaw.config</code>、<code style="background: #fde68a; padding: 2px 6px; border-radius: 3px;">qwenpaw.providers</code> 等）。这是正常的嵌套行为。</div>';
+
+                const noteEn = '<div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; color: #78350f;"><strong>📌 Note:</strong> Function time includes all sub-function calls (cumulative time). For example, <code style="background: #fde68a; padding: 2px 6px; border-radius: 3px;">qwenpaw.app._app</code> duration includes all sub-modules it calls (like <code style="background: #fde68a; padding: 2px 6px; border-radius: 3px;">qwenpaw.config</code>, <code style="background: #fde68a; padding: 2px 6px; border-radius: 3px;">qwenpaw.providers</code>, etc.). This is normal nested behavior.</div>';
+
+                html += currentLang === 'zh' ? noteZh : noteEn;
+
+                html += '<table><thead><tr>';
+                html += `<th>${t('rank')}</th><th>${t('function')}</th><th>${t('totalTime')} (${currentLang === 'zh' ? '累计' : 'Cumulative'})</th><th>${t('calls')}</th><th>${t('avgTime')}</th>`;
+                html += '</tr></thead><tbody>';
+
+                functions.slice(0, 20).forEach((func, i) => {
+                    html += `<tr>
+                        <td>${i + 1}</td>
+                        <td><span class="module-name">${func.function}</span></td>
+                        <td class="time-value">${func.total_ms.toFixed(2)}</td>
+                        <td>${func.count}</td>
+                        <td class="time-value">${func.avg_ms.toFixed(2)}</td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table></div>';
+            }
+
+            // Function call tree - 左右分栏布局
+            if (execAnalysis && execAnalysis.execution_order && execAnalysis.execution_order.length > 0) {
+                html += '<div class="section">';
+                html += `<h2>${t('callTree')}</h2>`;
+                html += '<div class="timeline-container">';
+                html += '<div class="timeline-left">';
+                html += buildCallTree(execAnalysis.execution_order);
+                html += '</div>';
+                html += '<div class="timeline-right">';
+                html += '<div class="empty-state" id="emptyState">';
+                html += '<div class="empty-icon">🔍</div>';
+                html += `<h3>${currentLang === 'zh' ? '选择左侧函数调用' : 'Select Function Call'}</h3>`;
+                html += `<p>${currentLang === 'zh' ? '点击左侧的函数调用查看详细信息' : 'Click a function call on the left to view details'}</p>`;
+                html += '</div>';
+                html += '<div class="detail-panel" id="detailPanel"></div>';
+                html += '</div>';
+                html += '</div></div>';
+            }
+
+            // Close Startup tab
+            html += '</div>';
+
+            document.getElementById('content').innerHTML = html;
+
+            // Draw charts
+            drawCharts();
+        }
+
+        function buildCallTree(executionOrder) {
+            console.log('[buildCallTree] Called with', executionOrder.length, 'events');
+            // 使用根目录 viewer.html 的 buildTreeStructure 逻辑
+            const tree = [];
+            const stack = [];
+
+            executionOrder.forEach(item => {
+                const duration = item.duration || 0;
+                const treeNode = {
+                    sequence: item.sequence,
+                    function: item.function,
+                    duration: duration,
+                    depth: item.depth || 0,
+                    children: [],
+                    id: `timeline-${item.sequence}`,
+                    colorClass: getColorClass(duration)
+                };
+
+                while (stack.length > 0 && stack[stack.length - 1].depth >= item.depth) {
+                    stack.pop();
+                }
+
+                if (stack.length === 0) {
+                    tree.push(treeNode);
+                } else {
+                    stack[stack.length - 1].children.push(treeNode);
+                }
+
+                stack.push(treeNode);
+            });
+
+            return renderTreeNode(tree.slice(0, 30)); // 只显示前30个根节点
+        }
+
+        function renderTreeNode(nodes) {
+            console.log('[renderTreeNode] Called with', nodes.length, 'nodes');
+            let html = '';
+            nodes.forEach(node => {
+                const hasChildren = node.children.length > 0;
+                const toggleClass = hasChildren ? 'collapsed' : 'no-children';
+                const childrenHtml = hasChildren ? renderTreeNode(node.children) : '';
+
+                html += '<div class="timeline-item ' + node.colorClass + '" data-sequence="' + node.sequence + '">' +
+                    '<div class="timeline-content" onclick="handleItemClick(event, \'' + node.id + '\', ' + node.sequence + ', ' + hasChildren + ')">' +
+                        '<span class="tree-toggle-icon ' + toggleClass + '" id="' + node.id + '-toggle"></span>' +
+                        '<div class="timeline-sequence">' + node.sequence + '</div>' +
+                        '<div style="flex: 1; min-width: 0;">' +
+                            '<div class="timeline-function">' + escapeHtml(node.function) + '</div>' +
+                            '<div class="timeline-meta">' +
+                                '<span>深度: ' + node.depth + '</span>' +
+                                '<span class="timeline-duration">运行时间: ' + node.duration.toFixed(2) + 'ms</span>' +
+                                (hasChildren ? '<span class="children-count">(' + node.children.length + '个子项)</span>' : '') +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                (hasChildren ? '<div class="timeline-children" id="' + node.id + '-children" style="display: none;">' + childrenHtml + '</div>' : '');
+            });
+
+            return html;
+        }
+
+        let currentSelectedItem = null;
+        let currentSequence = null;
+
+        function handleItemClick(event, nodeId, sequence, hasChildren) {
+            event.stopPropagation();
+
+            const childrenContainer = document.getElementById(`${nodeId}-children`);
+            const toggleIcon = document.getElementById(`${nodeId}-toggle`);
+
+            if (currentSequence === sequence && childrenContainer && hasChildren) {
+                // 点击相同项：切换折叠状态
+                const isCollapsed = childrenContainer.style.display === 'none';
+                childrenContainer.style.display = isCollapsed ? 'block' : 'none';
+
+                // 更新图标
+                if (toggleIcon) {
+                    if (isCollapsed) {
+                        toggleIcon.classList.remove('collapsed');
+                        toggleIcon.classList.add('expanded');
+                    } else {
+                        toggleIcon.classList.remove('expanded');
+                        toggleIcon.classList.add('collapsed');
+                    }
+                }
+            } else {
+                // 点击不同项：显示详情
+                showFunctionDetail(sequence);
+                currentSequence = sequence;
+            }
+        }
+
+        function showFunctionDetail(sequence) {
+            const execAnalysis = analysisData.execution_analysis;
+            if (!execAnalysis || !execAnalysis.execution_order) return;
+
+            // 移除旧的选中状态
+            if (currentSelectedItem) {
+                currentSelectedItem.classList.remove('selected');
+            }
+
+            // 添加新的选中状态
+            const selectedItem = document.querySelector(`[data-sequence="${sequence}"]`);
+            if (selectedItem) {
+                selectedItem.classList.add('selected');
+                currentSelectedItem = selectedItem;
+            }
+
+            // 隐藏空状态，显示详情面板
+            const emptyState = document.getElementById('emptyState');
+            const detailPanel = document.getElementById('detailPanel');
+            if (emptyState) emptyState.style.display = 'none';
+            if (!detailPanel) return;
+
+            detailPanel.style.display = 'block';
+            detailPanel.classList.add('active');
+
+            // 查找事件数据
+            const event = execAnalysis.execution_order.find(e => e.sequence === sequence);
+            if (!event) return;
+
+            const baseTime = execAnalysis.execution_order.length > 0
+                ? Math.min(...execAnalysis.execution_order.filter(e => e.enter_time).map(e => e.enter_time))
+                : 0;
+
+            const functionName = event.function || 'Unknown';
+            const duration = event.duration || 0;
+            const startTime = event.enter_time ? (event.enter_time - baseTime) : 0;
+            const endTime = event.exit_time ? (event.exit_time - baseTime) : 0;
+            const depth = event.depth || 0;
+
+            // 计算百分比
+            const totalTime = execAnalysis.metadata?.total_time || 0;
+            const percentage = totalTime ? (duration / totalTime * 100) : 0;
+
+            // 性能等级
+            const perfLevel = duration < 10 ? '快速' : duration < 50 ? '中等' : '较慢';
+            const perfColor = duration < 10 ? '#10b981' : duration < 50 ? '#f59e0b' : '#ef4444';
+
+            // 生成详情内容
+            let html = `
+                <div class="detail-header">
+                    <div class="detail-title">${escapeHtml(functionName)}</div>
+                    <div class="detail-subtitle">${currentLang === 'zh' ? '序列' : 'Sequence'} #${sequence}</div>
+                </div>
+
+                <div class="detail-section">
+                    <h4>📊 ${currentLang === 'zh' ? '执行信息' : 'Execution Info'}</h4>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">${currentLang === 'zh' ? '开始时间' : 'Start Time'}</div>
+                            <div class="detail-value">${startTime.toFixed(2)}ms</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">${currentLang === 'zh' ? '结束时间' : 'End Time'}</div>
+                            <div class="detail-value">${endTime.toFixed(2)}ms</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">${currentLang === 'zh' ? '执行时长' : 'Duration'}</div>
+                            <div class="detail-value" style="color: ${perfColor};">${duration.toFixed(2)}ms</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">${currentLang === 'zh' ? '调用深度' : 'Call Depth'}</div>
+                            <div class="detail-value">${depth}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">${currentLang === 'zh' ? '性能等级' : 'Performance'}</div>
+                            <div class="detail-value" style="color: ${perfColor};">${perfLevel}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">${currentLang === 'zh' ? '占总时间' : 'Percentage'}</div>
+                            <div class="detail-value">${percentage.toFixed(2)}%</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h4>📂 ${currentLang === 'zh' ? '函数信息' : 'Function Info'}</h4>
+                    <div class="detail-item" style="margin-bottom: 12px;">
+                        <div class="detail-label">${currentLang === 'zh' ? '完整路径' : 'Full Path'}</div>
+                        <div class="code-block">${escapeHtml(functionName)}</div>
+                    </div>
+                    ${event.parent ? `
+                    <div class="detail-item">
+                        <div class="detail-label">${currentLang === 'zh' ? '父函数' : 'Parent Function'}</div>
+                        <div class="code-block">${escapeHtml(event.parent)}</div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+
+            // 异常信息
+            if (event.exception) {
+                html += `
+                <div class="detail-section" style="border-left-color: #ef4444; background-color: #fef2f2;">
+                    <h4 style="color: #ef4444;">⚠️ ${currentLang === 'zh' ? '异常信息' : 'Exception'}</h4>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">${currentLang === 'zh' ? '异常类型' : 'Type'}</div>
+                            <div class="detail-value">${event.exception.type || 'Unknown'}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">${currentLang === 'zh' ? '异常消息' : 'Message'}</div>
+                            <div class="detail-value">${event.exception.value || 'N/A'}</div>
+                        </div>
+                    </div>
+                    ${event.exception.traceback ? `
+                    <h4 style="margin-top: 16px; color: #ef4444;">${currentLang === 'zh' ? '堆栈跟踪' : 'Traceback'}</h4>
+                    <pre class="code-block" style="border-left: 3px solid #ef4444;">${event.exception.traceback}</pre>
+                    ` : ''}
+                </div>
+                `;
+            }
+
+            detailPanel.innerHTML = html;
+        }
+
+        function getColorClass(timeMs) {
+            if (timeMs < 10) {
+                return 'perf-fast';
+            } else if (timeMs < 50) {
+                return 'perf-medium';
+            } else {
+                return 'perf-slow';
+            }
+        }
+
+        function drawCharts() {
+            const importAnalysis = analysisData.import_analysis || {};
+            const qwenpawImports = importAnalysis.qwenpaw_imports || [];
+            const thirdParty = importAnalysis.third_party_imports || [];
+
+            // QwenPaw chart
+            if (qwenpawImports.length > 0) {
+                const ctx = document.getElementById('qwenpawChart');
+                if (ctx) {
+                    new Chart(ctx.getContext('2d'), {
+                        type: 'bar',
+                        data: {
+                            labels: qwenpawImports.slice(0, 15).map(i => i.package.split('.').pop()),
+                            datasets: [{
+                                label: t('time'),
+                                data: qwenpawImports.slice(0, 15).map(i => i.cumulative_ms),
+                                backgroundColor: 'rgba(102, 126, 234, 0.6)',
+                                borderColor: '#667eea',
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            indexAxis: 'y',
+                            scales: {
+                                x: {
+                                    ticks: { color: '#6b7280' },
+                                    grid: { color: '#e5e7eb' }
+                                },
+                                y: {
+                                    ticks: { color: '#6b7280' },
+                                    grid: { display: false }
+                                }
+                            },
+                            plugins: {
+                                legend: { display: false }
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Third-party chart
+            if (thirdParty.length > 0) {
+                const ctx = document.getElementById('thirdPartyChart');
+                if (ctx) {
+                    new Chart(ctx.getContext('2d'), {
+                        type: 'bar',
+                        data: {
+                            labels: thirdParty.slice(0, 10).map(i => i.package),
+                            datasets: [{
+                                label: t('time'),
+                                data: thirdParty.slice(0, 10).map(i => i.cumulative_ms),
+                                backgroundColor: 'rgba(118, 75, 162, 0.6)',
+                                borderColor: '#764ba2',
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            indexAxis: 'y',
+                            scales: {
+                                x: {
+                                    ticks: { color: '#6b7280' },
+                                    grid: { color: '#e5e7eb' }
+                                },
+                                y: {
+                                    ticks: { color: '#6b7280' },
+                                    grid: { display: false }
+                                }
+                            },
+                            plugins: {
+                                legend: { display: false }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.closest('.tab').classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+
+            // Redraw charts if switching to import tab
+            if (tabName === 'import') {
+                setTimeout(() => drawCharts(), 100);
+            }
+        }
+
+        // Initialize
+        loadData();
+    </script>
+</body>
+</html>

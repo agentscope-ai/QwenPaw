@@ -1,0 +1,428 @@
+name: Channel Tests
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'src/qwenpaw/app/channels/**'
+      - 'tests/unit/channels/**'
+      - 'tests/contract/channels/**'
+      - 'tests/conftest.py'
+      - '.github/workflows/channel-tests.yml'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'src/qwenpaw/app/channels/**'
+      - 'tests/unit/channels/**'
+      - 'tests/contract/channels/**'
+      - 'tests/conftest.py'
+      - '.github/workflows/channel-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # Phase 1: Detect Changed Files and Determine Test Scope
+  ############################################################################
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      base_changed: ${{ steps.check-base.outputs.changed }}
+      affected_channels: ${{ steps.detect-channels.outputs.channels }}
+      test_matrix: ${{ steps.build-matrix.outputs.matrix }}
+      run_all: ${{ steps.check-base.outputs.changed == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history to detect changes
+
+      # Determine base and head for PR/push
+      - name: Set comparison range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> $GITHUB_OUTPUT
+            echo "head=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          else
+            # For push, compare with previous commit
+            echo "base=${{ github.event.before }}" >> $GITHUB_OUTPUT
+            echo "head=${{ github.event.after }}" >> $GITHUB_OUTPUT
+          fi
+
+      # Check if BaseChannel changed (triggers ALL channel tests)
+      - name: Check BaseChannel changes
+        id: check-base
+        run: |
+          echo "Checking if base.py or common channel code changed..."
+
+          CHANGED_FILES=$(git diff --name-only ${{ steps.range.outputs.base }} ${{ steps.range.outputs.head }} || true)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Check for base channel changes
+          if echo "$CHANGED_FILES" | grep -E "(base\.py|registry\.py|manager\.py|renderer\.py|utils\.py)$" > /dev/null; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "⚠️ BaseChannel or common code changed - ALL channels must be tested"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "✅ BaseChannel unchanged - selective testing only"
+          fi
+
+      # Detect which channels were modified
+      - name: Detect modified channels
+        id: detect-channels
+        run: |
+          CHANGED_FILES=$(git diff --name-only ${{ steps.range.outputs.base }} ${{ steps.range.outputs.head }} || true)
+
+          # Extract channel names from paths like src/qwenpaw/app/channels/dingtalk/channel.py
+          CHANNELS=$(echo "$CHANGED_FILES" | grep -oE 'channels/[^/]+' | sed 's/channels\///' | sort -u | tr '\n' ' ')
+
+          echo "channels=$CHANNELS" >> $GITHUB_OUTPUT
+          echo "Modified channels: $CHANNELS"
+
+      # Build test matrix
+      - name: Build test matrix
+        id: build-matrix
+        run: |
+          CHANGED_FILES=$(git diff --name-only ${{ steps.range.outputs.base }} ${{ steps.range.outputs.head }} || true)
+
+          if [ "${{ steps.check-base.outputs.changed }}" = "true" ]; then
+            # Base changed - test ALL channels
+            MATRIX=$(find tests/unit/channels -name "test_*.py" -exec basename {} .py \; | jq -R -s -c 'split("\n")[:-1]')
+          else
+            # Only test modified channels + base contract tests
+            CHANNELS=$(echo "$CHANGED_FILES" | grep -oE 'channels/[^/]+' | sed 's/channels\///' | sort -u)
+
+            # Build list of test files to run
+            TESTS="test_base_core"
+            for ch in $CHANNELS; do
+              if [ "$ch" != "" ]; then
+                if [ -f "tests/unit/channels/test_${ch}.py" ]; then
+                  TESTS="${TESTS} test_${ch}"
+                elif [ -f "tests/unit/channels/test_${ch}_channel.py" ]; then
+                  TESTS="${TESTS} test_${ch}_channel"
+                fi
+              fi
+            done
+
+            MATRIX=$(echo "$TESTS" | tr ' ' '\n' | jq -R -s -c 'split("\n")[:-1]')
+          fi
+
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          echo "Test matrix: $MATRIX"
+
+  # ===========================================================================
+  # Phase 2: Run Channel Unit Tests (Conditional on Changes)
+  ############################################################################
+  channel-unit-tests:
+    name: Channel Tests - ${{ matrix.test_file }}
+    needs: detect-changes
+    if: |
+      always() &&
+      needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.test_matrix != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test_file: ${{ fromJson(needs.detect-changes.outputs.test_matrix) }}
+        python-version: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run ${{ matrix.test_file }}
+        run: |
+          FILE="tests/unit/channels/${{ matrix.test_file }}.py"
+          if [ -f "$FILE" ]; then
+            pytest "$FILE" -v --tb=short
+          else
+            echo "Warning: $FILE not found, skipping"
+            # Don't fail - file might not exist for detected channel
+          fi
+
+  # ===========================================================================
+  # Phase 3: Coverage Report for Channel Code
+  ############################################################################
+  channel-coverage:
+    name: Channel Coverage Report
+    needs: [detect-changes, channel-unit-tests]
+    if: |
+      always() &&
+      needs.detect-changes.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Run targeted coverage based on what changed
+      - name: Run coverage for changed channels
+        run: |
+          if [ "${{ needs.detect-changes.outputs.run_all }}" = "true" ]; then
+            # Full coverage: unit tests + contract tests
+            # 1. Run unit tests with coverage
+            pytest tests/unit/channels/ \
+              -v \
+              --cov=src/qwenpaw/app/channels \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term-missing
+
+            # 2. Run contract tests and append coverage (primary tests)
+            pytest tests/contract/channels/ \
+              -v \
+              --cov=src/qwenpaw/app/channels \
+              --cov-append \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term-missing
+          else
+            # Targeted coverage for affected channels only
+            COV_SOURCES="src/qwenpaw/app/channels/base.py"
+
+            # Add affected channel sources
+            for ch in ${{ needs.detect-changes.outputs.affected_channels }}; do
+              if [ -d "src/qwenpaw/app/channels/$ch" ]; then
+                COV_SOURCES="$COV_SOURCES,src/qwenpaw/app/channels/$ch"
+              fi
+            done
+
+            # 1. Run unit tests with targeted coverage
+            pytest tests/unit/channels/ \
+              -v \
+              --cov="$COV_SOURCES" \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term-missing
+
+            # 2. Run contract tests and append coverage
+            pytest tests/contract/channels/ \
+              -v \
+              --cov="$COV_SOURCES" \
+              --cov-append \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term-missing
+          fi
+
+      # Post coverage comment to PR
+      - name: Comment PR with coverage
+        if: github.event_name == 'pull_request'
+        continue-on-error: true  # Soft gate: coverage below threshold does not block PR
+        uses: orgoro/coverage@v3.2
+        with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.0
+          thresholdNew: 55.0
+          thresholdModified: 55.0
+
+      # Check coverage thresholds (🟡 Soft gate - informational only)
+      - name: Check coverage thresholds
+        run: |
+          # Coverage check is advisory only (soft gate)
+          # Unit tests are optional; coverage threshold does not block PR
+          python << 'EOF'
+          import xml.etree.ElementTree as ET
+
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+
+          # Get line rate and convert to percentage
+          line_rate = float(root.get('line-rate', 0))
+          coverage_pct = line_rate * 100
+
+          print(f"📊 Channel code coverage: {coverage_pct:.1f}%")
+          print(f"   (Advisory only - soft gate, does not block PR)")
+
+          # Advisory threshold for reference
+          ADVISORY_THRESHOLD = 55.0
+
+          if coverage_pct < ADVISORY_THRESHOLD:
+              print(f"⚠️  Coverage {coverage_pct:.1f}% is below advisory threshold {ADVISORY_THRESHOLD}%")
+              print(f"   Unit tests are soft-gated; this is informational only.")
+          else:
+              print(f"✅ Coverage {coverage_pct:.1f}% meets advisory threshold {ADVISORY_THRESHOLD}%")
+          EOF
+
+  # ===========================================================================
+  # Phase 4: Contract Compliance Check (Ensures BaseChannel contract honored)
+  ############################################################################
+  contract-compliance:
+    name: BaseChannel Contract Compliance
+    needs: detect-changes
+    if: |
+      always() &&
+      needs.detect-changes.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Run all contract tests (ensures interface compliance for ALL channels)
+      - name: Run Contract Tests
+        run: |
+          pytest tests/contract/channels/ -v
+
+      # Verify all channels have required methods implemented (supplementary check)
+      - name: Check channel implementations
+        run: |
+          python << 'EOF'
+          import sys
+          import importlib
+          from pathlib import Path
+
+          REQUIRED_METHODS = [
+              'from_env',
+              'from_config',
+              'send',
+              'start',
+              'stop',
+              'build_agent_request_from_native',
+          ]
+
+          BASE_REQUIRED_METHODS = [
+              'resolve_session_id',
+          ]
+
+          EXIT_CODE = 0
+
+          # Find all channel implementations
+          channels_dir = Path('src/qwenpaw/app/channels')
+
+          for channel_dir in channels_dir.iterdir():
+              if not channel_dir.is_dir() or channel_dir.name.startswith('_'):
+                  continue
+
+              channel_name = channel_dir.name
+              channel_file = channel_dir / 'channel.py'
+
+              if not channel_file.exists():
+                  continue
+
+              try:
+                  module = importlib.import_module(f'qwenpaw.app.channels.{channel_name}.channel')
+
+                  # Find the channel class
+                  channel_class = None
+                  for name in dir(module):
+                      obj = getattr(module, name)
+                      if (isinstance(obj, type) and
+                          name.lower().endswith('channel') and
+                          name != 'BaseChannel'):
+                          channel_class = obj
+                          break
+
+                  if channel_class is None:
+                      print(f"⚠️  {channel_name}: No channel class found")
+                      continue
+
+                  # Check required methods
+                  missing = []
+                  for method in REQUIRED_METHODS:
+                      if not hasattr(channel_class, method):
+                          missing.append(method)
+
+                  # Check if base methods are overridden where needed
+                  base_module = importlib.import_module('qwenpaw.app.channels.base')
+                  BaseChannel = getattr(base_module, 'BaseChannel')
+
+                  for method in BASE_REQUIRED_METHODS:
+                      # Check if method is still abstract (not implemented)
+                      if hasattr(channel_class, '__abstractmethods__'):
+                          if method in channel_class.__abstractmethods__:
+                              missing.append(f"{method} (abstract)")
+
+                  if missing:
+                      print(f"❌ {channel_name} ({channel_class.__name__}): Missing methods: {', '.join(missing)}")
+                      EXIT_CODE = 1
+                  else:
+                      print(f"✅ {channel_name} ({channel_class.__name__}): All required methods present")
+
+              except Exception as e:
+                  print(f"⚠️  {channel_name}: Error loading - {e}")
+
+          sys.exit(EXIT_CODE)
+          EOF
+
+  # ===========================================================================
+  # Phase 5: Summary and Status
+  ############################################################################
+  channel-test-summary:
+    name: Channel Test Summary
+    needs: [detect-changes, channel-unit-tests, channel-coverage, contract-compliance]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Summarize Results
+        run: |
+          echo "========================================="
+          echo "Channel Test Results"
+          echo "========================================="
+          echo "Changes detected: ${{ needs.detect-changes.outputs.affected_channels }}"
+          echo "Base changed: ${{ needs.detect-changes.outputs.run_all }}"
+          echo ""
+          echo "Unit Tests: ${{ needs.channel-unit-tests.result }}"
+          echo "Coverage: ${{ needs.channel-coverage.result }}"
+          echo "Contract Compliance: ${{ needs.contract-compliance.result }}"
+          echo "========================================="
+
+          # Determine overall status
+          # ⚠️ 强卡点：仅契约测试失败阻断 PR（明确接口兼容性门禁）
+          if [ "${{ needs.contract-compliance.result }}" = "failure" ]; then
+            echo "❌ Contract compliance FAILED - PR blocked"
+            exit 1
+          fi
+
+          if [ "${{ needs.contract-compliance.result }}" = "skipped" ]; then
+            echo "⚠️  Contract tests were skipped"
+            exit 0
+          fi
+
+          # 软卡点信息（不阻断 PR）
+          if [ "${{ needs.channel-unit-tests.result }}" = "failure" ]; then
+            echo "⚠️  Unit tests failed (non-blocking)"
+          fi
+
+          if [ "${{ needs.channel-coverage.result }}" = "failure" ]; then
+            echo "⚠️  Coverage check failed (non-blocking)"
+          fi
+
+          echo "✅ Channel tests passed (contract compliance mandatory, others advisory)"

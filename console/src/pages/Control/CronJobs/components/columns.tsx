@@ -3,7 +3,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { MenuProps } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
 import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
-import { message } from "antd";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { TFunction } from "i18next";
 import { parseCron } from "./parseCron";
 import styles from "../index.module.less";
@@ -19,6 +19,7 @@ interface ColumnHandlers {
 }
 
 const createCopyToClipboard = (t: TFunction) => async (text: string) => {
+  const { message } = useAppMessage();
   try {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(text);

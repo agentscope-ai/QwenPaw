@@ -5,21 +5,21 @@ import {
   Button,
   Card,
   Select,
-  message,
   Tabs,
 } from "@agentscope-ai/design";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PlusCircleOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
 import {
-  PageHeader,
   RuleTable,
   RuleModal,
   PreviewModal,
   SkillScannerSection,
   FileGuardSection,
 } from "./components";
+import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 const BUILTIN_TOOLS = [
@@ -83,6 +83,8 @@ function SecurityPage() {
   const [editModal, setEditModal] = useState(false);
   const [editingRule, setEditingRule] = useState<MergedRule | null>(null);
   const [previewRule, setPreviewRule] = useState<MergedRule | null>(null);
+
+  const { message } = useAppMessage();
 
   // Form handlers
   const handleSave = useCallback(async () => {
@@ -272,40 +274,42 @@ function SecurityPage() {
                         >
                           <Switch onChange={(val) => setEnabled(val)} />
                         </Form.Item>
-                      </Form>
-                      <div className={styles.toolGuardRow}>
-                        <Form.Item
-                          label={t("security.guardedTools")}
-                          name="guarded_tools"
-                          tooltip={t("security.guardedToolsTooltip")}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            mode="tags"
-                            options={toolOptions}
-                            placeholder={t("security.guardedToolsPlaceholder")}
-                            disabled={!enabled}
-                            allowClear
-                            style={{ width: "100%" }}
-                          />
-                        </Form.Item>
+                        <div className={styles.toolGuardRow}>
+                          <Form.Item
+                            label={t("security.guardedTools")}
+                            name="guarded_tools"
+                            tooltip={t("security.guardedToolsTooltip")}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              mode="tags"
+                              options={toolOptions}
+                              placeholder={t(
+                                "security.guardedToolsPlaceholder",
+                              )}
+                              disabled={!enabled}
+                              allowClear
+                              style={{ width: "100%" }}
+                            />
+                          </Form.Item>
 
-                        <Form.Item
-                          label={t("security.deniedTools")}
-                          name="denied_tools"
-                          tooltip={t("security.deniedToolsTooltip")}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Select
-                            mode="tags"
-                            options={toolOptions}
-                            placeholder={t("security.deniedToolsPlaceholder")}
-                            disabled={!enabled}
-                            allowClear
-                            style={{ width: "100%" }}
-                          />
-                        </Form.Item>
-                      </div>
+                          <Form.Item
+                            label={t("security.deniedTools")}
+                            name="denied_tools"
+                            tooltip={t("security.deniedToolsTooltip")}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              mode="tags"
+                              options={toolOptions}
+                              placeholder={t("security.deniedToolsPlaceholder")}
+                              disabled={!enabled}
+                              allowClear
+                              style={{ width: "100%" }}
+                            />
+                          </Form.Item>
+                        </div>
+                      </Form>
                     </Card>
                   </div>
 

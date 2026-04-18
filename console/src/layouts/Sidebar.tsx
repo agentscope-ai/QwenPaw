@@ -5,38 +5,40 @@ import {
   Modal,
   Input,
   Form,
-  message,
   Tooltip,
   type MenuProps,
 } from "antd";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
 import {
-  MessageCircle,
-  Wifi,
-  UsersRound,
-  CalendarClock,
-  Activity,
-  Sparkles,
-  Briefcase,
-  Box,
-  Globe,
-  Settings,
-  Shield,
-  Plug,
-  Wrench,
-  BarChart3,
-  Mic,
-  Bot,
-  LogOut,
-  UserCog,
-  PanelLeftOpen,
-  PanelLeftClose,
-} from "lucide-react";
+  SparkChatTabFill,
+  SparkWifiLine,
+  SparkUserGroupLine,
+  SparkDateLine,
+  SparkVoiceChat01Line,
+  SparkMagicWandLine,
+  SparkLocalFileLine,
+  SparkModePlazaLine,
+  SparkInternetLine,
+  SparkModifyLine,
+  SparkBrowseLine,
+  SparkMcpMcpLine,
+  SparkToolLine,
+  SparkDataLine,
+  SparkMicLine,
+  SparkAgentLine,
+  SparkExitFullscreenLine,
+  SparkSearchUserLine,
+  SparkMenuExpandLine,
+  SparkMenuFoldLine,
+  SparkOtherLine,
+} from "@agentscope-ai/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
+import { usePlugins } from "../plugins/PluginContext";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
@@ -56,7 +58,9 @@ interface SidebarProps {
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { isDark } = useTheme();
+  const { pluginRoutes } = usePlugins();
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -132,110 +136,128 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const collapsedNavItems = [
     {
       key: "chat",
-      icon: <MessageCircle size={18} />,
+      icon: <SparkChatTabFill size={18} />,
       path: "/chat",
       label: t("nav.chat"),
     },
     {
       key: "channels",
-      icon: <Wifi size={18} />,
+      icon: <SparkWifiLine size={18} />,
       path: "/channels",
       label: t("nav.channels"),
     },
     {
       key: "sessions",
-      icon: <UsersRound size={18} />,
+      icon: <SparkUserGroupLine size={18} />,
       path: "/sessions",
       label: t("nav.sessions"),
     },
     {
       key: "cron-jobs",
-      icon: <CalendarClock size={18} />,
+      icon: <SparkDateLine size={18} />,
       path: "/cron-jobs",
       label: t("nav.cronJobs"),
     },
     {
       key: "heartbeat",
-      icon: <Activity size={18} />,
+      icon: <SparkVoiceChat01Line size={18} />,
       path: "/heartbeat",
       label: t("nav.heartbeat"),
     },
     {
       key: "workspace",
-      icon: <Briefcase size={18} />,
+      icon: <SparkLocalFileLine size={18} />,
       path: "/workspace",
       label: t("nav.workspace"),
     },
     {
       key: "skills",
-      icon: <Sparkles size={18} />,
+      icon: <SparkMagicWandLine size={18} />,
       path: "/skills",
       label: t("nav.skills"),
     },
     {
       key: "skill-pool",
-      icon: <Sparkles size={18} />,
+      icon: <SparkOtherLine size={18} />,
       path: "/skill-pool",
       label: t("nav.skillPool", "Skill Pool"),
     },
     {
       key: "tools",
-      icon: <Wrench size={18} />,
+      icon: <SparkToolLine size={18} />,
       path: "/tools",
       label: t("nav.tools"),
     },
-    { key: "mcp", icon: <Plug size={18} />, path: "/mcp", label: t("nav.mcp") },
+    {
+      key: "mcp",
+      icon: <SparkMcpMcpLine size={18} />,
+      path: "/mcp",
+      label: t("nav.mcp"),
+    },
     {
       key: "agent-config",
-      icon: <Settings size={18} />,
+      icon: <SparkModifyLine size={18} />,
       path: "/agent-config",
       label: t("nav.agentConfig"),
     },
     {
       key: "agents",
-      icon: <Bot size={18} />,
+      icon: <SparkAgentLine size={18} />,
       path: "/agents",
       label: t("nav.agents"),
     },
     {
       key: "models",
-      icon: <Box size={18} />,
+      icon: <SparkModePlazaLine size={18} />,
       path: "/models",
       label: t("nav.models"),
     },
     {
       key: "environments",
-      icon: <Globe size={18} />,
+      icon: <SparkInternetLine size={18} />,
       path: "/environments",
       label: t("nav.environments"),
     },
     {
       key: "security",
-      icon: <Shield size={18} />,
+      icon: <SparkBrowseLine size={18} />,
       path: "/security",
       label: t("nav.security"),
     },
     {
       key: "token-usage",
-      icon: <BarChart3 size={18} />,
+      icon: <SparkDataLine size={18} />,
       path: "/token-usage",
       label: t("nav.tokenUsage"),
     },
     {
       key: "voice-transcription",
-      icon: <Mic size={18} />,
+      icon: <SparkMicLine size={18} />,
       path: "/voice-transcription",
       label: t("nav.voiceTranscription"),
     },
+    {
+      key: "debug",
+      icon: <SparkOtherLine size={18} />,
+      path: "/debug",
+      label: t("nav.debug", "Debug"),
+    },
+    // Append plugin nav items dynamically
+    ...pluginRoutes.map((route) => ({
+      key: route.path.replace(/^\//, ""),
+      icon: <span style={{ fontSize: 18 }}>{route.icon}</span>,
+      path: route.path,
+      label: route.label,
+    })),
   ];
 
-  // ── Menu items ────────────────────────────────────────────────────────────
+  // ── Menu items — agent-scoped (Chat + Control + Workspace) ──────────────
 
-  const menuItems: MenuProps["items"] = [
+  const agentMenuItems: MenuProps["items"] = [
     {
       key: "chat",
       label: collapsed ? null : t("nav.chat"),
-      icon: <MessageCircle size={16} />,
+      icon: <SparkChatTabFill size={16} />,
     },
     {
       key: "control-group",
@@ -244,22 +266,22 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {
           key: "channels",
           label: collapsed ? null : t("nav.channels"),
-          icon: <Wifi size={16} />,
+          icon: <SparkWifiLine size={16} />,
         },
         {
           key: "sessions",
           label: collapsed ? null : t("nav.sessions"),
-          icon: <UsersRound size={16} />,
+          icon: <SparkUserGroupLine size={16} />,
         },
         {
           key: "cron-jobs",
           label: collapsed ? null : t("nav.cronJobs"),
-          icon: <CalendarClock size={16} />,
+          icon: <SparkDateLine size={16} />,
         },
         {
           key: "heartbeat",
           label: collapsed ? null : t("nav.heartbeat"),
-          icon: <Activity size={16} />,
+          icon: <SparkVoiceChat01Line size={16} />,
         },
       ],
     },
@@ -270,30 +292,35 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {
           key: "workspace",
           label: collapsed ? null : t("nav.workspace"),
-          icon: <Briefcase size={16} />,
+          icon: <SparkLocalFileLine size={16} />,
         },
         {
           key: "skills",
           label: collapsed ? null : t("nav.skills"),
-          icon: <Sparkles size={16} />,
+          icon: <SparkMagicWandLine size={16} />,
         },
         {
           key: "tools",
           label: collapsed ? null : t("nav.tools"),
-          icon: <Wrench size={16} />,
+          icon: <SparkToolLine size={16} />,
         },
         {
           key: "mcp",
           label: collapsed ? null : t("nav.mcp"),
-          icon: <Plug size={16} />,
+          icon: <SparkMcpMcpLine size={16} />,
         },
         {
           key: "agent-config",
           label: collapsed ? null : t("nav.agentConfig"),
-          icon: <Settings size={16} />,
+          icon: <SparkModifyLine size={16} />,
         },
       ],
     },
+  ];
+
+  // ── Menu items — global settings ──────────────────────────────────────
+
+  const settingsMenuItems: MenuProps["items"] = [
     {
       key: "settings-group",
       label: collapsed ? null : t("nav.settings"),
@@ -301,55 +328,69 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {
           key: "agents",
           label: collapsed ? null : t("nav.agents"),
-          icon: <Bot size={16} />,
+          icon: <SparkAgentLine size={16} />,
         },
         {
           key: "models",
           label: collapsed ? null : t("nav.models"),
-          icon: <Box size={16} />,
+          icon: <SparkModePlazaLine size={16} />,
         },
         {
           key: "skill-pool",
           label: collapsed ? null : t("nav.skillPool", "Skill Pool"),
-          icon: <Sparkles size={16} />,
+          icon: <SparkOtherLine size={16} />,
         },
         {
           key: "environments",
           label: collapsed ? null : t("nav.environments"),
-          icon: <Globe size={16} />,
+          icon: <SparkInternetLine size={16} />,
         },
         {
           key: "security",
           label: collapsed ? null : t("nav.security"),
-          icon: <Shield size={16} />,
+          icon: <SparkBrowseLine size={16} />,
         },
         {
           key: "token-usage",
           label: collapsed ? null : t("nav.tokenUsage"),
-          icon: <BarChart3 size={16} />,
+          icon: <SparkDataLine size={16} />,
         },
         {
           key: "voice-transcription",
           label: collapsed ? null : t("nav.voiceTranscription"),
-          icon: <Mic size={16} />,
+          icon: <SparkMicLine size={16} />,
+        },
+        {
+          key: "debug",
+          label: collapsed ? null : t("nav.debug", "Debug"),
+          icon: <SparkOtherLine size={16} />,
         },
       ],
     },
   ];
 
+  // Append plugin menu items as a group (only when there are plugins)
+  if (pluginRoutes.length > 0) {
+    settingsMenuItems.push({
+      key: "plugins-group",
+      label: collapsed ? null : t("nav.plugins"),
+      children: pluginRoutes.map((route) => ({
+        key: route.path.replace(/^\//, ""),
+        label: collapsed ? null : route.label,
+        icon: <span style={{ fontSize: 16 }}>{route.icon}</span>,
+      })),
+    } as any);
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <Sider
-      width={collapsed ? 72 : 275}
+      width={collapsed ? 72 : 240}
       className={`${styles.sider}${
         collapsed ? ` ${styles.siderCollapsed}` : ""
       }${isDark ? ` ${styles.siderDark}` : ""}`}
     >
-      <div className={styles.agentSelectorContainer}>
-        <AgentSelector collapsed={collapsed} />
-      </div>
-
       {collapsed ? (
         <nav className={styles.collapsedNav}>
           {collapsedNavItems.map((item) => {
@@ -377,25 +418,50 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           })}
         </nav>
       ) : (
-        <Menu
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          openKeys={DEFAULT_OPEN_KEYS}
-          onClick={({ key }) => {
-            const path = KEY_TO_PATH[String(key)];
-            if (path) navigate(path);
-          }}
-          items={menuItems}
-          theme={isDark ? "dark" : "light"}
-          className={styles.sideMenu}
-        />
+        <>
+          {/* Agent-scoped section: selector + Chat + Control + Workspace */}
+          <div className={styles.agentScopedSection}>
+            <div className={styles.agentSelectorContainer}>
+              <AgentSelector collapsed={collapsed} />
+            </div>
+            <Menu
+              mode="inline"
+              selectedKeys={[selectedKey]}
+              openKeys={DEFAULT_OPEN_KEYS}
+              onClick={({ key }) => {
+                const path = KEY_TO_PATH[String(key)];
+                if (path) navigate(path);
+              }}
+              items={agentMenuItems}
+              theme={isDark ? "dark" : "light"}
+              className={styles.sideMenu}
+            />
+          </div>
+
+          {/* Global settings section */}
+          <Menu
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            openKeys={[
+              ...DEFAULT_OPEN_KEYS,
+              ...(pluginRoutes.length > 0 ? ["plugins-group"] : []),
+            ]}
+            onClick={({ key }) => {
+              const path = KEY_TO_PATH[String(key)] ?? `/${String(key)}`;
+              navigate(path);
+            }}
+            items={settingsMenuItems}
+            theme={isDark ? "dark" : "light"}
+            className={styles.sideMenu}
+          />
+        </>
       )}
 
       {authEnabled && !collapsed && (
         <div className={styles.authActions}>
           <Button
             type="text"
-            icon={<UserCog size={16} />}
+            icon={<SparkSearchUserLine size={16} />}
             onClick={() => {
               accountForm.resetFields();
               setAccountModalOpen(true);
@@ -409,7 +475,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           </Button>
           <Button
             type="text"
-            icon={<LogOut size={16} />}
+            icon={<SparkExitFullscreenLine size={16} />}
             onClick={() => {
               clearAuthToken();
               window.location.href = "/login";
@@ -429,9 +495,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           type="text"
           icon={
             collapsed ? (
-              <PanelLeftOpen size={20} />
+              <SparkMenuExpandLine size={20} />
             ) : (
-              <PanelLeftClose size={20} />
+              <SparkMenuFoldLine size={20} />
             )
           }
           onClick={() => setCollapsed(!collapsed)}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Dropdown, message, Spin, Tooltip } from "antd";
+import { Dropdown, Spin, Tooltip } from "antd";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
   CheckOutlined,
   LoadingOutlined,
@@ -11,12 +12,15 @@ import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
 import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
+import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
+import { providerIcon } from "../../Settings/Models/components/providerIcon";
 import styles from "./index.module.less";
 
 interface EligibleProvider {
   id: string;
   name: string;
-  models: Array<{ id: string; name: string }>;
+  base_url?: string;
+  models: Array<{ id: string; name: string; is_free?: boolean }>;
 }
 
 export default function ModelSelector() {
@@ -31,6 +35,7 @@ export default function ModelSelector() {
   const savingRef = useRef(false);
   const location = useLocation();
   const { selectedAgent } = useAgentStore();
+  const { message } = useAppMessage();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -89,6 +94,7 @@ export default function ModelSelector() {
     .map((p) => ({
       id: p.id,
       name: p.name,
+      base_url: p.base_url,
       models: [...(p.models ?? []), ...(p.extra_models ?? [])],
     }));
 
@@ -107,6 +113,10 @@ export default function ModelSelector() {
     }
     return activeModelId;
   })();
+
+  const activeProviderIconUrl = activeProviderId
+    ? providerIcon(activeProviderId)
+    : null;
 
   const handleOpenChange = useCallback(
     async (next: boolean) => {
@@ -133,9 +143,27 @@ export default function ModelSelector() {
       setOpen(false);
       return;
     }
+
+    const targetProvider = eligibleProviders.find(
+      (provider) => provider.id === providerId,
+    );
+    const targetModel = targetProvider?.models.find(
+      (model) => model.id === modelId,
+    );
+
+    setOpen(false);
+
+    if (targetProvider && targetModel) {
+      const confirmed = await confirmFreeModelSwitch({
+        provider: targetProvider,
+        model: targetModel,
+        t,
+      });
+      if (!confirmed) return;
+    }
+
     savingRef.current = true;
     setSaving(true);
-    setOpen(false);
     try {
       await providerApi.setActiveLlm({
         provider_id: providerId,
@@ -179,6 +207,11 @@ export default function ModelSelector() {
                 isProviderActive ? styles.providerItemActive : "",
               ].join(" ")}
             >
+              <img
+                src={providerIcon(provider.id)}
+                alt=""
+                className={styles.providerIcon}
+              />
               <span className={styles.providerName}>{provider.name}</span>
               <RightOutlined className={styles.providerArrow} />
 
@@ -232,6 +265,13 @@ export default function ModelSelector() {
         >
           {saving && (
             <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
+          )}
+          {activeProviderIconUrl && (
+            <img
+              src={activeProviderIconUrl}
+              alt=""
+              className={styles.providerIcon}
+            />
           )}
           <span className={styles.triggerName}>{activeModelName}</span>
           <SparkDownLine

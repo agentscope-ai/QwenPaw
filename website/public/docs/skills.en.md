@@ -5,10 +5,10 @@ imports, or files you add yourself.
 
 Two ways to manage skills:
 
-- **Console:** Use the [Console](./console) under **Agent → Skills**.
-- **Working directory:** Edit skill files directly under `$COPAW_WORKING_DIR`
-  (default `~/.copaw`), including `$COPAW_WORKING_DIR/skill_pool/` and each
-  workspace's `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`.
+- **Console:** Use the [Console](./console) under **Workspace → Skills**.
+- **Working directory:** Edit skill files directly under `$QWENPAW_WORKING_DIR`
+  (default `~/.qwenpaw`), including `$QWENPAW_WORKING_DIR/skill_pool/` and each
+  workspace's `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`.
 
 > If you're new to channels, heartbeat, or cron, read [Introduction](./intro) first.
 
@@ -19,16 +19,16 @@ copies. The structure and creation paths are described below.
 
 ## Skill Structure
 
-CoPaw skills are organized in two layers:
+QwenPaw skills are organized in two layers:
 
-- **Skill Pool:** Shared local repository at `$COPAW_WORKING_DIR/skill_pool/`
-  (default `~/.copaw/skill_pool/`).
+- **Skill Pool:** Shared local repository at `$QWENPAW_WORKING_DIR/skill_pool/`
+  (default `~/.qwenpaw/skill_pool/`).
 - **Workspace Skills:** The local runtime copy at
-  `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`
-  (default `~/.copaw/workspaces/{agent_id}/skills/`).
+  `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`
+  (default `~/.qwenpaw/workspaces/{agent_id}/skills/`).
 
 ```
-$COPAW_WORKING_DIR/                      # Default ~/.copaw
+$QWENPAW_WORKING_DIR/                      # Default ~/.qwenpaw
   skill_pool/                # Shared pool
     skill.json               # Pool manifest
     pdf/
@@ -66,7 +66,7 @@ Pool-side operations:
   customize a builtin, save it under a new name and keep the builtin slot
   untouched.
 - **Conflict handling:** If save, import, upload, or broadcast would land on a
-  name that already exists, CoPaw returns a conflict instead of silently
+  name that already exists, QwenPaw returns a conflict instead of silently
   overwriting. The UI/API includes a suggested renamed target so you can retry
   with that name.
 
@@ -80,12 +80,12 @@ Adding skills to the pool:
    | **browser_cdp**               | Connect to or launch Chrome with CDP / remote-debugging enabled. Use only when the user explicitly wants CDP mode.              | Built-in                                                       |
    | **browser_visible**           | Launch a real, visible (headed) browser window for demos, debugging, or scenarios requiring human interaction.                  | Built-in                                                       |
    | **channel_message**           | Proactively send a one-way message to a session or channel after first locating the target session.                             | Built-in                                                       |
-   | **copaw_source_index**        | Internal CoPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                              | Built-in                                                       |
-   | **cron**                      | Scheduled jobs. Create, list, pause, resume, or delete jobs via `copaw cron` or Console **Control → Cron Jobs**.                | Built-in                                                       |
+   | **QA_source_index**           | Internal QwenPaw source/doc index skill for quickly mapping keywords to source paths and local docs.                            | Built-in                                                       |
+   | **cron**                      | Scheduled jobs. Create, list, pause, resume, or delete jobs via `qwenpaw cron` or Console **Control → Cron Jobs**.              | Built-in                                                       |
    | **dingtalk_channel**          | Helps with DingTalk channel onboarding through a visible browser flow and required manual steps.                                | Built-in                                                       |
    | **docx**                      | Create, read, and edit Word documents (.docx), including TOC, headers/footers, tables, images, track changes, comments.         | https://github.com/anthropics/skills/tree/main/skills/docx     |
    | **file_reader**               | Read and summarize text-based files (.txt, .md, .json, .csv, .log, .py, etc.). PDF and Office are handled by dedicated skills.  | Built-in                                                       |
-   | **guidance**                  | Answer CoPaw installation and configuration questions by consulting local docs first.                                           | Built-in                                                       |
+   | **guidance**                  | Answer QwenPaw installation and configuration questions by consulting local docs first.                                         | Built-in                                                       |
    | **himalaya**                  | Manage emails via CLI (IMAP/SMTP). Use `himalaya` to list, read, search, and organize emails from the terminal.                 | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
    | **multi_agent_collaboration** | Coordinate with another agent when the user explicitly asks for it or another agent's context is needed.                        | Built-in                                                       |
    | **news**                      | Fetch and summarize latest news from configured sites; categories include politics, finance, society, world, tech, sports, etc. | Built-in                                                       |
@@ -94,15 +94,15 @@ Adding skills to the pool:
    | **xlsx**                      | Read, edit, and create spreadsheets (.xlsx, .xlsm, .csv, .tsv), clean up formatting, formulas, and data analysis.               | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
 
    In the pool UI, built-ins can show statuses such as **up-to-date** or
-   **out-of-date**. Use **Import Builtin** to add missing built-ins, and
-   **Update** to refresh an out-of-date builtin from packaged source.
+   **out-of-date**. Use **Update Built-in Skills** to add missing built-ins
+   or refresh out-of-date ones from the packaged source.
 
    The **Cron** built-in provides scheduled job management. Use the
-   [CLI](./cli) (`copaw cron`) or Console **Control → Cron Jobs**:
+   [CLI](./cli) (`qwenpaw cron`) or Console **Control → Cron Jobs**:
 
-   - Create: `copaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
-   - List: `copaw cron list`
-   - Check state: `copaw cron state <job_id>`
+   - Create: `qwenpaw cron create --type agent --name "xxx" --cron "0 9 * * *" ...`
+   - List: `qwenpaw cron list`
+   - Check state: `qwenpaw cron state <job_id>`
 
 2. **Create directly in the pool UI**.
    This creates a shared pool skill without first creating it in a workspace.
@@ -114,12 +114,11 @@ Adding skills to the pool:
    This is useful when you already have one or more packaged skill folders.
 
 5. **Upload from a workspace**.
-   On **Agent → Skills**, click **Upload** to publish a workspace skill to the
-   pool. After upload, the workspace entry is marked with `sync_to_pool.status =
-"synced"`.
+   On **Workspace → Skills**, click **Sync to Skill Pool** to publish a workspace skill to the
+   pool.
 
 6. **Manual filesystem changes**.
-   You can place folders directly under `$COPAW_WORKING_DIR/skill_pool/`, but this is not
+   You can place folders directly under `$QWENPAW_WORKING_DIR/skill_pool/`, but this is not
    recommended. Direct pool edits can be lost or overwritten more easily,
    especially for customized skills. Be careful and treat this as an advanced
    workflow.
@@ -127,20 +126,8 @@ Adding skills to the pool:
 ### Workspace Skills
 
 Every workspace runs from its own local copies under
-`$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`. Those copies are what the agent
+`$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`. Those copies are what the agent
 actually loads at runtime.
-
-The workspace tracks the relationship to the pool via `sync_to_pool`:
-
-| Status       | Meaning                                                     |
-| ------------ | ----------------------------------------------------------- |
-| `synced`     | Workspace copy matches the pool version                     |
-| `not_synced` | No corresponding pool entry exists for this workspace skill |
-| `conflict`   | Both exist but content differs                              |
-
-If a skill matters beyond one workspace, sync it to the pool early. Skills
-created only inside a workspace are easier to lose when that workspace is
-deleted, replaced, or manually cleaned up.
 
 ---
 
@@ -162,7 +149,7 @@ returns a conflict and suggests a renamed target.
 
 ### 2. Create via UI
 
-In [Console](./console) → **Agent → Skills**, you can create a skill by
+In [Console](./console) → **Workspace → Skills**, you can create a skill by
 entering a name and content. The new workspace skill is written into
 `skills/` and `skill.json`, and is **enabled by default**.
 
@@ -191,23 +178,23 @@ The workspace skill page supports importing from the following URL sources:
 
 #### Steps
 
-1. In [Console](./console) → **Agent → Skills**, click **Import Hub**.
+1. In [Console](./console) → **Workspace → Skills**, click **Import from Skills Hub**.
 
-   ![skill](https://img.alicdn.com/imgextra/i2/O1CN01gQN4gv1HCj5HVBeq1_!!6000000000722-2-tps-3410-1978.png)
+   ![skill](https://img.alicdn.com/imgextra/i2/O1CN018GbM8v1Iuyyp9Cuyp_!!6000000000954-2-tps-3822-2070.png)
 
 2. Paste a skill URL in the pop-up window (see **URL acquisition example**
    below).
 
-   ![url](https://img.alicdn.com/imgextra/i1/O1CN01YSoLHy1dZ5yWnMM3N_!!6000000003749-2-tps-3410-1978.png)
+   ![url](https://img.alicdn.com/imgextra/i4/O1CN01ztz7ds28L7zh408Si_!!6000000007915-2-tps-3822-2070.png)
 
 3. Confirm and wait for import to finish.
 
-   ![click](https://img.alicdn.com/imgextra/i4/O1CN013idFsl1CiGHBEIWx2_!!6000000000114-2-tps-3410-1978.png)
+   ![click](https://img.alicdn.com/imgextra/i3/O1CN01FXICJa1fcsUDbQpiv_!!6000000004028-2-tps-3822-2070.png)
 
 4. After a successful import, the skill appears in the skill list and is
    **enabled by default**.
 
-   ![check](https://img.alicdn.com/imgextra/i1/O1CN014LNdGd1wFNcq6JWbY_!!6000000006278-2-tps-3410-1978.png)
+   ![check](https://img.alicdn.com/imgextra/i1/O1CN01qamRgj1DHzB63zl9e_!!6000000000192-2-tps-3822-2070.png)
 
 #### URL acquisition example
 
@@ -241,7 +228,7 @@ The workspace skill page supports importing from the following URL sources:
 ### 5. Create manually in the workspace
 
 You can also create a workspace skill directly by writing files under
-`$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, including using CoPaw itself to help
+`$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, including using QwenPaw itself to help
 generate those files.
 
 This is flexible, but the write location and resulting skill quality are not
@@ -249,10 +236,10 @@ always fully controlled. You should supervise the creation process carefully,
 verify that files land in the right workspace path, and review the skill
 content before relying on it.
 
-Create a directory under `$COPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, add a
+Create a directory under `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, add a
 `SKILL.md`, and make sure it includes YAML front matter with `name` and
 `description`. If the skill depends on external binaries or environment
-variables, declare them in `metadata.requires`; CoPaw exposes them as
+variables, declare them in `metadata.requires`; QwenPaw exposes them as
 `require_bins` and `require_envs` metadata, but does not disable the skill
 automatically.
 
@@ -281,7 +268,8 @@ to `skill.json` as **disabled**. Enable them in the Console or CLI.
 Common workspace operations:
 
 - **Enable / disable:** Turn a skill on or off without changing its files.
-- **Delete:** Only disabled workspace skills can be deleted.
+- **Delete:** Delete a workspace skill. If the skill is currently enabled, it
+  is automatically disabled first.
 - **Upload to pool:** Publish a workspace skill to the shared pool for reuse by
   other workspaces.
 - **Edit channel scope / config:** Adjust where the skill applies and what
@@ -296,7 +284,7 @@ Each skill can be restricted to specific channels. By default, skills apply to
 
 To limit a skill to certain channels:
 
-1. In **Agent → Skills**, click the channel setting on a skill.
+1. In **Workspace → Skills**, click the channel setting on a skill.
 2. Select the channels where this skill should be active (e.g. `discord`,
    `telegram`, `console`).
 
@@ -311,10 +299,10 @@ not need to appear on Discord.
 
 Each skill can have a `config` object stored in its manifest entry. This config
 is not just stored metadata. When a skill is effective for the current
-workspace and channel, CoPaw injects that config into the runtime environment
+workspace and channel, QwenPaw injects that config into the runtime environment
 for that agent turn, then restores the environment after the turn completes.
 
-You can set config per skill in the Console (**Agent → Skills** → click the
+You can set config per skill in the Console (**Workspace → Skills** → click the
 config icon on a skill) or via the API.
 
 ### How it works
@@ -324,7 +312,7 @@ injected as environment variables. Keys not declared in `requires.env` are
 skipped (but still available via the full JSON variable). If a required key
 is missing from the config, a warning is logged.
 
-The full config is always available as `COPAW_SKILL_CONFIG_<SKILL_NAME>`
+The full config is always available as `QWENPAW_SKILL_CONFIG_<SKILL_NAME>`
 (JSON string), regardless of `requires.env`.
 
 Existing host environment variables are never overwritten.
@@ -359,7 +347,7 @@ The skill can read:
 - `BASE_URL` comes from config and matches `requires.env`.
 - `timeout` is not in `requires.env`, so it is only available via the full
   JSON below.
-- `COPAW_SKILL_CONFIG_MY_SKILL` always contains the full JSON config.
+- `QWENPAW_SKILL_CONFIG_MY_SKILL` always contains the full JSON config.
 
 Python example:
 
@@ -369,7 +357,7 @@ import os
 
 api_key = os.environ.get("MY_API_KEY", "")
 base_url = os.environ.get("BASE_URL", "")
-cfg = json.loads(os.environ.get("COPAW_SKILL_CONFIG_MY_SKILL", "{}"))
+cfg = json.loads(os.environ.get("QWENPAW_SKILL_CONFIG_MY_SKILL", "{}"))
 timeout = cfg.get("timeout", 30)
 ```
 
@@ -389,19 +377,22 @@ When a skill runs, the effective config follows this priority (highest wins):
    `config` is copied as the initial workspace config. Subsequent workspace
    edits take precedence.
 
-For `requires` metadata, the parser checks keys in order: `metadata.openclaw.requires` → `metadata.copaw.requires` → `metadata.requires`. The first one found is used.
+For `requires` metadata, the parser checks keys in order: `metadata.openclaw.requires` → `metadata.qwenpaw.requires` → `metadata.requires`. The first one found is used.
 
 ---
 
 ## Upgrading from Earlier Versions
 
-Introduced in the latest version. Converts legacy `active_skills/` and `customized_skills/` directories into the unified workspace skill layout.
+Converts legacy `active_skills/` and `customized_skills/` directories into the
+unified workspace `skills/` layout.
 
-All migrations run automatically on first start. No manual file operations required.
-
-Back up any important custom skill content before upgrading. Migration reduces
-manual work, but you should still manage valuable skills carefully and keep
-your own copies when needed.
+Migration runs automatically on first start. Skills are **copied**, not moved —
+the original `active_skills/` and `customized_skills/` directories are
+preserved. Back up any important custom skill content before upgrading.
+Migration reduces manual work, but you should still manage valuable skills
+carefully and keep your own copies when needed. After verifying the migration
+result, you can manually delete the old directories. **Skills in the old
+`active_skills/` and `customized_skills/` directories are no longer read.**
 
 | Before               | After                                                                    |
 | -------------------- | ------------------------------------------------------------------------ |
@@ -409,9 +400,8 @@ your own copies when needed.
 | `customized_skills/` | Workspace `skills/` (disabled unless also active with identical content) |
 
 If the same skill name exists in both directories with **different content**,
-both copies are kept with `-active` / `-customize` suffixes. Builtin skills are
-managed separately and always synced from the packaged version. To share a
-workspace skill across agents, upload it to the skill pool manually via the UI.
+both copies are kept with `-active` / `-customize` suffixes. To share a
+workspace skill across agents, upload it to the skill pool via the UI.
 
 ---
 

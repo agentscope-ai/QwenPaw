@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import copaw.providers.provider_manager as provider_manager_module
-from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.provider_manager import (
+import qwenpaw.providers.provider_manager as provider_manager_module
+from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider_manager import (
     KIMI_MODELS,
     PROVIDER_KIMI_CN,
     PROVIDER_KIMI_INTL,
@@ -50,7 +50,7 @@ def test_kimi_models_list() -> None:
 
 @pytest.fixture
 def isolated_secret_dir(monkeypatch, tmp_path):
-    secret_dir = tmp_path / ".copaw.secret"
+    secret_dir = tmp_path / ".qwenpaw.secret"
     monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
     return secret_dir
 

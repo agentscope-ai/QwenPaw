@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Button, Modal } from "@agentscope-ai/design";
+import { Button, Modal, Tooltip } from "@agentscope-ai/design";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { PoolSkillSpec, SkillSpec } from "../../../../api/types";
+import { isSkillBuiltin } from "@/utils/skill";
 import styles from "../index.module.less";
 
 interface PoolTransferModalProps {
@@ -52,6 +53,9 @@ export function PoolTransferModal({
     : setPoolSkillNames;
   const items = isUpload ? skills : poolSkills;
   const hasSelection = selectedNames.length > 0;
+  const builtinNames = items
+    .filter((item) => isSkillBuiltin(item.source))
+    .map((item) => item.name);
 
   return (
     <Modal
@@ -86,18 +90,28 @@ export function PoolTransferModal({
           <div className={styles.bulkActions}>
             <Button
               size="small"
-              onClick={() => setSelectedNames([])}
-              className={styles.bulkActionButton}
-            >
-              {t("skills.clearSelection")}
-            </Button>
-            <Button
-              size="small"
               type="primary"
               onClick={() => setSelectedNames(items.map((s) => s.name))}
               className={styles.bulkActionButton}
             >
               {t("skills.selectAll")}
+            </Button>
+            {!isUpload && (
+              <Button
+                size="small"
+                onClick={() => setSelectedNames(builtinNames)}
+                disabled={builtinNames.length === 0}
+                className={styles.bulkActionButton}
+              >
+                {t("agent.selectBuiltin")}
+              </Button>
+            )}
+            <Button
+              size="small"
+              onClick={() => setSelectedNames([])}
+              className={styles.bulkActionButton}
+            >
+              {t("skills.clearSelection")}
             </Button>
           </div>
         </div>
@@ -108,7 +122,7 @@ export function PoolTransferModal({
             return (
               <div
                 key={skill.name}
-                className={`${styles.pickerCard} ${
+                className={`${styles.pickerCard} ${styles.compactPickerCard} ${
                   selected ? styles.pickerCardSelected : ""
                 }`}
                 onClick={() =>
@@ -126,11 +140,13 @@ export function PoolTransferModal({
                     <CheckOutlined />
                   </span>
                 )}
-                <div
-                  className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
-                >
-                  {skill.name}
-                </div>
+                <Tooltip title={skill.name}>
+                  <div
+                    className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
+                  >
+                    {skill.name}
+                  </div>
+                </Tooltip>
               </div>
             );
           })}

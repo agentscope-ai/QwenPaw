@@ -24,6 +24,12 @@ Manually trigger conversation compaction, condensing all current messages into a
 /compact
 ```
 
+Optionally, add an extra instruction to guide what the summary should keep or remove:
+
+```
+/compact keep requirements, decisions, and pending tasks; remove debug logs and tool-call details
+```
+
 **Example response:**
 
 ```
@@ -36,6 +42,7 @@ User requested help building a user authentication system, login endpoint implem
 ```
 
 > 💡 Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
+> 💡 The extra instruction only applies to this manual `/compact` run. Auto-compaction behavior is unchanged.
 
 ---
 
@@ -251,22 +258,263 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 ---
 
+## Skill Chat Commands
+
+These commands let you inspect skill status in chat and force the agent to use
+a specific skill.
+
+- `/skills` lists skills available in the current channel in a compact format.
+- `/<skill_name>` shows detailed information for that skill, including its
+  description and local path.
+- `/<skill_name> <input>` forces the agent to use `skill_name` to solve the
+  input, usually a task.
+- `/[skill_name]` is also supported as an alternate form.
+
+Notes:
+
+- `skill_name` must match the skill command name shown in `/skills`.
+- These slash commands only work for skills that are enabled and routed to the
+  current channel.
+
+---
+
+## Model Management Commands
+
+Commands for managing and switching AI models. These commands execute directly without going through the Agent.
+
+| Command                          | Description                                      | Chat |
+| -------------------------------- | ------------------------------------------------ | ---- |
+| `/model`                         | Show current active model                        | ✅   |
+| `/model -h` or `/model help`     | Show help information                            | ✅   |
+| `/model list`                    | List all available models                        | ✅   |
+| `/model <provider>:<model>`      | Switch to specified model                        | ✅   |
+| `/model reset`                   | Reset to global default model                    | ✅   |
+| `/model info <provider>:<model>` | Show detailed information about a specific model | ✅   |
+
+---
+
+### /model - Show Current Model
+
+Display the currently active model for this agent.
+
+**Usage:**
+
+```
+/model
+```
+
+**Example response:**
+
+```
+**Current Model**
+
+Provider: `openai`
+Model: `gpt-4o` ✓
+
+Use `/model list` to see all available models.
+```
+
+---
+
+### /model -h or /model help - Show Help
+
+Display help information for all `/model` commands.
+
+**Usage:**
+
+```
+/model -h
+/model --help
+/model help
+```
+
+**Example response:**
+
+```
+**Model Management Commands**
+
+Manage and switch AI models for the current agent.
+
+**Available Commands:**
+
+`/model` - Show current active model
+`/model list` - List all available models
+`/model <provider>:<model>` - Switch to specified model
+`/model reset` - Reset to global default model
+`/model info <provider>:<model>` - Show model information
+`/model help` or `/model -h` - Show this help message
+
+**Examples:**
+
+`/model` - Show current model
+`/model list` - List all models
+`/model openai:gpt-4o` - Switch to GPT-4o
+`/model reset` - Reset to global default
+`/model info openai:gpt-4o` - Show GPT-4o information
+
+**Capability Indicators:**
+
+🖼️ - Supports image input
+🎥 - Supports video input
+```
+
+---
+
+### /model list - List All Models
+
+Display all configured providers and their available models. The currently active model is marked with **[ACTIVE]**.
+
+**Usage:**
+
+```
+/model list
+```
+
+**Example response:**
+
+```
+**Available Models**
+
+**OpenAI** (`openai`)
+  - `gpt-4o` 🖼️ **[ACTIVE]**
+  - `gpt-4o-mini` 🖼️
+  - `gpt-3.5-turbo`
+  - `my-custom-model` *(user-added)*
+
+**Anthropic** (`anthropic`)
+  - `claude-3-5-sonnet-20241022`
+  - `claude-3-opus-20240229`
+
+**Google** (`gemini`)
+  - `gemini-2.0-flash-exp` 🖼️🎥
+
+---
+Total: 3 provider(s), 8 model(s)
+
+Use `/model <provider>:<model>` to switch models.
+Example: `/model openai:gpt-4o`
+```
+
+**Indicators:**
+
+- 🖼️ - Supports image input
+- 🎥 - Supports video input
+- _(user-added)_ - User-added model (via `qwenpaw models add-model` command)
+
+---
+
+### /model <provider>:<model> - Switch Model
+
+Switch the current agent to use a different model.
+
+**Usage:**
+
+```
+/model <provider>:<model>
+```
+
+**Examples:**
+
+```
+/model openai:gpt-4o
+/model anthropic:claude-3-5-sonnet-20241022
+/model gemini:gemini-2.0-flash-exp
+```
+
+**Example response:**
+
+```
+**Model Switched**
+
+Provider: `anthropic`
+Model: `claude-3-5-sonnet-20241022`
+
+The new model will be used for subsequent messages.
+```
+
+> 💡 **Tip**: Model changes only affect the current agent. Other agents continue using their configured models.
+
+---
+
+### /model reset - Reset to Global Default
+
+Reset the current agent's model to the global default model configured in the web UI.
+
+**Usage:**
+
+```
+/model reset
+```
+
+**Example response:**
+
+```
+**Model Reset**
+
+Agent model has been reset to global default:
+
+Provider: `openai`
+Model: `gpt-4o`
+
+The global default model will be used for subsequent messages.
+```
+
+> 💡 **Tip**: Use this command to revert agent-specific model overrides.
+
+---
+
+### /model info - Show Model Information
+
+Display detailed information about a specific model, including capabilities and current status.
+
+**Usage:**
+
+```
+/model info <provider>:<model>
+```
+
+**Examples:**
+
+```
+/model info openai:gpt-4o
+/model info anthropic:claude-3-5-sonnet-20241022
+```
+
+**Example response:**
+
+```
+**Model Information**
+
+**Provider:** `openai` (OpenAI)
+**Model ID:** `gpt-4o`
+**Model Name:** GPT-4o
+**Capabilities:** 🖼️ Image, 🎨 Multimodal
+**Probe Source:** documentation
+
+**Status:** ✓ Currently active
+
+---
+Use `/model openai:gpt-4o` to switch to this model.
+```
+
+---
+
 ## System Control Commands
 
-Commands for controlling and monitoring CoPaw's runtime status. These commands execute directly without going through the Agent.
+Commands for controlling and monitoring QwenPaw's runtime status. These commands execute directly without going through the Agent.
 
-Send `/daemon <subcommand>` or short names (e.g., `/status`) in chat, or run `copaw daemon <subcommand>` from the terminal.
+Send `/daemon <subcommand>` or short names (e.g., `/status`) in chat, or run `qwenpaw daemon <subcommand>` from the terminal.
 
-| Command                             | Description                                                                             | Chat | Terminal |
-| ----------------------------------- | --------------------------------------------------------------------------------------- | ---- | -------- |
-| `/stop`                             | Immediately terminate the running task in current session                               | ✅   | ❌       |
-| `/stop session=<session_id>`        | Terminate task in specified session                                                     | ✅   | ❌       |
-| `/daemon status` or `/status`       | Show runtime status (config, working directory, memory service)                         | ✅   | ✅       |
-| `/daemon restart` or `/restart`     | Zero-downtime reload (chat); prints instructions (terminal)                             | ✅   | ✅       |
-| `/daemon reload-config`             | Re-read and validate configuration file                                                 | ✅   | ✅       |
-| `/daemon version`                   | Version number, working directory, and log path                                         | ✅   | ✅       |
-| `/daemon logs` or `/daemon logs 50` | View last N lines of log (default 100, max 2000, from `copaw.log` in working directory) | ✅   | ✅       |
-| `/daemon approve`                   | Approve pending tool execution (tool-guard scenario)                                    | ✅   | ❌       |
+| Command                             | Description                                                                               | Chat | Terminal |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- | ---- | -------- |
+| `/stop`                             | Immediately terminate the running task in current session                                 | ✅   | ❌       |
+| `/stop session=<session_id>`        | Terminate task in specified session                                                       | ✅   | ❌       |
+| `/daemon status` or `/status`       | Show runtime status (config, working directory, memory service)                           | ✅   | ✅       |
+| `/daemon restart` or `/restart`     | Zero-downtime reload (chat); prints instructions (terminal)                               | ✅   | ✅       |
+| `/daemon reload-config`             | Re-read and validate configuration file                                                   | ✅   | ✅       |
+| `/daemon version`                   | Version number, working directory, and log path                                           | ✅   | ✅       |
+| `/daemon logs` or `/daemon logs 50` | View last N lines of log (default 100, max 2000, from `qwenpaw.log` in working directory) | ✅   | ✅       |
+| `/daemon approve`                   | Approve pending tool execution (tool-guard scenario)                                      | ✅   | ❌       |
 
 ---
 
@@ -293,7 +541,7 @@ Display current runtime status, including configuration, working directory, and 
 
 ```
 /status                    # In chat
-copaw daemon status        # From terminal
+qwenpaw daemon status        # From terminal
 ```
 
 ---
@@ -306,7 +554,7 @@ When used in chat, performs zero-downtime reload: reloads channels, cron, and MC
 
 ```
 /restart                   # In chat
-copaw daemon restart       # From terminal (prints instructions only)
+qwenpaw daemon restart       # From terminal (prints instructions only)
 ```
 
 > 💡 **Tip**: After modifying channel or MCP configuration, use `/daemon reload-config` first to verify correctness, then use `/daemon restart` to apply changes.
@@ -321,34 +569,34 @@ Re-read and validate the configuration file, but does not reload runtime compone
 
 ```
 /daemon reload-config           # In chat
-copaw daemon reload-config      # From terminal
+qwenpaw daemon reload-config      # From terminal
 ```
 
 ---
 
 ### /daemon version - Version Information
 
-Display CoPaw version number, working directory path, and log file path.
+Display QwenPaw version number, working directory path, and log file path.
 
 **Usage:**
 
 ```
 /daemon version            # In chat
-copaw daemon version       # From terminal
+qwenpaw daemon version       # From terminal
 ```
 
 ---
 
 ### /daemon logs - View Logs
 
-View the last N lines of `copaw.log` in the working directory. Default 100 lines, maximum 2000 lines.
+View the last N lines of `qwenpaw.log` in the working directory. Default 100 lines, maximum 2000 lines.
 
 **Usage:**
 
 ```
 /daemon logs               # Default 100 lines
 /daemon logs 50            # Specify 50 lines
-copaw daemon logs -n 200   # From terminal, specify 200 lines
+qwenpaw daemon logs -n 200   # From terminal, specify 200 lines
 ```
 
 > 💡 **Tip**: For large log files, this command only reads the last 512KB from the end of the file to ensure fast response times.
@@ -374,16 +622,237 @@ Quickly approve pending tool execution. When tool execution requires manual appr
 All daemon commands support terminal usage (except `/stop` and `/daemon approve` which only work in chat):
 
 ```bash
-copaw daemon status
-copaw daemon restart
-copaw daemon reload-config
-copaw daemon version
-copaw daemon logs -n 50
+qwenpaw daemon status
+qwenpaw daemon restart
+qwenpaw daemon reload-config
+qwenpaw daemon version
+qwenpaw daemon logs -n 50
 ```
 
 **Multi-agent support:** All terminal commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
-copaw daemon status --agent-id abc123
-copaw daemon version --agent-id abc123
+qwenpaw daemon status --agent-id abc123
+qwenpaw daemon version --agent-id abc123
 ```
+
+---
+
+## Mission Mode - Autonomous Execution for Complex Tasks
+
+Mission Mode is an autonomous execution mode designed for **long-running, complex tasks**, inspired by [Claude Code](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents) and [Ralph Loop](https://github.com/snarktank/ralph). It decomposes large tasks into multiple user stories and completes them through a **master agent → worker agents → verifier agents** pipeline, ensuring quality and reliability.
+
+### Core Features
+
+- 📋 **Two-Phase Design**: Phase 1 generates PRD (Product Requirements Document), Phase 2 executes autonomously
+- 🔒 **Code-Level Control**: Master agent's implementation tools are disabled, can only dispatch workers to prevent context pollution
+- ✅ **Independent Verification**: Each story is verified by a dedicated verifier agent to ensure all acceptance criteria are met
+- 🔄 **Auto-Iteration**: Failed stories are automatically retried until all complete or max iterations reached
+- 🌐 **Multi-Language**: Error messages automatically switch between Chinese and English based on agent config
+
+### Use Cases
+
+**✅ Suitable for Mission Mode:**
+
+- Building complete feature modules (e.g., user authentication system, file manager)
+- Refactoring large codebases (e.g., migrating to a new framework)
+- Batch tasks (e.g., adding unit tests to multiple components)
+- Tasks requiring multiple iterations and verification
+
+**❌ Not suitable for Mission Mode:**
+
+- Simple code changes (e.g., fixing a single bug)
+- Tasks requiring real-time interaction (e.g., debugging)
+- Exploratory tasks (e.g., "research best practices")
+
+### Basic Usage
+
+#### Start a Mission
+
+```bash
+/mission <task description>
+```
+
+**Example:**
+
+```
+/mission Create a CLI TODO app in Python with add, delete, list, and mark-complete features, saving data to local JSON file
+```
+
+**Optional Parameters:**
+
+- `--max-iterations N`: Set max Phase 2 iterations (range 1-100, default 20)
+- `--verify <command>`: Custom verification command (e.g., `pytest`)
+
+```
+/mission Create Web API --max-iterations 30 --verify "pytest tests/"
+```
+
+#### Phase 1: PRD Generation
+
+The agent will:
+
+1. Explore the codebase and understand existing structure
+2. Decompose the task into multiple user stories
+3. Generate `prd.json` file with acceptance criteria for each story
+
+**PRD Example:**
+
+```json
+{
+  "project": "todo-cli-app",
+  "description": "Command-line TODO application",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add Task Feature",
+      "description": "As a user, I want to add new tasks...",
+      "acceptanceCriteria": [
+        "Command 'todo add <task>' successfully adds task",
+        "Task is saved to todos.json file"
+      ],
+      "priority": 1,
+      "passes": false
+    }
+  ]
+}
+```
+
+#### Phase 2: Confirm and Execute
+
+**Confirm PRD:**
+
+After reviewing the PRD, send a confirmation message to enter Phase 2:
+
+```
+Confirm, start execution
+```
+
+**Or, if modifications are needed:**
+
+```
+Please split US-001 into two stories: one for adding and one for persistence
+```
+
+The agent will modify the PRD and wait for confirmation again.
+
+**Phase 2 Execution Flow:**
+
+1. **Master Dispatch**: Dispatches worker agents for each story
+2. **Worker Implementation**: Creates/modifies files, runs tests
+3. **Verifier Validation**: Independent agent verifies all acceptance criteria
+4. **Update PRD**: Passed stories are marked `passes: true`
+5. **Auto-Iteration**: Failed stories are re-dispatched until all complete
+
+#### Check Progress
+
+```bash
+/mission status
+```
+
+**Output Example:**
+
+```
+**Mission Status** — mission-20260415-123456
+- Session: e2e-abc123
+- Phase: execution
+- Project: todo-cli-app
+- Progress: 2/4 stories passed
+- Loop dir: ~/.copaw/workspaces/default/missions/mission-20260415-123456
+
+  ✅ US-001: Add Task Feature
+  ✅ US-002: List Tasks Feature
+  ⬜ US-003: Delete Task Feature
+  ⬜ US-004: Mark Complete Feature
+```
+
+#### List All Missions
+
+```bash
+/mission list
+```
+
+### Working Directory Structure
+
+Each mission creates a working directory under `~/.copaw/workspaces/default/missions/mission-<timestamp>/`:
+
+```
+mission-20260415-123456/
+├── prd.json              # Product Requirements Document
+├── loop_config.json      # Configuration and state
+├── task.md               # Original task description
+├── progress.txt          # Progress log (Codebase Patterns)
+└── <implementation files>
+```
+
+### Important Notes
+
+1. **Session Isolation**: Each session's missions are independent and won't interfere with each other
+2. **PRD Schema Validation**: Phase 2 startup enforces PRD format validation to ensure schema compliance
+3. **Tool Restrictions**: In Phase 2, master agent **cannot** directly use `edit_file`, `browser_use` and other implementation tools, must delegate to workers
+4. **Iteration Limit**: Automatically stops after reaching `--max-iterations` to avoid infinite loops
+5. **Git Support**: If working directory is a Git repo, agent will automatically commit changes (optional)
+6. **⚠️ Tool Guard Bypass**:
+   - **Worker and verifier agents automatically bypass the security tool guard** (disabled via `--background` mode)
+   - This is necessary because background sessions cannot respond to `/approve` interactive prompts
+   - The master agent itself will also bypass the guard
+   - **Security Warning**: All worker operations occur within `missions/<mission-xxx>/` directory, but it is still recommended to **only use Mission Mode in fully trusted codebases**
+   - Sensitive operations (e.g., deleting files, executing shell commands) will execute directly without manual approval
+
+### Advanced Usage
+
+#### Custom Verification Command
+
+```
+/mission Add unit tests --verify "npm test"
+```
+
+Verification phase will run `npm test` to check if tests pass.
+
+#### Increase Iterations (Complex Tasks)
+
+```
+/mission Refactor entire auth module --max-iterations 50
+```
+
+#### Mid-Execution Intervention
+
+During Phase 2, you can send messages to interact with master agent:
+
+```
+Pause - US-003 implementation has issues, please fix before continuing
+```
+
+### Troubleshooting
+
+**Issue: PRD format incorrect**
+
+```
+⚠️ **Cannot enter Phase 2**: prd.json format errors:
+  - Missing required field: userStories
+
+Please fix the PRD format before confirming.
+```
+
+**Solution**: Check `prd.json`, ensure it contains `userStories` array with required fields for each story.
+
+**Issue: Max iterations reached**
+
+```
+⚠️ **Mission reached max iterations** (20). 2/4 stories passed.
+```
+
+**Solutions**:
+
+1. Use `/mission status` to check remaining stories
+2. Increase `--max-iterations` and restart
+3. Or manually complete remaining work
+
+### Comparison with Other Modes
+
+| Mode             | Use Case                  | Agent Behavior                 | Tool Access              |
+| ---------------- | ------------------------- | ------------------------------ | ------------------------ |
+| **Normal Chat**  | Simple tasks, quick fixes | Single agent executes directly | All tools available      |
+| **Mission Mode** | Complex, long-term tasks  | Master dispatches workers      | Master has limited tools |
+
+---

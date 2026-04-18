@@ -12,7 +12,8 @@ import { TimePicker } from "antd";
 import { useTranslation } from "react-i18next";
 import type { FormInstance } from "antd";
 import type { CronJobSpecOutput } from "../../../../api/types";
-import { TIMEZONE_OPTIONS, DEFAULT_FORM_VALUES } from "./constants";
+import { DEFAULT_FORM_VALUES } from "./constants";
+import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
 
 type CronJob = CronJobSpecOutput;
@@ -35,6 +36,9 @@ export function JobDrawer({
   onSubmit,
 }: JobDrawerProps) {
   const { t } = useTranslation();
+  const timezoneOptions = useTimezoneOptions();
+
+  const isEdit = !!editingJob;
 
   return (
     <Drawer
@@ -59,14 +63,15 @@ export function JobDrawer({
         onFinish={onSubmit}
         initialValues={DEFAULT_FORM_VALUES}
       >
-        <Form.Item
-          name="id"
-          label={t("cronJobs.id")}
-          rules={[{ required: true, message: t("cronJobs.pleaseInputId") }]}
-          tooltip={t("cronJobs.idTooltip")}
-        >
-          <Input placeholder={t("cronJobs.jobIdPlaceholder")} />
-        </Form.Item>
+        {isEdit && (
+          <Form.Item
+            name="id"
+            label={t("cronJobs.id")}
+            tooltip={t("cronJobs.idTooltip")}
+          >
+            <Input disabled placeholder={t("cronJobs.jobIdPlaceholder")} />
+          </Form.Item>
+        )}
 
         <Form.Item
           name="name"
@@ -230,7 +235,7 @@ export function JobDrawer({
                 .toLowerCase()
                 .includes(input.toLowerCase())
             }
-            options={TIMEZONE_OPTIONS}
+            options={timezoneOptions}
           />
         </Form.Item>
 

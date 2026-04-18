@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Local test runner script for CoPaw project.
+Local test runner script for QwenPaw project.
 
 Usage:
     python scripts/run_tests.py [OPTIONS]
@@ -156,7 +156,7 @@ def run_pytest(
     if coverage:
         cmd.extend(
             [
-                "--cov=src/copaw",
+                "--cov=src/qwenpaw",
                 "--cov-report=html",
                 "--cov-report=term-missing",
             ],
@@ -175,7 +175,7 @@ def run_pytest(
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="CoPaw test runner",
+        description="QwenPaw test runner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -230,8 +230,8 @@ def main() -> int:
     run_all = args.all or (args.unit is None and not args.integrated)
 
     print()
-    print_info("CoPaw Test Runner")
-    print("=================")
+    print_info("QwenPaw Test Runner")
+    print("===================")
     print()
 
     return_code = 0

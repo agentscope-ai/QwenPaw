@@ -4,6 +4,7 @@ import type {
   AgentProfileConfig,
   CreateAgentRequest,
   AgentProfileRef,
+  ReorderAgentsResponse,
 } from "../types/agents";
 import type { MdFileInfo, MdFileContent } from "../types/workspace";
 
@@ -34,6 +35,13 @@ export const agentsApi = {
   deleteAgent: (agentId: string) =>
     request<{ success: boolean; agent_id: string }>(`/agents/${agentId}`, {
       method: "DELETE",
+    }),
+
+  // Persist ordered agent ids
+  reorderAgents: (agentIds: string[]) =>
+    request<ReorderAgentsResponse>("/agents/order", {
+      method: "PUT",
+      body: JSON.stringify({ agent_ids: agentIds }),
     }),
 
   // Toggle agent enabled state

@@ -1,5 +1,6 @@
 import { createGlobalStyle } from "antd-style";
 import { ConfigProvider, bailianTheme } from "@agentscope-ai/design";
+import { App as AntdApp } from "antd";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,11 +11,14 @@ import ruRU from "antd/locale/ru_RU";
 import type { Locale } from "antd/es/locale";
 import { theme as antdTheme } from "antd";
 import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
 import "dayjs/locale/zh-cn";
 import "dayjs/locale/ja";
 import "dayjs/locale/ru";
+dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import { PluginProvider } from "./plugins/PluginContext";
 import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
@@ -150,8 +154,8 @@ function AppInner() {
       <GlobalStyle />
       <ConfigProvider
         {...bailianTheme}
-        prefix="copaw"
-        prefixCls="copaw"
+        prefix="qwenpaw"
+        prefixCls="qwenpaw"
         locale={antdLocale}
         theme={{
           ...(bailianTheme as any)?.theme,
@@ -163,17 +167,19 @@ function AppInner() {
           },
         }}
       >
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/*"
-            element={
-              <AuthGuard>
-                <MainLayout />
-              </AuthGuard>
-            }
-          />
-        </Routes>
+        <AntdApp>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/*"
+              element={
+                <AuthGuard>
+                  <MainLayout />
+                </AuthGuard>
+              }
+            />
+          </Routes>
+        </AntdApp>
       </ConfigProvider>
     </BrowserRouter>
   );
@@ -182,7 +188,9 @@ function AppInner() {
 function App() {
   return (
     <ThemeProvider>
-      <AppInner />
+      <PluginProvider>
+        <AppInner />
+      </PluginProvider>
     </ThemeProvider>
   );
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from copaw.providers.ollama_provider import OllamaProvider
+from qwenpaw.providers.ollama_provider import OllamaProvider
 
 
 def _make_provider(base_url: str = "http://localhost:11434") -> OllamaProvider:
@@ -89,7 +89,7 @@ def test_client_uses_single_v1_suffix(monkeypatch, base_url: str) -> None:
             captured["timeout"] = timeout
 
     monkeypatch.setattr(
-        "copaw.providers.ollama_provider.AsyncOpenAI",
+        "qwenpaw.providers.ollama_provider.AsyncOpenAI",
         FakeAsyncOpenAI,
     )
 
@@ -123,7 +123,7 @@ def test_get_chat_model_instance_uses_single_v1_suffix(
             captured.update(kwargs)
 
     monkeypatch.setattr(
-        "copaw.providers.openai_chat_model_compat.OpenAIChatModelCompat",
+        "qwenpaw.providers.openai_chat_model_compat.OpenAIChatModelCompat",
         FakeOpenAIChatModelCompat,
     )
 

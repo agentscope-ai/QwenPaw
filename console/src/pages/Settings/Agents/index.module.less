@@ -3,12 +3,29 @@
   padding: 0;
 
   :global {
-    .copaw-card-body {
+    .qwenpaw-card-body {
       padding: 0 !important;
     }
 
-    .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
       background: #f9f8f4 !important;
+    }
+
+    .qwenpaw-table-cell {
+      padding: 8px 16px !important;
+    }
+
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      table
+      > thead
+      > tr:first-child
+      > *:last-child {
+      border-radius: 0px !important;
     }
   }
 }
@@ -89,6 +106,37 @@
   :global(.ant-card-body) {
     padding: 0;
   }
+}
+
+.dragHandleButton {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  cursor: grab;
+}
+
+.dragHandleButton:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.72);
+}
+
+.dragHandleButton:active {
+  cursor: grabbing;
+}
+
+.dragHandleButton[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.sortableRowDragging {
+  background: rgba(24, 144, 255, 0.08);
 }
 
 /* ─── Skill Picker (agent create/edit modal) ───────────────────────────────── */
@@ -173,6 +221,19 @@
     color: rgba(255, 255, 255, 0.35);
   }
 
+  .dragHandleButton {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .dragHandleButton:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .sortableRowDragging {
+    background: rgba(120, 170, 255, 0.12);
+  }
+
   .pickerCard {
     border-color: rgba(255, 255, 255, 0.12);
 
@@ -189,9 +250,12 @@
     color: rgba(255, 255, 255, 0.85);
   }
 
-  /* Table header dark mode */
   :global {
-    .copaw-table-wrapper .copaw-table-container .copaw-table-thead > tr > th {
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
       background: rgba(255, 255, 255, 0.04) !important;
     }
   }
@@ -206,7 +270,6 @@
     color: #ff7f16 !important;
   }
 
-  /* Force all icons inside buttons to be white */
   .anticon,
   svg,
   span[class*="lucide"] {

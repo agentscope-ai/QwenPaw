@@ -1,14 +1,14 @@
 # MCP & Built-in Tools
 
-CoPaw uses **MCP (Model Context Protocol)** to connect to external services and provides a suite of **built-in tools** that enable agents to access filesystems, execute commands, browse the web, and more.
+QwenPaw uses **MCP (Model Context Protocol)** to connect to external services and provides a suite of **built-in tools** that enable agents to access filesystems, execute commands, browse the web, and more.
 
 ---
 
 ## Concepts
 
-CoPaw provides two types of tools for agents:
+QwenPaw provides two types of tools for agents:
 
-1. **Built-in Tools**: Ready-to-use tools provided by CoPaw core, such as file operations, command execution, and browser automation
+1. **Built-in Tools**: Ready-to-use tools provided by QwenPaw core, such as file operations, command execution, and browser automation
 
    - Managed on the **Agent → Tools** page
    - Can be individually enabled/disabled
@@ -23,7 +23,7 @@ Both types can be used simultaneously without conflict.
 
 ## MCP
 
-**MCP (Model Context Protocol)** allows CoPaw to connect to external MCP servers, extending the agent's ability to access filesystems, databases, APIs, and other external resources.
+**MCP (Model Context Protocol)** allows QwenPaw to connect to external MCP servers, extending the agent's ability to access filesystems, databases, APIs, and other external resources.
 
 ### Prerequisites
 
@@ -46,13 +46,13 @@ node --version  # Check version
 3. Paste your MCP client JSON configuration
 4. Click **Create** to import
 
-<!-- TODO: Add screenshot - Show MCP creation modal -->
+![MCP](https://img.alicdn.com/imgextra/i2/O1CN01uYjPWG1YwqRRF3wYd_!!6000000003124-2-tps-3822-2070.png)
 
 ---
 
 ### Configuration Formats
 
-CoPaw supports three JSON formats—choose one:
+QwenPaw supports three JSON formats—choose one:
 
 #### Format 1: Standard mcpServers Format (**Recommended**)
 
@@ -190,13 +190,13 @@ MCP supports three transport protocols, usually auto-detected:
 
 ## Built-in Tools
 
-CoPaw provides a set of ready-to-use built-in tools that agents can directly call to perform various tasks.
+QwenPaw provides a set of ready-to-use built-in tools that agents can directly call to perform various tasks.
 
 ---
 
 ### Tool Management
 
-<!-- TODO: Add screenshot - Show tool management page with grid layout of tool cards, displaying tool names, status indicators, descriptions, and enable/disable switches -->
+![tool](https://img.alicdn.com/imgextra/i1/O1CN01Wwi7Im1ll1DlO9x74_!!6000000004858-2-tps-3822-2070.png)
 
 #### Enable and Disable Tools
 
@@ -218,23 +218,24 @@ CoPaw provides a set of ready-to-use built-in tools that agents can directly cal
 
 ### Built-in Tool List
 
-| Type               | Tool Name               | Description                                                                   |
-| ------------------ | ----------------------- | ----------------------------------------------------------------------------- |
-| File Operations    | `read_file`             | Read file contents, supports line range reading                               |
-| File Operations    | `write_file`            | Create or overwrite file                                                      |
-| File Operations    | `edit_file`             | Modify file using find-and-replace (replaces all occurrences)                 |
-| File Operations    | `append_file`           | Append content to file end                                                    |
-| File Search        | `grep_search`           | Search by content, supports regex and context                                 |
-| File Search        | `glob_search`           | Find files by name pattern                                                    |
-| Command Execution  | `execute_shell_command` | Execute shell commands, supports async execution                              |
-| Browser Automation | `browser_use`           | Browser automation with 30+ operations (navigation, interaction, screenshots) |
-| Screenshots        | `desktop_screenshot`    | Capture desktop or window screenshot                                          |
-| Image Analysis     | `view_image`            | Load image into context for model analysis                                    |
-| File Transfer      | `send_file_to_user`     | Send file to user, auto-detects file type                                     |
-| Memory Search      | `memory_search`         | Semantic search in MEMORY.md for past information                             |
-| Time               | `get_current_time`      | Get current time and timezone                                                 |
-| Time               | `set_user_timezone`     | Set user timezone preference                                                  |
-| Statistics         | `get_token_usage`       | Query LLM token usage statistics                                              |
+| Type               | Tool Name                 | Description                                                                   |
+| ------------------ | ------------------------- | ----------------------------------------------------------------------------- |
+| File Operations    | `read_file`               | Read file contents, supports line range reading                               |
+| File Operations    | `write_file`              | Create or overwrite file                                                      |
+| File Operations    | `edit_file`               | Modify file using find-and-replace (replaces all occurrences)                 |
+| File Operations    | `append_file`             | Append content to file end                                                    |
+| File Search        | `grep_search`             | Search by content, supports regex and context                                 |
+| File Search        | `glob_search`             | Find files by name pattern                                                    |
+| Command Execution  | `execute_shell_command`   | Execute shell commands, supports async execution                              |
+| Agent Delegation   | `delegate_external_agent` | Delegate work to an external ACP agent runner                                 |
+| Browser Automation | `browser_use`             | Browser automation with 30+ operations (navigation, interaction, screenshots) |
+| Screenshots        | `desktop_screenshot`      | Capture desktop or window screenshot                                          |
+| Image Analysis     | `view_image`              | Load image into context for model analysis                                    |
+| File Transfer      | `send_file_to_user`       | Send file to user, auto-detects file type                                     |
+| Memory Search      | `memory_search`           | Semantic search in MEMORY.md for past information                             |
+| Time               | `get_current_time`        | Get current time and timezone                                                 |
+| Time               | `set_user_timezone`       | Set user timezone preference                                                  |
+| Statistics         | `get_token_usage`         | Query LLM token usage statistics                                              |
 
 ### Tool Details
 
@@ -269,6 +270,41 @@ CoPaw provides a set of ready-to-use built-in tools that agents can directly cal
   - `timeout`: Timeout in seconds (default 60)
   - `cwd`: Working directory (optional, defaults to workspace directory)
   - Supports async execution mode (see below)
+
+**Agent Delegation (ACP)**
+
+**How to use:**
+
+- Before using this feature, prepare the external agent runners you want to connect, such as `claude_code`, `codex`, `qwen_code`, or `opencode`
+- Make sure each runner is already logged in or configured with the required API key, and can be launched successfully from your terminal
+- Enable the `delegate_external_agent` tool on the **Agent → Tools** page
+- Then describe your intent directly in chat, for example:
+  - “Please use the external agent claude code to analyze the structure of the working directory”
+  - “Please talk to the external agent claude code and ask it to write a self-introduction into a markdown file”
+- QwenPaw will call `delegate_external_agent` when appropriate, establish a continuous conversation with the external agent, and stream progress and results back into the current chat
+- After the connection is established, you can continue multi-turn conversations with that external agent through `delegate_external_agent`
+- Each runner currently supports only one active session per chat; to start a new conversation, close the current session first
+
+- `delegate_external_agent`: Use ACP (Agent Client Protocol) to open a session with an external agent runner and delegate work to it
+  - Suitable for delegating code analysis, file editing, command execution, and similar tasks to an external coding agent
+  - Default supported runners: `qwen_code`, `claude_code`, `codex`, `opencode`
+  - Disabled by default and must be enabled explicitly in **Agent → Tools**
+  - `action`: supports `start`, `message`, `respond`, and `close`
+    - `start`: starts a new external agent session; when `message` is empty, a default `hi` is sent
+    - `message`: sends a follow-up message to the external agent session bound to the current chat
+    - `respond`: responds to a permission request raised by the external agent; `message` must contain the exact option id from the pending permission request
+    - `close`: closes the external agent session bound to the current chat
+  - `runner`: runner name such as `qwen_code`, `claude_code`, `codex`, or `opencode`
+  - `message`: message sent to the external agent; in `respond` mode this carries the selected permission option id
+  - `cwd`: working directory used by the external agent; defaults to the current workspace
+  - The tool streams intermediate progress back, including text output, tool call updates, permission requests, and final results
+
+**Permissions and Safety**
+
+- When an external agent requests permission, the current session is suspended until an explicit response is provided
+- Permission responses are strictly matched: you must choose one of the options from the current request and pass its exact id
+- Some dangerous command patterns are hard-blocked
+- File path access is restricted to the configured workspace where possible
 
 **Async Execution:**
 

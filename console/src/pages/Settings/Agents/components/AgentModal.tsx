@@ -51,24 +51,27 @@ export function AgentModal({
 
     const fetchPool = skillApi.listSkillPoolSkills();
     const fetchInstalled = editingAgent
-      ? skillApi
-          .listSkills(editingAgent.id)
-          .then((skills) => skills.map((s) => s.name))
+      ? skillApi.listSkills(editingAgent.id)
       : Promise.resolve([]);
 
     Promise.all([fetchPool, fetchInstalled])
-      .then(([pool, installed]) => {
+      .then(([pool, workspaceSkills]) => {
+        const poolSkillNames = new Set(pool.map((skill) => skill.name));
+        const installedSkills = workspaceSkills
+          .filter((skill) => poolSkillNames.has(skill.name))
+          .map((skill) => skill.name);
+
         setPoolSkills(pool);
-        setInstalledSkills(installed);
-        onInstalledSkillsLoaded(installed);
+        setInstalledSkills(installedSkills);
+        onInstalledSkillsLoaded(installedSkills);
         if (editingAgent) {
-          onSelectedSkillsChange(installed);
+          onSelectedSkillsChange(installedSkills);
         } else {
           onSelectedSkillsChange([]);
         }
       })
       .finally(() => setLoadingSkills(false));
-  }, [open, editingAgent?.id]);
+  }, [editingAgent, onInstalledSkillsLoaded, onSelectedSkillsChange, open]);
 
   const toggleSkill = (name: string) => {
     const isInstalled = editingAgent && installedSkills.includes(name);
@@ -83,9 +86,7 @@ export function AgentModal({
 
   const handleSelectAll = () => {
     const allNames = poolSkills.map((s) => s.name);
-    onSelectedSkillsChange(
-      Array.from(new Set([...installedSkills, ...allNames])),
-    );
+    onSelectedSkillsChange(allNames);
   };
 
   const handleSelectBuiltin = () => {
@@ -123,6 +124,21 @@ export function AgentModal({
             <Input disabled />
           </Form.Item>
         )}
+        {!editingAgent && (
+          <Form.Item
+            name="id"
+            label={t("agent.idLabel")}
+            help={t("agent.idHelp")}
+            rules={[
+              {
+                pattern: /^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$/,
+                message: t("agent.idPattern"),
+              },
+            ]}
+          >
+            <Input placeholder={t("agent.idPlaceholder")} />
+          </Form.Item>
+        )}
         <Form.Item
           name="name"
           label={t("agent.name")}
@@ -142,7 +158,7 @@ export function AgentModal({
           help={!editingAgent ? t("agent.workspaceHelp") : undefined}
         >
           <Input
-            placeholder="~/.copaw/workspaces/my-agent"
+            placeholder="~/.qwenpaw/workspaces/my-agent"
             disabled={!!editingAgent}
           />
         </Form.Item>

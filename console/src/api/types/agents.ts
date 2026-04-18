@@ -12,6 +12,11 @@ export interface AgentListResponse {
   agents: AgentSummary[];
 }
 
+export interface ReorderAgentsResponse {
+  success: boolean;
+  agent_ids: string[];
+}
+
 export interface AgentProfileConfig {
   id: string;
   name: string;
@@ -28,6 +33,7 @@ export interface AgentProfileConfig {
 }
 
 export interface CreateAgentRequest {
+  id?: string;
   name: string;
   description?: string;
   workspace_dir?: string;
