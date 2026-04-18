@@ -350,7 +350,11 @@ class ConsoleChannel(BaseChannel):
         if isinstance(value, dict):
             out: Dict[Any, Any] = {}
             for k, v in value.items():
-                nk = cls._sanitize_surrogate_text(k) if isinstance(k, str) else k
+                nk = (
+                    cls._sanitize_surrogate_text(k)
+                    if isinstance(k, str)
+                    else k
+                )
                 out[nk] = cls._sanitize_for_json(v)
             return out
         return value
@@ -444,7 +448,10 @@ class ConsoleChannel(BaseChannel):
                     ev_type,
                 )
 
-                if event.object == "response" and event.status == RunStatus.Completed:
+                if (
+                    event.object == "response"
+                    and event.status == RunStatus.Completed
+                ):
                     event_output = event.output
                     event.output = []
                     if event_output is not None:
@@ -561,7 +568,11 @@ class ConsoleChannel(BaseChannel):
             elif t == ContentType.AUDIO and getattr(p, "data", None):
                 self._safe_print(f"{_YELLOW}🔊 [Audio]{_RESET}")
             elif t == ContentType.FILE:
-                url = getattr(p, "file_url", None) or getattr(p, "file_id", None) or ""
+                url = (
+                    getattr(p, "file_url", None)
+                    or getattr(p, "file_id", None)
+                    or ""
+                )
                 self._safe_print(f"{_YELLOW}📎 [File: {url}]{_RESET}")
         self._safe_print("")
 
@@ -606,7 +617,8 @@ class ConsoleChannel(BaseChannel):
         ts = _ts()
         prefix = (meta or {}).get("bot_prefix", self.bot_prefix) or ""
         self._safe_print(
-            f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n{prefix}{text}\n",
+            f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n"
+            f"{prefix}{text}\n",
         )
         sid = (meta or {}).get("session_id")
         if sid and text.strip():
