@@ -6,24 +6,24 @@ import { stripFrontmatter } from '../markdown'
 // getAgentDisplayName
 // ---------------------------------------------------------------------------
 
-const t = (key: string) => key  // 测试用 t 函数：返回 key 本身
+const t = (key: string) => key  // test t function: returns the key as-is
 
 describe('getAgentDisplayName', () => {
-  it('id 为 default 时返回 i18n key', () => {
+  it('returns i18n key when id is "default"', () => {
     expect(getAgentDisplayName({ id: 'default', name: 'anything' }, t as any)).toBe(
       'agent.defaultDisplayName',
     )
   })
 
-  it('非 default id 优先返回 name', () => {
+  it('returns name when id is not "default"', () => {
     expect(getAgentDisplayName({ id: 'agent-1', name: 'My Agent' }, t as any)).toBe('My Agent')
   })
 
-  it('name 为空时 fallback 到 id', () => {
+  it('falls back to id when name is empty', () => {
     expect(getAgentDisplayName({ id: 'agent-1', name: '' }, t as any)).toBe('agent-1')
   })
 
-  it('name 为 undefined 时 fallback 到 id', () => {
+  it('falls back to id when name is undefined', () => {
     expect(
       getAgentDisplayName({ id: 'agent-1', name: undefined as any }, t as any),
     ).toBe('agent-1')
@@ -35,31 +35,31 @@ describe('getAgentDisplayName', () => {
 // ---------------------------------------------------------------------------
 
 describe('stripFrontmatter', () => {
-  it('移除标准 YAML frontmatter', () => {
+  it('removes standard YAML frontmatter', () => {
     const input = '---\ntitle: Test\ndate: 2024-01-01\n---\n# Hello'
     expect(stripFrontmatter(input)).toBe('# Hello')
   })
 
-  it('无 frontmatter 时原样返回', () => {
+  it('returns input unchanged when no frontmatter', () => {
     const input = '# Hello\nsome content'
     expect(stripFrontmatter(input)).toBe(input)
   })
 
-  it('空字符串返回空字符串', () => {
+  it('returns empty string for empty input', () => {
     expect(stripFrontmatter('')).toBe('')
   })
 
-  it('保留 frontmatter 之后的全部内容', () => {
+  it('preserves all content after frontmatter', () => {
     const input = '---\nkey: value\n---\nline1\nline2\n\nline3'
     expect(stripFrontmatter(input)).toBe('line1\nline2\n\nline3')
   })
 
-  it('只有 frontmatter 无正文时返回空', () => {
+  it('returns empty string when only frontmatter with no body', () => {
     const input = '---\ntitle: Only\n---\n'
     expect(stripFrontmatter(input)).toBe('')
   })
 
-  it('Windows 换行符 \\r\\n 也能处理', () => {
+  it('handles Windows line endings \\r\\n', () => {
     const input = '---\r\ntitle: Test\r\n---\r\n# Hello'
     expect(stripFrontmatter(input)).toBe('# Hello')
   })

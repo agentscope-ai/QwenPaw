@@ -51,12 +51,12 @@ describe('AgentSelector', () => {
 
   afterEach(() => vi.clearAllMocks())
 
-  it('挂载时调用 listAgents', async () => {
+  it('calls listAgents on mount', async () => {
     renderWithProviders(<AgentSelector />)
     await waitFor(() => expect(mockListAgents).toHaveBeenCalledOnce())
   })
 
-  it('加载完成后 setAgents 收到 enabled 排前的列表', async () => {
+  it('after loading, setAgents receives the list with enabled agents first', async () => {
     renderWithProviders(<AgentSelector />)
     await waitFor(() => expect(mockSetAgents).toHaveBeenCalled())
     const sortedAgents = mockSetAgents.mock.calls[0][0]
@@ -64,19 +64,19 @@ describe('AgentSelector', () => {
     expect(sortedAgents[1].enabled).toBe(false)
   })
 
-  it('collapsed 模式不渲染 Select', async () => {
+  it('does not render Select in collapsed mode', async () => {
     renderWithProviders(<AgentSelector collapsed />)
     await waitFor(() => expect(mockListAgents).toHaveBeenCalled())
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 
-  it('非 collapsed 模式渲染 Select', async () => {
+  it('renders Select in non-collapsed mode', async () => {
     renderWithProviders(<AgentSelector />)
     await waitFor(() => expect(mockListAgents).toHaveBeenCalled())
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 
-  it('listAgents 失败时不崩溃', async () => {
+  it('does not crash when listAgents fails', async () => {
     mockListAgents.mockRejectedValue(new Error('network error'))
     expect(() => renderWithProviders(<AgentSelector />)).not.toThrow()
     await waitFor(() => expect(mockListAgents).toHaveBeenCalled())

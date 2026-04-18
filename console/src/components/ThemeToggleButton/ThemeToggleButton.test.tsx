@@ -10,7 +10,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }))
 
-// 用真实 ThemeProvider 包裹，通过 localStorage 控制初始主题
+// Wrap with real ThemeProvider, control initial theme via localStorage
 function renderWithTheme(isDarkMode: boolean) {
   localStorage.setItem('copaw-theme', isDarkMode ? 'dark' : 'light')
   return render(
@@ -21,37 +21,35 @@ function renderWithTheme(isDarkMode: boolean) {
 }
 
 describe('ThemeToggleButton', () => {
-  it('light 模式显示 moon 图标', () => {
+  it('shows moon icon in light mode', () => {
     renderWithTheme(false)
-    // MoonOutlined 的 aria-label
     expect(screen.getByRole('img', { name: 'moon' })).toBeInTheDocument()
   })
 
-  it('dark 模式显示 sun 图标', () => {
+  it('shows sun icon in dark mode', () => {
     renderWithTheme(true)
     expect(screen.getByRole('img', { name: 'sun' })).toBeInTheDocument()
   })
 
-  it('light 模式 aria-label 包含 switchToDark', () => {
+  it('aria-label contains switchToDark in light mode', () => {
     renderWithTheme(false)
     expect(
       screen.getByRole('button', { name: 'theme.switchToDark' }),
     ).toBeInTheDocument()
   })
 
-  it('dark 模式 aria-label 包含 switchToLight', () => {
+  it('aria-label contains switchToLight in dark mode', () => {
     renderWithTheme(true)
     expect(
       screen.getByRole('button', { name: 'theme.switchToLight' }),
     ).toBeInTheDocument()
   })
 
-  it('点击按钮切换主题（light → dark）', async () => {
+  it('clicking the button toggles theme from light to dark', async () => {
     const user = userEvent.setup()
     renderWithTheme(false)
     const btn = screen.getByRole('button')
     await user.click(btn)
-    // 切换后应显示 sun
     expect(screen.getByRole('img', { name: 'sun' })).toBeInTheDocument()
   })
 })

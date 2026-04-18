@@ -12,7 +12,7 @@ const mockCreateSession = vi.fn()
 
 vi.mock('@agentscope-ai/chat', () => ({
   useChatAnywhereSessions: () => ({ createSession: mockCreateSession }),
-  // ChatSessionDrawer 内部也用了这些，一并 mock
+  // ChatSessionDrawer internally uses these too, mock them here as well
   useChatAnywhereSessionsState: () => ({
     sessions: [],
     currentSessionId: null,
@@ -21,7 +21,7 @@ vi.mock('@agentscope-ai/chat', () => ({
   }),
 }))
 
-// IconButton mock：渲染真实 <button>，保留 onClick，icon 作为子元素方便定位
+// IconButton mock: renders a real <button>, preserves onClick, icon as child for easy targeting
 vi.mock('@agentscope-ai/design', () => ({
   IconButton: ({
     onClick,
@@ -32,7 +32,7 @@ vi.mock('@agentscope-ai/design', () => ({
   }) => <button onClick={onClick}>{icon}</button>,
 }))
 
-// 图标用 data-testid 标记，便于定位按钮
+// Icons marked with data-testid for easy button targeting
 vi.mock('@agentscope-ai/icons', () => ({
   SparkNewChatFill: () => <span data-testid="icon-new-chat" />,
   SparkHistoryLine: () => <span data-testid="icon-history" />,
@@ -43,7 +43,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }))
 
-// ChatSessionDrawer mock 路径相对于测试文件，需要 ../../
+// ChatSessionDrawer mock path is relative to the test file, needs ../../
 vi.mock('../../ChatSessionDrawer', () => ({
   default: ({
     open,
@@ -86,18 +86,18 @@ describe('ChatActionGroup', () => {
     vi.clearAllMocks()
   })
 
-  it('渲染新建对话和历史记录两个按钮', () => {
+  it('renders new chat and history buttons', () => {
     renderWithProviders(<ChatActionGroup />)
     expect(getNewChatBtn()).toBeInTheDocument()
     expect(getHistoryBtn()).toBeInTheDocument()
   })
 
-  it('初始状态 drawer 不可见', () => {
+  it('drawer is not visible in initial state', () => {
     renderWithProviders(<ChatActionGroup />)
     expect(screen.queryByTestId('session-drawer')).not.toBeInTheDocument()
   })
 
-  it('点击新建对话按钮调用 createSession', async () => {
+  it('clicking the new chat button calls createSession', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ChatActionGroup />)
 
@@ -106,7 +106,7 @@ describe('ChatActionGroup', () => {
     expect(mockCreateSession).toHaveBeenCalledOnce()
   })
 
-  it('点击历史记录按钮打开 drawer', async () => {
+  it('clicking the history button opens the drawer', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ChatActionGroup />)
 
@@ -115,7 +115,7 @@ describe('ChatActionGroup', () => {
     expect(screen.getByTestId('session-drawer')).toBeInTheDocument()
   })
 
-  it('drawer 关闭后从 DOM 移除', async () => {
+  it('drawer is removed from the DOM after closing', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ChatActionGroup />)
 
@@ -126,7 +126,7 @@ describe('ChatActionGroup', () => {
     expect(screen.queryByTestId('session-drawer')).not.toBeInTheDocument()
   })
 
-  it('多次点击新建对话按钮，每次都调用 createSession', async () => {
+  it('clicking new chat button multiple times calls createSession each time', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ChatActionGroup />)
 

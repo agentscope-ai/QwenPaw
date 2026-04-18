@@ -9,7 +9,7 @@ import {
 } from '../utils'
 import type { CopyableResponse } from '../utils'
 
-// toDisplayUrl 依赖 chatApi.filePreviewUrl，需要 mock
+// toDisplayUrl depends on chatApi.filePreviewUrl, needs to be mocked
 vi.mock('@/api/modules/chat', () => ({
   chatApi: {
     filePreviewUrl: vi.fn((p: string) => `http://localhost:8000${p}`),
@@ -20,7 +20,7 @@ vi.mock('@/api/modules/chat', () => ({
 // extractCopyableText
 // ---------------------------------------------------------------------------
 describe('extractCopyableText', () => {
-  it('提取 assistant 角色的字符串 content', () => {
+  it('extracts string content from assistant role', () => {
     const response: CopyableResponse = {
       output: [
         { role: 'user', content: '你好' },
@@ -30,7 +30,7 @@ describe('extractCopyableText', () => {
     expect(extractCopyableText(response)).toBe('你好，有什么可以帮你？')
   })
 
-  it('提取结构化 content 数组中的 text', () => {
+  it('extracts text from structured content array', () => {
     const response: CopyableResponse = {
       output: [
         {
@@ -45,7 +45,7 @@ describe('extractCopyableText', () => {
     expect(extractCopyableText(response)).toBe('第一段\n\n第二段')
   })
 
-  it('提取 refusal 类型内容', () => {
+  it('extracts refusal type content', () => {
     const response: CopyableResponse = {
       output: [
         {
@@ -57,23 +57,23 @@ describe('extractCopyableText', () => {
     expect(extractCopyableText(response)).toBe('无法回答此问题')
   })
 
-  it('无 assistant 消息时 fallback 到 JSON.stringify', () => {
+  it('falls back to JSON.stringify when no assistant message is present', () => {
     const response: CopyableResponse = {
       output: [{ role: 'user', content: '仅用户消息' }],
     }
     expect(extractCopyableText(response)).toBe(JSON.stringify(response))
   })
 
-  it('output 为空时返回 JSON 序列化', () => {
+  it('returns JSON serialization when output is empty', () => {
     const response: CopyableResponse = { output: [] }
     expect(extractCopyableText(response)).toBe(JSON.stringify(response))
   })
 
-  it('output 为 undefined 时不报错', () => {
+  it('does not throw when output is undefined', () => {
     expect(() => extractCopyableText({})).not.toThrow()
   })
 
-  it('多条 assistant 消息用双换行合并', () => {
+  it('merges multiple assistant messages with double newlines', () => {
     const response: CopyableResponse = {
       output: [
         { role: 'assistant', content: '第一句' },
@@ -88,11 +88,11 @@ describe('extractCopyableText', () => {
 // extractUserMessageText
 // ---------------------------------------------------------------------------
 describe('extractUserMessageText', () => {
-  it('字符串 content 直接返回', () => {
+  it('returns string content directly', () => {
     expect(extractUserMessageText({ content: '你好' })).toBe('你好')
   })
 
-  it('数组 content 提取 text 类型并换行合并', () => {
+  it('extracts text type items from array content and joins with newlines', () => {
     const msg = {
       content: [
         { type: 'text', text: '你好' },
@@ -103,7 +103,7 @@ describe('extractUserMessageText', () => {
     expect(extractUserMessageText(msg)).toBe('你好\n世界')
   })
 
-  it('非字符串非数组返回空字符串', () => {
+  it('returns empty string for non-string non-array content', () => {
     expect(extractUserMessageText({ content: null })).toBe('')
     expect(extractUserMessageText({ content: 123 })).toBe('')
   })
@@ -113,19 +113,19 @@ describe('extractUserMessageText', () => {
 // buildModelError
 // ---------------------------------------------------------------------------
 describe('buildModelError', () => {
-  it('返回 400 状态码', () => {
+  it('returns 400 status code', () => {
     const response = buildModelError()
     expect(response.status).toBe(400)
   })
 
-  it('响应体包含 error 和 message 字段', async () => {
+  it('response body contains error and message fields', async () => {
     const response = buildModelError()
     const body = await response.json()
     expect(body).toHaveProperty('error')
     expect(body).toHaveProperty('message')
   })
 
-  it('Content-Type 为 application/json', () => {
+  it('Content-Type is application/json', () => {
     const response = buildModelError()
     expect(response.headers.get('Content-Type')).toBe('application/json')
   })
@@ -137,27 +137,27 @@ describe('buildModelError', () => {
 describe('toStoredName', () => {
   test.each([
     [
-      '提取 /files/preview/ 后的路径',
+      'extracts path after /files/preview/',
       'http://host/files/preview/uploads/img.png',
       '/uploads/img.png',
     ],
     [
-      '去掉查询参数',
+      'strips query parameters',
       'http://host/files/preview/img.png?token=abc',
       '/img.png',
     ],
     [
-      '去掉 hash',
+      'strips hash fragment',
       'http://host/files/preview/img.png#section',
       '/img.png',
     ],
     [
-      '无 marker 时原样返回',
+      'returns input as-is when marker is absent',
       '/local/path/file.txt',
       '/local/path/file.txt',
     ],
     [
-      'URL 编码路径正确解码',
+      'correctly decodes URL-encoded path',
       'http://host/files/preview/%E4%B8%AD%E6%96%87.txt',
       '/中文.txt',
     ],
@@ -170,30 +170,30 @@ describe('toStoredName', () => {
 // normalizeContentUrls
 // ---------------------------------------------------------------------------
 describe('normalizeContentUrls', () => {
-  it('转换 image 类型的 image_url', () => {
+  it('converts image_url for image type', () => {
     const part = { type: 'image', image_url: 'http://host/files/preview/img.png' }
     const result = normalizeContentUrls(part)
     expect(result.image_url).toBe('/img.png')
   })
 
-  it('转换 file 类型的 file_url', () => {
+  it('converts file_url for file type', () => {
     const part = { type: 'file', file_url: 'http://host/files/preview/doc.pdf' }
     const result = normalizeContentUrls(part)
     expect(result.file_url).toBe('/doc.pdf')
   })
 
-  it('转换 audio 类型的 data', () => {
+  it('converts data for audio type', () => {
     const part = { type: 'audio', data: 'http://host/files/preview/audio.mp3' }
     const result = normalizeContentUrls(part)
     expect(result.data).toBe('/audio.mp3')
   })
 
-  it('不影响 text 类型', () => {
+  it('does not affect text type', () => {
     const part = { type: 'text', text: 'hello' }
     expect(normalizeContentUrls(part)).toEqual(part)
   })
 
-  it('不修改原对象（shallow copy）', () => {
+  it('does not mutate the original object (shallow copy)', () => {
     const part = { type: 'image', image_url: 'http://host/files/preview/img.png' }
     normalizeContentUrls(part)
     expect(part.image_url).toBe('http://host/files/preview/img.png')
@@ -204,27 +204,27 @@ describe('normalizeContentUrls', () => {
 // toDisplayUrl
 // ---------------------------------------------------------------------------
 describe('toDisplayUrl', () => {
-  it('http URL 原样返回', () => {
+  it('returns http URL as-is', () => {
     expect(toDisplayUrl('http://cdn.com/img.png')).toBe('http://cdn.com/img.png')
   })
 
-  it('https URL 原样返回', () => {
+  it('returns https URL as-is', () => {
     expect(toDisplayUrl('https://cdn.com/file')).toBe('https://cdn.com/file')
   })
 
-  it('undefined 返回空字符串', () => {
+  it('returns empty string for undefined', () => {
     expect(toDisplayUrl(undefined)).toBe('')
   })
 
-  it('空字符串返回空字符串', () => {
+  it('returns empty string for empty string', () => {
     expect(toDisplayUrl('')).toBe('')
   })
 
-  it('相对路径调用 chatApi.filePreviewUrl', () => {
+  it('calls chatApi.filePreviewUrl for relative paths', () => {
     expect(toDisplayUrl('/uploads/img.png')).toBe('http://localhost:8000/uploads/img.png')
   })
 
-  it('file:// 协议去掉前缀后补全 URL', () => {
+  it('strips file:// prefix then resolves full URL', () => {
     expect(toDisplayUrl('file:///uploads/img.png')).toBe('http://localhost:8000/uploads/img.png')
   })
 })

@@ -7,7 +7,7 @@ const mockAgent = (id: string): AgentSummary =>
 
 describe('agentStore', () => {
   beforeEach(() => {
-    // 每个测试前重置为初始状态
+    // Reset to initial state before each test
     useAgentStore.setState({
       selectedAgent: 'default',
       agents: [],
@@ -15,14 +15,14 @@ describe('agentStore', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // 初始状态
+  // Initial state
   // ---------------------------------------------------------------------------
 
-  it('初始 selectedAgent 为 "default"', () => {
+  it('initial selectedAgent is "default"', () => {
     expect(useAgentStore.getState().selectedAgent).toBe('default')
   })
 
-  it('初始 agents 为空数组', () => {
+  it('initial agents is an empty array', () => {
     expect(useAgentStore.getState().agents).toEqual([])
   })
 
@@ -30,7 +30,7 @@ describe('agentStore', () => {
   // setSelectedAgent
   // ---------------------------------------------------------------------------
 
-  it('setSelectedAgent 更新 selectedAgent', () => {
+  it('setSelectedAgent updates selectedAgent', () => {
     useAgentStore.getState().setSelectedAgent('agent-123')
     expect(useAgentStore.getState().selectedAgent).toBe('agent-123')
   })
@@ -39,13 +39,13 @@ describe('agentStore', () => {
   // setAgents
   // ---------------------------------------------------------------------------
 
-  it('setAgents 替换整个 agents 列表', () => {
+  it('setAgents replaces the entire agents list', () => {
     const agents = [mockAgent('1'), mockAgent('2')]
     useAgentStore.getState().setAgents(agents)
     expect(useAgentStore.getState().agents).toEqual(agents)
   })
 
-  it('setAgents 传空数组清空列表', () => {
+  it('setAgents with empty array clears the list', () => {
     useAgentStore.getState().setAgents([mockAgent('1')])
     useAgentStore.getState().setAgents([])
     expect(useAgentStore.getState().agents).toEqual([])
@@ -55,14 +55,14 @@ describe('agentStore', () => {
   // addAgent
   // ---------------------------------------------------------------------------
 
-  it('addAgent 追加到列表末尾', () => {
+  it('addAgent appends to the end of the list', () => {
     useAgentStore.getState().setAgents([mockAgent('1')])
     useAgentStore.getState().addAgent(mockAgent('2'))
     expect(useAgentStore.getState().agents).toHaveLength(2)
     expect(useAgentStore.getState().agents[1].id).toBe('2')
   })
 
-  it('空列表 addAgent 后长度为 1', () => {
+  it('addAgent on empty list results in length 1', () => {
     useAgentStore.getState().addAgent(mockAgent('1'))
     expect(useAgentStore.getState().agents).toHaveLength(1)
   })
@@ -71,14 +71,14 @@ describe('agentStore', () => {
   // removeAgent
   // ---------------------------------------------------------------------------
 
-  it('removeAgent 移除指定 id', () => {
+  it('removeAgent removes the agent with matching id', () => {
     useAgentStore.getState().setAgents([mockAgent('1'), mockAgent('2'), mockAgent('3')])
     useAgentStore.getState().removeAgent('2')
     const ids = useAgentStore.getState().agents.map((a) => a.id)
     expect(ids).toEqual(['1', '3'])
   })
 
-  it('removeAgent 不存在的 id 不报错，列表不变', () => {
+  it('removeAgent with non-existent id does not throw and list is unchanged', () => {
     useAgentStore.getState().setAgents([mockAgent('1')])
     useAgentStore.getState().removeAgent('999')
     expect(useAgentStore.getState().agents).toHaveLength(1)
@@ -88,21 +88,21 @@ describe('agentStore', () => {
   // updateAgent
   // ---------------------------------------------------------------------------
 
-  it('updateAgent 修改指定 agent 的字段', () => {
+  it('updateAgent modifies fields of the matching agent', () => {
     useAgentStore.getState().setAgents([mockAgent('1'), mockAgent('2')])
     useAgentStore.getState().updateAgent('1', { name: 'Updated Name' })
     const agent = useAgentStore.getState().agents.find((a) => a.id === '1')
     expect(agent?.name).toBe('Updated Name')
   })
 
-  it('updateAgent 只修改目标，不影响其他 agent', () => {
+  it('updateAgent only modifies the target, leaving others unchanged', () => {
     useAgentStore.getState().setAgents([mockAgent('1'), mockAgent('2')])
     useAgentStore.getState().updateAgent('1', { name: 'New Name' })
     const agent2 = useAgentStore.getState().agents.find((a) => a.id === '2')
     expect(agent2?.name).toBe('Agent 2')
   })
 
-  it('updateAgent 不存在的 id 不报错，列表不变', () => {
+  it('updateAgent with non-existent id does not throw and list is unchanged', () => {
     useAgentStore.getState().setAgents([mockAgent('1')])
     expect(() =>
       useAgentStore.getState().updateAgent('999', { name: 'Ghost' }),

@@ -8,20 +8,20 @@ const setToken    = (v: string) => { (globalThis as any).TOKEN = v }
 describe('getApiUrl', () => {
   beforeEach(() => setViteBase(''))
 
-  it('相对路径：空 base 时拼接 /api 前缀', () => {
+  it('prepends /api prefix when base is empty', () => {
     expect(getApiUrl('/models')).toBe('/api/models')
   })
 
-  it('path 不以 / 开头时自动补 /', () => {
+  it('auto-prepends / when path does not start with /', () => {
     expect(getApiUrl('models')).toBe('/api/models')
   })
 
-  it('有 base URL 时正确拼接', () => {
+  it('correctly concatenates when base URL is set', () => {
     setViteBase('http://localhost:8088')
     expect(getApiUrl('/models')).toBe('http://localhost:8088/api/models')
   })
 
-  it('嵌套路径正确拼接', () => {
+  it('correctly handles nested paths', () => {
     expect(getApiUrl('/models/openai/config')).toBe('/api/models/openai/config')
   })
 })
@@ -32,17 +32,17 @@ describe('getApiToken', () => {
     setToken('')
   })
 
-  it('localStorage 有 token 时优先返回', () => {
+  it('returns token from localStorage when present', () => {
     localStorage.setItem('copaw_auth_token', 'stored-token')
     expect(getApiToken()).toBe('stored-token')
   })
 
-  it('localStorage 无 token 时 fallback 到 TOKEN 全局变量', () => {
+  it('falls back to TOKEN global variable when localStorage has no token', () => {
     setToken('build-time-token')
     expect(getApiToken()).toBe('build-time-token')
   })
 
-  it('两者均无时返回空字符串', () => {
+  it('returns empty string when neither is set', () => {
     expect(getApiToken()).toBe('')
   })
 })
@@ -50,18 +50,18 @@ describe('getApiToken', () => {
 describe('setAuthToken / clearAuthToken', () => {
   beforeEach(() => localStorage.clear())
 
-  it('setAuthToken 写入 localStorage', () => {
+  it('setAuthToken writes to localStorage', () => {
     setAuthToken('my-token')
     expect(localStorage.getItem('copaw_auth_token')).toBe('my-token')
   })
 
-  it('clearAuthToken 移除 localStorage 中的 token', () => {
+  it('clearAuthToken removes token from localStorage', () => {
     localStorage.setItem('copaw_auth_token', 'my-token')
     clearAuthToken()
     expect(localStorage.getItem('copaw_auth_token')).toBeNull()
   })
 
-  it('clearAuthToken 后 getApiToken 返回空字符串', () => {
+  it('getApiToken returns empty string after clearAuthToken', () => {
     setToken('')
     setAuthToken('my-token')
     clearAuthToken()

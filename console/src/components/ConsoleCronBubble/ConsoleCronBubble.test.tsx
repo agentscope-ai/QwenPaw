@@ -17,33 +17,33 @@ const makeMessages = (ids: string[]) => ({
 })
 
 // ---------------------------------------------------------------------------
-// 基础渲染测试（不需要 fake timers，findBy* 能正常工作）
+// Basic render tests (no fake timers needed, findBy* works fine)
 // ---------------------------------------------------------------------------
-describe('ConsoleCronBubble - 基础渲染', () => {
+describe('ConsoleCronBubble - basic rendering', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('无消息时不渲染任何内容', async () => {
+  it('renders nothing when there are no messages', async () => {
     mockGetPushMessages.mockResolvedValue({ messages: [] })
     renderWithProviders(<ConsoleCronBubble />)
-    // 等首次 poll 完成
+    // wait for the first poll to complete
     await act(async () => {})
     expect(screen.queryByRole('region')).not.toBeInTheDocument()
   })
 
-  it('有消息时渲染 bubble', async () => {
+  it('renders bubble when messages are present', async () => {
     mockGetPushMessages.mockResolvedValue(makeMessages(['msg-1']))
     renderWithProviders(<ConsoleCronBubble />)
     expect(await screen.findByText('Message msg-1')).toBeInTheDocument()
   })
 
-  it('多条消息各自渲染', async () => {
+  it('renders each message separately', async () => {
     mockGetPushMessages.mockResolvedValue(makeMessages(['a', 'b']))
     renderWithProviders(<ConsoleCronBubble />)
     expect(await screen.findByText('Message a')).toBeInTheDocument()
     expect(await screen.findByText('Message b')).toBeInTheDocument()
   })
 
-  it('点击关闭按钮移除对应 bubble', async () => {
+  it('clicking the close button removes the corresponding bubble', async () => {
     const user = userEvent.setup()
     mockGetPushMessages.mockResolvedValue(makeMessages(['x']))
     renderWithProviders(<ConsoleCronBubble />)
@@ -56,9 +56,9 @@ describe('ConsoleCronBubble - 基础渲染', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 轮询行为测试（需要 fake timers 控制 setInterval）
+// Polling behavior tests (fake timers needed to control setInterval)
 // ---------------------------------------------------------------------------
-describe('ConsoleCronBubble - 轮询行为', () => {
+describe('ConsoleCronBubble - polling behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mockGetPushMessages.mockResolvedValue({ messages: [] })
@@ -69,13 +69,13 @@ describe('ConsoleCronBubble - 轮询行为', () => {
     vi.clearAllMocks()
   })
 
-  it('同一消息不重复渲染（seen ids 去重）', async () => {
+  it('duplicate messages are not rendered (seen ids deduplication)', async () => {
     mockGetPushMessages.mockResolvedValue(makeMessages(['dup-1']))
     renderWithProviders(<ConsoleCronBubble />)
 
-    // 首次 tick
+    // first tick
     await act(async () => { await Promise.resolve() })
-    // 推进轮询间隔，触发第二次 poll
+    // advance timer to trigger second poll
     await act(async () => {
       vi.advanceTimersByTime(2500)
       await Promise.resolve()
@@ -85,7 +85,7 @@ describe('ConsoleCronBubble - 轮询行为', () => {
     expect(screen.queryAllByText('Message dup-1').length).toBeLessThanOrEqual(1)
   })
 
-  it('超过 MAX_VISIBLE_BUBBLES(4) 时最多显示 4 条', async () => {
+  it('shows at most 4 bubbles when exceeding MAX_VISIBLE_BUBBLES(4)', async () => {
     mockGetPushMessages
       .mockResolvedValueOnce(makeMessages(['1', '2']))
       .mockResolvedValueOnce(makeMessages(['3', '4']))
