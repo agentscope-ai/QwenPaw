@@ -16,34 +16,34 @@ describe('providerApi', () => {
     vi.clearAllMocks()
   })
 
-  it('listProviders 调用 /models', async () => {
+  it('listProviders calls /models', async () => {
     await providerApi.listProviders()
     expect(request).toHaveBeenCalledWith('/models')
   })
 
-  it('getActiveModels 无参数时调用 /models/active', async () => {
+  it('getActiveModels with no params calls /models/active', async () => {
     await providerApi.getActiveModels()
     expect(request).toHaveBeenCalledWith('/models/active')
   })
 
-  it('getActiveModels 只有 scope 时构建正确 query', async () => {
+  it('getActiveModels with only scope builds correct query', async () => {
     await providerApi.getActiveModels({ scope: 'global' })
     expect(request).toHaveBeenCalledWith('/models/active?scope=global')
   })
 
-  it('getActiveModels 只有 agent_id 时构建正确 query', async () => {
+  it('getActiveModels with only agent_id builds correct query', async () => {
     await providerApi.getActiveModels({ agent_id: 'agent-1' })
     expect(request).toHaveBeenCalledWith('/models/active?agent_id=agent-1')
   })
 
-  it('getActiveModels scope + agent_id 都有时构建正确 query', async () => {
+  it('getActiveModels with both scope and agent_id builds correct query', async () => {
     await providerApi.getActiveModels({ scope: 'effective', agent_id: 'agent-1' })
     expect(request).toHaveBeenCalledWith(
       '/models/active?scope=effective&agent_id=agent-1',
     )
   })
 
-  it('setActiveLlm 发送 PUT 请求', async () => {
+  it('setActiveLlm sends a PUT request', async () => {
     const body = { provider_id: 'openai', model: 'gpt-4', scope: 'agent' as const }
     await providerApi.setActiveLlm(body)
     expect(request).toHaveBeenCalledWith('/models/active', {
@@ -52,7 +52,7 @@ describe('providerApi', () => {
     })
   })
 
-  it('configureProvider 编码 providerId 并发送 PUT', async () => {
+  it('configureProvider encodes providerId and sends PUT', async () => {
     await providerApi.configureProvider('open/ai', { api_key: 'sk-xxx' })
     expect(request).toHaveBeenCalledWith(
       '/models/open%2Fai/config',
@@ -60,7 +60,7 @@ describe('providerApi', () => {
     )
   })
 
-  it('addModel 发送 POST 到正确路径', async () => {
+  it('addModel sends POST to the correct path', async () => {
     await providerApi.addModel('openai', { id: 'gpt-5', name: 'GPT-5' })
     expect(request).toHaveBeenCalledWith(
       '/models/openai/models',
@@ -68,7 +68,7 @@ describe('providerApi', () => {
     )
   })
 
-  it('removeModel 发送 DELETE 并编码两个 id', async () => {
+  it('removeModel sends DELETE and encodes both ids', async () => {
     await providerApi.removeModel('open/ai', 'gpt-4')
     expect(request).toHaveBeenCalledWith(
       '/models/open%2Fai/models/gpt-4',

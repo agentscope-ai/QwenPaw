@@ -33,7 +33,6 @@ vi.mock('@agentscope-ai/chat', () => ({
 
 vi.mock('@/api/modules/chat', () => ({
   chatApi: { deleteChat: mockDeleteChat, updateChat: mockUpdateChat },
-  // sessionApi 被 src/api/index.ts spread，必须一起 mock
   sessionApi: {
     listChats: vi.fn(),
     createChat: vi.fn(),
@@ -82,17 +81,17 @@ const defaultProps = { open: true, onClose: vi.fn() }
 describe('ChatSessionDrawer', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('open=false 时不渲染内容', () => {
+  it('renders nothing when open=false', () => {
     renderWithProviders(<ChatSessionDrawer open={false} onClose={vi.fn()} />)
     expect(screen.queryByText('chat.allChats')).not.toBeInTheDocument()
   })
 
-  it('open=true 时渲染标题 chat.allChats', () => {
+  it('renders title chat.allChats when open=true', () => {
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />)
     expect(screen.getByText('chat.allChats')).toBeInTheDocument()
   })
 
-  it('点击新建对话调用 createSession 并关闭 drawer', async () => {
+  it('clicking new chat calls createSession', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     renderWithProviders(<ChatSessionDrawer open onClose={onClose} />)
@@ -100,7 +99,7 @@ describe('ChatSessionDrawer', () => {
     expect(mockCreateSession).toHaveBeenCalledOnce()
   })
 
-  it('有 sessions 时渲染 ChatSessionItem', () => {
+  it('renders ChatSessionItem for each session', () => {
     vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
       sessions: [{ id: 's1', name: 'Session One' }] as any,
       currentSessionId: null,
@@ -111,7 +110,7 @@ describe('ChatSessionDrawer', () => {
     expect(screen.getByText('Session One')).toBeInTheDocument()
   })
 
-  it('点击 session item 调用 setCurrentSessionId', async () => {
+  it('clicking a session item calls setCurrentSessionId', async () => {
     vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
       sessions: [{ id: 's1', name: 'Session One' }] as any,
       currentSessionId: null,
@@ -124,7 +123,7 @@ describe('ChatSessionDrawer', () => {
     expect(mockSetCurrentSessionId).toHaveBeenCalledWith('s1')
   })
 
-  it('点击关闭按钮调用 onClose', async () => {
+  it('clicking the close button calls onClose', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     renderWithProviders(<ChatSessionDrawer open onClose={onClose} />)

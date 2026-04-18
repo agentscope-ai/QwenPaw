@@ -1,10 +1,11 @@
 /**
- * Chat/index.tsx 行为测试
+ * Chat/index.tsx behavior tests
  *
- * 策略（参考 openclaw chat.test.ts 模式）：
- * - 将 AgentScopeRuntimeWebUI mock 为可捕获 options prop 的 spy 组件
- * - 直接调用 options.api.fetch / options.sender.attachments.customRequest
- *   等回调，测试 ChatPage 自身逻辑，不依赖真实 WebSocket 运行时
+ * Strategy (following the openclaw chat.test.ts pattern):
+ * - Mock AgentScopeRuntimeWebUI as a spy component that captures the options prop
+ * - Directly invoke callbacks like options.api.fetch and
+ *   options.sender.attachments.customRequest to test ChatPage logic
+ *   without depending on a real WebSocket runtime
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, act } from '@testing-library/react'
@@ -13,7 +14,7 @@ import { renderWithProviders } from '@/test/common_setup'
 import ChatPage from '../index'
 
 // ---------------------------------------------------------------------------
-// 捕获 AgentScopeRuntimeWebUI options
+// Capture AgentScopeRuntimeWebUI options
 // ---------------------------------------------------------------------------
 let capturedOptions: any = null
 
@@ -36,7 +37,7 @@ const {
 }))
 
 vi.mock('@agentscope-ai/chat', () => ({
-  // 渲染 rightHeader，让子组件出现在 DOM 里
+  // render rightHeader so child components appear in the DOM
   AgentScopeRuntimeWebUI: vi.fn((props: any) => {
     capturedOptions = props.options
     return (
@@ -78,7 +79,7 @@ vi.mock('antd', async (importOriginal) => {
   const actual = await importOriginal<typeof import('antd')>()
   return {
     ...actual,
-    // Modal：open=false 时不渲染，避免 CSS 动画导致内容留在 DOM
+    // Modal: do not render when open=false, avoids CSS animation leaving content in the DOM
     Modal: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
       open ? <div data-testid="modal">{children}</div> : null,
   }
@@ -158,14 +159,14 @@ describe('ChatPage', () => {
 
   afterEach(() => vi.clearAllMocks())
 
-  // ── 基础渲染 ─────────────────────────────────────────────────────────────
+  // ── basic rendering ───────────────────────────────────────────────────────
 
-  it('渲染 AgentScopeRuntimeWebUI', async () => {
+  it('renders AgentScopeRuntimeWebUI', async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     expect(await screen.findByTestId('chat-ui')).toBeInTheDocument()
   })
 
-  it('渲染子组件 ModelSelector / ChatActionGroup / ChatHeaderTitle', async () => {
+  it('renders child components ModelSelector / ChatActionGroup / ChatHeaderTitle', async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
     expect(screen.getByTestId('model-selector')).toBeInTheDocument()
@@ -173,20 +174,20 @@ describe('ChatPage', () => {
     expect(screen.getByTestId('header-title')).toBeInTheDocument()
   })
 
-  // ── customFetch：model 未配置 → 弹 modal ─────────────────────────────────
+  // ── customFetch: model not configured → show modal ────────────────────────
 
-  it('未配置 model 时 customFetch 返回 400 并显示 modal', async () => {
+  it('customFetch returns 400 and shows modal when model is not configured', async () => {
     mockGetActiveModels.mockResolvedValue({ active_llm: undefined })
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
 
-    // 直接调用 capturedOptions.api.fetch（openclaw 模式）
+    // directly invoke capturedOptions.api.fetch (openclaw pattern)
     const response = await capturedOptions.api.fetch({ input: [], signal: undefined })
     expect(response.status).toBe(400)
     expect(await screen.findByText('modelConfig.promptTitle')).toBeInTheDocument()
   })
 
-  it('provider API 异常时也显示 model 配置 modal', async () => {
+  it('shows model config modal when provider API throws', async () => {
     mockGetActiveModels.mockRejectedValue(new Error('network'))
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
@@ -196,9 +197,9 @@ describe('ChatPage', () => {
     expect(await screen.findByText('modelConfig.promptTitle')).toBeInTheDocument()
   })
 
-  // ── modal 交互 ────────────────────────────────────────────────────────────
+  // ── modal interaction ─────────────────────────────────────────────────────
 
-  it('点击 Skip 按钮关闭 modal', async () => {
+  it('clicking Skip button closes the modal', async () => {
     mockGetActiveModels.mockResolvedValue({ active_llm: undefined })
     const user = userEvent.setup()
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
@@ -208,16 +209,16 @@ describe('ChatPage', () => {
     await screen.findByText('modelConfig.promptTitle')
 
     await user.click(screen.getByText('modelConfig.skipButton'))
-    // antd Modal 有动画，等待 DOM 移除
+    // antd Modal has animations; wait for DOM removal
     await waitFor(() =>
       expect(screen.queryByText('modelConfig.skipButton')).not.toBeInTheDocument(),
       { timeout: 3000 },
     )
   })
 
-  // ── customFetch：正常发送 ────────────────────────────────────────────────
+  // ── customFetch: normal send ──────────────────────────────────────────────
 
-  it('model 已配置时 customFetch 调用 /api/console/chat', async () => {
+  it('customFetch calls /api/console/chat when model is configured', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as Response)
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
@@ -232,7 +233,7 @@ describe('ChatPage', () => {
 
   // ── handleFileUpload ──────────────────────────────────────────────────────
 
-  it('文件超过 10MB 时调用 onError 并不上传', async () => {
+  it('calls onError and skips upload when file exceeds 10MB', async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
 
@@ -246,7 +247,7 @@ describe('ChatPage', () => {
     expect(mockUploadFile).not.toHaveBeenCalled()
   })
 
-  it('文件在限制内时上传成功并调用 onSuccess', async () => {
+  it('uploads successfully and calls onSuccess when file is within size limit', async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
 
@@ -265,17 +266,17 @@ describe('ChatPage', () => {
 
   // ── multimodal caps ───────────────────────────────────────────────────────
 
-  it('挂载时调用 providerApi 获取 multimodal 能力', async () => {
+  it('calls providerApi on mount to fetch multimodal capabilities', async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
     await waitFor(() => expect(mockGetActiveModels).toHaveBeenCalled())
     expect(mockListProviders).toHaveBeenCalled()
   })
 
-  it('model-switched 事件触发重新获取 multimodal 能力', async () => {
+  it('model-switched event triggers re-fetch of multimodal capabilities', async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
-    // 等 mount 时的初始调用稳定
+    // wait for initial mount calls to settle
     await waitFor(() => expect(mockGetActiveModels).toHaveBeenCalled())
     const callsBefore = mockGetActiveModels.mock.calls.length
 
