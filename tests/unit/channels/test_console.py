@@ -649,7 +649,7 @@ class TestConsoleStreamingFilters:
         async for evt in channel.stream_one(self._make_payload()):
             events.append(evt)
 
-        # No SSE data events should have been emitted for the reasoning msg
+        # No SSE data events should have been emitted for the reasoning message
         assert not any("data:" in e for e in events)
 
     async def test_filter_thinking_passes_normal_message(self):
@@ -790,7 +790,7 @@ class TestConsoleStreamingFilters:
             Role,
             DataContent,
         )
-        from unittest.mock import patch, AsyncMock as _AsyncMock
+        from unittest.mock import patch, AsyncMock
         import json
 
         media_output = json.dumps(
@@ -840,7 +840,7 @@ class TestConsoleStreamingFilters:
         with patch.object(
             channel,
             "_extract_media_message",
-            new=_AsyncMock(return_value=synthesised),
+            new=AsyncMock(return_value=synthesised),
         ):
             events = []
             async for evt in channel.stream_one(self._make_payload()):
