@@ -9,6 +9,7 @@ endpoint or via POST /console/chat. This channel handles the **output** side:
 whenever a completed message event or a proactive send arrives, it is
 pretty-printed to the terminal.
 """
+
 from __future__ import annotations
 
 import copy
@@ -329,6 +330,65 @@ class ConsoleChannel(BaseChannel):
         logger.info("Usage for session %s (cleaned up): %s", session_id, usage)
         return usage
 
+    @staticmethod
+    def _sanitize_surrogate_text(text: str) -> str:
+        return text.encode("utf-8", errors="replace").decode(
+            "utf-8",
+            errors="replace",
+        )
+
+    @classmethod
+    def _sanitize_for_json(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return cls._sanitize_surrogate_text(value)
+        if isinstance(value, list):
+            return [cls._sanitize_for_json(v) for v in value]
+        if isinstance(value, dict):
+            out: Dict[Any, Any] = {}
+            for k, v in value.items():
+                nk = cls._sanitize_surrogate_text(k) if isinstance(k, str) else k
+                out[nk] = cls._sanitize_for_json(v)
+            return out
+        return value
+
+    def _serialize_event_for_sse(self, event: Any) -> str:
+        try:
+            if hasattr(event, "model_dump_json"):
+                data = event.model_dump_json()
+            elif hasattr(event, "json"):
+                data = event.json()
+            else:
+                data = json.dumps({"text": str(event)}, ensure_ascii=True)
+
+            return self._sanitize_surrogate_text(data)
+
+        except Exception as err:
+            logger.warning(
+                "Event JSON serialization failed; using safe fallback: %s",
+                err,
+            )
+            try:
+                if hasattr(event, "model_dump"):
+                    payload = event.model_dump(mode="python")
+                elif hasattr(event, "dict"):
+                    payload = event.dict()
+                else:
+                    payload = {"text": str(event)}
+
+                payload = self._sanitize_for_json(payload)
+                return json.dumps(payload, ensure_ascii=True, default=str)
+            except Exception as fallback_err:
+                logger.error(
+                    "Fallback event serialization failed: %s",
+                    fallback_err,
+                )
+                return json.dumps(
+                    {
+                        "text": self._sanitize_surrogate_text(str(event)),
+                    },
+                    ensure_ascii=True,
+                )
+
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
         if isinstance(payload, dict) and "content_parts" in payload:
@@ -380,10 +440,7 @@ class ConsoleChannel(BaseChannel):
                     ev_type,
                 )
 
-                if (
-                    event.object == "response"
-                    and event.status == RunStatus.Completed
-                ):
+                if event.object == "response" and event.status == RunStatus.Completed:
                     event_output = event.output
                     event.output = []
                     if event_output is not None:
@@ -400,18 +457,16 @@ class ConsoleChannel(BaseChannel):
                     if usage_data and hasattr(event, "usage"):
                         setattr(event, "usage", usage_data)
 
-                if hasattr(event, "model_dump_json"):
-                    data = event.model_dump_json()
-                elif hasattr(event, "json"):
-                    data = event.json()
-                else:
-                    data = json.dumps({"text": str(event)})
+                data = self._serialize_event_for_sse(event)
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
                     media_message = await self._extract_media_message(event)
                     if media_message:
-                        yield f"data: {media_message.model_dump_json()}\n\n"
+                        media_json = self._serialize_event_for_sse(
+                            media_message,
+                        )
+                        yield f"data: {media_json}\n\n"
 
                     parts = self._message_to_content_parts(event)
                     self._print_parts(parts, ev_type)
@@ -502,19 +557,14 @@ class ConsoleChannel(BaseChannel):
             elif t == ContentType.AUDIO and getattr(p, "data", None):
                 self._safe_print(f"{_YELLOW}🔊 [Audio]{_RESET}")
             elif t == ContentType.FILE:
-                url = (
-                    getattr(p, "file_url", None)
-                    or getattr(p, "file_id", None)
-                    or ""
-                )
+                url = getattr(p, "file_url", None) or getattr(p, "file_id", None) or ""
                 self._safe_print(f"{_YELLOW}📎 [File: {url}]{_RESET}")
         self._safe_print("")
 
     def _print_error(self, err: str) -> None:
         ts = _ts()
         self._safe_print(
-            f"\n{_RED}{_BOLD}❌ [{ts}] Error{_RESET}\n"
-            f"{_RED}{err}{_RESET}\n",
+            f"\n{_RED}{_BOLD}❌ [{ts}] Error{_RESET}\n{_RED}{err}{_RESET}\n",
         )
 
     def _parts_to_text(
@@ -552,8 +602,7 @@ class ConsoleChannel(BaseChannel):
         ts = _ts()
         prefix = (meta or {}).get("bot_prefix", self.bot_prefix) or ""
         self._safe_print(
-            f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n"
-            f"{prefix}{text}\n",
+            f"\n{_GREEN}{_BOLD}🤖 [{ts}] Bot → {to_handle}{_RESET}\n{prefix}{text}\n",
         )
         sid = (meta or {}).get("session_id")
         if sid and text.strip():
