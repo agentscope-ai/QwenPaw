@@ -332,10 +332,14 @@ class ConsoleChannel(BaseChannel):
 
     @staticmethod
     def _sanitize_surrogate_text(text: str) -> str:
-        return text.encode("utf-8", errors="replace").decode(
-            "utf-8",
-            errors="replace",
-        )
+        try:
+            text.encode("utf-8")
+            return text
+        except UnicodeEncodeError:
+            return text.encode("utf-8", errors="replace").decode(
+                "utf-8",
+                errors="replace",
+            )
 
     @classmethod
     def _sanitize_for_json(cls, value: Any) -> Any:
