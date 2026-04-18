@@ -15,7 +15,7 @@ vi.mock('@agentscope-ai/icons', () => ({
   SparkDeleteLine: () => <span data-testid="icon-delete" />,
 }))
 
-// getChannelIconUrl 返回图片 URL，mock 掉避免网络请求
+// mock getChannelIconUrl to avoid network requests
 vi.mock('../../../Control/Channels/components', () => ({
   getChannelIconUrl: (key: string) => `/icons/${key}.png`,
 }))
@@ -26,13 +26,13 @@ const baseProps = {
 }
 
 describe('ChatSessionItem', () => {
-  it('渲染 session 名称和时间', () => {
+  it('renders session name and time', () => {
     renderWithProviders(<ChatSessionItem {...baseProps} />)
     expect(screen.getByText('Test Session')).toBeInTheDocument()
     expect(screen.getByText('2024-01-01 12:00:00')).toBeInTheDocument()
   })
 
-  it('点击 item 触发 onClick 回调', async () => {
+  it('clicking the item triggers onClick callback', async () => {
     const user = userEvent.setup()
     const onClick = vi.fn()
     renderWithProviders(<ChatSessionItem {...baseProps} onClick={onClick} />)
@@ -40,8 +40,8 @@ describe('ChatSessionItem', () => {
     expect(onClick).toHaveBeenCalledOnce()
   })
 
-  it('点击编辑按钮触发 onEdit，不冒泡到 onClick', () => {
-    // action 按钮 CSS 设了 pointer-events:none（hover 才显示），用 fireEvent 绕过
+  it('clicking edit button triggers onEdit and does not bubble to onClick', () => {
+    // action buttons are hidden via CSS (pointer-events:none until hover), use fireEvent
     const onClick = vi.fn()
     const onEdit = vi.fn()
     renderWithProviders(<ChatSessionItem {...baseProps} onClick={onClick} onEdit={onEdit} />)
@@ -50,7 +50,7 @@ describe('ChatSessionItem', () => {
     expect(onClick).not.toHaveBeenCalled()
   })
 
-  it('点击删除按钮触发 onDelete，不冒泡到 onClick', () => {
+  it('clicking delete button triggers onDelete and does not bubble to onClick', () => {
     const onClick = vi.fn()
     const onDelete = vi.fn()
     renderWithProviders(<ChatSessionItem {...baseProps} onClick={onClick} onDelete={onDelete} />)
@@ -59,7 +59,7 @@ describe('ChatSessionItem', () => {
     expect(onClick).not.toHaveBeenCalled()
   })
 
-  it('editing 模式显示 Input，不显示名称文字', () => {
+  it('editing mode shows Input instead of name text', () => {
     renderWithProviders(
       <ChatSessionItem {...baseProps} editing editValue="edit text" />,
     )
@@ -67,7 +67,7 @@ describe('ChatSessionItem', () => {
     expect(screen.getByRole('textbox')).toBeInTheDocument()
   })
 
-  it('editing 模式输入触发 onEditChange', async () => {
+  it('typing in editing mode triggers onEditChange', async () => {
     const user = userEvent.setup()
     const onEditChange = vi.fn()
     renderWithProviders(
@@ -77,7 +77,7 @@ describe('ChatSessionItem', () => {
     expect(onEditChange).toHaveBeenCalled()
   })
 
-  it('editing 模式点击 item 不触发 onClick', async () => {
+  it('clicking item in editing mode does not trigger onClick', async () => {
     const user = userEvent.setup()
     const onClick = vi.fn()
     renderWithProviders(
@@ -87,14 +87,14 @@ describe('ChatSessionItem', () => {
     expect(onClick).not.toHaveBeenCalled()
   })
 
-  it('有 channelLabel 时显示频道标签', () => {
+  it('shows channel label when channelLabel is provided', () => {
     renderWithProviders(
       <ChatSessionItem {...baseProps} channelKey="dingtalk" channelLabel="DingTalk" />,
     )
     expect(screen.getByText('DingTalk')).toBeInTheDocument()
   })
 
-  it('无 channelLabel 时不显示频道区域', () => {
+  it('does not show channel area when channelLabel is not provided', () => {
     renderWithProviders(<ChatSessionItem {...baseProps} />)
     expect(screen.queryByTitle(/.*/)).not.toBeInTheDocument()
   })

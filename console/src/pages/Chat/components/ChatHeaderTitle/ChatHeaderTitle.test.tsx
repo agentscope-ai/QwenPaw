@@ -12,7 +12,7 @@ vi.mock('@agentscope-ai/chat', () => ({
 }))
 
 describe('ChatHeaderTitle', () => {
-  it('显示当前 session 的名称', () => {
+  it('displays the current session name', () => {
     mockUseChatAnywhereSessionsState.mockReturnValue({
       sessions: [{ id: 'sess-1', name: 'My Chat' }],
       currentSessionId: 'sess-1',
@@ -21,7 +21,7 @@ describe('ChatHeaderTitle', () => {
     expect(screen.getByText('My Chat')).toBeInTheDocument()
   })
 
-  it('session name 为空时显示 "New Chat"', () => {
+  it('displays "New Chat" when session name is empty', () => {
     mockUseChatAnywhereSessionsState.mockReturnValue({
       sessions: [{ id: 'sess-1', name: '' }],
       currentSessionId: 'sess-1',
@@ -30,7 +30,7 @@ describe('ChatHeaderTitle', () => {
     expect(screen.getByText('New Chat')).toBeInTheDocument()
   })
 
-  it('无匹配 session 时显示 "New Chat"', () => {
+  it('displays "New Chat" when no matching session exists', () => {
     mockUseChatAnywhereSessionsState.mockReturnValue({
       sessions: [],
       currentSessionId: null,
@@ -39,7 +39,7 @@ describe('ChatHeaderTitle', () => {
     expect(screen.getByText('New Chat')).toBeInTheDocument()
   })
 
-  it('切换 currentSessionId 后显示对应 session 名称', () => {
+  it('displays the correct session name after switching currentSessionId', () => {
     mockUseChatAnywhereSessionsState.mockReturnValue({
       sessions: [
         { id: 'sess-1', name: 'Chat A' },

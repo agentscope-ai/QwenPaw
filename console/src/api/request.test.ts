@@ -45,31 +45,31 @@ describe('request', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // 正常请求
+  // Successful requests
   // ---------------------------------------------------------------------------
 
-  it('GET 请求不设置 Content-Type', async () => {
+  it('GET request does not set Content-Type', async () => {
     mockFetch(200, { data: 'ok' })
     await request('/models')
     const headers: Headers = (fetch as any).mock.calls[0][1].headers
     expect(headers.has('Content-Type')).toBe(false)
   })
 
-  it('POST 请求自动加 Content-Type: application/json', async () => {
+  it('POST request automatically adds Content-Type: application/json', async () => {
     mockFetch(200, { data: 'ok' })
     await request('/models', { method: 'POST', body: '{}' })
     const headers: Headers = (fetch as any).mock.calls[0][1].headers
     expect(headers.get('Content-Type')).toBe('application/json')
   })
 
-  it('PUT 请求自动加 Content-Type', async () => {
+  it('PUT request automatically adds Content-Type', async () => {
     mockFetch(200, { status: 'ok' })
     await request('/models/active', { method: 'PUT', body: '{}' })
     const headers: Headers = (fetch as any).mock.calls[0][1].headers
     expect(headers.get('Content-Type')).toBe('application/json')
   })
 
-  it('调用者显式设置 Content-Type 时不被覆盖', async () => {
+  it('caller-specified Content-Type is not overridden', async () => {
     mockFetch(200, { status: 'ok' })
     await request('/upload', {
       method: 'POST',
@@ -79,36 +79,36 @@ describe('request', () => {
     expect(headers.get('Content-Type')).toBe('multipart/form-data')
   })
 
-  it('JSON 响应正确解析并返回', async () => {
+  it('correctly parses and returns JSON response', async () => {
     mockFetch(200, { id: 1, name: 'test' })
     const result = await request<{ id: number; name: string }>('/models')
     expect(result).toEqual({ id: 1, name: 'test' })
   })
 
-  it('非 JSON Content-Type 返回文本', async () => {
+  it('returns text for non-JSON Content-Type', async () => {
     mockFetch(200, 'plain text response', 'text/plain')
     const result = await request('/health')
     expect(result).toBe('plain text response')
   })
 
-  it('204 响应返回 undefined', async () => {
+  it('204 response returns undefined', async () => {
     mockFetch(204, undefined, '')
     const result = await request('/models/active')
     expect(result).toBeUndefined()
   })
 
   // ---------------------------------------------------------------------------
-  // 错误处理
+  // Error handling
   // ---------------------------------------------------------------------------
 
-  it('401 时调用 clearAuthToken 并跳转 /login', async () => {
+  it('calls clearAuthToken and redirects to /login on 401', async () => {
     mockFetch(401)
     await expect(request('/models')).rejects.toThrow('Not authenticated')
     expect(clearAuthToken).toHaveBeenCalledOnce()
     expect(window.location.href).toBe('/login')
   })
 
-  it('401 时已在 /login 页面不重复跳转', async () => {
+  it('does not redirect again when already on /login for 401', async () => {
     window.location.pathname = '/login'
     window.location.href = ''
     mockFetch(401)
@@ -116,7 +116,7 @@ describe('request', () => {
     expect(window.location.href).toBe('')
   })
 
-  it('非 401 错误抛出含状态码的错误', async () => {
+  it('throws error with status code for non-401 errors', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
@@ -130,7 +130,7 @@ describe('request', () => {
     )
   })
 
-  it('有 token 时注入 Authorization header', async () => {
+  it('injects Authorization header when token is present', async () => {
     vi.mocked(buildAuthHeaders).mockReturnValue({ Authorization: 'Bearer test-token' })
     mockFetch(200, {})
     await request('/models')
@@ -138,7 +138,7 @@ describe('request', () => {
     expect(headers.get('Authorization')).toBe('Bearer test-token')
   })
 
-  it('请求 URL 由 getApiUrl 正确构建', async () => {
+  it('request URL is correctly built by getApiUrl', async () => {
     mockFetch(200, {})
     await request('/models/active')
     expect(fetch).toHaveBeenCalledWith('/api/models/active', expect.any(Object))

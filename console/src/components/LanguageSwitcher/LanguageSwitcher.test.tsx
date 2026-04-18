@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/common_setup'
 import LanguageSwitcher from '../index'
 
-// vi.hoisted 保证变量在 vi.mock hoist 之前就初始化
+// vi.hoisted ensures variables are initialized before vi.mock hoisting
 const { mockChangeLanguage, mockUpdateLanguage } = vi.hoisted(() => ({
   mockChangeLanguage: vi.fn(),
   mockUpdateLanguage: vi.fn().mockResolvedValue(undefined),
@@ -50,12 +50,12 @@ describe('LanguageSwitcher', () => {
   beforeEach(() => localStorage.clear())
   afterEach(() => vi.clearAllMocks())
 
-  it('渲染语言切换按钮', () => {
+  it('renders the language switcher button', () => {
     renderWithProviders(<LanguageSwitcher />)
     expect(screen.getByRole('button')).toBeInTheDocument()
   })
 
-  it('展示 4 种语言选项', () => {
+  it('shows 4 language options', () => {
     renderWithProviders(<LanguageSwitcher />)
     expect(screen.getByText('English')).toBeInTheDocument()
     expect(screen.getByText('简体中文')).toBeInTheDocument()
@@ -63,21 +63,21 @@ describe('LanguageSwitcher', () => {
     expect(screen.getByText('Русский')).toBeInTheDocument()
   })
 
-  it('点击语言选项调用 i18n.changeLanguage', async () => {
+  it('calls i18n.changeLanguage when a language option is clicked', async () => {
     const user = userEvent.setup()
     renderWithProviders(<LanguageSwitcher />)
     await user.click(screen.getByText('简体中文'))
     expect(mockChangeLanguage).toHaveBeenCalledWith('zh')
   })
 
-  it('切换语言后写入 localStorage', async () => {
+  it('writes selected language to localStorage', async () => {
     const user = userEvent.setup()
     renderWithProviders(<LanguageSwitcher />)
     await user.click(screen.getByText('日本語'))
     expect(localStorage.getItem('language')).toBe('ja')
   })
 
-  it('切换语言后调用 languageApi.updateLanguage', async () => {
+  it('calls languageApi.updateLanguage after switching language', async () => {
     const user = userEvent.setup()
     renderWithProviders(<LanguageSwitcher />)
     await user.click(screen.getByText('English'))

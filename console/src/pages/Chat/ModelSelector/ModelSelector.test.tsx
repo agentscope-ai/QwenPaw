@@ -71,19 +71,19 @@ describe('ModelSelector', () => {
     vi.clearAllMocks()
   })
 
-  it('加载完成后在触发按钮显示当前 active 模型名称', async () => {
+  it('displays current active model name on trigger button after loading', async () => {
     renderWithProviders(<ModelSelector />)
     expect(await screen.findByText('GPT-4')).toBeInTheDocument()
   })
 
-  it('无 active 模型时显示 i18n key', async () => {
+  it('displays i18n key when there is no active model', async () => {
     vi.mocked(providerApi.getActiveModels).mockResolvedValue({ active_llm: undefined })
     renderWithProviders(<ModelSelector />)
     expect(await screen.findByText('modelSelector.selectModel')).toBeInTheDocument()
   })
 
-  it('active model 在 eligible 列表外时显示裸 model id', async () => {
-    // provider 未配置 api_key，不进入 eligible
+  it('displays bare model id when active model is outside the eligible list', async () => {
+    // provider has no api_key configured, so it is excluded from eligible list
     vi.mocked(providerApi.listProviders).mockResolvedValue([
       { ...mockProvider, api_key: '' },
     ])
@@ -91,7 +91,7 @@ describe('ModelSelector', () => {
     expect(await screen.findByText('gpt-4')).toBeInTheDocument()
   })
 
-  it('挂载时调用 listProviders 和 getActiveModels', async () => {
+  it('calls listProviders and getActiveModels on mount', async () => {
     renderWithProviders(<ModelSelector />)
     await screen.findByText('GPT-4')
     expect(providerApi.listProviders).toHaveBeenCalledOnce()
@@ -101,7 +101,7 @@ describe('ModelSelector', () => {
     })
   })
 
-  it('点击触发按钮打开 dropdown 并展示 provider 列表', async () => {
+  it('clicking trigger button opens dropdown and shows provider list', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ModelSelector />)
     await screen.findByText('GPT-4')
@@ -111,7 +111,7 @@ describe('ModelSelector', () => {
     expect(await screen.findByText('OpenAI')).toBeInTheDocument()
   })
 
-  it('点击 model 后调用 setActiveLlm 并传入正确参数', async () => {
+  it('clicking a model calls setActiveLlm with correct parameters', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ModelSelector />)
     await screen.findByText('GPT-4')
@@ -128,7 +128,7 @@ describe('ModelSelector', () => {
     })
   })
 
-  it('点击已 active 的 model 时不调用 setActiveLlm', async () => {
+  it('clicking the already active model does not call setActiveLlm', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ModelSelector />)
     await screen.findByText('GPT-4')
@@ -140,7 +140,7 @@ describe('ModelSelector', () => {
     expect(providerApi.setActiveLlm).not.toHaveBeenCalled()
   })
 
-  it('无可用 provider 时 dropdown 显示空提示', async () => {
+  it('dropdown shows empty state when no providers are available', async () => {
     vi.mocked(providerApi.listProviders).mockResolvedValue([])
     vi.mocked(providerApi.getActiveModels).mockResolvedValue({ active_llm: undefined })
     const user = userEvent.setup()
@@ -152,7 +152,7 @@ describe('ModelSelector', () => {
     expect(await screen.findByText('modelSelector.noConfiguredModels')).toBeInTheDocument()
   })
 
-  it('setActiveLlm 失败后仍显示原 active model', async () => {
+  it('still displays original active model after setActiveLlm failure', async () => {
     vi.mocked(providerApi.setActiveLlm).mockRejectedValue(new Error('API error'))
     const user = userEvent.setup()
     renderWithProviders(<ModelSelector />)
@@ -162,7 +162,7 @@ describe('ModelSelector', () => {
     const gpt35 = await screen.findByText('GPT-3.5 Turbo')
     await user.click(gpt35)
 
-    // dropdown 仍开着时 GPT-4 会出现两处（trigger + dropdown item）
+    // GPT-4 may appear in two places when dropdown is still open (trigger + dropdown item)
     await waitFor(() => {
       expect(screen.getAllByText('GPT-4').length).toBeGreaterThanOrEqual(1)
     })

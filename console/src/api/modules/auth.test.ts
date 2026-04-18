@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { authApi } from '../auth'
 
-// auth.ts 直接用 fetch，不走 request 封装，需要 mock 全局 fetch
+// auth.ts uses fetch directly (not the request wrapper), so mock global fetch
 vi.mock('../config', () => ({
   getApiUrl: (path: string) => `/api${path}`,
 }))
@@ -19,13 +19,13 @@ function mockFetch(status: number, body: unknown) {
 describe('authApi.login', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('成功登录返回 token 和 username', async () => {
+  it('returns token and username on successful login', async () => {
     mockFetch(200, { token: 'tok-123', username: 'alice' })
     const result = await authApi.login('alice', 'pass')
     expect(result).toEqual({ token: 'tok-123', username: 'alice' })
   })
 
-  it('发送 POST 到 /api/auth/login', async () => {
+  it('sends POST to /api/auth/login', async () => {
     mockFetch(200, { token: 'tok', username: 'alice' })
     await authApi.login('alice', 'pass')
     expect(fetch).toHaveBeenCalledWith(
@@ -34,19 +34,19 @@ describe('authApi.login', () => {
     )
   })
 
-  it('请求体包含 username 和 password', async () => {
+  it('request body contains username and password', async () => {
     mockFetch(200, { token: 'tok', username: 'alice' })
     await authApi.login('alice', 'secret')
     const body = JSON.parse((fetch as any).mock.calls[0][1].body)
     expect(body).toEqual({ username: 'alice', password: 'secret' })
   })
 
-  it('登录失败抛出含 detail 的错误', async () => {
-    mockFetch(401, { detail: '用户名或密码错误' })
-    await expect(authApi.login('alice', 'wrong')).rejects.toThrow('用户名或密码错误')
+  it('throws error with detail on login failure', async () => {
+    mockFetch(401, { detail: 'Invalid username or password' })
+    await expect(authApi.login('alice', 'wrong')).rejects.toThrow('Invalid username or password')
   })
 
-  it('响应无 detail 时抛出默认错误', async () => {
+  it('throws default error when response has no detail', async () => {
     mockFetch(401, {})
     await expect(authApi.login('alice', 'wrong')).rejects.toThrow('Login failed')
   })
@@ -55,24 +55,24 @@ describe('authApi.login', () => {
 describe('authApi.register', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('成功注册返回 token 和 username', async () => {
+  it('returns token and username on successful registration', async () => {
     mockFetch(200, { token: 'tok-new', username: 'bob' })
     const result = await authApi.register('bob', 'pass123')
     expect(result.token).toBe('tok-new')
   })
 
-  it('发送 POST 到 /api/auth/register', async () => {
+  it('sends POST to /api/auth/register', async () => {
     mockFetch(200, { token: 't', username: 'bob' })
     await authApi.register('bob', 'pass')
     expect(fetch).toHaveBeenCalledWith('/api/auth/register', expect.anything())
   })
 
-  it('注册失败抛出 detail 错误信息', async () => {
-    mockFetch(409, { detail: '用户名已存在' })
-    await expect(authApi.register('bob', 'pass')).rejects.toThrow('用户名已存在')
+  it('throws detail error on registration failure', async () => {
+    mockFetch(409, { detail: 'Username already exists' })
+    await expect(authApi.register('bob', 'pass')).rejects.toThrow('Username already exists')
   })
 
-  it('响应无 detail 时抛出 Registration failed', async () => {
+  it('throws "Registration failed" when response has no detail', async () => {
     mockFetch(500, {})
     await expect(authApi.register('bob', 'pass')).rejects.toThrow('Registration failed')
   })
@@ -81,15 +81,13 @@ describe('authApi.register', () => {
 describe('authApi.getStatus', () => {
   afterEach(() => vi.clearAllMocks())
 
-  it('返回 enabled 和 has_users 字段', async () => {
+  it('returns enabled and has_users fields', async () => {
     mockFetch(200, { enabled: true, has_users: false })
     const result = await authApi.getStatus()
     expect(result).toEqual({ enabled: true, has_users: false })
   })
 
-  it('请求失败时抛出错误', async () => {
-    mockFetch(500, {})
-    // getStatus 检查 !res.ok 但 json() 不会报错，需要 ok 为 false
+  it('throws error when request fails', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
@@ -105,13 +103,13 @@ describe('authApi.updateProfile', () => {
   })
   afterEach(() => vi.clearAllMocks())
 
-  it('发送 POST 到 /api/auth/update-profile', async () => {
+  it('sends POST to /api/auth/update-profile', async () => {
     mockFetch(200, { token: 't', username: 'alice' })
     await authApi.updateProfile('oldpass', 'newname')
     expect(fetch).toHaveBeenCalledWith('/api/auth/update-profile', expect.anything())
   })
 
-  it('请求体包含当前密码和新用户名', async () => {
+  it('request body contains current password and new username', async () => {
     mockFetch(200, { token: 't', username: 'newname' })
     await authApi.updateProfile('oldpass', 'newname')
     const body = JSON.parse((fetch as any).mock.calls[0][1].body)
@@ -120,7 +118,7 @@ describe('authApi.updateProfile', () => {
     expect(body.new_password).toBeNull()
   })
 
-  it('从 localStorage 读取 token 注入 Authorization header', async () => {
+  it('reads token from localStorage and injects Authorization header', async () => {
     localStorage.setItem('copaw_auth_token', 'my-token')
     mockFetch(200, { token: 't', username: 'alice' })
     await authApi.updateProfile('oldpass')
@@ -128,8 +126,8 @@ describe('authApi.updateProfile', () => {
     expect(headers.Authorization).toBe('Bearer my-token')
   })
 
-  it('更新失败时抛出 detail 错误', async () => {
-    mockFetch(400, { detail: '密码错误' })
-    await expect(authApi.updateProfile('wrong')).rejects.toThrow('密码错误')
+  it('throws detail error on update failure', async () => {
+    mockFetch(400, { detail: 'Incorrect password' })
+    await expect(authApi.updateProfile('wrong')).rejects.toThrow('Incorrect password')
   })
 })
