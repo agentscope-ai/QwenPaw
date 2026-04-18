@@ -37,7 +37,6 @@ export function PoolSkillCard({
 
   return (
     <Card
-      key={skill.name}
       hoverable
       className={`${styles.skillCard} ${isSelected ? styles.selectedCard : ""}`}
       onMouseEnter={() => setIsHover(true)}
@@ -104,22 +103,20 @@ export function PoolSkillCard({
       )}
 
       {/* Tags row */}
-      {
-        <div className={styles.metaInfoRow}>
-          <span className={styles.metaInfoLabel}>{t("skills.tags")}</span>
-          {!!skill.tags?.length ? (
-            <div className={styles.tagChips}>
-              {skill.tags.map((tag) => (
-                <span key={tag} className={styles.tagChip}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-          ) : (
-            "-"
-          )}
-        </div>
-      }
+      <div className={styles.metaInfoRow}>
+        <span className={styles.metaInfoLabel}>{t("skills.tags")}</span>
+        {skill.tags?.length ? (
+          <div className={styles.tagChips}>
+            {skill.tags.map((tag) => (
+              <span key={tag} className={styles.tagChip}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : (
+          "-"
+        )}
+      </div>
 
       {/* Description */}
       <div className={styles.descriptionSection}>

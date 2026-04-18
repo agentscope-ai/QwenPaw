@@ -29,10 +29,25 @@ export interface PoolSkillSpec {
   commit_text?: string;
   sync_status?: SkillSyncStatus | "";
   latest_version_text?: string;
+  builtin_language?: string;
+  available_builtin_languages?: string[];
   tags?: string[];
   config?: Record<string, unknown>;
   last_updated?: string;
   emoji?: string;
+}
+
+export interface BuiltinLanguageSpec {
+  language: string;
+  description?: string;
+  version_text?: string;
+  source_name?: string;
+  status?:
+    | "missing"
+    | "current"
+    | "outdated"
+    | "conflict"
+    | string;
 }
 
 export interface WorkspaceSkillSummary {
@@ -48,7 +63,15 @@ export interface BuiltinImportSpec {
   version_text?: string;
   current_version_text?: string;
   current_source?: string;
-  status?: "missing" | "current" | "conflict" | string;
+  current_language?: string;
+  available_languages?: string[];
+  languages?: Record<string, BuiltinLanguageSpec>;
+  status?:
+    | "missing"
+    | "current"
+    | "outdated"
+    | "conflict"
+    | string;
 }
 
 export interface BuiltinRemovedSpec {

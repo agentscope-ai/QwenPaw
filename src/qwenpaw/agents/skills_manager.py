@@ -16,6 +16,7 @@ import time
 import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
@@ -60,6 +61,30 @@ ALL_SKILL_ROUTING_CHANNELS = [
 _RegistryResult = TypeVar("_RegistryResult")
 _MAX_ZIP_BYTES = 200 * 1024 * 1024
 _REQUIREMENTS_METADATA_NAMESPACES = ("openclaw", "qwenpaw", "clawdbot")
+_BUILTIN_SKILL_LANGUAGES = ("en", "zh")
+_BUILTIN_SKILL_DIR_RE = re.compile(
+    r"^(?P<name>.+)-(?P<language>en|zh)$",
+)
+_CJK_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+@dataclass(frozen=True)
+class BuiltinSkillVariant:
+    name: str
+    language: str
+    source_name: str
+    skill_dir: Path
+    skill_md_path: Path
+    description: str
+    version_text: str
+    content_hash: str
+
+
+@dataclass(frozen=True)
+class BuiltinSkillIdentity:
+    name: str
+    language: str
+    source_name: str
 
 
 class SkillInfo(BaseModel):
@@ -91,6 +116,253 @@ class SkillRequirements(BaseModel):
 _ACTIVE_SKILL_ENV_ENTRIES: dict[str, dict[str, Any]] = {}
 _ENV_LOCK = threading.Lock()
 
+# ── Cached singletons (builtin dirs are immutable at runtime) ────────────
+_builtin_cache: dict[str, Any] = {}
+_BUILTIN_CACHE_LOCK = threading.Lock()
+
+
+def _builtin_settings_path() -> Path:
+    from ..constant import WORKING_DIR
+
+    return Path(WORKING_DIR) / "settings.json"
+
+
+def _normalize_builtin_skill_language(
+    language: str | None,
+    *,
+    fallback: str = "en",
+) -> str:
+    normalized = str(language or "").strip().lower()
+    if normalized in _BUILTIN_SKILL_LANGUAGES:
+        return normalized
+    if fallback == "":
+        return ""
+    return fallback if fallback in _BUILTIN_SKILL_LANGUAGES else "en"
+
+
+def get_builtin_skill_language_preference() -> str:
+    """Return the builtin skill language preference."""
+    cached = _builtin_cache.get("language_preference")
+    if cached is not None:
+        return cached
+    with _BUILTIN_CACHE_LOCK:
+        cached = _builtin_cache.get("language_preference")
+        if cached is not None:
+            return cached
+        settings_path = _builtin_settings_path()
+        try:
+            payload = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        explicit = _normalize_builtin_skill_language(
+            payload.get("builtin_skill_language"),
+            fallback="",
+        )
+        if explicit:
+            result = explicit
+        else:
+            ui_lang = str(payload.get("language", "") or "").strip().lower()
+            result = "zh" if ui_lang.startswith("zh") else "en"
+        _builtin_cache["language_preference"] = result
+        return result
+
+
+def set_builtin_skill_language_preference(language: str) -> None:
+    """Update the cached preference. Caller is responsible for persisting."""
+    with _BUILTIN_CACHE_LOCK:
+        _builtin_cache["language_preference"] = _normalize_builtin_skill_language(
+            language,
+        )
+
+
+def _compute_text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _skill_content_hash_for_path(skill_md_path: Path) -> str:
+    try:
+        return _compute_text_hash(
+            read_text_file_with_encoding_fallback(skill_md_path),
+        )
+    except OSError:
+        return ""
+
+
+def _read_frontmatter_from_path(skill_md_path: Path) -> Any:
+    return frontmatter.loads(
+        read_text_file_with_encoding_fallback(skill_md_path),
+    )
+
+
+def _read_frontmatter_safe_from_path(
+    skill_md_path: Path,
+    skill_name: str = "",
+) -> dict[str, Any]:
+    if not skill_name:
+        skill_name = skill_md_path.parent.name
+
+    try:
+        return _read_frontmatter_from_path(skill_md_path)
+    except Exception as e:
+        logger.warning(
+            "Failed to read SKILL frontmatter for '%s' at %s: %s. "
+            "Using fallback values.",
+            skill_name,
+            skill_md_path,
+            e,
+        )
+        return {"name": skill_name, "description": ""}
+
+
+def _guess_builtin_skill_language(skill_md_path: Path) -> str:
+    try:
+        content = read_text_file_with_encoding_fallback(skill_md_path)
+    except OSError:
+        return "en"
+    cjk_count = len(_CJK_CHAR_RE.findall(content))
+    return "zh" if cjk_count >= 32 else "en"
+
+
+def _parse_builtin_skill_identity(
+    raw_name: str,
+    *,
+    fallback_language: str | None = None,
+) -> BuiltinSkillIdentity | None:
+    normalized = str(raw_name or "").strip()
+    if not normalized:
+        return None
+
+    match = _BUILTIN_SKILL_DIR_RE.fullmatch(normalized)
+    if match is not None:
+        return BuiltinSkillIdentity(
+            name=str(match.group("name") or "").strip(),
+            language=str(match.group("language") or "").strip(),
+            source_name=normalized,
+        )
+
+    if fallback_language is None:
+        return None
+
+    return BuiltinSkillIdentity(
+        name=normalized,
+        language=_normalize_builtin_skill_language(fallback_language),
+        source_name=normalized,
+    )
+
+
+def _canonical_builtin_skill_name(
+    raw_name: str,
+    registry: dict[str, dict[str, BuiltinSkillVariant]] | None = None,
+) -> str:
+    normalized = str(raw_name or "").strip()
+    identity = _parse_builtin_skill_identity(normalized)
+    if identity is None:
+        return normalized
+    if registry is not None and identity.name not in registry:
+        return normalized
+    return identity.name
+
+
+def _resolve_builtin_request_identity(
+    item: dict[str, Any],
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
+    *,
+    preferred_language: str | None = None,
+) -> tuple[str, str]:
+    raw_name = str(
+        item.get("skill_name", "") or item.get("source_name", "") or "",
+    ).strip()
+    alias_identity = _parse_builtin_skill_identity(raw_name)
+    canonical_name = _canonical_builtin_skill_name(raw_name, registry)
+    requested_language = str(item.get("language", "") or "").strip().lower()
+    fallback_language = (
+        alias_identity.language
+        if alias_identity is not None
+        else (preferred_language or get_builtin_skill_language_preference())
+    )
+    language = _normalize_builtin_skill_language(
+        requested_language,
+        fallback=fallback_language,
+    )
+    return canonical_name, language
+
+
+def _iter_packaged_builtin_variants() -> Iterator[BuiltinSkillVariant]:
+    builtin_dirs = list(_iter_packaged_builtin_dirs())
+    explicit_variant_bases = {
+        identity.name
+        for skill_dir in builtin_dirs
+        for identity in [_parse_builtin_skill_identity(skill_dir.name)]
+        if identity is not None
+    }
+
+    for skill_dir in builtin_dirs:
+        skill_md_path = skill_dir / "SKILL.md"
+        if not skill_md_path.exists():
+            continue
+
+        identity = _parse_builtin_skill_identity(skill_dir.name)
+        if identity is None:
+            if skill_dir.name in explicit_variant_bases:
+                continue
+            identity = _parse_builtin_skill_identity(
+                skill_dir.name,
+                fallback_language=_guess_builtin_skill_language(skill_md_path),
+            )
+        if identity is None:
+            continue
+
+        post = _read_frontmatter_safe_from_path(
+            skill_md_path,
+            identity.name,
+        )
+        yield BuiltinSkillVariant(
+            name=identity.name,
+            language=identity.language,
+            source_name=identity.source_name,
+            skill_dir=skill_dir,
+            skill_md_path=skill_md_path,
+            description=str(post.get("description", "") or ""),
+            version_text=_extract_version(post),
+            content_hash=_skill_content_hash_for_path(skill_md_path),
+        )
+
+
+def _get_packaged_builtin_registry() -> (
+    dict[str, dict[str, BuiltinSkillVariant]]
+):
+    """Return the packaged builtin registry."""
+    cached = _builtin_cache.get("registry")
+    if cached is not None:
+        return cached
+    with _BUILTIN_CACHE_LOCK:
+        cached = _builtin_cache.get("registry")
+        if cached is not None:
+            return cached
+        registry: dict[str, dict[str, BuiltinSkillVariant]] = {}
+        for variant in _iter_packaged_builtin_variants():
+            registry.setdefault(variant.name, {})[variant.language] = variant
+        _builtin_cache["registry"] = registry
+        return registry
+
+
+def _select_builtin_variant(
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
+    skill_name: str,
+    language: str | None = None,
+    *,
+    preferred_language: str | None = None,
+) -> BuiltinSkillVariant | None:
+    canonical_name = _canonical_builtin_skill_name(skill_name, registry)
+    variants = registry.get(canonical_name) or {}
+    if not variants:
+        return None
+    fallback = preferred_language or get_builtin_skill_language_preference()
+    resolved = _normalize_builtin_skill_language(language, fallback=fallback)
+    return variants.get(resolved) or next(
+        iter(sorted(variants.values(), key=lambda item: item.language)),
+    )
+
 
 def _iter_packaged_builtin_dirs() -> Iterator[Path]:
     """Yield packaged builtin skill directories in stable order."""
@@ -104,10 +376,11 @@ def _iter_packaged_builtin_dirs() -> Iterator[Path]:
 
 def _get_packaged_builtin_versions() -> dict[str, str]:
     """Return packaged builtin names mapped to their version text."""
+    registry = _get_packaged_builtin_registry()
     versions: dict[str, str] = {}
-    for skill_dir in _iter_packaged_builtin_dirs():
-        post = _read_frontmatter_safe(skill_dir, skill_dir.name)
-        versions[skill_dir.name] = _extract_version(post)
+    for skill_name in sorted(registry):
+        variant = _select_builtin_variant(registry, skill_name)
+        versions[skill_name] = variant.version_text if variant else ""
     return versions
 
 
@@ -207,9 +480,7 @@ def _read_frontmatter(skill_dir: Path) -> Any:
     Returns:
         Parsed frontmatter as dict-like object
     """
-    return frontmatter.loads(
-        read_text_file_with_encoding_fallback(skill_dir / "SKILL.md"),
-    )
+    return _read_frontmatter_from_path(skill_dir / "SKILL.md")
 
 
 def _read_frontmatter_safe(
@@ -261,7 +532,12 @@ _IGNORED_SKILL_ARTIFACTS = {
 }
 
 
-def _copy_skill_dir(source: Path, target: Path) -> None:
+def _copy_skill_dir(
+    source: Path,
+    target: Path,
+    *,
+    skill_md_source: Path | None = None,
+) -> None:
     """Replace *target* with a copy of *source*.
 
     We intentionally filter only well-known OS/cache artifacts so skill
@@ -272,13 +548,23 @@ def _copy_skill_dir(source: Path, target: Path) -> None:
         shutil.rmtree(target)
 
     def _ignore(_dir: str, names: list[str]) -> set[str]:
-        return {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
+        ignored = {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
+        if skill_md_source is None:
+            return ignored
+        current_dir = Path(_dir)
+        if current_dir.resolve() != source.resolve():
+            return ignored
+        ignored.add("SKILL.md")
+        ignored.update({"SKILL.en.md", "SKILL.zh.md"})
+        return ignored
 
     shutil.copytree(
         source,
         target,
         ignore=_ignore,
     )
+    if skill_md_source is not None:
+        shutil.copy2(skill_md_source, target / "SKILL.md")
 
 
 def _lock_path_for(json_path: Path) -> Path:
@@ -704,6 +990,7 @@ def _build_skill_metadata(
         "name": skill_name,
         "description": str(post.get("description", "") or ""),
         "version_text": _extract_version(post),
+        "content_hash": _skill_content_hash_for_path(skill_dir / "SKILL.md"),
         "commit_text": "",
         "source": source,
         "protected": protected,
@@ -760,66 +1047,336 @@ def _build_import_conflict(
     }
 
 
+def _pool_skill_content_hash(skill_name: str, entry: dict[str, Any]) -> str:
+    content_hash = str(entry.get("content_hash", "") or "")
+    if content_hash:
+        return content_hash
+    return _skill_content_hash_for_path(
+        get_skill_pool_dir() / skill_name / "SKILL.md",
+    )
+
+
+def _resolve_pool_builtin_language(
+    skill_name: str,
+    entry: dict[str, Any],
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
+    *,
+    preferred_language: str | None = None,
+) -> str:
+    canonical_name = _canonical_builtin_skill_name(skill_name, registry)
+    variants = registry.get(canonical_name) or {}
+    if not variants:
+        return ""
+
+    configured = str(entry.get("builtin_language", "") or "").strip().lower()
+    if configured in variants:
+        return configured
+
+    source_identity = _parse_builtin_skill_identity(
+        str(entry.get("builtin_source_name", "") or "").strip(),
+    )
+    if (
+        source_identity is not None
+        and source_identity.name == canonical_name
+        and source_identity.language in variants
+    ):
+        return source_identity.language
+
+    current_hash = _pool_skill_content_hash(canonical_name, entry)
+    if current_hash:
+        matching = [
+            language
+            for language, variant in variants.items()
+            if variant.content_hash == current_hash
+        ]
+        if len(matching) == 1:
+            return matching[0]
+
+    preferred = preferred_language or get_builtin_skill_language_preference()
+    if preferred in variants:
+        return preferred
+    return sorted(variants.keys())[0]
+
+
+def _build_builtin_language_spec(
+    skill_name: str,
+    language: str,
+    variant: BuiltinSkillVariant,
+    variants: dict[str, BuiltinSkillVariant],
+    current: dict[str, Any],
+    *,
+    current_language: str = "",
+) -> dict[str, Any]:
+    if not current:
+        status = "missing"
+    else:
+        current_source = str(current.get("source", "") or "")
+        current_version_text = str(current.get("version_text", "") or "")
+        current_hash = _pool_skill_content_hash(skill_name, current)
+        current_variant = variants.get(current_language)
+        if current_source != "builtin":
+            status = "conflict"
+        elif any(
+            packaged_variant.content_hash == current_hash
+            for packaged_variant in variants.values()
+        ):
+            # Pool copy already matches one packaged builtin variant exactly.
+            status = "current"
+        elif (
+            current_version_text
+            and current_variant is not None
+            and current_variant.version_text
+            and current_version_text != current_variant.version_text
+        ):
+            status = "outdated"
+        else:
+            # Version matches but content diverges, or we cannot map the copy
+            # to a packaged builtin version cleanly.
+            status = "conflict"
+    return {
+        "language": language,
+        "description": variant.description,
+        "version_text": variant.version_text,
+        "source_name": variant.source_name,
+        "status": status,
+    }
+
+
+def _top_level_builtin_candidate_status(
+    language_specs: dict[str, dict[str, Any]],
+    selected_language: str,
+) -> str:
+    return str(
+        language_specs.get(selected_language, {}).get("status", "")
+        or "missing",
+    )
+
+
 def _build_builtin_import_candidate(
     skill_name: str,
     *,
-    source_version_text: str,
     pool_skills: dict[str, Any],
-    builtin_dir: Path,
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
+    preferred_language: str | None = None,
 ) -> dict[str, Any]:
     """Build one builtin import candidate enriched with pool state."""
-    post = _read_frontmatter_safe(builtin_dir / skill_name, skill_name)
-    current = pool_skills.get(skill_name) or {}
+    pref = preferred_language or get_builtin_skill_language_preference()
+    canonical_name = _canonical_builtin_skill_name(skill_name, registry)
+    variants = registry.get(canonical_name) or {}
+    current = pool_skills.get(canonical_name) or {}
     current_version_text = str(current.get("version_text", "") or "")
     current_source = str(current.get("source", "") or "")
-    status = "missing"
-    if current:
-        if (
-            current_source == "builtin"
-            and current_version_text == source_version_text
-        ):
-            status = "current"
-        elif current_source == "builtin":
-            status = "conflict"
-        else:
-            status = "missing"
+    current_language = ""
+    if current and current_source == "builtin":
+        current_language = _resolve_pool_builtin_language(
+            canonical_name,
+            current,
+            registry,
+            preferred_language=pref,
+        )
+    preferred_variant = _select_builtin_variant(
+        registry,
+        canonical_name,
+        pref,
+        preferred_language=pref,
+    )
+    preferred_lang = preferred_variant.language if preferred_variant else ""
+    language_specs = {
+        language: _build_builtin_language_spec(
+            canonical_name,
+            language,
+            variant,
+            variants,
+            current,
+            current_language=current_language,
+        )
+        for language, variant in sorted(variants.items())
+    }
     return {
-        "name": skill_name,
-        "description": str(post.get("description", "") or ""),
-        "version_text": source_version_text,
+        "name": canonical_name,
+        "description": preferred_variant.description
+        if preferred_variant
+        else "",
+        "version_text": preferred_variant.version_text
+        if preferred_variant
+        else "",
         "current_version_text": current_version_text,
         "current_source": current_source,
-        "status": status,
+        "current_language": current_language,
+        "available_languages": sorted(variants.keys()),
+        "languages": language_specs,
+        "status": _top_level_builtin_candidate_status(
+            language_specs,
+            preferred_lang,
+        ),
     }
 
 
 def list_builtin_import_candidates() -> list[dict[str, Any]]:
     """List builtin skills available from packaged source."""
-    builtin_dir = get_builtin_skills_dir()
-    builtin_versions = _get_packaged_builtin_versions()
-    if not builtin_versions:
+    registry = _get_packaged_builtin_registry()
+    if not registry:
         return []
 
+    pref = get_builtin_skill_language_preference()
     manifest = read_skill_pool_manifest()
     pool_skills = manifest.get("skills", {})
     candidates: list[dict[str, Any]] = []
 
-    for skill_name, source_version_text in sorted(
-        builtin_versions.items(),
-    ):
+    for skill_name in sorted(registry):
         candidates.append(
             _build_builtin_import_candidate(
                 skill_name,
-                source_version_text=source_version_text,
                 pool_skills=pool_skills,
-                builtin_dir=builtin_dir,
+                registry=registry,
+                preferred_language=pref,
             ),
         )
     return candidates
 
 
+def _default_builtin_import_requests(
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
+    candidates: dict[str, dict[str, Any]],
+    *,
+    preferred_language: str | None = None,
+) -> list[dict[str, str]]:
+    pref = preferred_language or get_builtin_skill_language_preference()
+    requests: list[dict[str, str]] = []
+    for skill_name in sorted(candidates):
+        variant = _select_builtin_variant(
+            registry,
+            skill_name,
+            pref,
+            preferred_language=pref,
+        )
+        if variant is None:
+            continue
+        requests.append(
+            {
+                "skill_name": skill_name,
+                "language": variant.language,
+            },
+        )
+    return requests
+
+
+def _normalize_builtin_import_requests(
+    selected_imports: list[dict[str, Any]],
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
+    candidates: dict[str, dict[str, Any]],
+    *,
+    preferred_language: str | None = None,
+) -> tuple[list[tuple[str, str]], list[str], list[str]]:
+    normalized_imports: list[tuple[str, str]] = []
+    unknown: list[str] = []
+    unsupported: list[str] = []
+
+    for item in selected_imports:
+        skill_name, language = _resolve_builtin_request_identity(
+            item,
+            registry,
+            preferred_language=preferred_language,
+        )
+        if skill_name not in candidates:
+            raw_name = str(item.get("skill_name", "") or "").strip()
+            unknown.append(raw_name or skill_name or "<empty>")
+            continue
+        if language not in (registry.get(skill_name) or {}):
+            unsupported.append(f"{skill_name}:{language}")
+            continue
+        normalized_imports.append((skill_name, language))
+
+    return normalized_imports, unknown, unsupported
+
+
+def _build_builtin_import_conflicts(
+    normalized_imports: list[tuple[str, str]],
+    candidates: dict[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    conflicts: list[dict[str, str]] = []
+    for skill_name, language in normalized_imports:
+        candidate = candidates[skill_name]
+        current_source = str(candidate.get("current_source", "") or "")
+        current_language = str(candidate.get("current_language", "") or "")
+        language_spec = candidate.get("languages", {}).get(language, {}) or {}
+        status = str(language_spec.get("status", "") or "")
+        if not current_source:
+            continue
+        if (
+            current_source == "builtin"
+            and current_language
+            and current_language != language
+        ):
+            conflicts.append(
+                {
+                    "skill_name": skill_name,
+                    "language": language,
+                    "status": "language_switch",
+                    "source_name": str(
+                        language_spec.get("source_name", "") or "",
+                    ),
+                    "source_version_text": str(
+                        language_spec.get("version_text", "") or "",
+                    ),
+                    "current_version_text": str(
+                        candidate.get("current_version_text", "") or "",
+                    ),
+                    "current_source": current_source,
+                    "current_language": current_language,
+                },
+            )
+            continue
+        if status not in {"conflict", "outdated"}:
+            continue
+        conflicts.append(
+            {
+                "skill_name": skill_name,
+                "language": language,
+                "status": status,
+                "source_name": str(
+                    language_spec.get("source_name", "") or "",
+                ),
+                "source_version_text": str(
+                    language_spec.get("version_text", "") or "",
+                ),
+                "current_version_text": str(
+                    candidate.get("current_version_text", "") or "",
+                ),
+                "current_source": current_source,
+                "current_language": current_language,
+            },
+        )
+    return conflicts
+
+
+def _pool_builtin_matches_variant(
+    skill_name: str,
+    existing: dict[str, Any],
+    language: str,
+    variant: BuiltinSkillVariant,
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
+    *,
+    preferred_language: str | None = None,
+) -> bool:
+    """Check if a pool entry already matches a specific builtin variant."""
+    current_source = str(existing.get("source", "") or "")
+    current_language = _resolve_pool_builtin_language(
+        skill_name,
+        existing,
+        registry,
+        preferred_language=preferred_language,
+    )
+    current_hash = _pool_skill_content_hash(skill_name, existing)
+    return (
+        current_source == "builtin"
+        and current_language == language
+        and current_hash == variant.content_hash
+    )
+
+
 def import_builtin_skills(
-    skill_names: list[str] | None = None,
+    imports: list[dict[str, Any]] | None = None,
     *,
     overwrite_conflicts: bool = False,
 ) -> dict[str, list[Any]]:
@@ -827,36 +1384,51 @@ def import_builtin_skills(
     pool_dir = get_skill_pool_dir()
     pool_dir.mkdir(parents=True, exist_ok=True)
 
+    registry = _get_packaged_builtin_registry()
+    pref = get_builtin_skill_language_preference()
+    manifest = read_skill_pool_manifest()
+    pool_skills = manifest.get("skills", {})
     candidates = {
-        item["name"]: item for item in list_builtin_import_candidates()
+        skill_name: _build_builtin_import_candidate(
+            skill_name,
+            pool_skills=pool_skills,
+            registry=registry,
+            preferred_language=pref,
+        )
+        for skill_name in sorted(registry)
     }
-    selected_names = sorted(skill_names or candidates.keys())
+    selected_imports = imports or _default_builtin_import_requests(
+        registry,
+        candidates,
+        preferred_language=pref,
+    )
+    (
+        normalized_imports,
+        unknown,
+        unsupported,
+    ) = _normalize_builtin_import_requests(
+        selected_imports,
+        registry,
+        candidates,
+        preferred_language=pref,
+    )
 
-    unknown = [name for name in selected_names if name not in candidates]
     if unknown:
         raise SkillsError(
             message=f"Unknown builtin skill(s): {', '.join(sorted(unknown))}",
         )
-
-    conflicts = [
-        {
-            "skill_name": name,
-            "source_version_text": str(
-                candidates[name].get("version_text", "") or "",
+    if unsupported:
+        raise SkillsError(
+            message=(
+                "Unsupported builtin language selection(s): "
+                f"{', '.join(sorted(unsupported))}"
             ),
-            "current_version_text": str(
-                candidates[name].get("current_version_text", "") or "",
-            ),
-            "current_source": str(
-                candidates[name].get("current_source", "") or "",
-            ),
-        }
-        for name in selected_names
-        if (
-            candidates[name].get("current_source")
-            and candidates[name].get("status") != "current"
         )
-    ]
+
+    conflicts = _build_builtin_import_conflicts(
+        normalized_imports,
+        candidates,
+    )
     if conflicts and not overwrite_conflicts:
         return {
             "imported": [],
@@ -868,37 +1440,39 @@ def import_builtin_skills(
     imported: list[str] = []
     updated: list[str] = []
     unchanged: list[str] = []
-    builtin_dir = get_builtin_skills_dir()
     manifest_path = get_pool_skill_manifest_path()
     manifest_default = _default_pool_manifest()
 
-    builtin_versions = _get_packaged_builtin_versions()
-
     def _process(payload: dict[str, Any]) -> dict[str, list[Any]]:
         skills = payload.setdefault("skills", {})
-        payload["builtin_skill_names"] = sorted(builtin_versions.keys())
-        for skill_name in selected_names:
-            skill_dir = builtin_dir / skill_name
+        payload["builtin_skill_names"] = sorted(registry.keys())
+        for skill_name, language in normalized_imports:
+            variant = registry[skill_name][language]
             target = pool_dir / skill_name
             existing = skills.get(skill_name) or {}
-            source_version_text = str(
-                builtin_versions.get(skill_name, "") or "",
-            )
-            current_version_text = str(
-                existing.get("version_text", "") or "",
-            )
-            current_source = str(existing.get("source", "") or "")
 
             if not target.exists():
-                _copy_skill_dir(skill_dir, target)
+                _copy_skill_dir(
+                    variant.skill_dir,
+                    target,
+                    skill_md_source=variant.skill_md_path,
+                )
                 imported.append(skill_name)
-            elif (
-                current_source == "builtin"
-                and current_version_text == source_version_text
+            elif _pool_builtin_matches_variant(
+                skill_name,
+                existing,
+                language,
+                variant,
+                registry,
+                preferred_language=pref,
             ):
                 unchanged.append(skill_name)
             else:
-                _copy_skill_dir(skill_dir, target)
+                _copy_skill_dir(
+                    variant.skill_dir,
+                    target,
+                    skill_md_source=variant.skill_md_path,
+                )
                 updated.append(skill_name)
 
             entry = _build_skill_metadata(
@@ -907,6 +1481,8 @@ def import_builtin_skills(
                 source="builtin",
                 protected=False,
             )
+            entry["builtin_language"] = language
+            entry["builtin_source_name"] = variant.source_name
             if "config" in existing:
                 entry["config"] = existing.get("config")
             if "tags" in existing:
@@ -927,6 +1503,53 @@ def import_builtin_skills(
     )
 
 
+def migrate_pool_builtin_language_fields() -> bool:
+    """Backfill builtin language metadata for existing pool entries."""
+    registry = _get_packaged_builtin_registry()
+    if not registry:
+        return False
+
+    preferred_language = get_builtin_skill_language_preference()
+
+    def _update(payload: dict[str, Any]) -> bool:
+        skills = payload.setdefault("skills", {})
+        changed = False
+        for skill_name, entry in skills.items():
+            if not _is_pool_builtin_entry(entry):
+                continue
+            variants = registry.get(skill_name) or {}
+            if not variants:
+                continue
+            language = _resolve_pool_builtin_language(
+                skill_name,
+                entry,
+                registry,
+                preferred_language=preferred_language,
+            )
+            if not language:
+                language = (
+                    preferred_language
+                    if preferred_language in variants
+                    else sorted(variants.keys())[0]
+                )
+            source_name = variants[language].source_name
+            if entry.get("builtin_language") != language:
+                entry["builtin_language"] = language
+                changed = True
+            if entry.get("builtin_source_name") != source_name:
+                entry["builtin_source_name"] = source_name
+                changed = True
+        return changed
+
+    return bool(
+        _mutate_json(
+            get_pool_skill_manifest_path(),
+            _default_pool_manifest(),
+            _update,
+        ),
+    )
+
+
 def ensure_skill_pool_initialized() -> bool:
     """Ensure the local skill pool exists and built-ins are synced into it."""
     pool_dir = get_skill_pool_dir()
@@ -942,6 +1565,8 @@ def ensure_skill_pool_initialized() -> bool:
 
     if created:
         import_builtin_skills()
+    else:
+        migrate_pool_builtin_language_fields()
     return created
 
 
@@ -963,8 +1588,9 @@ def reconcile_pool_manifest() -> dict[str, Any]:
     if not manifest_path.exists():
         _write_json_atomic(manifest_path, _default_pool_manifest())
 
-    builtin_versions = _get_packaged_builtin_versions()
-    builtin_names = sorted(builtin_versions.keys())
+    registry = _get_packaged_builtin_registry()
+    pref = get_builtin_skill_language_preference()
+    builtin_names = sorted(registry.keys())
 
     def _update(payload: dict[str, Any]) -> dict[str, Any]:
         payload.setdefault("skills", {})
@@ -994,6 +1620,19 @@ def reconcile_pool_manifest() -> dict[str, Any]:
                 source=source,
                 protected=protected,
             )
+            if source == "builtin" or _is_pool_builtin_entry(existing):
+                language = _resolve_pool_builtin_language(
+                    skill_name,
+                    existing or skills[skill_name],
+                    registry,
+                    preferred_language=pref,
+                )
+                if language:
+                    skills[skill_name]["builtin_language"] = language
+                    if language in (registry.get(skill_name) or {}):
+                        skills[skill_name]["builtin_source_name"] = registry[
+                            skill_name
+                        ][language].source_name
             if has_config:
                 skills[skill_name]["config"] = config
             if existing_tags is not None:
@@ -1173,7 +1812,10 @@ def ensure_skills_initialized(workspace_dir: Path) -> None:
     reconcile_workspace_manifest(workspace_dir)
 
 
-def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
+def get_pool_builtin_sync_status(
+    *,
+    pool_skills: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Compare pool skills against packaged builtins.
 
     Returns a dict keyed by skill name with sync status for each
@@ -1184,39 +1826,58 @@ def get_pool_builtin_sync_status() -> dict[str, dict[str, Any]]:
     - ``outdated``: builtin version differs, or the packaged builtin
     was removed
     """
-    builtin_versions = _get_packaged_builtin_versions()
-    if not builtin_versions:
+    registry = _get_packaged_builtin_registry()
+    if not registry:
         return {}
 
-    manifest = _read_json(
-        get_pool_skill_manifest_path(),
-        _default_pool_manifest(),
-    )
-    pool_skills = manifest.get("skills", {})
+    pref = get_builtin_skill_language_preference()
+    if pool_skills is None:
+        manifest = _read_json(
+            get_pool_skill_manifest_path(),
+            _default_pool_manifest(),
+        )
+        pool_skills = manifest.get("skills", {})
     result: dict[str, dict[str, Any]] = {}
-    for name, source_version_text in builtin_versions.items():
+    for name, variants in registry.items():
         pool_entry = pool_skills.get(name)
         if pool_entry is None or not _is_pool_builtin_entry(pool_entry):
             continue
-        current_version_text = str(pool_entry.get("version_text", "") or "")
-        if current_version_text != source_version_text:
+        language = _resolve_pool_builtin_language(
+            name,
+            pool_entry,
+            registry,
+            preferred_language=pref,
+        )
+        variant = variants.get(language)
+        if variant is None:
             result[name] = {
                 "sync_status": "outdated",
-                "latest_version_text": source_version_text,
+                "latest_version_text": "",
+                "available_languages": sorted(variants.keys()),
+            }
+            continue
+        current_hash = _pool_skill_content_hash(name, pool_entry)
+        if current_hash != variant.content_hash:
+            result[name] = {
+                "sync_status": "outdated",
+                "latest_version_text": variant.version_text,
+                "available_languages": sorted(variants.keys()),
             }
         else:
             result[name] = {
                 "sync_status": "synced",
                 "latest_version_text": "",
+                "available_languages": sorted(variants.keys()),
             }
     for name, pool_entry in pool_skills.items():
         if not _is_pool_builtin_entry(pool_entry):
             continue
-        if name in builtin_versions:
+        if name in registry:
             continue
         result[name] = {
             "sync_status": "outdated",
             "latest_version_text": "",
+            "available_languages": [],
         }
     return result
 
@@ -1242,20 +1903,20 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
     That lets the UI keep surfacing newly added/removed builtins across plain
     refreshes until the user explicitly reviews them.
     """
-    builtin_versions = _get_packaged_builtin_versions()
+    registry = _get_packaged_builtin_registry()
+    pref = get_builtin_skill_language_preference()
     manifest = _read_json(
         get_pool_skill_manifest_path(),
         _default_pool_manifest(),
     )
     pool_skills = manifest.get("skills", {})
-    builtin_dir = get_builtin_skills_dir()
 
     previous_builtin_names = {
         str(name).strip()
         for name in manifest.get("builtin_skill_names", [])
         if str(name).strip()
     }
-    current_builtin_names = set(builtin_versions.keys())
+    current_builtin_names = set(registry.keys())
 
     added: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
@@ -1266,9 +1927,9 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
         current = pool_skills.get(name) or {}
         candidate = _build_builtin_import_candidate(
             name,
-            source_version_text=str(builtin_versions.get(name, "") or ""),
             pool_skills=pool_skills,
-            builtin_dir=builtin_dir,
+            registry=registry,
+            preferred_language=pref,
         )
         if name not in previous_builtin_names:
             added.append(candidate)
@@ -1313,6 +1974,7 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
                     {
                         "name": item["name"],
                         "version_text": item.get("version_text", ""),
+                        "current_language": item.get("current_language", ""),
                         "status": item.get("status", ""),
                     }
                     for item in added
@@ -1320,7 +1982,9 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
                 "missing": [
                     {
                         "name": item["name"],
+                        "status": item.get("status", ""),
                         "version_text": item.get("version_text", ""),
+                        "current_language": item.get("current_language", ""),
                         "current_version_text": item.get(
                             "current_version_text",
                             "",
@@ -1331,7 +1995,9 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
                 "updated": [
                     {
                         "name": item["name"],
+                        "status": item.get("status", ""),
                         "version_text": item.get("version_text", ""),
+                        "current_language": item.get("current_language", ""),
                         "current_version_text": item.get(
                             "current_version_text",
                             "",
@@ -1365,46 +2031,71 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
     }
 
 
-def update_single_builtin(skill_name: str) -> dict[str, Any]:
+def update_single_builtin(
+    skill_name: str,
+    *,
+    language: str | None = None,
+) -> dict[str, Any]:
     """Update one builtin skill in the pool to the latest packaged version."""
-    builtin_versions = _get_packaged_builtin_versions()
-    if skill_name not in builtin_versions:
+    registry = _get_packaged_builtin_registry()
+    canonical_name = _canonical_builtin_skill_name(skill_name, registry)
+    if canonical_name not in registry:
         raise SkillsError(
             message=f"'{skill_name}' is not a builtin skill",
         )
 
     manifest = read_skill_pool_manifest()
-    existing = manifest.get("skills", {}).get(skill_name)
+    existing = manifest.get("skills", {}).get(canonical_name)
     if existing is None or not _is_pool_builtin_entry(existing):
         raise SkillsError(
-            message=f"'{skill_name}' is not a builtin pool skill",
+            message=f"'{canonical_name}' is not a builtin pool skill",
         )
 
-    builtin_dir = get_builtin_skills_dir()
-    src = builtin_dir / skill_name
-    if not src.exists():
+    pref = get_builtin_skill_language_preference()
+    selected_language = _normalize_builtin_skill_language(
+        language
+        or _resolve_pool_builtin_language(
+            canonical_name,
+            existing,
+            registry,
+            preferred_language=pref,
+        )
+        or existing.get("builtin_language"),
+        fallback=pref,
+    )
+    variant = registry.get(canonical_name, {}).get(selected_language)
+    if variant is None:
         raise SkillsError(
-            message=f"Packaged builtin '{skill_name}' not found",
-            details={"skill_name": skill_name, "expected_path": str(src)},
+            message=(
+                f"Packaged builtin '{canonical_name}' does not support "
+                f"language '{selected_language}'"
+            ),
         )
 
     pool_dir = get_skill_pool_dir()
-    target = pool_dir / skill_name
-    _copy_skill_dir(src, target)
+    target = pool_dir / canonical_name
 
     def _update(payload: dict[str, Any]) -> dict[str, Any]:
+        _copy_skill_dir(
+            variant.skill_dir,
+            target,
+            skill_md_source=variant.skill_md_path,
+        )
         payload.setdefault("skills", {})
         entry = _build_skill_metadata(
-            skill_name,
+            canonical_name,
             target,
             source="builtin",
             protected=False,
         )
-        if "config" in existing:
-            entry["config"] = existing["config"]
-        if "tags" in existing:
-            entry["tags"] = existing["tags"]
-        payload["skills"][skill_name] = entry
+        entry["builtin_language"] = selected_language
+        entry["builtin_source_name"] = variant.source_name
+        current = payload.get("skills", {}).get(canonical_name, {})
+        if "config" in current:
+            entry["config"] = current["config"]
+        if "tags" in current:
+            entry["tags"] = current["tags"]
+        payload["skills"][canonical_name] = entry
         return entry
 
     return _mutate_json(
@@ -1412,6 +2103,28 @@ def update_single_builtin(skill_name: str) -> dict[str, Any]:
         _default_pool_manifest(),
         _update,
     )
+
+
+def _builtin_versions_match(
+    *,
+    pool_version_text: str,
+    pool_content_hash: str,
+    workspace_version_text: str,
+    workspace_content_hash: str,
+) -> bool:
+    hashes_match = bool(
+        pool_content_hash
+        and workspace_content_hash
+        and pool_content_hash == workspace_content_hash,
+    )
+    versions_match_without_hashes = bool(
+        pool_version_text
+        and workspace_version_text
+        and pool_version_text == workspace_version_text
+        and not pool_content_hash
+        and not workspace_content_hash,
+    )
+    return hashes_match or versions_match_without_hashes
 
 
 def _extract_emoji_from_metadata(metadata: Any) -> str:
@@ -2555,6 +3268,21 @@ class SkillPoolService:
                 protected=False,
             )
             next_entry["config"] = new_config
+            if source == "builtin":
+                builtin_language = (
+                    str(
+                        current_entry.get("builtin_language", "") or "",
+                    )
+                    .strip()
+                    .lower()
+                )
+                if builtin_language:
+                    next_entry["builtin_language"] = builtin_language
+                builtin_source_name = str(
+                    current_entry.get("builtin_source_name", "") or "",
+                ).strip()
+                if builtin_source_name:
+                    next_entry["builtin_source_name"] = builtin_source_name
             existing_tags = current_entry.get("tags")
             if existing_tags is not None:
                 next_entry["tags"] = existing_tags
@@ -2694,6 +3422,7 @@ class SkillPoolService:
         entry: dict[str, Any],
         existing: dict[str, Any] | None,
         final_name: str,
+        workspace_dir: Path,
         workspace_identity: dict[str, str],
     ) -> dict[str, Any] | None:
         """Return a conflict dict if download should be blocked."""
@@ -2706,11 +3435,26 @@ class SkillPoolService:
             and existing.get("source") == "builtin"
         ):
             pool_ver = entry.get("version_text", "")
+            pool_hash = str(entry.get("content_hash", "") or "")
             ws_ver = (existing.get("metadata") or {}).get(
                 "version_text",
                 "",
             )
-            if pool_ver and ws_ver and pool_ver == ws_ver:
+            ws_hash = str(
+                (existing.get("metadata") or {}).get("content_hash", "") or "",
+            )
+            if not ws_hash:
+                ws_hash = _skill_content_hash_for_path(
+                    get_workspace_skills_dir(workspace_dir)
+                    / final_name
+                    / "SKILL.md",
+                )
+            if _builtin_versions_match(
+                pool_version_text=str(pool_ver or ""),
+                pool_content_hash=pool_hash,
+                workspace_version_text=str(ws_ver or ""),
+                workspace_content_hash=ws_hash,
+            ):
                 return {
                     "success": True,
                     "mode": "unchanged",
@@ -2758,6 +3502,7 @@ class SkillPoolService:
                 entry,
                 existing,
                 final_name,
+                workspace_dir,
                 workspace_identity,
             )
             if conflict is not None:
@@ -2828,6 +3573,7 @@ class SkillPoolService:
                 entry,
                 existing,
                 final_name,
+                workspace_dir,
                 workspace_identity,
             )
             if conflict is not None:

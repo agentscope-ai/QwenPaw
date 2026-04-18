@@ -16,7 +16,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from agentscope_runtime.engine.schemas.exception import (
@@ -30,6 +30,7 @@ from ...agents.skills_hub import (
     install_skill_from_hub,
 )
 from ...agents.skills_manager import (
+    _BUILTIN_SKILL_LANGUAGES,
     SkillConflictError,
     SkillPoolService,
     SkillInfo,
@@ -122,6 +123,8 @@ class PoolSkillSpec(SkillInfo):
     commit_text: str = ""
     sync_status: str = ""
     latest_version_text: str = ""
+    builtin_language: str = ""
+    available_builtin_languages: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
@@ -148,6 +151,9 @@ class BuiltinImportSpec(BaseModel):
     version_text: str = ""
     current_version_text: str = ""
     current_source: str = ""
+    current_language: str = ""
+    available_languages: list[str] = Field(default_factory=list)
+    languages: dict[str, dict[str, Any]] = Field(default_factory=dict)
     status: str = ""
 
 
@@ -169,9 +175,21 @@ class BuiltinUpdateNotice(BaseModel):
     removed: list[BuiltinRemovedSpec] = Field(default_factory=list)
 
 
+class BuiltinImportSelection(BaseModel):
+    skill_name: str
+    language: str = ""
+
+
 class ImportBuiltinRequest(BaseModel):
-    skill_names: list[str] = Field(default_factory=list)
+    skill_names: list[str] = Field(
+        default_factory=list,
+    )  # Deprecated: use imports
+    imports: list[BuiltinImportSelection] = Field(default_factory=list)
     overwrite_conflicts: bool = False
+
+
+class UpdateBuiltinRequest(BaseModel):
+    language: str = ""
 
 
 class CreateSkillRequest(BaseModel):
@@ -516,7 +534,7 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
     manifest = read_skill_pool_manifest()
     entries = manifest.get("skills", {})
     pool_dir = get_skill_pool_dir()
-    sync_info = get_pool_builtin_sync_status()
+    sync_info = get_pool_builtin_sync_status(pool_skills=entries)
     specs: list[PoolSkillSpec] = []
     for skill_name, entry in sorted(entries.items()):
         source = entry.get("source", "customized")
@@ -537,6 +555,18 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                 latest_version_text=str(
                     info.get("latest_version_text", "") or "",
                 ),
+                builtin_language=str(
+                    entry.get("builtin_language", "") or "",
+                ),
+                available_builtin_languages=[
+                    str(language)
+                    for language in (
+                        info.get("available_languages")
+                        or entry.get("available_builtin_languages")
+                        or []
+                    )
+                    if str(language)
+                ],
                 config=entry.get("config") or {},
                 last_updated=_get_skill_mtime(skill_dir),
             ),
@@ -1060,8 +1090,13 @@ async def download_pool_skill_to_workspaces(
 async def import_pool_builtins(
     body: ImportBuiltinRequest,
 ) -> dict[str, Any]:
+    imports: list[dict[str, Any]] = (
+        [item.model_dump() for item in body.imports]
+        if body.imports
+        else [{"skill_name": skill_name} for skill_name in body.skill_names]
+    )
     result = import_builtin_skills(
-        body.skill_names,
+        imports,
         overwrite_conflicts=body.overwrite_conflicts,
     )
     if result.get("conflicts") and not body.overwrite_conflicts:
@@ -1070,9 +1105,18 @@ async def import_pool_builtins(
 
 
 @router.post("/pool/{skill_name}/update-builtin")
-async def update_pool_builtin(skill_name: str) -> dict[str, Any]:
+async def update_pool_builtin(
+    skill_name: str,
+    body: UpdateBuiltinRequest | None = Body(default=None),
+) -> dict[str, Any]:
+    language = body.language if body is not None else ""
+    if language and language not in _BUILTIN_SKILL_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid language '{language}', must be one of {_BUILTIN_SKILL_LANGUAGES}",
+        )
     try:
-        return update_single_builtin(skill_name)
+        return update_single_builtin(skill_name, language=language or None)
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
