@@ -11,7 +11,7 @@ Dependencies follow `pyproject.toml`.
 ## System Requirements
 
 - **Windows**: Windows 10 or later
-- **macOS**: macOS 14 (Sonoma) or later, Apple Silicon (M1/M2/M3/M4) recommended for MLX support
+- **macOS**: macOS 14 (Sonoma) or later, Apple Silicon (M1/M2/M3/M4) recommended
 
 ## Prerequisites
 

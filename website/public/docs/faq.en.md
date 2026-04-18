@@ -81,7 +81,7 @@ To update QwenPaw, use the method matching your installation type:
 2. If installed via pip, run:
 
 ```
-pip install --upgrade qwenpaw
+qwenpaw update
 ```
 
 3. If installed from source, pull the latest code and reinstall:
@@ -89,6 +89,9 @@ pip install --upgrade qwenpaw
 ```
 cd QwenPaw
 git pull origin main
+cd console && npm ci && npm run build
+cd .. && mkdir -p src/qwenpaw/console
+cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 

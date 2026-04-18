@@ -341,7 +341,6 @@ def _do_migrate_legacy_skills() -> bool:
     from datetime import datetime, timezone
 
     from ..agents.skills_manager import (
-        _build_signature,
         _copy_skill_dir,
         _default_workspace_manifest,
         _mutate_json,
@@ -351,6 +350,25 @@ def _do_migrate_legacy_skills() -> bool:
         get_workspace_skills_dir,
         reconcile_workspace_manifest,
     )
+
+    import hashlib
+
+    _ignored = {
+        "__pycache__",
+        "__MACOSX",
+        ".DS_Store",
+        "Thumbs.db",
+        "desktop.ini",
+    }
+
+    def _build_signature(skill_dir: Path) -> str:
+        digest = hashlib.sha256()
+        for path in sorted(p for p in skill_dir.rglob("*") if p.is_file()):
+            if _ignored & set(path.relative_to(skill_dir).parts):
+                continue
+            digest.update(str(path.relative_to(skill_dir)).encode("utf-8"))
+            digest.update(path.read_bytes())
+        return digest.hexdigest()
 
     # --- Phase 0: Check if migration already completed ---
     # If skill pool manifest exists, migration has been done

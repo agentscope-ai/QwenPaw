@@ -58,12 +58,13 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-[2026-04-14] We've released v1.1.1! See the full [v1.1.1 Release Notes](https://qwenpaw.agentscope.io/release-notes).
+[2026-04-17] We've released **v1.1.2**! See the full [v1.1.2 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
-- [v1.1.1] Added: OpenRouter and OpenCode model providers; model ID autocomplete when adding models, with model discovery enabled by default for all providers; built-in `list_agents` and `chat_with_agent` agent collaboration tools; Matrix channel rewrite with E2EE, mention handling, and message history; Feishu quoted message handling; DingTalk QR authentication; extended shell command guard rules; RESTful API tutorial documentation.
-- [v1.1.1] Changed: DingTalk migrated to the official Alibaba Cloud SDK; unified multimodal probing; media memory preserved when switching models; default browser start strategy changed to managed CDP; model management redesign; agent config tabs; skill selection improvements.
-- [v1.1.1] Fixed: QQ channel `stop()` no longer blocks for 8 seconds; Windows local model download failure; vLLM `tool_choice` compatibility.
-- [v1.1.1] Contributors: Welcome new contributors: @maplefeng-a, @lhpqaq, @jilin6627-spec.
+- **[v1.1.2] Added**: Mission Mode (`/mission`) for autonomous, multi-phase task execution; ACP protocol for external agent delegation; `qwenpaw doctor` diagnostic command; `qwenpaw agents create` CLI agent creation; scheduled memory consolidation (Dream); new Debug page.
+- **[v1.1.2] Changed**: Agent communication tools split into synchronous/asynchronous modes; provider list sorted by availability.
+- **[v1.1.2] New Contributors**: @FrankJingHao, @ployts, @cqhtyi, @leesf, @flystar32.
+
+[2026-04-14] We've released v1.1.1! See the full [v1.1.1 Release Notes](https://qwenpaw.agentscope.io/release-notes).
 
 [2026-04-12] **CoPaw is Officially Rebranding to QwenPaw**: This rebranding marks an important step forward into our next phase of open-source development.
 
@@ -134,18 +135,6 @@ No Python setup required, one command installs everything. The script will autom
 
 ```bash
 curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash
-```
-
-To install with Ollama support:
-
-```bash
-curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash -s -- --extras ollama
-```
-
-To install with multiple extras (e.g., Ollama + local):
-
-```bash
-curl -fsSL https://qwenpaw.agentscope.io/install.sh | bash -s -- --extras ollama,local
 ```
 
 **Windows (CMD):**

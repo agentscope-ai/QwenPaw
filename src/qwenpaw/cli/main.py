@@ -96,6 +96,7 @@ class LazyGroup(click.Group):
     cls=LazyGroup,
     context_settings={"help_option_names": ["-h", "--help"]},
     lazy_subcommands={
+        "acp": ("qwenpaw.cli.acp_cmd", "acp_cmd", ".acp_cmd"),
         "app": ("qwenpaw.cli.app_cmd", "app_cmd", ".app_cmd"),
         "channels": (
             "qwenpaw.cli.channels_cmd",

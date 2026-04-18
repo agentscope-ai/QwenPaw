@@ -292,3 +292,130 @@ def test_original_messages_not_modified_by_formatter_prep() -> None:
     # Original message should be completely unchanged
     assert original.to_dict() == original_dict
     assert original.content[1]["type"] == "image"
+
+
+# -----------------------------------------------------------------------------
+# target_family propagation tests
+# -----------------------------------------------------------------------------
+
+
+def _messages_with_extra_content() -> list[Msg]:
+    """Create messages that include Gemini-specific extra_content."""
+    return [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "call_ec",
+                    "name": "search",
+                    "input": {"q": "hello"},
+                    "extra_content": {"thought_signature": "sig_abc"},
+                },
+            ],
+        ),
+        Msg(
+            name="system",
+            role="system",
+            content=[
+                ToolResultBlock(
+                    type="tool_result",
+                    id="call_ec",
+                    name="search",
+                    output="42",
+                ),
+            ],
+        ),
+    ]
+
+
+def test_openai_formatter_strips_extra_content(monkeypatch) -> None:
+    """OpenAI formatter should strip extra_content from tool_use blocks."""
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    (
+        normalized,
+        _is_anthropic,
+        _is_gemini,
+    ) = model_factory._normalize_messages_for_formatter(
+        _messages_with_extra_content(),
+        OpenAIChatFormatter,
+        SimpleNamespace(),
+    )
+
+    assert "extra_content" not in normalized[0].content[0]
+
+
+def test_anthropic_formatter_strips_extra_content(monkeypatch) -> None:
+    """Anthropic formatter should strip extra_content from tool_use blocks."""
+    if AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    (
+        normalized,
+        _is_anthropic,
+        _is_gemini,
+    ) = model_factory._normalize_messages_for_formatter(
+        _messages_with_extra_content(),
+        AnthropicChatFormatter,
+        SimpleNamespace(),
+    )
+
+    assert "extra_content" not in normalized[0].content[0]
+
+
+def test_gemini_formatter_preserves_extra_content(monkeypatch) -> None:
+    """Gemini formatter should keep extra_content on tool_use blocks."""
+    if GeminiChatFormatter is None:
+        pytest.skip("GeminiChatFormatter not available")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    (
+        normalized,
+        _is_anthropic,
+        _is_gemini,
+    ) = model_factory._normalize_messages_for_formatter(
+        _messages_with_extra_content(),
+        GeminiChatFormatter,
+        SimpleNamespace(),
+    )
+
+    block = normalized[0].content[0]
+    assert "extra_content" in block
+    assert block["extra_content"]["thought_signature"] == "sig_abc"
+
+
+def test_extra_content_original_preserved(monkeypatch) -> None:
+    """Cleaning for any target must not mutate the original messages."""
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    msgs = _messages_with_extra_content()
+    original_block = msgs[0].content[0].copy()
+
+    model_factory._normalize_messages_for_formatter(
+        msgs,
+        OpenAIChatFormatter,
+        SimpleNamespace(),
+    )
+
+    assert msgs[0].content[0] == original_block

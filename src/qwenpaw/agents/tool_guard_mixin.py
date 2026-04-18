@@ -18,9 +18,32 @@ from typing import Any, Literal
 
 from agentscope.message import Msg
 
-from ..security.tool_guard.models import TOOL_GUARD_DENIED_MARK
+from ..security.tool_guard.models import (
+    TOOL_GUARD_DENIED_MARK,
+    GuardSeverity,
+)
+from ..security.tool_guard.i18n import _TOOL_GUARD_I18N
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_tool_guard_ui_lang(raw: Any) -> str:
+    """Map language code to tool-guard UI bundle (en/zh/ru/ja)."""
+    if not isinstance(raw, str) or not raw.strip():
+        return "en"
+    s = raw.strip().lower()
+    if s in ("zh", "en", "ru", "ja"):
+        return s
+    for prefix in ("zh", "ru", "ja", "en"):
+        if s.startswith(prefix):
+            return prefix
+    return "en"
+
+
+def _tool_guard_t(lang: str, key: str) -> str:
+    """Localized string for tool-guard user messages."""
+    blob = _TOOL_GUARD_I18N.get(lang) or _TOOL_GUARD_I18N["en"]
+    return blob.get(key) or _TOOL_GUARD_I18N["en"].get(key, key)
 
 
 class _GuardAction:
@@ -75,6 +98,13 @@ class ToolGuardMixin:
     def _should_require_approval(self) -> bool:
         """``True`` when a ``session_id`` is available for approval."""
         return bool(self._request_context.get("session_id"))
+
+    def _tool_guard_ui_lang(self) -> str:
+        """Locale for tool-guard alerts from agent language."""
+        raw = getattr(self, "_language", None)
+        if isinstance(raw, str) and raw.strip():
+            return _normalize_tool_guard_ui_lang(raw)
+        return "en"
 
     def _last_tool_response_is_denied(self) -> bool:
         """Check if the last message is a guard-denied tool result."""
@@ -456,23 +486,27 @@ class ToolGuardMixin:
             format_findings_summary,
         )
 
+        lang = self._tool_guard_ui_lang()
+
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
+
         if guard_result is not None and guard_result.findings:
             findings_text = format_findings_summary(guard_result)
             severity = guard_result.max_severity.value
             count = str(guard_result.findings_count)
         else:
-            findings_text = "- Tool is in the denied list / 工具在禁止列表中"
-            severity = "DENIED"
-            count = "N/A"
+            findings_text = f"- {tg('denied_list_msg')}"
+            severity = tg("severity_denied")
+            count = tg("na_count")
 
         denied_text = (
-            f"⛔ **Tool Blocked / 工具已拦截**\n\n"
-            f"- Tool / 工具: `{tool_name}`\n"
-            f"- Severity / 严重性: `{severity}`\n"
-            f"- Findings / 发现: `{count}`\n\n"
+            f"{tg('tool_blocked')}\n\n"
+            f"- {tg('tool')}: `{tool_name}`\n"
+            f"- {tg('severity')}: `{severity}`\n"
+            f"- {tg('findings')}: `{count}`\n\n"
             f"{findings_text}\n\n"
-            f"This tool is blocked and cannot be approved.\n"
-            f"该工具已被禁止，无法批准执行。"
+            f"{tg('blocked_footer')}"
         )
 
         tool_res_msg = Msg(
@@ -578,18 +612,25 @@ class ToolGuardMixin:
             "guard_result": guard_result,
         }
 
+        lang = self._tool_guard_ui_lang()
+
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
+
         findings_text = format_findings_summary(guard_result)
+        max_sev = guard_result.max_severity
+        sev_emoji, sev_name = self._severity_emoji_and_localized_name(
+            max_sev,
+            lang,
+        )
         denied_text = (
-            f"⚠️ **Risk Detected / 检测到风险**\n\n"
-            f"- Tool / 工具: `{tool_name}`\n"
-            f"- Severity / 严重性: "
-            f"`{guard_result.max_severity.value}`\n"
-            f"- Findings / 发现: "
-            f"`{guard_result.findings_count}`\n\n"
-            f"{findings_text}\n\n"
-            f"Type `/approve` to approve, "
-            f"or send any message to deny.\n"
-            f"输入 `/approve` 批准执行，或发送任意消息拒绝。"
+            f"{tg('risk_detected')}\n\n"
+            f"- {tg('tool')}: `{tool_name}`\n"
+            f"- {sev_emoji} {tg('severity')}: `{max_sev.value}` "
+            f"({sev_name})\n"
+            f"- {tg('findings')}: `{guard_result.findings_count}`\n"
+            f"- {tg('risk_summary')}:\n{findings_text}\n\n"
+            f"{tg('approve_hint')}"
         )
 
         tool_res_msg = Msg(
@@ -772,33 +813,68 @@ class ToolGuardMixin:
             )
             return None
 
-    @staticmethod
-    def _guardian_trigger_hint(guardians: list[str]) -> tuple[str, str]:
+    def _guardian_trigger_hint(self, guardians: list[str]) -> tuple[str, str]:
         """Return (trigger_label, settings_hint) for the guardian(s)."""
+        lang = self._tool_guard_ui_lang()
+
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
+
         has_file = "file_path_tool_guardian" in guardians
         has_tool = "rule_based_tool_guardian" in guardians
         if has_file and has_tool:
-            label = "Tool Guard & File Guard / 工具护栏 & 文件护栏"
-            hint_en = (
-                "Triggered by tool guardrails "
-                "(configurable in Security → Tool Guard / File Guard settings)"
-            )
-            hint_zh = "触发工具护栏 & 文件护栏（在安全-工具护栏 / 文件护栏页面可以更改设置）"
+            label = tg("guard_label_mixed")
+            hint = tg("guard_hint_mixed")
         elif has_file:
-            label = "File Guard / 文件护栏"
-            hint_en = (
-                "Triggered by file guardrails "
-                "(configurable in Security → File Guard settings)"
-            )
-            hint_zh = "触发文件护栏（在安全-文件护栏页面可以更改设置）"
+            label = tg("guard_label_file")
+            hint = tg("guard_hint_file")
         else:
-            label = "Tool Guard / 工具护栏"
-            hint_en = (
-                "Triggered by tool guardrails "
-                "(configurable in Security → Tool Guard settings)"
+            label = tg("guard_label_tool")
+            hint = tg("guard_hint_tool")
+        return label, f"💡 {hint}"
+
+    @staticmethod
+    def _severity_emoji_and_localized_name(
+        severity: GuardSeverity,
+        lang: str,
+    ) -> tuple[str, str]:
+        """Return (emoji, localized severity name) for the UI language."""
+        high = (GuardSeverity.CRITICAL, GuardSeverity.HIGH)
+        emoji = "🔴" if severity in high else "🟡"
+        key = f"sev_{severity.value}"
+        name = _tool_guard_t(lang, key)
+        return emoji, name
+
+    def _format_risk_severity_and_summary_for_pending(
+        self,
+        guard_result: Any,
+    ) -> str:
+        """Build severity + findings summary lines for approval UI."""
+        lang = self._tool_guard_ui_lang()
+
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
+
+        if not guard_result or not getattr(guard_result, "findings", None):
+            return (
+                f"- ⚠️ {tg('severity')}: {tg('word_unknown')}\n"
+                f"- {tg('risk_summary')}: ({tg('risk_not_available')})\n\n"
             )
-            hint_zh = "触发工具护栏（在安全-工具护栏页面可以更改设置）"
-        return label, f"💡 {hint_en}\n💡 {hint_zh}"
+
+        max_sev = guard_result.max_severity
+        emoji, sev_name = self._severity_emoji_and_localized_name(
+            max_sev,
+            lang,
+        )
+        from qwenpaw.security.tool_guard.approval import (
+            format_findings_summary,
+        )
+
+        findings_summary = format_findings_summary(guard_result)
+        return (
+            f"- {emoji} {tg('severity')}: `{max_sev.value}` ({sev_name})\n"
+            f"- {tg('risk_summary')}:\n{findings_summary}\n\n"
+        )
 
     async def _emit_waiting_for_approval(self) -> Msg:
         """Emit waiting-for-approval guidance when call is blocked."""
@@ -814,6 +890,13 @@ class ToolGuardMixin:
             indent=2,
         )
         trigger_label, settings_hint = self._guardian_trigger_hint(guardians)
+        risk_lines = self._format_risk_severity_and_summary_for_pending(
+            guard_result,
+        )
+        lang = self._tool_guard_ui_lang()
+
+        def tg(key: str) -> str:
+            return _tool_guard_t(lang, key)
 
         # Extract remediation hint from guard result if available
         remediation_hint = ""
@@ -839,14 +922,12 @@ class ToolGuardMixin:
                 )
 
         return await self._emit_assistant_msg(
-            "⏳ Waiting for approval / 等待审批\n\n"
-            f"- Tool / 工具: `{tool_name}`\n"
-            f"- Triggered by / 触发来源: `{trigger_label}`\n"
-            f"- Parameters / 参数:\n"
+            f"{tg('wait_title')}\n\n"
+            f"- {tg('tool')}: `{tool_name}`\n"
+            f"{risk_lines}"
+            f"- {tg('triggered_by')}: `{trigger_label}`\n"
+            f"- {tg('parameters')}:\n"
             f"```json\n{params_text}\n```\n\n"
             f"{settings_hint}\n\n"
-            "Type `/approve` to approve, "
-            "or send any message to deny.\n"
-            "输入 `/approve` 批准执行，"
-            f"或发送任意消息拒绝。{remediation_hint}",
+            f"{tg('approve_hint')}{remediation_hint}",
         )

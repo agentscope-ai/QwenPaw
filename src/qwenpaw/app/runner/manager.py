@@ -35,7 +35,7 @@ class ChatManager:
         """
         self._repo = repo
         self._lock = asyncio.Lock()
-        logger.info(
+        logger.debug(
             f"ChatManager created with repo path: {repo.path}",
         )
 
@@ -129,7 +129,7 @@ class ChatManager:
             logger.debug(f"get_or_create_chat: created spec={spec.id}")
             # Call internal create without lock (already locked)
             await self._repo.upsert_chat(spec)
-            logger.debug(
+            logger.info(
                 f"Auto-registered new chat: {spec.id} -> {session_id}",
             )
             return spec

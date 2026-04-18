@@ -1,8 +1,8 @@
 ---
 name: make_plan
-description: 面向外部计划请求场景，指导 Agent 通过 list_agents 和 chat_with_agent 向更强 Agent 请求明确、可执行、分步骤的计划，并强调计划由求助发起者执行而不是由被求助 Agent 代执行。
+description: 当需要向更强 Agent 请求执行计划时使用；用于获取分步骤、可落地的计划，并由你自己执行，而不是让对方代执行任务。
 metadata:
-  builtin_skill_version: "1.1"
+  builtin_skill_version: "1.2"
   qwenpaw:
     emoji: "🗺️"
 ---
@@ -17,11 +17,19 @@ metadata:
 - **由你自己按计划执行**
 - 不要求被求助的 Agent 直接动手执行任务
 
-调用方式：
-- 使用 `list_agents()` 查可用 Agent
-- 使用 `chat_with_agent(...)` 向更强 Agent 请求“制定计划”
-- 在 `text` 中明确给出提示**仅需给出可按步骤执行的计划，不要执行**
-- 如需补充或细化原计划，续聊时传 `session_id`
+调用步骤：
+1) 使用 `list_agents()` 查可用 Agent 的 ID
+  - 可根据返回的描述信息选择最合适的 Agent 来求助
+  - 如果找不到非常合适的 Agent，就选择 default
+  - 注意区分 Agent 的 ID 和 Name，后续调用需要的是 ID
+
+2) 使用 `chat_with_agent(...)` 向更强 Agent 请求“制定计划”
+  - `to_agent` 传目标 Agent ID
+  - `text` 中明确给出提示**仅需给出可按步骤执行的计划，不要执行**
+
+3) 收到回复后，记录对话的 `session_id`，并提炼出真正可执行的步骤，并由你自己执行
+  - 如果有不清楚的地方可以继续追问细化计划，但仍然要强调**只补计划，不要代执行**
+  - 追问仍使用 `chat_with_agent(...)`，并传入记录的 `session_id` 以保持上下文
 
 推荐调用骨架：
 
@@ -29,21 +37,10 @@ metadata:
 list_agents()
 
 chat_with_agent(
-  to_agent="<stronger_agent>",
+  to_agent="stronger_agent",
   text="[Agent <auto> requesting] 请帮我为下面任务制定执行计划。你不需要执行任务，只需要输出明确、可落地、按顺序排列的步骤。",
 )
 ```
-
-## 核心规则
-
-这个 Skill 只处理一件事：
-1. 找到一个更强的 Agent
-2. 请求对方输出执行计划
-3. 要求计划必须分步骤、可落地、可按顺序执行
-4. 由你自己执行这份计划，而不是要求对方代做
-
-如果你真正需要的是“计划”，就使用本 Skill。
-如果你需要的是最终答案、架构判断、审查结论或直接代做，不要误用本 Skill。
 
 ## 适用场景
 
@@ -70,28 +67,6 @@ chat_with_agent(
 - **步骤必须具体，不能只给抽象建议**
 - **最好包含验证方式与完成标志**
 
-## 工具调用规则
-
-默认按这个顺序执行：
-1. 调用 `list_agents()` 确认可用的更强 Agent
-2. 选择最适合制定计划的目标 Agent
-3. 调用 `chat_with_agent(...)` 请求生成执行计划
-4. 收到计划后，由你自己执行，不把任务继续外包给对方
-
-请求计划时应明确写出：
-- 只需要计划，不需要执行
-- 步骤要具体，不要泛泛建议
-- 需要顺序、依赖、检查点和验证方式时要明确提出
-
-`chat_with_agent` 常用参数：
-- `to_agent`: 目标 Agent ID
-- `text`: 求助内容，需明确要求“只输出计划，不执行任务”
-- `session_id`: 可选，续接已有对话时传入
-
-说明：
-- `base_url` 一般不需要传，工具会自动解析当前 API 地址
-- 不传 `session_id` 会自动创建新会话
-
 ## 求助模板
 
 请帮我为下面任务制定一份执行计划。
@@ -116,11 +91,11 @@ chat_with_agent(
 输出格式：
 [例如：输出 5-8 个编号步骤，每步 1-3 句]
 
-示例：
+`chat_with_agent` 请求示例：
 
 ```text
 chat_with_agent(
-  to_agent="strong_reasoner",
+  to_agent="strong_agent",
   text="""
 请帮我为下面任务制定一份执行计划。
 你不需要执行任务本身，只需要输出计划。
@@ -147,13 +122,25 @@ chat_with_agent(
 )
 ```
 
-如果需要续聊：
+`chat_with_agent` 回复示例：
+```text
+[SESSION: xxx]
+
+下面是我为你制定的执行计划：
+
+1. ...
+2. ...
+```
+- 其中 `xxx` 是本次对话的 `session_id`，你需要记录下来以便后续追问细化，一般是一个较长的字符串，例如 `local_agent:to:strong_agent:1776406127168:e11b08d8`
+
+
+`chat_with_agent` 追问示例（假设你想让对方细化第 3 步）：
 
 ```text
 chat_with_agent(
-  to_agent="strong_reasoner",
-  text="请基于刚才的计划，再细化第 3 步和第 4 步的检查点。仍然只需要补计划，不需要代执行任务。",
-  session_id="<previous_session_id>",
+  to_agent="strong_agent",
+  text="请基于刚才的计划，再细化第 3 步。仍然只需要补计划，不需要代执行任务。",
+  session_id="xxx",
 )
 ```
 

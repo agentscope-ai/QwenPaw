@@ -6,6 +6,7 @@ import pytest
 from agentscope.message import Msg, ToolResultBlock
 
 from qwenpaw.agents.utils.message_request_normalizer import (
+    _clean_provider_specific_fields,
     _clone_msg,
     _clone_messages,
     _strip_media_blocks_in_place,
@@ -390,3 +391,260 @@ def test_normalize_conversation_with_multiple_messages():
     # Originals unchanged
     assert msgs[0].content[1]["type"] == "image"
     assert msgs[2].content[0]["type"] == "video"
+
+
+# -----------------------------------------------------------------------------
+# _clean_provider_specific_fields tests
+# -----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tool_use_with_extra_content():
+    """Create an assistant message with Gemini extra_content on tool_use."""
+    return Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            {
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "search",
+                "input": {"q": "test"},
+                "extra_content": {"thought_signature": "sig123"},
+            },
+        ],
+    )
+
+
+@pytest.fixture
+def tool_use_with_raw_input():
+    """Create an assistant message with raw_input on tool_use."""
+    return Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            {
+                "type": "tool_use",
+                "id": "call_2",
+                "name": "read_file",
+                "input": {"path": "/tmp/x"},
+                "raw_input": '{"path": "/tmp/x"}',
+            },
+        ],
+    )
+
+
+def test_clean_strips_extra_content_for_openai(tool_use_with_extra_content):
+    """extra_content should be removed when targeting OpenAI."""
+    msgs = [tool_use_with_extra_content]
+    _clean_provider_specific_fields(msgs, "openai")
+
+    block = msgs[0].content[0]
+    assert "extra_content" not in block
+    assert block["id"] == "call_1"
+    assert block["input"] == {"q": "test"}
+
+
+def test_clean_strips_extra_content_for_anthropic(
+    tool_use_with_extra_content,
+):
+    """extra_content should be removed when targeting Anthropic."""
+    msgs = [tool_use_with_extra_content]
+    _clean_provider_specific_fields(msgs, "anthropic")
+
+    assert "extra_content" not in msgs[0].content[0]
+
+
+def test_clean_preserves_extra_content_for_gemini(
+    tool_use_with_extra_content,
+):
+    """extra_content should be preserved when targeting Gemini."""
+    msgs = [tool_use_with_extra_content]
+    _clean_provider_specific_fields(msgs, "gemini")
+
+    block = msgs[0].content[0]
+    assert "extra_content" in block
+    assert block["extra_content"]["thought_signature"] == "sig123"
+
+
+def test_clean_strips_raw_input_for_all_targets():
+    """raw_input should be stripped regardless of target family."""
+    for family in ("openai", "anthropic", "gemini"):
+        msg = Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "call_2",
+                    "name": "read_file",
+                    "input": {"path": "/tmp/x"},
+                    "raw_input": '{"path": "/tmp/x"}',
+                },
+            ],
+        )
+        _clean_provider_specific_fields([msg], family)
+        assert (
+            "raw_input" not in msg.content[0]
+        ), f"raw_input should be stripped for {family}"
+        assert msg.content[0]["input"] == {"path": "/tmp/x"}
+
+
+def test_clean_ignores_non_tool_use_blocks():
+    """Blocks other than tool_use should not be touched."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            {
+                "type": "thinking",
+                "thinking": "some thought",
+            },
+            {
+                "type": "text",
+                "text": "hello",
+            },
+        ],
+    )
+    _clean_provider_specific_fields([msg], "openai")
+
+    assert msg.content[0] == {"type": "thinking", "thinking": "some thought"}
+    assert msg.content[1] == {"type": "text", "text": "hello"}
+
+
+def test_clean_handles_string_content():
+    """Messages with plain string content should be skipped safely."""
+    msg = Msg(name="user", role="user", content="just text")
+    _clean_provider_specific_fields([msg], "openai")
+
+    assert msg.content == "just text"
+
+
+def test_clean_handles_empty_list():
+    """Empty message list should not raise."""
+    _clean_provider_specific_fields([], "openai")
+
+
+# -----------------------------------------------------------------------------
+# normalize_messages_for_model_request with target_family tests
+# -----------------------------------------------------------------------------
+
+
+def _paired_tool_messages(extra_fields=None):
+    """Helper: create a tool_use + tool_result pair so sanitization keeps them.
+
+    ``extra_fields`` are merged into the tool_use block dict.
+    """
+    tool_use_block = {
+        "type": "tool_use",
+        "id": "call_1",
+        "name": "foo",
+        "input": {},
+    }
+    if extra_fields:
+        tool_use_block.update(extra_fields)
+
+    return [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[tool_use_block],
+        ),
+        Msg(
+            name="system",
+            role="system",
+            content=[
+                ToolResultBlock(
+                    type="tool_result",
+                    id="call_1",
+                    name="foo",
+                    output="ok",
+                ),
+            ],
+        ),
+    ]
+
+
+def test_normalize_default_target_family_strips_extra_content():
+    """Default target_family ('openai') should strip extra_content."""
+    msgs = _paired_tool_messages({"extra_content": {"sig": "x"}})
+    normalized = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=True,
+    )
+    assert "extra_content" not in normalized[0].content[0]
+
+
+def test_normalize_does_not_mutate_original_with_target_family():
+    """Original messages must not be modified by target_family cleaning."""
+    msgs = _paired_tool_messages(
+        {"extra_content": {"sig": "x"}, "raw_input": "{}"},
+    )
+    original_dicts = [m.to_dict() for m in msgs]
+
+    normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=True,
+        target_family="openai",
+    )
+
+    assert [m.to_dict() for m in msgs] == original_dicts
+
+
+def test_normalize_gemini_target_keeps_extra_content():
+    """target_family='gemini' should preserve extra_content."""
+    msgs = _paired_tool_messages({"extra_content": {"sig": "x"}})
+    normalized = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=True,
+        target_family="gemini",
+    )
+    assert "extra_content" in normalized[0].content[0]
+
+
+def test_raw_input_used_for_repair_before_stripping():
+    """raw_input must be consumed by _repair_empty_tool_inputs before
+    _clean_provider_specific_fields strips it.
+
+    Scenario: tool_use with empty input={} but valid raw_input JSON.
+    After normalize, input should be populated AND raw_input removed.
+    """
+    msgs = [
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "call_repair",
+                    "name": "run",
+                    "input": {},
+                    "raw_input": '{"cmd": "ls"}',
+                },
+            ],
+        ),
+        Msg(
+            name="system",
+            role="system",
+            content=[
+                ToolResultBlock(
+                    type="tool_result",
+                    id="call_repair",
+                    name="run",
+                    output="file.txt",
+                ),
+            ],
+        ),
+    ]
+
+    normalized = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=True,
+        target_family="openai",
+    )
+
+    block = normalized[0].content[0]
+    assert block["input"] == {
+        "cmd": "ls",
+    }, "raw_input should have repaired the empty input before being stripped"
+    assert "raw_input" not in block, "raw_input should be cleaned after repair"

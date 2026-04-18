@@ -59,7 +59,7 @@ def register_command(handler: BaseControlCommandHandler) -> None:
         )
 
     _COMMAND_REGISTRY[command] = handler
-    logger.info(
+    logger.debug(
         f"Registered control command: {command} "
         f"→ {handler.__class__.__name__}",
     )
