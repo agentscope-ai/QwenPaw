@@ -99,10 +99,10 @@ def _scan_error_payload(exc: SkillScanError) -> dict[str, Any]:
 
 
 def _scan_error_response(exc: SkillScanError) -> JSONResponse:
-    """Build the historical 422 response shape used by skill endpoints.
+    """Build a 422 JSON response for skill scan failures.
 
-    We intentionally return a real HTTP 422 response object here so callers
-    and tests observe the same behavior as before the skill-pool refactor.
+    Returns a JSONResponse so callers receive structured scan
+    details rather than a bare HTTP error.
     """
     return JSONResponse(
         status_code=422,
@@ -1113,7 +1113,8 @@ async def update_pool_builtin(
     if language and language not in _BUILTIN_SKILL_LANGUAGES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid language '{language}', must be one of {_BUILTIN_SKILL_LANGUAGES}",
+            detail=f"Invalid language '{language}', "
+            f"must be one of {_BUILTIN_SKILL_LANGUAGES}",
         )
     try:
         return update_single_builtin(skill_name, language=language or None)

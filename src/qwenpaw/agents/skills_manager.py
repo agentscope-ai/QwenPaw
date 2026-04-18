@@ -168,9 +168,11 @@ def get_builtin_skill_language_preference() -> str:
 
 
 def set_builtin_skill_language_preference(language: str) -> None:
-    """Update the cached preference. Caller is responsible for persisting."""
+    """Update the in-memory cached builtin language preference."""
     with _BUILTIN_CACHE_LOCK:
-        _builtin_cache["language_preference"] = _normalize_builtin_skill_language(
+        _builtin_cache[
+            "language_preference"
+        ] = _normalize_builtin_skill_language(
             language,
         )
 
@@ -1504,7 +1506,7 @@ def import_builtin_skills(
 
 
 def migrate_pool_builtin_language_fields() -> bool:
-    """Backfill builtin language metadata for existing pool entries."""
+    """Ensure builtin language metadata is set for all builtin pool entries."""
     registry = _get_packaged_builtin_registry()
     if not registry:
         return False

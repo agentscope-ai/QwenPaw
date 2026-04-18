@@ -237,7 +237,6 @@ function SkillPoolPage() {
                 isSelected={pool.selectedPoolSkills.has(skill.name)}
                 batchModeEnabled={pool.batchModeEnabled}
                 onToggleSelect={pool.togglePoolSelect}
-
                 onEdit={pool.openEdit}
                 onBroadcast={pool.openBroadcast}
                 onDelete={pool.handleDelete}
@@ -254,7 +253,6 @@ function SkillPoolPage() {
                 isSelected={pool.selectedPoolSkills.has(skill.name)}
                 batchModeEnabled={pool.batchModeEnabled}
                 onToggleSelect={pool.togglePoolSelect}
-
                 onEdit={pool.openEdit}
                 onBroadcast={pool.openBroadcast}
                 onDelete={pool.handleDelete}

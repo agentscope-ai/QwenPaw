@@ -42,12 +42,7 @@ export interface BuiltinLanguageSpec {
   description?: string;
   version_text?: string;
   source_name?: string;
-  status?:
-    | "missing"
-    | "current"
-    | "outdated"
-    | "conflict"
-    | string;
+  status?: "missing" | "current" | "outdated" | "conflict" | string;
 }
 
 export interface WorkspaceSkillSummary {
@@ -66,12 +61,7 @@ export interface BuiltinImportSpec {
   current_language?: string;
   available_languages?: string[];
   languages?: Record<string, BuiltinLanguageSpec>;
-  status?:
-    | "missing"
-    | "current"
-    | "outdated"
-    | "conflict"
-    | string;
+  status?: "missing" | "current" | "outdated" | "conflict" | string;
 }
 
 export interface BuiltinRemovedSpec {

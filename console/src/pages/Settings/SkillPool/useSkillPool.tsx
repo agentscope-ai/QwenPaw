@@ -111,8 +111,9 @@ export function useSkillPool() {
     filteredSkills,
   } = useSkillFilter(skills);
 
-  const builtinLanguage: BuiltinSkillLanguage =
-    i18n.language?.startsWith("zh") ? "zh" : "en";
+  const builtinLanguage: BuiltinSkillLanguage = i18n.language?.startsWith("zh")
+    ? "zh"
+    : "en";
 
   const sortedSkills = useMemo(
     () => filteredSkills.slice().sort((a, b) => a.name.localeCompare(b.name)),
@@ -189,28 +190,31 @@ export function useSkillPool() {
     [builtinNotice],
   );
 
-  const loadData = useCallback(async (forceReload = false) => {
-    if (dataLoadedRef.current && !forceReload) return;
+  const loadData = useCallback(
+    async (forceReload = false) => {
+      if (dataLoadedRef.current && !forceReload) return;
 
-    setLoading(true);
-    try {
-      const [poolSkills, workspaceSummaries, notice] = await Promise.all([
-        api.listSkillPoolSkills(),
-        api.listSkillWorkspaces(),
-        api.getPoolBuiltinNotice(),
-      ]);
-      setSkills(poolSkills);
-      setWorkspaces(workspaceSummaries);
-      setBuiltinNotice(notice);
-      dataLoadedRef.current = true;
-    } catch (error) {
-      message.error(
-        error instanceof Error ? error.message : "Failed to load skill pool",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [message]);
+      setLoading(true);
+      try {
+        const [poolSkills, workspaceSummaries, notice] = await Promise.all([
+          api.listSkillPoolSkills(),
+          api.listSkillWorkspaces(),
+          api.getPoolBuiltinNotice(),
+        ]);
+        setSkills(poolSkills);
+        setWorkspaces(workspaceSummaries);
+        setBuiltinNotice(notice);
+        dataLoadedRef.current = true;
+      } catch (error) {
+        message.error(
+          error instanceof Error ? error.message : "Failed to load skill pool",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [message],
+  );
 
   const handleRefresh = useCallback(async () => {
     setLoading(true);
@@ -303,9 +307,7 @@ export function useSkillPool() {
         case "language_switch":
           return t("skillPool.importStatusLanguageSwitchTo", {
             language:
-              language === "zh"
-                ? t("skillPool.langZh")
-                : t("skillPool.langEn"),
+              language === "zh" ? t("skillPool.langZh") : t("skillPool.langEn"),
           });
         case "conflict":
           return t("skillPool.importStatusConflict");
@@ -591,7 +593,8 @@ export function useSkillPool() {
         t("skillPool.builtinLanguageChangeTitle"),
         t("skillPool.builtinLanguageChangeContent", {
           name: skill.name,
-          language: normalized === "zh" ? t("skillPool.langZh") : t("skillPool.langEn"),
+          language:
+            normalized === "zh" ? t("skillPool.langZh") : t("skillPool.langEn"),
         }),
       );
       if (!confirmed) return;
@@ -600,7 +603,10 @@ export function useSkillPool() {
         message.success(
           t("skillPool.builtinLanguageChangeSuccess", {
             name: skill.name,
-            language: normalized === "zh" ? t("skillPool.langZh") : t("skillPool.langEn"),
+            language:
+              normalized === "zh"
+                ? t("skillPool.langZh")
+                : t("skillPool.langEn"),
           }),
         );
         closeDrawer();
