@@ -59,6 +59,7 @@ class ACPHostedClient:
         self._assistant_text = ""
         self._emitted_assistant_text = ""
         self._thinking_active = False
+        self._pending_permission = None
         self._permission_requested.clear()
         self._session_acc = SessionAccumulator()
 
@@ -197,6 +198,16 @@ class ACPHostedClient:
             },
             True,
         )
+
+    async def finish_prompt(self) -> dict[str, Any] | None:
+        await self.flush_assistant_text()
+        if self._assistant_text:
+            return {
+                "type": "text",
+                "text": self._assistant_text,
+                "is_chunk": False,
+            }
+        return None
 
     async def flush_assistant_text(self) -> None:
         await self._emit_assistant_text_delta()

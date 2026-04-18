@@ -142,6 +142,41 @@ class ACPService:
             return None
         return conversation.client.pending_permission
 
+    async def cancel_turn(self, *, chat_id: str, agent: str) -> bool:
+        conversation = await self.get_session(chat_id, agent)
+        if conversation is None:
+            return False
+
+        prompt_task = conversation.prompt_task
+        if prompt_task is None or prompt_task.done():
+            return False
+
+        for _ in range(3):
+            try:
+                await conversation.conn.cancel(
+                    session_id=conversation.acp_session_id,
+                )
+            except Exception:
+                return False
+
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(prompt_task),
+                    timeout=0.5,
+                )
+            except asyncio.TimeoutError:
+                if prompt_task.done():
+                    break
+                continue
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                break
+            else:
+                break
+
+        return prompt_task.done()
+
     async def _get_or_create_session(
         self,
         *,
@@ -223,24 +258,30 @@ class ACPService:
                     client,
                     agent_config.command,
                     *agent_config.args,
-                    env=self._build_env(agent_config),
                     cwd=cwd,
+                    env={**os.environ, **agent_config.env},
+                    transport_kwargs={
+                        "limit": agent_config.stdio_buffer_limit_bytes,
+                    },
                 ),
             )
-            await conn.initialize(
+            initialized = await conn.initialize(
                 protocol_version=PROTOCOL_VERSION,
-                client_capabilities=ClientCapabilities(),
+                capabilities=ClientCapabilities(),
                 client_info=Implementation(
-                    name="QwenPaw",
-                    title="QwenPaw",
-                    version="1.0.0",
+                    name="qwenpaw-acp-service",
+                    version="0.1.0",
                 ),
             )
-            session = await conn.new_session(cwd=cwd, mcp_servers=[])
+            if initialized.protocol_version != PROTOCOL_VERSION:
+                raise ACPSessionError(
+                    f"Protocol mismatch: {initialized.protocol_version}",
+                )
+            new_session = await conn.new_session(cwd=cwd)
             return _Conversation(
                 chat_id=chat_id,
                 agent=agent,
-                acp_session_id=session.session_id,
+                acp_session_id=new_session.session_id,
                 cwd=cwd,
                 conn=conn,
                 process=process,
@@ -258,120 +299,95 @@ class ACPService:
         conversation: _Conversation,
         on_message: MessageHandler,
     ) -> dict[str, Any]:
-        if conversation.prompt_task is None:
-            raise ACPSessionError(
-                f"Session {conversation.acp_session_id} has no active prompt task",
-            )
+        del on_message
+        prompt_task = conversation.prompt_task
+        if prompt_task is None:
+            raise ACPSessionError("ACP prompt task is missing")
 
-        while True:
-            permission_wait_task = asyncio.create_task(
-                conversation.client.wait_for_permission_request(),
-            )
-            done, _ = await asyncio.wait(
-                {conversation.prompt_task, permission_wait_task},
+        permission_task = asyncio.create_task(
+            conversation.client.wait_for_permission_request(),
+        )
+        try:
+            done, pending = await asyncio.wait(
+                {prompt_task, permission_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
-
-            if permission_wait_task in done:
-                if conversation.client.pending_permission is not None:
-                    return {
-                        "suspended_permission": conversation.client.pending_permission,
-                        "result": None,
-                    }
-            else:
-                permission_wait_task.cancel()
-                try:
-                    await permission_wait_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-
-            if conversation.prompt_task in done:
-                prompt_task = conversation.prompt_task
-                conversation.prompt_task = None
-                prompt_response = await prompt_task
-                await conversation.client.flush_assistant_text()
-                result_payload = prompt_response.model_dump(
-                    by_alias=True,
-                    exclude_none=True,
-                )
-                await on_message(
-                    {
-                        "type": "status",
-                        "status": "run_finished",
-                        "result": result_payload,
-                    },
-                    True,
-                )
+            if permission_task in done and conversation.client.pending_permission is not None:
+                finished_event = await conversation.client.finish_prompt()
                 return {
-                    "suspended_permission": None,
-                    "result": result_payload,
+                    "status": "permission_required",
+                    "suspended_permission": conversation.client.pending_permission,
+                    "event": finished_event,
                 }
 
-            permission_wait_task.cancel()
+            permission_task.cancel()
             try:
-                await permission_wait_task
-            except (asyncio.CancelledError, Exception):
+                await permission_task
+            except asyncio.CancelledError:
                 pass
 
-    async def _close_conversation(self, conversation: _Conversation) -> None:
-        prompt_task = conversation.prompt_task
-        conversation.prompt_task = None
-        if prompt_task is not None and not prompt_task.done():
-            prompt_task.cancel()
             try:
                 await prompt_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                conversation.prompt_task = None
+                await conversation.client.finish_prompt()
+                raise ACPSessionError(str(exc)) from exc
+
+            conversation.prompt_task = None
+            finished_event = await conversation.client.finish_prompt()
+            pending_permission = conversation.client.pending_permission
+            if pending_permission is not None:
+                return {
+                    "status": "permission_required",
+                    "suspended_permission": pending_permission,
+                    "event": finished_event,
+                }
+            return {"status": "completed", "event": finished_event}
+        finally:
+            if not permission_task.done():
+                permission_task.cancel()
+                try:
+                    await permission_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def _close_conversation(self, conversation: _Conversation) -> None:
         try:
+            if conversation.prompt_task is not None and not conversation.prompt_task.done():
+                conversation.prompt_task.cancel()
+                try:
+                    await conversation.prompt_task
+                except Exception:
+                    pass
+        finally:
             await conversation.exit_stack.aclose()
-        except Exception:
-            pass
 
-    def _build_env(self, agent_config: ACPAgentConfig) -> dict[str, str]:
-        env = dict(os.environ)
-        env.update(agent_config.env)
-        return env
-
-    def _prompt_blocks_to_models(self, prompt_blocks: list[dict[str, Any]]) -> list[Any]:
-        result: list[Any] = []
-        for block in prompt_blocks:
-            if not isinstance(block, dict):
-                raise ACPSessionError("ACP prompt block must be a dict")
-            block_type = str(block.get("type") or "").strip().lower()
-            if block_type != "text":
-                raise ACPSessionError(
-                    f"Unsupported ACP prompt block type: {block_type or '<empty>'}",
+    @staticmethod
+    def _prompt_blocks_to_models(blocks: list[dict[str, Any]]) -> list[Any]:
+        prompt_models: list[Any] = []
+        for block in blocks:
+            if block.get("type") != "text":
+                raise ACPConfigurationError(
+                    "Only text prompt blocks are currently supported",
                 )
-            result.append(text_block(str(block.get("text") or "")))
-        return result
+            prompt_models.append(text_block(str(block.get("text", ""))))
+        return prompt_models
 
 
-_acp_service: ACPService | None = None
+_acp_services: dict[str, ACPService] = {}
 
 
-def get_acp_service() -> ACPService | None:
-    return _acp_service
+def get_acp_service(agent_id: str | None = None) -> ACPService | None:
+    if agent_id is None:
+        return None
+    return _acp_services.get(agent_id)
 
 
-def _atexit_cleanup() -> None:
-    if _acp_service is None:
-        return
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running() or loop.is_closed():
-            return
-        loop.run_until_complete(_acp_service.close_all_sessions())
-    except Exception:
-        pass
-
-
-atexit.register(_atexit_cleanup)
-
-
-def init_acp_service(config: ACPConfig) -> ACPService:
-    global _acp_service
-    previous_service = _acp_service
-    _acp_service = ACPService(config=config)
+def init_acp_service(agent_id: str, config: ACPConfig) -> ACPService:
+    previous_service = _acp_services.get(agent_id)
+    _acp_services[agent_id] = ACPService(config=config)
     if previous_service is not None:
         try:
             loop = asyncio.get_running_loop()
@@ -385,4 +401,48 @@ def init_acp_service(config: ACPConfig) -> ACPService:
                 loop.create_task(previous_service.close_all_sessions())
             else:
                 loop.run_until_complete(previous_service.close_all_sessions())
-    return _acp_service
+    return _acp_services[agent_id]
+
+
+def close_acp_service(agent_id: str) -> None:
+    previous_service = _acp_services.pop(agent_id, None)
+    if previous_service is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+    if loop is not None and not loop.is_closed():
+        if loop.is_running():
+            loop.create_task(previous_service.close_all_sessions())
+        else:
+            loop.run_until_complete(previous_service.close_all_sessions())
+
+
+def _shutdown_acp_services() -> None:
+    services = list(_acp_services.values())
+    _acp_services.clear()
+    if not services:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            for service in services:
+                loop.create_task(service.close_all_sessions())
+            return
+    except RuntimeError:
+        pass
+    try:
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(
+            asyncio.gather(*(service.close_all_sessions() for service in services)),
+        )
+        loop.close()
+    except Exception:
+        pass
+
+
+atexit.register(_shutdown_acp_services)

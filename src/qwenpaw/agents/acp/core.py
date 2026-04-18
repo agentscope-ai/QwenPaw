@@ -7,6 +7,8 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+DEFAULT_STDIO_BUFFER_LIMIT_BYTES = 50 * 1024 * 1024
+
 
 class ACPAgentConfig(BaseModel):
     """Configuration for one ACP agent."""
@@ -17,6 +19,10 @@ class ACPAgentConfig(BaseModel):
     env: Dict[str, str] = Field(default_factory=dict)
     trusted: bool = True
     tool_parse_mode: str = "call_title"
+    stdio_buffer_limit_bytes: int = Field(
+        default=DEFAULT_STDIO_BUFFER_LIMIT_BYTES,
+        gt=0,
+    )
 
 
 def _default_agents() -> Dict[str, ACPAgentConfig]:

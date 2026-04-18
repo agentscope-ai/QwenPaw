@@ -35,6 +35,7 @@ from ...config.config import (
     VoiceChannelConfig,
     WecomConfig,
 )
+from ...agents.acp.core import ACPConfig, ACPAgentConfig
 
 from .schemas_config import HeartbeatBody
 from ..channels.qrcode_auth_handler import (
@@ -58,6 +59,11 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     "mqtt": MQTTConfig,
     "matrix": MatrixConfig,
     "wecom": WecomConfig,
+}
+_ALLOWED_ACP_TOOL_PARSE_MODES = {
+    "call_title",
+    "update_detail",
+    "call_detail",
 }
 
 
@@ -280,6 +286,117 @@ async def put_channel(
     schedule_agent_reload(request, agent.agent_id)
 
     return channel_config
+
+
+@router.get(
+    "/acp",
+    response_model=ACPConfig,
+    summary="Get ACP config",
+    description="Retrieve ACP configuration for current agent",
+)
+async def get_acp_config(request: Request) -> ACPConfig:
+    """Return ACP config for the current agent."""
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    return agent.config.acp or ACPConfig()
+
+
+@router.put(
+    "/acp",
+    response_model=ACPConfig,
+    summary="Update ACP config",
+    description="Update ACP configuration for current agent",
+)
+async def put_acp_config(
+    request: Request,
+    acp_config: ACPConfig = Body(
+        ...,
+        description="Complete ACP configuration",
+    ),
+) -> ACPConfig:
+    """Update ACP config for the current agent."""
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
+    agent = await get_agent_for_request(request)
+    agent.config.acp = acp_config
+    save_agent_config(agent.agent_id, agent.config)
+    schedule_agent_reload(request, agent.agent_id)
+    return agent.config.acp
+
+
+@router.get(
+    "/acp/{agent_name}",
+    response_model=ACPAgentConfig,
+    summary="Get ACP agent config",
+    description="Retrieve ACP configuration for a specific ACP agent",
+)
+async def get_acp_agent_config(
+    request: Request,
+    agent_name: str = Path(
+        ...,
+        description="Name of the ACP agent to retrieve",
+        min_length=1,
+    ),
+) -> ACPAgentConfig:
+    """Return config for one ACP agent."""
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    acp_config = agent.config.acp or ACPConfig()
+    acp_agent = acp_config.agents.get(agent_name)
+    if acp_agent is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ACP agent '{agent_name}' not found",
+        )
+    return acp_agent
+
+
+@router.put(
+    "/acp/{agent_name}",
+    response_model=ACPAgentConfig,
+    summary="Update ACP agent config",
+    description="Update ACP configuration for a specific ACP agent",
+)
+async def put_acp_agent_config(
+    request: Request,
+    agent_name: str = Path(
+        ...,
+        description="Name of the ACP agent to update",
+        min_length=1,
+    ),
+    acp_agent_config: ACPAgentConfig = Body(
+        ...,
+        description="Updated ACP agent configuration",
+    ),
+) -> ACPAgentConfig:
+    """Update config for one ACP agent."""
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
+    if acp_agent_config.tool_parse_mode not in _ALLOWED_ACP_TOOL_PARSE_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid tool_parse_mode. Allowed values: "
+                + ", ".join(sorted(_ALLOWED_ACP_TOOL_PARSE_MODES))
+            ),
+        )
+
+    agent = await get_agent_for_request(request)
+    if agent.config.acp is None:
+        agent.config.acp = ACPConfig()
+
+    agent_name = agent_name.strip()
+    if not agent_name:
+        raise HTTPException(status_code=400, detail="ACP agent name cannot be empty")
+
+    agent.config.acp.agents[agent_name] = acp_agent_config
+    save_agent_config(agent.agent_id, agent.config)
+    schedule_agent_reload(request, agent.agent_id)
+    return agent.config.acp.agents[agent_name]
 
 
 @router.get(

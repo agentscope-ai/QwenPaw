@@ -10,14 +10,14 @@ from typing import Any, AsyncGenerator, Optional
 
 from agentscope.tool import ToolResponse
 
-from ...config import load_config
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 from ..acp.tool_adapter import (
-    event_to_stream_response,
     format_close_response,
+    format_final_assistant_response,
     format_permission_suspended_response,
-    format_run_completion_response,
+    format_stream_snapshot_response,
+    render_event_text,
     response_text,
 )
 
@@ -37,14 +37,17 @@ def _resolve_execution_cwd(cwd: str, workspace_dir: Path) -> Path:
 
 
 def _get_acp_service() -> Any:
+    from ...app.agent_context import get_current_agent_id
+    from ...config.config import load_agent_config
     from ..acp import get_acp_service, init_acp_service
     from ..acp.core import ACPConfig
 
-    config = load_config()
-    acp_config = getattr(config, "acp", None) or ACPConfig()
-    service = get_acp_service()
+    agent_id = get_current_agent_id()
+    agent_config = load_agent_config(agent_id)
+    acp_config = agent_config.acp or ACPConfig()
+    service = get_acp_service(agent_id)
     if service is None or getattr(service, "config", None) != acp_config:
-        service = init_acp_service(acp_config)
+        service = init_acp_service(agent_id, acp_config)
     return service
 
 
@@ -69,9 +72,7 @@ def _validate_action_inputs(
     if not runner_name:
         return "Error: runner is empty."
     if action_name not in {"start", "message", "respond", "close"}:
-        return (
-            "Error: action must be one of: " "start, message, respond, close."
-        )
+        return "Error: action must be one of: start, message, respond, close."
     if action_name in {"message", "respond"} and not message_text:
         if action_name == "message":
             return (
@@ -163,22 +164,24 @@ async def _stream_action_responses(
     execution_cwd: Path,
 ) -> AsyncGenerator[ToolResponse, None]:
     response_queue: asyncio.Queue[ToolResponse] = asyncio.Queue()
+    flush_interval = 1.0
+    pending_items: list[str] = []
+    seen_stream_items: set[str] = set()
     header_sent = False
-    final_event: Optional[dict[str, Any]] = None
+    flush_task: Optional[asyncio.Task[None]] = None
+    final_text_event: Optional[dict[str, Any]] = None
+    final_fallback_event: Optional[dict[str, Any]] = None
 
-    async def on_message(message: Any, _is_last: bool) -> None:
-        nonlocal header_sent, final_event
-        if not isinstance(message, dict):
+    async def flush_snapshot() -> None:
+        nonlocal header_sent
+        if not pending_items:
             return
-        event = dict(message)
-        if str(event.get("type") or "").lower() in {
-            "text",
-            "error",
-            "permission_request",
-        }:
-            final_event = event
-        response = event_to_stream_response(
-            event,
+        snapshot = [item.strip() for item in pending_items if item and item.strip()]
+        pending_items.clear()
+        if not snapshot:
+            return
+        response = format_stream_snapshot_response(
+            snapshot,
             runner_name=runner_name,
             execution_cwd=execution_cwd,
             include_header=not header_sent,
@@ -187,6 +190,55 @@ async def _stream_action_responses(
             return
         header_sent = True
         await response_queue.put(response)
+
+    async def schedule_flush() -> None:
+        try:
+            await asyncio.sleep(flush_interval)
+            await flush_snapshot()
+        except asyncio.CancelledError:
+            raise
+
+    async def ensure_flush_task() -> None:
+        nonlocal flush_task
+        if flush_task is None or flush_task.done():
+            flush_task = asyncio.create_task(schedule_flush())
+
+    async def settle_flush_task() -> None:
+        nonlocal flush_task
+        current = flush_task
+        flush_task = None
+        if current is None:
+            return
+        if current.done():
+            try:
+                await current
+            except asyncio.CancelledError:
+                pass
+            return
+        current.cancel()
+        try:
+            await current
+        except asyncio.CancelledError:
+            pass
+
+    async def on_message(message: Any, _is_last: bool) -> None:
+        nonlocal final_text_event, final_fallback_event
+        if not isinstance(message, dict):
+            return
+        event = dict(message)
+        event_type = str(event.get("type") or "").lower()
+        text = render_event_text(event)
+        if text:
+            normalized = str(text).strip()
+            if normalized and normalized not in seen_stream_items:
+                seen_stream_items.add(normalized)
+                pending_items.append(text)
+                await ensure_flush_task()
+
+        if event_type == "text":
+            final_text_event = event
+        elif event_type == "error":
+            final_fallback_event = event
 
     run_task = asyncio.create_task(
         _run_action(
@@ -200,15 +252,25 @@ async def _stream_action_responses(
         ),
     )
 
-    while True:
-        if run_task.done() and response_queue.empty():
-            break
-        try:
-            yield await asyncio.wait_for(response_queue.get(), timeout=0.1)
-        except asyncio.TimeoutError:
-            continue
+    try:
+        while True:
+            if run_task.done():
+                await flush_snapshot()
+                await settle_flush_task()
+                if response_queue.empty():
+                    break
+            try:
+                yield await asyncio.wait_for(response_queue.get(), timeout=0.1)
+            except asyncio.TimeoutError:
+                continue
+    finally:
+        await settle_flush_task()
 
     run_result = await run_task
+    await flush_snapshot()
+    while not response_queue.empty():
+        yield await response_queue.get()
+
     suspended_permission = run_result.get("suspended_permission")
     if suspended_permission is not None:
         yield format_permission_suspended_response(
@@ -216,19 +278,20 @@ async def _stream_action_responses(
         )
         return
 
-    yield format_run_completion_response(
+    event = final_text_event or final_fallback_event or run_result.get("event")
+    yield format_final_assistant_response(
         runner_name=runner_name,
         execution_cwd=execution_cwd,
-        final_event=final_event,
+        final_event=event,
     )
 
 
 async def delegate_external_agent(
-    action: str = "",
-    runner: str = "",
+    action: str,
+    runner: str,
     message: str = "",
     cwd: str = "",
-) -> AsyncGenerator[ToolResponse, None]:
+) -> ToolResponse | AsyncGenerator[ToolResponse, None]:
     """
     Open, talk to, respond to permissions for, or close an ACP agent session.
 
@@ -273,62 +336,63 @@ async def delegate_external_agent(
             Streaming tool responses for external agent progress, permission
             requests, status, or errors.
     """
-    action_name = (action or "").strip().lower()
-    runner_name = (runner or "").strip()
-    message_text = (message or "").strip()
+
+    workspace_dir = _current_workspace_dir()
+    execution_cwd = _resolve_execution_cwd(cwd, workspace_dir)
+    action_name = str(action or "").strip().lower()
+    runner_name = str(runner or "").strip()
+    message_text = str(message or "")
 
     validation_error = _validate_action_inputs(
         action_name=action_name,
         runner_name=runner_name,
         message_text=message_text,
     )
-    if validation_error is not None:
-        yield response_text(validation_error, stream=True)
-        return
+    if validation_error:
+        return response_text(validation_error)
 
-    execution_cwd = _resolve_execution_cwd(cwd, _current_workspace_dir())
-
-    try:
-        service = _get_acp_service()
-        chat_id = _request_context_chat_id()
-
-        if action_name == "close":
-            existing = await _get_bound_session(
-                service,
-                chat_id=chat_id,
-                runner_name=runner_name,
-            )
-            if existing is not None:
-                await service.close_chat_session(
-                    chat_id=existing.chat_id,
-                    agent=existing.agent,
-                )
-            yield format_close_response(
+    if action_name == "close":
+        try:
+            chat_id = _request_context_chat_id()
+            service = _get_acp_service()
+            existing = await service.get_session(chat_id=chat_id, agent=runner_name)
+            await service.close_chat_session(chat_id=chat_id, agent=runner_name)
+            return format_close_response(
                 runner_name=runner_name,
                 closed=existing is not None,
             )
-            return
+        except ImportError as e:
+            return response_text(f"ACP mode not available: {e}.")
+        except ValueError as e:
+            return response_text(f"Error: {e}")
+        except Exception as e:
+            return response_text(f"ACP execution error: {e}")
 
-        async for response in _stream_action_responses(
-            service=service,
-            chat_id=chat_id,
-            action_name=action_name,
-            runner_name=runner_name,
-            message_text=message_text,
-            execution_cwd=execution_cwd,
-        ):
-            yield response
+    async def _runner() -> AsyncGenerator[ToolResponse, None]:
+        try:
+            service = _get_acp_service()
+            chat_id = _request_context_chat_id()
+            async for item in _stream_action_responses(
+                service=service,
+                chat_id=chat_id,
+                action_name=action_name,
+                runner_name=runner_name,
+                message_text=message_text,
+                execution_cwd=execution_cwd,
+            ):
+                yield item
+        except asyncio.CancelledError:
+            yield response_text(
+                "delegate_external_agent streaming interrupted.",
+                stream=True,
+                is_last=True,
+            )
+            raise
+        except ImportError as e:
+            yield response_text(f"ACP mode not available: {e}.", stream=True)
+        except ValueError as e:
+            yield response_text(f"Error: {e}", stream=True)
+        except Exception as e:
+            yield response_text(f"ACP execution error: {e}", stream=True)
 
-    except asyncio.CancelledError:
-        yield response_text(
-            "delegate_external_agent streaming interrupted.",
-            stream=True,
-            is_last=True,
-        )
-        raise
-    except ImportError as e:
-        yield response_text(f"ACP mode not available: {e}.", stream=True)
-    except ValueError as e:
-        yield response_text(f"Error: {e}", stream=True)
-    except Exception as e:
-        yield response_text(f"ACP execution error: {e}", stream=True)
+    return _runner()

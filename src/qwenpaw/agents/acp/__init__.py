@@ -12,7 +12,7 @@ from .core import (
     SuspendedPermission,
 )
 from .server import QwenPawACPAgent, run_qwenpaw_agent
-from .service import ACPService, get_acp_service, init_acp_service
+from .service import ACPService, close_acp_service, get_acp_service, init_acp_service
 
 __all__ = [
     "ACPAgentConfig",
@@ -24,6 +24,7 @@ __all__ = [
     "ACPTransportError",
     "ACPService",
     "QwenPawACPAgent",
+    "close_acp_service",
     "get_acp_service",
     "init_acp_service",
     "run_qwenpaw_agent",

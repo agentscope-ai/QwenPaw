@@ -834,6 +834,10 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Security configuration for this agent",
     )
+    acp: Optional[ACPConfig] = Field(
+        default=None,
+        description="ACP configuration for this agent",
+    )
 
 
 class AgentsConfig(BaseModel):
