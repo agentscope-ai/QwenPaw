@@ -77,7 +77,6 @@ class BuiltinSkillVariant:
     skill_md_path: Path
     description: str
     version_text: str
-    content_hash: str
 
 
 @dataclass(frozen=True)
@@ -121,12 +120,6 @@ _builtin_cache: dict[str, Any] = {}
 _BUILTIN_CACHE_LOCK = threading.Lock()
 
 
-def _builtin_settings_path() -> Path:
-    from ..constant import WORKING_DIR
-
-    return Path(WORKING_DIR) / "settings.json"
-
-
 def _normalize_builtin_skill_language(
     language: str | None,
     *,
@@ -149,7 +142,9 @@ def get_builtin_skill_language_preference() -> str:
         cached = _builtin_cache.get("language_preference")
         if cached is not None:
             return cached
-        settings_path = _builtin_settings_path()
+        from ..constant import WORKING_DIR
+
+        settings_path = Path(WORKING_DIR) / "settings.json"
         try:
             payload = json.loads(settings_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -177,25 +172,6 @@ def set_builtin_skill_language_preference(language: str) -> None:
         )
 
 
-def _compute_text_hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _skill_content_hash_for_path(skill_md_path: Path) -> str:
-    try:
-        return _compute_text_hash(
-            read_text_file_with_encoding_fallback(skill_md_path),
-        )
-    except OSError:
-        return ""
-
-
-def _read_frontmatter_from_path(skill_md_path: Path) -> Any:
-    return frontmatter.loads(
-        read_text_file_with_encoding_fallback(skill_md_path),
-    )
-
-
 def _read_frontmatter_safe_from_path(
     skill_md_path: Path,
     skill_name: str = "",
@@ -204,7 +180,9 @@ def _read_frontmatter_safe_from_path(
         skill_name = skill_md_path.parent.name
 
     try:
-        return _read_frontmatter_from_path(skill_md_path)
+        return frontmatter.loads(
+            read_text_file_with_encoding_fallback(skill_md_path),
+        )
     except Exception as e:
         logger.warning(
             "Failed to read SKILL frontmatter for '%s' at %s: %s. "
@@ -265,30 +243,6 @@ def _canonical_builtin_skill_name(
     return identity.name
 
 
-def _resolve_builtin_request_identity(
-    item: dict[str, Any],
-    registry: dict[str, dict[str, BuiltinSkillVariant]],
-    *,
-    preferred_language: str | None = None,
-) -> tuple[str, str]:
-    raw_name = str(
-        item.get("skill_name", "") or item.get("source_name", "") or "",
-    ).strip()
-    alias_identity = _parse_builtin_skill_identity(raw_name)
-    canonical_name = _canonical_builtin_skill_name(raw_name, registry)
-    requested_language = str(item.get("language", "") or "").strip().lower()
-    fallback_language = (
-        alias_identity.language
-        if alias_identity is not None
-        else (preferred_language or get_builtin_skill_language_preference())
-    )
-    language = _normalize_builtin_skill_language(
-        requested_language,
-        fallback=fallback_language,
-    )
-    return canonical_name, language
-
-
 def _iter_packaged_builtin_variants() -> Iterator[BuiltinSkillVariant]:
     builtin_dirs = list(_iter_packaged_builtin_dirs())
     explicit_variant_bases = {
@@ -326,7 +280,6 @@ def _iter_packaged_builtin_variants() -> Iterator[BuiltinSkillVariant]:
             skill_md_path=skill_md_path,
             description=str(post.get("description", "") or ""),
             version_text=_extract_version(post),
-            content_hash=_skill_content_hash_for_path(skill_md_path),
         )
 
 
@@ -482,7 +435,9 @@ def _read_frontmatter(skill_dir: Path) -> Any:
     Returns:
         Parsed frontmatter as dict-like object
     """
-    return _read_frontmatter_from_path(skill_dir / "SKILL.md")
+    return frontmatter.loads(
+        read_text_file_with_encoding_fallback(skill_dir / "SKILL.md"),
+    )
 
 
 def _read_frontmatter_safe(
@@ -1048,15 +1003,6 @@ def _build_import_conflict(
     }
 
 
-def _pool_skill_content_hash(skill_name: str, entry: dict[str, Any]) -> str:
-    content_hash = str(entry.get("content_hash", "") or "")
-    if content_hash:
-        return content_hash
-    return _skill_content_hash_for_path(
-        get_skill_pool_dir() / skill_name / "SKILL.md",
-    )
-
-
 def _resolve_pool_builtin_language(
     skill_name: str,
     entry: dict[str, Any],
@@ -1083,12 +1029,26 @@ def _resolve_pool_builtin_language(
     ):
         return source_identity.language
 
-    current_hash = _pool_skill_content_hash(canonical_name, entry)
-    if current_hash:
+    # Migration fallback: match pool SKILL.md content against packaged
+    # variants by SHA-256 hash. Only needed for pre-migration entries that
+    # lack builtin_language and builtin_source_name fields.
+    try:
+        pool_md = get_skill_pool_dir() / canonical_name / "SKILL.md"
+        pool_hash = hashlib.sha256(
+            read_text_file_with_encoding_fallback(pool_md).encode("utf-8"),
+        ).hexdigest()
+    except OSError:
+        pool_hash = ""
+    if pool_hash:
         matching = [
-            language
-            for language, variant in variants.items()
-            if variant.content_hash == current_hash
+            lang
+            for lang, v in variants.items()
+            if hashlib.sha256(
+                read_text_file_with_encoding_fallback(
+                    v.skill_md_path,
+                ).encode("utf-8"),
+            ).hexdigest()
+            == pool_hash
         ]
         if len(matching) == 1:
             return matching[0]
@@ -1100,7 +1060,6 @@ def _resolve_pool_builtin_language(
 
 
 def _build_builtin_language_spec(
-    skill_name: str,
     language: str,
     variant: BuiltinSkillVariant,
     variants: dict[str, BuiltinSkillVariant],
@@ -1139,16 +1098,6 @@ def _build_builtin_language_spec(
     }
 
 
-def _top_level_builtin_candidate_status(
-    language_specs: dict[str, dict[str, Any]],
-    selected_language: str,
-) -> str:
-    return str(
-        language_specs.get(selected_language, {}).get("status", "")
-        or "missing",
-    )
-
-
 def _build_builtin_import_candidate(
     skill_name: str,
     *,
@@ -1180,7 +1129,6 @@ def _build_builtin_import_candidate(
     preferred_lang = preferred_variant.language if preferred_variant else ""
     language_specs = {
         language: _build_builtin_language_spec(
-            canonical_name,
             language,
             variant,
             variants,
@@ -1202,9 +1150,9 @@ def _build_builtin_import_candidate(
         "current_language": current_language,
         "available_languages": sorted(variants.keys()),
         "languages": language_specs,
-        "status": _top_level_builtin_candidate_status(
-            language_specs,
-            preferred_lang,
+        "status": str(
+            language_specs.get(preferred_lang, {}).get("status", "")
+            or "missing",
         ),
     }
 
@@ -1232,99 +1180,59 @@ def list_builtin_import_candidates() -> list[dict[str, Any]]:
     return candidates
 
 
-def _default_builtin_import_requests(
-    registry: dict[str, dict[str, BuiltinSkillVariant]],
-    candidates: dict[str, dict[str, Any]],
-    *,
-    preferred_language: str | None = None,
-) -> list[dict[str, str]]:
-    pref = preferred_language or get_builtin_skill_language_preference()
-    requests: list[dict[str, str]] = []
-    for skill_name in sorted(candidates):
-        variant = _select_builtin_variant(
-            registry,
-            skill_name,
-            pref,
-            preferred_language=pref,
-        )
-        if variant is None:
-            continue
-        requests.append(
-            {
-                "skill_name": skill_name,
-                "language": variant.language,
-            },
-        )
-    return requests
-
-
 def _normalize_builtin_import_requests(
     selected_imports: list[dict[str, Any]],
     registry: dict[str, dict[str, BuiltinSkillVariant]],
     candidates: dict[str, dict[str, Any]],
     *,
-    preferred_language: str | None = None,
+    preferred_language: str = "en",
 ) -> tuple[list[tuple[str, str]], list[str], list[str]]:
-    normalized_imports: list[tuple[str, str]] = []
+    """Validate and normalize import requests to (name, language) tuples."""
+    normalized: list[tuple[str, str]] = []
     unknown: list[str] = []
     unsupported: list[str] = []
-
     for item in selected_imports:
-        skill_name, language = _resolve_builtin_request_identity(
-            item,
-            registry,
-            preferred_language=preferred_language,
+        raw_name = str(
+            item.get("skill_name", "") or item.get("source_name", "") or "",
+        ).strip()
+        alias_identity = _parse_builtin_skill_identity(raw_name)
+        sk_name = _canonical_builtin_skill_name(raw_name, registry)
+        requested_lang = str(item.get("language", "") or "").strip().lower()
+        fallback_lang = (
+            alias_identity.language
+            if alias_identity is not None
+            else preferred_language
         )
-        if skill_name not in candidates:
-            raw_name = str(item.get("skill_name", "") or "").strip()
-            unknown.append(raw_name or skill_name or "<empty>")
-            continue
-        if language not in (registry.get(skill_name) or {}):
-            unsupported.append(f"{skill_name}:{language}")
-            continue
-        normalized_imports.append((skill_name, language))
+        lang = _normalize_builtin_skill_language(
+            requested_lang,
+            fallback=fallback_lang,
+        )
+        if sk_name not in candidates:
+            unknown.append(raw_name or sk_name or "<empty>")
+        elif lang not in (registry.get(sk_name) or {}):
+            unsupported.append(f"{sk_name}:{lang}")
+        else:
+            normalized.append((sk_name, lang))
+    return normalized, unknown, unsupported
 
-    return normalized_imports, unknown, unsupported
 
-
-def _build_builtin_import_conflicts(
+def _collect_builtin_import_conflicts(
     normalized_imports: list[tuple[str, str]],
     candidates: dict[str, dict[str, Any]],
-) -> list[dict[str, str]]:
-    conflicts: list[dict[str, str]] = []
+) -> list[dict[str, Any]]:
+    """Return conflict descriptors for imports that need user confirmation."""
+    conflicts: list[dict[str, Any]] = []
     for skill_name, language in normalized_imports:
         candidate = candidates[skill_name]
-        current_source = str(candidate.get("current_source", "") or "")
-        current_language = str(candidate.get("current_language", "") or "")
-        language_spec = candidate.get("languages", {}).get(language, {}) or {}
-        status = str(language_spec.get("status", "") or "")
-        if not current_source:
+        cur_src = str(candidate.get("current_source", "") or "")
+        cur_lang = str(candidate.get("current_language", "") or "")
+        lang_spec = candidate.get("languages", {}).get(language, {}) or {}
+        status = str(lang_spec.get("status", "") or "")
+        if not cur_src:
             continue
-        if (
-            current_source == "builtin"
-            and current_language
-            and current_language != language
-        ):
-            conflicts.append(
-                {
-                    "skill_name": skill_name,
-                    "language": language,
-                    "status": "language_switch",
-                    "source_name": str(
-                        language_spec.get("source_name", "") or "",
-                    ),
-                    "source_version_text": str(
-                        language_spec.get("version_text", "") or "",
-                    ),
-                    "current_version_text": str(
-                        candidate.get("current_version_text", "") or "",
-                    ),
-                    "current_source": current_source,
-                    "current_language": current_language,
-                },
-            )
-            continue
-        if status not in {"conflict", "outdated"}:
+        if cur_src == "builtin" and cur_lang and cur_lang != language:
+            status = "language_switch"
+        elif status not in {"conflict", "outdated"}:
             continue
         conflicts.append(
             {
@@ -1332,44 +1240,19 @@ def _build_builtin_import_conflicts(
                 "language": language,
                 "status": status,
                 "source_name": str(
-                    language_spec.get("source_name", "") or "",
+                    lang_spec.get("source_name", "") or "",
                 ),
                 "source_version_text": str(
-                    language_spec.get("version_text", "") or "",
+                    lang_spec.get("version_text", "") or "",
                 ),
                 "current_version_text": str(
                     candidate.get("current_version_text", "") or "",
                 ),
-                "current_source": current_source,
-                "current_language": current_language,
+                "current_source": cur_src,
+                "current_language": cur_lang,
             },
         )
     return conflicts
-
-
-def _pool_builtin_matches_variant(
-    skill_name: str,
-    existing: dict[str, Any],
-    language: str,
-    variant: BuiltinSkillVariant,
-    registry: dict[str, dict[str, BuiltinSkillVariant]],
-    *,
-    preferred_language: str | None = None,
-) -> bool:
-    """Check if a pool entry already matches a specific builtin variant."""
-    current_source = str(existing.get("source", "") or "")
-    current_language = _resolve_pool_builtin_language(
-        skill_name,
-        existing,
-        registry,
-        preferred_language=preferred_language,
-    )
-    current_version_text = str(existing.get("version_text", "") or "")
-    return (
-        current_source == "builtin"
-        and current_language == language
-        and current_version_text == variant.version_text
-    )
 
 
 def import_builtin_skills(
@@ -1394,11 +1277,23 @@ def import_builtin_skills(
         )
         for skill_name in sorted(registry)
     }
-    selected_imports = imports or _default_builtin_import_requests(
-        registry,
-        candidates,
-        preferred_language=pref,
-    )
+    # Build default import requests when none provided.
+    if imports is None:
+        selected_imports: list[dict[str, Any]] = []
+        for skill_name in sorted(candidates):
+            variant = _select_builtin_variant(
+                registry,
+                skill_name,
+                pref,
+                preferred_language=pref,
+            )
+            if variant is not None:
+                selected_imports.append(
+                    {"skill_name": skill_name, "language": variant.language},
+                )
+    else:
+        selected_imports = imports
+
     (
         normalized_imports,
         unknown,
@@ -1409,7 +1304,6 @@ def import_builtin_skills(
         candidates,
         preferred_language=pref,
     )
-
     if unknown:
         raise SkillsError(
             message=f"Unknown builtin skill(s): {', '.join(sorted(unknown))}",
@@ -1422,7 +1316,7 @@ def import_builtin_skills(
             ),
         )
 
-    conflicts = _build_builtin_import_conflicts(
+    conflicts = _collect_builtin_import_conflicts(
         normalized_imports,
         candidates,
     )
@@ -1455,13 +1349,19 @@ def import_builtin_skills(
                     skill_md_source=variant.skill_md_path,
                 )
                 imported.append(skill_name)
-            elif _pool_builtin_matches_variant(
-                skill_name,
-                existing,
-                language,
-                variant,
-                registry,
-                preferred_language=pref,
+            elif (
+                existing.get("source") == "builtin"
+                and _resolve_pool_builtin_language(
+                    skill_name,
+                    existing,
+                    registry,
+                    preferred_language=pref,
+                )
+                == language
+                and str(
+                    existing.get("version_text", "") or "",
+                )
+                == variant.version_text
             ):
                 unchanged.append(skill_name)
             else:
@@ -2101,18 +2001,6 @@ def update_single_builtin(
         get_pool_skill_manifest_path(),
         _default_pool_manifest(),
         _update,
-    )
-
-
-def _builtin_versions_match(
-    *,
-    pool_version_text: str,
-    workspace_version_text: str,
-) -> bool:
-    return bool(
-        pool_version_text
-        and workspace_version_text
-        and pool_version_text == workspace_version_text,
     )
 
 
@@ -3411,7 +3299,6 @@ class SkillPoolService:
         entry: dict[str, Any],
         existing: dict[str, Any] | None,
         final_name: str,
-        workspace_dir: Path,
         workspace_identity: dict[str, str],
     ) -> dict[str, Any] | None:
         """Return a conflict dict if download should be blocked."""
@@ -3428,10 +3315,7 @@ class SkillPoolService:
                 "version_text",
                 "",
             )
-            if _builtin_versions_match(
-                pool_version_text=str(pool_ver or ""),
-                workspace_version_text=str(ws_ver or ""),
-            ):
+            if pool_ver and ws_ver and pool_ver == ws_ver:
                 return {
                     "success": True,
                     "mode": "unchanged",
@@ -3479,7 +3363,6 @@ class SkillPoolService:
                 entry,
                 existing,
                 final_name,
-                workspace_dir,
                 workspace_identity,
             )
             if conflict is not None:
@@ -3550,7 +3433,6 @@ class SkillPoolService:
                 entry,
                 existing,
                 final_name,
-                workspace_dir,
                 workspace_identity,
             )
             if conflict is not None:
