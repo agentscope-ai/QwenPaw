@@ -84,13 +84,13 @@ class SessionInferResponse(BaseModel):
 
 
 class SessionInferStructuredCandidate(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
-    intentCode: str = ""
-    executionMode: str = ""
-    confidence: float = 0.0
-    slots: dict[str, Any] = Field(default_factory=dict)
-    needClarify: bool = False
+    intentCode: str
+    executionMode: str
+    confidence: float
+    slots: dict[str, Any]
+    needClarify: bool
     clarifyQuestion: Optional[str] = None
     roleCode: Optional[str] = None
     sqlTemplateCode: Optional[str] = None
@@ -98,11 +98,9 @@ class SessionInferStructuredCandidate(BaseModel):
 
 
 class SessionInferStructuredOutput(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
-    candidatePlan: SessionInferStructuredCandidate = Field(
-        default_factory=SessionInferStructuredCandidate,
-    )
+    candidatePlan: SessionInferStructuredCandidate
     modelMeta: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -166,6 +164,21 @@ def _normalize_structured_metadata(raw: Any) -> Optional[dict[str, Any]]:
         if isinstance(dumped, dict):
             return dumped
     return None
+
+
+def _extract_intent_code_from_metadata(metadata: dict[str, Any]) -> str:
+    candidate_raw = metadata.get("candidatePlan")
+    if isinstance(candidate_raw, dict):
+        intent_code = str(candidate_raw.get("intentCode") or "").strip()
+        if intent_code:
+            return intent_code
+    return str(metadata.get("intentCode") or "").strip()
+
+
+def _metadata_is_usable(metadata: Optional[dict[str, Any]]) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    return bool(_extract_intent_code_from_metadata(metadata))
 
 
 async def _collect_model_output(
@@ -464,7 +477,20 @@ async def post_session_infer(
         collect_ms = int((time.monotonic() - collect_start) * 1000)
 
         parse_start = time.monotonic()
-        if response_metadata is not None:
+        metadata_keys: list[str] = (
+            sorted(response_metadata.keys())
+            if isinstance(response_metadata, dict)
+            else []
+        )
+        metadata_usable = _metadata_is_usable(response_metadata)
+        if response_metadata is not None and not metadata_usable:
+            logger.warning(
+                "session infer metadata incomplete, fallback to text parse trace_id=%s metadata_keys=%s",
+                trace_id,
+                metadata_keys,
+            )
+
+        if metadata_usable and response_metadata is not None:
             response_json = response_metadata
         else:
             response_json = _extract_first_json_object(response_text)
@@ -479,7 +505,7 @@ async def post_session_infer(
         )
         total_ms = int((time.monotonic() - stage_start) * 1000)
         logger.info(
-            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d total_ms=%d structured_enabled=%s metadata_hit=%s",
+            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d total_ms=%d structured_enabled=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s",
             trace_id,
             len(payload.intents),
             resolve_ms,
@@ -492,6 +518,8 @@ async def post_session_infer(
             total_ms,
             structured_enabled,
             response_metadata is not None,
+            metadata_usable,
+            metadata_keys,
         )
         return SessionInferResponse(
             code=0,
