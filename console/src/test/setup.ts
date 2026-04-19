@@ -1,8 +1,8 @@
-import '@testing-library/jest-dom'
-import { vi } from 'vitest'
+import "@testing-library/jest-dom";
+import { vi } from "vitest";
 
 // matchMedia (required by antd)
-Object.defineProperty(window, 'matchMedia', {
+Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({
     matches: false,
@@ -14,7 +14,7 @@ Object.defineProperty(window, 'matchMedia', {
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn(),
   })),
-})
+});
 
 // ResizeObserver (required by antd rc-resize-observer — must be a constructor, not arrow fn)
 global.ResizeObserver = vi.fn().mockImplementation(function () {
@@ -22,5 +22,5 @@ global.ResizeObserver = vi.fn().mockImplementation(function () {
     observe: vi.fn(),
     unobserve: vi.fn(),
     disconnect: vi.fn(),
-  }
-})
+  };
+});

@@ -9,10 +9,10 @@ const cssStubPlugin = {
   name: "css-stub",
   transform(_code: string, id: string) {
     if (id.includes("node_modules") && id.endsWith(".css")) {
-      return { code: "export default {}" }
+      return { code: "export default {}" };
     }
   },
-}
+};
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -60,10 +60,7 @@ export default defineConfig(({ mode }) => {
       alias: {
         // chat is aliased to a tiny stub to avoid OOM from the 2.3MB real package
         // Tests that need specific behavior override with vi.mock('@agentscope-ai/chat', factory)
-        "@agentscope-ai/chat": path.resolve(
-          __dirname,
-          "src/test/chat-mock.ts",
-        ),
+        "@agentscope-ai/chat": path.resolve(__dirname, "src/test/chat-mock.ts"),
         // design is aliased to a stub to avoid hanging from its 3MB lib
         "@agentscope-ai/design": path.resolve(
           __dirname,
