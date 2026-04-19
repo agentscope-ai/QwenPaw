@@ -703,11 +703,12 @@ class AgentsRunningConfig(BaseModel):
         description="Embedding model configuration",
     )
 
-    memory_manager_backend: Literal["remelight"] = Field(
+    memory_manager_backend: Literal["remelight", "agentmemory"] = Field(
         default="remelight",
         description=(
             "Memory manager backend type. "
-            "Currently only 'remelight' is supported."
+            "'remelight' uses ReMeLight for local memory. "
+            "'agentmemory' uses AgentMemory MCP server for advanced features."
         ),
     )
 
