@@ -8,7 +8,7 @@
     {
       "identifier": "shell:allow-execute",
       "allow": [
-        { "name": "qwenpaw-backend", "sidecar": true }
+        { "name": "binaries/qwenpaw-backend", "sidecar": true }
       ]
     }
   ]

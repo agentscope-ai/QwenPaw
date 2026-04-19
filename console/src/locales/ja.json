@@ -2143,5 +2143,14 @@
     "detailPayload": "追加情報",
     "detailExecutionTrace": "実行トレース",
     "detailTraceEmpty": "実行トレースはありません"
+  },
+  "startup": {
+    "starting": "バックエンドを起動中...",
+    "checking": "バックエンドに接続中...",
+    "elapsed": "経過時間: {{seconds}}秒",
+    "timeout": "{{seconds}} 秒以内にバックエンドの起動に失敗しました。",
+    "timeoutHint": "アプリケーションに実行権限があることを確認して、再試行してください。",
+    "error": "バックエンド接続に失敗しました。",
+    "retry": "再試行"
   }
 }
