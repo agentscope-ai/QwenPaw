@@ -15,8 +15,8 @@
     "preview:prod": "vite preview --mode production",
     "preview:test": "vite preview --mode test",
     "test": "vitest",
-    "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:run": "NODE_OPTIONS=--max-old-space-size=4096 vitest run",
+    "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage"
   },
   "dependencies": {
     "@agentscope-ai/chat": "^1.1.62",

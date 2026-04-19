@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/common_setup'
-import ChatHeaderTitle from '../index'
+import ChatHeaderTitle from './index'
 
 const { mockUseChatAnywhereSessionsState } = vi.hoisted(() => ({
   mockUseChatAnywhereSessionsState: vi.fn(),

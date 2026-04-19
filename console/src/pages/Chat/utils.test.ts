@@ -6,8 +6,8 @@ import {
   toStoredName,
   normalizeContentUrls,
   toDisplayUrl,
-} from '../utils'
-import type { CopyableResponse } from '../utils'
+} from './utils'
+import type { CopyableResponse } from './utils'
 
 // toDisplayUrl depends on chatApi.filePreviewUrl, needs to be mocked
 vi.mock('@/api/modules/chat', () => ({

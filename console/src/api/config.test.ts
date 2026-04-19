@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { getApiUrl, getApiToken, setAuthToken, clearAuthToken } from '../config'
+import { getApiUrl, getApiToken, setAuthToken, clearAuthToken } from './config'
 
 // VITE_API_BASE_URL / TOKEN are declared globals in config.ts — set via globalThis
 const setViteBase = (v: string) => { (globalThis as any).VITE_API_BASE_URL = v }
@@ -33,7 +33,7 @@ describe('getApiToken', () => {
   })
 
   it('returns token from localStorage when present', () => {
-    localStorage.setItem('copaw_auth_token', 'stored-token')
+    localStorage.setItem('qwenpaw_auth_token', 'stored-token')
     expect(getApiToken()).toBe('stored-token')
   })
 
@@ -52,13 +52,13 @@ describe('setAuthToken / clearAuthToken', () => {
 
   it('setAuthToken writes to localStorage', () => {
     setAuthToken('my-token')
-    expect(localStorage.getItem('copaw_auth_token')).toBe('my-token')
+    expect(localStorage.getItem('qwenpaw_auth_token')).toBe('my-token')
   })
 
   it('clearAuthToken removes token from localStorage', () => {
-    localStorage.setItem('copaw_auth_token', 'my-token')
+    localStorage.setItem('qwenpaw_auth_token', 'my-token')
     clearAuthToken()
-    expect(localStorage.getItem('copaw_auth_token')).toBeNull()
+    expect(localStorage.getItem('qwenpaw_auth_token')).toBeNull()
   })
 
   it('getApiToken returns empty string after clearAuthToken', () => {

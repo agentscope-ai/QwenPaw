@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/common_setup'
-import ConsoleCronBubble from '../index'
+import ConsoleCronBubble from './index'
 
 const { mockGetPushMessages } = vi.hoisted(() => ({
   mockGetPushMessages: vi.fn(),

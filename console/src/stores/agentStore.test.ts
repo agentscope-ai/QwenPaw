@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useAgentStore } from '../agentStore'
+import { useAgentStore } from './agentStore'
 import type { AgentSummary } from '@/api/types/agents'
 
 const mockAgent = (id: string): AgentSummary =>
