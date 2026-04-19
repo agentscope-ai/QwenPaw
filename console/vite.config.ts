@@ -2,6 +2,8 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+const host = process.env.TAURI_DEV_HOST;
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
@@ -31,9 +33,24 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
+    // 1. prevent Vite from obscuring rust errors
+    clearScreen: false,
+    // 2. tauri expects a fixed port, fail if that port is not available
     server: {
-      host: "0.0.0.0",
-      port: 5173,
+      port: 1420,
+      strictPort: true,
+      host: host || false,
+      hmr: host
+        ? {
+            protocol: "ws",
+            host,
+            port: 1421,
+          }
+        : undefined,
+      watch: {
+        // 3. tell Vite to ignore watching `src-tauri`
+        ignored: ["**/src-tauri/**"],
+      },
     },
     optimizeDeps: {
       include: ["diff"],
@@ -103,6 +120,14 @@ export default defineConfig(({ mode }) => {
           },
         },
       },
+      // Tauri uses Chromium on Windows and WebKit on macOS and Linux
+      target:
+        process.env.TAURI_ENV_PLATFORM === 'windows'
+          ? 'chrome105'
+          : 'safari15',
+      // don't minify for debug builds
+      minify: mode === "production" ? 'esbuild' : false,
+
     },
   };
 });

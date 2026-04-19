@@ -11,6 +11,7 @@ Each Workspace represents a standalone agent workspace with its own:
 All existing single-agent components are reused without modification.
 """
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 from agentscope_runtime.engine.schemas.exception import ConfigurationException
@@ -169,28 +170,29 @@ class Workspace:
         )
 
         # Priority 20: Core services (concurrent)
-        sm.register(
-            ServiceDescriptor(
-                name="memory_manager",
-                service_class=lambda ws: _resolve_memory_class(
-                    ws._config.running.memory_manager_backend,
+        if not os.environ.get("QWENPAW_DISABLE_MEMORY_MANAGER"):
+            sm.register(
+                ServiceDescriptor(
+                    name="memory_manager",
+                    service_class=lambda ws: _resolve_memory_class(
+                        ws._config.running.memory_manager_backend,
+                    ),
+                    init_args=lambda ws: {
+                        "working_dir": str(ws.workspace_dir),
+                        "agent_id": ws.agent_id,
+                    },
+                    post_init=lambda ws, mm: setattr(
+                        ws._service_manager.services["runner"],
+                        "memory_manager",
+                        mm,
+                    ),
+                    start_method="start",
+                    stop_method="close",
+                    reusable=True,
+                    priority=20,
+                    concurrent_init=True,
                 ),
-                init_args=lambda ws: {
-                    "working_dir": str(ws.workspace_dir),
-                    "agent_id": ws.agent_id,
-                },
-                post_init=lambda ws, mm: setattr(
-                    ws._service_manager.services["runner"],
-                    "memory_manager",
-                    mm,
-                ),
-                start_method="start",
-                stop_method="close",
-                reusable=True,
-                priority=20,
-                concurrent_init=True,
-            ),
-        )
+            )
 
         sm.register(
             ServiceDescriptor(
