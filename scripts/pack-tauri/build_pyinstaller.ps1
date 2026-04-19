@@ -11,7 +11,7 @@
 param()
 
 $ErrorActionPreference = "Stop"
-$REPO_ROOT = Split-Path -Parent $Split-Path -Parent $PSScriptRoot
+$REPO_ROOT = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $REPO_ROOT
 
 $DIST = if ($env:DIST) { $env:DIST } else { "dist" }
