@@ -5,6 +5,7 @@ Uses the ACP protocol.
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
@@ -20,6 +21,8 @@ from ..acp.tool_adapter import (
     render_event_text,
     response_text,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _current_workspace_dir() -> Path:
@@ -49,6 +52,28 @@ def _get_acp_service() -> Any:
     if service is None or getattr(service, "config", None) != acp_config:
         service = init_acp_service(agent_id, acp_config)
     return service
+
+
+def _get_available_acp_runners() -> list[str]:
+    from ...app.agent_context import get_current_agent_id
+    from ...config.config import load_agent_config
+    from ..acp.core import ACPConfig
+
+    agent_id = get_current_agent_id()
+    agent_config = load_agent_config(agent_id)
+    acp_config = agent_config.acp or ACPConfig()
+    return sorted(
+        name
+        for name, runner_cfg in acp_config.agents.items()
+        if getattr(runner_cfg, "enabled", False)
+    )
+
+
+def _format_available_runners_text() -> str:
+    runners = _get_available_acp_runners()
+    if not runners:
+        return "No enabled ACP runners are currently configured."
+    return "Available ACP runners: " + ", ".join(runners) + "."
 
 
 def _request_context_chat_id() -> str:
@@ -93,6 +118,56 @@ async def _get_bound_session(
     runner_name: str,
 ) -> Optional[Any]:
     return await service.get_session(chat_id=chat_id, agent=runner_name)
+
+
+async def _validate_start_request(
+    *,
+    service: Any,
+    chat_id: str,
+    runner_name: str,
+) -> Optional[str]:
+    available_runners = _get_available_acp_runners()
+    if runner_name not in available_runners:
+        return (
+            f"Error: runner '{runner_name}' is not available for ACP start. "
+            + _format_available_runners_text()
+        )
+
+    existing = await _get_bound_session(
+        service,
+        chat_id=chat_id,
+        runner_name=runner_name,
+    )
+    if existing is None:
+        return None
+    if getattr(existing.process, "returncode", None) is not None:
+        await service.close_chat_session(chat_id=chat_id, agent=runner_name)
+        return None
+
+    return (
+        f"Error: an ACP session for runner '{runner_name}' is already open in "
+        "the current chat. Use "
+        f"delegate_external_agent(action=\"message\", runner=\"{runner_name}\", "
+        "message=\"continue\") instead."
+    )
+
+
+async def _cancel_running_acp_turn(
+    *,
+    service: Any,
+    chat_id: str,
+    runner_name: str,
+) -> bool:
+    try:
+        return await service.cancel_turn(chat_id=chat_id, agent=runner_name)
+    except Exception:
+        logger.warning(
+            "Failed to cancel ACP turn for runner '%s' in chat '%s'",
+            runner_name,
+            chat_id,
+            exc_info=True,
+        )
+        return False
 
 
 async def _run_action(
@@ -162,6 +237,7 @@ async def _stream_action_responses(
     runner_name: str,
     message_text: str,
     execution_cwd: Path,
+    max_runtime: Optional[float] = None,
 ) -> AsyncGenerator[ToolResponse, None]:
     response_queue: asyncio.Queue[ToolResponse] = asyncio.Queue()
     flush_interval = 1.0
@@ -251,6 +327,12 @@ async def _stream_action_responses(
             on_message=on_message,
         ),
     )
+    loop = asyncio.get_running_loop()
+    deadline = (
+        loop.time() + max_runtime
+        if max_runtime is not None and max_runtime > 0
+        else None
+    )
 
     try:
         while True:
@@ -259,10 +341,67 @@ async def _stream_action_responses(
                 await settle_flush_task()
                 if response_queue.empty():
                     break
+            if deadline is not None and not run_task.done():
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    await flush_snapshot()
+                    await settle_flush_task()
+                    while not response_queue.empty():
+                        yield await response_queue.get()
+                    await _cancel_running_acp_turn(
+                        service=service,
+                        chat_id=chat_id,
+                        runner_name=runner_name,
+                    )
+                    run_task.cancel()
+                    try:
+                        await run_task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.warning(
+                            "ACP run_task ended with error after timeout cancellation",
+                            exc_info=True,
+                        )
+                    yield response_text(
+                        (
+                            f"ACP conversation with runner '{runner_name}' "
+                            "reached the preset max runtime and was "
+                            "interrupted. The ACP session is still open; "
+                            "continue with "
+                            f'delegate_external_agent(action="message", '
+                            f'runner="{runner_name}", '
+                            'message="continue") with higher max_runtime.'
+                        ),
+                        stream=True,
+                        is_last=True,
+                    )
+                    return
             try:
-                yield await asyncio.wait_for(response_queue.get(), timeout=0.1)
+                timeout = 0.1
+                if deadline is not None and not run_task.done():
+                    timeout = max(0.0, min(timeout, deadline - loop.time()))
+                yield await asyncio.wait_for(response_queue.get(), timeout=timeout)
             except asyncio.TimeoutError:
                 continue
+    except asyncio.CancelledError:
+        if not run_task.done():
+            await _cancel_running_acp_turn(
+                service=service,
+                chat_id=chat_id,
+                runner_name=runner_name,
+            )
+            run_task.cancel()
+            try:
+                await run_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.warning(
+                    "ACP run_task ended with error after cancellation",
+                    exc_info=True,
+                )
+        raise
     finally:
         await settle_flush_task()
 
@@ -291,6 +430,7 @@ async def delegate_external_agent(
     runner: str,
     message: str = "",
     cwd: str = "",
+    max_runtime: Optional[float] = None,
 ) -> ToolResponse | AsyncGenerator[ToolResponse, None]:
     """
     Open, talk to, respond to permissions for, or close an ACP agent session.
@@ -330,6 +470,12 @@ async def delegate_external_agent(
             is empty, a default `hi` is sent.
         cwd (`str`):
             Working directory for the agent. Defaults to the current workspace.
+        max_runtime (`float | None`):
+            Optional max runtime in seconds for a single ACP turn. `None`
+            means no timeout is applied. When the limit is reached, the tool
+            sends ACP cancel for the current turn but keeps the ACP session
+            open, so you can continue later with
+            `delegate_external_agent(action="message", runner=..., message="continue")`.
 
     Returns:
         `AsyncGenerator[ToolResponse, None]`:
@@ -342,6 +488,10 @@ async def delegate_external_agent(
     action_name = str(action or "").strip().lower()
     runner_name = str(runner or "").strip()
     message_text = str(message or "")
+    try:
+        timeout_seconds = None if max_runtime is None else float(max_runtime)
+    except (TypeError, ValueError):
+        return response_text("Error: max_runtime must be a number in seconds.")
 
     validation_error = _validate_action_inputs(
         action_name=action_name,
@@ -350,6 +500,8 @@ async def delegate_external_agent(
     )
     if validation_error:
         return response_text(validation_error)
+    if timeout_seconds is not None and timeout_seconds <= 0:
+        return response_text("Error: max_runtime must be greater than 0.")
 
     if action_name == "close":
         try:
@@ -369,9 +521,20 @@ async def delegate_external_agent(
             return response_text(f"ACP execution error: {e}")
 
     async def _runner() -> AsyncGenerator[ToolResponse, None]:
+        service = None
+        chat_id = ""
         try:
             service = _get_acp_service()
             chat_id = _request_context_chat_id()
+            if action_name == "start":
+                start_error = await _validate_start_request(
+                    service=service,
+                    chat_id=chat_id,
+                    runner_name=runner_name,
+                )
+                if start_error:
+                    yield response_text(start_error, stream=True)
+                    return
             async for item in _stream_action_responses(
                 service=service,
                 chat_id=chat_id,
@@ -379,11 +542,28 @@ async def delegate_external_agent(
                 runner_name=runner_name,
                 message_text=message_text,
                 execution_cwd=execution_cwd,
+                max_runtime=timeout_seconds,
             ):
                 yield item
         except asyncio.CancelledError:
+            if (
+                service is not None
+                and chat_id
+                and action_name in {"start", "message", "respond"}
+            ):
+                await _cancel_running_acp_turn(
+                    service=service,
+                    chat_id=chat_id,
+                    runner_name=runner_name,
+                )
             yield response_text(
-                "delegate_external_agent streaming interrupted.",
+                (
+                    f"ACP conversation with runner '{runner_name}' was "
+                    "interrupted by the user. The ACP session is still open; "
+                    "continue with "
+                    f'delegate_external_agent(action="message", '
+                    f'runner="{runner_name}", message="continue").'
+                ),
                 stream=True,
                 is_last=True,
             )
