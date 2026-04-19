@@ -3,6 +3,7 @@
 
 Provides RESTful API for managing multiple agent instances.
 """
+
 import json
 import logging
 from pathlib import Path
@@ -45,6 +46,7 @@ class AgentSummary(BaseModel):
     description: str
     workspace_dir: str
     enabled: bool
+    active_model: dict | None = None
 
 
 class AgentListResponse(BaseModel):
@@ -192,6 +194,10 @@ async def list_agents() -> AgentListResponse:
                 else:
                     description = profile_desc
 
+            active_model = None
+            if agent_config.active_model:
+                active_model = agent_config.active_model.model_dump()
+
             agents.append(
                 AgentSummary(
                     id=agent_id,
@@ -199,6 +205,7 @@ async def list_agents() -> AgentListResponse:
                     description=description,
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=getattr(agent_ref, "enabled", True),
+                    active_model=active_model,
                 ),
             )
         except Exception:  # noqa: E722
@@ -336,9 +343,7 @@ async def create_agent(
 
     _initialize_agent_workspace(
         workspace_dir,
-        skill_names=(
-            request.skill_names if request.skill_names is not None else []
-        ),
+        skill_names=(request.skill_names if request.skill_names is not None else []),
     )
 
     agent_ref = AgentProfileRef(

@@ -317,7 +317,12 @@
     "selectBuiltin": "Builtin",
     "selectNone": "None",
     "noPoolSkills": "No skills available in pool",
-    "addSkillsToAgent": "Add Skills"
+    "addSkillsToAgent": "Add Skills",
+    "model": "Model",
+    "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
+    "modelPlaceholder": "Use global default",
+    "noConfiguredModels": "No configured models",
+    "modelColumn": "Model"
   },
   "skills": {
     "title": "Skills",

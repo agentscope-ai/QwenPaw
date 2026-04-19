@@ -19,6 +19,7 @@ import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
+import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 
 interface AgentTableProps {
@@ -117,6 +118,33 @@ export function AgentTable({
       dataIndex: "workspace_dir",
       key: "workspace_dir",
       ellipsis: true,
+    },
+    {
+      title: t("agent.modelColumn"),
+      key: "active_model",
+      width: 260,
+      ellipsis: true,
+      render: (_: any, record: AgentSummary) => {
+        if (!record.active_model) {
+          return (
+            <span style={{ opacity: 0.45 }}>
+              {t("agent.modelPlaceholder")}
+            </span>
+          );
+        }
+        return (
+          <Space size={6}>
+            <img
+              src={providerIcon(record.active_model.provider_id)}
+              alt=""
+              style={{ width: 16, height: 16 }}
+            />
+            <Tooltip title={record.active_model.model}>
+              <span>{record.active_model.model}</span>
+            </Tooltip>
+          </Space>
+        );
+      },
     },
     {
       title: t("common.actions"),
