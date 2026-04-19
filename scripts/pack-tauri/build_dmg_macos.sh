@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Create a compressed DMG from the built .app bundle.
-# Usage: bash scripts/pack/build_dmg_macos.sh
+# Usage: bash scripts/pack-tauri/build_dmg_macos.sh
 # Requires: hdiutil (built-in macOS tool, no extra install needed)
-# Run from repo root after build_macos.sh has completed.
+# Run from repo root after build_macos_pyinstaller.sh has completed.
 
 set -e
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -31,7 +31,7 @@ STAGING="$(mktemp -d)/dmg-staging"
 
 # --- Pre-flight checks ---
 if [[ ! -d "${APP_DIR}" ]]; then
-  echo "Error: ${APP_DIR} not found. Run build_macos.sh first."
+  echo "Error: ${APP_DIR} not found. Run build_macos_pyinstaller.sh first."
   exit 1
 fi
 
