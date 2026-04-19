@@ -127,9 +127,7 @@ export function AgentTable({
       render: (_: any, record: AgentSummary) => {
         if (!record.active_model) {
           return (
-            <span style={{ opacity: 0.45 }}>
-              {t("agent.modelPlaceholder")}
-            </span>
+            <span style={{ opacity: 0.45 }}>{t("agent.modelPlaceholder")}</span>
           );
         }
         return (

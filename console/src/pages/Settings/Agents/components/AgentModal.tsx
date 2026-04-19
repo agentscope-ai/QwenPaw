@@ -222,10 +222,7 @@ export function AgentModal({
             rows={3}
           />
         </Form.Item>
-        <Form.Item
-          label={t("agent.model")}
-          help={t("agent.modelHelp")}
-        >
+        <Form.Item label={t("agent.model")} help={t("agent.modelHelp")}>
           <Space.Compact style={{ width: "100%" }}>
             <Select
               value={selectedProviderId || undefined}
