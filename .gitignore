@@ -114,3 +114,4 @@ src/.hypothesis/
 
 *.lock
 .gitnexus
+console/src-tauri/binaries

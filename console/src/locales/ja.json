@@ -1401,5 +1401,14 @@
     "transcriptionInfoTitle": "文字起こしの仕組み",
     "transcriptionInfoDesc": "Whisper API 文字起こしは OpenAI 互換の /v1/audio/transcriptions エンドポイントを使用します。Whisper 対応エンドポイントを持つプロバイダー（例: OpenAI）の設定が必要です。上記で具体的なプロバイダーを選択して文字起こしを有効にしてください。",
     "transcriptionInfoDescLocal": "ローカル Whisper 文字起こしは、お使いのマシン上で直接 openai-whisper ライブラリを実行します。ffmpeg（音声デコード用）と openai-whisper Python パッケージの両方のインストールが必要です。API キーやネットワーク接続は不要です。インストール：uv pip install 'qwenpaw[whisper]'。"
+  },
+  "startup": {
+    "starting": "バックエンドを起動中...",
+    "checking": "バックエンドに接続中...",
+    "elapsed": "経過時間: {{seconds}}秒",
+    "timeout": "{{seconds}} 秒以内にバックエンドの起動に失敗しました。",
+    "timeoutHint": "アプリケーションに実行権限があることを確認して、再試行してください。",
+    "error": "バックエンド接続に失敗しました。",
+    "retry": "再試行"
   }
 }

@@ -22,6 +22,7 @@ import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
+import BackendReadyGate from "./components/BackendReadyGate";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -187,7 +188,9 @@ function AppInner() {
 function App() {
   return (
     <ThemeProvider>
-      <AppInner />
+      <BackendReadyGate>
+        <AppInner />
+      </BackendReadyGate>
     </ThemeProvider>
   );
 }

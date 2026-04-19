@@ -1455,5 +1455,14 @@
     "transcriptionInfoTitle": "转写工作原理",
     "transcriptionInfoDesc": "Whisper API 转写使用 OpenAI 兼容的 /v1/audio/transcriptions 端点。需要配置一个支持 Whisper 端点的提供商（如 OpenAI）。请在上方选择具体的提供商以启用转写。",
     "transcriptionInfoDescLocal": "本地 Whisper 转写直接在您的设备上运行 openai-whisper 库。需要同时安装 ffmpeg（用于音频解码）和 openai-whisper Python 包。无需 API Key 或网络连接。安装命令：uv pip install 'qwenpaw[whisper]'。"
+  },
+  "startup": {
+    "starting": "正在启动后端服务...",
+    "checking": "正在连接后端...",
+    "elapsed": "已用时: {{seconds}}秒",
+    "timeout": "后端服务在 {{seconds}} 秒内未能启动。",
+    "timeoutHint": "请检查应用是否有运行权限，然后重试。",
+    "error": "后端连接失败。",
+    "retry": "重试"
   }
 }

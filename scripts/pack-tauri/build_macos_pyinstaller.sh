@@ -94,7 +94,9 @@ fi
 echo "Found app: ${BUILT_APP}"
 
 mkdir -p "${DIST}/tauri-macos"
+rm -rf "${DIST}/tauri-macos/QwenPaw.app"
 cp -R "${BUILT_APP}" "${DIST}/tauri-macos/QwenPaw.app"
+codesign --force --deep --sign - "${DIST}/tauri-macos/QwenPaw.app" 2>/dev/null || true
 
 ZIP_NAME="${DIST}/QwenPaw-Tauri-${VERSION}-macOS.zip"
 if [ -f "${ZIP_NAME}" ]; then

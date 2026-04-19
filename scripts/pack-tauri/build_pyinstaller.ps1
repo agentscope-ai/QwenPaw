@@ -102,12 +102,14 @@ $bundleSize = (Get-Item $BACKEND_EXE).Length / 1MB
 Write-Host "Bundle size: $([math]::Round($bundleSize, 2)) MB"
 Write-Host ""
 
-# Copy to Tauri binaries directory
+# Copy to Tauri binaries directory with target triple suffix
 Write-Host "== Copying to Tauri binaries directory ==" -ForegroundColor Yellow
 $BINARIES_DIR = Join-Path $REPO_ROOT "console\src-tauri\binaries"
 New-Item -ItemType Directory -Force -Path $BINARIES_DIR | Out-Null
 
-$DEST = Join-Path $BINARIES_DIR "qwenpaw-backend.exe"
+$TARGET_TRIPLE = & rustc --print host-tuple 2>$null
+if (-not $TARGET_TRIPLE) { $TARGET_TRIPLE = "unknown" }
+$DEST = Join-Path $BINARIES_DIR "qwenpaw-backend-${TARGET_TRIPLE}.exe"
 Copy-Item -Force $BACKEND_EXE $DEST
 Write-Host "Copied to: $DEST" -ForegroundColor Green
 Write-Host ""

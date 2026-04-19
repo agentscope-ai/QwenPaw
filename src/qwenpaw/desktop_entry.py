@@ -7,7 +7,7 @@ os.environ.setdefault("COPAW_DESKTOP_APP", "1")
 os.environ.setdefault("QWENPAW_DISABLE_MEMORY_MANAGER", "1")
 os.environ.setdefault(
     "QWENPAW_CORS_ORIGINS",
-    "tauri://localhost,https://tauri.localhost",
+    "tauri://localhost,https://tauri.localhost,http://tauri.localhost,http://localhost:1420",
 )
 
 
