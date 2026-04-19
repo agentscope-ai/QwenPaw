@@ -170,7 +170,12 @@
     "selectBuiltin": "内置",
     "selectNone": "清空",
     "noPoolSkills": "技能池中暂无可用技能",
-    "addSkillsToAgent": "添加技能"
+    "addSkillsToAgent": "添加技能",
+    "model": "模型",
+    "modelHelp": "为此智能体指定特定的 LLM 模型。留空则使用全局默认模型。",
+    "modelPlaceholder": "使用全局默认",
+    "noConfiguredModels": "暂无已配置的模型",
+    "modelColumn": "模型"
   },
   "skills": {
     "title": "技能",

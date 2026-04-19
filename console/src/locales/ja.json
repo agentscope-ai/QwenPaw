@@ -137,7 +137,19 @@
     "currentAgentDeleted": "現在のエージェントが削除されました。デフォルトエージェントに自動切り替えしました",
     "currentAgentDisabled": "現在のエージェントが無効化されました。デフォルトエージェントに自動切り替えしました",
     "switchedToDefault": "デフォルトエージェントに自動切り替えしました",
-    "cannotSwitchToDisabled": "このエージェントは無効化されています。管理ページで有効化してください"
+    "cannotSwitchToDisabled": "このエージェントは無効化されています。管理ページで有効化してください",
+    "model": "モデル",
+    "modelHelp": "このエージェントに特定の LLM モデルを割り当てます。空欄の場合はグローバルデフォルトが使用されます。",
+    "modelPlaceholder": "グローバルデフォルト",
+    "noConfiguredModels": "設定済みのモデルがありません",
+    "modelColumn": "モデル",
+    "initialSkills": "初期スキル",
+    "initialSkillsHelp": "プールから追加するスキルを選択してください。後で追加・削除できます。",
+    "selectAll": "全選択",
+    "selectBuiltin": "組み込み",
+    "selectNone": "クリア",
+    "noPoolSkills": "プールに利用可能なスキルがありません",
+    "addSkillsToAgent": "スキルを追加"
   },
   "workspace": {
     "title": "ファイル",

@@ -31,6 +31,8 @@ export default function AgentsPage() {
     form.resetFields();
     form.setFieldsValue({
       workspace_dir: "",
+      active_model_provider: undefined,
+      active_model_model: undefined,
     });
     setSelectedSkills([]);
     installedSkillsRef.current = [];
@@ -44,7 +46,11 @@ export default function AgentsPage() {
       invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
-      form.setFieldsValue(config);
+      form.setFieldsValue({
+        ...config,
+        active_model_provider: config.active_model?.provider_id || undefined,
+        active_model_model: config.active_model?.model || undefined,
+      });
       setModalVisible(true);
     } catch (error) {
       console.error("Failed to load agent config:", error);
@@ -91,7 +97,16 @@ export default function AgentsPage() {
         typeof workspaceRaw === "string"
           ? workspaceRaw.trim() || undefined
           : workspaceRaw;
-      const payload = { ...values, workspace_dir };
+
+      const providerId = values.active_model_provider;
+      const modelId = values.active_model_model;
+      const active_model =
+        providerId && modelId
+          ? { provider_id: providerId, model: modelId }
+          : null;
+
+      const { active_model_provider, active_model_model, ...rest } = values;
+      const payload = { ...rest, workspace_dir, active_model };
 
       if (editingAgent) {
         const previousInstalledSkills = installedSkillsRef.current;
@@ -119,6 +134,13 @@ export default function AgentsPage() {
           ...payload,
           skill_names: selectedSkills,
         });
+        if (active_model) {
+          await agentsApi.updateAgent(result.id, {
+            id: result.id,
+            name: values.name,
+            active_model,
+          } as any);
+        }
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 
