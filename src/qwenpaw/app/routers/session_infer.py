@@ -22,6 +22,10 @@ from ..agent_context import get_agent_for_request
 logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "qwenpaw-session-infer-v2"
+SESSION_INFER_TOTAL_BUDGET_MS = 18000
+SESSION_INFER_COLLECT_BUDGET_MS = 8000
+SESSION_INFER_REPAIR_COLLECT_BUDGET_MS = 3000
+SESSION_INFER_REPAIR_START_DEADLINE_MS = 12000
 
 router = APIRouter(prefix="/qwenpaw", tags=["qwenpaw"])
 
@@ -215,12 +219,23 @@ def _extract_candidate_from_tool_content(content: Any) -> Optional[dict[str, Any
 
 async def _collect_model_output(
     response: Any,
+    max_duration_ms: Optional[int] = None,
 ) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, Any]]]:
     if hasattr(response, "__aiter__"):
         accumulated = ""
         metadata: Optional[dict[str, Any]] = None
         tool_candidate: Optional[dict[str, Any]] = None
+        collect_started = time.monotonic()
         async for chunk in response:  # type: ignore[union-attr]
+            if max_duration_ms is not None:
+                elapsed_ms = int((time.monotonic() - collect_started) * 1000)
+                if elapsed_ms >= max_duration_ms:
+                    logger.warning(
+                        "session infer collect exceeded budget, cut stream elapsed_ms=%d budget_ms=%d",
+                        elapsed_ms,
+                        max_duration_ms,
+                    )
+                    break
             text = _extract_text_from_chunk(chunk)
             if text:
                 # Some providers emit cumulative text on each chunk.
@@ -647,6 +662,7 @@ async def post_session_infer(
         collect_start = time.monotonic()
         response_text, response_metadata, response_tool_candidate = await _collect_model_output(
             response,
+            max_duration_ms=SESSION_INFER_COLLECT_BUDGET_MS,
         )
         collect_ms = int((time.monotonic() - collect_start) * 1000)
 
@@ -695,74 +711,97 @@ async def post_session_infer(
                 str(candidate_exc),
                 preferred_intent_code,
             )
-            repair_retry_used = True
-            repair_start = time.monotonic()
-            repair_response_json: dict[str, Any] = {}
-            try:
-                repair_messages = _build_repair_messages(
-                    payload=payload,
-                    failed_output=response_json,
-                    failure_reason=str(candidate_exc),
-                )
-                repair_response = await model(
-                    repair_messages,
-                    structured_model=SessionInferStructuredOutput,
-                )
-            except Exception:
+            elapsed_before_repair_ms = int((time.monotonic() - stage_start) * 1000)
+            if elapsed_before_repair_ms >= SESSION_INFER_REPAIR_START_DEADLINE_MS:
                 logger.warning(
-                    "session infer candidate repair structured call failed, fallback to plain call trace_id=%s",
+                    "session infer skip repair due to budget trace_id=%s elapsed_ms=%d deadline_ms=%d",
                     trace_id,
-                    exc_info=True,
+                    elapsed_before_repair_ms,
+                    SESSION_INFER_REPAIR_START_DEADLINE_MS,
                 )
+                candidate = _build_clarify_candidate_plan(
+                    payload.intents,
+                    preferred_intent_code=preferred_intent_code,
+                )
+            else:
+                repair_retry_used = True
+                repair_start = time.monotonic()
+                repair_response_json: dict[str, Any] = {}
                 try:
                     repair_messages = _build_repair_messages(
                         payload=payload,
                         failed_output=response_json,
                         failure_reason=str(candidate_exc),
                     )
-                    repair_response = await model(repair_messages)
+                    repair_response = await model(
+                        repair_messages,
+                        structured_model=SessionInferStructuredOutput,
+                    )
                 except Exception:
-                    repair_response = None
-
-            if repair_response is not None:
-                (
-                    repair_text,
-                    repair_metadata,
-                    repair_tool_candidate,
-                ) = await _collect_model_output(repair_response)
-                repair_metadata_usable = _metadata_is_usable(repair_metadata)
-                if repair_metadata_usable and repair_metadata is not None:
-                    repair_response_json = repair_metadata
-                elif isinstance(repair_tool_candidate, dict):
-                    repair_response_json = repair_tool_candidate
-                else:
+                    logger.warning(
+                        "session infer candidate repair structured call failed, fallback to plain call trace_id=%s",
+                        trace_id,
+                        exc_info=True,
+                    )
                     try:
-                        repair_response_json = _extract_first_json_object(repair_text)
-                    except ValueError:
-                        repair_response_json = {}
+                        repair_messages = _build_repair_messages(
+                            payload=payload,
+                            failed_output=response_json,
+                            failure_reason=str(candidate_exc),
+                        )
+                        repair_response = await model(repair_messages)
+                    except Exception:
+                        repair_response = None
 
-            try:
-                candidate = _build_candidate_plan(repair_response_json, payload.intents)
-                repair_retry_success = True
-            except Exception as repair_exc:
-                repaired_intent = _extract_candidate_intent_code(repair_response_json)
-                logger.warning(
-                    "session infer candidate repair failed, fallback to clarify trace_id=%s reason=%s repaired_intent=%s",
-                    trace_id,
-                    str(repair_exc),
-                    repaired_intent,
-                )
-                candidate = _build_clarify_candidate_plan(
-                    payload.intents,
-                    preferred_intent_code=preferred_intent_code or repaired_intent,
-                )
-            repair_retry_ms = int((time.monotonic() - repair_start) * 1000)
+                if repair_response is not None:
+                    (
+                        repair_text,
+                        repair_metadata,
+                        repair_tool_candidate,
+                    ) = await _collect_model_output(
+                        repair_response,
+                        max_duration_ms=SESSION_INFER_REPAIR_COLLECT_BUDGET_MS,
+                    )
+                    repair_metadata_usable = _metadata_is_usable(repair_metadata)
+                    if repair_metadata_usable and repair_metadata is not None:
+                        repair_response_json = repair_metadata
+                    elif isinstance(repair_tool_candidate, dict):
+                        repair_response_json = repair_tool_candidate
+                    else:
+                        try:
+                            repair_response_json = _extract_first_json_object(repair_text)
+                        except ValueError:
+                            repair_response_json = {}
+
+                try:
+                    candidate = _build_candidate_plan(repair_response_json, payload.intents)
+                    repair_retry_success = True
+                except Exception as repair_exc:
+                    repaired_intent = _extract_candidate_intent_code(repair_response_json)
+                    logger.warning(
+                        "session infer candidate repair failed, fallback to clarify trace_id=%s reason=%s repaired_intent=%s",
+                        trace_id,
+                        str(repair_exc),
+                        repaired_intent,
+                    )
+                    candidate = _build_clarify_candidate_plan(
+                        payload.intents,
+                        preferred_intent_code=preferred_intent_code or repaired_intent,
+                    )
+                repair_retry_ms = int((time.monotonic() - repair_start) * 1000)
         candidate_ms = int((time.monotonic() - candidate_start) * 1000)
         model_meta = _resolve_effective_model_meta(
             target_agent_id,
             payload.traceId,
         )
         total_ms = int((time.monotonic() - stage_start) * 1000)
+        if total_ms > SESSION_INFER_TOTAL_BUDGET_MS:
+            logger.warning(
+                "session infer over soft budget trace_id=%s total_ms=%d budget_ms=%d",
+                trace_id,
+                total_ms,
+                SESSION_INFER_TOTAL_BUDGET_MS,
+            )
         logger.info(
             "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d repair_retry_used=%s repair_retry_success=%s repair_retry_ms=%d total_ms=%d structured_enabled=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s tool_candidate_hit=%s",
             trace_id,
