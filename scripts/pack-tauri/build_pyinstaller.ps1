@@ -41,9 +41,13 @@ Write-Host "== Checking prerequisites ==" -ForegroundColor Yellow
 
 $PYTHON_BIN = Join-Path $REPO_ROOT ".venv\Scripts\python.exe"
 if (-not (Test-Path $PYTHON_BIN)) {
-    Write-Host "ERROR: Python not found in .venv" -ForegroundColor Red
-    Write-Host "Please create virtual environment first: python -m venv .venv"
-    exit 1
+    Write-Host ".venv not found, using system Python" -ForegroundColor Yellow
+    $PYTHON_BIN = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $PYTHON_BIN) {
+        Write-Host "ERROR: Python not found in .venv or PATH" -ForegroundColor Red
+        Write-Host "Please create virtual environment first: python -m venv .venv"
+        exit 1
+    }
 }
 
 $pythonVersion = & $PYTHON_BIN --version
