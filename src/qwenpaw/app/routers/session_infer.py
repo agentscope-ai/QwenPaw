@@ -86,9 +86,9 @@ class SessionInferResponse(BaseModel):
 class SessionInferStructuredCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    intentCode: str
-    executionMode: str
-    confidence: float
+    intentCode: str = Field(..., min_length=1)
+    executionMode: str = Field(..., min_length=1)
+    confidence: float = Field(..., ge=0.0, le=1.0)
     slots: dict[str, Any]
     needClarify: bool
     clarifyQuestion: Optional[str] = None
@@ -178,15 +178,48 @@ def _extract_intent_code_from_metadata(metadata: dict[str, Any]) -> str:
 def _metadata_is_usable(metadata: Optional[dict[str, Any]]) -> bool:
     if not isinstance(metadata, dict):
         return False
-    return bool(_extract_intent_code_from_metadata(metadata))
+    candidate_raw = metadata.get("candidatePlan")
+    if isinstance(candidate_raw, dict):
+        intent_code = str(candidate_raw.get("intentCode") or "").strip()
+        execution_mode = str(candidate_raw.get("executionMode") or "").strip()
+        return bool(intent_code and execution_mode)
+    intent_code = str(metadata.get("intentCode") or "").strip()
+    execution_mode = str(metadata.get("executionMode") or "").strip()
+    return bool(intent_code and execution_mode)
+
+
+def _extract_candidate_from_tool_content(content: Any) -> Optional[dict[str, Any]]:
+    if not isinstance(content, list):
+        return None
+
+    for block in reversed(content):
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") != "tool_use":
+            continue
+
+        block_input = block.get("input")
+        if isinstance(block_input, dict):
+            return block_input
+
+        raw_input = block.get("raw_input")
+        if isinstance(raw_input, str) and raw_input.strip():
+            try:
+                parsed = json.loads(raw_input)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+    return None
 
 
 async def _collect_model_output(
     response: Any,
-) -> tuple[str, Optional[dict[str, Any]]]:
+) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, Any]]]:
     if hasattr(response, "__aiter__"):
         accumulated = ""
         metadata: Optional[dict[str, Any]] = None
+        tool_candidate: Optional[dict[str, Any]] = None
         async for chunk in response:  # type: ignore[union-attr]
             text = _extract_text_from_chunk(chunk)
             if text:
@@ -200,11 +233,40 @@ async def _collect_model_output(
             )
             if chunk_metadata:
                 metadata = chunk_metadata
-        return accumulated, metadata
+            candidate = _extract_candidate_from_tool_content(
+                getattr(chunk, "content", None),
+            )
+            if candidate:
+                tool_candidate = candidate
+        return accumulated, metadata, tool_candidate
 
     response_text = _extract_text_from_response(response)
     metadata = _normalize_structured_metadata(getattr(response, "metadata", None))
-    return response_text, metadata
+    tool_candidate = _extract_candidate_from_tool_content(
+        getattr(response, "content", None),
+    )
+    return response_text, metadata, tool_candidate
+
+
+def _build_clarify_fallback_output(
+    payload: SessionInferRequest,
+) -> dict[str, Any]:
+    first_intent = payload.intents[0]
+    clarify_question = "请确认客户编号与产品后，我再为你查询。"
+    return {
+        "candidatePlan": {
+            "intentCode": str(first_intent.intentCode or "").strip(),
+            "executionMode": str(first_intent.executionMode or "").strip(),
+            "confidence": 0.0,
+            "slots": {},
+            "needClarify": True,
+            "clarifyQuestion": clarify_question,
+            "roleCode": first_intent.roleCode,
+            "sqlTemplateCode": first_intent.sqlTemplateCode,
+            "selectedTableId": first_intent.selectedTableId,
+        },
+        "modelMeta": {},
+    }
 
 
 def _extract_first_json_object(raw_text: str) -> dict[str, Any]:
@@ -473,7 +535,9 @@ async def post_session_infer(
         model_call_ms = int((time.monotonic() - model_call_start) * 1000)
 
         collect_start = time.monotonic()
-        response_text, response_metadata = await _collect_model_output(response)
+        response_text, response_metadata, response_tool_candidate = await _collect_model_output(
+            response,
+        )
         collect_ms = int((time.monotonic() - collect_start) * 1000)
 
         parse_start = time.monotonic()
@@ -490,10 +554,21 @@ async def post_session_infer(
                 metadata_keys,
             )
 
+        tool_candidate_hit = isinstance(response_tool_candidate, dict)
         if metadata_usable and response_metadata is not None:
             response_json = response_metadata
+        elif tool_candidate_hit and response_tool_candidate is not None:
+            response_json = response_tool_candidate
         else:
-            response_json = _extract_first_json_object(response_text)
+            try:
+                response_json = _extract_first_json_object(response_text)
+            except ValueError:
+                logger.warning(
+                    "session infer text parse failed, fallback to clarify trace_id=%s text_len=%d",
+                    trace_id,
+                    len(response_text or ""),
+                )
+                response_json = _build_clarify_fallback_output(payload)
         parse_ms = int((time.monotonic() - parse_start) * 1000)
 
         candidate_start = time.monotonic()
@@ -505,7 +580,7 @@ async def post_session_infer(
         )
         total_ms = int((time.monotonic() - stage_start) * 1000)
         logger.info(
-            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d total_ms=%d structured_enabled=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s",
+            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d total_ms=%d structured_enabled=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s tool_candidate_hit=%s",
             trace_id,
             len(payload.intents),
             resolve_ms,
@@ -520,6 +595,7 @@ async def post_session_infer(
             response_metadata is not None,
             metadata_usable,
             metadata_keys,
+            tool_candidate_hit,
         )
         return SessionInferResponse(
             code=0,
