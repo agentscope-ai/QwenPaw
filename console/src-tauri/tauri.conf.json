@@ -20,7 +20,14 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* ipc: http://ipc.localhost",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src": "'self' https://fonts.gstatic.com",
+        "img-src": "'self' asset: http://asset.localhost blob: data: https:"
+      }
     }
   },
   "bundle": {
@@ -33,6 +40,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["qwenpaw-backend"]
+    "externalBin": ["binaries/qwenpaw-backend"]
   }
 }
