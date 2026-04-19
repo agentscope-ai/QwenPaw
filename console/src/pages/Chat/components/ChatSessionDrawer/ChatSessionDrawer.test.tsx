@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/common_setup'
-import ChatSessionDrawer from '../index'
+import ChatSessionDrawer from './index'
 import { useChatAnywhereSessionsState } from '@agentscope-ai/chat'
 
 const {
@@ -56,10 +56,6 @@ vi.mock('@agentscope-ai/design', () => ({
   IconButton: ({ onClick, icon }: { onClick?: () => void; icon: React.ReactNode }) => (
     <button onClick={onClick}>{icon}</button>
   ),
-}))
-
-vi.mock('@agentscope-ai/icons', () => ({
-  SparkOperateRightLine: () => <span data-testid="icon-close" />,
 }))
 
 vi.mock('../../ChatSessionItem', () => ({
@@ -127,7 +123,7 @@ describe('ChatSessionDrawer', () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     renderWithProviders(<ChatSessionDrawer open onClose={onClose} />)
-    await user.click(screen.getByTestId('icon-close').closest('button')!)
+    await user.click(document.querySelector('[data-icon="SparkOperateRightLine"]')!.closest('button')!)
     expect(onClose).toHaveBeenCalledOnce()
   })
 })

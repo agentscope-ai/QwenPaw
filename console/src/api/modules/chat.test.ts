@@ -1,18 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { chatApi } from '../chat'
+import { chatApi } from './chat'
 
 // chat.ts uses both fetch (uploadFile) and the request wrapper (others) — mock both
-vi.mock('../../request', () => ({ request: vi.fn() }))
-vi.mock('../../config', () => ({
+vi.mock('../request', () => ({ request: vi.fn() }))
+vi.mock('../config', () => ({
   getApiUrl: (path: string) => `/api${path}`,
   getApiToken: vi.fn(() => ''),
 }))
-vi.mock('../../authHeaders', () => ({
+vi.mock('../authHeaders', () => ({
   buildAuthHeaders: vi.fn(() => ({})),
 }))
 
-import { request } from '../../request'
-import { getApiToken } from '../../config'
+import { request } from '../request'
+import { getApiToken } from '../config'
 
 // ---------------------------------------------------------------------------
 // filePreviewUrl — pure function, highest ROI
