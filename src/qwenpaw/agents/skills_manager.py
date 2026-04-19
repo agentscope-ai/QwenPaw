@@ -65,7 +65,6 @@ _BUILTIN_SKILL_LANGUAGES = ("en", "zh")
 _BUILTIN_SKILL_DIR_RE = re.compile(
     r"^(?P<name>.+)-(?P<language>en|zh)$",
 )
-_CJK_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 @dataclass(frozen=True)
@@ -194,38 +193,20 @@ def _read_frontmatter_safe_from_path(
         return {"name": skill_name, "description": ""}
 
 
-def _guess_builtin_skill_language(skill_md_path: Path) -> str:
-    try:
-        content = read_text_file_with_encoding_fallback(skill_md_path)
-    except OSError:
-        return "en"
-    cjk_count = len(_CJK_CHAR_RE.findall(content))
-    return "zh" if cjk_count >= 32 else "en"
-
-
 def _parse_builtin_skill_identity(
     raw_name: str,
-    *,
-    fallback_language: str | None = None,
 ) -> BuiltinSkillIdentity | None:
     normalized = str(raw_name or "").strip()
     if not normalized:
         return None
 
     match = _BUILTIN_SKILL_DIR_RE.fullmatch(normalized)
-    if match is not None:
-        return BuiltinSkillIdentity(
-            name=str(match.group("name") or "").strip(),
-            language=str(match.group("language") or "").strip(),
-            source_name=normalized,
-        )
-
-    if fallback_language is None:
+    if match is None:
         return None
 
     return BuiltinSkillIdentity(
-        name=normalized,
-        language=_normalize_builtin_skill_language(fallback_language),
+        name=str(match.group("name") or "").strip(),
+        language=str(match.group("language") or "").strip(),
         source_name=normalized,
     )
 
@@ -244,27 +225,12 @@ def _canonical_builtin_skill_name(
 
 
 def _iter_packaged_builtin_variants() -> Iterator[BuiltinSkillVariant]:
-    builtin_dirs = list(_iter_packaged_builtin_dirs())
-    explicit_variant_bases = {
-        identity.name
-        for skill_dir in builtin_dirs
-        for identity in [_parse_builtin_skill_identity(skill_dir.name)]
-        if identity is not None
-    }
-
-    for skill_dir in builtin_dirs:
+    for skill_dir in _iter_packaged_builtin_dirs():
         skill_md_path = skill_dir / "SKILL.md"
         if not skill_md_path.exists():
             continue
 
         identity = _parse_builtin_skill_identity(skill_dir.name)
-        if identity is None:
-            if skill_dir.name in explicit_variant_bases:
-                continue
-            identity = _parse_builtin_skill_identity(
-                skill_dir.name,
-                fallback_language=_guess_builtin_skill_language(skill_md_path),
-            )
         if identity is None:
             continue
 
@@ -489,12 +455,7 @@ _IGNORED_SKILL_ARTIFACTS = {
 }
 
 
-def _copy_skill_dir(
-    source: Path,
-    target: Path,
-    *,
-    skill_md_source: Path | None = None,
-) -> None:
+def _copy_skill_dir(source: Path, target: Path) -> None:
     """Replace *target* with a copy of *source*.
 
     We intentionally filter only well-known OS/cache artifacts so skill
@@ -505,23 +466,13 @@ def _copy_skill_dir(
         shutil.rmtree(target)
 
     def _ignore(_dir: str, names: list[str]) -> set[str]:
-        ignored = {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
-        if skill_md_source is None:
-            return ignored
-        current_dir = Path(_dir)
-        if current_dir.resolve() != source.resolve():
-            return ignored
-        ignored.add("SKILL.md")
-        ignored.update({"SKILL.en.md", "SKILL.zh.md"})
-        return ignored
+        return {name for name in names if name in _IGNORED_SKILL_ARTIFACTS}
 
     shutil.copytree(
         source,
         target,
         ignore=_ignore,
     )
-    if skill_md_source is not None:
-        shutil.copy2(skill_md_source, target / "SKILL.md")
 
 
 def _lock_path_for(json_path: Path) -> Path:
@@ -1030,16 +981,16 @@ def _resolve_pool_builtin_language(
         return source_identity.language
 
     # Migration fallback: match pool SKILL.md content against packaged
-    # variants by SHA-256 hash. Only needed for pre-migration entries that
-    # lack builtin_language and builtin_source_name fields.
+    # variants by SHA-256 hash, then guess from CJK character density.
     try:
         pool_md = get_skill_pool_dir() / canonical_name / "SKILL.md"
-        pool_hash = hashlib.sha256(
-            read_text_file_with_encoding_fallback(pool_md).encode("utf-8"),
-        ).hexdigest()
+        pool_content = read_text_file_with_encoding_fallback(pool_md)
     except OSError:
-        pool_hash = ""
-    if pool_hash:
+        pool_content = ""
+    if pool_content:
+        pool_hash = hashlib.sha256(
+            pool_content.encode("utf-8"),
+        ).hexdigest()
         matching = [
             lang
             for lang, v in variants.items()
@@ -1052,11 +1003,15 @@ def _resolve_pool_builtin_language(
         ]
         if len(matching) == 1:
             return matching[0]
+        # Guess from actual content: significant CJK presence → zh.
+        cjk_count = len(re.findall(r"[\u4e00-\u9fff]", pool_content))
+        guessed = "zh" if cjk_count >= 32 else "en"
+        if guessed in variants:
+            return guessed
 
-    preferred = preferred_language or get_builtin_skill_language_preference()
-    if preferred in variants:
-        return preferred
-    return sorted(variants.keys())[0]
+    # Final fallback: user preference or first available language.
+    fallback = preferred_language or get_builtin_skill_language_preference()
+    return fallback if fallback in variants else sorted(variants.keys())[0]
 
 
 def _build_builtin_language_spec(
@@ -1343,11 +1298,7 @@ def import_builtin_skills(
             existing = skills.get(skill_name) or {}
 
             if not target.exists():
-                _copy_skill_dir(
-                    variant.skill_dir,
-                    target,
-                    skill_md_source=variant.skill_md_path,
-                )
+                _copy_skill_dir(variant.skill_dir, target)
                 imported.append(skill_name)
             elif (
                 existing.get("source") == "builtin"
@@ -1365,11 +1316,7 @@ def import_builtin_skills(
             ):
                 unchanged.append(skill_name)
             else:
-                _copy_skill_dir(
-                    variant.skill_dir,
-                    target,
-                    skill_md_source=variant.skill_md_path,
-                )
+                _copy_skill_dir(variant.skill_dir, target)
                 updated.append(skill_name)
 
             entry = _build_skill_metadata(
@@ -1975,11 +1922,7 @@ def update_single_builtin(
     target = pool_dir / canonical_name
 
     def _update(payload: dict[str, Any]) -> dict[str, Any]:
-        _copy_skill_dir(
-            variant.skill_dir,
-            target,
-            skill_md_source=variant.skill_md_path,
-        )
+        _copy_skill_dir(variant.skill_dir, target)
         payload.setdefault("skills", {})
         entry = _build_skill_metadata(
             canonical_name,
