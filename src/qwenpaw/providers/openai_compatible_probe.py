@@ -61,6 +61,7 @@ class OpenAICompatibleProbeMixin:
             evaluate_image_probe_answer,
         )
 
+        _probe_url = f"data:image/png;base64,{_PROBE_IMAGE_B64}"
         logger.info(
             "Image probe start: model=%s url=%s",
             model_id,
@@ -78,9 +79,7 @@ class OpenAICompatibleProbeMixin:
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": (
-                                        f"data:image/png;base64,{_PROBE_IMAGE_B64}"
-                                    ),
+                                    "url": _probe_url,
                                 },
                             },
                             {
