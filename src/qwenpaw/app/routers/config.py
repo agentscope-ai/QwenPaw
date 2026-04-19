@@ -391,7 +391,10 @@ async def put_acp_agent_config(
 
     agent_name = agent_name.strip()
     if not agent_name:
-        raise HTTPException(status_code=400, detail="ACP agent name cannot be empty")
+        raise HTTPException(
+            status_code=400,
+            detail="ACP agent name cannot be empty",
+        )
 
     agent.config.acp.agents[agent_name] = acp_agent_config
     save_agent_config(agent.agent_id, agent.config)

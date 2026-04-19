@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, NoReturn
 
 from acp import RequestError, session_notification
 from acp.contrib.session_state import SessionAccumulator, ToolCallView
@@ -44,7 +44,9 @@ class ACPHostedClient:
         self._emitted_assistant_text = ""
         self._thinking_active = False
         self._pending_permission: SuspendedPermission | None = None
-        self._permission_future: asyncio.Future[RequestPermissionResponse] | None = None
+        self._permission_future: asyncio.Future[
+            RequestPermissionResponse
+        ] | None = None
         self._permission_requested = asyncio.Event()
 
     @property
@@ -177,7 +179,11 @@ class ACPHostedClient:
         ):
             self._session_acc.apply(session_notification(session_id, update))
 
-    async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def ext_method(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
         _ = params
         self._unsupported_method(method)
 
@@ -188,6 +194,12 @@ class ACPHostedClient:
     ) -> None:
         _ = params
         self._unsupported_method(method)
+
+    def _unsupported_method(self, method: str) -> NoReturn:
+        raise RequestError(
+            code=-32601,
+            message=f"Unsupported ACP extension method: {method}",
+        )
 
     async def emit_permission_resolved(self) -> None:
         await self._emit_message(
@@ -212,7 +224,11 @@ class ACPHostedClient:
     async def flush_assistant_text(self) -> None:
         await self._emit_assistant_text_delta()
 
-    async def _emit_message(self, payload: dict[str, Any], is_last: bool) -> None:
+    async def _emit_message(
+        self,
+        payload: dict[str, Any],
+        is_last: bool,
+    ) -> None:
         if self._on_message is None:
             return
         await self._on_message(payload, is_last)
@@ -257,10 +273,18 @@ class ACPHostedClient:
         self._assistant_text = self._assistant_text + text
 
     def _extract_text_from_content(self, content: Any) -> str:
-        if hasattr(content, "text") and isinstance(getattr(content, "text", None), str):
+        # pylint: disable=too-many-return-statements
+        if hasattr(content, "text") and isinstance(
+            getattr(content, "text", None),
+            str,
+        ):
             return str(content.text)
         if hasattr(content, "name") and hasattr(content, "uri"):
-            return str(getattr(content, "name", None) or getattr(content, "uri", None) or "")
+            return str(
+                getattr(content, "name", None)
+                or getattr(content, "uri", None)
+                or "",
+            )
         if hasattr(content, "resource"):
             resource = getattr(content, "resource", None)
             if resource is not None:
@@ -275,7 +299,10 @@ class ACPHostedClient:
             parts = [self._extract_text_from_content(item) for item in content]
             return "".join(part for part in parts if part)
         if isinstance(content, dict):
-            if content.get("type") == "text" and isinstance(content.get("text"), str):
+            if content.get("type") == "text" and isinstance(
+                content.get("text"),
+                str,
+            ):
                 return str(content["text"])
             return ""
         return ""
@@ -289,16 +316,24 @@ class ACPHostedClient:
         if not call_id:
             return None
 
-        title = self._string_value(
-            getattr(state, "title", None),
-        ) or self._string_value(getattr(update, "title", None)) or "unknown"
-        kind = self._string_value(
-            getattr(state, "kind", None),
-        ) or self._string_value(getattr(update, "kind", None)) or "other"
+        title = (
+            self._string_value(
+                getattr(state, "title", None),
+            )
+            or self._string_value(getattr(update, "title", None))
+            or "unknown"
+        )
+        kind = (
+            self._string_value(
+                getattr(state, "kind", None),
+            )
+            or self._string_value(getattr(update, "kind", None))
+            or "other"
+        )
         status = str(
             getattr(state, "status", None)
             or getattr(update, "status", None)
-            or "pending"
+            or "pending",
         )
         target = self._tool_target(state, update)
         detail = self._tool_detail(kind, title, state, update) or title
@@ -327,9 +362,16 @@ class ACPHostedClient:
         update: ToolCallStart | ToolCallProgress,
         state: ToolCallView | None,
     ) -> str:
-        if isinstance(update, ToolCallStart) or self.tool_parse_mode == "update_detail":
+        if (
+            isinstance(update, ToolCallStart)
+            or self.tool_parse_mode == "update_detail"
+        ):
             return "tool_start"
-        status = str(getattr(state, "status", None) or getattr(update, "status", None) or "pending")
+        status = str(
+            getattr(state, "status", None)
+            or getattr(update, "status", None)
+            or "pending",
+        )
         if status in {"completed", "failed"}:
             return "tool_end"
         return "tool_update"
@@ -348,12 +390,22 @@ class ACPHostedClient:
             return self._tool_input_text(state, update, "command") or title
         if kind == "read":
             return (
-                self._tool_input_text(state, update, "file_path", "filePath", "path")
+                self._tool_input_text(
+                    state,
+                    update,
+                    "file_path",
+                    "filePath",
+                    "path",
+                )
                 or target
                 or title
             )
         if kind == "search":
-            return self._tool_input_text(state, update, "path", "pattern") or target or title
+            return (
+                self._tool_input_text(state, update, "path", "pattern")
+                or target
+                or title
+            )
         if kind == "edit":
             return title or target
         return title
@@ -363,7 +415,11 @@ class ACPHostedClient:
         state: ToolCallView | None,
         update: ToolCallStart | ToolCallProgress,
     ) -> str | None:
-        locations = getattr(state, "locations", None) or getattr(update, "locations", None) or []
+        locations = (
+            getattr(state, "locations", None)
+            or getattr(update, "locations", None)
+            or []
+        )
         for location in locations:
             path = getattr(location, "path", None)
             if path:
@@ -405,4 +461,6 @@ class ACPHostedClient:
     def _stringify_summary(self, value: Any) -> str | None:
         if value is None:
             return None
-        return self._string_value(value) if isinstance(value, str) else str(value)
+        return (
+            self._string_value(value) if isinstance(value, str) else str(value)
+        )

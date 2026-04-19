@@ -43,7 +43,9 @@ def _option_parts(option: Any) -> Optional[Tuple[str, str]]:
     title = None
     if isinstance(option, dict):
         option_id = _string(
-            option.get("optionId") or option.get("option_id") or option.get("id"),
+            option.get("optionId")
+            or option.get("option_id")
+            or option.get("id"),
         )
         title = _string(option.get("title") or option.get("name"))
     else:

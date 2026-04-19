@@ -13,7 +13,12 @@ from acp import PROTOCOL_VERSION, spawn_agent_process, text_block
 from acp.schema import ClientCapabilities, Implementation
 
 from .client import ACPHostedClient
-from .core import ACPAgentConfig, ACPConfig, ACPConfigurationError, ACPSessionError
+from .core import (
+    ACPAgentConfig,
+    ACPConfig,
+    ACPConfigurationError,
+    ACPSessionError,
+)
 
 MessageHandler = Callable[[dict[str, Any], bool], Awaitable[None]]
 
@@ -61,11 +66,18 @@ class ACPService:
         async with conversation.turn_lock:
             if conversation.client.pending_permission is not None:
                 raise ACPSessionError(
-                    f"Session {conversation.acp_session_id} is waiting for permission",
+                    "Session "
+                    f"{conversation.acp_session_id} is waiting for "
+                    "permission",
                 )
-            if conversation.prompt_task is not None and not conversation.prompt_task.done():
+            if (
+                conversation.prompt_task is not None
+                and not conversation.prompt_task.done()
+            ):
                 raise ACPSessionError(
-                    f"Session {conversation.acp_session_id} is already processing a turn",
+                    "Session "
+                    f"{conversation.acp_session_id} is already "
+                    "processing a turn",
                 )
 
             conversation.cwd = cwd or conversation.cwd
@@ -195,11 +207,13 @@ class ACPService:
             await self.close_chat_session(chat_id=chat_id, agent=agent)
             if require_existing:
                 raise ACPSessionError(
-                    f"ACP session for runner '{agent}' is no longer active; call start first",
+                    f"ACP session for runner '{agent}' is no longer "
+                    "active; call start first",
                 )
         elif require_existing:
             raise ACPSessionError(
-                f"no bound ACP session found for runner '{agent}' in current chat",
+                "no bound ACP session found for runner "
+                f"'{agent}' in current chat",
             )
 
         session_cwd = cwd or "."
@@ -308,15 +322,20 @@ class ACPService:
             conversation.client.wait_for_permission_request(),
         )
         try:
-            done, pending = await asyncio.wait(
+            done, _ = await asyncio.wait(
                 {prompt_task, permission_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if permission_task in done and conversation.client.pending_permission is not None:
+            if (
+                permission_task in done
+                and conversation.client.pending_permission is not None
+            ):
                 finished_event = await conversation.client.finish_prompt()
                 return {
                     "status": "permission_required",
-                    "suspended_permission": conversation.client.pending_permission,
+                    "suspended_permission": (
+                        conversation.client.pending_permission
+                    ),
                     "event": finished_event,
                 }
 
@@ -328,8 +347,6 @@ class ACPService:
 
             try:
                 await prompt_task
-            except asyncio.CancelledError:
-                raise
             except Exception as exc:
                 conversation.prompt_task = None
                 await conversation.client.finish_prompt()
@@ -355,7 +372,10 @@ class ACPService:
 
     async def _close_conversation(self, conversation: _Conversation) -> None:
         try:
-            if conversation.prompt_task is not None and not conversation.prompt_task.done():
+            if (
+                conversation.prompt_task is not None
+                and not conversation.prompt_task.done()
+            ):
                 conversation.prompt_task.cancel()
                 try:
                     await conversation.prompt_task
@@ -438,7 +458,9 @@ def _shutdown_acp_services() -> None:
     try:
         loop = asyncio.new_event_loop()
         loop.run_until_complete(
-            asyncio.gather(*(service.close_all_sessions() for service in services)),
+            asyncio.gather(
+                *(service.close_all_sessions() for service in services),
+            ),
         )
         loop.close()
     except Exception:

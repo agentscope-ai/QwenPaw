@@ -62,7 +62,9 @@ class ACPPermissionAdapter:
         for opt in options:
             if not isinstance(opt, dict):
                 continue
-            candidate = str(opt.get("optionId") or opt.get("option_id") or "").strip()
+            candidate = str(
+                opt.get("optionId") or opt.get("option_id") or "",
+            ).strip()
             if candidate == key:
                 return opt
         return None
@@ -73,13 +75,17 @@ class ACPPermissionAdapter:
     ) -> RequestPermissionResponse:
         if option is None:
             return self.cancelled_response()
-        option_id = str(option.get("optionId") or option.get("option_id") or "selected")
+        option_id = str(
+            option.get("optionId") or option.get("option_id") or "selected",
+        )
         return RequestPermissionResponse(
             outcome=AllowedOutcome(option_id=option_id, outcome="selected"),
         )
 
     def cancelled_response(self) -> RequestPermissionResponse:
-        return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+        return RequestPermissionResponse(
+            outcome=DeniedOutcome(outcome="cancelled"),
+        )
 
     def is_hard_blocked(self, tool_call: Any) -> bool:
         return self._is_hard_blocked(self._tool_call_payload(tool_call))

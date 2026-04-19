@@ -147,8 +147,8 @@ async def _validate_start_request(
     return (
         f"Error: an ACP session for runner '{runner_name}' is already open in "
         "the current chat. Use "
-        f"delegate_external_agent(action=\"message\", runner=\"{runner_name}\", "
-        "message=\"continue\") instead."
+        f'delegate_external_agent(action="message", runner="{runner_name}", '
+        'message="continue") instead.'
     )
 
 
@@ -239,6 +239,7 @@ async def _stream_action_responses(
     execution_cwd: Path,
     max_runtime: Optional[float] = None,
 ) -> AsyncGenerator[ToolResponse, None]:
+    # pylint: disable=too-many-branches,too-many-statements
     response_queue: asyncio.Queue[ToolResponse] = asyncio.Queue()
     flush_interval = 1.0
     pending_items: list[str] = []
@@ -252,7 +253,9 @@ async def _stream_action_responses(
         nonlocal header_sent
         if not pending_items:
             return
-        snapshot = [item.strip() for item in pending_items if item and item.strip()]
+        snapshot = [
+            item.strip() for item in pending_items if item and item.strip()
+        ]
         pending_items.clear()
         if not snapshot:
             return
@@ -268,11 +271,8 @@ async def _stream_action_responses(
         await response_queue.put(response)
 
     async def schedule_flush() -> None:
-        try:
-            await asyncio.sleep(flush_interval)
-            await flush_snapshot()
-        except asyncio.CancelledError:
-            raise
+        await asyncio.sleep(flush_interval)
+        await flush_snapshot()
 
     async def ensure_flush_task() -> None:
         nonlocal flush_task
@@ -360,7 +360,8 @@ async def _stream_action_responses(
                         pass
                     except Exception:
                         logger.warning(
-                            "ACP run_task ended with error after timeout cancellation",
+                            "ACP run_task ended with error after timeout "
+                            "cancellation",
                             exc_info=True,
                         )
                     yield response_text(
@@ -381,7 +382,10 @@ async def _stream_action_responses(
                 timeout = 0.1
                 if deadline is not None and not run_task.done():
                     timeout = max(0.0, min(timeout, deadline - loop.time()))
-                yield await asyncio.wait_for(response_queue.get(), timeout=timeout)
+                yield await asyncio.wait_for(
+                    response_queue.get(),
+                    timeout=timeout,
+                )
             except asyncio.TimeoutError:
                 continue
     except asyncio.CancelledError:
@@ -432,6 +436,7 @@ async def delegate_external_agent(
     cwd: str = "",
     max_runtime: Optional[float] = None,
 ) -> ToolResponse | AsyncGenerator[ToolResponse, None]:
+    # pylint: disable=too-many-return-statements
     """
     Open, talk to, respond to permissions for, or close an ACP agent session.
 
@@ -475,7 +480,8 @@ async def delegate_external_agent(
             means no timeout is applied. When the limit is reached, the tool
             sends ACP cancel for the current turn but keeps the ACP session
             open, so you can continue later with
-            `delegate_external_agent(action="message", runner=..., message="continue")`.
+            `delegate_external_agent(action="message", runner=..., `
+            `message="continue")`.
 
     Returns:
         `AsyncGenerator[ToolResponse, None]`:
@@ -507,8 +513,14 @@ async def delegate_external_agent(
         try:
             chat_id = _request_context_chat_id()
             service = _get_acp_service()
-            existing = await service.get_session(chat_id=chat_id, agent=runner_name)
-            await service.close_chat_session(chat_id=chat_id, agent=runner_name)
+            existing = await service.get_session(
+                chat_id=chat_id,
+                agent=runner_name,
+            )
+            await service.close_chat_session(
+                chat_id=chat_id,
+                agent=runner_name,
+            )
             return format_close_response(
                 runner_name=runner_name,
                 closed=existing is not None,
