@@ -122,3 +122,5 @@ src/.hypothesis/
 
 # Local File
 /localfile/
+*.lock
+.gitnexus
