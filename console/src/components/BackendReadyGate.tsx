@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import BackendLoadingPage from "./BackendLoadingPage";
 
-const API_BASE_URL = typeof VITE_API_BASE_URL !== "undefined" ? VITE_API_BASE_URL : "";
+const API_BASE_URL = typeof import.meta.env.VITE_API_BASE_URL !== "undefined" ? import.meta.env.VITE_API_BASE_URL : "";
 const POLL_INTERVAL = 3000;
 const POLL_TIMEOUT = 120;
 const REQUEST_TIMEOUT = 5000;
