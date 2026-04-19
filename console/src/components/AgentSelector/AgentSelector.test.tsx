@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/common_setup'
-import AgentSelector from '../index'
+import AgentSelector from './index'
 
 const {
   mockSetSelectedAgent,

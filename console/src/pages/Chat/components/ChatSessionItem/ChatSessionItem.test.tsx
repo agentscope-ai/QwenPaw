@@ -2,17 +2,12 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/common_setup'
-import ChatSessionItem from '../index'
+import ChatSessionItem from './index'
 
 vi.mock('@agentscope-ai/design', () => ({
   IconButton: ({ onClick, icon }: { onClick?: (e: React.MouseEvent) => void; icon: React.ReactNode }) => (
     <button onClick={onClick}>{icon}</button>
   ),
-}))
-
-vi.mock('@agentscope-ai/icons', () => ({
-  SparkEditLine: () => <span data-testid="icon-edit" />,
-  SparkDeleteLine: () => <span data-testid="icon-delete" />,
 }))
 
 // mock getChannelIconUrl to avoid network requests
@@ -45,7 +40,7 @@ describe('ChatSessionItem', () => {
     const onClick = vi.fn()
     const onEdit = vi.fn()
     renderWithProviders(<ChatSessionItem {...baseProps} onClick={onClick} onEdit={onEdit} />)
-    fireEvent.click(screen.getByTestId('icon-edit').closest('button')!)
+    fireEvent.click(document.querySelector('[data-icon="SparkEditLine"]')!.closest('button')!)
     expect(onEdit).toHaveBeenCalledOnce()
     expect(onClick).not.toHaveBeenCalled()
   })
@@ -54,7 +49,7 @@ describe('ChatSessionItem', () => {
     const onClick = vi.fn()
     const onDelete = vi.fn()
     renderWithProviders(<ChatSessionItem {...baseProps} onClick={onClick} onDelete={onDelete} />)
-    fireEvent.click(screen.getByTestId('icon-delete').closest('button')!)
+    fireEvent.click(document.querySelector('[data-icon="SparkDeleteLine"]')!.closest('button')!)
     expect(onDelete).toHaveBeenCalledOnce()
     expect(onClick).not.toHaveBeenCalled()
   })

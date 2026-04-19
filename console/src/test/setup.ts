@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
 
-// matchMedia（antd 依赖）
+// matchMedia (required by antd)
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({
@@ -16,7 +16,7 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
-// ResizeObserver（antd rc-resize-observer 用 new 调用，必须是构造函数而非箭头函数）
+// ResizeObserver (required by antd rc-resize-observer — must be a constructor, not arrow fn)
 global.ResizeObserver = vi.fn().mockImplementation(function () {
   return {
     observe: vi.fn(),

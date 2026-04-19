@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/common_setup'
-import ModelSelector from '../index'
+import ModelSelector from './index'
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -22,10 +22,6 @@ vi.mock('@/stores/agentStore', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
-}))
-
-vi.mock('@agentscope-ai/icons', () => ({
-  SparkDownLine: () => <span data-testid="spark-icon" />,
 }))
 
 // ---------------------------------------------------------------------------

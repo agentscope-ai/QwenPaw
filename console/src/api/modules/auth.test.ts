@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { authApi } from '../auth'
+import { authApi } from './auth'
 
 // auth.ts uses fetch directly (not the request wrapper), so mock global fetch
 vi.mock('../config', () => ({
@@ -119,7 +119,7 @@ describe('authApi.updateProfile', () => {
   })
 
   it('reads token from localStorage and injects Authorization header', async () => {
-    localStorage.setItem('copaw_auth_token', 'my-token')
+    localStorage.setItem('qwenpaw_auth_token', 'my-token')
     mockFetch(200, { token: 't', username: 'alice' })
     await authApi.updateProfile('oldpass')
     const headers = (fetch as any).mock.calls[0][1].headers

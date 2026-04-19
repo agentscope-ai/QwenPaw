@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { getAgentDisplayName } from '../agentDisplayName'
-import { stripFrontmatter } from '../markdown'
+import { getAgentDisplayName } from './agentDisplayName'
+import { stripFrontmatter } from './markdown'
 
 // ---------------------------------------------------------------------------
 // getAgentDisplayName

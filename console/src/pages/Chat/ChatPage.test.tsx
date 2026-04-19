@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/common_setup'
-import ChatPage from '../index'
+import ChatPage from './index'
 
 // ---------------------------------------------------------------------------
 // Capture AgentScopeRuntimeWebUI options
@@ -36,6 +36,19 @@ const {
   mockSetSelectedAgent: vi.fn(),
 }))
 
+vi.mock('../../hooks/useAppMessage', () => ({
+  useAppMessage: () => ({ message: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }),
+}))
+
+vi.mock('../../plugins/PluginContext', () => ({
+  usePlugins: () => ({ plugins: [], registerPlugin: vi.fn(), toolRenderConfig: {} }),
+  PluginContext: { Provider: ({ children }: any) => children },
+}))
+
+vi.mock('./components/ChatSessionInitializer', () => ({
+  default: () => null,
+}))
+
 vi.mock('@agentscope-ai/chat', () => ({
   // render rightHeader so child components appear in the DOM
   AgentScopeRuntimeWebUI: vi.fn((props: any) => {
@@ -46,25 +59,12 @@ vi.mock('@agentscope-ai/chat', () => ({
       </div>
     )
   }),
+  useChatAnywhereSessionsState: vi.fn(() => ({ sessions: [], currentSessionId: null, setCurrentSessionId: vi.fn(), setSessions: vi.fn() })),
+  useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
   useChatAnywhereInput: vi.fn(() => ({
     setLoading: vi.fn(),
     getLoading: vi.fn(),
   })),
-}))
-
-vi.mock('@agentscope-ai/design', () => ({
-  IconButton: ({ onClick, icon, disabled }: any) => (
-    <button onClick={onClick} disabled={disabled}>{icon}</button>
-  ),
-}))
-
-vi.mock('@agentscope-ai/icons', () => ({
-  SparkCopyLine: () => <span data-testid="icon-copy" />,
-  SparkAttachmentLine: () => <span data-testid="icon-attach" />,
-}))
-
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string, opts?: any) => opts ? `${k}:${JSON.stringify(opts)}` : k }),
 }))
 
 vi.mock('@/api/modules/provider', () => ({
@@ -73,6 +73,7 @@ vi.mock('@/api/modules/provider', () => ({
 
 vi.mock('@/api/modules/chat', () => ({
   chatApi: { uploadFile: mockUploadFile, filePreviewUrl: mockFilePreviewUrl, stopChat: vi.fn() },
+  sessionApi: { getRealIdForSession: vi.fn(() => null), setLastUserMessage: vi.fn(), getSessionList: vi.fn(() => Promise.resolve([])) },
 }))
 
 vi.mock('antd', async (importOriginal) => {
@@ -100,7 +101,7 @@ vi.mock('@/contexts/ThemeContext', () => ({
   useTheme: vi.fn(() => ({ isDark: false })),
 }))
 
-vi.mock('../sessionApi', () => ({
+vi.mock('./sessionApi', () => ({
   default: {
     onSessionIdResolved: null,
     onSessionRemoved: null,
@@ -111,7 +112,7 @@ vi.mock('../sessionApi', () => ({
   },
 }))
 
-vi.mock('../OptionsPanel/defaultConfig', () => ({
+vi.mock('./OptionsPanel/defaultConfig', () => ({
   default: { theme: { leftHeader: {} }, api: {} },
   getDefaultConfig: vi.fn(() => ({
     theme: { leftHeader: {} },
@@ -120,15 +121,15 @@ vi.mock('../OptionsPanel/defaultConfig', () => ({
   })),
 }))
 
-vi.mock('../ModelSelector', () => ({
+vi.mock('./ModelSelector', () => ({
   default: () => <div data-testid="model-selector" />,
 }))
 
-vi.mock('../components/ChatActionGroup', () => ({
+vi.mock('./components/ChatActionGroup', () => ({
   default: () => <div data-testid="action-group" />,
 }))
 
-vi.mock('../components/ChatHeaderTitle', () => ({
+vi.mock('./components/ChatHeaderTitle', () => ({
   default: () => <div data-testid="header-title" />,
 }))
 
@@ -169,6 +170,7 @@ describe('ChatPage', () => {
   it('renders child components ModelSelector / ChatActionGroup / ChatHeaderTitle', async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ['/chat'] })
     await screen.findByTestId('chat-ui')
+    console.log('DOM:', document.body.innerHTML.substring(0, 500))
     expect(screen.getByTestId('model-selector')).toBeInTheDocument()
     expect(screen.getByTestId('action-group')).toBeInTheDocument()
     expect(screen.getByTestId('header-title')).toBeInTheDocument()

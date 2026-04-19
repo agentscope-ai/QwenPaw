@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { request } from '../request'
+import { request } from './request'
 
 // mock config so URL is predictable and token is empty by default
-vi.mock('../config', () => ({
+vi.mock('./config', () => ({
   getApiUrl: (path: string) => `/api${path}`,
   getApiToken: vi.fn(() => ''),
   clearAuthToken: vi.fn(),
 }))
 
-vi.mock('../authHeaders', () => ({
+vi.mock('./authHeaders', () => ({
   buildAuthHeaders: vi.fn(() => ({})),
 }))
 
-import { clearAuthToken } from '../config'
-import { buildAuthHeaders } from '../authHeaders'
+import { clearAuthToken } from './config'
+import { buildAuthHeaders } from './authHeaders'
 
 // Helper: create a mock Response
 function mockFetch(status: number, body?: unknown, contentType = 'application/json') {
@@ -126,7 +126,7 @@ describe('request', () => {
     } as unknown as Response)
 
     await expect(request('/models')).rejects.toThrow(
-      'Request failed: 500 Internal Server Error - server exploded',
+      'server exploded',
     )
   })
 

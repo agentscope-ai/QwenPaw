@@ -3,6 +3,17 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
+// Vitest plugin: transforms .css imports inside node_modules to empty stubs.
+// This prevents errors from packages like @agentscope-ai/icons that import CSS.
+const cssStubPlugin = {
+  name: "css-stub",
+  transform(_code: string, id: string) {
+    if (id.includes("node_modules") && id.endsWith(".css")) {
+      return { code: "export default {}" }
+    }
+  },
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   // Empty = same-origin; frontend and backend served together, no hardcoded host.
@@ -15,7 +26,7 @@ export default defineConfig(({ mode }) => {
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
-    plugins: [react()],
+    plugins: [react(), cssStubPlugin],
     css: {
       modules: {
         localsConvention: "camelCase",
@@ -41,22 +52,26 @@ export default defineConfig(({ mode }) => {
       environment: "jsdom",
       setupFiles: ["./src/test/setup.ts"],
       css: true,
-      // @agentscope-ai/* 只有 module 字段无 main，直接 alias 到具体文件
+      // all @agentscope-ai/* packages excluded from inline — they are large / have CSS imports
+      // aliases below redirect each to a stub or compiled entry
       deps: {
-        inline: [/@agentscope-ai\//],
+        inline: [/@agentscope-ai\/(?!icons|chat|design)/],
       },
       alias: {
+        // chat is aliased to a tiny stub to avoid OOM from the 2.3MB real package
+        // Tests that need specific behavior override with vi.mock('@agentscope-ai/chat', factory)
         "@agentscope-ai/chat": path.resolve(
           __dirname,
-          "node_modules/@agentscope-ai/chat/lib/index.js",
+          "src/test/chat-mock.ts",
         ),
+        // design is aliased to a stub to avoid hanging from its 3MB lib
         "@agentscope-ai/design": path.resolve(
           __dirname,
-          "node_modules/@agentscope-ai/design/lib/index.js",
+          "src/test/design-mock.ts",
         ),
         "@agentscope-ai/icons": path.resolve(
           __dirname,
-          "node_modules/@agentscope-ai/icons/index.js",
+          "src/test/icons-mock.ts",
         ),
       },
       exclude: [

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/common_setup'
-import LanguageSwitcher from '../index'
+import LanguageSwitcher from './index'
 
 // vi.hoisted ensures variables are initialized before vi.mock hoisting
 const { mockChangeLanguage, mockUpdateLanguage } = vi.hoisted(() => ({
