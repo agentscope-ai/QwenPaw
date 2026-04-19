@@ -72,27 +72,6 @@ class ExtendedModelInfo(ModelInfo):
     )
 
 
-class ExtendedModelInfo(ModelInfo):
-    """Extended model info with additional metadata for providers."""
-
-    provider: str = Field(
-        default="",
-        description="Provider/series (e.g., 'openai', 'google')",
-    )
-    input_modalities: List[str] = Field(
-        default_factory=list,
-        description="Supported input modalities",
-    )
-    output_modalities: List[str] = Field(
-        default_factory=list,
-        description="Supported output modalities",
-    )
-    pricing: Dict[str, str] = Field(
-        default_factory=dict,
-        description="Pricing info (prompt/completion)",
-    )
-
-
 class ProviderInfo(BaseModel):
     """Provider configuration and metadata."""
 
@@ -191,9 +170,7 @@ class Provider(ProviderInfo, ABC):
         timeout: float = 10,  # pylint: disable=unused-argument
     ) -> tuple[bool, str]:
         """Add a model to the provider's model list."""
-        if model_info.id in {
-            model.id for model in self.models + self.extra_models
-        }:
+        if model_info.id in {model.id for model in self.models + self.extra_models}:
             return False, f"Model '{model_info.id}' already exists"
         if target == "extra_models":
             self.extra_models.append(model_info)
@@ -245,9 +222,7 @@ class Provider(ProviderInfo, ABC):
             # avoid class-identity issues from dual module loading.
             self.extra_models = [
                 ModelInfo.model_validate(
-                    model.model_dump()
-                    if isinstance(model, BaseModel)
-                    else model,
+                    model.model_dump() if isinstance(model, BaseModel) else model,
                 )
                 for model in config["extra_models"]
             ]
@@ -323,9 +298,7 @@ class Provider(ProviderInfo, ABC):
 
     def has_model(self, model_id: str) -> bool:
         """Check if the provider has a model with the given ID."""
-        return any(
-            model.id == model_id for model in self.models + self.extra_models
-        )
+        return any(model.id == model_id for model in self.models + self.extra_models)
 
     @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
