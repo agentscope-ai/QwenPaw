@@ -701,7 +701,7 @@ class WecomChannel(BaseChannel):
             # Schedule send in WS thread and wait for response
             send_future = asyncio.run_coroutine_threadsafe(_send(), ws_loop)
             send_future.add_done_callback(
-                lambda f: f.result() if not f.cancelled() else None
+                lambda f: f.result() if not f.cancelled() else None,
             )
             ack = await asyncio.wait_for(
                 asyncio.shield(fut),
@@ -818,6 +818,7 @@ class WecomChannel(BaseChannel):
                     local[:60],
                     str(e)[:100],
                 )
+
                 return None
 
     async def _send_media_part(
