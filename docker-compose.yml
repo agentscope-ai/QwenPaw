@@ -5,6 +5,8 @@ volumes:
     name: qwenpaw-data
   qwenpaw-secrets:
     name: qwenpaw-secrets
+  qwenpaw-backups:
+    name: qwenpaw-backups
 
 services:
   qwenpaw:
@@ -20,3 +22,4 @@ services:
     volumes:
       - qwenpaw-data:/app/working
       - qwenpaw-secrets:/app/working.secret
+      - qwenpaw-backups:/app/working.backups

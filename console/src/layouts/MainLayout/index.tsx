@@ -46,11 +46,15 @@ const SecurityPage = lazyWithRetry(
 const TokenUsagePage = lazyWithRetry(
   () => import("../../pages/Settings/TokenUsage"),
 );
+const AgentStatsPage = lazyWithRetry(
+  () => import("../../pages/Settings/AgentStats"),
+);
 const VoiceTranscriptionPage = lazyWithRetry(
   () => import("../../pages/Settings/VoiceTranscription"),
 );
 const AgentsPage = lazyWithRetry(() => import("../../pages/Settings/Agents"));
-const DebugPage = lazyWithRetry(() => import("../../pages/Debug"));
+const DebugPage = lazyWithRetry(() => import("../../pages/Settings/Debug"));
+const BackupsPage = lazyWithRetry(() => import("../../pages/Settings/Backups"));
 
 const { Content } = Layout;
 
@@ -71,8 +75,10 @@ const pathToKey: Record<string, string> = {
   "/agent-config": "agent-config",
   "/security": "security",
   "/token-usage": "token-usage",
+  "/agent-stats": "agent-stats",
   "/voice-transcription": "voice-transcription",
   "/debug": "debug",
+  "/backups": "backups",
 };
 
 export default function MainLayout() {
@@ -127,11 +133,13 @@ export default function MainLayout() {
                   <Route path="/agent-config" element={<AgentConfigPage />} />
                   <Route path="/security" element={<SecurityPage />} />
                   <Route path="/token-usage" element={<TokenUsagePage />} />
+                  <Route path="/agent-stats" element={<AgentStatsPage />} />
                   <Route
                     path="/voice-transcription"
                     element={<VoiceTranscriptionPage />}
                   />
                   <Route path="/debug" element={<DebugPage />} />
+                  <Route path="/backups" element={<BackupsPage />} />
 
                   {/* Plugin routes — dynamically injected at runtime */}
                   {pluginRoutes.map((route) => (

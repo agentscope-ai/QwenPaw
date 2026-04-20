@@ -26,9 +26,10 @@ from ..agent_context import get_agent_for_request
 from ..utils import schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
-from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
+from ...config.config import ActiveModelsInfo
+from ...providers.provider_manager import ProviderManager
 from ...providers.openrouter_provider import OpenRouterProvider
-from ...providers.models import ModelSlotConfig
+from ...config.config import ModelSlotConfig
 
 logger = logging.getLogger(__name__)
 

@@ -9,8 +9,12 @@ import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-from .core import ACPAgentConfig, ACPProtocolError, ACPTransportError
+from typing import TYPE_CHECKING, Any
+
+from .core import ACPProtocolError, ACPTransportError
+
+if TYPE_CHECKING:
+    from ...config.config import ACPAgentConfig
 
 
 @dataclass

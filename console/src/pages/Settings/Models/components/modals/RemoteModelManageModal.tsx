@@ -591,8 +591,8 @@ export function RemoteModelManageModal({
 
   const filteredModels = useMemo(() => {
     const all_models = [
-      ...(provider.models ?? []),
       ...(provider.extra_models ?? []),
+      ...(provider.models ?? []),
     ];
     const q = modelSearchQuery.trim().toLowerCase();
     if (!q) return all_models;
@@ -681,16 +681,20 @@ export function RemoteModelManageModal({
                         flexShrink: 0,
                       }}
                     />
-                    <Tooltip title={t("models.probeMultimodal", "测试多模态")}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<ExperimentOutlined />}
-                        onClick={() => handleProbeMultimodal(m.id)}
-                        loading={probingModelId === m.id}
-                        style={darkBtnStyle}
-                      />
-                    </Tooltip>
+                    {m.probe_source !== "documentation" && (
+                      <Tooltip
+                        title={t("models.probeMultimodal", "测试多模态")}
+                      >
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ExperimentOutlined />}
+                          onClick={() => handleProbeMultimodal(m.id)}
+                          loading={probingModelId === m.id}
+                          style={darkBtnStyle}
+                        />
+                      </Tooltip>
+                    )}
                     <Tooltip title={t("models.testConnection")}>
                       <Button
                         type="text"

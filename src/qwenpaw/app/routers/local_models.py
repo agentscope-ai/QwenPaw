@@ -128,6 +128,12 @@ class LocalModelConfigRequest(BaseModel):
         description="Maximum context length for local models.",
         ge=32768,
     )
+    port: Optional[int] = Field(
+        default=None,
+        description="Optional fixed port for local llama.cpp server.",
+        ge=1,
+        le=65535,
+    )
     generate_kwargs: Optional[dict[str, Any]] = Field(
         default=None,
         description=("Additional generation parameters for local models."),
@@ -413,6 +419,39 @@ async def cancel_local_model_download(
     )
 
 
+@router.delete(
+    "/models/{model_id:path}",
+    response_model=ActionResponse,
+    summary="Delete a downloaded local model",
+)
+async def delete_local_model(
+    model_id: str,
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> ActionResponse:
+    """Delete a downloaded local model by repo id."""
+    server_state = manager.get_llamacpp_server_status()
+    if (
+        server_state.get("running")
+        and server_state.get("model_name") == model_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a model while it is running",
+        )
+
+    try:
+        manager.remove_downloaded_model(model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AppBaseException as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ActionResponse(
+        status="ok",
+        message=f"Local model deleted: {model_id}",
+    )
+
+
 @router.put(
     "/config",
     response_model=ActionResponse,
@@ -426,6 +465,9 @@ async def configure_local_model_settings(
     """Configure local model settings."""
     if payload.max_context_length is not None:
         await local_manager.set_max_context_length(payload.max_context_length)
+
+    if "port" in payload.model_fields_set:
+        await local_manager.set_port(payload.port)
 
     if payload.generate_kwargs is not None:
         provider_manager.update_provider(

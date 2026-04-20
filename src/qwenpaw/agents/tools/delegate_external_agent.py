@@ -37,8 +37,8 @@ def _resolve_execution_cwd(cwd: str, workspace_dir: Path) -> Path:
 
 
 def _get_acp_service() -> Any:
+    from ...config.config import ACPConfig
     from ..acp import get_acp_service, init_acp_service
-    from ..acp.core import ACPConfig
 
     config = load_config()
     acp_config = getattr(config, "acp", None) or ACPConfig()

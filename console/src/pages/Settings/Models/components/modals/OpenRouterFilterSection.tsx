@@ -2,12 +2,7 @@ import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Input, Switch, Tag } from "@agentscope-ai/design";
-import {
-  FilterOutlined,
-  GiftOutlined,
-  PlusOutlined,
-  SearchOutlined,
-} from "@ant-design/icons";
+import { FilterOutlined, GiftOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   SparkImageuploadLine,
   SparkAudiouploadLine,
@@ -114,7 +109,6 @@ export function OpenRouterFilterSection({
   onAddModel,
 }: OpenRouterFilterSectionProps) {
   const { t } = useTranslation();
-  const [providerSearchInput, setProviderSearchInput] = useState("");
   const [providerSearchQuery, setProviderSearchQuery] = useState("");
 
   const filteredProviders = useMemo(() => {
@@ -126,10 +120,6 @@ export function OpenRouterFilterSection({
       provider.toLowerCase().includes(query),
     );
   }, [availableSeries, providerSearchQuery]);
-
-  const handleApplyProviderSearch = () => {
-    setProviderSearchQuery(providerSearchInput);
-  };
 
   const handleToggleProvider = (provider: string, checked: boolean) => {
     if (checked) {
@@ -194,22 +184,13 @@ export function OpenRouterFilterSection({
                 </div>
                 <div className={styles.providerControls}>
                   <Input
-                    value={providerSearchInput}
+                    value={providerSearchQuery}
                     onChange={(event) =>
-                      setProviderSearchInput(event.target.value)
+                      setProviderSearchQuery(event.target.value)
                     }
-                    onPressEnter={handleApplyProviderSearch}
                     placeholder={t("models.searchProviderPlaceholder")}
                     className={styles.providerSearchInput}
                   />
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<SearchOutlined />}
-                    onClick={handleApplyProviderSearch}
-                  >
-                    {t("models.search")}
-                  </Button>
                   <Button
                     type="text"
                     size="small"

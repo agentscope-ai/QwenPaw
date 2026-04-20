@@ -65,7 +65,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ...__version__ import __version__
 from ...constant import WORKING_DIR
-from ...providers.models import ModelSlotConfig
+from ...config.config import ModelSlotConfig
 from ...providers.provider_manager import ProviderManager
 
 logger = logging.getLogger(__name__)

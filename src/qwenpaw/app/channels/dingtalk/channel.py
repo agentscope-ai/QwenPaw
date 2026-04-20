@@ -156,6 +156,7 @@ class DingTalkChannel(BaseChannel):
         filter_thinking: bool = False,
         require_mention: bool = False,
         card_auto_layout: bool = False,
+        at_sender_on_reply: bool = False,
     ):
         super().__init__(
             process,
@@ -178,6 +179,7 @@ class DingTalkChannel(BaseChannel):
         self.card_template_key = card_template_key or "content"
         self.robot_code = robot_code or self.client_id
         self.card_auto_layout = card_auto_layout
+        self.at_sender_on_reply = at_sender_on_reply
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -261,6 +263,11 @@ class DingTalkChannel(BaseChannel):
             require_mention=os.getenv("DINGTALK_REQUIRE_MENTION", "0") == "1",
             card_auto_layout=os.getenv("DINGTALK_CARD_AUTO_LAYOUT", "0")
             == "1",
+            at_sender_on_reply=os.getenv(
+                "DINGTALK_AT_SENDER_ON_REPLY",
+                "0",
+            )
+            == "1",
         )
 
     @classmethod
@@ -298,6 +305,11 @@ class DingTalkChannel(BaseChannel):
             filter_thinking=filter_thinking,
             require_mention=config.require_mention,
             card_auto_layout=getattr(config, "card_auto_layout", False),
+            at_sender_on_reply=getattr(
+                config,
+                "at_sender_on_reply",
+                False,
+            ),
         )
 
     # ---------------------------
@@ -864,12 +876,37 @@ class DingTalkChannel(BaseChannel):
         session_webhook: str,
         body: str,
         bot_prefix: str = "",
+        at_user_ids: Optional[List[str]] = None,
+        at_dingtalk_ids: Optional[List[str]] = None,
     ) -> bool:
         """Send one text message via DingTalk sessionWebhook. Returns True
-        on success."""
+        on success.
+
+        When ``at_user_ids`` or ``at_dingtalk_ids`` is provided, the
+        ``at`` field is added to the webhook payload so that the
+        mentioned users receive a push notification.  The @mention text
+        is also prepended to the message body (DingTalk requires both).
+        """
         text = (bot_prefix + "  " + body) if body else bot_prefix
+
+        # Build at payload and prepend @mention text
+        at_payload: Optional[Dict[str, Any]] = None
+        if at_user_ids or at_dingtalk_ids:
+            at_payload = {}
+            mentions = []
+            if at_user_ids:
+                at_payload["atUserIds"] = at_user_ids
+                mentions.extend(f"@{uid}" for uid in at_user_ids)
+            if at_dingtalk_ids:
+                at_payload["atDingtalkIds"] = at_dingtalk_ids
+                mentions.extend(f"@{did}" for did in at_dingtalk_ids)
+            text = " ".join(mentions) + "\n" + text
+
         if len(text) > 3500:
-            payload = {"msgtype": "text", "text": {"content": text}}
+            payload: Dict[str, Any] = {
+                "msgtype": "text",
+                "text": {"content": text},
+            }
         else:
             norm = dingtalk_markdown.normalize_dingtalk_markdown(text)
             payload = {
@@ -879,6 +916,10 @@ class DingTalkChannel(BaseChannel):
                     "text": norm,
                 },
             }
+
+        if at_payload:
+            payload["at"] = at_payload
+
         return await self._send_payload_via_session_webhook(
             session_webhook,
             payload,
@@ -2083,6 +2124,7 @@ class DingTalkChannel(BaseChannel):
         last_response = None
         accumulated_parts: list = []
         _acked_early = False
+        _at_sent = False  # Track whether @mention has been sent
         conversation_id = str(meta.get("conversation_id") or "")
         incoming_msg_id = str(meta.get("message_id") or "")
 
@@ -2108,6 +2150,19 @@ class DingTalkChannel(BaseChannel):
 
         card: Optional[ActiveAICard] = None
         card_full_text = ""
+        # Build @mention prefix for AI card content.
+        # DingTalk STREAM cards require <a atId=userId>nick</a> in the
+        # Markdown body to trigger the @ notification.
+        card_at_prefix = ""
+        if (
+            self.at_sender_on_reply
+            and meta.get("is_group", False)
+            and meta.get("sender_staff_id", "")
+        ):
+            at_id = meta["sender_staff_id"]
+            at_nick = meta.get("sender_nick", "") or at_id
+            card_at_prefix = f"<a atId={at_id}>{at_nick}</a>\n"
+
         if use_ai_card:
             try:
                 card = await self._create_ai_card(
@@ -2142,7 +2197,7 @@ class DingTalkChannel(BaseChannel):
                 parts = self._message_to_content_parts(event)
                 body = self._parts_to_single_text(
                     parts,
-                    bot_prefix="",
+                    bot_prefix=bot_prefix,
                 )
                 if use_ai_card and card:
                     next_text = self._merge_ai_card_text(
@@ -2154,7 +2209,7 @@ class DingTalkChannel(BaseChannel):
                             card_full_text = next_text
                             await self._stream_ai_card(
                                 card,
-                                card_full_text,
+                                card_at_prefix + card_full_text,
                                 finalize=False,
                             )
                     except Exception:
@@ -2185,10 +2240,31 @@ class DingTalkChannel(BaseChannel):
                     )
                 elif use_multi and parts and session_webhook:
                     if body.strip():
+                        # Resolve @mention for the first message.
+                        at_uids = None
+                        at_dids = None
+                        is_group = meta.get("is_group", False)
+                        if (
+                            self.at_sender_on_reply
+                            and not _at_sent
+                            and is_group
+                        ):
+                            staff_id = meta.get("sender_staff_id", "")
+                            dingtalk_id = meta.get(
+                                "sender_dingtalk_id",
+                                "",
+                            )
+                            if staff_id:
+                                at_uids = [staff_id]
+                            elif dingtalk_id:
+                                at_dids = [dingtalk_id]
+                            _at_sent = True
                         await self._send_via_session_webhook(
                             session_webhook,
                             body.strip(),
                             bot_prefix="",
+                            at_user_ids=at_uids,
+                            at_dingtalk_ids=at_dids,
                         )
                         if not _acked_early:
                             self._ack_early(
@@ -2236,7 +2312,7 @@ class DingTalkChannel(BaseChannel):
                     final_text = bot_prefix + f"Error: {err_msg}"
                 await self._stream_ai_card(
                     card,
-                    final_text,
+                    card_at_prefix + final_text,
                     finalize=True,
                 )
             except Exception:
@@ -2838,6 +2914,15 @@ class DingTalkChannel(BaseChannel):
         )
         runtime = tea_util_models.RuntimeOptions()
 
+        # Resolve @mention for AI card in group chat.
+        # card_at_user_ids on CreateCardRequest accepts List[str] of
+        # enterprise userId (senderStaffId).  Only set when available.
+        card_at_user_ids: Optional[List[str]] = None
+        card_user_id_type: Optional[int] = None
+        if self.at_sender_on_reply and is_group and sender_staff_id:
+            card_at_user_ids = [sender_staff_id]
+            card_user_id_type = 1
+
         create_request = dingtalk_card_models.CreateCardRequest(
             card_template_id=self.card_template_id,
             out_track_id=card_instance_id,
@@ -2855,6 +2940,8 @@ class DingTalkChannel(BaseChannel):
                     support_forward=True,
                 )
             ),
+            card_at_user_ids=card_at_user_ids,
+            user_id_type=card_user_id_type,
         )
 
         logger.info(
