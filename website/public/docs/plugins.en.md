@@ -10,7 +10,7 @@ The plugin system supports the following extension capabilities:
 - **Lifecycle Hooks**: Execute custom code during application startup/shutdown
 - **Magic Commands**: Register custom `/command` commands
 - **Frontend Pages**: Add custom pages to the sidebar
-- **Tool Renderers**: Customize how tool-call results are displayed.
+- **Tool Renderers**: Customize how tool-call results are displayed
 
 ## Plugin Management
 
@@ -261,6 +261,27 @@ Frontend plugins let you add custom pages to the QwenPaw sidebar and customize t
 | `antd`            | `typeof antd`              | Ant Design components |
 | `getApiUrl(path)` | `(path: string) => string` | Build full API URL    |
 | `getApiToken()`   | `() => string`             | Current auth token    |
+
+#### Module Registry (`window.QwenPaw.modules`)
+
+Plugins can access host application modules via `window.QwenPaw.modules` for deep customization. All files under `src/pages/` are automatically registered at startup.
+
+**Example: Modify default configuration**
+
+```ts
+const mod = window.QwenPaw.modules["Chat/OptionsPanel/defaultConfig"];
+const original = mod.getDefaultConfig;
+
+mod.getDefaultConfig = (t) => {
+  const config = original(t);
+  return {
+    ...config,
+    welcome: { ...config.welcome, greeting: "Custom greeting" },
+  };
+};
+```
+
+> ⚠️ **Warning**: Modifying core modules may affect app stability, and module structure may change across versions.
 
 #### Registration APIs
 

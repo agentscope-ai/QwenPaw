@@ -22,6 +22,7 @@ dist/
 .wheelshim/
 # Console frontend build (generated in Docker/CI, do not commit)
 console/.cursor/
+console/src/plugins/generated/
 src/qwenpaw/console/dist/
 src/qwenpaw/console/
 

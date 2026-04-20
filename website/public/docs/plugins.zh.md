@@ -262,6 +262,27 @@ plugin = MyPlugin()
 | `getApiUrl(path)` | `(path: string) => string` | 构造完整 API URL  |
 | `getApiToken()`   | `() => string`             | 当前认证 Token    |
 
+#### 模块注册表（`window.QwenPaw.modules`）
+
+插件可以通过 `window.QwenPaw.modules` 访问宿主应用的模块，实现深度定制。应用启动时，`src/pages/` 下的所有文件会自动注册。
+
+**示例：修改默认配置**
+
+```ts
+const mod = window.QwenPaw.modules["Chat/OptionsPanel/defaultConfig"];
+const original = mod.getDefaultConfig;
+
+mod.getDefaultConfig = (t) => {
+  const config = original(t);
+  return {
+    ...config,
+    welcome: { ...config.welcome, greeting: "自定义问候语" },
+  };
+};
+```
+
+> ⚠️ **警告**：修改核心模块可能影响应用稳定性，且模块结构可能随版本变化。
+
 #### 注册 API
 
 ##### `window.QwenPaw.registerRoutes(pluginId, routes)`

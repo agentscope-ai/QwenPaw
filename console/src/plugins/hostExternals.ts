@@ -29,6 +29,7 @@ export interface HostExternals {
   apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
+
 }
 
 export interface PluginRouteDeclaration {
@@ -132,6 +133,15 @@ export interface WindowNamespace {
     pluginId: string,
     renderers: Record<string, React.FC<any>>,
   ) => void;
+
+  getModuleStats?: () => {
+    total: number;
+    modules: string[];
+    hasModule: (key: string) => boolean;
+    getModule: (key: string) => Record<string, unknown> | undefined;
+    listByPrefix: (prefix: string) => string[];
+  };
+  modules: Record<string, Record<string, unknown>>;
 }
 
 declare global {
@@ -181,6 +191,21 @@ export function installHostExternals(): void {
           renderers,
         ).join(", ")}`,
       );
+    };
+  }
+  if (!window.QwenPaw.getModuleStats) {
+    window.QwenPaw.getModuleStats = () => {
+      // 动态导入 moduleRegistry 来获取统计信息
+      const modules = window.QwenPaw.modules;
+      const keys = Object.keys(modules);
+      return {
+        total: keys.length,
+        modules: keys,
+        hasModule: (key: string) => key in modules,
+        getModule: (key: string) => modules[key],
+        listByPrefix: (prefix: string) =>
+          keys.filter((k) => k.startsWith(prefix)),
+      };
     };
   }
 }
