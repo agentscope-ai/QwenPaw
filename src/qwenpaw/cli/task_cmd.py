@@ -233,7 +233,7 @@ def task_cmd(
 ) -> None:
     """Run a single task instruction headlessly (no web server)."""
     from ..config.config import load_agent_config
-    from ..providers.models import ModelSlotConfig
+    from ..config.config import ModelSlotConfig
     from ..utils.logging import setup_logger
 
     setup_logger("info")

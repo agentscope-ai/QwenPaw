@@ -2,8 +2,6 @@
 """ACP client and server exports."""
 
 from .core import (
-    ACPAgentConfig,
-    ACPConfig,
     ACPConfigurationError,
     ACPProtocolError,
     ACPSessionError,
@@ -16,8 +14,6 @@ from .server import QwenPawACPAgent, run_qwenpaw_agent
 from .service import ACPService, get_acp_service, init_acp_service
 
 __all__ = [
-    "ACPAgentConfig",
-    "ACPConfig",
     "ACPErrors",
     "ACPConfigurationError",
     "ACPProtocolError",

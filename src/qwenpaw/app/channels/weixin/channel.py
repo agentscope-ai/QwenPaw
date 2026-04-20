@@ -76,6 +76,7 @@ class WeixinChannel(BaseChannel):
         base_url: str = "",
         bot_prefix: str = "",
         media_dir: str = "",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -108,9 +109,16 @@ class WeixinChannel(BaseChannel):
         self._context_tokens_file = (
             self._bot_token_file.parent / "weixin_context_tokens.json"
         )
-        self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else DEFAULT_MEDIA_DIR
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
         )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
 
         self._client: Optional[ILinkClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -181,6 +189,7 @@ class WeixinChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "WeixinChannel":
         return cls(
             process=process,
@@ -190,6 +199,7 @@ class WeixinChannel(BaseChannel):
             base_url=getattr(config, "base_url", "") or "",
             bot_prefix=getattr(config, "bot_prefix", "") or "",
             media_dir=getattr(config, "media_dir", None) or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,

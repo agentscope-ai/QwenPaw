@@ -1248,27 +1248,30 @@ class TestWecomChannelMediaUpload:
         """_send_ws_cmd should send command and await ack."""
         wecom_channel._client = mock_ws_client
 
-        # Create future and set result
-        loop = MagicMock()
-        loop.create_future = MagicMock()
-        mock_fut = MagicMock()
-        mock_fut.done.return_value = False
-        mock_fut.result = {"body": {"status": "ok"}, "errcode": 0}
-        loop.create_future.return_value = mock_fut
+        # Set up a fake WS event loop so the None-check passes
+        mock_ws_loop = MagicMock()
+        wecom_channel._ws_loop = mock_ws_loop
 
-        with patch("asyncio.get_event_loop", return_value=loop):
-            # Need to actually create a proper future
-            import asyncio
+        mock_send_future = MagicMock()
 
-            real_fut = asyncio.Future()
-            real_fut.set_result(
-                {
-                    "body": {"result": "success"},
-                    "errcode": 0,
-                },
-            )
-            loop.create_future.return_value = real_fut
+        def fake_run_coroutine_threadsafe(coro, loop):
+            """Simulate scheduling and resolve the ack future."""
+            coro.close()
+            # Find the registered future and set its result
+            for fut in wecom_channel._upload_ack_futures.values():
+                if not fut.done():
+                    fut.set_result(
+                        {
+                            "body": {"result": "success"},
+                            "errcode": 0,
+                        },
+                    )
+            return mock_send_future
 
+        with patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=fake_run_coroutine_threadsafe,
+        ):
             result = await wecom_channel._send_ws_cmd(
                 "test_cmd",
                 {"key": "value"},

@@ -13,7 +13,7 @@ from agentscope_runtime.engine.schemas.exception import (
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers.anthropic_provider import AnthropicProvider
-from qwenpaw.providers.models import ModelSlotConfig
+from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager

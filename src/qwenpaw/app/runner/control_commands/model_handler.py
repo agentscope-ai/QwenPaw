@@ -288,7 +288,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
         # Update agent config
         from ....config.config import save_agent_config
-        from ....providers.models import ModelSlotConfig as ModelSlot
+        from ....config.config import ModelSlotConfig as ModelSlot
 
         workspace = context.workspace
         agent_config = workspace.config

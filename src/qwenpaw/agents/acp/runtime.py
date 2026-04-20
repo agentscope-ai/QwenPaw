@@ -5,10 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from .core import (
-    ACPAgentConfig,
     ACPErrors,
     ACPProtocolError,
     ACPTransportError,
@@ -23,6 +22,9 @@ from .transport import (
     JSONRPCResponse,
 )
 
+if TYPE_CHECKING:
+    from ...config.config import ACPAgentConfig
+
 PermissionHandler = Callable[[dict[str, Any]], Awaitable[PermissionResolution]]
 MessageHandler = Callable[[dict[str, Any], bool], Awaitable[None]]
 logger = logging.getLogger(__name__)
@@ -34,7 +36,7 @@ class ACPRuntime:
     THINKING_STATUS_INTERVAL_SECONDS = 5.0
     EMIT_THINKING_STATUS = False
 
-    def __init__(self, agent_name: str, agent_config: ACPAgentConfig):
+    def __init__(self, agent_name: str, agent_config: "ACPAgentConfig"):
         self.agent_name = agent_name
         self.transport = ACPTransport(agent_name, agent_config)
         self._suspended_permission: SuspendedPermission | None = None

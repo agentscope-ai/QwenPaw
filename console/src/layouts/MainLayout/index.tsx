@@ -46,11 +46,14 @@ const SecurityPage = lazyWithRetry(
 const TokenUsagePage = lazyWithRetry(
   () => import("../../pages/Settings/TokenUsage"),
 );
+const AgentStatsPage = lazyWithRetry(
+  () => import("../../pages/Settings/AgentStats"),
+);
 const VoiceTranscriptionPage = lazyWithRetry(
   () => import("../../pages/Settings/VoiceTranscription"),
 );
 const AgentsPage = lazyWithRetry(() => import("../../pages/Settings/Agents"));
-const DebugPage = lazyWithRetry(() => import("../../pages/Debug"));
+const DebugPage = lazyWithRetry(() => import("../../pages/Settings/Debug"));
 
 const { Content } = Layout;
 
@@ -71,6 +74,7 @@ const pathToKey: Record<string, string> = {
   "/agent-config": "agent-config",
   "/security": "security",
   "/token-usage": "token-usage",
+  "/agent-stats": "agent-stats",
   "/voice-transcription": "voice-transcription",
   "/debug": "debug",
 };
@@ -127,6 +131,7 @@ export default function MainLayout() {
                   <Route path="/agent-config" element={<AgentConfigPage />} />
                   <Route path="/security" element={<SecurityPage />} />
                   <Route path="/token-usage" element={<TokenUsagePage />} />
+                  <Route path="/agent-stats" element={<AgentStatsPage />} />
                   <Route
                     path="/voice-transcription"
                     element={<VoiceTranscriptionPage />}

@@ -9,6 +9,10 @@ from .config import (
     SecurityConfig,
     ToolGuardConfig,
     ToolGuardRuleConfig,
+    ModelSlotConfig,
+    ActiveModelsInfo,
+    ACPConfig,
+    ACPAgentConfig,
 )
 from .utils import (
     get_available_channels,
@@ -35,6 +39,10 @@ __all__ = [
     "SecurityConfig",
     "ToolGuardConfig",
     "ToolGuardRuleConfig",
+    "ModelSlotConfig",
+    "ActiveModelsInfo",
+    "ACPConfig",
+    "ACPAgentConfig",
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",

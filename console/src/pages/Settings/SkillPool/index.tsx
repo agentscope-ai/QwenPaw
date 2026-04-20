@@ -27,6 +27,7 @@ import { getBuiltinNoticeLines } from "./builtinNotice";
 import { useSkillPool } from "./useSkillPool";
 import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import { PageHeader } from "@/components/PageHeader";
+import type { PoolSkillSpec } from "../../../api/types";
 import styles from "./index.module.less";
 
 function SkillPoolPage() {
@@ -229,7 +230,7 @@ function SkillPoolPage() {
           </div>
         ) : pool.viewMode === "card" ? (
           <div className={styles.skillsGrid}>
-            {visibleSkills.map((skill: any) => (
+            {visibleSkills.map((skill: PoolSkillSpec) => (
               <PoolSkillCard
                 key={skill.name}
                 skill={skill}
@@ -245,7 +246,7 @@ function SkillPoolPage() {
           </div>
         ) : (
           <div className={styles.skillsList}>
-            {visibleSkills.map((skill: any) => (
+            {visibleSkills.map((skill: PoolSkillSpec) => (
               <PoolSkillListItem
                 key={skill.name}
                 skill={skill}
@@ -284,6 +285,7 @@ function SkillPoolPage() {
         loading={pool.importBuiltinLoading}
         sources={pool.builtinSources}
         notice={pool.builtinNotice}
+        defaultLanguage={pool.builtinLanguage}
         defaultSelectedNames={pool.builtinNotice?.actionable_skill_names}
         onCancel={pool.closeImportBuiltin}
         onConfirm={pool.handleImportBuiltins}
@@ -302,6 +304,7 @@ function SkillPoolPage() {
         onContentChange={pool.handleDrawerContentChange}
         onShowMarkdownChange={pool.setShowMarkdown}
         onConfigTextChange={pool.setConfigText}
+        onChangeBuiltinLanguage={pool.handleBuiltinLanguageSwitch}
         validateFrontmatter={pool.validateFrontmatter}
       />
 

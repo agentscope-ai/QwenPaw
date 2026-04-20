@@ -63,6 +63,29 @@
   gap: 8px;
 }
 
+.languageToggle {
+  display: flex;
+  gap: 6px;
+}
+
+.importToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.importToolbarDivider {
+  width: 1px;
+  height: 16px;
+  background: rgba(0, 0, 0, 0.12);
+  margin: 0 4px;
+
+  :global(.dark-mode) & {
+    background: rgba(255, 255, 255, 0.15);
+  }
+}
+
 .headerActionsRight {
   display: flex;
   align-items: center;
@@ -435,6 +458,8 @@
 .cardTopRight {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   flex-shrink: 0;
 }

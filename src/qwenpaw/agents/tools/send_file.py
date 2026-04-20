@@ -14,6 +14,7 @@ from agentscope.message import (
 )
 
 from ..schema import FileBlock
+from .file_io import _resolve_file_path
 
 
 def _auto_as_type(mt: str) -> str:
@@ -44,6 +45,9 @@ async def send_file_to_user(
     # (e.g. macOS stores filenames as NFD but paths from the LLM arrive as NFC,
     # causing os.path.exists to return False for files that do exist).
     file_path = os.path.expanduser(unicodedata.normalize("NFC", file_path))
+
+    # Resolve relative paths to absolute paths based on workspace directory
+    file_path = _resolve_file_path(file_path)
 
     if not os.path.exists(file_path):
         return ToolResponse(

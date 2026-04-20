@@ -105,6 +105,7 @@ class MattermostChannel(BaseChannel):
         bot_token: str,
         bot_prefix: str = "",
         media_dir: str = "",
+        workspace_dir: Path | None = None,
         show_typing: Optional[bool] = None,
         thread_follow_without_mention: bool = False,
         on_reply_sent: OnReplySent = None,
@@ -131,9 +132,16 @@ class MattermostChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self._url = url.rstrip("/")
         self._bot_token = bot_token
-        self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else _DEFAULT_MEDIA_DIR
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
         )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = _DEFAULT_MEDIA_DIR
         self._show_typing = show_typing if show_typing is not None else True
         self._thread_follow = thread_follow_without_mention
 
@@ -176,6 +184,7 @@ class MattermostChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "MattermostChannel":
         if isinstance(config, dict):
             c = config
@@ -192,6 +201,7 @@ class MattermostChannel(BaseChannel):
             bot_token=_s("bot_token"),
             bot_prefix=_s("bot_prefix"),
             media_dir=_s("media_dir"),
+            workspace_dir=workspace_dir,
             show_typing=c.get("show_typing"),
             thread_follow_without_mention=bool(
                 c.get("thread_follow_without_mention", False),

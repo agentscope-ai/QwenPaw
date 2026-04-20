@@ -1,5 +1,6 @@
 export * from "./agent";
 export * from "./agents";
+export * from "./agentStats";
 export * from "./channel";
 export * from "./heartbeat";
 export * from "./chat";

@@ -47,6 +47,7 @@ class IMessageChannel(BaseChannel):
         poll_sec: float,
         bot_prefix: str,
         media_dir: str = "",
+        workspace_dir: Path | None = None,
         max_decoded_size: int = 10 * 1024 * 1024,  # 10MB default
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
@@ -79,9 +80,16 @@ class IMessageChannel(BaseChannel):
         self.bot_prefix = bot_prefix
 
         # Create media directory for downloaded files
-        self._media_dir = (
-            Path(media_dir).expanduser() if media_dir else DEFAULT_MEDIA_DIR
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
         )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
         self._media_dir.mkdir(parents=True, exist_ok=True)
 
         # Base64 data size limit
@@ -138,6 +146,7 @@ class IMessageChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "IMessageChannel":
         return cls(
             process=process,
@@ -146,6 +155,7 @@ class IMessageChannel(BaseChannel):
             poll_sec=config.poll_sec,
             bot_prefix=config.bot_prefix or "",
             media_dir=config.media_dir if config.media_dir else "",
+            workspace_dir=workspace_dir,
             max_decoded_size=config.max_decoded_size,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,

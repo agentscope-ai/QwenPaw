@@ -425,6 +425,26 @@ def get_active_model_supports_multimodal() -> bool:
     return bool(model_info.supports_multimodal)
 
 
+def get_active_model_multimodal_raw() -> bool | None:
+    """Return the effective multimodal capability flag for the active model.
+
+    Checks ``supports_multimodal``, ``supports_image``, and
+    ``supports_video`` — any of them being ``True`` means multimodal
+    is confirmed.
+
+    - ``True``: confirmed multimodal support (via any of the three flags)
+    - ``False``: confirmed text-only (supports_multimodal is explicitly
+      False and neither supports_image nor supports_video is True)
+    - ``None``: unknown / not yet probed (all three are None)
+    """
+    model_info, _ = _get_active_model_info()
+    if model_info is None:
+        return None
+    if model_info.supports_image or model_info.supports_video:
+        return True
+    return model_info.supports_multimodal
+
+
 def build_multimodal_hint() -> str:
     """Build a short system-prompt snippet describing multimodal capability."""
     model_info, model_name = _get_active_model_info()
@@ -454,6 +474,7 @@ __all__ = [
     "build_multimodal_hint",
     "format_multimodal_hint",
     "get_active_model_supports_multimodal",
+    "get_active_model_multimodal_raw",
     "PromptBuilder",
     "PromptConfig",
     "DEFAULT_SYS_PROMPT",
