@@ -451,7 +451,7 @@ git clone https://github.com/agentscope-ai/QwenPaw.git
 cd QwenPaw
 
 # Сначала соберите frontend консоли (необходимо для веб-интерфейса)
-cd console && npm ci && npm run build
+cd console && pnpm install && pnpm run build
 cd ..
 
 # Скопируйте результат сборки консоли в директорию пакета

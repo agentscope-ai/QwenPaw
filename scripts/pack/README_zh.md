@@ -15,7 +15,7 @@
 ## 前置
 
 - **conda**（Miniconda/Anaconda）在 PATH
-- **Node.js / npm**（用于构建 console 前端）
+- **Node.js / pnpm**（用于构建 console 前端）
 - （仅 Windows）**NSIS**：`makensis` 在 PATH
 - **图标**：预生成的 `icon.ico` (Windows) 和 `icon.icns` (macOS) 已包含在 `scripts/pack/assets/` 中
 

@@ -1,5 +1,5 @@
 # One-click build: console -> conda-pack -> NSIS .exe. Run from repo root.
-# Requires: conda, node/npm (for console), NSIS (makensis) on PATH.
+# Requires: conda, node/pnpm (for console), NSIS (makensis) on PATH.
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Get-Item $PSScriptRoot).Parent.Parent.FullName

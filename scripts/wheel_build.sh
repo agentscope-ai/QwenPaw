@@ -10,8 +10,18 @@ CONSOLE_DIR="$REPO_ROOT/console"
 CONSOLE_DEST="$REPO_ROOT/src/qwenpaw/console"
 
 echo "[wheel_build] Building console frontend..."
-(cd "$CONSOLE_DIR" && npm ci)
-(cd "$CONSOLE_DIR" && npm run build)
+if ! command -v pnpm &>/dev/null; then
+    if command -v npm &>/dev/null; then
+        echo "pnpm not found, installing via npm..."
+        npm install -g pnpm
+    else
+        echo "pnpm not found and npm is also not available. Install Node.js first." >&2
+        exit 1
+    fi
+fi
+
+(cd "$CONSOLE_DIR" && pnpm install --frozen-lockfile)
+(cd "$CONSOLE_DIR" && pnpm run build)
 
 echo "[wheel_build] Copying console/dist/* -> src/qwenpaw/console/..."
 rm -rf "$CONSOLE_DEST"/*
