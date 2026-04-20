@@ -70,8 +70,6 @@ class OpenAIProvider(Provider):
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if OpenAI provider is reachable with current configuration."""
-        if self.base_url == CODING_DASHSCOPE_BASE_URL:
-            return True, ""
         client = self._client()
         try:
             await client.models.list(timeout=timeout)
