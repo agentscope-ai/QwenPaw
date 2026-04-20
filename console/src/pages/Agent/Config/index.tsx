@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button, Form, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useAgentConfig } from "./useAgentConfig.tsx";
@@ -31,9 +31,9 @@ function AgentConfigPage() {
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
   const maxInputLength = Form.useWatch("max_input_length", form) ?? 0;
   const contextBackend =
-    Form.useWatch("context_manager_backend", form) ?? "light";
+    Form.useWatch("context_manager_backend", form) || "light";
   const memoryBackend =
-    Form.useWatch("memory_manager_backend", form) ?? "ReMeLight";
+    Form.useWatch("memory_manager_backend", form) || "ReMeLight";
 
   const dynamicTabs = useMemo(() => {
     const baseTabs = [
@@ -135,6 +135,13 @@ function AgentConfigPage() {
     contextBackend,
     memoryBackend,
   ]);
+
+  useEffect(() => {
+    const tabKeys = dynamicTabs.map((t) => t.key);
+    if (!tabKeys.includes(activeTab)) {
+      setActiveTab(tabKeys[0] ?? "reactAgent");
+    }
+  }, [dynamicTabs, activeTab]);
 
   if (loading) {
     return (
