@@ -40,6 +40,7 @@
   },
   "nav": {
     "chat": "聊天",
+    "insights": "洞察",
     "control": "控制",
     "channels": "频道",
     "sessions": "会话",

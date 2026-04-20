@@ -40,6 +40,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "insights": "Insights",
     "control": "Control",
     "channels": "Channels",
     "sessions": "Sessions",

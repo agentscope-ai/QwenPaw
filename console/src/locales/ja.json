@@ -38,6 +38,7 @@
   },
   "nav": {
     "chat": "チャット",
+    "insights": "インサイト",
     "control": "コントロール",
     "channels": "チャンネル",
     "sessions": "セッション",

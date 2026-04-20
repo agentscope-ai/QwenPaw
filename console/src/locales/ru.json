@@ -38,6 +38,7 @@
   },
   "nav": {
     "chat": "Чат",
+    "insights": "Инсайты",
     "control": "Управление",
     "channels": "Каналы",
     "sessions": "Сессии",

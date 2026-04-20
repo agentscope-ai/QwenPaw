@@ -235,16 +235,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.security"),
     },
     {
-      key: "token-usage",
-      icon: <SparkDataLine size={18} />,
-      path: "/token-usage",
-      label: t("nav.tokenUsage"),
-    },
-    {
       key: "agent-stats",
       icon: <SparkBarChartLine size={18} />,
       path: "/agent-stats",
       label: t("nav.agentStats"),
+    },
+    {
+      key: "token-usage",
+      icon: <SparkDataLine size={18} />,
+      path: "/token-usage",
+      label: t("nav.tokenUsage"),
     },
     {
       key: "backups",
@@ -345,6 +345,27 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     },
   ];
 
+  // ── Menu items — insights ─────────────────────────────────────────────
+
+  const insightsMenuItems: MenuProps["items"] = [
+    {
+      key: "insights-group",
+      label: collapsed ? null : t("nav.insights"),
+      children: [
+        {
+          key: "agent-stats",
+          label: collapsed ? null : t("nav.agentStats"),
+          icon: <SparkBarChartLine size={16} />,
+        },
+        {
+          key: "token-usage",
+          label: collapsed ? null : t("nav.tokenUsage"),
+          icon: <SparkDataLine size={16} />,
+        },
+      ],
+    },
+  ];
+
   // ── Menu items — global settings ──────────────────────────────────────
 
   const settingsMenuItems: MenuProps["items"] = [
@@ -376,16 +397,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "security",
           label: collapsed ? null : t("nav.security"),
           icon: <SparkBrowseLine size={16} />,
-        },
-        {
-          key: "token-usage",
-          label: collapsed ? null : t("nav.tokenUsage"),
-          icon: <SparkDataLine size={16} />,
-        },
-        {
-          key: "agent-stats",
-          label: collapsed ? null : t("nav.agentStats"),
-          icon: <SparkBarChartLine size={16} />,
         },
         {
           key: "backups",
@@ -488,6 +499,20 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               navigate(path);
             }}
             items={settingsMenuItems}
+            theme={isDark ? "dark" : "light"}
+            className={styles.sideMenu}
+          />
+
+          {/* Insights section */}
+          <Menu
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            openKeys={DEFAULT_OPEN_KEYS}
+            onClick={({ key }) => {
+              const path = KEY_TO_PATH[String(key)];
+              if (path) navigate(path);
+            }}
+            items={insightsMenuItems}
             theme={isDark ? "dark" : "light"}
             className={styles.sideMenu}
           />

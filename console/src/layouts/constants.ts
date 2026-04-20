@@ -15,6 +15,7 @@ export const DEFAULT_OPEN_KEYS = [
   "control-group",
   "agent-group",
   "settings-group",
+  "insights-group",
 ];
 
 export const KEY_TO_PATH: Record<string, string> = {
