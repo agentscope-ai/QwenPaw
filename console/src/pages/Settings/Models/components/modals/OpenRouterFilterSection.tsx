@@ -194,7 +194,6 @@ export function OpenRouterFilterSection({
                   <Button
                     type="text"
                     size="small"
-                    className={styles.providerActionButton}
                     onClick={handleSelectAllProviders}
                     disabled={filteredProviders.length === 0}
                   >
@@ -203,7 +202,6 @@ export function OpenRouterFilterSection({
                   <Button
                     type="text"
                     size="small"
-                    className={styles.providerActionButton}
                     onClick={handleClearProviders}
                     disabled={filteredProviders.length === 0}
                   >
