@@ -929,12 +929,23 @@ class WecomChannel(BaseChannel):
             return
         try:
             sid = stream_id or generate_req_id("stream")
-            await self._client.reply_stream(
-                frame,
-                stream_id=sid,
-                content=text,
-                finish=True,
-            )
+            if self._ws_loop and self._ws_loop.is_running():
+                reply_coro = self._client.reply_stream(
+                    frame,
+                    stream_id=sid,
+                    content=text,
+                    finish=True,
+                )
+                await asyncio.wrap_future(
+                    asyncio.run_coroutine_threadsafe(reply_coro, self._ws_loop)
+                )
+            else:
+                await self._client.reply_stream(
+                    frame,
+                    stream_id=sid,
+                    content=text,
+                    finish=True,
+                )
         except Exception:
             logger.exception("wecom _send_text_via_frame failed")
 
