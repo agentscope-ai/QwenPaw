@@ -1181,7 +1181,7 @@ def test_is_port_available_uses_exclusive_bind_on_windows(
         def bind(self, address: tuple[str, int]) -> None:
             self.bound_address = address
 
-        def __enter__(self) -> _FakeSocket:
+        def __enter__(self) -> Any:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> None:

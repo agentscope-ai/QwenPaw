@@ -668,9 +668,9 @@ class LlamaCppBackend:
     @staticmethod
     def _is_port_available(port: int, host: str = "127.0.0.1") -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            if (
-                system_info.get_os_name() == "windows"
-                and hasattr(socket, "SO_EXCLUSIVEADDRUSE")
+            if system_info.get_os_name() == "windows" and hasattr(
+                socket,
+                "SO_EXCLUSIVEADDRUSE",
             ):
                 sock.setsockopt(
                     socket.SOL_SOCKET,
