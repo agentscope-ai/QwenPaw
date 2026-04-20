@@ -380,6 +380,21 @@ class WeixinConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
 
 
+class WhatsAppConfig(BaseChannelConfig):
+    """WhatsApp channel config (neonize backend)."""
+
+    auth_dir: str = ""
+    send_read_receipts: bool = True
+    self_chat_mode: bool = False
+    text_chunk_limit: int = 4096
+    groups: List[str] = Field(default_factory=list)
+    group_allow_from: List[str] = Field(default_factory=list)
+    ack_reaction_thinking: str = "🤔"
+    ack_reaction_done: str = "👀"
+    ack_reaction_error: str = "⚠️"
+    reply_to_trigger: bool = True
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -399,6 +414,7 @@ class ChannelConfig(BaseModel):
     wecom: WecomConfig = WecomConfig()
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
     weixin: WeixinConfig = WeixinConfig()
+    whatsapp: WhatsAppConfig = WhatsAppConfig()
     onebot: OneBotConfig = OneBotConfig()
 
 
@@ -1437,6 +1453,7 @@ ChannelConfigUnion = Union[
     WecomConfig,
     XiaoYiConfig,
     WeixinConfig,
+    WhatsAppConfig,
 ]
 
 

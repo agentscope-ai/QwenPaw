@@ -730,6 +730,71 @@ It is recommended to configure the following in `@BotFather`:
 
 ---
 
+## WhatsApp
+
+The WhatsApp channel uses [neonize-qwenpaw](https://github.com/joe2643/neonize-qwenpaw) (a protobuf-6-compatible fork of [neonize](https://github.com/krypton-byte/neonize)) (a Python binding for the whatsmeow Go library). It connects directly to WhatsApp Web servers — no extra server, no Meta Business API, no separate daemon required.
+
+### Link your phone
+
+1. In the Console, go to **Control → Channels**, click the **WhatsApp** card, and toggle **Enabled**.
+2. Click **Get Pair Code** or **Show QR Code**:
+   - **Pair Code** (recommended): enter your phone number in E.164 format (e.g. `+85212345678`). The console shows an 8-character code.
+   - **QR Code**: scan the displayed image with WhatsApp → Settings → Linked Devices → Link a device.
+3. On your phone: **Settings → Linked Devices → Link with phone number** and type in the 8-character code (if using pair code), or scan the QR.
+4. After linking, the card shows **Linked** with the bot's phone number.
+
+The session is persisted under `$WORKING_DIR/credentials/whatsapp/default/neonize.db` (default `WORKING_DIR` is `~/.qwenpaw`; falls back to legacy `~/.copaw` if that directory exists, or `$QWENPAW_WORKING_DIR` if set). Restart QwenPaw and the bot reconnects automatically — no re-pairing needed.
+
+### Configure
+
+**Method 1:** Configure in the Console (Control → Channels → WhatsApp).
+
+**Method 2:** Edit agent workspace `agent.json`:
+
+```json
+"whatsapp": {
+    "enabled": true,
+    "bot_prefix": "@bot",
+    "dm_policy": "allowlist",
+    "group_policy": "allowlist",
+    "allow_from": ["+85212345678"],
+    "groups": ["120363421135228220@g.us"],
+    "group_allow_from": ["*"],
+    "require_mention": true,
+    "send_read_receipts": true,
+    "self_chat_mode": false
+}
+```
+
+**WhatsApp-specific fields:**
+
+| Field                | Type   | Default | Description                                                                                                                                                          |
+| -------------------- | ------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth_dir`           | string | `""`    | Directory for neonize-qwenpaw session DB. Defaults to `$WORKING_DIR/credentials/whatsapp/default` (follows `QWENPAW_WORKING_DIR` / legacy `~/.copaw` / `~/.qwenpaw`) |
+| `send_read_receipts` | bool   | `true`  | Send read receipts (double blue ticks)                                                                                                                               |
+| `self_chat_mode`     | bool   | `false` | Process messages sent from the bot's own number (for self-commands)                                                                                                  |
+| `text_chunk_limit`   | int    | `4096`  | Maximum characters per outgoing message (longer replies are split)                                                                                                   |
+| `groups`             | list   | `[]`    | Group JID allowlist (e.g. `"120363421135228220@g.us"`)                                                                                                               |
+| `group_allow_from`   | list   | `[]`    | Who can trigger the bot in groups. `["*"]` = everyone                                                                                                                |
+
+### Features
+
+- **Text** (DM + group) with markdown rendering via WhatsApp's native formatting
+- **Images**, **audio** (voice notes), **video**, **documents**, **stickers** (receive + send)
+- **Mentions**: detects both @phone and WhatsApp's native LID mentions
+- **Reply-to**: quoted message content (text + media) injected as context for the agent
+- **Group history**: non-mentioned messages buffered and injected when the bot is mentioned
+- **Typing indicator**: continuously sent during agent response generation
+- **Slash commands**: `/new`, `/stop`, `/clear` etc. work even when the message starts with `@+bot_phone`
+
+### Notes
+
+- WhatsApp Web sessions are tied to your phone — if you unlink the device on your phone, you'll need to re-pair.
+- Group IDs end with `@g.us` (e.g. `120363421135228220@g.us`). You can find them in the Console drawer after the bot joins a group.
+- `group_policy: allowlist` with an empty `groups` list blocks all group messages.
+
+---
+
 ## Mattermost
 
 The Mattermost channel uses WebSockets for real-time monitoring and REST APIs for replies. It supports both direct messages and group chats, using **Threads** to isolate conversation contexts in channels.

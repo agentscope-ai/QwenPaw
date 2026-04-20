@@ -113,6 +113,26 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   task_timeout_ms?: number;
 }
 
+export interface WhatsAppConfig extends BaseChannelConfig {
+  auth_dir?: string;
+  send_read_receipts?: boolean;
+  self_chat_mode?: boolean;
+  text_chunk_limit?: number;
+  groups?: string[];
+  group_allow_from?: string[];
+  ack_reaction_thinking?: string;
+  ack_reaction_done?: string;
+  ack_reaction_error?: string;
+  reply_to_trigger?: boolean;
+}
+
+export interface WeixinConfig extends BaseChannelConfig {
+  bot_token?: string;
+  bot_token_file?: string;
+  base_url?: string;
+  media_dir?: string;
+}
+
 export interface OneBotConfig extends BaseChannelConfig {
   ws_host: string;
   ws_port: number;
@@ -134,6 +154,8 @@ export interface ChannelConfig {
   console: ConsoleConfig;
   voice: VoiceChannelConfig;
   xiaoyi: XiaoYiConfig;
+  whatsapp: WhatsAppConfig;
+  weixin: WeixinConfig;
   onebot: OneBotConfig;
 }
 
@@ -151,4 +173,6 @@ export type SingleChannelConfig =
   | WecomConfig
   | VoiceChannelConfig
   | XiaoYiConfig
+  | WhatsAppConfig
+  | WeixinConfig
   | OneBotConfig;

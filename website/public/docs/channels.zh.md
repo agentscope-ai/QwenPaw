@@ -730,6 +730,71 @@ WEIXIN_GROUP_POLICY=open
 
 ---
 
+## WhatsApp
+
+WhatsApp 频道使用 [neonize-qwenpaw](https://github.com/joe2643/neonize-qwenpaw) (a protobuf-6-compatible fork of [neonize](https://github.com/krypton-byte/neonize))（whatsmeow Go 库的 Python 绑定），直接连接 WhatsApp Web 服务器——无需额外服务器、无需 Meta Business API、无需独立 daemon。
+
+### 绑定手机
+
+1. 在 Console 进入 **控制 → 频道**，点击 **WhatsApp** 卡片，打开 **启用**。
+2. 点击 **获取配对码** 或 **显示二维码**：
+   - **配对码**（推荐）：输入 E.164 格式的手机号码（例如 `+85212345678`），Console 会显示一组 8 位字符的配对码。
+   - **二维码**：使用 WhatsApp → 设置 → 已连接的设备 → 连接新设备 扫描。
+3. 在手机上：**设置 → 已连接的设备 → 通过电话号码连接**，输入 8 位配对码（若使用配对码方式）。
+4. 绑定成功后，卡片显示 **已连接** 及机器人电话号码。
+
+会话数据保存在 `$WORKING_DIR/credentials/whatsapp/default/neonize.db`（默认 `WORKING_DIR` 为 `~/.qwenpaw`；若存在旧目录 `~/.copaw` 则回退用它，或设置了 `$QWENPAW_WORKING_DIR` 时使用该路径）。重启 QwenPaw 后机器人会自动重连，无需重新配对。
+
+### 配置
+
+**方式 1：** 在 Console 中配置（控制 → 频道 → WhatsApp）。
+
+**方式 2：** 编辑智能体 workspace 的 `agent.json`：
+
+```json
+"whatsapp": {
+    "enabled": true,
+    "bot_prefix": "@bot",
+    "dm_policy": "allowlist",
+    "group_policy": "allowlist",
+    "allow_from": ["+85212345678"],
+    "groups": ["120363421135228220@g.us"],
+    "group_allow_from": ["*"],
+    "require_mention": true,
+    "send_read_receipts": true,
+    "self_chat_mode": false
+}
+```
+
+**WhatsApp 特有字段：**
+
+| 字段                 | 类型   | 默认值  | 说明                                                                                                                                    |
+| -------------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth_dir`           | string | `""`    | neonize 会话数据目录。默认 `$WORKING_DIR/credentials/whatsapp/default`（跟随 `QWENPAW_WORKING_DIR` / 旧目录 `~/.copaw` / `~/.qwenpaw`） |
+| `send_read_receipts` | bool   | `true`  | 发送已读回执（蓝色双勾）                                                                                                                |
+| `self_chat_mode`     | bool   | `false` | 处理自己号码发出的消息（用于自我命令）                                                                                                  |
+| `text_chunk_limit`   | int    | `4096`  | 单条消息最大字符数（超出时自动分段）                                                                                                    |
+| `groups`             | list   | `[]`    | 群组 JID 白名单（例如 `"120363421135228220@g.us"`）                                                                                     |
+| `group_allow_from`   | list   | `[]`    | 谁可以在群内触发机器人。`["*"]` = 所有人                                                                                                |
+
+### 功能
+
+- **文本**（私聊 + 群聊）支持 WhatsApp 原生 markdown
+- **图片**、**语音**、**视频**、**文档**、**贴纸**（收 + 发）
+- **@提及**：同时识别 @电话号码和 WhatsApp 原生 LID 提及
+- **引用回复**：被引用的消息内容（文本 + 媒体）会作为上下文注入
+- **群聊历史**：未被 @的消息会缓冲，机器人被 @时注入作为上下文
+- **输入中**指示器：在生成回复期间持续刷新
+- **斜杠命令**：`/new`、`/stop`、`/clear` 等在消息以 `@+bot_phone` 开头时仍可识别
+
+### 注意事项
+
+- WhatsApp Web 会话绑定到手机。如果在手机上取消关联，需要重新配对。
+- 群组 ID 以 `@g.us` 结尾（例如 `120363421135228220@g.us`），机器人加入群组后可在 Console 抽屉中看到。
+- `group_policy: allowlist` + 空 `groups` 列表将拦截所有群消息。
+
+---
+
 ## Mattermost
 
 Mattermost 频道通过 WebSocket 实时监听事件，并使用 REST API 发送回复。支持私聊和群聊场景，在群聊中基于 **Thread（盖楼）** 划分会话上下文。

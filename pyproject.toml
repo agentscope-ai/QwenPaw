@@ -93,6 +93,24 @@ local = [
 whisper = [
     "openai-whisper>=20231117",
 ]
+whatsapp = [
+    # neonize-qwenpaw is a fork of krypton-byte/neonize with proto stubs
+    # regenerated against protoc 30.2 (gencode 6.30.2) so it cohabitates
+    # with the protobuf 6.x ecosystem that QwenPaw already depends on via
+    # grpcio-status, googleapis-common-protos, google-cloud-*, a2a-sdk,
+    # opentelemetry-proto, onnxruntime, qdrant-client, etc.
+    #
+    # Upstream neonize currently ships stubs compiled by protoc 32.1 which
+    # declare gencode 7.34.1 and refuse to load unless protobuf>=7.34.1 is
+    # installed — that would break every package listed above. A PR has
+    # been filed to upstream neonize to regenerate with protoc 30.2
+    # (krypton-byte/neonize#180); once merged and released we can swap
+    # this dep to the canonical `neonize` package.
+    "neonize-qwenpaw>=0.3.16.1",
+    # QR code endpoint (/config/channels/whatsapp/qrcode) renders the
+    # linking QR via segno. Without it, the QR endpoint 500s.
+    "segno>=1.6.1",
+]
 full = [
     "qwenpaw[local,whisper]",
 ]

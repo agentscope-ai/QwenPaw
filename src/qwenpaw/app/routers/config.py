@@ -1,4 +1,10 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=line-too-long
+# pylint: disable=too-many-statements,too-many-branches,too-many-locals
+# pylint: disable=too-many-arguments,too-many-lines
+# pylint: disable=broad-exception-caught,duplicate-code
+# pylint: disable=redefined-outer-name,reimported,import-outside-toplevel
+# pylint: disable=raise-missing-from,unused-argument
 
 from datetime import datetime, timezone
 from typing import Any, List, Optional
@@ -34,6 +40,9 @@ from ...config.config import (
     TelegramConfig,
     VoiceChannelConfig,
     WecomConfig,
+    WhatsAppConfig,
+    WeixinConfig,
+    XiaoYiConfig,
 )
 
 from .schemas_config import HeartbeatBody
@@ -58,6 +67,9 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     "mqtt": MQTTConfig,
     "matrix": MatrixConfig,
     "wecom": WecomConfig,
+    "whatsapp": WhatsAppConfig,
+    "weixin": WeixinConfig,
+    "xiaoyi": XiaoYiConfig,
 }
 
 
@@ -641,3 +653,396 @@ async def remove_from_whitelist(
         )
     save_config(config)
     return {"removed": True, "skill_name": skill_name}
+
+
+# ── WhatsApp auth (QR / pair code) ────────────────────────────
+# Per-agent pairing state keyed by agent_id.
+# QwenPaw runs as a single-process server; concurrent pairing for
+# different agents is safe because each gets its own state dict.
+_whatsapp_pair_states: dict[str, dict] = {}
+
+
+def _get_wa_pair_state(agent_id: str) -> dict:
+    """Get or create per-agent WhatsApp pairing state."""
+    if agent_id not in _whatsapp_pair_states:
+        _whatsapp_pair_states[agent_id] = {
+            "client": None,
+            "code": None,
+            "status": "idle",
+            "qr_data": None,
+            "task": None,
+        }
+    return _whatsapp_pair_states[agent_id]
+
+
+def _get_wa_auth_dir(agent) -> str:
+    """Resolve WhatsApp auth directory from agent config.
+
+    Priority (matches ``WhatsAppChannel._resolve_wa_auth_dir``):
+      1. Explicit ``auth_dir`` in the agent's channel config
+      2. ``agent.workspace_dir/credentials/whatsapp/default`` (per-agent)
+      3. ``WORKING_DIR/credentials/whatsapp/default`` (install-wide fallback)
+
+    Router and channel class must agree on this ordering — otherwise the
+    pair/QR endpoints write to a different ``neonize.db`` than the live
+    channel reads from.
+    """
+    from pathlib import Path
+    from ...constant import WORKING_DIR
+
+    wa_cfg = getattr(agent.config.channels, "whatsapp", None)
+    explicit = (getattr(wa_cfg, "auth_dir", "") if wa_cfg else "") or ""
+    if explicit:
+        return explicit
+    ws = getattr(agent, "workspace_dir", None)
+    if ws:
+        return str(
+            Path(ws).expanduser() / "credentials" / "whatsapp" / "default",
+        )
+    return str(WORKING_DIR / "credentials" / "whatsapp" / "default")
+
+
+@router.post(
+    "/channels/whatsapp/pair",
+    summary="Start WhatsApp pairing",
+    description="Start WhatsApp pairing. Returns a pair code to enter on your phone.",  # noqa: E501
+)
+async def start_whatsapp_pair(request: Request, phone: str = "") -> dict:
+    """Start WhatsApp pair code auth. Requires E.164 phone number."""
+    import re
+
+    E164_RE = re.compile(r"^\+[1-9]\d{4,14}$")
+    if not phone or not E164_RE.match(phone):
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number required in E.164 format "
+            "(^\\+[1-9]\\d{4,14}$, e.g. +85212345678)",
+        )
+    import asyncio
+
+    try:
+        from neonize.aioze.client import NewAClient
+        from neonize.events import ConnectedEv
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="neonize-qwenpaw not installed. "
+            "Install: pip install qwenpaw[whatsapp]",
+        )
+
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    auth_dir = _get_wa_auth_dir(agent)
+    state = _get_wa_pair_state(agent.agent_id)
+
+    from pathlib import Path
+
+    db_path = str(Path(auth_dir).expanduser() / "neonize.db")
+    Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
+
+    # Disconnect any existing pairing client + cancel its task for this agent
+    # (two NewAClients against the same neonize.db fight over the SQLite lock
+    # / websocket and one of them drops inbound messages silently).
+    old_client = state.get("client")
+    if old_client:
+        try:
+            await old_client.disconnect()
+        except Exception:
+            pass
+    old_task = state.get("task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+        try:
+            await asyncio.wait_for(old_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
+
+    state["status"] = "pairing"
+    state["code"] = None
+    state["qr_data"] = None
+    state["task"] = None
+
+    client = NewAClient(name=db_path)
+    state["client"] = client
+
+    @client.event(ConnectedEv)
+    async def on_connected(c, evt):
+        state["status"] = "connected"
+
+    @client.qr
+    async def on_qr(c, qr_bytes):
+        import base64
+
+        try:
+            import segno
+            import io
+
+            qr = segno.make_qr(qr_bytes)
+            buf = io.BytesIO()
+            qr.save(buf, kind="png", scale=5, border=2)
+            state["qr_data"] = base64.b64encode(buf.getvalue()).decode()
+        except Exception:
+            state["qr_data"] = base64.b64encode(qr_bytes).decode()
+
+    state["task"] = await client.connect()
+    await asyncio.sleep(3)
+
+    try:
+        code = await client.PairPhone(phone, True)
+        state["code"] = code
+        state["status"] = "waiting_pair"
+        return {"status": "waiting_pair", "pair_code": code, "phone": phone}
+    except Exception as e:
+        await asyncio.sleep(2)
+        if state["qr_data"]:
+            state["status"] = "waiting_qr"
+            return {"status": "waiting_qr", "qr_image": state["qr_data"]}
+        state["status"] = "error"
+        # Surface as HTTP 502 so the Console's fetch() drops into .catch()
+        # instead of treating the 200/error-payload as a successful pair.
+        raise HTTPException(
+            status_code=502,
+            detail=f"WhatsApp pairing failed: {e}",
+        )
+
+
+@router.get(
+    "/channels/whatsapp/pair/status",
+    summary="Check WhatsApp pairing status",
+)
+async def check_whatsapp_pair_status(request: Request) -> dict:
+    """Check current WhatsApp pairing status."""
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    state = _get_wa_pair_state(agent.agent_id)
+    result = {"status": state["status"]}
+    if state["code"]:
+        result["pair_code"] = state["code"]
+    if state["qr_data"]:
+        result["qr_image"] = state["qr_data"]
+    return result
+
+
+@router.post(
+    "/channels/whatsapp/pair/stop",
+    summary="Stop WhatsApp pairing",
+)
+async def stop_whatsapp_pair(request: Request) -> dict:
+    """Stop the WhatsApp pairing process."""
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    state = _get_wa_pair_state(agent.agent_id)
+    client = state.get("client")
+    if client:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+    state.update(
+        {
+            "client": None,
+            "code": None,
+            "status": "idle",
+            "qr_data": None,
+            "task": None,
+        },
+    )
+    return {"status": "stopped"}
+
+
+@router.post(
+    "/channels/whatsapp/qrcode",
+    summary="Get WhatsApp QR code for linking",
+)
+async def get_whatsapp_qrcode(request: Request) -> dict:
+    """Start WhatsApp QR auth. Returns QR code image for scanning."""
+    import asyncio
+    import base64
+    import io
+
+    try:
+        from neonize.aioze.client import NewAClient
+        from neonize.events import ConnectedEv
+        import segno
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="neonize-qwenpaw or segno not installed. "
+            "Install: pip install qwenpaw[whatsapp]",
+        )
+
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    auth_dir = _get_wa_auth_dir(agent)
+    state = _get_wa_pair_state(agent.agent_id)
+
+    from pathlib import Path
+
+    db_path = str(Path(auth_dir).expanduser() / "neonize.db")
+    Path(auth_dir).expanduser().mkdir(parents=True, exist_ok=True)
+
+    # Disconnect any existing pairing client for this agent (mirror of
+    # start_whatsapp_pair()): two NewAClients against the same neonize.db
+    # cause SQLite lock / websocket collisions.
+    old_client = state.get("client")
+    if old_client:
+        try:
+            await old_client.disconnect()
+        except Exception:
+            pass
+    old_task = state.get("task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+        try:
+            await asyncio.wait_for(old_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
+
+    qr_ready = asyncio.Event()
+    qr_result = {"image": None}
+
+    client = NewAClient(name=db_path)
+    state["client"] = client
+    state["status"] = "waiting_qr"
+
+    @client.event(ConnectedEv)
+    async def on_connected(c, evt):
+        state["status"] = "connected"
+
+    @client.qr
+    async def on_qr(c, qr_bytes):
+        try:
+            qr = segno.make_qr(qr_bytes)
+            buf = io.BytesIO()
+            qr.save(buf, kind="png", scale=6, border=2)
+            qr_result["image"] = base64.b64encode(buf.getvalue()).decode()
+            qr_ready.set()
+        except Exception:
+            qr_result["image"] = None
+            qr_ready.set()
+
+    state["task"] = await client.connect()
+
+    try:
+        await asyncio.wait_for(qr_ready.wait(), timeout=15)
+    except asyncio.TimeoutError:
+        pass
+
+    if qr_result["image"]:
+        state["qr_data"] = qr_result["image"]
+        return {"status": "waiting_qr", "qr_image": qr_result["image"]}
+    state["status"] = "error"
+    # Non-2xx so the Console's fetch() drops into .catch() rather than
+    # silently succeeding with an error payload.
+    raise HTTPException(
+        status_code=502,
+        detail="QR code not generated (WhatsApp client did not emit a QR within the timeout)",  # noqa: E501
+    )
+
+
+@router.post(
+    "/channels/whatsapp/unbind",
+    summary="Unbind WhatsApp session",
+    description="Delete the WhatsApp session database so the next connection requires re-pairing.",  # noqa: E501
+)
+async def unbind_whatsapp(request: Request) -> dict:
+    """Delete neonize.db to force re-authentication on next start.
+
+    Disconnects any in-memory pairing client and cancels its connect task
+    BEFORE deleting the sqlite file — otherwise the running client would
+    still hold the file open (Windows) or try to write to a now-missing
+    database (all platforms).
+    """
+    import asyncio
+    from pathlib import Path as _P
+
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    auth_dir = _get_wa_auth_dir(agent)
+    state = _get_wa_pair_state(agent.agent_id)
+
+    # Stop any in-memory pairing client + task for this agent first.
+    old_client = state.get("client")
+    if old_client:
+        try:
+            await old_client.disconnect()
+        except Exception:
+            pass
+    old_task = state.get("task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+        try:
+            await asyncio.wait_for(old_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
+
+    db_path = _P(auth_dir).expanduser() / "neonize.db"
+    if db_path.exists():
+        db_path.unlink()
+        state.update(
+            {
+                "client": None,
+                "code": None,
+                "status": "idle",
+                "qr_data": None,
+                "task": None,
+            },
+        )
+        return {
+            "status": "unbound",
+            "detail": "Session deleted. Restart QwenPaw to re-pair.",
+        }
+    return {"status": "idle", "detail": "No session found."}
+
+
+@router.get(
+    "/channels/whatsapp/status",
+    summary="Get WhatsApp connection status",
+)
+async def get_whatsapp_status(request: Request) -> dict:
+    """Check if WhatsApp is linked."""
+    try:
+        from pathlib import Path
+        from ..agent_context import get_agent_for_request
+
+        agent = await get_agent_for_request(request)
+        auth_dir = _get_wa_auth_dir(agent)
+        db_path = Path(auth_dir).expanduser() / "neonize.db"
+        if not db_path.exists():
+            return {"linked": False, "phone": None}
+        import asyncio
+        import sqlite3
+
+        def _check_linked():
+            conn = sqlite3.connect(str(db_path))
+            try:
+                # whatsmeow_device.jid is the bot's own JID, e.g.
+                # "85212345678.0:0@s.whatsapp.net". We return the phone
+                # part so the UI can display a real E.164 number instead
+                # of a literal "linked" placeholder.
+                row = conn.execute(
+                    "SELECT jid FROM whatsmeow_device LIMIT 1",
+                ).fetchone()
+                if not row or not row[0]:
+                    return (False, None)
+                jid = str(row[0])
+                # strip "@s.whatsapp.net" and device suffix (".0:0")
+                user = jid.split("@", 1)[0].split(".", 1)[0].split(":", 1)[0]
+                phone = f"+{user}" if user.isdigit() else user
+                return (True, phone)
+            except Exception:
+                return (False, None)
+            finally:
+                conn.close()
+
+        linked, phone = await asyncio.to_thread(_check_linked)
+        if linked:
+            return {"linked": True, "phone": phone}
+        return {"linked": False, "phone": None}
+    except Exception as e:
+        return {"linked": False, "error": str(e)}
