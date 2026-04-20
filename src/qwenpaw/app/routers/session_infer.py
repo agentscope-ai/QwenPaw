@@ -136,12 +136,19 @@ def _json_default_for_log(value: Any) -> Any:
 
 
 def _json_for_log(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        default=_json_default_for_log,
-    )
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=_json_default_for_log,
+        )
+    except Exception:
+        # Logging helper must never break request processing.
+        try:
+            return str(value)
+        except Exception:
+            return "<unserializable>"
 
 
 def _intent_log_summary(intent: SessionInferIntent) -> dict[str, Any]:
