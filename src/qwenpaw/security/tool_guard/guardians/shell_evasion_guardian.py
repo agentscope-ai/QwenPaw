@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import re
 import uuid
+import logging
 from typing import Any, Callable
 
 from ..models import GuardFinding, GuardSeverity, GuardThreatCategory
 from . import BaseToolGuardian
+
+logger = logging.getLogger(__name__)
 
 # ── Command substitution patterns ────────────────────────────────────
 # Checked against content outside single quotes.
@@ -50,7 +53,6 @@ _ANSI_C_QUOTE_RE = re.compile(r"\$'[^']*'")
 _LOCALE_QUOTE_RE = re.compile(r'\$"[^"]*"')
 _EMPTY_SPECIAL_QUOTE_DASH_RE = re.compile(r"\$['\"]{2}\s*-")
 _EMPTY_QUOTE_DASH_RE = re.compile(r"(?:^|\s)(?:''|\"\")+\s*-")
-_EMPTY_PAIR_QUOTED_DASH_RE = re.compile(r"""(?:""|'')+['"]- """)
 # =====================================================================
 # Quote-state tracker
 # =====================================================================
@@ -58,10 +60,6 @@ _EMPTY_PAIR_QUOTED_DASH_RE = re.compile(r"""(?:""|'')+['"]- """)
 
 class _QuoteState:
     """Tracks shell quoting context character-by-character.
-
-    Mirrors the logic in Claude Code's ``extractQuotedContent`` and the
-    quote trackers used by ``validateObfuscatedFlags``,
-    ``hasBackslashEscapedWhitespace``, etc.
     """
 
     __slots__ = ("in_single", "in_double", "escaped")
@@ -534,7 +532,13 @@ class ShellEvasionGuardian(BaseToolGuardian):
                     result = check(command, outside_single_quotes)
                 else:
                     result = check(command)
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "ShellEvasionGuardian check failed: %s: %s",
+                    getattr(check, "__name__", str(check)),
+                    exc,
+                    exc_info=True,
+                )
                 continue
             if result is not None:
                 findings.append(result)
