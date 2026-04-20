@@ -783,7 +783,10 @@ class TelegramChannel(BaseChannel):
     ) -> None:
         """Message completed — send content but keep typing active."""
         await super().on_event_message_completed(
-            request, to_handle, event, send_meta,
+            request,
+            to_handle,
+            event,
+            send_meta,
         )
         # Re-start typing after sending, in case more tool calls follow.
         if self._is_processing.get(to_handle, False):
