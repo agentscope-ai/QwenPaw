@@ -413,18 +413,22 @@ def get_active_model_supports_multimodal() -> bool:
 
 
 def get_active_model_multimodal_raw() -> bool | None:
-    """Return the raw multimodal capability flag for the active model.
+    """Return the effective multimodal capability flag for the active model.
 
-    Unlike ``get_active_model_supports_multimodal`` (which collapses
-    ``None`` → ``False``), this returns the three-valued flag directly:
+    Checks ``supports_multimodal``, ``supports_image``, and
+    ``supports_video`` — any of them being ``True`` means multimodal
+    is confirmed.
 
-    - ``True``: confirmed multimodal support
-    - ``False``: confirmed text-only
-    - ``None``: unknown / not yet probed
+    - ``True``: confirmed multimodal support (via any of the three flags)
+    - ``False``: confirmed text-only (supports_multimodal is explicitly
+      False and neither supports_image nor supports_video is True)
+    - ``None``: unknown / not yet probed (all three are None)
     """
     model_info, _ = _get_active_model_info()
     if model_info is None:
         return None
+    if model_info.supports_image or model_info.supports_video:
+        return True
     return model_info.supports_multimodal
 
 

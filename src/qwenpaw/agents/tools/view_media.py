@@ -119,6 +119,10 @@ def _validate_media_path(
 async def _probe_multimodal_if_needed() -> bool | None:
     """Trigger a multimodal probe if capability is unknown (None).
 
+    Uses the same agent-specific model resolution as ``_get_active_model_info``
+    so that per-agent model overrides are respected (rather than falling back
+    to the global active model, which may be a different model).
+
     Returns the probe result (True/False) if a probe was run,
     or None if no probe was needed or the probe failed.
     """
@@ -130,8 +134,21 @@ async def _probe_multimodal_if_needed() -> bool | None:
         if model_info is None or model_info.supports_multimodal is not None:
             return None
 
+        # Resolve agent-specific active model (mirrors _get_active_model_info)
         manager = ProviderManager.get_instance()
-        active = manager.get_active_model()
+        active = None
+        try:
+            from ...app.agent_context import get_current_agent_id
+            from ...config.config import load_agent_config
+
+            agent_id = get_current_agent_id()
+            agent_config = load_agent_config(agent_id)
+            if agent_config.active_model:
+                active = agent_config.active_model
+        except Exception:
+            pass
+        if not active:
+            active = manager.get_active_model()
         if not active:
             return None
 
