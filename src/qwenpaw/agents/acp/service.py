@@ -7,9 +7,8 @@ import atexit
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
+from ...config.config import ACPAgentConfig, ACPConfig
 from .core import (
-    ACPAgentConfig,
-    ACPConfig,
     ACPConfigurationError,
     ACPSessionError,
 )

@@ -50,7 +50,7 @@ const VoiceTranscriptionPage = lazyWithRetry(
   () => import("../../pages/Settings/VoiceTranscription"),
 );
 const AgentsPage = lazyWithRetry(() => import("../../pages/Settings/Agents"));
-const DebugPage = lazyWithRetry(() => import("../../pages/Debug"));
+const DebugPage = lazyWithRetry(() => import("../../pages/Settings/Debug"));
 
 const { Content } = Layout;
 

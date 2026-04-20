@@ -23,7 +23,7 @@ from ..config.config import (
     save_agent_config,
 )
 from ..constant import WORKING_DIR
-from ..providers.models import ModelSlotConfig
+from ..config.config import ModelSlotConfig
 from ..providers.provider_manager import ProviderManager
 from .http import print_json, resolve_base_url
 

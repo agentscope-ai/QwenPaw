@@ -1,0 +1,108 @@
+/* ─── Page Layout ────────────────────────────────────────────────────────── */
+.debugPage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── Tip Alert ──────────────────────────────────────────────────────────── */
+.tipAlert {
+  flex-shrink: 0;
+}
+
+/* ─── Toolbar ────────────────────────────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.toolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ─── Log Path ───────────────────────────────────────────────────────────── */
+.logPath {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logPathLabel {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.logPathValue {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  word-break: break-all;
+}
+
+/* ─── Log Viewer ─────────────────────────────────────────────────────────── */
+.logViewer {
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  padding: 12px;
+  min-height: 120px;
+  background: rgba(0, 0, 0, 0.02);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 480px;
+  overflow: auto;
+}
+
+/* ─── Search Highlight ───────────────────────────────────────────────────── */
+.highlight {
+  background: rgba(255, 214, 102, 0.65);
+  padding: 0;
+}
+
+/* ─── Dark Mode ──────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .logPathValue {
+    color: rgba(255, 255, 255, 0.75);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .logViewer {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .highlight {
+    background: rgba(255, 214, 102, 0.35);
+  }
+}

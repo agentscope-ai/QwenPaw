@@ -527,16 +527,27 @@ def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
             post.get("requires", {}),
         )
 
-    if isinstance(requires, list):
-        return SkillRequirements(require_bins=list(requires), require_envs=[])
+    try:
+        if isinstance(requires, list):
+            return SkillRequirements(
+                require_bins=list(requires),
+                require_envs=[],
+            )
 
-    if not isinstance(requires, dict):
+        if not isinstance(requires, dict):
+            return SkillRequirements()
+
+        return SkillRequirements(
+            require_bins=list(requires.get("bins", [])),
+            require_envs=list(requires.get("env", [])),
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to parse skill requirements: %s. "
+            "Falling back to empty requirements.",
+            e,
+        )
         return SkillRequirements()
-
-    return SkillRequirements(
-        require_bins=list(requires.get("bins", [])),
-        require_envs=list(requires.get("env", [])),
-    )
 
 
 def _stringify_skill_env_value(value: Any) -> str:

@@ -17,10 +17,10 @@ from agentscope_runtime.engine.schemas.exception import (
 )
 
 from ..constant import SECRET_DIR
+from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
 from .anthropic_provider import AnthropicProvider
 from .gemini_provider import GeminiProvider
-from .models import ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .lmstudio_provider import LMStudioProvider
@@ -704,10 +704,6 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     freeze_url=True,
     require_api_key=True,
 )
-
-
-class ActiveModelsInfo(BaseModel):
-    active_llm: ModelSlotConfig | None
 
 
 class ProviderManager:  # pylint: disable=too-many-public-methods
