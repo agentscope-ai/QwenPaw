@@ -16,13 +16,19 @@ _FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
 
 def _is_windows_drive(netloc: str) -> bool:
-    """Check if netloc is a Windows drive letter (e.g., 'C:')."""
-    return (
-        os.name == "nt"
-        and len(netloc) == 2
-        and netloc[1] == ":"
-        and netloc[0].isalpha()
-    )
+    """Check if netloc looks like a Windows drive letter.
+
+    Handles both the legacy single-letter form (``C``, from
+    ``file://C/path``) and the colon form (``C:``, from
+    ``file://C:/path``).
+    """
+    if os.name != "nt" or not netloc:
+        return False
+    if len(netloc) == 1 and netloc[0].isalpha():
+        return True
+    if len(netloc) == 2 and netloc[0].isalpha() and netloc[1] == ":":
+        return True
+    return False
 
 
 def split_text(text: str, max_len: int = 3000) -> List[str]:
@@ -110,7 +116,11 @@ def file_url_to_local_path(url: str) -> Optional[str]:
         elif (
             path and parsed.netloc and _is_windows_drive(netloc=parsed.netloc)
         ):
-            path = f"{parsed.netloc}{path}"
+            # netloc may be "C:" (new format) or "C" (legacy format)
+            drive = (
+                parsed.netloc if ":" in parsed.netloc else f"{parsed.netloc}:"
+            )
+            path = f"{drive}{path}"
         return path if path else None
     if parsed.scheme in ("http", "https"):
         return None

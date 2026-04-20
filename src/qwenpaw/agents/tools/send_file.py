@@ -37,7 +37,12 @@ def _path_to_file_url(path: str) -> str:
     # Keep alphanumerics and safe chars unencoded
     encoded_path = quote(abs_path, safe="/:@%")
 
-    # RFC 8089: file:/// for local paths
+    # RFC 8089: file:///  (authority is empty → three slashes)
+    # On Windows abs_path starts with "C:/…" (no leading slash),
+    # so we need an explicit extra slash.  On POSIX abs_path already
+    # starts with "/" so "file://" + "/home/…" naturally gives three.
+    if os.name == "nt":
+        return f"file:///{encoded_path}"
     return f"file://{encoded_path}"
 
 
