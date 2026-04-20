@@ -219,13 +219,13 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
             path,
         )
         return (
-            f"[Note: the current model's multimodal capability is not "
-            f"configured — you cannot see this {media_type}, but it has "
-            f"been shown to the user. Inform the user that you cannot "
-            f"analyze the {media_type} content. If they believe this model "
-            f"supports vision/multimodal, they can go to provider settings "
-            f"and set `supports_multimodal: true` for this model, then "
-            f"retry.]"
+            f"[Note: this model does not appear to support multimodal "
+            f"input — no multimodal capability was detected. You cannot "
+            f"see this {media_type}, but it has been shown to the user. "
+            f"Inform the user that you cannot analyze the {media_type} "
+            f"content. If they believe this model supports vision, they "
+            f"can override this in provider settings by setting "
+            f"`supports_multimodal: true`, then retry.]"
         )
 
     logger.warning(
