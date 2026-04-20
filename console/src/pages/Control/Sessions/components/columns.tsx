@@ -9,6 +9,7 @@ import styles from "../index.module.less";
 interface ColumnHandlers {
   onEdit: (session: Session) => void;
   onDelete: (sessionId: string) => void;
+  onView: (session: Session) => void;
   t: TFunction;
 }
 
@@ -91,6 +92,14 @@ export const createColumns = (
             onClick={() => handlers.onEdit(record)}
           >
             {t("common.edit")}
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            style={{ color: "#52c41a" }}
+            onClick={() => handlers.onView(record)}
+          >
+            {t("common.view")}
           </Button>
           <Button
             type="link"
