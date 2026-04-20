@@ -62,8 +62,16 @@ vi.mock("@agentscope-ai/design", () => ({
   }) => <button onClick={onClick}>{icon}</button>,
 }));
 
-vi.mock("../../ChatSessionItem", () => ({
-  default: ({ name, onClick, onEdit, onDelete }: any) => (
+vi.mock("../ChatSessionItem", () => ({
+  default: ({
+    name,
+    onClick,
+    onEdit,
+    onDelete,
+    onPin,
+    onEditSubmit,
+    onEditCancel,
+  }: any) => (
     <div data-testid="session-item">
       <span onClick={onClick}>{name}</span>
       <button data-testid="edit-btn" onClick={onEdit}>
@@ -71,6 +79,15 @@ vi.mock("../../ChatSessionItem", () => ({
       </button>
       <button data-testid="delete-btn" onClick={onDelete}>
         delete
+      </button>
+      <button data-testid="pin-btn" onClick={onPin}>
+        pin
+      </button>
+      <button data-testid="edit-submit-btn" onClick={onEditSubmit}>
+        submit
+      </button>
+      <button data-testid="edit-cancel-btn" onClick={onEditCancel}>
+        cancel
       </button>
     </div>
   ),
@@ -81,6 +98,15 @@ vi.mock("../../../../Control/Channels/components", () => ({
 }));
 
 const defaultProps = { open: true, onClose: vi.fn() };
+
+function withSession(overrides: Record<string, unknown> = {}) {
+  vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
+    sessions: [{ id: "s1", name: "Session One", ...overrides }] as any,
+    currentSessionId: null,
+    setCurrentSessionId: mockSetCurrentSessionId,
+    setSessions: mockSetSessions,
+  } as any);
+}
 
 describe("ChatSessionDrawer", () => {
   afterEach(() => vi.clearAllMocks());
@@ -104,23 +130,13 @@ describe("ChatSessionDrawer", () => {
   });
 
   it("renders ChatSessionItem for each session", () => {
-    vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
-      sessions: [{ id: "s1", name: "Session One" }] as any,
-      currentSessionId: null,
-      setCurrentSessionId: mockSetCurrentSessionId,
-      setSessions: mockSetSessions,
-    } as any);
+    withSession();
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     expect(screen.getByText("Session One")).toBeInTheDocument();
   });
 
   it("clicking a session item calls setCurrentSessionId", async () => {
-    vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
-      sessions: [{ id: "s1", name: "Session One" }] as any,
-      currentSessionId: null,
-      setCurrentSessionId: mockSetCurrentSessionId,
-      setSessions: mockSetSessions,
-    } as any);
+    withSession();
     const user = userEvent.setup();
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     await user.click(screen.getByText("Session One"));
@@ -137,5 +153,71 @@ describe("ChatSessionDrawer", () => {
         .closest("button")!,
     );
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("delete calls deleteChat with backend id and refreshes", async () => {
+    withSession({ realId: "uuid-1" });
+    const user = userEvent.setup();
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await user.click(screen.getByTestId("delete-btn"));
+    expect(mockDeleteChat).toHaveBeenCalledWith("uuid-1");
+    expect(mockGetSessionList).toHaveBeenCalled();
+  });
+
+  it("delete with numeric id skips deleteChat API", async () => {
+    withSession({ id: "12345" });
+    const user = userEvent.setup();
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await user.click(screen.getByTestId("delete-btn"));
+    expect(mockDeleteChat).not.toHaveBeenCalled();
+  });
+
+  it("edit start sets editing state and edit submit calls updateChat", async () => {
+    withSession({ realId: "uuid-1" });
+    const user = userEvent.setup();
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await user.click(screen.getByTestId("edit-btn"));
+    await user.click(screen.getByTestId("edit-submit-btn"));
+    expect(mockUpdateChat).toHaveBeenCalledWith("uuid-1", {
+      name: "Session One",
+    });
+  });
+
+  it("edit cancel resets editing state without API call", async () => {
+    withSession({ realId: "uuid-1" });
+    const user = userEvent.setup();
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await user.click(screen.getByTestId("edit-btn"));
+    await user.click(screen.getByTestId("edit-cancel-btn"));
+    expect(mockUpdateChat).not.toHaveBeenCalled();
+  });
+
+  it("pin toggle calls updateChat with toggled pinned state", async () => {
+    withSession({ realId: "uuid-1", pinned: false });
+    const user = userEvent.setup();
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await user.click(screen.getByTestId("pin-btn"));
+    expect(mockUpdateChat).toHaveBeenCalledWith("uuid-1", { pinned: true });
+  });
+
+  it("on open=true triggers session list refresh", async () => {
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await vi.waitFor(() => expect(mockGetSessionList).toHaveBeenCalled());
+  });
+
+  it("pinned sessions sort before unpinned", () => {
+    vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
+      sessions: [
+        { id: "s1", name: "Unpinned" },
+        { id: "s2", name: "Pinned", pinned: true },
+      ] as any,
+      currentSessionId: null,
+      setCurrentSessionId: mockSetCurrentSessionId,
+      setSessions: mockSetSessions,
+    } as any);
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    const items = screen.getAllByTestId("session-item");
+    expect(items[0]).toHaveTextContent("Pinned");
+    expect(items[1]).toHaveTextContent("Unpinned");
   });
 });
