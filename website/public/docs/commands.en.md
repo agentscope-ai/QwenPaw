@@ -868,6 +868,14 @@ Proactive Mode is an intelligent feature that allows the AI agent to actively an
 - 🔍 **Goal Extraction**: Extracts topics that the user may be focusing on from conversation history
 - 💬 **Proactive Response**: Generates helpful and relevant proactive messages based on analysis results
 
+### Important Notice
+
+**Please be aware of the following risks before enabling this mode:**
+
+- **Tool Protection Bypass**: In this mode, the Agent **bypasses standard tool protection mechanisms**. This means the Agent has higher system privileges and execution freedom.
+- **Privacy and Environment Access**: The Agent **reads historical session memory** to understand context and **may take screenshots** to obtain current runtime environment information. Please ensure use in a trusted environment and protect sensitive information.
+- This mode is **disabled by default**. It only takes effect when actively enabled by the user and can be disabled after being turned on.
+
 ### Basic Usage
 
 #### Enable Proactive Mode

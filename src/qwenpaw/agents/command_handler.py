@@ -545,7 +545,13 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /proactive command for proactive message feature."""
         args = args.strip().lower()
         from .memory import enable_proactive_for_session
-
+        warning = (
+                    "**WARNING**: In this mode, the agent bypasses tool "
+                    "protection mechanisms. Please note that the agent will "
+                    "read historical session memories and may take screenshots "
+                    "to obtain runtime environment information."
+                    "Proactive mode can be turned off via /proactive off."
+                )
         if not args or args == "on":
             try:
                 result = enable_proactive_for_session(
@@ -557,7 +563,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     "- Idle time: 30 minutes\n"
                     f"- Status: {result}\n"
                     "- Proactive messages will be sent after "
-                    "30 minutes of inactivity",
+                    "30 minutes of inactivity\n\n"
+                    f"{warning}",
                 )
             except Exception as e:
                 return await self._make_system_msg(
@@ -603,7 +610,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     f"- Idle time: {minutes} minutes\n"
                     f"- Status: {result}\n"
                     f"- Proactive messages will be sent after "
-                    f"{minutes} minutes of inactivity",
+                    f"{minutes} minutes of inactivity\n\n"
+                    f"{warning}",
                 )
             except Exception as e:
                 return await self._make_system_msg(
