@@ -217,11 +217,11 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 
 ### 本地模型
 
-如果使用了 QwenPaw Local (llama.cpp) 提供商，QwenPaw 会在 `$QWENPAW_WORKING_DIR/local_models` 文件夹中（默认 `~/.qwenpaw/local_models`）中保存 llama.cpp 相关的运行库以及模型文件，其中运行库会保存在 `$QWENPAW_WORKING_DIR/local_models/bin` 目录下，而下载的模型会保存在 `$QWENPAW_WORKING_DIR/local_models/models` 目录下，每个模型会对应一个文件夹，文件夹名称为该模型的 ID，例如模型 ID 为 `Qwen/Qwen3-0.6B-GGUF` 的模型文件夹为 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`，模型文件夹内会保存该模型的 GGUF 文件以及一些模型元信息文件。
+如果使用了 QwenPaw Local (llama.cpp) 提供商，QwenPaw 会在 `$QWENPAW_WORKING_DIR/local_models` 文件夹中（默认 `~/.qwenpaw/local_models`）中保存 llama.cpp 相关的运行库、模型文件以及运行日志，其中
 
-如果用户对 llama.cpp 有更深入的使用需求（例如需要使用 llama.cpp 针对特定硬件的加速能力），可以自行编译拥有对应能力的 llama.cpp，并替换 `bin` 目录下的所有文件，QwenPaw Local 会自动使用用户替换后的 llama.cpp 运行库来启动模型。
-
-如果用户需要使用其他来源的 GGUF 模型文件，可以在 `models` 目录下创建 `组织名/模型名` 结构的子文件夹，然后将 `GGUF` 文件保存到该文件夹中，然后刷新 QwenPaw Local 的模型列表，就可以在 QwenPaw Local 的模型列表中看到该模型了（例如将 `Qwen3-0.6B.gguf` 模型文件保存到 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`）
+- **运行库**保存在 `$QWENPAW_WORKING_DIR/local_models/bin` 目录下，包含了 llama.cpp 的可执行文件以及相关的动态链接库，这些文件由 QwenPaw 自动下载和配置，如果用户对 llama.cpp 有特殊需求（例如需要使用特定硬件的加速能力），也可以自行编译 llama.cpp 并直接替换该目录下的文件。
+- **下载的模型**会保存在 `$QWENPAW_WORKING_DIR/local_models/models` 目录下，每个模型会对应一个文件夹，文件夹名称为该模型的 ID，例如模型 ID 为 `Qwen/Qwen3-0.6B-GGUF` 的模型文件夹为 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`，模型文件夹内会保存该模型的 GGUF 文件以及一些模型元信息文件，如果用户需要使用其他来源的 GGUF 模型文件，可以在 `models` 目录下创建 `组织名/模型名` 结构的子文件夹，然后将 GGUF 文件保存到该文件夹中，然后刷新 QwenPaw Local 的模型列表，就可以在 QwenPaw Local 的模型列表中看到该模型了（例如将 `Qwen3-0.6B.gguf` 模型文件保存到 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`）。
+- **日志文件**保存在 `$QWENPAW_WORKING_DIR/local_models/logs` 目录下，启动 llama.cpp 后日志文件会自动保存在该目录下的 `llama-server.log` 文件中。
 
 ### 生成参数
 

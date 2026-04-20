@@ -945,7 +945,6 @@
     "localMaxContextLengthPlaceholder": "Enter max context length",
     "localServerPortLabel": "Server Port",
     "localServerPortHint": "Leave this empty to let llama.cpp bind an available port automatically. Enter a port to reuse that fixed port on future startups. Changes take effect the next time the local server starts.",
-    "localServerPortRequired": "Please enter a server port",
     "localServerPortRange": "Server port must be between {{min}} and {{max}}",
     "localServerPortPlaceholder": "Leave empty to auto-select a port",
     "localGenerateConfigHint": "Configure local model generation parameters as a JSON object. These fields will be expanded into subsequent generation requests.",

@@ -865,7 +865,6 @@
     "localMaxContextLengthPlaceholder": "最大コンテキスト長を入力",
     "localServerPortLabel": "サーバーポート",
     "localServerPortHint": "空欄の場合、llama.cpp は起動時に利用可能なポートを自動選択します。ポート番号を入力すると、以後の起動でその固定ポートを再利用します。変更は次回ローカルサーバー起動時に反映されます。",
-    "localServerPortRequired": "サーバーポートを入力してください",
     "localServerPortRange": "サーバーポートは {{min}} から {{max}} の範囲で指定してください",
     "localServerPortPlaceholder": "空欄で自動ポート選択",
     "localGenerateConfigHint": "ローカルモデルの生成パラメータを JSON オブジェクトで設定します。後続の生成リクエストに展開して渡されます。",

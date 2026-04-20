@@ -217,11 +217,11 @@ All provider configurations in QwenPaw are saved in the `$QWENPAW_SECRET_DIR/pro
 
 ### Local Models
 
-If you use the QwenPaw Local (llama.cpp) provider, QwenPaw will save the llama.cpp runtime and model files in the `$QWENPAW_WORKING_DIR/local_models` folder (default `~/.qwenpaw/local_models`). The runtime is saved in the `$QWENPAW_WORKING_DIR/local_models/bin` directory, and downloaded models are saved in the `$QWENPAW_WORKING_DIR/local_models/models` directory. Each model has a corresponding folder named after its ID, e.g., the folder for the model ID `Qwen/Qwen3-0.6B-GGUF` is `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. The model folder contains the GGUF file and some model metadata files.
+If you use the QwenPaw Local (llama.cpp) provider, QwenPaw will save the llama.cpp runtime, downloaded models and logs in the `$QWENPAW_WORKING_DIR/local_models` folder (default `~/.qwenpaw/local_models`). 
 
-If you need more advanced usage of llama.cpp (such as using hardware-specific acceleration), you can compile your own version of llama.cpp and replace the `llama-server` file in the `bin` directory.
-
-If you want to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the `GGUF` file in that folder. After refreshing the QwenPaw Local model list, you will see the model in the list (e.g., save `Qwen3-0.6B.gguf` to `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).
+- **Runtime**: The llama.cpp runtime is saved in the `$QWENPAW_WORKING_DIR/local_models/bin`  directory. It includes the executable files and related dynamic libraries for llama.cpp. These files are automatically downloaded and configured by QwenPaw. If you have special requirements for llama.cpp (such as needing acceleration capabilities for specific hardware), you can compile your own version of llama.cpp and directly replace the files in this directory.
+- **Downloaded Models**: Downloaded models are saved in the `$QWENPAW_WORKING_DIR/local_models/models` directory. Each model corresponds to a folder named after its ID, for example, the model with ID `Qwen/Qwen3-0.6B-GGUF` will have a folder at `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. Inside the model folder, you will find the GGUF file for the model and some metadata files. If you need to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the GGUF file in that folder. After refreshing the QwenPaw Local model list, you will see the model in the list (for example, save the `Qwen3-0.6B.gguf` model file to `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).
+- **Log Files**: Log files are saved in the `$QWENPAW_WORKING_DIR/local_models/logs` directory. After starting llama.cpp, the log file will be automatically saved as `llama-server.log` in that directory.
 
 ### Generation Parameters
 
