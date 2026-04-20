@@ -116,14 +116,23 @@ def _validate_media_path(
     return resolved, None
 
 
-async def _probe_multimodal_if_needed() -> bool | None:
+async def _probe_multimodal_if_needed(
+    media_type: str = "image",
+) -> bool | None:
     """Trigger a multimodal probe if capability is unknown (None).
 
-    Uses the same agent-specific model resolution as ``_get_active_model_info``
-    so that per-agent model overrides are respected (rather than falling back
-    to the global active model, which may be a different model).
+    For ``image``: runs an image-only probe (~3s) and fires the full
+    probe (image + video) as a background task so video support is
+    persisted without blocking the caller.
 
-    Returns the probe result (True/False) if a probe was run,
+    For ``video``: runs the full probe and waits for the video result,
+    since video support cannot be inferred from the image probe alone.
+
+    Uses the same agent-specific model resolution as
+    ``_get_active_model_info`` so that per-agent model overrides are
+    respected.
+
+    Returns the probe result (True/False) for the requested media type,
     or None if no probe was needed or the probe failed.
     """
     try:
@@ -152,51 +161,83 @@ async def _probe_multimodal_if_needed() -> bool | None:
         if not active:
             return None
 
-        logger.info(
-            "Multimodal capability unknown for %s/%s — "
-            "running image-only probe on first view_image/view_video call...",
-            active.provider_id,
-            active.model,
-        )
-        result = await manager.probe_model_multimodal(
-            active.provider_id,
-            active.model,
-            image_only=True,
-        )
-        supports = result.get("supports_image", False)
-        logger.info(
-            "Image probe completed for %s/%s: supports_image=%s",
-            active.provider_id,
-            active.model,
-            supports,
-        )
-        # Fire full probe in background to also determine video support
-        import asyncio
+        if media_type == "image":
+            logger.info(
+                "Multimodal capability unknown for %s/%s — "
+                "running image-only probe...",
+                active.provider_id,
+                active.model,
+            )
+            result = await manager.probe_model_multimodal(
+                active.provider_id,
+                active.model,
+                image_only=True,
+            )
+            supports = result.get("supports_image", False)
+            logger.info(
+                "Image probe completed for %s/%s: supports_image=%s",
+                active.provider_id,
+                active.model,
+                supports,
+            )
+            # Fire full probe in background to persist video support too
+            import asyncio
 
-        asyncio.create_task(
-            manager.probe_model_multimodal(active.provider_id, active.model),
-        )
+            asyncio.create_task(
+                manager.probe_model_multimodal(
+                    active.provider_id,
+                    active.model,
+                ),
+            )
+        else:
+            # video: must run full probe to get video result
+            logger.info(
+                "Multimodal capability unknown for %s/%s — "
+                "running full probe for video support...",
+                active.provider_id,
+                active.model,
+            )
+            result = await manager.probe_model_multimodal(
+                active.provider_id,
+                active.model,
+            )
+            supports = result.get("supports_video", False)
+            logger.info(
+                "Full probe completed for %s/%s: supports_video=%s",
+                active.provider_id,
+                active.model,
+                supports,
+            )
         return supports
     except Exception as e:
         logger.warning("Auto-probe in view_media failed: %s", e)
         return None
 
 
-def _check_multimodal_support() -> bool:
-    """Check whether the active model supports multimodal input (sync).
+def _check_multimodal_support(media_type: str = "image") -> bool:
+    """Check whether the active model supports the given media type (sync).
 
-    Returns True only when explicitly confirmed. Returns False for
-    unknown (None) or explicitly unsupported (False).
+    For ``image``: returns True when supports_image or supports_multimodal
+    is explicitly True.
+    For ``video``: returns True only when supports_video is explicitly True.
 
-    The tool is still *registered* so the agent can attempt to call it;
-    the async version ``_check_and_probe_multimodal`` handles the
+    Returns False for unknown (None) or explicitly unsupported (False).
+    The tool is still *registered*; the async probe path handles the
     probe-on-demand logic.
     """
     try:
-        from ..prompt import get_active_model_multimodal_raw
+        from ..prompt import _get_active_model_info
 
-        raw = get_active_model_multimodal_raw()
-        return raw is True
+        model_info, _ = _get_active_model_info()
+        if model_info is None:
+            return True
+        if media_type == "video":
+            return model_info.supports_video is True
+        # image: True if supports_image or the combined supports_multimodal
+        return (
+            model_info.supports_image is True
+            or model_info.supports_multimodal is True
+        )
     except Exception:
         return True
 
@@ -277,8 +318,8 @@ async def view_image(image_path: str) -> ToolResponse:
     """
     # Determine whether we need a fallback hint
     fallback_hint: str | None = None
-    if not _check_multimodal_support():
-        probe_result = await _probe_multimodal_if_needed()
+    if not _check_multimodal_support("image"):
+        probe_result = await _probe_multimodal_if_needed("image")
         if probe_result is not True:
             fallback_hint = _get_multimodal_fallback_hint("image", image_path)
 
@@ -347,8 +388,8 @@ async def view_video(video_path: str) -> ToolResponse:
             A VideoBlock the model can inspect, or an error message.
     """
     fallback_hint: str | None = None
-    if not _check_multimodal_support():
-        probe_result = await _probe_multimodal_if_needed()
+    if not _check_multimodal_support("video"):
+        probe_result = await _probe_multimodal_if_needed("video")
         if probe_result is not True:
             fallback_hint = _get_multimodal_fallback_hint("video", video_path)
 
