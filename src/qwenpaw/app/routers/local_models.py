@@ -419,6 +419,39 @@ async def cancel_local_model_download(
     )
 
 
+@router.delete(
+    "/models/{model_id:path}",
+    response_model=ActionResponse,
+    summary="Delete a downloaded local model",
+)
+async def delete_local_model(
+    model_id: str,
+    manager: LocalModelManager = Depends(get_local_model_manager),
+) -> ActionResponse:
+    """Delete a downloaded local model by repo id."""
+    server_state = manager.get_llamacpp_server_status()
+    if (
+        server_state.get("running")
+        and server_state.get("model_name") == model_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a model while it is running",
+        )
+
+    try:
+        manager.remove_downloaded_model(model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AppBaseException as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ActionResponse(
+        status="ok",
+        message=f"Local model deleted: {model_id}",
+    )
+
+
 @router.put(
     "/config",
     response_model=ActionResponse,

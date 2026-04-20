@@ -1,6 +1,7 @@
 import { memo } from "react";
-import { Button, Tooltip } from "@agentscope-ai/design";
+import { Button } from "@agentscope-ai/design";
 import {
+  DeleteOutlined,
   DownloadOutlined,
   PlayCircleOutlined,
   StopOutlined,
@@ -17,9 +18,11 @@ interface LocalModelRowProps {
   isServerBusy: boolean;
   startingModelName: string | null;
   stoppingServer: boolean;
+  deletingModelName: string | null;
   onStartDownload: (model: LocalModelInfo) => void;
   onStartServer: (model: LocalModelInfo) => void;
   onStopServer: () => void;
+  onDeleteModel: (model: LocalModelInfo) => void;
 }
 
 export const LocalModelRow = memo(function LocalModelRow({
@@ -29,13 +32,16 @@ export const LocalModelRow = memo(function LocalModelRow({
   isServerBusy,
   startingModelName,
   stoppingServer,
+  deletingModelName,
   onStartDownload,
   onStartServer,
   onStopServer,
+  onDeleteModel,
 }: LocalModelRowProps) {
   const { t } = useTranslation();
   const isRunning = currentRunningModelName === model.id;
   const isStarting = startingModelName === model.id;
+  const isDeleting = deletingModelName === model.id;
 
   return (
     <div className={styles.modelListItem}>
@@ -46,49 +52,61 @@ export const LocalModelRow = memo(function LocalModelRow({
         </span>
       </div>
       <div className={styles.modelListItemActions}>
-        {model.downloaded ? (
-          <span className={styles.modelListItemStatusButton}>
-            {t("models.localDownloaded")}
-          </span>
-        ) : null}
         {!model.downloaded ? (
+          <Button
+            type="primary"
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={() => onStartDownload(model)}
+            disabled={isModelDownloading || isServerBusy}
+          >
+            {t("common.download")}
+          </Button>
+        ) : isRunning ? (
+          <>
+            <Button
+              danger
+              size="small"
+              icon={<StopOutlined />}
+              loading={stoppingServer}
+              onClick={onStopServer}
+            >
+              {t("models.localStopServer")}
+            </Button>
+            <Button
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+              loading={isDeleting}
+              disabled
+              onClick={() => onDeleteModel(model)}
+            >
+              {t("common.delete")}
+            </Button>
+          </>
+        ) : (
           <>
             <Button
               type="primary"
               size="small"
-              icon={<DownloadOutlined />}
-              onClick={() => onStartDownload(model)}
-              disabled={isModelDownloading || isServerBusy}
+              icon={<PlayCircleOutlined />}
+              loading={isStarting}
+              onClick={() => onStartServer(model)}
+              disabled={isServerBusy || isDeleting}
             >
-              {t("common.download")}
+              {t("models.localStartServer")}
             </Button>
-            <Tooltip title={t("models.localDownloadModelFirst")}>
-              <Button size="small" icon={<PlayCircleOutlined />} disabled>
-                {t("models.localStartServer")}
-              </Button>
-            </Tooltip>
+            <Button
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+              loading={isDeleting}
+              onClick={() => onDeleteModel(model)}
+              disabled={isDeleting}
+            >
+              {t("common.delete")}
+            </Button>
           </>
-        ) : isRunning ? (
-          <Button
-            danger
-            size="small"
-            icon={<StopOutlined />}
-            loading={stoppingServer}
-            onClick={onStopServer}
-          >
-            {t("models.localStopServer")}
-          </Button>
-        ) : (
-          <Button
-            type="primary"
-            size="small"
-            icon={<PlayCircleOutlined />}
-            loading={isStarting}
-            onClick={() => onStartServer(model)}
-            disabled={isServerBusy}
-          >
-            {t("models.localStartServer")}
-          </Button>
         )}
       </div>
     </div>

@@ -25,6 +25,7 @@ class OpenRouterProvider(OpenAICompatibleProbeMixin, Provider):
     _DEFAULT_HEADERS = {
         "HTTP-Referer": "https://qwenpaw.agentscope.io/",
         "X-Title": "QwenPaw",
+        "User-Agent": "QwenPaw/1.1",
     }
 
     def _client(self, timeout: float = 30) -> AsyncOpenAI:
