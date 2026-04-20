@@ -2197,7 +2197,7 @@ class DingTalkChannel(BaseChannel):
                 parts = self._message_to_content_parts(event)
                 body = self._parts_to_single_text(
                     parts,
-                    bot_prefix="",
+                    bot_prefix=bot_prefix,
                 )
                 if use_ai_card and card:
                     next_text = self._merge_ai_card_text(
