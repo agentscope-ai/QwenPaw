@@ -132,7 +132,9 @@ class WecomChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self.welcome_text = welcome_text
         # Store media_dir config, will be resolved in set_workspace()
-        self._media_dir_config = Path(media_dir).expanduser() if media_dir else None
+        self._media_dir_config = (
+            Path(media_dir).expanduser() if media_dir else None
+        )
         # Default to config or global default until set_workspace is called
         self._media_dir = self._media_dir_config or DEFAULT_MEDIA_DIR
         self._max_reconnect_attempts = max_reconnect_attempts
@@ -1234,33 +1236,54 @@ class WecomChannel(BaseChannel):
 
     def set_workspace(self, workspace, command_registry=None) -> None:
         """Set workspace and resolve media directory.
-        
+
         This is called by ChannelManager when the channel is registered.
-        We resolve media_dir to one of:
-        1. {workspace_dir}/media (e.g. ./workspaces/default/media)
-        2. Global default (e.g. ~/.copaw/media)
+        Priority order:
+        1. User-provided config (WECOM_MEDIA_DIR / media_dir param)
+        2. {workspace_dir}/media (e.g. ./workspaces/default/media)
+        3. Global default (e.g. ~/.copaw/media)
         """
-        # Call parent class set_workspace to set _workspace and _command_registry
+        # Call parent set_workspace to set _workspace and _command_registry
         super().set_workspace(workspace, command_registry)
-        
+
+        # User-provided config takes highest priority
+        if self._media_dir_config:
+            self._media_dir = self._media_dir_config
+            logger.info(
+                "wecom media_dir: using user config path=%s",
+                self._media_dir,
+            )
+            return
+
         if workspace:
             workspace_dir = workspace.workspace_dir
-            # Try workspace media dir first
             media_dir = workspace_dir / "media"
             if not media_dir.is_dir():
                 try:
                     media_dir.mkdir(parents=True, exist_ok=True)
-                    logger.info("wecom media_dir: created workspace media path=%s", media_dir)
+                    logger.info(
+                        "wecom media_dir: created workspace path=%s",
+                        media_dir,
+                    )
                 except Exception as e:
-                    logger.warning("wecom media_dir: failed to create workspace media path=%s, error=%s", media_dir, e)
-                    # Fallback to global default
-                    media_dir = self._media_dir_config or DEFAULT_MEDIA_DIR
+                    logger.warning(
+                        "wecom media_dir: failed to create path=%s, err=%s",
+                        media_dir,
+                        e,
+                    )
+                    media_dir = DEFAULT_MEDIA_DIR
             self._media_dir = media_dir
-            logger.info("wecom media_dir: using workspace path=%s", self._media_dir)
+            logger.info(
+                "wecom media_dir: using workspace path=%s",
+                self._media_dir,
+            )
         else:
-            # No workspace, use default
-            self._media_dir = self._media_dir_config or DEFAULT_MEDIA_DIR
-            logger.info("wecom media_dir: using default path=%s", self._media_dir)
+            # No workspace, use global default
+            self._media_dir = DEFAULT_MEDIA_DIR
+            logger.info(
+                "wecom media_dir: using default path=%s",
+                self._media_dir,
+            )
 
     async def stop(self) -> None:
         if not self.enabled:
