@@ -9,17 +9,14 @@ from typing import Any, List, Optional
 from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
 
-from qwenpaw.providers.openai_compatible_probe import (
-    OpenAICompatibleProbeMixin,
-)
 from qwenpaw.providers.provider import (
+    Provider,
     ExtendedModelInfo,
     ModelInfo,
-    Provider,
 )
 
 
-class OpenRouterProvider(OpenAICompatibleProbeMixin, Provider):
+class OpenRouterProvider(Provider):
     """OpenRouter provider with required HTTP-Referer and X-Title headers."""
 
     _DEFAULT_HEADERS = {

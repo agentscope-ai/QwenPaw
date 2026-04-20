@@ -681,7 +681,7 @@ export function RemoteModelManageModal({
                         flexShrink: 0,
                       }}
                     />
-                    <Tooltip title={t("models.probeMultimodal", "测试多模态")}>
+                    {!isOpenRouter && (<Tooltip title={t("models.probeMultimodal", "测试多模态")}>
                       <Button
                         type="text"
                         size="small"
@@ -690,7 +690,7 @@ export function RemoteModelManageModal({
                         loading={probingModelId === m.id}
                         style={darkBtnStyle}
                       />
-                    </Tooltip>
+                    </Tooltip>)}
                     <Tooltip title={t("models.testConnection")}>
                       <Button
                         type="text"
