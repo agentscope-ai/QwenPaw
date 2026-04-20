@@ -1,0 +1,102 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'src/qwenpaw/**'
+      - 'tests/unit/**'
+      - 'tests/conftest.py'
+      - 'pyproject.toml'
+      - '.github/workflows/unit-tests.yml'
+    paths-ignore:
+      - 'src/qwenpaw/app/channels/**'
+      - 'tests/unit/channels/**'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'src/qwenpaw/**'
+      - 'tests/unit/**'
+      - 'tests/conftest.py'
+      - 'pyproject.toml'
+      - '.github/workflows/unit-tests.yml'
+    paths-ignore:
+      - 'src/qwenpaw/app/channels/**'
+      - 'tests/unit/channels/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Unit Tests - py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run unit tests (non-channel)
+        run: |
+          pytest tests/unit \
+            --ignore=tests/unit/channels \
+            -v \
+            --tb=short \
+            -x
+
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run unit tests with coverage
+        run: |
+          pytest tests/unit \
+            --ignore=tests/unit/channels \
+            --cov=src/qwenpaw \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --tb=short
+
+      - name: Comment PR with coverage
+        if: github.event_name == 'pull_request'
+        uses: orgoro/coverage@v3.2
+        with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.0
+          thresholdNew: 30.0
+          thresholdModified: 30.0
