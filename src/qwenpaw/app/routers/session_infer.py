@@ -740,7 +740,7 @@ def _resolve_effective_model_meta(agent_id: str, trace_id: str) -> ModelMeta:
                 provider_id = global_model.provider_id
                 model_name = global_model.model
     except Exception:
-        logger.debug("Failed to resolve effective model meta", exc_info=True)
+        logger.debug("解析生效模型元信息失败", exc_info=True)
 
     request_id = trace_id.strip() or f"qwenpaw-{uuid4().hex[:12]}"
     return ModelMeta(
@@ -892,7 +892,7 @@ async def post_session_infer(
 ) -> SessionInferResponse:
     stage_start = time.monotonic()
     trace_id = (payload.traceId or "").strip()
-    logger.info("session infer request payload=%s", payload.model_dump())
+    logger.info("会话推理请求载荷 payload=%s", payload.model_dump())
     try:
         resolve_start = time.monotonic()
         target_agent_id = await _resolve_target_agent_id(
@@ -902,7 +902,7 @@ async def post_session_infer(
         )
         resolve_ms = int((time.monotonic() - resolve_start) * 1000)
         logger.info(
-            "session infer stage=resolve_agent trace_id=%s target_agent_id=%s resolve_ms=%d",
+            "会话推理阶段=解析agent trace_id=%s target_agent_id=%s resolve_ms=%d",
             trace_id,
             target_agent_id,
             resolve_ms,
@@ -912,14 +912,14 @@ async def post_session_infer(
             set_current_session_id(payload.sessionId.strip())
 
         if not payload.intents:
-            logger.warning("session infer empty intents trace_id=%s", trace_id)
+            logger.warning("会话推理请求缺少intents trace_id=%s", trace_id)
             return SessionInferResponse(code=1, message="No intents provided")
 
         model_create_start = time.monotonic()
         model, _ = create_model_and_formatter(agent_id=target_agent_id)
         model_create_ms = int((time.monotonic() - model_create_start) * 1000)
         logger.info(
-            "session infer stage=create_model trace_id=%s model_create_ms=%d",
+            "会话推理阶段=创建模型 trace_id=%s model_create_ms=%d",
             trace_id,
             model_create_ms,
         )
@@ -928,7 +928,7 @@ async def post_session_infer(
         messages = _build_messages(payload)
         build_prompt_ms = int((time.monotonic() - build_prompt_start) * 1000)
         logger.info(
-            "session infer stage=build_prompt trace_id=%s build_prompt_ms=%d system_len=%d user_len=%d",
+            "会话推理阶段=构建提示词 trace_id=%s build_prompt_ms=%d system_len=%d user_len=%d",
             trace_id,
             build_prompt_ms,
             len(str(messages[0].get("content") or "")) if messages else 0,
@@ -956,7 +956,7 @@ async def post_session_infer(
                 structured_enabled = False
                 structured_error_type = type(fallback_exc).__name__
                 logger.warning(
-                    "session infer structured model call failed after stream-override fallback",
+                    "会话推理结构化模型调用失败（fallback后）",
                     exc_info=True,
                 )
                 response = None
@@ -964,13 +964,13 @@ async def post_session_infer(
             structured_enabled = False
             structured_error_type = type(exc).__name__
             logger.warning(
-                "session infer structured model call failed",
+                "会话推理结构化模型调用失败",
                 exc_info=True,
             )
             response = None
         model_call_ms = int((time.monotonic() - model_call_start) * 1000)
         logger.info(
-            "session infer stage=model_call trace_id=%s model_call_ms=%d structured_enabled=%s non_stream_enforced=%s structured_error_type=%s",
+            "会话推理阶段=模型调用 trace_id=%s model_call_ms=%d structured_enabled=%s non_stream_enforced=%s structured_error_type=%s",
             trace_id,
             model_call_ms,
             structured_enabled,
@@ -1007,7 +1007,7 @@ async def post_session_infer(
             ) = ("", None, None, None, 0, None)
         collect_ms = int((time.monotonic() - collect_start) * 1000)
         logger.info(
-            "session infer stage=collect_output trace_id=%s collect_ms=%d text_len=%d metadata_hit=%s metadata_keys=%s metadata_usable=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s",
+            "会话推理阶段=收集输出 trace_id=%s collect_ms=%d text_len=%d metadata_hit=%s metadata_keys=%s metadata_usable=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s",
             trace_id,
             collect_ms,
             len(response_text or ""),
@@ -1022,12 +1022,12 @@ async def post_session_infer(
             valid_metadata_at_chunk_idx,
         )
         logger.info(
-            "session infer collect metadata trace_id=%s metadata=%s",
+            "会话推理收集结果-metadata trace_id=%s metadata=%s",
             trace_id,
             _json_for_log(response_metadata),
         )
         logger.info(
-            "session infer collect tool_candidate trace_id=%s tool_candidate=%s",
+            "会话推理收集结果-tool_candidate trace_id=%s tool_candidate=%s",
             trace_id,
             _json_for_log(response_tool_candidate),
         )
@@ -1041,7 +1041,7 @@ async def post_session_infer(
         metadata_usable = _metadata_is_usable(response_metadata)
         if response_metadata is not None and not metadata_usable:
             logger.warning(
-                "session infer metadata incomplete trace_id=%s metadata_keys=%s",
+                "会话推理metadata不完整 trace_id=%s metadata_keys=%s",
                 trace_id,
                 _json_for_log(metadata_keys),
             )
@@ -1068,7 +1068,7 @@ async def post_session_infer(
             for source_name, source_payload in source_candidates
         ]
         logger.info(
-            "session infer stage=parse_payload trace_id=%s parse_ms=%d source_candidates=%s",
+            "会话推理阶段=解析载荷 trace_id=%s parse_ms=%d source_candidates=%s",
             trace_id,
             parse_ms,
             _json_for_log(source_summaries),
@@ -1090,7 +1090,7 @@ async def post_session_infer(
             except ValueError as exc:
                 candidate_errors.append(f"{source_name}:{exc}")
                 logger.warning(
-                    "session infer candidate parse failed trace_id=%s source=%s reason=%s",
+                    "会话推理candidate解析失败 trace_id=%s source=%s reason=%s",
                     trace_id,
                     source_name,
                     str(exc),
@@ -1112,7 +1112,7 @@ async def post_session_infer(
         )
         candidate_after_enforce = _candidate_log_summary(candidate)
         logger.info(
-            "session infer stage=candidate trace_id=%s response_source=%s candidate_before=%s candidate_after=%s slot_completion_changed=%s slot_completion_filled=%d slot_completion_missing_required=%s",
+            "会话推理阶段=candidate处理 trace_id=%s response_source=%s candidate_before=%s candidate_after=%s slot_completion_changed=%s slot_completion_filled=%d slot_completion_missing_required=%s",
             trace_id,
             response_source,
             _json_for_log(candidate_before_enforce),
@@ -1123,7 +1123,7 @@ async def post_session_infer(
         )
         if slot_completion_changed:
             logger.info(
-                "session infer slot completion trace_id=%s intent=%s filled=%d missing_required=%s need_clarify=%s",
+                "会话推理槽位补全 trace_id=%s intent=%s filled=%d missing_required=%s need_clarify=%s",
                 trace_id,
                 candidate.intentCode,
                 slot_completion_filled,
@@ -1136,13 +1136,13 @@ async def post_session_infer(
             payload.traceId,
         )
         logger.info(
-            "session infer stage=resolve_model_meta trace_id=%s model_meta=%s",
+            "会话推理阶段=解析模型元信息 trace_id=%s model_meta=%s",
             trace_id,
             _json_for_log(model_meta.model_dump()),
         )
         total_ms = int((time.monotonic() - stage_start) * 1000)
         logger.info(
-            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d response_source=%s slot_completion_changed=%s slot_completion_filled=%d slot_completion_missing_required=%s total_ms=%d structured_enabled=%s non_stream_enforced=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s structured_error_type=%s",
+            "会话推理耗时汇总 trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d response_source=%s slot_completion_changed=%s slot_completion_filled=%d slot_completion_missing_required=%s total_ms=%d structured_enabled=%s non_stream_enforced=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s structured_error_type=%s",
             trace_id,
             len(payload.intents),
             resolve_ms,
@@ -1181,7 +1181,7 @@ async def post_session_infer(
     except Exception as exc:
         total_ms = int((time.monotonic() - stage_start) * 1000)
         logger.exception(
-            "Session infer failed, trace_id=%s intents=%d total_ms=%d",
+            "会话推理失败 trace_id=%s intents=%d total_ms=%d",
             trace_id,
             len(payload.intents),
             total_ms,
