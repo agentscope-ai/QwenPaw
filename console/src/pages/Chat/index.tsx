@@ -469,7 +469,7 @@ export default function ChatPage() {
   const chatPageForPlan =
     location.pathname === "/" || location.pathname.startsWith("/chat");
   const { livePlan: livePlanFromChat, planEnabled: planEnabledOnChat } =
-    usePlanLiveUpdates(chatPageForPlan, selectedAgent);
+    usePlanLiveUpdates(chatPageForPlan, selectedAgent, chatId ?? "");
 
   // Use custom hooks for better separation of concerns
   const isComposingRef = useIMEComposition(isChatActive);

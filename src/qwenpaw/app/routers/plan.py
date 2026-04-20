@@ -53,8 +53,14 @@ def _sse_ticket_signing_key() -> bytes:
     return _get_jwt_secret().encode("utf-8")
 
 
-def _issue_sse_ticket(agent_id: str) -> str:
+def _issue_sse_ticket(
+    agent_id: str,
+    *,
+    scope_key: str | None = None,
+) -> str:
     payload = {"a": agent_id, "iat": time.time()}
+    if scope_key:
+        payload["s"] = scope_key
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     encoded = base64.urlsafe_b64encode(body.encode("utf-8")).decode("ascii")
     body_b64 = encoded.rstrip("=")
@@ -341,7 +347,13 @@ async def issue_plan_stream_ticket(request: Request):
     can validate the same ticket.
     """
     workspace = await get_agent_for_request(request)
-    ticket = _issue_sse_ticket(workspace.agent_id)
+    channel = _channel_from_request(request)
+    session_id, _ = _session_scope_from_request(request)
+    scope_key = plan_sse_scope_key(channel, session_id)
+    ticket = _issue_sse_ticket(
+        workspace.agent_id,
+        scope_key=scope_key,
+    )
     return {"ticket": ticket}
 
 

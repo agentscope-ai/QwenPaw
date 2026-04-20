@@ -13,9 +13,10 @@ import type { Plan } from "../api/types";
 export function usePlanLiveUpdates(
   chatPageActive: boolean,
   selectedAgent: string,
+  sessionScope: string,
 ) {
   const [planEnabled, setPlanEnabled] = useState<boolean | null>(null);
-  const [livePlan, setLivePlan] = useState<Plan | null>(null);
+  const [livePlan, setLivePlan] = useState<Plan | null | undefined>(undefined);
 
   const refresh = useCallback(() => {
     api
@@ -34,7 +35,7 @@ export function usePlanLiveUpdates(
       return;
     }
     refresh();
-  }, [chatPageActive, selectedAgent, refresh]);
+  }, [chatPageActive, selectedAgent, refresh, sessionScope]);
 
   useEffect(() => {
     if (!chatPageActive || !planEnabled) return;
@@ -55,7 +56,7 @@ export function usePlanLiveUpdates(
       cancelled = true;
       unsub?.();
     };
-  }, [chatPageActive, planEnabled, selectedAgent]);
+  }, [chatPageActive, planEnabled, selectedAgent, sessionScope]);
 
   return { livePlan, planEnabled, refresh };
 }

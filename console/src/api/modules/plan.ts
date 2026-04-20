@@ -133,6 +133,18 @@ export async function subscribePlanUpdates(
     });
     target.addEventListener("open", () => {
       reconnectAttempt = 0;
+      // On each (re)connect, fetch a snapshot so we recover a plan that was
+      // created/revised before this EventSource was fully open. Only forward
+      // non-null results: an empty snapshot may have been observed BEFORE a
+      // plan_update that arrived in parallel, and we must not overwrite the
+      // newer state with stale ``null``.
+      request<Plan | null>("/plan/current", { headers: chatScopeHeaders() })
+        .then((plan) => {
+          if (plan !== null) onUpdate(plan);
+        })
+        .catch(() => {
+          /* ignore snapshot pull errors; SSE updates still flow */
+        });
     });
     target.onerror = () => {
       if (disposed) return;
