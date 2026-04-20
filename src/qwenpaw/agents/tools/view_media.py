@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Load image or video files into the LLM context for analysis."""
 
+import logging
 import mimetypes
 import os
 import unicodedata
@@ -10,6 +11,8 @@ from typing import Optional
 
 from agentscope.message import ImageBlock, TextBlock, VideoBlock
 from agentscope.tool import ToolResponse
+
+logger = logging.getLogger(__name__)
 
 _IMAGE_EXTENSIONS = {
     ".png",
@@ -113,6 +116,79 @@ def _validate_media_path(
     return resolved, None
 
 
+def _check_multimodal_support() -> bool:
+    """Check whether the active model supports multimodal input.
+
+    Returns False when multimodal is explicitly unsupported OR unknown
+    (not yet probed). This stays consistent with the proactive media
+    stripping in ``_reasoning``/``_summarizing`` which uses
+    ``get_active_model_supports_multimodal()`` (also treats None as False).
+
+    The tool is still *registered* so the agent can attempt to call it,
+    but at runtime it gets a clear text fallback guiding the user to
+    configure multimodal support.
+    """
+    try:
+        from ..prompt import get_active_model_multimodal_raw
+
+        raw = get_active_model_multimodal_raw()
+        return raw is True
+    except Exception:
+        return True
+
+
+def _multimodal_fallback_response(media_type: str, path: str) -> ToolResponse:
+    """Return a text-only fallback when multimodal is not available."""
+    try:
+        from ..prompt import get_active_model_multimodal_raw
+
+        raw = get_active_model_multimodal_raw()
+    except Exception:
+        raw = None
+
+    if raw is None:
+        logger.warning(
+            "view_%s was called but multimodal capability has not been "
+            "confirmed for the active model. The %s at '%s' cannot be "
+            "sent to the model yet. To enable, set supports_multimodal=true "
+            "in the model's provider configuration, or trigger a multimodal "
+            "probe by connecting the model with a vision-capable endpoint.",
+            media_type,
+            media_type,
+            path,
+        )
+        user_hint = (
+            f"[Multimodal not configured] The {media_type} at '{path}' "
+            f"was located successfully, but the current model has not been "
+            f"confirmed to support multimodal ({media_type}) input. "
+            f"Please inform the user: to enable {media_type} viewing, "
+            f"set `supports_multimodal: true` in the model configuration "
+            f"(provider settings), or connect to a vision-capable model."
+        )
+    else:
+        logger.warning(
+            "view_%s was called but the active model explicitly does not "
+            "support multimodal input. The %s at '%s' cannot be sent to "
+            "the model.",
+            media_type,
+            media_type,
+            path,
+        )
+        user_hint = (
+            f"[Multimodal not supported] The {media_type} at '{path}' "
+            f"was located successfully, but the current model does not "
+            f"support multimodal ({media_type}) input. Please inform the "
+            f"user that this model cannot process {media_type} content, "
+            f"and suggest switching to a vision-capable model."
+        )
+
+    return ToolResponse(
+        content=[
+            TextBlock(type="text", text=user_hint),
+        ],
+    )
+
+
 async def view_image(image_path: str) -> ToolResponse:
     """Load an image file into the LLM context so the model can see it.
 
@@ -129,6 +205,9 @@ async def view_image(image_path: str) -> ToolResponse:
         `ToolResponse`:
             An ImageBlock the model can inspect, or an error message.
     """
+    if not _check_multimodal_support():
+        return _multimodal_fallback_response("image", image_path)
+
     if _is_url(image_path):
         err = _validate_url_extension(
             image_path,
@@ -187,6 +266,9 @@ async def view_video(video_path: str) -> ToolResponse:
         `ToolResponse`:
             A VideoBlock the model can inspect, or an error message.
     """
+    if not _check_multimodal_support():
+        return _multimodal_fallback_response("video", video_path)
+
     if _is_url(video_path):
         err = _validate_url_extension(
             video_path,
