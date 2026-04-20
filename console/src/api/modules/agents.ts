@@ -6,7 +6,7 @@ import type {
   AgentProfileRef,
   ReorderAgentsResponse,
 } from "../types/agents";
-import type { MdFileInfo, MdFileContent } from "../types/workspace";
+import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types/workspace";
 
 // Multi-agent management API
 export const agentsApi = {
@@ -74,5 +74,26 @@ export const agentsApi = {
 
   // Agent memory files
   listAgentMemory: (agentId: string) =>
-    request<MdFileInfo[]>(`/agents/${agentId}/memory`),
+    request<MdFileInfo[]>(`/agents/${agentId}/memory`).then((files) =>
+      (files || []).map((file) => {
+        const date = file.filename.replace(".md", "");
+        return {
+          ...file,
+          date,
+          updated_at: new Date(file.modified_time).getTime(),
+        } as DailyMemoryFile;
+      }),
+    ),
+
+  readAgentMemory: (agentId: string, date: string) =>
+    request<MdFileContent>(`/agents/${agentId}/memory/${encodeURIComponent(date)}.md`),
+
+  saveAgentMemory: (agentId: string, date: string, content: string) =>
+    request<{ written: boolean; filename: string }>(
+      `/agents/${agentId}/memory/${encodeURIComponent(date)}.md`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      },
+    ),
 };
