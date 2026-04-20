@@ -25,6 +25,8 @@ PROMPT_VERSION = "qwenpaw-session-infer-v2"
 SESSION_INFER_TOTAL_BUDGET_MS = 18000
 SESSION_INFER_COLLECT_BUDGET_MS = 8000
 SESSION_INFER_PROMPT_MAX_DESCRIPTION_CHARS = 160
+SESSION_INFER_LOG_MAX_TEXT_CHARS = 200
+SESSION_INFER_LOG_MAX_LIST_ITEMS = 5
 
 router = APIRouter(prefix="/qwenpaw", tags=["qwenpaw"])
 
@@ -105,6 +107,45 @@ class SessionInferStructuredOutput(BaseModel):
 
     candidatePlan: SessionInferStructuredCandidate
     modelMeta: dict[str, Any] = Field(default_factory=dict)
+
+
+def _truncate_for_log(value: Any, max_chars: int = SESSION_INFER_LOG_MAX_TEXT_CHARS) -> str:
+    text = str(value or "")
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "...(truncated)"
+
+
+def _intent_log_summary(intent: SessionInferIntent) -> dict[str, Any]:
+    required_slots = _required_slot_keys(intent)
+    slot_mapping = _slot_mapping(intent)
+    return {
+        "intentCode": str(intent.intentCode or "").strip(),
+        "executionMode": str(intent.executionMode or "").strip(),
+        "slotKeysCount": len(intent.slotKeys or []),
+        "requiredSlots": required_slots[:SESSION_INFER_LOG_MAX_LIST_ITEMS],
+        "slotMappingKeys": list(slot_mapping.keys())[:SESSION_INFER_LOG_MAX_LIST_ITEMS],
+        "roleCode": intent.roleCode,
+        "sqlTemplateCode": intent.sqlTemplateCode,
+        "selectedTableId": intent.selectedTableId,
+    }
+
+
+def _candidate_log_summary(candidate: CandidatePlan) -> dict[str, Any]:
+    slot_keys = sorted(str(key) for key in (candidate.slots or {}).keys())
+    return {
+        "intentCode": candidate.intentCode,
+        "executionMode": candidate.executionMode,
+        "confidence": candidate.confidence,
+        "needClarify": candidate.needClarify,
+        "clarifyQuestion": _truncate_for_log(candidate.clarifyQuestion or ""),
+        "slotKeys": slot_keys[:SESSION_INFER_LOG_MAX_LIST_ITEMS],
+        "slotCount": len(slot_keys),
+        "slots": candidate.slots,
+        "roleCode": candidate.roleCode,
+        "sqlTemplateCode": candidate.sqlTemplateCode,
+        "selectedTableId": candidate.selectedTableId,
+    }
 
 
 def _extract_text_from_chunk(chunk: Any) -> str:
@@ -803,6 +844,30 @@ async def post_session_infer(
 ) -> SessionInferResponse:
     stage_start = time.monotonic()
     trace_id = (payload.traceId or "").strip()
+    request_summary = {
+        "traceId": trace_id,
+        "questionPreview": _truncate_for_log(payload.question),
+        "questionLength": len(payload.question or ""),
+        "intentsCount": len(payload.intents or []),
+        "routingPolicyKeys": sorted((payload.routingPolicy or {}).keys()),
+        "outputSchemaKeys": sorted((payload.outputSchema or {}).keys()),
+        "sessionId": payload.sessionId,
+        "conversationId": payload.conversationId,
+        "chatId": payload.chatId,
+        "payloadAgentId": payload.agentId,
+        "headerAgentId": x_agent_id,
+    }
+    logger.info("session infer request summary=%s", request_summary)
+    if payload.intents:
+        intent_summaries = [
+            _intent_log_summary(intent)
+            for intent in payload.intents[:SESSION_INFER_LOG_MAX_LIST_ITEMS]
+        ]
+        logger.info(
+            "session infer intents summary trace_id=%s intents=%s",
+            trace_id,
+            intent_summaries,
+        )
     try:
         resolve_start = time.monotonic()
         target_agent_id = await _resolve_target_agent_id(
@@ -811,20 +876,39 @@ async def post_session_infer(
             header_agent_id=x_agent_id,
         )
         resolve_ms = int((time.monotonic() - resolve_start) * 1000)
+        logger.info(
+            "session infer stage=resolve_agent trace_id=%s target_agent_id=%s resolve_ms=%d",
+            trace_id,
+            target_agent_id,
+            resolve_ms,
+        )
         set_current_agent_id(target_agent_id)
         if payload.sessionId:
             set_current_session_id(payload.sessionId.strip())
 
         if not payload.intents:
+            logger.warning("session infer empty intents trace_id=%s", trace_id)
             return SessionInferResponse(code=1, message="No intents provided")
 
         model_create_start = time.monotonic()
         model, _ = create_model_and_formatter(agent_id=target_agent_id)
         model_create_ms = int((time.monotonic() - model_create_start) * 1000)
+        logger.info(
+            "session infer stage=create_model trace_id=%s model_create_ms=%d",
+            trace_id,
+            model_create_ms,
+        )
 
         build_prompt_start = time.monotonic()
         messages = _build_messages(payload)
         build_prompt_ms = int((time.monotonic() - build_prompt_start) * 1000)
+        logger.info(
+            "session infer stage=build_prompt trace_id=%s build_prompt_ms=%d system_len=%d user_len=%d",
+            trace_id,
+            build_prompt_ms,
+            len(str(messages[0].get("content") or "")) if messages else 0,
+            len(str(messages[1].get("content") or "")) if len(messages) > 1 else 0,
+        )
 
         model_call_start = time.monotonic()
         structured_enabled = True
@@ -860,6 +944,14 @@ async def post_session_infer(
             )
             response = None
         model_call_ms = int((time.monotonic() - model_call_start) * 1000)
+        logger.info(
+            "session infer stage=model_call trace_id=%s model_call_ms=%d structured_enabled=%s non_stream_enforced=%s structured_error_type=%s",
+            trace_id,
+            model_call_ms,
+            structured_enabled,
+            non_stream_enforced,
+            structured_error_type,
+        )
 
         if response is None:
             raise ValueError(
@@ -898,6 +990,20 @@ async def post_session_infer(
                 trace_id,
                 SESSION_INFER_COLLECT_BUDGET_MS,
             )
+        logger.info(
+            "session infer stage=collect_output trace_id=%s collect_ms=%d text_len=%d metadata_hit=%s metadata_keys=%s metadata_usable=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s collect_budget_cut=%s",
+            trace_id,
+            collect_ms,
+            len(response_text or ""),
+            isinstance(response_metadata, dict),
+            sorted(response_metadata.keys()) if isinstance(response_metadata, dict) else [],
+            _metadata_is_usable(response_metadata),
+            isinstance(response_tool_candidate, dict),
+            first_chunk_ms,
+            stream_chunk_count,
+            valid_metadata_at_chunk_idx,
+            collect_budget_cut,
+        )
 
         parse_start = time.monotonic()
         metadata_keys: list[str] = (
@@ -926,17 +1032,33 @@ async def post_session_infer(
                 f"trace_id={trace_id} text_len={len(response_text or '')}",
             )
         parse_ms = int((time.monotonic() - parse_start) * 1000)
+        source_summaries = [
+            {
+                "source": source_name,
+                "intentCode": _extract_intent_code_from_metadata(source_payload),
+                "keys": sorted(source_payload.keys())[:SESSION_INFER_LOG_MAX_LIST_ITEMS],
+            }
+            for source_name, source_payload in source_candidates
+        ]
+        logger.info(
+            "session infer stage=parse_payload trace_id=%s parse_ms=%d source_candidates=%s",
+            trace_id,
+            parse_ms,
+            source_summaries,
+        )
 
         candidate_start = time.monotonic()
         slot_completion_changed = False
         slot_completion_filled = 0
         slot_completion_missing_required: list[str] = []
         candidate: Optional[CandidatePlan] = None
+        candidate_before_enforce: Optional[dict[str, Any]] = None
         candidate_errors: list[str] = []
         for source_name, source_payload in source_candidates:
             try:
                 candidate = _build_candidate_plan(source_payload, payload.intents)
                 response_source = source_name
+                candidate_before_enforce = _candidate_log_summary(candidate)
                 break
             except ValueError as exc:
                 candidate_errors.append(f"{source_name}:{exc}")
@@ -961,6 +1083,17 @@ async def post_session_infer(
             intents=payload.intents,
             question=payload.question,
         )
+        candidate_after_enforce = _candidate_log_summary(candidate)
+        logger.info(
+            "session infer stage=candidate trace_id=%s response_source=%s candidate_before=%s candidate_after=%s slot_completion_changed=%s slot_completion_filled=%d slot_completion_missing_required=%s",
+            trace_id,
+            response_source,
+            candidate_before_enforce,
+            candidate_after_enforce,
+            slot_completion_changed,
+            slot_completion_filled,
+            slot_completion_missing_required,
+        )
         if slot_completion_changed:
             logger.info(
                 "session infer slot completion trace_id=%s intent=%s filled=%d missing_required=%s need_clarify=%s",
@@ -974,6 +1107,11 @@ async def post_session_infer(
         model_meta = _resolve_effective_model_meta(
             target_agent_id,
             payload.traceId,
+        )
+        logger.info(
+            "session infer stage=resolve_model_meta trace_id=%s model_meta=%s",
+            trace_id,
+            model_meta.model_dump(),
         )
         total_ms = int((time.monotonic() - stage_start) * 1000)
         if total_ms > SESSION_INFER_TOTAL_BUDGET_MS:
