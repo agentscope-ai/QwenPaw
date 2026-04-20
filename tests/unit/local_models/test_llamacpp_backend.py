@@ -904,7 +904,7 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
                 "--alias",
                 "demo-model",
                 "--log-file",
-                str(DEFAULT_LOCAL_PROVIDER_DIR / "llama-server.log"),
+                str(DEFAULT_LOCAL_PROVIDER_DIR / "logs" / "llama-server.log"),
                 "--gpu-layers",
                 "auto",
             ],
@@ -1048,8 +1048,7 @@ async def test_setup_server_passes_mmproj_argument(
                 "vision-model",
                 "--log-file",
                 str(
-                    DEFAULT_LOCAL_PROVIDER_DIR
-                    / "llama-server.log"
+                    DEFAULT_LOCAL_PROVIDER_DIR / "logs" / "llama-server.log",
                 ),
                 "--gpu-layers",
                 "auto",
@@ -1063,6 +1062,108 @@ async def test_setup_server_passes_mmproj_argument(
             },
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_setup_server_uses_requested_port(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    model_path = tmp_path / "demo.gguf"
+    model_path.write_text("gguf")
+    start_calls: list[tuple[list[str], dict[str, object]]] = []
+
+    class _FakeAsyncStdout:
+        async def readline(self) -> bytes:
+            return b""
+
+    class _FakeStartedProcess:
+        def __init__(self) -> None:
+            self.pid = 8642
+            self.stdout = _FakeAsyncStdout()
+            self.returncode: int | None = None
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_start_command_async(command, **kwargs):
+        start_calls.append((list(command), kwargs))
+        return _FakeStartedProcess()
+
+    async def fake_server_ready(*_args, **_kwargs) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_is_port_available",
+        lambda requested_port: requested_port == 43110,
+    )
+    monkeypatch.setattr(
+        downloader_module,
+        "start_command_async",
+        fake_start_command_async,
+    )
+    monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
+
+    setup_result = await downloader.setup_server(
+        model_path,
+        "demo-model",
+        port=43110,
+    )
+    await asyncio.sleep(0)
+
+    assert setup_result.port == 43110
+    assert start_calls == [
+        (
+            [
+                str(downloader.executable),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "43110",
+                "--model",
+                str(model_path.resolve()),
+                "--alias",
+                "demo-model",
+                "--log-file",
+                str(DEFAULT_LOCAL_PROVIDER_DIR / "logs" / "llama-server.log"),
+                "--gpu-layers",
+                "auto",
+            ],
+            {
+                "stdout": downloader_module.asyncio.subprocess.PIPE,
+                "stderr": downloader_module.asyncio.subprocess.STDOUT,
+                "start_new_session": True,
+            },
+        ),
+    ]
+
+
+def test_resolve_server_port_rejects_unavailable_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    monkeypatch.setattr(
+        downloader,
+        "_is_port_available",
+        lambda requested_port: False,
+    )
+
+    with pytest.raises(ValueError, match="43110"):
+        downloader._resolve_server_port(43110)
 
 
 @pytest.mark.asyncio

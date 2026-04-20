@@ -39,10 +39,14 @@ import {
 const POLL_INTERVAL_MS = 3000;
 const DEFAULT_LOCAL_MAX_CONTEXT_LENGTH = 65536;
 const MIN_LOCAL_MAX_CONTEXT_LENGTH = 32768;
+const MIN_LOCAL_SERVER_PORT = 1;
+const MAX_LOCAL_SERVER_PORT = 65535;
 
 type LocalDownloadStatus = LocalDownloadProgress["status"];
 
-function getInitialLocalModelConfig(config?: LocalModelConfig | null) {
+function getInitialLocalModelConfig(
+  config?: LocalModelConfig | null,
+): { maxContextLength: number; port: number | null } {
   return {
     maxContextLength:
       typeof config?.max_context_length === "number" &&
@@ -50,6 +54,13 @@ function getInitialLocalModelConfig(config?: LocalModelConfig | null) {
       config.max_context_length >= MIN_LOCAL_MAX_CONTEXT_LENGTH
         ? config.max_context_length
         : DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
+    port:
+      typeof config?.port === "number" &&
+      Number.isInteger(config.port) &&
+      config.port >= MIN_LOCAL_SERVER_PORT &&
+      config.port <= MAX_LOCAL_SERVER_PORT
+        ? config.port
+        : null,
   };
 }
 
@@ -143,6 +154,8 @@ export function LocalModelManageModal({
   const [savedMaxContextLength, setSavedMaxContextLength] = useState<number>(
     DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
   );
+  const [serverPort, setServerPort] = useState<number | null>(null);
+  const [savedServerPort, setSavedServerPort] = useState<number | null>(null);
   const [generateKwargsText, setGenerateKwargsText] = useState("");
   const [savedGenerateKwargsText, setSavedGenerateKwargsText] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -235,11 +248,15 @@ export function LocalModelManageModal({
       const normalizedConfig = getInitialLocalModelConfig(config);
       setMaxContextLength(normalizedConfig.maxContextLength);
       setSavedMaxContextLength(normalizedConfig.maxContextLength);
+      setServerPort(normalizedConfig.port);
+      setSavedServerPort(normalizedConfig.port);
       return normalizedConfig;
     } catch {
       const fallbackConfig = getInitialLocalModelConfig();
       setMaxContextLength(fallbackConfig.maxContextLength);
       setSavedMaxContextLength(fallbackConfig.maxContextLength);
+      setServerPort(fallbackConfig.port);
+      setSavedServerPort(fallbackConfig.port);
       return fallbackConfig;
     } finally {
       setLoadingLocalConfig(false);
@@ -416,6 +433,8 @@ export function LocalModelManageModal({
     setAdvancedOpen(false);
     setMaxContextLength(DEFAULT_LOCAL_MAX_CONTEXT_LENGTH);
     setSavedMaxContextLength(DEFAULT_LOCAL_MAX_CONTEXT_LENGTH);
+    setServerPort(null);
+    setSavedServerPort(null);
     setGenerateKwargsText(initialLocalConfig.generateKwargsText);
     setSavedGenerateKwargsText(initialLocalConfig.generateKwargsText);
 
@@ -479,6 +498,41 @@ export function LocalModelManageModal({
       setAdvancedSaving(false);
     }
   }, [maxContextLength, message, t]);
+
+  const handleSaveServerPort = useCallback(async () => {
+    if (
+      serverPort !== null &&
+      (!Number.isInteger(serverPort) ||
+        serverPort < MIN_LOCAL_SERVER_PORT ||
+        serverPort > MAX_LOCAL_SERVER_PORT)
+    ) {
+      message.error(
+        t("models.localServerPortRange", {
+          min: MIN_LOCAL_SERVER_PORT,
+          max: MAX_LOCAL_SERVER_PORT,
+        }),
+      );
+      return;
+    }
+
+    setAdvancedSaving(true);
+    try {
+      await api.configureLocalModelSettings({
+        port: serverPort,
+      });
+      setSavedServerPort(serverPort);
+      message.success(t("models.localAdvancedConfigSaved"));
+      await onSavedRef.current();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setAdvancedSaving(false);
+    }
+  }, [message, serverPort, t]);
 
   const handleSaveGenerateKwargs = useCallback(async () => {
     let parsed: Record<string, unknown> = {};
@@ -1015,6 +1069,47 @@ export function LocalModelManageModal({
               />
               <div className={styles.localAdvancedConfigHint}>
                 {t("models.localMaxContextLengthHint")}
+              </div>
+            </div>
+
+            <div
+              className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
+            >
+              <div
+                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+              >
+                <span>{t("models.localServerPortLabel")}</span>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SaveOutlined />}
+                  loading={advancedSaving}
+                  disabled={serverPort === savedServerPort}
+                  onClick={() => {
+                    if (serverPort !== savedServerPort) {
+                      void handleSaveServerPort();
+                    }
+                  }}
+                >
+                  {t("models.save")}
+                </Button>
+              </div>
+              <InputNumber
+                min={MIN_LOCAL_SERVER_PORT}
+                max={MAX_LOCAL_SERVER_PORT}
+                step={1}
+                precision={0}
+                value={serverPort}
+                onChange={(value) =>
+                  setServerPort(
+                    typeof value === "number" ? Math.trunc(value) : null,
+                  )
+                }
+                className={styles.localAdvancedConfigInput}
+                placeholder={t("models.localServerPortPlaceholder")}
+              />
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localServerPortHint")}
               </div>
             </div>
 

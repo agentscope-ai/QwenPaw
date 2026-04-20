@@ -128,6 +128,12 @@ class LocalModelConfigRequest(BaseModel):
         description="Maximum context length for local models.",
         ge=32768,
     )
+    port: Optional[int] = Field(
+        default=None,
+        description="Optional fixed port for local llama.cpp server.",
+        ge=1,
+        le=65535,
+    )
     generate_kwargs: Optional[dict[str, Any]] = Field(
         default=None,
         description=("Additional generation parameters for local models."),
@@ -426,6 +432,9 @@ async def configure_local_model_settings(
     """Configure local model settings."""
     if payload.max_context_length is not None:
         await local_manager.set_max_context_length(payload.max_context_length)
+
+    if "port" in payload.model_fields_set:
+        await local_manager.set_port(payload.port)
 
     if payload.generate_kwargs is not None:
         provider_manager.update_provider(
