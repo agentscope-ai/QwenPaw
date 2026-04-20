@@ -116,17 +116,57 @@ def _validate_media_path(
     return resolved, None
 
 
+async def _probe_multimodal_if_needed() -> bool | None:
+    """Trigger a multimodal probe if capability is unknown (None).
+
+    Returns the probe result (True/False) if a probe was run,
+    or None if no probe was needed or the probe failed.
+    """
+    try:
+        from ..prompt import _get_active_model_info
+        from ...providers.provider_manager import ProviderManager
+
+        model_info, _ = _get_active_model_info()
+        if model_info is None or model_info.supports_multimodal is not None:
+            return None
+
+        manager = ProviderManager.get_instance()
+        active = manager.get_active_model()
+        if not active:
+            return None
+
+        logger.info(
+            "Multimodal capability unknown for %s/%s — "
+            "running probe on first view_image/view_video call...",
+            active.provider_id,
+            active.model,
+        )
+        result = await manager.probe_model_multimodal(
+            active.provider_id,
+            active.model,
+        )
+        supports = result.get("supports_image", False)
+        logger.info(
+            "Multimodal probe completed for %s/%s: supports_image=%s",
+            active.provider_id,
+            active.model,
+            supports,
+        )
+        return supports
+    except Exception as e:
+        logger.warning("Auto-probe in view_media failed: %s", e)
+        return None
+
+
 def _check_multimodal_support() -> bool:
-    """Check whether the active model supports multimodal input.
+    """Check whether the active model supports multimodal input (sync).
 
-    Returns False when multimodal is explicitly unsupported OR unknown
-    (not yet probed). This stays consistent with the proactive media
-    stripping in ``_reasoning``/``_summarizing`` which uses
-    ``get_active_model_supports_multimodal()`` (also treats None as False).
+    Returns True only when explicitly confirmed. Returns False for
+    unknown (None) or explicitly unsupported (False).
 
-    The tool is still *registered* so the agent can attempt to call it,
-    but at runtime it gets a clear text fallback guiding the user to
-    configure multimodal support.
+    The tool is still *registered* so the agent can attempt to call it;
+    the async version ``_check_and_probe_multimodal`` handles the
+    probe-on-demand logic.
     """
     try:
         from ..prompt import get_active_model_multimodal_raw
@@ -137,8 +177,13 @@ def _check_multimodal_support() -> bool:
         return True
 
 
-def _multimodal_fallback_response(media_type: str, path: str) -> ToolResponse:
-    """Return a text-only fallback when multimodal is not available."""
+def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
+    """Build a text hint for the model when multimodal is not available.
+
+    The actual media block is still included in the response so the
+    frontend/user can see it; the hint tells the agent it cannot perceive
+    the media itself.
+    """
     try:
         from ..prompt import get_active_model_multimodal_raw
 
@@ -149,43 +194,38 @@ def _multimodal_fallback_response(media_type: str, path: str) -> ToolResponse:
     if raw is None:
         logger.warning(
             "view_%s was called but multimodal capability has not been "
-            "confirmed for the active model. The %s at '%s' cannot be "
-            "sent to the model yet. To enable, set supports_multimodal=true "
-            "in the model's provider configuration, or trigger a multimodal "
-            "probe by connecting the model with a vision-capable endpoint.",
+            "confirmed for the active model. The %s at '%s' will be "
+            "shown to the user but the model cannot see it. "
+            "To fix, set supports_multimodal=true in provider settings.",
             media_type,
             media_type,
             path,
         )
-        user_hint = (
-            f"[Multimodal not configured] The {media_type} at '{path}' "
-            f"was located successfully, but the current model has not been "
-            f"confirmed to support multimodal ({media_type}) input. "
-            f"Please inform the user: to enable {media_type} viewing, "
-            f"set `supports_multimodal: true` in the model configuration "
-            f"(provider settings), or connect to a vision-capable model."
-        )
-    else:
-        logger.warning(
-            "view_%s was called but the active model explicitly does not "
-            "support multimodal input. The %s at '%s' cannot be sent to "
-            "the model.",
-            media_type,
-            media_type,
-            path,
-        )
-        user_hint = (
-            f"[Multimodal not supported] The {media_type} at '{path}' "
-            f"was located successfully, but the current model does not "
-            f"support multimodal ({media_type}) input. Please inform the "
-            f"user that this model cannot process {media_type} content, "
-            f"and suggest switching to a vision-capable model."
+        return (
+            f"[Note: the current model's multimodal capability is not "
+            f"configured — you cannot see this {media_type}, but it has "
+            f"been shown to the user. Inform the user that you cannot "
+            f"analyze the {media_type} content. If they believe this model "
+            f"supports vision/multimodal, they can go to provider settings "
+            f"and set `supports_multimodal: true` for this model, then "
+            f"retry.]"
         )
 
-    return ToolResponse(
-        content=[
-            TextBlock(type="text", text=user_hint),
-        ],
+    logger.warning(
+        "view_%s was called but the active model explicitly does not "
+        "support multimodal input. The %s at '%s' will be shown to "
+        "the user but the model cannot see it.",
+        media_type,
+        media_type,
+        path,
+    )
+    return (
+        f"[Note: the current model does not support multimodal input — "
+        f"you cannot see this {media_type}, but it has been shown to "
+        f"the user. Inform the user that you cannot analyze the "
+        f"{media_type} content. If they believe this model actually "
+        f"supports vision, they can override `supports_multimodal: true` "
+        f"in the provider settings, or switch to a vision-capable model.]"
     )
 
 
@@ -197,6 +237,12 @@ async def view_image(image_path: str) -> ToolResponse:
     online images — the URL is passed directly to the model without
     downloading.
 
+    When the model does not support multimodal, the image is still
+    returned (so the user/frontend can see it) along with a text hint
+    telling the agent it cannot perceive the image. The downstream
+    media-stripping pipeline will remove the ImageBlock before sending
+    to the model.
+
     Args:
         image_path (`str`):
             Local path or HTTP(S) URL of the image to view.
@@ -205,8 +251,12 @@ async def view_image(image_path: str) -> ToolResponse:
         `ToolResponse`:
             An ImageBlock the model can inspect, or an error message.
     """
+    # Determine whether we need a fallback hint
+    fallback_hint: str | None = None
     if not _check_multimodal_support():
-        return _multimodal_fallback_response("image", image_path)
+        probe_result = await _probe_multimodal_if_needed()
+        if probe_result is not True:
+            fallback_hint = _get_multimodal_fallback_hint("image", image_path)
 
     if _is_url(image_path):
         err = _validate_url_extension(
@@ -216,16 +266,18 @@ async def view_image(image_path: str) -> ToolResponse:
         )
         if err is not None:
             return err
+        text_msg = (
+            fallback_hint
+            if fallback_hint
+            else f"Image loaded from URL: {image_path}"
+        )
         return ToolResponse(
             content=[
                 ImageBlock(
                     type="image",
                     source={"type": "url", "url": image_path},
                 ),
-                TextBlock(
-                    type="text",
-                    text=f"Image loaded from URL: {image_path}",
-                ),
+                TextBlock(type="text", text=text_msg),
             ],
         )
 
@@ -237,16 +289,16 @@ async def view_image(image_path: str) -> ToolResponse:
     if err is not None:
         return err
 
+    text_msg = (
+        fallback_hint if fallback_hint else f"Image loaded: {resolved.name}"
+    )
     return ToolResponse(
         content=[
             ImageBlock(
                 type="image",
                 source={"type": "url", "url": str(resolved)},
             ),
-            TextBlock(
-                type="text",
-                text=f"Image loaded: {resolved.name}",
-            ),
+            TextBlock(type="text", text=text_msg),
         ],
     )
 
@@ -258,6 +310,10 @@ async def view_video(video_path: str) -> ToolResponse:
     tool produces a video file path.  Also accepts an HTTP(S) URL —
     the URL is passed directly to the model without downloading.
 
+    When the model does not support multimodal, the video is still
+    returned (so the user/frontend can see it) along with a text hint
+    telling the agent it cannot perceive the video.
+
     Args:
         video_path (`str`):
             Local path or HTTP(S) URL of the video to view.
@@ -266,8 +322,11 @@ async def view_video(video_path: str) -> ToolResponse:
         `ToolResponse`:
             A VideoBlock the model can inspect, or an error message.
     """
+    fallback_hint: str | None = None
     if not _check_multimodal_support():
-        return _multimodal_fallback_response("video", video_path)
+        probe_result = await _probe_multimodal_if_needed()
+        if probe_result is not True:
+            fallback_hint = _get_multimodal_fallback_hint("video", video_path)
 
     if _is_url(video_path):
         err = _validate_url_extension(
@@ -277,16 +336,18 @@ async def view_video(video_path: str) -> ToolResponse:
         )
         if err is not None:
             return err
+        text_msg = (
+            fallback_hint
+            if fallback_hint
+            else f"Video loaded from URL: {video_path}"
+        )
         return ToolResponse(
             content=[
                 VideoBlock(
                     type="video",
                     source={"type": "url", "url": video_path},
                 ),
-                TextBlock(
-                    type="text",
-                    text=f"Video loaded from URL: {video_path}",
-                ),
+                TextBlock(type="text", text=text_msg),
             ],
         )
 
@@ -298,15 +359,15 @@ async def view_video(video_path: str) -> ToolResponse:
     if err is not None:
         return err
 
+    text_msg = (
+        fallback_hint if fallback_hint else f"Video loaded: {resolved.name}"
+    )
     return ToolResponse(
         content=[
             VideoBlock(
                 type="video",
                 source={"type": "url", "url": str(resolved)},
             ),
-            TextBlock(
-                type="text",
-                text=f"Video loaded: {resolved.name}",
-            ),
+            TextBlock(type="text", text=text_msg),
         ],
     )
