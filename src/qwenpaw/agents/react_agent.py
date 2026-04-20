@@ -373,6 +373,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                         e,
                     )
 
+    # pylint: disable-next=too-many-return-statements
     def _build_skill_hint(self, query: str) -> str:
         """Build a skill routing hint for the given user query.
 

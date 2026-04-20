@@ -4,11 +4,21 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set, TYPE_CHECKING
+from typing import (
+    Optional,
+    Union,
+    Dict,
+    List,
+    Literal,
+    Any,
+    Set,
+    TYPE_CHECKING,
+)
 
 if TYPE_CHECKING:
     from ..routing.config import SemanticRoutingConfig
 
+# pylint: disable=wrong-import-position
 from pydantic import (
     BaseModel,
     Field,
@@ -1551,7 +1561,7 @@ class Config(BaseModel):
 
     # --- Semantic skill routing (optional, disabled by default) ---
     semantic_routing: "SemanticRoutingConfig" = Field(
-        default_factory=lambda: _default_semantic_routing_config(),
+        default_factory=_default_semantic_routing_config,
         description="Semantic skill routing configuration. "
         "Requires optional deps: sentence-transformers, faiss-cpu.",
     )
@@ -1560,7 +1570,8 @@ class Config(BaseModel):
 # Resolve forward references for Pydantic
 # Import SemanticRoutingConfig at runtime for model_rebuild to work
 try:
-    from ..routing.config import SemanticRoutingConfig
+    from ..routing.config import SemanticRoutingConfig  # noqa: F811
+
     Config.model_rebuild()
 except ImportError:
     # Optional dependencies not available; safe to skip

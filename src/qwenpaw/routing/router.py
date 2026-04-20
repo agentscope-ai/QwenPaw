@@ -130,7 +130,7 @@ class SkillRouter:
                     name=name,
                     description=desc,
                     source="skill_pool",
-                )
+                ),
             )
         return items
 

@@ -44,18 +44,6 @@ def is_routing_available() -> bool:
     return False
 
 
-# Lazy public API
-__all__ = [
-    "is_routing_available",
-    "SemanticRoutingConfig",
-    "IndexItem",
-    "SearchHit",
-    "RoutingResult",
-    "SemanticIndex",
-    "SkillRouter",
-]
-
-
 def __getattr__(name: str):
     """Lazy import to avoid loading heavy deps at module import time."""
     if name == "SemanticRoutingConfig":

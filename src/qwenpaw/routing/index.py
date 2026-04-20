@@ -184,6 +184,7 @@ class SemanticIndex:
 
         # Priority 2: Local sentence-transformers
         try:
+            # pylint: disable-next=unused-import
             import sentence_transformers  # noqa: F401
 
             self._backend = "local"
@@ -198,7 +199,7 @@ class SemanticIndex:
         raise RuntimeError(
             "No embedding backend available. "
             "Configure Embedding API in Agent Config, "
-            "or install: pip install qwenpaw[semantic]"
+            "or install: pip install qwenpaw[semantic]",
         )
 
     # ------------------------------------------------------------------
@@ -392,7 +393,9 @@ class SemanticIndex:
             "model": (
                 self._api_config["model_name"]
                 if backend == "api" and self._api_config
-                else self._encoder_name if backend == "local" else ""
+                else self._encoder_name
+                if backend == "local"
+                else ""
             ),
             "item_count": self.item_count,
             "available": backend in ("api", "local"),
