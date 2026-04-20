@@ -205,10 +205,72 @@
      - `needClarify=true`
      - `clarifyQuestion="请补充以下必要参数：..."`
 
-补充：
+关键澄清：
+
+- 这里的“槽位补全”**不是给默认值**。
+- 它做的是“从 `question` 里补齐必填槽位 + 把枚举别名归一化到标准值”。
+- 如果 `question` 里也抽不出来，就进入澄清分支，而不是写入默认值。
+
+补充实现细节：
 
 - `_slot_mapping(intent)` 当前只读取 `slotSchema.slotMapping`（不再回退顶层 `slotMapping`）。
 - 若补槽后满足条件且原始 `confidence<=0`，会提升到 `0.6`。
+
+### 8.1 简单示例（最小可维护样例）
+
+输入：
+
+- `question`: `查询clientId 1006在稳额产品的准入情况`
+- 选中的 intent（示意）：
+  - `intentCode`: `TEMPLATE_query_client_choose_status`
+  - `slotSchema.required`: `["product", "client_id"]`
+  - `slotSchema.slotMapping`:
+    - `product`: `["产品", "product"]`
+    - `client_id`: `["clientId", "客户ID", "client_id"]`
+  - `slotSchema.properties.product.x-enum-aliases`:
+    - `稳额`: `["稳额产品"]`
+
+模型初始输出（candidate）：
+
+```json
+{
+  "intentCode": "TEMPLATE_query_client_choose_status",
+  "executionMode": "SQL_TEMPLATE",
+  "confidence": 0,
+  "slots": {},
+  "needClarify": false
+}
+```
+
+补全过程：
+
+1. `slots` 先过白名单（本例仍为空）。
+2. 处理必填 `product`：
+   - 在 question 命中枚举别名 `稳额产品`
+   - 归一化为 canonical 值 `稳额`
+3. 处理必填 `client_id`：
+   - 根据 `slotSchema.slotMapping.client_id` 中别名 `clientId` 做正则抽取
+   - 抽到值 `1006`
+4. 必填已齐全：
+   - `needClarify=false`
+   - `clarifyQuestion=null`
+5. 因为补槽成功且原始 `confidence<=0`，置信度提升为 `0.6`
+
+补全后 candidate（示意）：
+
+```json
+{
+  "intentCode": "TEMPLATE_query_client_choose_status",
+  "executionMode": "SQL_TEMPLATE",
+  "confidence": 0.6,
+  "slots": {
+    "product": "稳额",
+    "client_id": "1006"
+  },
+  "needClarify": false,
+  "clarifyQuestion": null
+}
+```
 
 ---
 

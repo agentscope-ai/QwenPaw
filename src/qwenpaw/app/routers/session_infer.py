@@ -1027,6 +1027,11 @@ async def post_session_infer(
             _json_for_log(response_metadata),
         )
         logger.info(
+            "会话推理收集结果-text trace_id=%s response_text=%s",
+            trace_id,
+            response_text,
+        )
+        logger.info(
             "会话推理收集结果-tool_candidate trace_id=%s tool_candidate=%s",
             trace_id,
             _json_for_log(response_tool_candidate),
