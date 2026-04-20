@@ -12,6 +12,7 @@ import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import SenderInfoCard from "./components/SenderInfoCard";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
 import { getApiUrl } from "../../api/config";
@@ -886,6 +887,9 @@ export default function ChatPage() {
       },
       customToolRenderConfig:
         Object.keys(toolRenderConfig).length > 0 ? toolRenderConfig : undefined,
+      cards: {
+        CoPawSenderInfoCard: SenderInfoCard,
+      },
       actions: {
         list: [
           {
