@@ -22,8 +22,6 @@ from ..agent_context import get_agent_for_request
 logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "qwenpaw-session-infer-v2"
-SESSION_INFER_TOTAL_BUDGET_MS = 18000
-SESSION_INFER_COLLECT_BUDGET_MS = 8000
 SESSION_INFER_PROMPT_MAX_DESCRIPTION_CHARS = 160
 SESSION_INFER_LOG_MAX_TEXT_CHARS = 200
 SESSION_INFER_LOG_MAX_LIST_ITEMS = 5
@@ -294,7 +292,6 @@ def _extract_candidate_from_tool_content(content: Any) -> Optional[dict[str, Any
 
 async def _collect_model_output(
     response: Any,
-    max_duration_ms: Optional[int] = None,
     stop_on_usable_metadata: bool = False,
 ) -> tuple[
     str,
@@ -303,7 +300,6 @@ async def _collect_model_output(
     Optional[int],
     int,
     Optional[int],
-    bool,
 ]:
     if hasattr(response, "__aiter__"):
         accumulated = ""
@@ -313,21 +309,10 @@ async def _collect_model_output(
         first_chunk_ms: Optional[int] = None
         chunk_count = 0
         valid_metadata_at_chunk_idx: Optional[int] = None
-        collect_budget_cut = False
         async for chunk in response:  # type: ignore[union-attr]
             chunk_count += 1
             if first_chunk_ms is None:
                 first_chunk_ms = int((time.monotonic() - collect_started) * 1000)
-            if max_duration_ms is not None:
-                elapsed_ms = int((time.monotonic() - collect_started) * 1000)
-                if elapsed_ms >= max_duration_ms:
-                    logger.warning(
-                        "session infer collect exceeded budget, cut stream elapsed_ms=%d budget_ms=%d",
-                        elapsed_ms,
-                        max_duration_ms,
-                    )
-                    collect_budget_cut = True
-                    break
             text = _extract_text_from_chunk(chunk)
             if text:
                 # Some providers emit cumulative text on each chunk.
@@ -359,7 +344,6 @@ async def _collect_model_output(
             first_chunk_ms,
             chunk_count,
             valid_metadata_at_chunk_idx,
-            collect_budget_cut,
         )
 
     response_text = _extract_text_from_response(response)
@@ -375,7 +359,6 @@ async def _collect_model_output(
         0 if has_payload else None,
         1 if has_payload else 0,
         1 if (_metadata_is_usable(metadata)) else None,
-        False,
     )
 
 
@@ -1002,10 +985,8 @@ async def post_session_infer(
                 first_chunk_ms,
                 stream_chunk_count,
                 valid_metadata_at_chunk_idx,
-                collect_budget_cut,
             ) = await _collect_model_output(
                 response,
-                max_duration_ms=SESSION_INFER_COLLECT_BUDGET_MS,
                 stop_on_usable_metadata=True,
             )
         else:
@@ -1016,17 +997,10 @@ async def post_session_infer(
                 first_chunk_ms,
                 stream_chunk_count,
                 valid_metadata_at_chunk_idx,
-                collect_budget_cut,
-            ) = ("", None, None, None, 0, None, False)
+            ) = ("", None, None, None, 0, None)
         collect_ms = int((time.monotonic() - collect_start) * 1000)
-        if collect_budget_cut:
-            logger.warning(
-                "session infer collect budget cut trace_id=%s budget_ms=%d",
-                trace_id,
-                SESSION_INFER_COLLECT_BUDGET_MS,
-            )
         logger.info(
-            "session infer stage=collect_output trace_id=%s collect_ms=%d text_len=%d metadata_hit=%s metadata_keys=%s metadata_usable=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s collect_budget_cut=%s",
+            "session infer stage=collect_output trace_id=%s collect_ms=%d text_len=%d metadata_hit=%s metadata_keys=%s metadata_usable=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s",
             trace_id,
             collect_ms,
             len(response_text or ""),
@@ -1039,7 +1013,6 @@ async def post_session_infer(
             first_chunk_ms,
             stream_chunk_count,
             valid_metadata_at_chunk_idx,
-            collect_budget_cut,
         )
 
         parse_start = time.monotonic()
@@ -1151,15 +1124,8 @@ async def post_session_infer(
             _json_for_log(model_meta.model_dump()),
         )
         total_ms = int((time.monotonic() - stage_start) * 1000)
-        if total_ms > SESSION_INFER_TOTAL_BUDGET_MS:
-            logger.warning(
-                "session infer over soft budget trace_id=%s total_ms=%d budget_ms=%d",
-                trace_id,
-                total_ms,
-                SESSION_INFER_TOTAL_BUDGET_MS,
-            )
         logger.info(
-            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d response_source=%s slot_completion_changed=%s slot_completion_filled=%d slot_completion_missing_required=%s total_ms=%d structured_enabled=%s non_stream_enforced=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s collect_budget_cut=%s structured_error_type=%s",
+            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d response_source=%s slot_completion_changed=%s slot_completion_filled=%d slot_completion_missing_required=%s total_ms=%d structured_enabled=%s non_stream_enforced=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s structured_error_type=%s",
             trace_id,
             len(payload.intents),
             resolve_ms,
@@ -1183,7 +1149,6 @@ async def post_session_infer(
             first_chunk_ms,
             stream_chunk_count,
             valid_metadata_at_chunk_idx,
-            collect_budget_cut,
             structured_error_type,
         )
         return SessionInferResponse(
