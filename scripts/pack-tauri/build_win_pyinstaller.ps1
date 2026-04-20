@@ -46,12 +46,18 @@ Write-Host ""
 Write-Host "== Step 2: Building Console Frontend ==" -ForegroundColor Yellow
 Set-Location console
 
-if (-not (Test-Path "node_modules")) {
-    Write-Host "Installing frontend dependencies..."
-    bun install
-    if ($LASTEXITCODE -ne 0) {
-        throw "bun install failed"
-    }
+#if (-not (Test-Path "node_modules")) {
+#    Write-Host "Installing frontend dependencies..."
+#    bun install
+#    if ($LASTEXITCODE -ne 0) {
+#        throw "bun install failed"
+#    }
+#}
+
+Write-Host "Installing frontend dependencies..."
+bun install
+if ($LASTEXITCODE -ne 0) {
+    throw "bun install failed"
 }
 
 Write-Host "Building frontend..."
