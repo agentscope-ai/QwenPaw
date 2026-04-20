@@ -20,6 +20,7 @@ from ..utils import schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
     AgentProfileRef,
+    ModelSlotConfig,
     load_agent_config,
     save_agent_config,
     generate_short_agent_id,
@@ -75,6 +76,7 @@ class CreateAgentRequest(BaseModel):
     workspace_dir: str | None = None
     language: str = "en"
     skill_names: list[str] | None = None
+    active_model: ModelSlotConfig | None = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -339,6 +341,7 @@ async def create_agent(
         mcp=MCPConfig(),
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
+        active_model=request.active_model,
     )
 
     _initialize_agent_workspace(

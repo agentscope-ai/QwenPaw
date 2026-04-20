@@ -43,6 +43,7 @@ export interface CreateAgentRequest {
   workspace_dir?: string;
   language?: string;
   skill_names?: string[];
+  active_model?: ModelSlotConfig | null;
 }
 
 export interface AgentProfileRef {

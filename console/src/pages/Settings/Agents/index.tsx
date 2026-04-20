@@ -134,13 +134,6 @@ export default function AgentsPage() {
           ...payload,
           skill_names: selectedSkills,
         });
-        if (active_model) {
-          await agentsApi.updateAgent(result.id, {
-            id: result.id,
-            name: values.name,
-            active_model,
-          } as any);
-        }
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 
