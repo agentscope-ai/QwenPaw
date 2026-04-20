@@ -120,6 +120,8 @@ jobs:
         run: rm -rf dist && mkdir -p dist
 
       - name: Build macOS .app
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           chmod +x scripts/pack/build_macos.sh
           conda run -n qwenpaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
