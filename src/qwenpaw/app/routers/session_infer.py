@@ -149,21 +149,6 @@ def _json_for_log(value: Any) -> str:
             return "<unserializable>"
 
 
-def _intent_log_summary(intent: SessionInferIntent) -> dict[str, Any]:
-    required_slots = _required_slot_keys(intent)
-    slot_mapping = _slot_mapping(intent)
-    return {
-        "intentCode": str(intent.intentCode or "").strip(),
-        "executionMode": str(intent.executionMode or "").strip(),
-        "slotKeysCount": len(intent.slotKeys or []),
-        "requiredSlots": required_slots[:SESSION_INFER_LOG_MAX_LIST_ITEMS],
-        "slotMappingKeys": list(slot_mapping.keys())[:SESSION_INFER_LOG_MAX_LIST_ITEMS],
-        "roleCode": intent.roleCode,
-        "sqlTemplateCode": intent.sqlTemplateCode,
-        "selectedTableId": intent.selectedTableId,
-    }
-
-
 def _candidate_log_summary(candidate: CandidatePlan) -> dict[str, Any]:
     slot_keys = sorted(str(key) for key in (candidate.slots or {}).keys())
     return {
@@ -908,16 +893,6 @@ async def post_session_infer(
     stage_start = time.monotonic()
     trace_id = (payload.traceId or "").strip()
     logger.info("session infer request payload=%s", payload.model_dump())
-    if payload.intents:
-        intent_summaries = [
-            _intent_log_summary(intent)
-            for intent in payload.intents[:SESSION_INFER_LOG_MAX_LIST_ITEMS]
-        ]
-        logger.info(
-            "session infer intents summary trace_id=%s intents=%s",
-            trace_id,
-            _json_for_log(intent_summaries),
-        )
     try:
         resolve_start = time.monotonic()
         target_agent_id = await _resolve_target_agent_id(
