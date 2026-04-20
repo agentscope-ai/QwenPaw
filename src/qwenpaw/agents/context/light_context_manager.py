@@ -652,7 +652,7 @@ class LightContextManager(BaseContextManager):
             content=[
                 TextBlock(
                     type="text",
-                    text="Let me search memory based on the user's query.",
+                    text="Searching memory for relevant context...",
                 ),
                 ToolUseBlock(
                     type="tool_use",
