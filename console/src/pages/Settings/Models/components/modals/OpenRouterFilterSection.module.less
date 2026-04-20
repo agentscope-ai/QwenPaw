@@ -51,6 +51,62 @@
   min-width: 180px;
 }
 
+.providerActionButton {
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+
+  :global(span),
+  :global(.anticon),
+  :global(svg) {
+    color: inherit;
+  }
+
+  &:hover,
+  &:focus-visible {
+    color: var(--colorPrimary, #1677ff);
+    background: rgba(22, 119, 255, 0.08);
+
+    :global(span),
+    :global(.anticon),
+    :global(svg) {
+      color: inherit;
+    }
+  }
+
+  &:disabled,
+  &[disabled] {
+    color: var(--colorTextDisabled, rgba(0, 0, 0, 0.25));
+    background: transparent;
+  }
+}
+
+.panelDark .providerActionButton {
+  color: rgba(255, 255, 255, 0.85);
+
+  :global(span),
+  :global(.anticon),
+  :global(svg) {
+    color: inherit;
+  }
+
+  &:hover,
+  &:focus-visible {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+
+    :global(span),
+    :global(.anticon),
+    :global(svg) {
+      color: inherit;
+    }
+  }
+
+  &:disabled,
+  &[disabled] {
+    color: rgba(255, 255, 255, 0.35);
+    background: transparent;
+  }
+}
+
 .providerList {
   max-height: 200px;
   overflow-y: auto;
