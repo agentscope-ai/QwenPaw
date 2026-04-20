@@ -44,9 +44,10 @@ const MAX_LOCAL_SERVER_PORT = 65535;
 
 type LocalDownloadStatus = LocalDownloadProgress["status"];
 
-function getInitialLocalModelConfig(
-  config?: LocalModelConfig | null,
-): { maxContextLength: number; port: number | null } {
+function getInitialLocalModelConfig(config?: LocalModelConfig | null): {
+  maxContextLength: number;
+  port: number | null;
+} {
   return {
     maxContextLength:
       typeof config?.max_context_length === "number" &&
