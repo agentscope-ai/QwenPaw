@@ -183,20 +183,35 @@ function SkillPoolPage() {
                 onChange={pool.setSearchTags}
                 searchValue={pool.searchQuery}
                 onSearch={pool.setSearchQuery}
-                open={pool.filterOpen && pool.allTags.length > 0}
+                open={pool.filterOpen}
                 onDropdownVisibleChange={pool.setFilterOpen}
                 allowClear
                 maxTagCount="responsive"
                 suffixIcon={<SearchOutlined />}
                 notFoundContent={<></>}
-                dropdownRender={() => (
-                  <SkillFilterDropdown
-                    allTags={pool.allTags}
-                    searchTags={pool.searchTags}
-                    setSearchTags={pool.setSearchTags}
-                    styles={styles}
-                  />
-                )}
+                dropdownStyle={
+                  pool.allTags.length === 0
+                    ? {
+                        padding: 0,
+                        border: "none",
+                        boxShadow: "none",
+                        height: 0,
+                        overflow: "hidden",
+                      }
+                    : undefined
+                }
+                dropdownRender={() =>
+                  pool.allTags.length > 0 ? (
+                    <SkillFilterDropdown
+                      allTags={pool.allTags}
+                      searchTags={pool.searchTags}
+                      setSearchTags={pool.setSearchTags}
+                      styles={styles}
+                    />
+                  ) : (
+                    <div />
+                  )
+                }
               />
             </div>
             <div className={styles.toolbarRight}>
