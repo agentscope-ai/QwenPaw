@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import socket
 import tarfile
 import time
 import zipfile
@@ -1164,6 +1165,53 @@ def test_resolve_server_port_rejects_unavailable_port(
 
     with pytest.raises(ValueError, match="43110"):
         downloader._resolve_server_port(43110)
+
+
+def test_is_port_available_uses_exclusive_bind_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeSocket:
+        def __init__(self) -> None:
+            self.setsockopt_calls: list[tuple[int, int, int]] = []
+            self.bound_address: tuple[str, int] | None = None
+
+        def setsockopt(self, level: int, option: int, value: int) -> None:
+            self.setsockopt_calls.append((level, option, value))
+
+        def bind(self, address: tuple[str, int]) -> None:
+            self.bound_address = address
+
+        def __enter__(self) -> _FakeSocket:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    fake_socket = _FakeSocket()
+    exclusive_addr_use = getattr(socket, "SO_EXCLUSIVEADDRUSE", 0x4)
+
+    monkeypatch.setattr(
+        downloader_module.system_info,
+        "get_os_name",
+        lambda: "windows",
+    )
+    monkeypatch.setattr(
+        downloader_module.socket,
+        "SO_EXCLUSIVEADDRUSE",
+        exclusive_addr_use,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        downloader_module.socket,
+        "socket",
+        lambda *_args, **_kwargs: fake_socket,
+    )
+
+    assert LlamaCppBackend._is_port_available(43110) is True
+    assert fake_socket.bound_address == ("127.0.0.1", 43110)
+    assert fake_socket.setsockopt_calls == [
+        (socket.SOL_SOCKET, exclusive_addr_use, 1),
+    ]
 
 
 @pytest.mark.asyncio

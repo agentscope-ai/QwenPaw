@@ -141,7 +141,7 @@ class LlamaCppBackend:
             )
         except Exception as exc:
             logger.warning(f"Failed to check for llama.cpp updates: {exc}")
-            return False
+            return True
 
     def download(
         self,
@@ -668,7 +668,15 @@ class LlamaCppBackend:
     @staticmethod
     def _is_port_available(port: int, host: str = "127.0.0.1") -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if (
+                system_info.get_os_name() == "windows"
+                and hasattr(socket, "SO_EXCLUSIVEADDRUSE")
+            ):
+                sock.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_EXCLUSIVEADDRUSE,
+                    1,
+                )
             try:
                 sock.bind((host, port))
             except OSError:
