@@ -1,6 +1,7 @@
 import { render, type RenderOptions } from "@testing-library/react";
 import { MemoryRouter, type MemoryRouterProps } from "react-router-dom";
 import { type ReactNode } from "react";
+import { App } from "antd";
 
 interface RenderWithProvidersOptions extends Omit<RenderOptions, "wrapper"> {
   initialEntries?: string[];
@@ -13,7 +14,11 @@ function AllProviders({
   children: ReactNode;
   routerProps?: MemoryRouterProps;
 }) {
-  return <MemoryRouter {...routerProps}>{children}</MemoryRouter>;
+  return (
+    <App>
+      <MemoryRouter {...routerProps}>{children}</MemoryRouter>
+    </App>
+  );
 }
 
 export function renderWithProviders(
