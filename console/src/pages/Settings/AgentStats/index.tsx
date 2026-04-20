@@ -287,6 +287,9 @@ function AgentStatsPage() {
                 onChange={handleDateChange}
                 className={styles.datePicker}
                 disabled={loading}
+                disabledDate={(current) =>
+                  current && current.isAfter(dayjs(), "day")
+                }
               />
               {loading && <Spin size="small" />}
             </div>

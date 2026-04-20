@@ -35,6 +35,8 @@ import {
   SparkMenuExpandLine,
   SparkMenuFoldLine,
   SparkOtherLine,
+  SparkBarChartLine,
+  SparkDebugLine,
 } from "@agentscope-ai/icons";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
@@ -232,7 +234,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     },
     {
       key: "agent-stats",
-      icon: <SparkDataLine size={18} />,
+      icon: <SparkBarChartLine size={18} />,
       path: "/agent-stats",
       label: t("nav.agentStats"),
     },
@@ -244,7 +246,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     },
     {
       key: "debug",
-      icon: <SparkOtherLine size={18} />,
+      icon: <SparkDebugLine size={18} />,
       path: "/debug",
       label: t("nav.debug", "Debug"),
     },
@@ -364,7 +366,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {
           key: "agent-stats",
           label: collapsed ? null : t("nav.agentStats"),
-          icon: <SparkDataLine size={16} />,
+          icon: <SparkBarChartLine size={16} />,
         },
         {
           key: "voice-transcription",
@@ -374,7 +376,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         {
           key: "debug",
           label: collapsed ? null : t("nav.debug", "Debug"),
-          icon: <SparkOtherLine size={16} />,
+          icon: <SparkDebugLine size={16} />,
         },
       ],
     },
