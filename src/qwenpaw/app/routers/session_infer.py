@@ -977,6 +977,11 @@ async def post_session_infer(
             non_stream_enforced,
             structured_error_type,
         )
+        logger.info(
+            "会话推理模型原始响应 trace_id=%s response=%s",
+            trace_id,
+            _json_for_log(response),
+        )
 
         if response is None:
             raise ValueError(
@@ -1021,22 +1026,6 @@ async def post_session_infer(
             stream_chunk_count,
             valid_metadata_at_chunk_idx,
         )
-        logger.info(
-            "会话推理收集结果-metadata trace_id=%s metadata=%s",
-            trace_id,
-            _json_for_log(response_metadata),
-        )
-        logger.info(
-            "会话推理收集结果-text trace_id=%s response_text=%s",
-            trace_id,
-            response_text,
-        )
-        logger.info(
-            "会话推理收集结果-tool_candidate trace_id=%s tool_candidate=%s",
-            trace_id,
-            _json_for_log(response_tool_candidate),
-        )
-
         parse_start = time.monotonic()
         metadata_keys: list[str] = (
             sorted(response_metadata.keys())
