@@ -426,10 +426,10 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Whether to enable memory summarization during compaction",
     )
 
-    summarize_interval: int | None = Field(
+    auto_memory_interval: int | None = Field(
         default=None,
-        description="Summarize every N user queries. None disables "
-        "periodic summarization, 1 means summarize after every user "
+        description="Auto memory every N user queries. None disables "
+        "periodic auto memory, 1 means auto memory after every user "
         "query, 2 means every 2 queries, etc. WARNING: Setting too "
         "small (e.g., 1-3) may cause high token usage and heavy "
         "background task burden. Recommended: 5 or 10.",

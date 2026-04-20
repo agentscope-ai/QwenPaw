@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Set
 
 from agentscope.agent import ReActAgent
+from agentscope.formatter import FormatterBase
 from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
+from agentscope.model import ChatModelBase
 
 from .agent_context import AgentContext
 from .as_msg_handler import AsMsgHandler
@@ -144,42 +146,53 @@ class LightContextManager(BaseContextManager):
         if not content:
             return content
 
+        # Already truncated content - retruncate with new limit
+        if TRUNCATION_NOTICE_MARKER in content:
+            return truncate_text_output(
+                content,
+                max_bytes=max_bytes,
+                encoding=encoding,
+            )
+
+        # Check if content fits within limit (with small slack)
         try:
-            # Already truncated content - retruncate with new limit
-            if TRUNCATION_NOTICE_MARKER in content:
-                return truncate_text_output(
-                    content,
-                    max_bytes=max_bytes,
-                    encoding=encoding,
-                )
+            content_bytes = len(content.encode(encoding))
+        except UnicodeEncodeError as e:
+            logger.warning("Failed to encode content: %s", e)
+            return content
 
-            # Check if content fits within limit (with small slack)
-            if len(content.encode(encoding)) <= max_bytes + 100:
-                return content
+        if content_bytes <= max_bytes + 100:
+            return content
 
-            # Save full content to file
-            agent_config = load_agent_config(self.agent_id)
-            lcc = agent_config.running.light_context_config
-            trc = lcc.tool_result_pruning_config
-            tool_result_dir = Path(self.working_dir) / trc.tool_results_cache
+        # Save full content to file
+        agent_config = load_agent_config(self.agent_id)
+        lcc = agent_config.running.light_context_config
+        trc = lcc.tool_result_pruning_config
+        tool_result_dir = Path(self.working_dir) / trc.tool_results_cache
+
+        try:
             tool_result_dir.mkdir(parents=True, exist_ok=True)
-
             fp = tool_result_dir / f"{uuid.uuid4().hex}.txt"
             fp.write_text(content, encoding=encoding)
             saved_path = str(fp)
-
-            # Truncate and include file path in notice
+        except OSError as e:
+            logger.exception(f"Failed to save tool result to file: {e}")
+            # Fallback: truncate without saving
             return truncate_text_output(
                 content,
-                start_line=1,
-                total_lines=content.count("\n") + 1,
                 max_bytes=max_bytes,
-                file_path=saved_path,
                 encoding=encoding,
             )
-        except Exception as e:
-            logger.warning("Failed to truncate tool result content: %s", e)
-            return content
+
+        # Truncate and include file path in notice
+        return truncate_text_output(
+            content,
+            start_line=1,
+            total_lines=content.count("\n") + 1,
+            max_bytes=max_bytes,
+            file_path=saved_path,
+            encoding=encoding,
+        )
 
     def _compact_output(
         self,
@@ -369,8 +382,8 @@ class LightContextManager(BaseContextManager):
         messages: list[Msg],
         previous_summary: str = "",
         extra_instruction: str = "",
-        as_llm: Any = None,
-        as_llm_formatter: Any = None,
+        as_llm: ChatModelBase | None = None,
+        as_llm_formatter: FormatterBase | None = None,
         as_token_counter: EstimatedTokenCounter | None = None,
         language: str = "en",
         max_input_length: int = 100000,
@@ -481,7 +494,7 @@ class LightContextManager(BaseContextManager):
             ),
         )
 
-        history_compact: str = compact_msg.get_text_content()
+        history_compact: str = compact_msg.get_text_content() or ""
         is_valid: bool = self._is_valid_summary(history_compact)
 
         if not is_valid:
@@ -518,35 +531,35 @@ class LightContextManager(BaseContextManager):
         Returns:
             Compacted summary string, or empty string if compaction failed.
         """
-        agent_config = load_agent_config(self.agent_id)
-        running_config = agent_config.running
-        ccc = running_config.light_context_config.context_compact_config
+        try:
+            agent_config = load_agent_config(self.agent_id)
+            running_config = agent_config.running
+            ccc = running_config.light_context_config.context_compact_config
 
-        # Create model and formatter for compaction
-        model, formatter = create_model_and_formatter(self.agent_id)
+            # Create model and formatter for compaction
+            model, formatter = create_model_and_formatter(self.agent_id)
 
-        result = await self._compact_context(
-            messages=messages,
-            previous_summary=previous_summary,
-            extra_instruction=extra_instruction,
-            as_llm=model,
-            as_llm_formatter=formatter,
-            as_token_counter=get_token_counter(agent_config),
-            language=agent_config.language,
-            max_input_length=running_config.max_input_length,
-            compact_ratio=ccc.compact_threshold_ratio,
-            add_thinking_block=ccc.compact_with_thinking_block,
-        )
-        if result.get("is_valid"):
-            return result.get("history_compact", "")
+            result = await self._compact_context(
+                messages=messages,
+                previous_summary=previous_summary,
+                extra_instruction=extra_instruction,
+                as_llm=model,
+                as_llm_formatter=formatter,
+                as_token_counter=get_token_counter(agent_config),
+                language=agent_config.language,
+                max_input_length=running_config.max_input_length,
+                compact_ratio=ccc.compact_threshold_ratio,
+                add_thinking_block=ccc.compact_with_thinking_block,
+            )
+            if result.get("is_valid"):
+                return result.get("history_compact", "")
+        except Exception as e:
+            logger.warning("compact_context failed: %s", e)
         return ""
 
     # ------------------------------------------------------------------
     # Agent lifecycle hook methods
     # ------------------------------------------------------------------
-
-    _PRE_REASONING_REENTRANCY = "_ctx_pre_reasoning_running"
-    _POST_ACTING_REENTRANCY = "_ctx_post_acting_running"
 
     @staticmethod
     async def _print_status_message(agent: "QwenPawAgent", text: str) -> None:
@@ -678,9 +691,6 @@ class LightContextManager(BaseContextManager):
         excludes tool-result truncation, which is handled by
         ``post_acting``.
         """
-        if getattr(agent, self._PRE_REASONING_REENTRANCY, False):
-            return None
-        setattr(agent, self._PRE_REASONING_REENTRANCY, True)
 
         try:
             memory_manager = agent.memory_manager
@@ -819,8 +829,6 @@ class LightContextManager(BaseContextManager):
                 e,
                 exc_info=True,
             )
-        finally:
-            setattr(agent, self._PRE_REASONING_REENTRANCY, False)
 
         return None
 
@@ -831,10 +839,6 @@ class LightContextManager(BaseContextManager):
         output: Any,
     ) -> Msg | None:
         """Truncate oversized tool-call results after each acting step."""
-        if getattr(agent, self._POST_ACTING_REENTRANCY, False):
-            return None
-        setattr(agent, self._POST_ACTING_REENTRANCY, True)
-
         try:
             agent_config = load_agent_config(self.agent_id)
             lcc = agent_config.running.light_context_config
@@ -857,8 +861,6 @@ class LightContextManager(BaseContextManager):
                 e,
                 exc_info=True,
             )
-        finally:
-            setattr(agent, self._POST_ACTING_REENTRANCY, False)
 
         return None
 
@@ -868,33 +870,38 @@ class LightContextManager(BaseContextManager):
         kwargs: dict[str, Any],
         output: Any,
     ) -> Msg | None:
-        """Summarize memory periodically based on user query count.
+        """Auto memory periodically based on user query count.
 
-        When ``summarize_interval`` is set (e.g., 2), this hook counts user
-        messages in the memory and triggers summarization every N queries.
+        When ``auto_memory_interval`` is set (e.g., 2), this hook counts user
+        messages in the memory and triggers auto memory every N queries.
         """
-        memory_manager = agent.memory_manager
-        if memory_manager is None:
-            return None
+        try:
+            memory_manager = agent.memory_manager
+            if memory_manager is None:
+                return None
 
-        agent_config = load_agent_config(self.agent_id)
-        summarize_interval = (
-            agent_config.running.reme_light_memory_config.summarize_interval
-        )
+            agent_config = load_agent_config(self.agent_id)
+            rlmc = agent_config.running.reme_light_memory_config
+            auto_memory_interval = rlmc.auto_memory_interval
 
-        if summarize_interval is None or summarize_interval <= 0:
-            return None
+            if auto_memory_interval is None or auto_memory_interval <= 0:
+                return None
 
-        memory = agent.memory
-        # memory.content is list[tuple[Msg, marks]]
-        user_msg_count = sum(
-            1 for msg, _ in memory.content if msg.role == "user"
-        )
+            memory = agent.memory
+            # memory.content is list[tuple[Msg, marks]]
+            user_msg_count = sum(
+                1 for msg, _ in memory.content if msg.role == "user"
+            )
 
-        if user_msg_count > 0 and user_msg_count % summarize_interval == 0:
-            messages = await memory.get_memory(prepend_summary=False)
-            if messages:
-                memory_manager.add_summarize_task(messages=messages)
+            if (
+                user_msg_count > 0
+                and user_msg_count % auto_memory_interval == 0
+            ):
+                messages = await memory.get_memory(prepend_summary=False)
+                if messages:
+                    memory_manager.add_summarize_task(messages=messages)
+        except Exception as e:
+            logger.warning("post_reply hook failed: %s", e)
 
         return None
 

@@ -6,7 +6,7 @@ Imagine the LLM's context window as a **backpack with limited capacity** 🎒. E
 
 **Context management** is a set of mechanisms that help you "manage your backpack", ensuring the AI can work continuously and efficiently.
 
-> The context management mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe).
+> The context management mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and independently implemented via **LightContextManager** in QwenPaw.
 
 ### How It Works — Summary
 
@@ -116,10 +116,9 @@ graph LR
 
 ### Related Code
 
-- [MemoryCompactionHook](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/hooks/memory_compaction.py)
-- [compact_tool_result](https://github.com/agentscope-ai/ReMe/blob/v0.3.1.6/reme/memory/file_based/components/tool_result_compactor.py)
-- [check_context](https://github.com/agentscope-ai/ReMe/blob/v0.3.1.6/reme/memory/file_based/components/context_checker.py)
-- [compact_memory](https://github.com/agentscope-ai/ReMe/blob/v0.3.1.6/reme/memory/file_based/components/compactor.py)
+- [LightContextManager](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/context/light_context_manager.py)
+- [AsMsgHandler](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/context/as_msg_handler.py) — Context checking and message formatting
+- [compactor_prompts](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/context/compactor_prompts.py) — Compaction prompts
 
 ### Execution Flow
 

@@ -99,7 +99,7 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | Field                           | Description                                                                        | Default        |
 | ------------------------------- | ---------------------------------------------------------------------------------- | -------------- |
 | `summarize_when_compact`        | Whether to save long-term memory in background during context compaction           | `true`         |
-| `summarize_interval`            | Summarize every N user queries. null disables periodic summarization               | `null`         |
+| `auto_memory_interval`          | Auto memory every N user queries. null disables periodic auto memory               | `null`         |
 | `dream_cron`                    | Cron expression for dream-based memory optimization job (empty string to disable)  | `"0 23 * * *"` |
 | `rebuild_memory_index_on_start` | Whether to clear and rebuild memory search index on startup; false to skip rebuild | `false`        |
 | `recursive_file_watcher`        | Whether to watch memory directory recursively (includes subdirectories)            | `false`        |

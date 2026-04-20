@@ -376,19 +376,24 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         max_results = ms.max_results
         min_score = ms.min_score
 
-        result = await self.memory_search(
-            query=query,
-            max_results=max_results,
-            min_score=min_score,
-        )
-        content_blocks = result.content
+        try:
+            result = await self.memory_search(
+                query=query,
+                max_results=max_results,
+                min_score=min_score,
+            )
+            content_blocks = result.content
 
-        text_content = "\n".join(
-            b.get("text", "")
-            for b in content_blocks
-            if isinstance(b, dict) and b.get("text")
-        )
-        return text_content
+            text_content = "\n".join(
+                b.get("text", "")
+                for b in content_blocks
+                if isinstance(b, dict) and b.get("text")
+            )
+            return text_content
+
+        except Exception as e:
+            logger.exception(f"memory_search failed: {e}")
+            return ""
 
     async def dream(self, **kwargs) -> None:
         """Run one dream-based memory optimization pass."""
@@ -448,9 +453,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         try:
             response = await dream_agent.reply(user_msg)
-            logger.debug(
-                f"Dream agent response: {response.get_text_content()}",
-            )
+            logger.info(f"Dream agent response: {response.get_text_content()}")
         except Exception as e:
-            logger.error("dream-based memory optimization failed: %s", repr(e))
+            logger.exception(f"dream-based memory optimization failed: {e}")
             raise

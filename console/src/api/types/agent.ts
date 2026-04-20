@@ -51,7 +51,7 @@ export interface EmbeddingModelConfig {
 
 export interface ReMeLightMemoryConfig {
   summarize_when_compact: boolean;
-  summarize_interval: number | null;
+  auto_memory_interval: number | null;
   dream_cron: string;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;

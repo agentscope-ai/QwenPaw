@@ -96,7 +96,7 @@ graph LR
 | 配置项                          | 说明                                                                        | 默认值         |
 | ------------------------------- | --------------------------------------------------------------------------- | -------------- |
 | `summarize_when_compact`        | 是否在上下文压缩时后台保存长期记忆（调用 `summary_memory` 写入文件）        | `true`         |
-| `summarize_interval`            | 每隔 N 次用户查询进行总结。null 表示禁用周期总结                            | `null`         |
+| `auto_memory_interval`          | 每隔 N 次用户查询触发自动记忆。null 表示禁用定期自动记忆                    | `null`         |
 | `dream_cron`                    | 梦境记忆优化任务的 Cron 表达式（空字符串表示禁用）                          | `"0 23 * * *"` |
 | `rebuild_memory_index_on_start` | 启动时是否清空并重建记忆搜索索引；设为 `false` 可跳过重建，仅监控新文件变更 | `false`        |
 | `recursive_file_watcher`        | 是否递归监控记忆目录（包含子目录如 `memory/subdirectory/*`）                | `false`        |

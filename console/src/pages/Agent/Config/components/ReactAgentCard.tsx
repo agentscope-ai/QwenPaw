@@ -8,18 +8,16 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
+import {
+  CONTEXT_MANAGER_BACKEND_OPTIONS,
+  MEMORY_MANAGER_BACKEND_OPTIONS,
+} from "../../../../constants/backendMappings";
 import styles from "../index.module.less";
 
 const LANGUAGE_OPTIONS = [
   { value: "zh", label: "中文" },
   { value: "en", label: "English" },
   { value: "ru", label: "Русский" },
-];
-
-const CONTEXT_MANAGER_BACKEND_OPTIONS = [{ value: "light", label: "Light" }];
-
-const MEMORY_MANAGER_BACKEND_OPTIONS = [
-  { value: "ReMeLight", label: "ReMeLight" },
 ];
 
 interface ReactAgentCardProps {

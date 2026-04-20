@@ -41,15 +41,15 @@ export function ReMeLightMemoryCard() {
       </Form.Item>
 
       <Form.Item
-        label={t("agentConfig.summarizeInterval")}
-        name={["reme_light_memory_config", "summarize_interval"]}
-        tooltip={t("agentConfig.summarizeIntervalTooltip")}
+        label={t("agentConfig.autoMemoryInterval")}
+        name={["reme_light_memory_config", "auto_memory_interval"]}
+        tooltip={t("agentConfig.autoMemoryIntervalTooltip")}
       >
         <InputNumber
           style={{ width: "100%" }}
           min={1}
           step={1}
-          placeholder={t("agentConfig.summarizeIntervalPlaceholder")}
+          placeholder={t("agentConfig.autoMemoryIntervalPlaceholder")}
         />
       </Form.Item>
 

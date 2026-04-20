@@ -359,15 +359,15 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 
-| 字段                            | 类型        | 默认值         | 说明                                             |
-| ------------------------------- | ----------- | -------------- | ------------------------------------------------ |
-| `summarize_when_compact`        | bool        | `true`         | 是否在上下文压缩时启用记忆总结                   |
-| `summarize_interval`            | int \| null | `null`         | 每隔 N 次用户查询进行总结。null 表示禁用周期总结 |
-| `dream_cron`                    | string      | `"0 23 * * *"` | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）   |
-| `rebuild_memory_index_on_start` | bool        | `false`        | 启动时是否重建记忆搜索索引                       |
-| `recursive_file_watcher`        | bool        | `false`        | 是否递归监控记忆目录                             |
-| `auto_memory_search_config`     | object      | _（见下方）_   | 自动记忆搜索配置                                 |
-| `embedding_model_config`        | object      | _（见下方）_   | Embedding 模型配置                               |
+| 字段                            | 类型        | 默认值         | 说明                                                     |
+| ------------------------------- | ----------- | -------------- | -------------------------------------------------------- |
+| `summarize_when_compact`        | bool        | `true`         | 是否在上下文压缩时启用记忆总结                           |
+| `auto_memory_interval`          | int \| null | `null`         | 每隔 N 次用户查询触发自动记忆。null 表示禁用定期自动记忆 |
+| `dream_cron`                    | string      | `"0 23 * * *"` | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）           |
+| `rebuild_memory_index_on_start` | bool        | `false`        | 启动时是否重建记忆搜索索引                               |
+| `recursive_file_watcher`        | bool        | `false`        | 是否递归监控记忆目录                                     |
+| `auto_memory_search_config`     | object      | _（见下方）_   | 自动记忆搜索配置                                         |
+| `embedding_model_config`        | object      | _（见下方）_   | Embedding 模型配置                                       |
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 

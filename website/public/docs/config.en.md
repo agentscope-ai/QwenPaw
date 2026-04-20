@@ -409,7 +409,7 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | Field                           | Type        | Default        | Description                                                            |
 | ------------------------------- | ----------- | -------------- | ---------------------------------------------------------------------- |
 | `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction               |
-| `summarize_interval`            | int \| null | `null`         | Summarize every N user queries. null disables periodic summarization   |
+| `auto_memory_interval`          | int \| null | `null`         | Auto memory every N user queries. null disables periodic auto memory   |
 | `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable) |
 | `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                      |
 | `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                          |

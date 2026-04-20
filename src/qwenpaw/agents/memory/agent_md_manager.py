@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..utils.file_handling import read_text_file_with_encoding_fallback
+from ...config.config import load_agent_config
 
 
 class AgentMdManager:
@@ -28,8 +29,6 @@ class AgentMdManager:
 
         # Dynamically get memory_dir from config if agent_id provided
         if agent_id:
-            from ...config.config import load_agent_config
-
             agent_config = load_agent_config(agent_id)
             memory_dir_name = (
                 agent_config.running.reme_light_memory_config.daily_memory_dir
