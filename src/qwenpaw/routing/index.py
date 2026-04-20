@@ -4,12 +4,11 @@
 Supports two embedding backends:
 1. **API mode** — uses QwenPaw's existing EmbeddingConfig (OpenAI-compatible
    embedding API, e.g. DashScope, OpenAI).  No extra dependencies needed.
-2. **Local mode** — uses sentence-transformers + FAISS.  Requires
+2. **Local mode** — uses sentence-transformers.  Requires
    ``pip install qwenpaw[semantic]``.
 
 API mode is preferred when EmbeddingConfig is configured.  Local mode is
-the fallback.  All heavy imports are deferred so the module is safe to
-import regardless of installed packages.
+the fallback.
 """
 
 from __future__ import annotations
@@ -21,7 +20,11 @@ import os
 from pathlib import Path
 from typing import Any
 
+import httpx
 import numpy as np
+
+from qwenpaw.config.config import load_agent_config
+from qwenpaw.config.utils import load_config
 
 from .models import IndexItem, SearchHit
 
@@ -54,9 +57,6 @@ def _get_embedding_config() -> dict[str, Any] | None:
     etc., or None.
     """
     try:
-        from qwenpaw.config.utils import load_config
-        from qwenpaw.config.config import load_agent_config
-
         config = load_config()
         agent_id = config.agents.active_agent or "default"
         agent_cfg = load_agent_config(agent_id)
@@ -83,10 +83,9 @@ def _embed_via_api(
     """Call an OpenAI-compatible embedding API and return vectors.
 
     Uses ``httpx`` which is already a QwenPaw core dependency.
-    Batches requests to respect API limits per ``EmbeddingConfig.max_batch_size``.
+    Batches requests to respect API limits per
+    ``EmbeddingConfig.max_batch_size``.
     """
-    import httpx
-
     url = f"{base_url.rstrip('/')}/embeddings"
     headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -113,9 +112,6 @@ def _apply_hf_mirror_if_needed() -> None:
     if os.environ.get("HF_ENDPOINT"):
         return
     try:
-        from qwenpaw.config.utils import load_config
-        from qwenpaw.config.config import load_agent_config
-
         config = load_config()
         agent_id = config.agents.active_agent or "default"
         agent_cfg = load_agent_config(agent_id)

@@ -377,9 +377,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         """Build a skill routing hint for the given user query.
 
         Uses semantic routing to identify the most relevant skills and
-        returns a hint string to prepend to the user message.  This
-        keeps the tool list unchanged (KV cache friendly) while guiding
-        the LLM toward the right skills.
+        returns a hint string.  This keeps the tool list unchanged
+        (KV cache friendly) while guiding the LLM toward the right
+        skills.
 
         Returns an empty string when semantic routing is disabled,
         unavailable, or encounters any error.
@@ -402,15 +402,11 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             if not skill_names or skills_dir is None:
                 return ""
 
-            # Read skill metadata from disk
+            # Read skill metadata (cached by mtime)
             skill_metas = self._read_skill_metas(skill_names, skills_dir)
 
-            from ..routing.router import SkillRouter
-
-            persist_dir = Path(
-                self._workspace_dir or WORKING_DIR
-            ) / ".semantic_index"
-            router = SkillRouter(config=sr_config, persist_dir=persist_dir)
+            # Reuse cached SkillRouter; rebuild only when config changes
+            router = self._get_or_create_router(sr_config)
             result = router.route(query, skill_metas)
 
             if result.bypassed:
@@ -420,7 +416,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             hints = []
             for hit in result.hits:
                 desc = hit.item.description
-                # Truncate long descriptions
                 if len(desc) > 80:
                     desc = desc[:77] + "..."
                 hints.append(f"• {hit.item.name} — {desc}")
@@ -449,28 +444,69 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             )
             return ""
 
+    def _get_or_create_router(
+        self,
+        sr_config: Any,
+    ) -> Any:
+        """Return a cached SkillRouter, recreating only when needed."""
+        from ..routing.router import SkillRouter
+
+        persist_dir = (
+            Path(self._workspace_dir or WORKING_DIR) / ".semantic_index"
+        )
+        cached = getattr(self, "_skill_router", None)
+        if cached is not None:
+            cached_cfg = getattr(self, "_skill_router_config", None)
+            if (
+                cached_cfg is not None
+                and cached_cfg.top_k == sr_config.top_k
+                and cached_cfg.min_score == sr_config.min_score
+                and cached_cfg.encoder == sr_config.encoder
+            ):
+                return cached
+
+        router = SkillRouter(config=sr_config, persist_dir=persist_dir)
+        self._skill_router = router
+        self._skill_router_config = sr_config
+        return router
+
+    _skill_meta_cache: dict[str, tuple[float, dict[str, str]]] = {}
+
     @staticmethod
     def _read_skill_metas(
         skill_names: list[str],
         skills_dir: Path,
     ) -> list[dict[str, str]]:
-        """Read skill metadata directly from disk.
+        """Read skill metadata with mtime-based caching.
 
         Returns a list of dicts with 'name' and 'description' keys.
+        Only re-reads from disk when a skill directory's mtime changes.
         """
         from ..agents.skills_manager import _read_frontmatter_safe
 
+        cache = QwenPawAgent._skill_meta_cache
         metas = []
         for name in skill_names:
             skill_dir = skills_dir / name
-            if skill_dir.exists():
-                post = _read_frontmatter_safe(skill_dir, name)
-                metas.append({
-                    "name": name,
-                    "description": str(
-                        post.get("description", "") or ""
-                    ),
-                })
+            if not skill_dir.exists():
+                continue
+            try:
+                mtime = skill_dir.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+
+            cached = cache.get(name)
+            if cached is not None and cached[0] == mtime:
+                metas.append(cached[1])
+                continue
+
+            post = _read_frontmatter_safe(skill_dir, name)
+            meta = {
+                "name": name,
+                "description": str(post.get("description", "") or ""),
+            }
+            cache[name] = (mtime, meta)
+            metas.append(meta)
         return metas
 
     def _build_sys_prompt(self) -> str:
@@ -1374,7 +1410,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         #   - After reply, hint is deleted from memory (no accumulation)
         hint_injected = False
         if query and msg is not None:
-            hint = self._build_skill_hint(query)
+            hint = await asyncio.to_thread(self._build_skill_hint, query)
             if hint:
                 hint_msg = Msg(
                     name="system",

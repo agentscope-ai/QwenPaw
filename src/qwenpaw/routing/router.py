@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import SemanticRoutingConfig
+from .index import SemanticIndex
 from .models import IndexItem, RoutingResult, SearchHit
 
 logger = logging.getLogger(__name__)
@@ -96,8 +97,6 @@ class SkillRouter:
 
     def _ensure_index(self, items: list[IndexItem]) -> Any:
         """Return a ready SemanticIndex, rebuilding if necessary."""
-        from .index import SemanticIndex
-
         if self._index is None:
             self._index = SemanticIndex(
                 encoder_name=self._config.encoder,
