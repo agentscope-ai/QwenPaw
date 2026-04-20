@@ -939,6 +939,16 @@ async def post_session_infer(
         structured_enabled = True
         non_stream_enforced = True
         structured_error_type = ""
+        logger.info(
+            "会话推理模型调用参数 trace_id=%s params=%s",
+            trace_id,
+            _json_for_log(
+                {
+                    "messages": messages,
+                    "structured_model": SessionInferStructuredOutput.__name__,
+                }
+            ),
+        )
         try:
             response = await model(
                 messages,
@@ -977,11 +987,6 @@ async def post_session_infer(
             non_stream_enforced,
             structured_error_type,
         )
-        logger.info(
-            "会话推理模型原始响应 trace_id=%s response=%s",
-            trace_id,
-            _json_for_log(response),
-        )
 
         if response is None:
             raise ValueError(
@@ -1011,21 +1016,6 @@ async def post_session_infer(
                 valid_metadata_at_chunk_idx,
             ) = ("", None, None, None, 0, None)
         collect_ms = int((time.monotonic() - collect_start) * 1000)
-        logger.info(
-            "会话推理阶段=收集输出 trace_id=%s collect_ms=%d text_len=%d metadata_hit=%s metadata_keys=%s metadata_usable=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s",
-            trace_id,
-            collect_ms,
-            len(response_text or ""),
-            isinstance(response_metadata, dict),
-            _json_for_log(
-                sorted(response_metadata.keys()) if isinstance(response_metadata, dict) else []
-            ),
-            _metadata_is_usable(response_metadata),
-            isinstance(response_tool_candidate, dict),
-            first_chunk_ms,
-            stream_chunk_count,
-            valid_metadata_at_chunk_idx,
-        )
         logger.info(
             "会话推理模型响应完整快照 trace_id=%s snapshot=%s",
             trace_id,
