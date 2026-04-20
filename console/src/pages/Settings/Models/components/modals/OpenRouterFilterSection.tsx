@@ -2,11 +2,7 @@ import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Input, Switch, Tag } from "@agentscope-ai/design";
-import {
-  FilterOutlined,
-  GiftOutlined,
-  PlusOutlined,
-} from "@ant-design/icons";
+import { FilterOutlined, GiftOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   SparkImageuploadLine,
   SparkAudiouploadLine,

@@ -803,7 +803,9 @@ export function LocalModelManageModal({
           setDeletingModelName(model.id);
           try {
             await api.deleteLocalModel(model.id);
-            message.success(t("models.localModelDeleted", { name: model.name }));
+            message.success(
+              t("models.localModelDeleted", { name: model.name }),
+            );
             await fetchLocalModels();
             onSaved();
           } catch (error) {
@@ -827,9 +829,7 @@ export function LocalModelManageModal({
 
   const isModelDownloading = isDownloadActive(modelDownload);
   const isServerBusy =
-    stoppingServer ||
-    startingModelName !== null ||
-    deletingModelName !== null;
+    stoppingServer || startingModelName !== null || deletingModelName !== null;
   const isRuntimeInstallable = serverStatus?.installable ?? true;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
   const runtimeLockedMessage =
