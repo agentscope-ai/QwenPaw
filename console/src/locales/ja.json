@@ -235,6 +235,8 @@
     "downloadedToWorkspace": "現在のワークスペースにダウンロードしました",
     "builtinUpgradeTitle": "ビルトインスキルのアップグレード",
     "builtinUpgradeContent": "スキルプールにビルトインスキル「{{name}}」の新しいバージョンがあります。現在のバージョンを上書きしますか？",
+    "languageSwitchTitle": "スキル言語の切り替え",
+    "languageSwitchContent": "次のスキルはプール内に異なる言語バージョンがあり、上書きされます:",
     "overwriteExistingList": "次のスキルは既に存在しており、上書きされます:",
     "nameConflict": "名前の競合が検出されました。推奨される名前変更が入力されました。",
     "uploadToPoolHint": "選択したワークスペーススキルを共有ローカルスキルプールにアップロードします",

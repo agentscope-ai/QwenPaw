@@ -49,6 +49,14 @@ type BroadcastConflict =
       reason: "builtin_upgrade";
       current_version_text: string;
       source_version_text: string;
+    }
+  | {
+      skill_name: string;
+      workspace_id: string;
+      workspace_name: string;
+      reason: "language_switch";
+      source_language: string;
+      current_language: string;
     };
 
 const BUILTIN_NOTICE_ACK_STORAGE_KEY = "qwenpaw.skill-pool.builtin-notice.ack";
@@ -388,29 +396,42 @@ export function useSkillPool() {
             throw error;
           }
           conflicts.push(
-            ...returnedConflicts.map((conflict) => ({
-              skill_name: conflict.skill_name || skillName,
-              workspace_id: conflict.workspace_id || "",
-              workspace_name:
-                conflict.workspace_name ||
-                getAgentDisplayName(
-                  {
-                    id: conflict.workspace_id || "",
-                    name:
-                      workspaces.find(
-                        (workspace) =>
-                          workspace.agent_id === conflict.workspace_id,
-                      )?.agent_name ?? "",
-                  },
-                  t,
-                ),
-              reason:
-                conflict.reason === "builtin_upgrade"
-                  ? ("builtin_upgrade" as const)
-                  : ("conflict" as const),
-              current_version_text: conflict.current_version_text || "",
-              source_version_text: conflict.source_version_text || "",
-            })),
+            ...returnedConflicts.map((conflict): BroadcastConflict => {
+              const base = {
+                skill_name: conflict.skill_name || skillName,
+                workspace_id: conflict.workspace_id || "",
+                workspace_name:
+                  conflict.workspace_name ||
+                  getAgentDisplayName(
+                    {
+                      id: conflict.workspace_id || "",
+                      name:
+                        workspaces.find(
+                          (workspace) =>
+                            workspace.agent_id === conflict.workspace_id,
+                        )?.agent_name ?? "",
+                    },
+                    t,
+                  ),
+              };
+              if (conflict.reason === "builtin_upgrade") {
+                return {
+                  ...base,
+                  reason: "builtin_upgrade" as const,
+                  current_version_text: conflict.current_version_text || "",
+                  source_version_text: conflict.source_version_text || "",
+                };
+              }
+              if (conflict.reason === "language_switch") {
+                return {
+                  ...base,
+                  reason: "language_switch" as const,
+                  source_language: conflict.source_language || "",
+                  current_language: conflict.current_language || "",
+                };
+              }
+              return { ...base, reason: "conflict" as const };
+            }),
           );
         }
       }
@@ -418,16 +439,23 @@ export function useSkillPool() {
         const allBuiltinUpgrades = conflicts.every(
           (conflict) => conflict.reason === "builtin_upgrade",
         );
+        const allLanguageSwitch = conflicts.every(
+          (conflict) => conflict.reason === "language_switch",
+        );
+        const title = allBuiltinUpgrades
+          ? t("skills.builtinUpgradeTitle")
+          : allLanguageSwitch
+          ? t("skills.languageSwitchTitle")
+          : t("skillPool.overwriteConfirm");
+        const subtitle = allBuiltinUpgrades
+          ? t("skillPool.builtinOverwriteTargetsContent")
+          : allLanguageSwitch
+          ? t("skills.languageSwitchContent")
+          : t("skillPool.overwriteTargetsContent");
         const confirmed = await confirmOverwrite(
-          allBuiltinUpgrades
-            ? t("skills.builtinUpgradeTitle")
-            : t("skillPool.overwriteConfirm"),
+          title,
           <div style={{ display: "grid", gap: 8 }}>
-            <div>
-              {allBuiltinUpgrades
-                ? t("skillPool.builtinOverwriteTargetsContent")
-                : t("skillPool.overwriteTargetsContent")}
-            </div>
+            <div>{subtitle}</div>
             {conflicts.map((conflict) => (
               <div
                 key={`${conflict.skill_name}-${conflict.workspace_id || ""}`}
@@ -443,6 +471,18 @@ export function useSkillPool() {
                     {"  ->  "}
                     {t("skillPool.sourceVersion")}:{" "}
                     {conflict.source_version_text || "-"}
+                  </>
+                ) : null}
+                {conflict.reason === "language_switch" ? (
+                  <>
+                    {"  "}
+                    {conflict.current_language === "zh"
+                      ? t("skillPool.langZh")
+                      : t("skillPool.langEn")}
+                    {"  →  "}
+                    {conflict.source_language === "zh"
+                      ? t("skillPool.langZh")
+                      : t("skillPool.langEn")}
                   </>
                 ) : null}
               </div>

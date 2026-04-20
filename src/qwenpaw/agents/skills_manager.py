@@ -3243,6 +3243,7 @@ class SkillPoolService:
         existing: dict[str, Any] | None,
         final_name: str,
         workspace_identity: dict[str, str],
+        workspace_dir: Path,
     ) -> dict[str, Any] | None:
         """Return a conflict dict if download should be blocked."""
         if not existing:
@@ -3259,12 +3260,59 @@ class SkillPoolService:
                 "",
             )
             if pool_ver and ws_ver and pool_ver == ws_ver:
+                pool_lang = str(
+                    entry.get("builtin_language", "") or "",
+                )
+                ws_lang = str(
+                    existing.get("builtin_language", "") or "",
+                )
+                if pool_lang and ws_lang and pool_lang != ws_lang:
+                    return {
+                        "success": False,
+                        "reason": "language_switch",
+                        "workspace_id": ws_id,
+                        "workspace_name": ws_name,
+                        "skill_name": final_name,
+                        "source_language": pool_lang,
+                        "current_language": ws_lang,
+                    }
+                if pool_lang and not ws_lang:
+                    pool_md = get_skill_pool_dir() / final_name / "SKILL.md"
+                    ws_md = (
+                        get_workspace_skills_dir(workspace_dir)
+                        / final_name
+                        / "SKILL.md"
+                    )
+                    try:
+                        pool_hash = hashlib.sha256(
+                            read_text_file_with_encoding_fallback(
+                                pool_md,
+                            ).encode("utf-8"),
+                        ).hexdigest()
+                        ws_hash = hashlib.sha256(
+                            read_text_file_with_encoding_fallback(
+                                ws_md,
+                            ).encode("utf-8"),
+                        ).hexdigest()
+                    except OSError:
+                        pool_hash = ws_hash = ""
+                    if pool_hash and ws_hash and pool_hash != ws_hash:
+                        return {
+                            "success": False,
+                            "reason": "language_switch",
+                            "workspace_id": ws_id,
+                            "workspace_name": ws_name,
+                            "skill_name": final_name,
+                            "source_language": pool_lang,
+                            "current_language": ws_lang,
+                        }
                 return {
                     "success": True,
                     "mode": "unchanged",
                     "name": final_name,
                     "workspace_id": ws_id,
                     "workspace_name": ws_name,
+                    "backfill_language": pool_lang or "",
                 }
             return {
                 "success": False,
@@ -3282,6 +3330,25 @@ class SkillPoolService:
             "workspace_name": ws_name,
             "suggested_name": suggest_conflict_name(final_name),
         }
+
+    @staticmethod
+    def _backfill_workspace_language(
+        workspace_dir: Path,
+        skill_name: str,
+        language: str,
+    ) -> None:
+        """Write ``builtin_language`` into an existing workspace entry."""
+
+        def _patch(payload: dict[str, Any]) -> None:
+            ws_entry = payload.get("skills", {}).get(skill_name)
+            if ws_entry is not None:
+                ws_entry["builtin_language"] = language
+
+        _mutate_json(
+            get_workspace_skill_manifest_path(workspace_dir),
+            _default_workspace_manifest(),
+            _patch,
+        )
 
     def download_to_workspace(
         self,
@@ -3307,8 +3374,15 @@ class SkillPoolService:
                 existing,
                 final_name,
                 workspace_identity,
+                workspace_dir,
             )
             if conflict is not None:
+                if conflict.get("backfill_language"):
+                    self._backfill_workspace_language(
+                        workspace_dir,
+                        final_name,
+                        conflict["backfill_language"],
+                    )
                 return conflict
 
         target_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -3339,6 +3413,11 @@ class SkillPoolService:
                 "requirements": metadata["requirements"],
                 "updated_at": metadata["updated_at"],
             }
+            pool_lang = str(
+                entry.get("builtin_language", "") or "",
+            )
+            if entry.get("source") == "builtin" and pool_lang:
+                ws_entry["builtin_language"] = pool_lang
             if pool_tags is not None:
                 ws_entry["tags"] = pool_tags
             payload["skills"][final_name] = ws_entry
@@ -3377,6 +3456,7 @@ class SkillPoolService:
                 existing,
                 final_name,
                 workspace_identity,
+                workspace_dir,
             )
             if conflict is not None:
                 return conflict

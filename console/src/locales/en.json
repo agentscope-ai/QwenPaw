@@ -284,6 +284,8 @@
     "downloadedToWorkspace": "Downloaded to current workspace",
     "builtinUpgradeTitle": "Upgrade Built-in Skill",
     "builtinUpgradeContent": "A newer version of built-in skill \"{{name}}\" is available in the pool. Overwrite the current version?",
+    "languageSwitchTitle": "Switch Skill Language",
+    "languageSwitchContent": "The following skills have a different language version in the pool and will be overwritten:",
     "overwriteExistingList": "The following skills already exist and will be overwritten:",
     "nameConflict": "Name conflict detected. Suggested rename has been filled.",
     "uploadToPoolHint": "Upload selected workspace skills to the shared local skill pool",

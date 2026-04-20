@@ -250,6 +250,8 @@
     "downloadedToWorkspace": "已下载至当前工作区",
     "builtinUpgradeTitle": "升级内置技能",
     "builtinUpgradeContent": "技能池中有更新版本的内置技能 \"{{name}}\"，是否覆盖当前版本？",
+    "languageSwitchTitle": "切换技能语言",
+    "languageSwitchContent": "以下技能在池中有不同的语言版本，确认后将覆盖：",
     "overwriteExistingList": "以下技能已存在，确认后将直接覆盖：",
     "nameConflict": "检测到名称冲突，建议的重命名已填入。",
     "uploadToPoolHint": "将选中的工作区技能上传到共享本地技能池",
