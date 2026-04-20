@@ -4,6 +4,7 @@
 import os
 import mimetypes
 import unicodedata
+from urllib.parse import quote
 
 from agentscope.tool import ToolResponse
 from agentscope.message import (
@@ -15,6 +16,29 @@ from agentscope.message import (
 
 from ..schema import FileBlock
 from .file_io import _resolve_file_path
+
+
+def _path_to_file_url(path: str) -> str:
+    """Convert a local file path to a proper file:// URL (RFC 8089).
+
+    On Windows, converts:
+      C:\\path\\file.txt  →  file:///C:/path/file.txt
+
+    Non-ASCII characters are percent-encoded.
+    """
+    # Normalize to absolute path
+    abs_path = os.path.abspath(path)
+
+    # Convert backslashes to forward slashes (Windows)
+    if os.name == "nt":
+        abs_path = abs_path.replace("\\", "/")
+
+    # Percent-encode non-ASCII and reserved characters
+    # Keep alphanumerics and safe chars unencoded
+    encoded_path = quote(abs_path, safe="/:@%")
+
+    # RFC 8089: file:/// for local paths
+    return f"file://{encoded_path}"
 
 
 def _auto_as_type(mt: str) -> str:
@@ -78,8 +102,7 @@ async def send_file_to_user(
 
     try:
         # Use local file URL instead of base64
-        absolute_path = os.path.abspath(file_path)
-        file_url = f"file://{absolute_path}"
+        file_url = _path_to_file_url(file_path)
         source = {"type": "url", "url": file_url}
 
         if as_type == "image":

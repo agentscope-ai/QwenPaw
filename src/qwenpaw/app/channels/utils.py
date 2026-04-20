@@ -15,6 +15,16 @@ from urllib.request import url2pathname
 _FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
 
+def _is_windows_drive(netloc: str) -> bool:
+    """Check if netloc is a Windows drive letter (e.g., 'C:')."""
+    return (
+        os.name == "nt"
+        and len(netloc) == 2
+        and netloc[1] == ":"
+        and netloc[0].isalpha()
+    )
+
+
 def split_text(text: str, max_len: int = 3000) -> List[str]:
     """Split text into chunks that fit within max_len characters.
 
@@ -98,12 +108,9 @@ def file_url_to_local_path(url: str) -> Optional[str]:
         if not path and parsed.netloc:
             path = url2pathname(parsed.netloc.replace("\\", "/"))
         elif (
-            path
-            and parsed.netloc
-            and len(parsed.netloc) == 1
-            and os.name == "nt"
+            path and parsed.netloc and _is_windows_drive(netloc=parsed.netloc)
         ):
-            path = f"{parsed.netloc}:{path}"
+            path = f"{parsed.netloc}{path}"
         return path if path else None
     if parsed.scheme in ("http", "https"):
         return None
