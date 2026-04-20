@@ -121,6 +121,9 @@ def file_url_to_local_path(url: str) -> Optional[str]:
                 parsed.netloc if ":" in parsed.netloc else f"{parsed.netloc}:"
             )
             path = f"{drive}{path}"
+        elif path and parsed.netloc and os.name == "nt":
+            # UNC: file://server/share/… → \\server\share\…
+            path = f"\\\\{parsed.netloc}{path}"
         return path if path else None
     if parsed.scheme in ("http", "https"):
         return None
