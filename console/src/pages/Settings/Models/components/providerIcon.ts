@@ -4,6 +4,8 @@ export const providerIcon = (provider: string) => {
       return "https://gw.alicdn.com/imgextra/i4/O1CN01exenB61EAwhgY4pmA_!!6000000000312-2-tps-400-400.png";
     case "aliyun-codingplan":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01nEmGhQ1we71GXW6eo_!!6000000006332-2-tps-400-400.png";
+    case "aliyun-codingplan-intl":
+      return "https://gw.alicdn.com/imgextra/i4/O1CN01nEmGhQ1we71GXW6eo_!!6000000006332-2-tps-400-400.png";
     case "deepseek":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01YfmXc81ogO3pR0aW8_!!6000000005254-2-tps-400-400.png";
     case "gemini":

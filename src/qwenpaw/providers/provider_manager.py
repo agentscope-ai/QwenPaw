@@ -507,8 +507,19 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
 
 PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     id="aliyun-codingplan",
-    name="Aliyun Coding Plan",
+    name="Aliyun Coding Plan (China)",
     base_url="https://coding.dashscope.aliyuncs.com/v1",
+    api_key_prefix="sk-sp",
+    models=ALIYUN_CODINGPLAN_MODELS,
+    # This provider doesn't support connection check without model config
+    support_connection_check=False,
+    freeze_url=True,
+)
+
+PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
+    id="aliyun-codingplan-intl",
+    name="Aliyun Coding Plan (International)",
+    base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
     # This provider doesn't support connection check without model config
@@ -754,6 +765,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
+        self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
         self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
