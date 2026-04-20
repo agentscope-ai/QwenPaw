@@ -8,6 +8,12 @@ from __future__ import annotations
 
 import logging
 
+from ....plan.broadcast import plan_sse_scope
+from ....plan.session_sync import (
+    clear_plan_notebook_if_session_has_no_snapshot,
+    persist_plan_notebook_to_session,
+    reset_plan_notebook_for_session_switch,
+)
 from .base import BaseControlCommandHandler, ControlContext
 
 logger = logging.getLogger(__name__)
@@ -28,6 +34,67 @@ class StopCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/stop"
+
+    async def _abandon_plan_for_session(
+        self,
+        workspace,
+        *,
+        channel_id: str,
+        target_session_id: str,
+        user_id: str,
+    ) -> bool:
+        """Hydrate notebook, abandon plan for session, persist.
+
+        Returns True if a plan was abandoned before reset. Failures are logged
+        so /stop still stops the task.
+        """
+        nb = workspace.plan_notebook
+        if nb is None or not (target_session_id or "").strip():
+            return False
+        runner = getattr(workspace, "runner", None)
+        sess = getattr(runner, "session", None) if runner is not None else None
+        if sess is None:
+            return False
+        try:
+            with plan_sse_scope(channel_id, target_session_id):
+                await clear_plan_notebook_if_session_has_no_snapshot(
+                    session=sess,
+                    plan_notebook=nb,
+                    session_id=target_session_id,
+                    user_id=user_id,
+                    agent_id=workspace.agent_id,
+                )
+                try:
+                    await sess.load_session_state(
+                        session_id=target_session_id,
+                        user_id=user_id,
+                        plan_notebook=nb,
+                    )
+                except KeyError as e:
+                    logger.warning(
+                        "/stop plan hydrate skipped (schema mismatch): %s",
+                        e,
+                    )
+                had_plan = getattr(nb, "current_plan", None) is not None
+                if had_plan:
+                    await reset_plan_notebook_for_session_switch(
+                        nb,
+                        agent_id=workspace.agent_id,
+                        outcome="Stopped by /stop",
+                    )
+                await persist_plan_notebook_to_session(
+                    session=sess,
+                    plan_notebook=nb,
+                    session_id=target_session_id,
+                    user_id=user_id,
+                )
+                return had_plan
+        except Exception:
+            logger.warning(
+                "/stop: plan notebook cleanup failed (task still stopped)",
+                exc_info=True,
+            )
+            return False
 
     async def handle(self, context: ControlContext) -> str:
         """Handle /stop command.
@@ -75,6 +142,18 @@ class StopCommandHandler(BaseControlCommandHandler):
             20,
         )
 
+        plan_abandoned = await self._abandon_plan_for_session(
+            workspace,
+            channel_id=channel_id,
+            target_session_id=target_session_id,
+            user_id=context.user_id,
+        )
+        plan_suffix = (
+            " Current plan abandoned for this session."
+            if plan_abandoned
+            else ""
+        )
+
         if stopped or cleared > 0:
             logger.info(
                 f"/stop: stopped={stopped} cleared={cleared} "
@@ -89,6 +168,7 @@ class StopCommandHandler(BaseControlCommandHandler):
             return (
                 f"**Task Stopped**\n\n"
                 f"Session `{target_session_id[:40]}`: {status_text}."
+                f"{plan_suffix}"
             )
         else:
             logger.warning(
@@ -98,5 +178,5 @@ class StopCommandHandler(BaseControlCommandHandler):
             return (
                 f"**Task Not Running**\n\n"
                 f"No active task or queued messages for session "
-                f"`{target_session_id[:40]}`."
+                f"`{target_session_id[:40]}`.{plan_suffix}"
             )

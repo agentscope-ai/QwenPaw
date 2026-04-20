@@ -6,8 +6,14 @@ import type { Plan } from "../api/types";
 /**
  * Subscribe to plan config + SSE while the chat page is active so the Plan
  * drawer stays in sync even when closed (same agent session).
+ *
+ * @param selectedAgent When this changes, SSE is torn down and recreated so
+ *   requests use the correct ``X-Agent-Id`` for the active profile.
  */
-export function usePlanLiveUpdates(chatPageActive: boolean) {
+export function usePlanLiveUpdates(
+  chatPageActive: boolean,
+  selectedAgent: string,
+) {
   const [planEnabled, setPlanEnabled] = useState<boolean | null>(null);
   const [livePlan, setLivePlan] = useState<Plan | null>(null);
 
@@ -20,7 +26,7 @@ export function usePlanLiveUpdates(chatPageActive: boolean) {
       .getCurrentPlan()
       .then(setLivePlan)
       .catch(() => setLivePlan(null));
-  }, []);
+  }, [selectedAgent]);
 
   useEffect(() => {
     if (!chatPageActive) {
@@ -28,7 +34,7 @@ export function usePlanLiveUpdates(chatPageActive: boolean) {
       return;
     }
     refresh();
-  }, [chatPageActive, refresh]);
+  }, [chatPageActive, selectedAgent, refresh]);
 
   useEffect(() => {
     if (!chatPageActive || !planEnabled) return;
@@ -49,7 +55,7 @@ export function usePlanLiveUpdates(chatPageActive: boolean) {
       cancelled = true;
       unsub?.();
     };
-  }, [chatPageActive, planEnabled]);
+  }, [chatPageActive, planEnabled, selectedAgent]);
 
   return { livePlan, planEnabled, refresh };
 }

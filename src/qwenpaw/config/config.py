@@ -117,7 +117,6 @@ class BaseChannelConfig(BaseModel):
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
     require_mention: bool = False
-    plan_status_in_messages: bool = False
 
 
 class IMessageChannelConfig(BaseChannelConfig):

@@ -372,63 +372,6 @@ class BaseChannel(ABC):
         self._workspace = workspace
         self._command_registry = command_registry
 
-    def _get_plan_status_text(self) -> str:
-        """Get the current plan status string if plan is active.
-
-        Uses the workspace reference (set via ``set_workspace``) to
-        access the PlanNotebook.  Fails silently and returns empty
-        string on any error to avoid blocking the main reply.
-        """
-        try:
-            ws = self._workspace
-            if ws is None:
-                return ""
-            nb = getattr(ws, "plan_notebook", None)
-            if nb is None or nb.current_plan is None:
-                return ""
-            from ...plan.schemas import plan_to_response
-
-            plan_dict = plan_to_response(nb.current_plan).model_dump()
-            return self.format_plan_status(plan_dict)
-        except Exception:
-            logger.warning(
-                "Failed to get plan status for channel",
-                exc_info=True,
-            )
-            return ""
-
-    def format_plan_status(self, plan_dict: dict | None) -> str:
-        """Return a plain-text plan status block to append to a message.
-
-        Individual channel subclasses can override for platform-specific
-        formatting (cards, embeds, etc.).  Returns empty string when
-        plan is None or not in progress.
-        """
-        if plan_dict is None:
-            return ""
-        state = plan_dict.get("state", "")
-        if state not in ("todo", "in_progress"):
-            return ""
-
-        subtasks = plan_dict.get("subtasks", [])
-        done = sum(1 for t in subtasks if t.get("state") == "done")
-        total = len(subtasks)
-        progress = f"[{done}/{total}]"
-        current = next(
-            (
-                t.get("name", "")
-                for t in subtasks
-                if t.get("state") == "in_progress"
-            ),
-            None,
-        )
-
-        name = plan_dict.get("name", "Plan")
-        lines = [f"Plan: {name} {progress}"]
-        if current:
-            lines.append(f"Current: {current}")
-        return "\n".join(lines)
-
     def _extract_chat_name(self, payload: Any) -> str:
         """Extract chat name from payload for chat creation.
 

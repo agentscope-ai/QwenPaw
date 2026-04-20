@@ -4,7 +4,6 @@ from .factory import create_plan_notebook
 from .hints import (
     ExtendedPlanToHint,
     check_plan_tool_gate,
-    clear_reconfirmation_flag,
     set_plan_gate,
 )
 from .storage import FilePlanStorage
@@ -16,7 +15,6 @@ __all__ = [
     "ExtendedPlanToHint",
     "check_plan_tool_gate",
     "set_plan_gate",
-    "clear_reconfirmation_flag",
     "FilePlanStorage",
     "plan_dict_to_overview",
     "plan_to_response",

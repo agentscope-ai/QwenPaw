@@ -74,6 +74,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         memory,
         memory_manager: "BaseMemoryManager | None" = None,
         enable_memory_manager: bool = True,
+        *,
+        plan_notebook=None,
+        agent_id: str | None = None,
     ):
         """Initialize command handler.
 
@@ -82,11 +85,36 @@ class CommandHandler(ConversationCommandHandlerMixin):
             memory: Agent's in-memory memory instance
             memory_manager: Optional memory manager instance
             enable_memory_manager: Whether memory manager is enabled
+            plan_notebook: Optional shared PlanNotebook (for /clear, /new)
+            agent_id: Agent id for plan broadcasts (from memory_manager if
+                omitted).
         """
         self.agent_name = agent_name
         self.memory = memory
         self.memory_manager = memory_manager
         self._enable_memory_manager = enable_memory_manager
+        self.plan_notebook = plan_notebook
+        self._agent_id = (
+            agent_id
+            or (
+                getattr(memory_manager, "agent_id", None)
+                if memory_manager
+                else None
+            )
+            or "default"
+        )
+
+    async def _abandon_active_plan_for_command(self, outcome: str) -> None:
+        """Finish workspace plan when the user clears or starts a new chat."""
+        if self.plan_notebook is None:
+            return
+        from ..plan.session_sync import reset_plan_notebook_for_session_switch
+
+        await reset_plan_notebook_for_session_switch(
+            self.plan_notebook,
+            agent_id=self._agent_id,
+            outcome=outcome,
+        )
 
     def _get_agent_config(self):
         """Get hot-reloaded agent config.
@@ -173,6 +201,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
+        await self._abandon_active_plan_for_command("Cleared by user")
         if not messages:
             self.memory.clear_compressed_summary()
             return await self._make_system_msg(
@@ -204,6 +233,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /clear command."""
+        await self._abandon_active_plan_for_command("Cleared by user")
         self.memory.clear_content()
         self.memory.clear_compressed_summary()
         return await self._make_system_msg(
@@ -432,6 +462,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"- File not found: `{history_file}`\n"
                 f"- Use /dump_history first to create the file",
             )
+
+        await self._abandon_active_plan_for_command(
+            "History loaded from file; previous plan abandoned",
+        )
 
         try:
             loaded_messages: list[Msg] = []

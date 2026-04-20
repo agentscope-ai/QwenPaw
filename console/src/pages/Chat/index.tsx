@@ -16,7 +16,7 @@ import { chatApi } from "../../api/modules/chat";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
-import type { ProviderInfo, ModelInfo } from "../../api/types";
+import type { Plan, ProviderInfo, ModelInfo } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -467,7 +467,7 @@ export default function ChatPage() {
   const chatPageForPlan =
     location.pathname === "/" || location.pathname.startsWith("/chat");
   const { livePlan: livePlanFromChat, planEnabled: planEnabledOnChat } =
-    usePlanLiveUpdates(chatPageForPlan);
+    usePlanLiveUpdates(chatPageForPlan, selectedAgent);
 
   // Use custom hooks for better separation of concerns
   const isComposingRef = useIMEComposition(isChatActive);
@@ -497,6 +497,32 @@ export default function ChatPage() {
     );
     chatRef.current?.input.submit({ query });
   }, [t]);
+
+  const handlePlanStopped = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const sid = window.currentSessionId ?? "";
+    const fromUrl = chatId ?? "";
+    const resolved =
+      (sid ? sessionApi.getRealIdForSession(sid) ?? sid : "") ||
+      (fromUrl ? sessionApi.getRealIdForSession(fromUrl) ?? fromUrl : "");
+    if (!resolved) return;
+    chatApi.stopChat(resolved).catch(() => {
+      /* non-fatal */
+    });
+  }, [chatId]);
+
+  // Plan panel "Cancel" / subtask edits intentionally do NOT auto-submit a
+  // follow-up chat message: doing so spawned a fresh agent run that ignored
+  // the user's intent to stop. Plan state is already updated via SSE and the
+  // server-side plan_notebook hint informs the next genuine user turn.
+  const handlePlanCancelled = useCallback(() => {
+    /* no-op */
+  }, []);
+
+  const handlePlanRevised = useCallback((_updated: Plan) => {
+    void _updated;
+    /* no-op */
+  }, []);
 
   const scheduleHistoryClear = useCallback(() => {
     queueMicrotask(() => {
@@ -818,6 +844,9 @@ export default function ChatPage() {
             <ModelSelector />
             <ChatActionGroup
               onPlanStartExecution={handlePlanStartExecution}
+              onPlanCancelled={handlePlanCancelled}
+              onPlanStopped={handlePlanStopped}
+              onPlanRevised={handlePlanRevised}
               livePlanFromChat={livePlanFromChat}
               chatStreamsPlan={Boolean(
                 chatPageForPlan && planEnabledOnChat === true,
@@ -934,7 +963,13 @@ export default function ChatPage() {
     isDark,
     multimodalCaps,
     handlePlanStartExecution,
+    handlePlanCancelled,
+    handlePlanStopped,
+    handlePlanRevised,
     scheduleHistoryClear,
+    livePlanFromChat,
+    planEnabledOnChat,
+    chatPageForPlan,
   ]);
 
   return (

@@ -59,6 +59,21 @@ class JsonSubtaskPlanNotebook(PlanNotebook):
     :attr:`_plan_needs_reconfirmation` and plan hints.
     """
 
+    def state_dict(self) -> dict[str, Any]:
+        """Persist notebook state plus one-shot post-finish guard marker."""
+        payload = super().state_dict()
+        payload["_plan_recently_finished"] = bool(
+            getattr(self, "_plan_recently_finished", False),
+        )
+        return payload
+
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """Load notebook state and restore one-shot post-finish marker."""
+        payload = dict(state_dict or {})
+        marker = bool(payload.pop("_plan_recently_finished", False))
+        super().load_state_dict(payload)
+        self._plan_recently_finished = marker
+
     async def create_plan(
         self,
         name: str,
@@ -78,6 +93,8 @@ class JsonSubtaskPlanNotebook(PlanNotebook):
             subtasks,
         )
         self._plan_needs_reconfirmation = False
+        self._plan_just_mutated = True
+        self._plan_recently_finished = False
         return resp
 
     async def revise_current_plan(
@@ -93,9 +110,25 @@ class JsonSubtaskPlanNotebook(PlanNotebook):
             normalized,
         )
         plan = self.current_plan
-        if plan is not None and plan.subtasks:
-            if all(st.state == "todo" for st in plan.subtasks):
+        if plan is not None:
+            # Auto-abandon when all subtasks removed (empty plan)
+            if not plan.subtasks:
+                logger.info(
+                    "revise_current_plan: all subtasks removed; "
+                    "auto-abandoning plan",
+                )
+                await self.finish_plan(
+                    state="abandoned",
+                    outcome="All subtasks removed by user",
+                )
+                # Reset gate so next turn doesn't force create_plan
+                from .hints import set_plan_gate
+
+                set_plan_gate(self, False)
+            elif all(st.state == "todo" for st in plan.subtasks):
+                # All remaining subtasks are still todo → need reconfirmation
                 self._plan_needs_reconfirmation = True
+                self._plan_just_mutated = True
         return resp
 
     async def update_subtask_state(
@@ -106,4 +139,16 @@ class JsonSubtaskPlanNotebook(PlanNotebook):
         resp = await super().update_subtask_state(subtask_idx, state)
         if state == "in_progress":
             self._plan_needs_reconfirmation = False
+        return resp
+
+    async def finish_plan(
+        self,
+        state: Literal["done", "abandoned"],
+        outcome: str,
+    ) -> ToolResponse:
+        """Finish plan and set one-shot guard for the next no-plan turn."""
+        resp = await super().finish_plan(state=state, outcome=outcome)
+        self._plan_needs_reconfirmation = False
+        self._plan_just_mutated = False
+        self._plan_recently_finished = True
         return resp

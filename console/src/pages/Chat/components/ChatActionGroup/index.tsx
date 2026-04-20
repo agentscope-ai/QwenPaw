@@ -16,12 +16,18 @@ import type { Plan } from "../../../../api/types";
 
 interface ChatActionGroupProps {
   onPlanStartExecution?: () => void;
+  onPlanCancelled?: () => void;
+  onPlanStopped?: () => void;
+  onPlanRevised?: (plan: Plan) => void;
   livePlanFromChat?: Plan | null;
   chatStreamsPlan?: boolean;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   onPlanStartExecution,
+  onPlanCancelled,
+  onPlanStopped,
+  onPlanRevised,
   livePlanFromChat,
   chatStreamsPlan,
 }) => {
@@ -69,6 +75,9 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         open={planOpen}
         onClose={() => setPlanOpen(false)}
         onStartExecution={onPlanStartExecution}
+        onPlanCancelled={onPlanCancelled}
+        onPlanStopped={onPlanStopped}
+        onPlanRevised={onPlanRevised}
         livePlanFromChat={livePlanFromChat}
         chatStreamsPlan={chatStreamsPlan}
       />

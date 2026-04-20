@@ -6,6 +6,7 @@ import {
   Switch,
   message,
 } from "@agentscope-ai/design";
+import { Input } from "antd";
 import { Radio, Spin, Typography } from "antd";
 import type { RadioChangeEvent } from "antd/es/radio";
 import { useTranslation } from "react-i18next";
@@ -89,7 +90,22 @@ export function PlanConfigCard() {
     [config, save],
   );
 
+  const handleStoragePathChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value.trim();
+      setConfig((prev) => ({
+        ...prev,
+        storage_path: v === "" ? null : v,
+      }));
+    },
+    [],
+  );
+
   const handleMaxSubtasksBlur = useCallback(() => {
+    save(config);
+  }, [config, save]);
+
+  const handleStoragePathBlur = useCallback(() => {
     save(config);
   }, [config, save]);
 
@@ -162,6 +178,32 @@ export function PlanConfigCard() {
             </Radio>
           </Radio.Group>
         </Form.Item>
+
+        {config.storage_type === "file" && (
+          <Form.Item
+            label={t("agentConfig.planStoragePath", "Plan storage file path")}
+          >
+            <Input
+              value={config.storage_path ?? ""}
+              onChange={handleStoragePathChange}
+              onBlur={handleStoragePathBlur}
+              disabled={!config.enabled || saving}
+              placeholder={t(
+                "agentConfig.planStoragePathPlaceholder",
+                "Leave empty to use the server default path",
+              )}
+            />
+            <Text
+              type="secondary"
+              style={{ display: "block", marginTop: 4, fontSize: 12 }}
+            >
+              {t(
+                "agentConfig.planStoragePathDesc",
+                "Relative paths are resolved under the agent workspace.",
+              )}
+            </Text>
+          </Form.Item>
+        )}
       </Form>
     </Card>
   );

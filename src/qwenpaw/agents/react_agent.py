@@ -189,6 +189,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             memory=self.memory,
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
+            plan_notebook=plan_notebook,
+            agent_id=agent_config.id,
         )
 
         # Register hooks
@@ -745,6 +747,14 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         if msg is None or msg.has_content_blocks("tool_use"):
             return msg
 
+        from ..plan.hints import should_skip_auto_continue
+
+        if should_skip_auto_continue(getattr(self, "plan_notebook", None)):
+            logger.info(
+                "Auto-continue skipped: plan awaiting user confirmation",
+            )
+            return msg
+
         extra = 0
         while extra < self._AUTO_CONTINUE_MAX_EXTRA:
             if msg.has_content_blocks("tool_use"):
@@ -848,24 +858,22 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         except Exception as e:
             # --- Context overflow recovery ---
             if self._is_context_overflow_error(e):
-                n_trunc = self._emergency_truncate_tool_results()
-                if n_trunc > 0:
-                    logger.warning(
-                        "_reasoning: context overflow (%s). "
-                        "Truncated %d tool-result block(s), "
-                        "retrying.",
-                        e,
-                        n_trunc,
-                    )
-                    return await super()._reasoning(
-                        tool_choice=tool_choice,
-                    )
-                logger.error(
-                    "_reasoning: context overflow but nothing to "
-                    "truncate, giving up: %s",
+                # Aggressively truncate every ``tool_result`` output (old +
+                # most-recent window) via ReMe; mutates messages in place.
+                # ``compact_tool_result`` is a silent no-op when the memory
+                # manager is None / not ReMe-backed.
+                await self.memory_manager.compact_tool_result(
+                    messages=[p[0] for p in self.memory.content],
+                    recent_n=0,
+                    old_max_bytes=self._OVERFLOW_EMERGENCY_MAX_BYTES,
+                    recent_max_bytes=self._OVERFLOW_EMERGENCY_MAX_BYTES,
+                )
+                logger.warning(
+                    "_reasoning: context overflow (%s). "
+                    "Compacted tool-result outputs via ReMe, retrying.",
                     e,
                 )
-                raise
+                return await super()._reasoning(tool_choice=tool_choice)
 
             # --- Media error recovery ---
             if not self._is_bad_request_or_media_error(e):
@@ -953,24 +961,21 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
                 # --- Context overflow recovery ---
                 if self._is_context_overflow_error(e):
-                    n_trunc = self._emergency_truncate_tool_results()
-                    if n_trunc > 0:
-                        logger.warning(
-                            "_summarizing: context overflow "
-                            "(%s). Truncated %d block(s), "
-                            "retrying.",
-                            e,
-                            n_trunc,
-                        )
-                        msg = await super()._summarizing()
-                        recovered = True
-                    else:
-                        logger.error(
-                            "_summarizing: context overflow but "
-                            "nothing to truncate, giving up: %s",
-                            e,
-                        )
-                        raise
+                    # Aggressive in-place compaction via ReMe; silent no-op
+                    # when the memory manager is None / not ReMe-backed.
+                    await self.memory_manager.compact_tool_result(
+                        messages=[p[0] for p in self.memory.content],
+                        recent_n=0,
+                        old_max_bytes=self._OVERFLOW_EMERGENCY_MAX_BYTES,
+                        recent_max_bytes=self._OVERFLOW_EMERGENCY_MAX_BYTES,
+                    )
+                    logger.warning(
+                        "_summarizing: context overflow (%s). "
+                        "Compacted tool-result outputs via ReMe, retrying.",
+                        e,
+                    )
+                    msg = await super()._summarizing()
+                    recovered = True
 
                 if not recovered:
                     if not self._is_bad_request_or_media_error(e):
@@ -1149,80 +1154,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         ]
         return any(kw in error_str for kw in keywords)
 
-    _OVERFLOW_KEEP_RECENT = 8
-    _OVERFLOW_MAX_CHARS = 300
-    _OVERFLOW_NOTE = "\n... [truncated to reduce context]"
-
-    def _emergency_truncate_tool_results(self) -> int:
-        """Truncate large tool-result outputs in older memory
-        messages to recover from a context overflow error.
-
-        Keeps the most recent ``_OVERFLOW_KEEP_RECENT`` messages
-        untouched and truncates ``tool_result`` outputs that
-        exceed ``_OVERFLOW_MAX_CHARS`` in all earlier messages.
-
-        Returns:
-            Number of blocks truncated.
-        """
-        pairs = list(self.memory.content)
-        total = len(pairs)
-        keep = min(self._OVERFLOW_KEEP_RECENT, total)
-        cutoff = total - keep
-        if cutoff <= 0:
-            return 0
-
-        truncated = 0
-        for idx, (msg, _marks) in enumerate(pairs):
-            if idx >= cutoff:
-                break
-            if not isinstance(msg.content, list):
-                continue
-            truncated += self._truncate_tool_blocks(
-                msg.content,
-            )
-        return truncated
-
-    def _truncate_tool_blocks(self, blocks: list) -> int:
-        """Truncate oversized tool_result blocks in *blocks* list.
-
-        Returns the number of individual outputs truncated.
-        """
-        limit = self._OVERFLOW_MAX_CHARS
-        note = self._OVERFLOW_NOTE
-        count = 0
-        for block in blocks:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") != "tool_result":
-                continue
-            out = block.get("output")
-            if isinstance(out, str) and len(out) > limit:
-                block["output"] = out[:limit] + note
-                count += 1
-            elif isinstance(out, list):
-                count += self._truncate_text_items(
-                    out,
-                    limit,
-                    note,
-                )
-        return count
-
-    @staticmethod
-    def _truncate_text_items(
-        items: list,
-        limit: int,
-        note: str,
-    ) -> int:
-        """Truncate oversized text entries in a list of dicts."""
-        count = 0
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            txt = item.get("text", "")
-            if isinstance(txt, str) and len(txt) > limit:
-                item["text"] = txt[:limit] + note
-                count += 1
-        return count
+    # Aggressive byte cap for emergency tool-result truncation (delegated to
+    # ``ReMeLight.compact_tool_result`` via ``self.memory_manager``).
+    _OVERFLOW_EMERGENCY_MAX_BYTES = 300
 
     def _strip_media_blocks_from_memory(self) -> int:
         """Remove media blocks (image/audio/video) from all messages.

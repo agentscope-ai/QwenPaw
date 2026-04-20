@@ -43,6 +43,10 @@ from ...agents.utils.file_handling import (
 )
 from ...config.config import load_agent_config
 from ...plan import set_plan_gate
+from ...plan.session_sync import (
+    broadcast_plan_notebook_snapshot,
+    clear_plan_notebook_if_session_has_no_snapshot,
+)
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -389,8 +393,9 @@ class AgentRunner(Runner):
                             type="text",
                             text=(
                                 "**Plan**\n\n"
-                                "Could not enable plan mode for `/plan …`. "
-                                "Check AgentScope plan support and logs."
+                                "Plan mode is disabled. Enable it in Agent "
+                                "Settings (Planning), then try "
+                                "`/plan …` again."
                             ),
                         ),
                     ],
@@ -441,10 +446,18 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        _plan_sse_exit = None
         try:
             session_id = request.session_id
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
+
+            from contextlib import ExitStack
+
+            from ...plan.broadcast import plan_sse_scope
+
+            _plan_sse_exit = ExitStack()
+            _plan_sse_exit.enter_context(plan_sse_scope(channel, session_id))
 
             logger.info(
                 "Handle agent query:\n%s",
@@ -636,6 +649,13 @@ class AgentRunner(Runner):
             load_kwargs = {"agent": agent}
             if self._plan_notebook is not None:
                 load_kwargs["plan_notebook"] = self._plan_notebook
+                await clear_plan_notebook_if_session_has_no_snapshot(
+                    session=self.session,
+                    plan_notebook=self._plan_notebook,
+                    session_id=session_id,
+                    user_id=user_id,
+                    agent_id=self.agent_id,
+                )
             try:
                 await self.session.load_session_state(
                     session_id=session_id,
@@ -647,6 +667,11 @@ class AgentRunner(Runner):
                     "load_session_state skipped (state schema mismatch): %s; "
                     "will save fresh state on completion to recover file",
                     e,
+                )
+            if self._plan_notebook is not None:
+                broadcast_plan_notebook_snapshot(
+                    self._plan_notebook,
+                    self.agent_id,
                 )
             session_state_loaded = True
 
@@ -736,6 +761,8 @@ class AgentRunner(Runner):
                     ) + converted.args[1:]
             raise converted from e
         finally:
+            if _plan_sse_exit is not None:
+                _plan_sse_exit.close()
             if agent is not None and session_state_loaded:
                 save_kwargs = {"agent": agent}
                 if self._plan_notebook is not None:

@@ -12,10 +12,11 @@ Key differences from the AgentScope default:
    constant regardless of how many subtasks have finished.  This
    prevents the "overflow -> truncate -> retry -> overflow" loop that
    occurs when the plan hint grows unboundedly.
-4. **Scoped ``no_plan`` hint** -- when there is no active plan yet, a
-   short hint tells the model to call ``create_plan`` without
-   browser/web tools first *only if* the user asked for a plan; heavy
-   tooling is deferred to named subtasks after confirmation.
+4. **Scoped ``no_plan`` hint** -- when there is no active plan yet, the
+   ``no_plan`` template is injected *only* when the runner has set the
+   plan tool gate (explicit ``/plan`` entry).  That avoids steering
+   normal chat and auto-continue toward ``create_plan`` after a plan was
+   cancelled or outside plan mode.
 5. **Stall guard** -- if the same subtask stays ``in_progress`` across
    many consecutive hint generations, the hint escalates to force
    ``finish_subtask`` so the ReAct loop does not repeat the same tool
@@ -70,6 +71,59 @@ _PLAN_RESPONSE_LANGUAGE_BLOCK = (
 )
 
 
+def should_skip_auto_continue(plan_notebook) -> bool:
+    """True when auto-continue must be suppressed for the current turn.
+
+    After ``create_plan`` or ``revise_current_plan`` the notebook sets
+    ``_plan_just_mutated`` so the agent can present the plan and wait for
+    confirmation without auto-continue injecting an extra reasoning pass
+    that produces duplicate text or prematurely starts execution.
+
+    The flag is consumed (cleared) here so it is effective for exactly one
+    ``_auto_continue_if_text_only`` call — the one immediately after the
+    mutation turn.  On the next user turn the flag is already ``False``,
+    so auto-continue is free to operate normally and the model can call
+    ``update_subtask_state`` if the user confirmed.
+    """
+    if plan_notebook is None:
+        return False
+
+    val = bool(getattr(plan_notebook, "_plan_just_mutated", False))
+    if val:
+        # Consume one-shot mutation marker after the assistant has just
+        # presented the newly created/revised plan in this turn.
+        # pylint: disable-next=protected-access
+        plan_notebook._plan_just_mutated = False
+
+        # After the revised plan has been shown once, switch back to the
+        # normal "awaiting confirmation" flow on the next user turn.
+        # Otherwise the stronger revision-reconfirm hint can repeatedly
+        # re-present the same plan and effectively require two confirms.
+        if bool(
+            getattr(
+                plan_notebook,
+                "_plan_needs_reconfirmation",
+                False,
+            ),
+        ):
+            # pylint: disable-next=protected-access
+            plan_notebook._plan_needs_reconfirmation = False
+        return True
+
+    # One-shot: right after finish/cancel, prevent text-only auto-continue
+    # from drifting back to stale in-memory plan context in the same turn.
+    if (
+        bool(getattr(plan_notebook, "_plan_recently_finished", False))
+        and not bool(getattr(plan_notebook, "_plan_tool_gate", False))
+        and getattr(plan_notebook, "current_plan", None) is None
+    ):
+        # pylint: disable-next=protected-access
+        plan_notebook._plan_recently_finished = False
+        return True
+
+    return False
+
+
 def set_plan_gate(plan_notebook, enabled: bool = True) -> None:
     """Activate or deactivate the plan tool gate on *plan_notebook*.
 
@@ -82,15 +136,39 @@ def set_plan_gate(plan_notebook, enabled: bool = True) -> None:
         plan_notebook._plan_tool_gate = enabled
 
 
-def clear_reconfirmation_flag(plan_notebook) -> None:
-    """Clear the \"edited plan while all todo\" reconfirmation requirement.
+def should_emit_no_plan_hint(plan_notebook) -> bool:
+    """Return whether to inject the ``no_plan`` template (``plan is None``).
 
-    Called when execution is explicitly allowed (e.g. first subtask moves to
-    ``in_progress``). Safe to call on any notebook instance.
+    True only when :func:`set_plan_gate` has enabled the explicit ``/plan``
+    entry path (``_plan_tool_gate``).  Otherwise the hint is omitted so
+    ordinary questions and auto-continue are not nudged toward
+    ``create_plan`` — for example after the user cancels a plan from the
+    panel (gate cleared) or in non-plan chat.
     """
-    if plan_notebook is not None:
-        # pylint: disable-next=protected-access
-        plan_notebook._plan_needs_reconfirmation = False
+    if plan_notebook is None:
+        return False
+    return bool(getattr(plan_notebook, "_plan_tool_gate", False))
+
+
+def should_emit_recently_finished_plan_guard(plan_notebook) -> bool:
+    """Return whether to emit one-shot guard after plan finish/cancel.
+
+    When an active plan has just transitioned to ``None`` (for example via
+    panel cancel), chat memory can still contain prior in-progress plan turns.
+    This guard nudges the model to follow the latest user request instead of
+    resuming old subtasks.
+
+    The marker is NOT consumed here. It is consumed in
+    :func:`should_skip_auto_continue` so the guard can still influence the
+    first reasoning pass and the same-turn auto-continue gate consistently.
+    """
+    if plan_notebook is None:
+        return False
+    if bool(getattr(plan_notebook, "_plan_tool_gate", False)):
+        return False
+    if getattr(plan_notebook, "current_plan", None) is not None:
+        return False
+    return bool(getattr(plan_notebook, "_plan_recently_finished", False))
 
 
 def _needs_reconfirmation_after_revision(plan_notebook) -> bool:
@@ -382,9 +460,9 @@ if _HAS_DEFAULT_HINT:
             "text-only replies end the run before the plan is closed.\n"
         )
 
-        # Shown only when plan mode is on and there is no current plan.
-        # Wording avoids autonomous plans: applies when the user is
-        # asking for a breakdown (/plan, etc.), not on every chat turn.
+        # Shown only when there is no current plan *and*
+        # :func:`should_emit_no_plan_hint` is true (``/plan`` gate set by
+        # the runner).  Not injected on ordinary chat turns.
         no_plan: str | None = (
             "There is no active plan yet.\n"
             + _PLAN_RESPONSE_LANGUAGE_BLOCK
@@ -452,6 +530,15 @@ if _HAS_DEFAULT_HINT:
             "already says otherwise.\n"
         )
 
+        recently_finished_no_plan_guard: str | None = (
+            "There is no active plan now.\n"
+            + _PLAN_RESPONSE_LANGUAGE_BLOCK
+            + "The previous plan was already finished or cancelled. "
+            "Do NOT continue old plan subtasks unless the user explicitly "
+            "asks to resume that plan or starts a new /plan request.\n"
+            "Prioritize answering the user's latest message directly.\n"
+        )
+
         # ---- override __call__ for compact context ----
 
         def _ip_hint(self, plan, ip_idx):
@@ -491,7 +578,16 @@ if _HAS_DEFAULT_HINT:
             if plan is None:
                 self._last_ip_name = None
                 self._ip_call_count = 0
-                hint = self.no_plan
+                nb = self._bound_notebook()
+                hint = (
+                    self.no_plan
+                    if should_emit_no_plan_hint(nb)
+                    else (
+                        self.recently_finished_no_plan_guard
+                        if should_emit_recently_finished_plan_guard(nb)
+                        else None
+                    )
+                )
             else:
                 _, n_ip, n_done, n_abn, ip_idx = _count_states(plan)
                 if n_ip == 0:

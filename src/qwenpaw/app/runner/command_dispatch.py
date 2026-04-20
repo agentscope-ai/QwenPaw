@@ -22,7 +22,14 @@ from .daemon_commands import (
     parse_daemon_query,
 )
 from ...agents.command_handler import CommandHandler
-from ...config.config import load_agent_config, save_agent_config
+from ...config.config import load_agent_config
+from ..channels.schema import DEFAULT_CHANNEL
+from ...plan.broadcast import plan_sse_scope
+from ...plan.session_sync import (
+    broadcast_plan_notebook_snapshot,
+    clear_plan_notebook_if_session_has_no_snapshot,
+    persist_plan_notebook_to_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +38,9 @@ if TYPE_CHECKING:
 
 
 async def ensure_plan_mode_enabled(runner: "AgentRunner") -> bool:
-    """Persist ``plan.enabled`` if needed and attach a ``PlanNotebook``.
+    """True when plan mode is enabled in config and a notebook exists.
 
-    Returns ``True`` when ``runner.plan_notebook`` is non-``None``.
+    Does not flip ``plan.enabled`` on disk; users enable in Agent Settings.
     """
     workspace = getattr(runner, "_workspace", None)
     if workspace is None:
@@ -43,13 +50,11 @@ async def ensure_plan_mode_enabled(runner: "AgentRunner") -> bool:
     agent_config = load_agent_config(agent_id)
 
     if not agent_config.plan.enabled:
-        agent_config.plan.enabled = True
-        save_agent_config(agent_id, agent_config)
-        workspace._config = agent_config  # pylint: disable=protected-access
+        return False
+
+    if runner.plan_notebook is None:
         if not await workspace.activate_plan_notebook():
             return False
-    elif runner.plan_notebook is None:
-        await workspace.activate_plan_notebook()
 
     return runner.plan_notebook is not None
 
@@ -82,8 +87,8 @@ async def handle_bare_plan_command(runner: "AgentRunner") -> Msg:
                     type="text",
                     text=(
                         "**Plan**\n\n"
-                        "Could not enable plan mode "
-                        "(check AgentScope plan support and logs)."
+                        "Plan mode is disabled. Enable it in Agent Settings "
+                        "(Planning), then try again."
                     ),
                 ),
             ],
@@ -309,184 +314,239 @@ async def run_command_path(  # pylint: disable=too-many-statements,too-many-bran
     session_id = getattr(request, "session_id", "") or ""
     user_id = getattr(request, "user_id", "") or ""
 
-    # Daemon path
-    parsed = parse_daemon_query(query)
-    if parsed is not None:
-        handler = DaemonCommandHandlerMixin()
-        manager = getattr(runner, "_manager", None)
-        if parsed[0] == "restart":
-            logger.info(
-                "run_command_path: daemon restart, manager=%s",
-                "set" if manager is not None else "None",
+    _raw_channel = getattr(request, "channel", None)
+    scope_channel = (
+        _raw_channel
+        if isinstance(_raw_channel, str) and _raw_channel.strip()
+        else DEFAULT_CHANNEL
+    )
+    with plan_sse_scope(scope_channel, session_id):
+        plan_nb = getattr(runner, "plan_notebook", None)
+        sess = getattr(runner, "session", None)
+        if session_id and sess is not None:
+            await clear_plan_notebook_if_session_has_no_snapshot(
+                session=sess,
+                plan_notebook=plan_nb,
+                session_id=session_id,
+                user_id=user_id,
+                agent_id=runner.agent_id,
             )
-            # Yield hint first so user sees it before restart runs.
-            hint = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            "**Restart in progress**\n\n"
-                            "- Reloading agent with zero-downtime. "
-                            "Please wait."
-                        ),
-                    ),
-                ],
-            )
-            yield hint, True
+            if plan_nb is not None:
+                try:
+                    await sess.load_session_state(
+                        session_id=session_id,
+                        user_id=user_id,
+                        plan_notebook=plan_nb,
+                    )
+                except KeyError as e:
+                    logger.warning(
+                        "run_command_path: load_session_state(plan_notebook) "
+                        "skipped (schema mismatch): %s",
+                        e,
+                    )
+                broadcast_plan_notebook_snapshot(plan_nb, runner.agent_id)
 
-        agent_id = runner.agent_id
-        daemon_ctx = DaemonContext(
-            load_config_fn=lambda: load_agent_config(agent_id),
-            memory_manager=runner.memory_manager,
-            manager=manager,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
-        msg = await handler.handle_daemon_command(query, daemon_ctx)
-        yield msg, True
-        logger.info("handle_daemon_command %s completed", query)
-        return
-
-    # Control command path (e.g. /stop)
-    if _is_control_command(query):
-        workspace = runner._workspace  # pylint: disable=protected-access
-        if workspace is None:
-            logger.error(
-                "run_command_path: control command but workspace not set",
-            )
-            error_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            "**Error**\n\n"
-                            "Control command unavailable "
-                            "(workspace not initialized)"
+        # Daemon path
+        parsed = parse_daemon_query(query)
+        if parsed is not None:
+            handler = DaemonCommandHandlerMixin()
+            manager = getattr(runner, "_manager", None)
+            if parsed[0] == "restart":
+                logger.info(
+                    "run_command_path: daemon restart, manager=%s",
+                    "set" if manager is not None else "None",
+                )
+                # Yield hint first so user sees it before restart runs.
+                hint = Msg(
+                    name="Friday",
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "**Restart in progress**\n\n"
+                                "- Reloading agent with zero-downtime. "
+                                "Please wait."
+                            ),
                         ),
-                    ),
-                ],
+                    ],
+                )
+                yield hint, True
+
+            agent_id = runner.agent_id
+            daemon_ctx = DaemonContext(
+                load_config_fn=lambda: load_agent_config(agent_id),
+                memory_manager=runner.memory_manager,
+                manager=manager,
+                agent_id=agent_id,
+                session_id=session_id,
             )
-            yield error_msg, True
+            msg = await handler.handle_daemon_command(query, daemon_ctx)
+            yield msg, True
+            logger.info("handle_daemon_command %s completed", query)
             return
 
-        # Get channel instance from request
-        channel_id = getattr(request, "channel", "")
-        channel = None
+        # Control command path (e.g. /stop)
+        if _is_control_command(query):
+            workspace = runner._workspace  # pylint: disable=protected-access
+            if workspace is None:
+                logger.error(
+                    "run_command_path: control command but workspace not set",
+                )
+                error_msg = Msg(
+                    name="Friday",
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "**Error**\n\n"
+                                "Control command unavailable "
+                                "(workspace not initialized)"
+                            ),
+                        ),
+                    ],
+                )
+                yield error_msg, True
+                return
 
-        # Get channel_manager from workspace
-        channel_manager = workspace.channel_manager
-        if channel_manager is not None:
-            channel = await channel_manager.get_channel(channel_id)
+            # Get channel instance from request
+            channel_id = getattr(request, "channel", "")
+            channel = None
 
-        if channel is None:
-            logger.error(
-                f"run_command_path: channel not found: {channel_id}",
+            # Get channel_manager from workspace
+            channel_manager = workspace.channel_manager
+            if channel_manager is not None:
+                channel = await channel_manager.get_channel(channel_id)
+
+            if channel is None:
+                logger.error(
+                    f"run_command_path: channel not found: {channel_id}",
+                )
+                chan_err = f"**Error**\n\nChannel not found: {channel_id}"
+                error_msg = Msg(
+                    name="Friday",
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=chan_err,
+                        ),
+                    ],
+                )
+                yield error_msg, True
+                return
+
+            # Extract user_id from request
+            user_id = getattr(request, "user_id", "")
+
+            # Build control context
+            control_ctx = control_commands.ControlContext(
+                workspace=workspace,
+                payload=request,
+                channel=channel,
+                session_id=session_id,
+                user_id=user_id,
+                args={},
             )
-            error_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=f"**Error**\n\nChannel not found: {channel_id}",
-                    ),
-                ],
-            )
-            yield error_msg, True
+
+            # Handle control command
+            try:
+                response_text = await control_commands.handle_control_command(
+                    query,
+                    control_ctx,
+                )
+                response_msg = Msg(
+                    name="Friday",
+                    role="assistant",
+                    content=[TextBlock(type="text", text=response_text)],
+                )
+                yield response_msg, True
+                logger.info("handle_control_command %s completed", query)
+            except Exception as e:
+                if isinstance(e, (ValueError, AppBaseException)):
+                    logger.warning(
+                        "Control command failed: %s – %s",
+                        query,
+                        e,
+                    )
+                else:
+                    logger.exception(
+                        "Control command unexpected error: %s",
+                        query,
+                    )
+                error_msg = Msg(
+                    name="Friday",
+                    role="assistant",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=f"**Command Failed**\n\n{str(e)}",
+                        ),
+                    ],
+                )
+                yield error_msg, True
             return
 
-        # Extract user_id from request
-        user_id = getattr(request, "user_id", "")
+        if is_bare_plan_command(query):
+            plan_msg = await handle_bare_plan_command(runner)
+            yield plan_msg, True
+            return
 
-        # Build control context
-        control_ctx = control_commands.ControlContext(
-            workspace=workspace,
-            payload=request,
-            channel=channel,
+        # Conversation path: lightweight memory + CommandHandler
+        memory = runner.memory_manager.get_in_memory_memory()
+        session_state = await runner.session.get_session_state_dict(
             session_id=session_id,
             user_id=user_id,
-            args={},
         )
+        memory_state = session_state.get("agent", {}).get("memory", {})
+        memory.load_state_dict(memory_state, strict=False)
 
-        # Handle control command
+        conv_handler = CommandHandler(
+            agent_name="Friday",
+            memory=memory,
+            memory_manager=runner.memory_manager,
+            enable_memory_manager=runner.memory_manager is not None,
+            plan_notebook=getattr(runner, "plan_notebook", None),
+            agent_id=runner.agent_id,
+        )
         try:
-            response_text = await control_commands.handle_control_command(
+            response_msg = await conv_handler.handle_conversation_command(
                 query,
-                control_ctx,
             )
+        except (RuntimeError, AppBaseException) as e:
             response_msg = Msg(
                 name="Friday",
                 role="assistant",
-                content=[TextBlock(type="text", text=response_text)],
+                content=[TextBlock(type="text", text=str(e))],
             )
-            yield response_msg, True
-            logger.info("handle_control_command %s completed", query)
-        except Exception as e:
-            if isinstance(e, (ValueError, AppBaseException)):
-                logger.warning("Control command failed: %s – %s", query, e)
-            else:
-                logger.exception("Control command unexpected error: %s", query)
-            error_msg = Msg(
-                name="Friday",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=f"**Command Failed**\n\n{str(e)}",
-                    ),
-                ],
+        yield response_msg, True
+
+        # Persist memory + plan when session_id is set (user_id may be empty;
+        # must match SafeJSONSession filename rules, same as HTTP plan).
+        if session_id:
+            await runner.session.update_session_state(
+                session_id=session_id,
+                key="agent.memory",
+                value=memory.state_dict(),
+                user_id=user_id,
             )
-            yield error_msg, True
-        return
-
-    if is_bare_plan_command(query):
-        plan_msg = await handle_bare_plan_command(runner)
-        yield plan_msg, True
-        return
-
-    # Conversation path: lightweight memory + CommandHandler
-    memory = runner.memory_manager.get_in_memory_memory()
-    session_state = await runner.session.get_session_state_dict(
-        session_id=session_id,
-        user_id=user_id,
-    )
-    memory_state = session_state.get("agent", {}).get("memory", {})
-    memory.load_state_dict(memory_state, strict=False)
-
-    conv_handler = CommandHandler(
-        agent_name="Friday",
-        memory=memory,
-        memory_manager=runner.memory_manager,
-        enable_memory_manager=runner.memory_manager is not None,
-    )
-    try:
-        response_msg = await conv_handler.handle_conversation_command(query)
-    except (RuntimeError, AppBaseException) as e:
-        response_msg = Msg(
-            name="Friday",
-            role="assistant",
-            content=[TextBlock(type="text", text=str(e))],
-        )
-    yield response_msg, True
-
-    # Update memory key with session_id & user_id to session,
-    # but only if identifiers are present
-    if session_id and user_id:
-        await runner.session.update_session_state(
-            session_id=session_id,
-            key="agent.memory",
-            value=memory.state_dict(),
-            user_id=user_id,
-        )
-    else:
-        logger.warning(
-            "Skipping session_state update for conversation"
-            " memory due to missing session_id or user_id (session_id=%r, "
-            "user_id=%r)",
-            session_id,
-            user_id,
-        )
+            try:
+                await persist_plan_notebook_to_session(
+                    session=runner.session,
+                    plan_notebook=getattr(runner, "plan_notebook", None),
+                    session_id=session_id,
+                    user_id=user_id,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist plan_notebook after "
+                    "conversation command",
+                    exc_info=True,
+                )
+        else:
+            logger.warning(
+                "Skipping session_state update for conversation"
+                " memory due to missing session_id (user_id=%r)",
+                user_id,
+            )

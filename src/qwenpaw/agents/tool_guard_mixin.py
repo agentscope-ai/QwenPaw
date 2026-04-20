@@ -72,30 +72,16 @@ class ToolGuardMixin:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _should_require_approval(self) -> bool:
+    def _should_require_approval(self, _tool_name: str = "") -> bool:
         """``True`` when the user must manually approve the call.
 
-        Returns ``False`` (auto-approve) when a confirmed plan is
-        executing — the user already gave consent by confirming.
-        Denied tools are still denied; they are checked earlier in
-        the pipeline, before this method is ever called.
+        Plan execution does not bypass the normal approval flow for guarded
+        tools. *tool_name* is accepted for call-site compatibility only.
+
+        Denied tools are still denied earlier in the pipeline.
         """
         if not self._request_context.get("session_id"):
             return False
-
-        nb = getattr(self, "plan_notebook", None)
-        if (
-            nb is not None
-            and nb.current_plan is not None
-            and any(
-                st.state == "in_progress" for st in nb.current_plan.subtasks
-            )
-        ):
-            logger.info(
-                "Auto-approved during plan execution",
-            )
-            return False
-
         return True
 
     def _last_tool_response_is_denied(self) -> bool:
@@ -406,7 +392,7 @@ class ToolGuardMixin:
             from qwenpaw.security.tool_guard.utils import log_findings
 
             log_findings(tool_name, guard_result)
-            if self._should_require_approval():
+            if self._should_require_approval(tool_name):
                 return _GuardAction(
                     "needs_approval",
                     tool_name,

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Alert,
   Drawer,
@@ -12,6 +18,7 @@ import {
   Button as AntButton,
   message,
   Popconfirm,
+  Spin,
 } from "antd";
 import {
   CheckCircleOutlined,
@@ -55,6 +62,12 @@ interface PlanPanelProps {
   onClose: () => void;
   /** After plan is confirmed via API, submit the same chat kickoff as typing in the input. */
   onStartExecution?: () => void;
+  /** User cancelled the plan from the panel (pre-execution). */
+  onPlanCancelled?: () => void;
+  /** User stopped an in-progress plan; parent may stop the running agent request. */
+  onPlanStopped?: () => void;
+  /** User revised subtasks from the panel; notify chat so the model re-reads plan state. */
+  onPlanRevised?: (plan: Plan) => void;
   /** When the chat page already subscribes to plan SSE, pass snapshots here and set chatStreamsPlan. */
   livePlanFromChat?: Plan | null;
   /** If true, skip duplicate EventSource in this drawer (parent streams). */
@@ -65,6 +78,9 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
   open,
   onClose,
   onStartExecution,
+  onPlanCancelled,
+  onPlanStopped,
+  onPlanRevised,
   livePlanFromChat,
   chatStreamsPlan = false,
 }) => {
@@ -75,10 +91,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
   const [enabling, setEnabling] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editForm] = Form.useForm();
   const [addForm] = Form.useForm();
+  const confirmLockRef = useRef(false);
 
   const fetchState = useCallback(() => {
     api
@@ -141,6 +159,8 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
 
   const handleStopPlan = useCallback(async () => {
     setStopping(true);
+    // Request chat cancellation immediately; then persist abandoned plan.
+    onPlanStopped?.();
     try {
       await api.finishPlan({
         state: "abandoned",
@@ -153,7 +173,7 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
     } finally {
       setStopping(false);
     }
-  }, [t]);
+  }, [t, onPlanStopped]);
 
   const handleEnablePlan = useCallback(async () => {
     setEnabling(true);
@@ -175,9 +195,17 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
   }, [t]);
 
   const handleConfirmPlan = useCallback(async () => {
+    if (confirmLockRef.current) return;
+    confirmLockRef.current = true;
     setConfirming(true);
     try {
       await api.confirmPlan();
+      try {
+        const latest = await api.getCurrentPlan();
+        setPlan(latest);
+      } catch {
+        /* SSE may still deliver; ignore */
+      }
       if (onStartExecution) {
         onStartExecution();
         message.success(
@@ -198,21 +226,29 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
       message.error(t("plan.confirmedError", "Failed to confirm plan"));
     } finally {
       setConfirming(false);
+      confirmLockRef.current = false;
     }
   }, [t, onStartExecution]);
 
   const handleAbandonPlan = useCallback(async () => {
+    setAbandoning(true);
+    // Interrupt any in-flight agent run for this session before clearing
+    // server-side plan state. Safe no-op when nothing is running.
+    onPlanStopped?.();
     try {
       await api.finishPlan({
         state: "abandoned",
         outcome: "Cancelled by user",
       });
       setPlan(null);
+      onPlanCancelled?.();
       message.success(t("plan.cancelledSuccess", "Plan cancelled"));
     } catch {
       message.error(t("plan.cancelledError", "Failed to cancel plan"));
+    } finally {
+      setAbandoning(false);
     }
-  }, [t]);
+  }, [t, onPlanCancelled, onPlanStopped]);
 
   // --- subtask edit / add / delete (available in confirmation state) ---
 
@@ -244,12 +280,13 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
         },
       });
       setPlan(updated);
+      onPlanRevised?.(updated);
       setEditIdx(null);
       editForm.resetFields();
     } catch {
       message.error(t("plan.editError", "Failed to update subtask"));
     }
-  }, [editIdx, editForm, t]);
+  }, [editIdx, editForm, t, onPlanRevised]);
 
   const handleDeleteSubtask = useCallback(
     async (idx: number) => {
@@ -259,11 +296,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
           action: "delete",
         });
         setPlan(updated);
+        onPlanRevised?.(updated);
       } catch {
         message.error(t("plan.deleteError", "Failed to delete subtask"));
       }
     },
-    [t],
+    [t, onPlanRevised],
   );
 
   const handleAddSubtask = useCallback(async () => {
@@ -280,12 +318,13 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
         },
       });
       setPlan(updated);
+      onPlanRevised?.(updated);
       setAddOpen(false);
       addForm.resetFields();
     } catch {
       message.error(t("plan.addError", "Failed to add subtask"));
     }
-  }, [plan, addForm, t]);
+  }, [plan, addForm, t, onPlanRevised]);
 
   // --- render helpers ---
 
@@ -420,6 +459,16 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
                 {t("plan.enableButton", "Enable Plan Mode")}
               </Button>
             </div>
+          ) : planEnabled === null ? (
+            <div className={styles.empty}>
+              <Spin size="large" />
+              <Text
+                type="secondary"
+                style={{ display: "block", marginTop: 12, fontSize: 12 }}
+              >
+                {t("plan.loadingConfig", "Loading plan settings…")}
+              </Text>
+            </div>
           ) : isActive ? (
             <>
               <div className={styles.planHeader}>
@@ -480,9 +529,24 @@ const PlanPanel: React.FC<PlanPanelProps> = ({
                         {t("plan.startExecution", "Start execution")}
                       </Button>
                     </Popconfirm>
-                    <Button size="small" onClick={handleAbandonPlan}>
-                      {t("plan.cancel", "Cancel Plan")}
-                    </Button>
+                    <Popconfirm
+                      title={t(
+                        "plan.cancelConfirm",
+                        "Cancel this plan before execution?",
+                      )}
+                      description={t(
+                        "plan.cancelConfirmHint",
+                        "The plan will be abandoned. You can create a new plan later.",
+                      )}
+                      okText={t("plan.cancel", "Cancel Plan")}
+                      cancelText={t("common.back", "Back")}
+                      okButtonProps={{ loading: abandoning }}
+                      onConfirm={handleAbandonPlan}
+                    >
+                      <Button size="small" loading={abandoning}>
+                        {t("plan.cancel", "Cancel Plan")}
+                      </Button>
+                    </Popconfirm>
                   </Flex>
                 ) : (
                   <Popconfirm
