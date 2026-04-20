@@ -154,6 +154,38 @@ class StopCommandHandler(BaseControlCommandHandler):
             else ""
         )
 
+        # Plan-only fallback: when this session truly had a running plan
+        # (``plan_abandoned`` is True) AND the chat-id-keyed cancel did not
+        # match a task, also cancel any external runtime task scoped to the
+        # SAME ``channel`` and ``session_id``. This is required because the
+        # AgentApp streaming path (used when a /plan turn is dispatched as a
+        # control command) registers tasks under ``ext:<channel>:<sid>:<uuid>``
+        # rather than the chat_id, so the default lookup misses them.
+        #
+        # Strictly scoped:
+        # - Only runs when a plan was just abandoned for this session.
+        # - Only matches keys with the exact ``ext:<channel>:<sid>:`` prefix,
+        #   so other sessions / non-plan tasks are never affected.
+        if plan_abandoned and not stopped:
+            ext_prefix = f"ext:{channel_id}:{target_session_id}:"
+            try:
+                active_keys = await workspace.task_tracker.list_active_tasks()
+            except Exception:  # pylint: disable=broad-except
+                active_keys = []
+            for run_key in active_keys:
+                if run_key.startswith(ext_prefix):
+                    try:
+                        if await workspace.task_tracker.request_stop(
+                            run_key,
+                        ):
+                            stopped = True
+                    except Exception:  # pylint: disable=broad-except
+                        logger.warning(
+                            "/stop: plan-scoped cancel failed for %s",
+                            run_key,
+                            exc_info=True,
+                        )
+
         if stopped or cleared > 0:
             logger.info(
                 f"/stop: stopped={stopped} cleared={cleared} "

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Plan API endpoints for real-time plan visualization and management."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,10 +19,7 @@ from ...constant import EnvVarLoader
 from ..agent_context import get_agent_for_request
 from ..auth import _get_jwt_secret, has_registered_users, is_auth_enabled
 from ...plan import set_plan_gate
-from ...plan.session_sync import (
-    clear_plan_notebook_if_session_has_no_snapshot,
-    persist_plan_notebook_to_session,
-)
+from ...plan.session_sync import persist_plan_notebook_to_session
 from ...plan.schemas import (
     FinishPlanRequest,
     PlanConfigUpdateRequest,
@@ -107,9 +105,9 @@ def _consume_sse_ticket(raw: str) -> tuple[Optional[str], Optional[str]]:
     if sk_raw is not None and not isinstance(sk_raw, str):
         return None, None
 
-    scope_key = (
-        sk_raw.strip() if isinstance(sk_raw, str) and sk_raw.strip() else None
-    )
+    scope_key = None
+    if isinstance(sk_raw, str):
+        scope_key = sk_raw.strip() or None
     return aid, scope_key
 
 
@@ -132,11 +130,10 @@ def _session_scope_from_request(request: Request) -> tuple[str, str]:
         or request.query_params.get("session_id")
         or ""
     ).strip()
-    user_id = (
-        request.headers.get("X-User-Id")
-        or request.query_params.get("user_id")
-        or ""
-    ).strip()
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        user_id = request.query_params.get("user_id") or ""
+    user_id = user_id.strip()
     return session_id, user_id
 
 
@@ -228,24 +225,43 @@ async def get_current_plan(
         return None
 
     session_id, user_id = _session_scope_from_request(request)
-    channel = _channel_from_request(request)
     if session_id:
         runner = getattr(workspace, "runner", None)
         sess = getattr(runner, "session", None) if runner is not None else None
         if sess is not None:
-            with plan_sse_scope(channel, session_id):
-                await clear_plan_notebook_if_session_has_no_snapshot(
-                    session=sess,
-                    plan_notebook=nb,
-                    session_id=session_id,
-                    user_id=user_id,
-                    agent_id=workspace.agent_id,
+            # Read-only endpoint: never mutate/clear another session's
+            # in-memory
+            # plan when this session has no snapshot. This avoids cross-channel
+            # races (e.g. console polling clobbering a running DingTalk plan).
+            raw = await sess.get_session_state_dict(session_id, user_id)
+            has_snapshot = "plan_notebook" in raw
+
+            if has_snapshot:
+                channel = _channel_from_request(request)
+                with plan_sse_scope(channel, session_id):
+                    await _hydrate_plan_notebook_from_session(
+                        request,
+                        workspace,
+                        nb,
+                    )
+            else:
+                # If the notebook is already bound to this same session and has
+                # an in-memory plan (first turn not persisted yet), allow read.
+                # Otherwise return empty for this session without mutating the
+                # shared notebook instance.
+                bound_sid = getattr(nb, "_copaw_plan_bound_session_id", "")
+                if not isinstance(bound_sid, str):
+                    bound_sid = ""
+                in_memory_same_session = nb.current_plan is not None and (
+                    not bound_sid or bound_sid == session_id
                 )
-                await _hydrate_plan_notebook_from_session(
-                    request,
-                    workspace,
-                    nb,
-                )
+                if not in_memory_same_session:
+                    if strict:
+                        raise HTTPException(
+                            status_code=404,
+                            detail="No active plan",
+                        )
+                    return None
 
     if nb.current_plan is None:
         if strict:

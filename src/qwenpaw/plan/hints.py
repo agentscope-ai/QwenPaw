@@ -110,15 +110,22 @@ def should_skip_auto_continue(plan_notebook) -> bool:
             plan_notebook._plan_needs_reconfirmation = False
         return True
 
-    # One-shot: right after finish/cancel, prevent text-only auto-continue
-    # from drifting back to stale in-memory plan context in the same turn.
+    # Persistent guard: after finish/cancel, prevent text-only auto-continue
+    # from drifting back to the stale plan in this turn AND in subsequent
+    # turns, until the user explicitly opts in again. The marker is reset
+    # by ``create_plan`` (new plan started) or by switching sessions; an
+    # explicit ``/plan`` entry sets ``_plan_tool_gate`` which routes hints
+    # via the ``no_plan`` template, so this branch naturally yields then.
+    #
+    # Why persistent: the previous one-shot semantics could be consumed by
+    # the cancelled task's final ``_reasoning`` pass right after a stop,
+    # leaving the next user turn with no guard at all (the model would
+    # then resume the just-stopped plan based on chat memory bias).
     if (
         bool(getattr(plan_notebook, "_plan_recently_finished", False))
         and not bool(getattr(plan_notebook, "_plan_tool_gate", False))
         and getattr(plan_notebook, "current_plan", None) is None
     ):
-        # pylint: disable-next=protected-access
-        plan_notebook._plan_recently_finished = False
         return True
 
     return False
@@ -539,6 +546,21 @@ if _HAS_DEFAULT_HINT:
             "Prioritize answering the user's latest message directly.\n"
         )
 
+        # One-shot prefix injected on the first reasoning hint after the
+        # plan was edited via the Plan panel (or any ``revise_current_plan``
+        # call). Consumed in ``_pick_hint`` so it does not bleed into
+        # subsequent turns. Set by ``JsonSubtaskPlanNotebook`` on
+        # ``_plan_panel_revised_pending``.
+        panel_revised_notice: str = (
+            "The user just edited the plan via the Plan panel. The plan "
+            "structure shown below is the current source of truth. If your "
+            "previous plan tool calls referenced a subtask that no longer "
+            "exists or was renamed, switch to the current subtasks now. "
+            "Re-check ``subtask_idx`` against the current plan before "
+            "calling ``update_subtask_state``, ``finish_subtask``, or "
+            "``revise_current_plan``.\n\n"
+        )
+
         # ---- override __call__ for compact context ----
 
         def _ip_hint(self, plan, ip_idx):
@@ -614,6 +636,31 @@ if _HAS_DEFAULT_HINT:
             return hint
 
         def _pick_hint(self, plan, n_ip, n_done, n_abn, ip_idx):
+            """Select the right hint template, prefixing the panel-revised
+            notice exactly once when the notebook has it pending.
+
+            Existing template selection lives in :meth:`_pick_hint_base`;
+            this wrapper only handles one-shot consumption of
+            ``_plan_panel_revised_pending`` so other hint logic is
+            unaffected when the flag is absent.
+            """
+            nb = self._bound_notebook()
+            notice = ""
+            if nb is not None and getattr(
+                nb,
+                "_plan_panel_revised_pending",
+                False,
+            ):
+                notice = self.panel_revised_notice
+                # pylint: disable-next=protected-access
+                nb._plan_panel_revised_pending = False
+
+            base = self._pick_hint_base(plan, n_ip, n_done, n_abn, ip_idx)
+            if base is None:
+                return None
+            return notice + base
+
+        def _pick_hint_base(self, plan, n_ip, n_done, n_abn, ip_idx):
             """Select the right hint template for the plan state."""
             if n_ip == 0 and n_done == 0:
                 if _needs_reconfirmation_after_revision(

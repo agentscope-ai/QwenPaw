@@ -63,6 +63,7 @@ from ..app.runner.command_dispatch import (
     is_plan_with_inline_description,
     rewrite_msgs_strip_plan_prefix,
 )
+from ..plan.overflow_recovery import emergency_compact_made_progress
 from ..constant import (
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     WORKING_DIR,
@@ -858,21 +859,12 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         except Exception as e:
             # --- Context overflow recovery ---
             if self._is_context_overflow_error(e):
-                # Aggressively truncate every ``tool_result`` output (old +
-                # most-recent window) via ReMe; mutates messages in place.
-                # ``compact_tool_result`` is a silent no-op when the memory
-                # manager is None / not ReMe-backed.
-                await self.memory_manager.compact_tool_result(
-                    messages=[p[0] for p in self.memory.content],
-                    recent_n=0,
-                    old_max_bytes=self._OVERFLOW_EMERGENCY_MAX_BYTES,
-                    recent_max_bytes=self._OVERFLOW_EMERGENCY_MAX_BYTES,
-                )
-                logger.warning(
-                    "_reasoning: context overflow (%s). "
-                    "Compacted tool-result outputs via ReMe, retrying.",
-                    e,
-                )
+                if not await emergency_compact_made_progress(
+                    memory_manager=self.memory_manager,
+                    memory_content=self.memory.content,
+                    label="_reasoning",
+                ):
+                    raise
                 return await super()._reasoning(tool_choice=tool_choice)
 
             # --- Media error recovery ---
@@ -961,21 +953,18 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
                 # --- Context overflow recovery ---
                 if self._is_context_overflow_error(e):
-                    # Aggressive in-place compaction via ReMe; silent no-op
-                    # when the memory manager is None / not ReMe-backed.
-                    await self.memory_manager.compact_tool_result(
-                        messages=[p[0] for p in self.memory.content],
-                        recent_n=0,
-                        old_max_bytes=self._OVERFLOW_EMERGENCY_MAX_BYTES,
-                        recent_max_bytes=self._OVERFLOW_EMERGENCY_MAX_BYTES,
-                    )
-                    logger.warning(
-                        "_summarizing: context overflow (%s). "
-                        "Compacted tool-result outputs via ReMe, retrying.",
-                        e,
-                    )
-                    msg = await super()._summarizing()
-                    recovered = True
+                    if await emergency_compact_made_progress(
+                        memory_manager=self.memory_manager,
+                        memory_content=self.memory.content,
+                        label="_summarizing",
+                    ):
+                        msg = await super()._summarizing()
+                        recovered = True
+                    # else: leave recovered=False so the existing
+                    # media-error fallback below runs; for a pure overflow
+                    # it falls through to ``raise`` at the top of that
+                    # branch, surfacing the original error instead of
+                    # looping on the same context.
 
                 if not recovered:
                     if not self._is_bad_request_or_media_error(e):
@@ -1153,10 +1142,6 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             "payload too large",
         ]
         return any(kw in error_str for kw in keywords)
-
-    # Aggressive byte cap for emergency tool-result truncation (delegated to
-    # ``ReMeLight.compact_tool_result`` via ``self.memory_manager``).
-    _OVERFLOW_EMERGENCY_MAX_BYTES = 300
 
     def _strip_media_blocks_from_memory(self) -> int:
         """Remove media blocks (image/audio/video) from all messages.
@@ -1339,6 +1324,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             msg = work_msgs if was_list else work_msgs[0]
             last_msg = work_msgs[-1]
             query = last_msg.get_text_content()
+            from ..plan import set_plan_gate
+
+            set_plan_gate(self.plan_notebook)
 
         if self.command_handler.is_command(query):
             logger.info(f"Received command: {query}")

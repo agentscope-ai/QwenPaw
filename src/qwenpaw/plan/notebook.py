@@ -95,6 +95,8 @@ class JsonSubtaskPlanNotebook(PlanNotebook):
         self._plan_needs_reconfirmation = False
         self._plan_just_mutated = True
         self._plan_recently_finished = False
+        # Fresh plan supersedes any pending panel-revised notice.
+        self._plan_panel_revised_pending = False
         return resp
 
     async def revise_current_plan(
@@ -129,6 +131,13 @@ class JsonSubtaskPlanNotebook(PlanNotebook):
                 # All remaining subtasks are still todo → need reconfirmation
                 self._plan_needs_reconfirmation = True
                 self._plan_just_mutated = True
+        # Mid-execution edits (some subtask already in_progress / done) do
+        # not satisfy the all-todo branch above, so neither flag fires for
+        # them. Mark a one-shot panel-revised notice so the next reasoning
+        # hint reminds the model to follow the updated plan structure
+        # rather than the original user message. Consumed in
+        # ``hints.ExtendedPlanToHint._pick_hint``.
+        self._plan_panel_revised_pending = True
         return resp
 
     async def update_subtask_state(
@@ -151,4 +160,6 @@ class JsonSubtaskPlanNotebook(PlanNotebook):
         self._plan_needs_reconfirmation = False
         self._plan_just_mutated = False
         self._plan_recently_finished = True
+        # No active plan → drop any pending panel-revised notice.
+        self._plan_panel_revised_pending = False
         return resp

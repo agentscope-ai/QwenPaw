@@ -67,6 +67,22 @@ mimetypes.add_type("application/wasm", ".wasm")
 load_envs_into_environ()
 
 
+def _build_external_run_key(request) -> str:
+    """Build a session-scoped TaskTracker key for external runtime tasks.
+
+    The key remains an opaque identifier for ``register_external_task`` /
+    ``unregister_external_task`` / ``request_stop``; embedding the channel
+    and ``session_id`` only enables targeted lookup by callers that opt in
+    (e.g. plan-aware ``/stop`` fallback). All other consumers continue to
+    treat it as an opaque string and behavior is unchanged.
+    """
+    channel = str(getattr(request, "channel", "") or "").strip() or "unknown"
+    session_id = (
+        str(getattr(request, "session_id", "") or "").strip() or "unknown"
+    )
+    return f"ext:{channel}:{session_id}:{uuid.uuid4().hex}"
+
+
 # Dynamic runner that selects the correct workspace runner based on request
 class DynamicMultiAgentRunner:
     """Runner wrapper that dynamically routes to the correct workspace runner.
@@ -140,7 +156,7 @@ class DynamicMultiAgentRunner:
 
             # Register this task with the workspace's TaskTracker so
             # _graceful_stop_old_instance() can see it during reload.
-            run_key = f"ext-{uuid.uuid4().hex}"
+            run_key = _build_external_run_key(request)
             await workspace.task_tracker.register_external_task(run_key)
 
             # Delegate to the actual runner's stream_query generator
@@ -179,7 +195,7 @@ class DynamicMultiAgentRunner:
             workspace = await self._get_workspace(request)
             runner = workspace.runner
 
-            run_key = f"ext-{uuid.uuid4().hex}"
+            run_key = _build_external_run_key(request)
             await workspace.task_tracker.register_external_task(run_key)
 
             async for item in runner.query_handler(request, *args, **kwargs):

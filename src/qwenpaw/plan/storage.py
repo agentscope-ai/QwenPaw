@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """File-based plan storage."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +9,7 @@ import logging
 import tempfile
 from pathlib import Path
 
+import anyio
 from agentscope.plan import PlanStorageBase, Plan
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,54 @@ def _assert_safe_plan_id(plan_id: str) -> None:
     parts = Path(plan_id).parts
     if len(parts) != 1 or parts[0] != plan_id:
         raise ValueError("invalid plan id")
+
+
+def _write_plan_json_sync(dir_path: Path, dest: Path, data: str) -> None:
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=str(dir_path),
+            suffix=".tmp",
+            delete=False,
+            encoding="utf-8",
+        ) as fd:
+            fd.write(data)
+            fd.flush()
+            tmp_path = Path(fd.name)
+        if tmp_path is None:
+            raise RuntimeError("failed to allocate temp plan file")
+        tmp_path.rename(dest)
+    except BaseException:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _read_plans_sync(dir_path: Path) -> list[Plan]:
+    plans: list[Plan] = []
+    for p in sorted(dir_path.glob("*.json")):
+        try:
+            raw = json.loads(p.read_text(encoding="utf-8"))
+            plans.append(Plan.model_validate(raw))
+        except Exception:
+            logger.warning("Skipping corrupt plan file: %s", p)
+    return plans
+
+
+def _read_plan_sync(path: Path) -> Plan | None:
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return Plan.model_validate(raw)
+    except Exception:
+        logger.warning("Failed to load plan file: %s", path)
+        return None
+
+
+def _unlink_plan_sync(path: Path) -> None:
+    path.unlink(missing_ok=True)
 
 
 class FilePlanStorage(PlanStorageBase):
@@ -64,45 +114,23 @@ class FilePlanStorage(PlanStorageBase):
                 ensure_ascii=False,
                 indent=2,
             )
-            fd = tempfile.NamedTemporaryFile(
-                mode="w",
-                dir=str(self._dir),
-                suffix=".tmp",
-                delete=False,
-                encoding="utf-8",
+            await anyio.to_thread.run_sync(
+                _write_plan_json_sync,
+                self._dir,
+                dest,
+                data,
             )
-            try:
-                fd.write(data)
-                fd.flush()
-                fd.close()
-                Path(fd.name).rename(dest)
-            except BaseException:
-                Path(fd.name).unlink(missing_ok=True)
-                raise
 
     async def delete_plan(self, plan_id: str) -> None:
         async with self._lock:
-            self._plan_path(plan_id).unlink(missing_ok=True)
+            path = self._plan_path(plan_id)
+            await anyio.to_thread.run_sync(_unlink_plan_sync, path)
 
     async def get_plans(self) -> list[Plan]:
         async with self._lock:
-            plans: list[Plan] = []
-            for p in sorted(self._dir.glob("*.json")):
-                try:
-                    raw = json.loads(p.read_text(encoding="utf-8"))
-                    plans.append(Plan.model_validate(raw))
-                except Exception:
-                    logger.warning("Skipping corrupt plan file: %s", p)
-            return plans
+            return await anyio.to_thread.run_sync(_read_plans_sync, self._dir)
 
     async def get_plan(self, plan_id: str) -> Plan | None:
         async with self._lock:
             path = self._plan_path(plan_id)
-            if not path.exists():
-                return None
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-                return Plan.model_validate(raw)
-            except Exception:
-                logger.warning("Failed to load plan file: %s", path)
-                return None
+            return await anyio.to_thread.run_sync(_read_plan_sync, path)

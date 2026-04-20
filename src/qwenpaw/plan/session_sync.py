@@ -17,6 +17,23 @@ from .schemas import plan_to_response
 
 logger = logging.getLogger(__name__)
 
+_BOUND_SESSION_ATTR = "_copaw_plan_bound_session_id"
+
+
+def _get_bound_session_id(nb: Any) -> str:
+    """Read the notebook's bound chat session id (best-effort)."""
+    if nb is None:
+        return ""
+    raw = getattr(nb, _BOUND_SESSION_ATTR, "")
+    return raw if isinstance(raw, str) else ""
+
+
+def _bind_session_id(nb: Any, session_id: str) -> None:
+    """Bind in-memory notebook to a chat session id."""
+    if nb is None:
+        return
+    setattr(nb, _BOUND_SESSION_ATTR, (session_id or "").strip())
+
 
 def _repeat_guard_reset(nb: Any) -> None:
     if nb is None:
@@ -58,6 +75,7 @@ async def persist_plan_notebook_to_session(
         value=payload,
         user_id=user_id,
     )
+    _bind_session_id(plan_notebook, session_id)
 
 
 async def reset_plan_notebook_for_session_switch(
@@ -112,13 +130,25 @@ async def clear_plan_notebook_if_session_has_no_snapshot(
     """
     if plan_notebook is None or not session_id:
         return
+    sid = (session_id or "").strip()
     raw = await session.get_session_state_dict(session_id, user_id)
     if "plan_notebook" in raw:
+        _bind_session_id(plan_notebook, sid)
+        return
+
+    # During an ongoing first turn, the session file may not be saved yet.
+    # If this notebook is already bound to the same session (or unbound) and
+    # currently has an in-memory plan, do not clear it prematurely.
+    cur = getattr(plan_notebook, "current_plan", None)
+    bound_sid = _get_bound_session_id(plan_notebook)
+    if cur is not None and (not bound_sid or bound_sid == sid):
+        _bind_session_id(plan_notebook, sid)
         return
     await reset_plan_notebook_for_session_switch(
         plan_notebook,
         agent_id=agent_id,
     )
+    _bind_session_id(plan_notebook, sid)
 
 
 def broadcast_plan_notebook_snapshot(plan_notebook, agent_id: str) -> None:
