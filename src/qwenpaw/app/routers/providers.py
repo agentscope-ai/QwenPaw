@@ -23,7 +23,7 @@ from agentscope_runtime.engine.schemas.exception import (
 )
 
 from ..agent_context import get_agent_for_request
-from ..utils import schedule_agent_reload
+from ..utils import schedule_agent_reload, schedule_all_agents_reload
 from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
@@ -632,6 +632,10 @@ async def set_active_model(
             if "provider" in lower_msg and "not found" in lower_msg:
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=400, detail=message) from exc
+        # Agents bind their model at construction time, so a persisted
+        # global swap only takes effect after each running agent is
+        # hot-reloaded.
+        schedule_all_agents_reload(request)
         return ActiveModelsInfo(active_llm=manager.get_active_model())
 
     if not body.agent_id:

@@ -56,3 +56,30 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
             )
 
     asyncio.create_task(reload_in_background())
+
+
+def schedule_all_agents_reload(request: "Request") -> None:
+    """Schedule a reload for every currently-running agent.
+
+    Global-scope configuration changes (e.g. the default LLM in Settings)
+    must propagate to agents that are already instantiated in memory,
+    since ``ReActAgent`` binds its model at construction time. Without
+    this, a global model swap is persisted but silently ignored until
+    each agent is individually reloaded.
+    """
+    manager: "MultiAgentManager" = getattr(
+        request.app.state,
+        "multi_agent_manager",
+        None,
+    )
+
+    if manager is None:
+        logger.warning(
+            "Cannot schedule global agent reload: "
+            "MultiAgentManager not initialized in app state",
+        )
+        return
+
+    agent_ids = list(manager.agents.keys())
+    for agent_id in agent_ids:
+        schedule_agent_reload(request, agent_id)

@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel
 
-from ..utils import schedule_agent_reload
+from ..utils import schedule_agent_reload, schedule_all_agents_reload
 from ...config import (
     load_config,
     save_config,
@@ -358,11 +358,13 @@ async def get_agents_llm_routing() -> AgentsLLMRoutingConfig:
     summary="Update agent LLM routing settings",
 )
 async def put_agents_llm_routing(
+    request: Request,
     body: AgentsLLMRoutingConfig = Body(...),
 ) -> AgentsLLMRoutingConfig:
     config = load_config()
     config.agents.llm_routing = body
     save_config(config)
+    schedule_all_agents_reload(request)
     return body
 
 
