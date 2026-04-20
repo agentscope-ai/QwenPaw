@@ -217,23 +217,26 @@ function AgentStatsPage() {
     [chartData, t, isDarkMode],
   );
 
-  const pieCommon = {
-    height: 280,
-    autoFit: true,
-    angleField: "value" as const,
-    colorField: "channel" as const,
-    color: ["#1890ff", "#52c41a", "#faad14", "#f5222d"],
-    padding: 40,
-    label: {
-      text: (d: { channel: string; value: number }) =>
-        `${d.channel}: ${d.value}`,
-      position: "spider" as const,
-      connector: true,
-      transform: [{ type: "overlapDodgeY" }, { type: "exceedAdjust" }],
-    },
-    legend: { position: "bottom" as const },
-    theme: isDarkMode ? "dark" : "light",
-  };
+  const pieCommon = useMemo(
+    () => ({
+      height: 280,
+      autoFit: true,
+      angleField: "value" as const,
+      colorField: "channel" as const,
+      color: ["#1890ff", "#52c41a", "#faad14", "#f5222d"],
+      padding: 40,
+      label: {
+        text: (d: { channel: string; value: number }) =>
+          `${d.channel}: ${d.value}`,
+        position: "spider" as const,
+        connector: true,
+        transform: [{ type: "overlapDodgeY" }, { type: "exceedAdjust" }],
+      },
+      legend: { position: "bottom" as const },
+      theme: isDarkMode ? "dark" : "light",
+    }),
+    [isDarkMode],
+  );
 
   const chatPieConfig = useMemo(() => {
     if (!data?.chats_by_channel?.length) return null;
@@ -244,7 +247,7 @@ function AgentStatsPage() {
         value: Number(item.count),
       })),
     };
-  }, [data?.chats_by_channel, isDarkMode]);
+  }, [data?.chats_by_channel, pieCommon]);
 
   const messagePieConfig = useMemo(() => {
     if (!data?.messages_by_channel?.length) return null;
@@ -255,7 +258,7 @@ function AgentStatsPage() {
         value: Number(item.total_messages),
       })),
     };
-  }, [data?.messages_by_channel, isDarkMode]);
+  }, [data?.messages_by_channel, pieCommon]);
 
   return (
     <div className={styles.page}>
