@@ -154,20 +154,27 @@ async def _probe_multimodal_if_needed() -> bool | None:
 
         logger.info(
             "Multimodal capability unknown for %s/%s — "
-            "running probe on first view_image/view_video call...",
+            "running image-only probe on first view_image/view_video call...",
             active.provider_id,
             active.model,
         )
         result = await manager.probe_model_multimodal(
             active.provider_id,
             active.model,
+            image_only=True,
         )
         supports = result.get("supports_image", False)
         logger.info(
-            "Multimodal probe completed for %s/%s: supports_image=%s",
+            "Image probe completed for %s/%s: supports_image=%s",
             active.provider_id,
             active.model,
             supports,
+        )
+        # Fire full probe in background to also determine video support
+        import asyncio
+
+        asyncio.create_task(
+            manager.probe_model_multimodal(active.provider_id, active.model),
         )
         return supports
     except Exception as e:

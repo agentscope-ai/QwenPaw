@@ -180,6 +180,7 @@ class OpenAIProvider(Provider):
         self,
         model_id: str,
         timeout: float = 10,
+        image_only: bool = False,
     ) -> ProbeResult:
         """Probe multimodal support via OpenAI-compatible API."""
         from .multimodal_prober import ProbeResult
@@ -198,6 +199,13 @@ class OpenAIProvider(Provider):
                 supports_video=False,
                 image_message=img_msg,
                 video_message="Skipped: image probe failed",
+            )
+        if image_only:
+            return ProbeResult(
+                supports_image=img_ok,
+                supports_video=False,
+                image_message=img_msg,
+                video_message="Skipped: image_only=True",
             )
         vid_ok, vid_msg = await self._probe_video_support(
             model_id,

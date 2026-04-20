@@ -1117,21 +1117,41 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self,
         provider_id: str,
         model_id: str,
+        image_only: bool = False,
     ) -> dict:
-        """Probe a model's multimodal capabilities and persist the result."""
+        """Probe a model's multimodal capabilities and persist the result.
+
+        Args:
+            provider_id: Provider identifier.
+            model_id: Model identifier.
+            image_only: When True, skip the video probe for a faster result.
+                Only ``supports_image`` will be accurate; ``supports_video``
+                will remain at its previous value (not updated).
+        """
         provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return {"error": f"Provider '{provider_id}' not found"}
 
-        result = await provider.probe_model_multimodal(model_id)
+        result = await provider.probe_model_multimodal(
+            model_id,
+            image_only=image_only,
+        )
 
-        # Update the model's capability flags
+        # Update the model's capability flags.
+        # For image_only probes, leave supports_video untouched so a
+        # subsequent full probe can fill it in correctly.
         for model in provider.models + provider.extra_models:
             if model.id == model_id:
                 model.supports_image = result.supports_image
-                model.supports_video = result.supports_video
-                model.supports_multimodal = result.supports_multimodal
+                if not image_only:
+                    model.supports_video = result.supports_video
+                    model.supports_multimodal = result.supports_multimodal
+                else:
+                    # Partial update: derive supports_multimodal from
+                    # image alone; video will be updated by the full probe.
+                    if result.supports_image:
+                        model.supports_multimodal = True
                 model.probe_source = "probed"
                 break
 
