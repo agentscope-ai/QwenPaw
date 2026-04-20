@@ -137,10 +137,12 @@ export default function DebugPage() {
             </div>
 
             {backendLogs?.path && (
-              <Text type="secondary">
-                <Text strong>{t("debug.backend.path", "Log file")}:</Text>{" "}
-                {backendLogs.path}
-              </Text>
+              <div className={styles.logPath}>
+                <Text type="secondary" className={styles.logPathLabel}>
+                  {t("debug.backend.path", "Log file")}
+                </Text>
+                <code className={styles.logPathValue}>{backendLogs.path}</code>
+              </div>
             )}
 
             {backendError ? (
