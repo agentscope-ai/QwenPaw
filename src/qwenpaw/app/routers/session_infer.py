@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Any, Optional
 from uuid import uuid4
@@ -184,7 +185,16 @@ def _metadata_is_usable(metadata: Optional[dict[str, Any]]) -> bool:
     if isinstance(candidate_raw, dict):
         intent_code = str(candidate_raw.get("intentCode") or "").strip()
         execution_mode = str(candidate_raw.get("executionMode") or "").strip()
-        return bool(intent_code and execution_mode)
+        has_confidence = "confidence" in candidate_raw
+        has_need_clarify = "needClarify" in candidate_raw
+        has_slots = isinstance(candidate_raw.get("slots"), dict)
+        return bool(
+            intent_code
+            and execution_mode
+            and has_confidence
+            and has_need_clarify
+            and has_slots
+        )
     intent_code = str(metadata.get("intentCode") or "").strip()
     execution_mode = str(metadata.get("executionMode") or "").strip()
     return bool(intent_code and execution_mode)
@@ -317,6 +327,14 @@ def _build_messages(payload: SessionInferRequest) -> list[dict[str, Any]]:
                 "sqlTemplateCode": intent.sqlTemplateCode,
                 "selectedTableId": intent.selectedTableId,
                 "slotKeys": list(intent.slotKeys or []),
+                "slotSchema": intent.slotSchema if isinstance(intent.slotSchema, dict) else {},
+                "slotMapping": _intent_data(intent).get("slotMapping", {}),
+                "enumValueHints": _intent_data(intent).get("enumValueHints", []),
+                "triggerPhrases": _intent_data(intent).get("triggerPhrases", []),
+                "mustConditions": _intent_data(intent).get("mustConditions", []),
+                "forbiddenConditions": _intent_data(intent).get("forbiddenConditions", []),
+                "intentName": _intent_data(intent).get("intentName", ""),
+                "domain": _intent_data(intent).get("domain", ""),
             },
         )
     intents_json = json.dumps(
@@ -364,99 +382,276 @@ def _build_messages(payload: SessionInferRequest) -> list[dict[str, Any]]:
         {"role": "user", "content": user_prompt},
     ]
 
-def _to_bool(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"true", "1", "yes", "y"}:
-            return True
-        if lowered in {"false", "0", "no", "n"}:
-            return False
+
+def _intent_data(intent: SessionInferIntent) -> dict[str, Any]:
+    dumped = intent.model_dump()
+    if isinstance(dumped, dict):
+        return dumped
+    return {}
+
+
+def _slot_value_present(value: Any) -> bool:
     if value is None:
-        return default
-    return bool(value)
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict, tuple, set)):
+        return bool(value)
+    return True
 
 
-def _to_confidence(value: Any, default: float = 0.0) -> float:
-    try:
-        return max(0.0, min(1.0, float(value)))
-    except (TypeError, ValueError):
-        return default
+def _required_slot_keys(intent: SessionInferIntent) -> list[str]:
+    schema = intent.slotSchema if isinstance(intent.slotSchema, dict) else {}
+    required_raw = schema.get("required")
+    if not isinstance(required_raw, list):
+        return []
+    required: list[str] = []
+    for item in required_raw:
+        key = str(item or "").strip()
+        if key:
+            required.append(key)
+    return required
 
 
-def _build_candidate_plan_local_repair(
-    output_raw: Any,
-    intents: list[SessionInferIntent],
-) -> tuple[CandidatePlan, str]:
-    if not intents:
-        raise ValueError("No intents provided")
+def _slot_mapping(intent: SessionInferIntent) -> dict[str, list[str]]:
+    data = _intent_data(intent)
+    mapping_raw = data.get("slotMapping")
+    if not isinstance(mapping_raw, dict):
+        return {}
+    normalized: dict[str, list[str]] = {}
+    for key, value in mapping_raw.items():
+        slot_key = str(key or "").strip()
+        if not slot_key:
+            continue
+        aliases: list[str] = []
+        if isinstance(value, list):
+            for item in value:
+                text = str(item or "").strip()
+                if text:
+                    aliases.append(text)
+        normalized[slot_key] = aliases
+    return normalized
 
-    candidate_raw: dict[str, Any] = {}
-    if isinstance(output_raw, dict):
-        nested = output_raw.get("candidatePlan")
-        if isinstance(nested, dict):
-            candidate_raw = nested
-        else:
-            candidate_raw = output_raw
 
-    preferred_intent_code = str(candidate_raw.get("intentCode") or "").strip()
-    intent_fallback_used = False
-    if preferred_intent_code and any(
-        str(intent.intentCode or "").strip() == preferred_intent_code
-        for intent in intents
-    ):
-        matched = _select_fallback_intent(
-            intents,
-            preferred_intent_code=preferred_intent_code,
-        )
-    else:
-        matched = _select_fallback_intent(intents)
-        intent_fallback_used = True
+def _enum_alias_map(intent: SessionInferIntent) -> dict[str, dict[str, set[str]]]:
+    alias_map: dict[str, dict[str, set[str]]] = {}
+    slot_schema = intent.slotSchema if isinstance(intent.slotSchema, dict) else {}
+    properties = slot_schema.get("properties")
+    if isinstance(properties, dict):
+        for slot_key, prop_raw in properties.items():
+            if not isinstance(prop_raw, dict):
+                continue
+            slot = str(slot_key or "").strip()
+            if not slot:
+                continue
+            enum_aliases_raw = prop_raw.get("x-enum-aliases")
+            if not isinstance(enum_aliases_raw, dict):
+                continue
+            per_slot = alias_map.setdefault(slot, {})
+            for canonical_raw, aliases_raw in enum_aliases_raw.items():
+                canonical = str(canonical_raw or "").strip()
+                if not canonical:
+                    continue
+                values = per_slot.setdefault(canonical, set())
+                values.add(canonical)
+                if isinstance(aliases_raw, list):
+                    for alias in aliases_raw:
+                        text = str(alias or "").strip()
+                        if text:
+                            values.add(text)
 
-    slots_raw = candidate_raw.get("slots")
-    slots: dict[str, Any] = slots_raw if isinstance(slots_raw, dict) else {}
-    slot_whitelist = {str(key).strip() for key in (matched.slotKeys or []) if str(key).strip()}
+    data = _intent_data(intent)
+    hints_raw = data.get("enumValueHints")
+    if isinstance(hints_raw, list):
+        for hint in hints_raw:
+            if not isinstance(hint, dict):
+                continue
+            slot = str(hint.get("slot") or "").strip()
+            canonical = str(hint.get("value") or "").strip()
+            if not slot or not canonical:
+                continue
+            per_slot = alias_map.setdefault(slot, {})
+            values = per_slot.setdefault(canonical, set())
+            values.add(canonical)
+            aliases_raw = hint.get("aliases")
+            if isinstance(aliases_raw, list):
+                for alias in aliases_raw:
+                    text = str(alias or "").strip()
+                    if text:
+                        values.add(text)
+    return alias_map
+
+
+def _normalize_enum_slot_value(
+    slot: str,
+    value: Any,
+    enum_aliases: dict[str, dict[str, set[str]]],
+) -> Any:
+    if not isinstance(value, str):
+        return value
+    normalized_value = value.strip()
+    if not normalized_value:
+        return normalized_value
+    per_slot = enum_aliases.get(slot, {})
+    lowered = normalized_value.lower()
+    for canonical, aliases in per_slot.items():
+        for alias in aliases:
+            alias_text = str(alias or "").strip()
+            if not alias_text:
+                continue
+            if lowered == alias_text.lower():
+                return canonical
+    return normalized_value
+
+
+def _extract_enum_slot_from_question(
+    question: str,
+    slot: str,
+    enum_aliases: dict[str, dict[str, set[str]]],
+) -> Optional[str]:
+    question_text = str(question or "")
+    if not question_text:
+        return None
+    per_slot = enum_aliases.get(slot, {})
+    candidates: list[tuple[int, str]] = []
+    question_lower = question_text.lower()
+    for canonical, aliases in per_slot.items():
+        for alias in aliases:
+            alias_text = str(alias or "").strip()
+            if not alias_text:
+                continue
+            alias_lower = alias_text.lower()
+            idx = question_lower.find(alias_lower)
+            if idx >= 0:
+                candidates.append((idx, canonical))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+def _extract_value_with_alias(question: str, alias: str) -> Optional[str]:
+    alias_text = str(alias or "").strip()
+    if not alias_text:
+        return None
+    pattern = (
+        rf"(?i)(?:^|[\s，,。;；:：]){re.escape(alias_text)}"
+        rf"\s*(?:是|为|=|:|：)?\s*([A-Za-z0-9][A-Za-z0-9_\-]*)"
+    )
+    matched = re.search(pattern, question)
+    if not matched:
+        return None
+    value = str(matched.group(1) or "").strip()
+    return value or None
+
+
+def _extract_slot_from_question(
+    question: str,
+    slot: str,
+    slot_aliases: list[str],
+    enum_aliases: dict[str, dict[str, set[str]]],
+) -> Optional[Any]:
+    enum_value = _extract_enum_slot_from_question(question, slot, enum_aliases)
+    if enum_value is not None:
+        return enum_value
+
+    for alias in slot_aliases:
+        value = _extract_value_with_alias(question, alias)
+        if value is not None:
+            return value
+    return None
+
+
+def _complete_candidate_slots_from_question(
+    candidate: CandidatePlan,
+    intent: SessionInferIntent,
+    question: str,
+) -> tuple[CandidatePlan, int, list[str]]:
+    slot_whitelist = {str(key).strip() for key in (intent.slotKeys or []) if str(key).strip()}
+    slots = candidate.slots if isinstance(candidate.slots, dict) else {}
     if slot_whitelist:
         slots = {k: v for k, v in slots.items() if str(k).strip() in slot_whitelist}
 
-    need_clarify = _to_bool(
-        candidate_raw.get("needClarify"),
-        default=intent_fallback_used,
-    )
-    clarify_question = str(candidate_raw.get("clarifyQuestion") or "").strip() or None
-    if intent_fallback_used:
-        need_clarify = True
-        if not clarify_question:
-            clarify_question = "请补充更明确的业务意图或关键筛选条件。"
-    elif not need_clarify:
+    enum_aliases = _enum_alias_map(intent)
+    normalized_slots: dict[str, Any] = {}
+    for key, value in slots.items():
+        slot_key = str(key or "").strip()
+        if not slot_key:
+            continue
+        normalized_slots[slot_key] = _normalize_enum_slot_value(
+            slot_key,
+            value,
+            enum_aliases,
+        )
+
+    required_keys = _required_slot_keys(intent)
+    slot_aliases = _slot_mapping(intent)
+    filled_count = 0
+    for slot in required_keys:
+        if _slot_value_present(normalized_slots.get(slot)):
+            continue
+        inferred = _extract_slot_from_question(
+            question=question,
+            slot=slot,
+            slot_aliases=slot_aliases.get(slot, []),
+            enum_aliases=enum_aliases,
+        )
+        if _slot_value_present(inferred):
+            normalized_slots[slot] = inferred
+            filled_count += 1
+
+    missing_required = [slot for slot in required_keys if not _slot_value_present(normalized_slots.get(slot))]
+    clarified = bool(missing_required)
+    clarify_question: Optional[str]
+    if clarified:
+        clarify_question = "请补充以下必要参数：" + "、".join(missing_required)
+    else:
         clarify_question = None
 
-    confidence = _to_confidence(candidate_raw.get("confidence"), default=0.0)
-    if need_clarify and confidence > 0.4:
-        confidence = 0.4
+    confidence = candidate.confidence
+    if not clarified and confidence <= 0.0 and filled_count > 0:
+        confidence = 0.6
 
-    execution_mode = str(matched.executionMode or "").strip() or str(
-        candidate_raw.get("executionMode") or "",
-    ).strip() or "SQL_TEMPLATE"
-
-    candidate = CandidatePlan(
-        intentCode=str(matched.intentCode or "").strip(),
-        executionMode=execution_mode,
+    repaired = CandidatePlan(
+        intentCode=candidate.intentCode,
+        executionMode=candidate.executionMode,
         confidence=confidence,
-        slots=slots,
-        needClarify=need_clarify,
+        slots=normalized_slots,
+        needClarify=clarified,
         clarifyQuestion=clarify_question,
-        roleCode=matched.roleCode,
-        sqlTemplateCode=matched.sqlTemplateCode,
-        selectedTableId=matched.selectedTableId,
+        roleCode=candidate.roleCode,
+        sqlTemplateCode=candidate.sqlTemplateCode,
+        selectedTableId=candidate.selectedTableId,
     )
-    reason = (
-        "local_repair_fallback_intent"
-        if intent_fallback_used
-        else "local_repair_keep_intent"
+    return repaired, filled_count, missing_required
+
+
+def _enforce_slot_completion(
+    candidate: CandidatePlan,
+    intents: list[SessionInferIntent],
+    question: str,
+) -> tuple[CandidatePlan, bool, int, list[str]]:
+    intent_map = {
+        str(intent.intentCode or "").strip(): intent
+        for intent in intents
+        if str(intent.intentCode or "").strip()
+    }
+    matched = intent_map.get(str(candidate.intentCode or "").strip())
+    if matched is None:
+        return candidate, False, 0, []
+
+    repaired, filled_count, missing_required = _complete_candidate_slots_from_question(
+        candidate=candidate,
+        intent=matched,
+        question=question,
     )
-    return candidate, reason
+    changed = (
+        repaired.slots != candidate.slots
+        or repaired.needClarify != candidate.needClarify
+        or repaired.clarifyQuestion != candidate.clarifyQuestion
+        or repaired.confidence != candidate.confidence
+    )
+    return repaired, changed, filled_count, missing_required
 
 
 def _resolve_effective_model_meta(agent_id: str, trace_id: str) -> ModelMeta:
@@ -591,32 +786,6 @@ def _build_candidate_plan(
     )
 
 
-def _select_fallback_intent(
-    intents: list[SessionInferIntent],
-    preferred_intent_code: str = "",
-) -> SessionInferIntent:
-    if not intents:
-        raise ValueError("No intents provided")
-
-    wanted = preferred_intent_code.strip()
-    if wanted:
-        for intent in intents:
-            if (
-                str(intent.intentCode or "").strip() == wanted
-                and str(intent.executionMode or "").strip()
-            ):
-                return intent
-
-    for intent in intents:
-        if str(intent.intentCode or "").strip() and str(intent.executionMode or "").strip():
-            return intent
-
-    for intent in intents:
-        if str(intent.intentCode or "").strip():
-            return intent
-
-    raise ValueError("No valid intentCode found in provided intents")
-
 async def _resolve_target_agent_id(
     request: Request,
     payload: SessionInferRequest,
@@ -666,7 +835,6 @@ async def post_session_infer(
         messages = _build_messages(payload)
         build_prompt_ms = int((time.monotonic() - build_prompt_start) * 1000)
 
-        fallback_reason_enum = "none"
         model_call_start = time.monotonic()
         structured_enabled = True
         non_stream_enforced = True
@@ -675,7 +843,6 @@ async def post_session_infer(
             response = await model(
                 messages,
                 structured_model=SessionInferStructuredOutput,
-                stream=False,
             )
         except TypeError as exc:
             non_stream_enforced = False
@@ -689,21 +856,24 @@ async def post_session_infer(
                 structured_enabled = False
                 structured_error_type = type(fallback_exc).__name__
                 logger.warning(
-                    "session infer structured model call failed after stream-override fallback, use local deterministic path",
+                    "session infer structured model call failed after stream-override fallback",
                     exc_info=True,
                 )
                 response = None
-                fallback_reason_enum = "structured_call_failed"
         except Exception as exc:
             structured_enabled = False
             structured_error_type = type(exc).__name__
             logger.warning(
-                "session infer structured model call failed, fallback to local deterministic path",
+                "session infer structured model call failed",
                 exc_info=True,
             )
             response = None
-            fallback_reason_enum = "structured_call_failed"
         model_call_ms = int((time.monotonic() - model_call_start) * 1000)
+
+        if response is None:
+            raise ValueError(
+                f"Structured model call failed: {structured_error_type or 'unknown_error'}",
+            )
 
         collect_start = time.monotonic()
         if response is not None:
@@ -731,8 +901,12 @@ async def post_session_infer(
                 collect_budget_cut,
             ) = ("", None, None, None, 0, None, False)
         collect_ms = int((time.monotonic() - collect_start) * 1000)
-        if collect_budget_cut and fallback_reason_enum == "none":
-            fallback_reason_enum = "collect_budget_cut"
+        if collect_budget_cut:
+            logger.warning(
+                "session infer collect budget cut trace_id=%s budget_ms=%d",
+                trace_id,
+                SESSION_INFER_COLLECT_BUDGET_MS,
+            )
 
         parse_start = time.monotonic()
         metadata_keys: list[str] = (
@@ -743,60 +917,50 @@ async def post_session_infer(
         metadata_usable = _metadata_is_usable(response_metadata)
         if response_metadata is not None and not metadata_usable:
             logger.warning(
-                "session infer metadata incomplete, fallback to local deterministic path trace_id=%s metadata_keys=%s",
+                "session infer metadata incomplete trace_id=%s metadata_keys=%s",
                 trace_id,
                 metadata_keys,
             )
-            if fallback_reason_enum == "none":
-                fallback_reason_enum = "metadata_incomplete"
 
         tool_candidate_hit = isinstance(response_tool_candidate, dict)
+        response_source = "none"
         if metadata_usable and response_metadata is not None:
             response_json = response_metadata
+            response_source = "metadata"
         elif tool_candidate_hit and response_tool_candidate is not None:
             response_json = response_tool_candidate
-            if fallback_reason_enum == "none":
-                fallback_reason_enum = "tool_candidate_fallback"
+            response_source = "tool_candidate"
         else:
-            response_json = {}
-            logger.warning(
-                "session infer missing structured payload, fallback to local deterministic repair trace_id=%s text_len=%d",
-                trace_id,
-                len(response_text or ""),
+            raise ValueError(
+                "Missing usable structured payload from model output: "
+                f"trace_id={trace_id} text_len={len(response_text or '')}",
             )
-            if fallback_reason_enum == "none":
-                fallback_reason_enum = "missing_structured_payload"
         parse_ms = int((time.monotonic() - parse_start) * 1000)
 
         candidate_start = time.monotonic()
-        repair_retry_used = False
-        repair_retry_success = False
-        repair_retry_ms = 0
-        try:
-            candidate = _build_candidate_plan(response_json, payload.intents)
-        except Exception as candidate_exc:
-            logger.warning(
-                "session infer candidate invalid, fallback to local deterministic repair trace_id=%s reason=%s",
+        slot_completion_changed = False
+        slot_completion_filled = 0
+        slot_completion_missing_required: list[str] = []
+        candidate = _build_candidate_plan(response_json, payload.intents)
+        (
+            candidate,
+            slot_completion_changed,
+            slot_completion_filled,
+            slot_completion_missing_required,
+        ) = _enforce_slot_completion(
+            candidate=candidate,
+            intents=payload.intents,
+            question=payload.question,
+        )
+        if slot_completion_changed:
+            logger.info(
+                "session infer slot completion trace_id=%s intent=%s filled=%d missing_required=%s need_clarify=%s",
                 trace_id,
-                str(candidate_exc),
+                candidate.intentCode,
+                slot_completion_filled,
+                slot_completion_missing_required,
+                candidate.needClarify,
             )
-            repair_start = time.monotonic()
-            candidate, local_repair_reason = _build_candidate_plan_local_repair(
-                response_json,
-                payload.intents,
-            )
-            repair_retry_used = True
-            repair_retry_success = True
-            repair_retry_ms = int((time.monotonic() - repair_start) * 1000)
-            if fallback_reason_enum == "none":
-                fallback_reason_enum = local_repair_reason
-            elif fallback_reason_enum not in {
-                "collect_budget_cut",
-                "metadata_incomplete",
-                "tool_candidate_fallback",
-                "missing_structured_payload",
-            }:
-                fallback_reason_enum = local_repair_reason
         candidate_ms = int((time.monotonic() - candidate_start) * 1000)
         model_meta = _resolve_effective_model_meta(
             target_agent_id,
@@ -811,7 +975,7 @@ async def post_session_infer(
                 SESSION_INFER_TOTAL_BUDGET_MS,
             )
         logger.info(
-            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d repair_retry_used=%s repair_retry_success=%s repair_retry_ms=%d total_ms=%d structured_enabled=%s non_stream_enforced=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s collect_budget_cut=%s fallback_reason_enum=%s structured_error_type=%s",
+            "session infer timing trace_id=%s intents=%d resolve_agent_ms=%d model_create_ms=%d build_prompt_ms=%d model_call_ms=%d collect_ms=%d parse_ms=%d candidate_ms=%d response_source=%s slot_completion_changed=%s slot_completion_filled=%d slot_completion_missing_required=%s total_ms=%d structured_enabled=%s non_stream_enforced=%s metadata_hit=%s metadata_usable=%s metadata_keys=%s tool_candidate_hit=%s first_chunk_ms=%s stream_chunk_count=%d valid_metadata_at_chunk_idx=%s collect_budget_cut=%s structured_error_type=%s",
             trace_id,
             len(payload.intents),
             resolve_ms,
@@ -821,9 +985,10 @@ async def post_session_infer(
             collect_ms,
             parse_ms,
             candidate_ms,
-            repair_retry_used,
-            repair_retry_success,
-            repair_retry_ms,
+            response_source,
+            slot_completion_changed,
+            slot_completion_filled,
+            slot_completion_missing_required,
             total_ms,
             structured_enabled,
             non_stream_enforced,
@@ -835,7 +1000,6 @@ async def post_session_infer(
             stream_chunk_count,
             valid_metadata_at_chunk_idx,
             collect_budget_cut,
-            fallback_reason_enum,
             structured_error_type,
         )
         return SessionInferResponse(
