@@ -892,7 +892,7 @@ async def post_session_infer(
 ) -> SessionInferResponse:
     stage_start = time.monotonic()
     trace_id = (payload.traceId or "").strip()
-    logger.info("会话推理请求载荷 payload=%s", payload.model_dump())
+    logger.info("会话推理请求载荷 payload=%s", _json_for_log(payload.model_dump()))
     try:
         resolve_start = time.monotonic()
         target_agent_id = await _resolve_target_agent_id(
