@@ -21,7 +21,7 @@ from ..models import GuardFinding, GuardSeverity, GuardThreatCategory
 from . import BaseToolGuardian
 
 # ── Command substitution patterns ────────────────────────────────────
-# Checked against unquoted (outside single-quote) content.
+# Checked against content outside single quotes.
 _COMMAND_SUBSTITUTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"<\("), "process substitution <()"),
     (re.compile(r">\("), "process substitution >()"),
@@ -31,7 +31,6 @@ _COMMAND_SUBSTITUTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "Zsh equals expansion (=cmd)",
     ),
     (re.compile(r"\$\("), "$() command substitution"),
-    (re.compile(r"\$\{"), "${} parameter substitution"),
     (re.compile(r"\$\["), "$[] legacy arithmetic expansion"),
     (re.compile(r"~\["), "Zsh-style parameter expansion"),
     (re.compile(r"\(e:"), "Zsh-style glob qualifiers"),
@@ -52,9 +51,6 @@ _LOCALE_QUOTE_RE = re.compile(r'\$"[^"]*"')
 _EMPTY_SPECIAL_QUOTE_DASH_RE = re.compile(r"\$['\"]{2}\s*-")
 _EMPTY_QUOTE_DASH_RE = re.compile(r"(?:^|\s)(?:''|\"\")+\s*-")
 _EMPTY_PAIR_QUOTED_DASH_RE = re.compile(r"""(?:""|'')+['"]- """)
-_CONSECUTIVE_QUOTES_RE = re.compile(r"(?:^|\s)['\"]{ 3,}")
-
-
 # =====================================================================
 # Quote-state tracker
 # =====================================================================
@@ -97,18 +93,18 @@ class _QuoteState:
             self.in_double = not self.in_double
 
 
-def _extract_unquoted(command: str) -> str:
-    """Return *command* with all single- and double-quoted content removed.
+def _extract_outside_single_quotes(command: str) -> str:
+    """Return *command* with only single-quoted content removed.
 
-    Backslash escaping outside single quotes is respected.  The result
-    contains only characters that the shell would interpret as unquoted.
+    Keep double-quoted content because shell still expands command
+    substitutions inside double quotes.
     """
     state = _QuoteState()
     parts: list[str] = []
     for ch in command:
-        was_quoted = state.in_any_quote
+        was_single = state.in_single
         state.feed(ch)
-        if not was_quoted and not state.in_any_quote and not state.escaped:
+        if not was_single and not state.in_single:
             parts.append(ch)
     return "".join(parts)
 
@@ -128,14 +124,15 @@ def _check_command_substitution(
     Also detects unescaped backticks (outside quotes) which are the
     legacy command substitution syntax.
     """
-    # Backtick check: unescaped ` outside quotes
+    # Backtick check: unescaped ` outside single quotes.
+    # Backticks inside double quotes are still command substitution.
     state = _QuoteState()
     for i, ch in enumerate(command):
         if state.escaped:
             state.feed(ch)
             continue
         state.feed(ch)
-        if ch == "`" and not state.in_any_quote and not state.escaped:
+        if ch == "`" and not state.in_single and not state.escaped:
             snippet_start = max(0, i - 20)
             snippet_end = min(len(command), i + 20)
             return _finding(
@@ -277,10 +274,19 @@ def _check_backslash_escaped_operators(
     split on re-parsing, enabling arbitrary file reads that bypass path
     validation.
     """
+    find_exec_terminator_re = re.compile(
+        r"-(?:exec|execdir)\b[\s\S]*\{\}\s*\\;$",
+    )
     state = _QuoteState()
     for i, ch in enumerate(command):
         if state.escaped:
             if not state.in_double and ch in _SHELL_OPERATORS:
+                # find ... -exec ... {} \; is normal shell syntax.
+                if ch == ";":
+                    prefix = command[: i + 1]
+                    if find_exec_terminator_re.search(prefix):
+                        state.feed(ch)
+                        continue
                 return _finding(
                     "SHELL_EVASION_BACKSLASH_OPERATOR",
                     GuardSeverity.HIGH,
@@ -299,6 +305,11 @@ def _check_newlines(command: str) -> GuardFinding | None:
     """bashSecurity #7: detect newlines and carriage returns that could
     separate hidden commands.
     """
+    # Heredoc intentionally relies on multiline input and should not be
+    # treated as hidden-command splitting.
+    if _looks_like_heredoc(command):
+        return None
+
     # Carriage return outside double quotes (misparsing concern)
     state = _QuoteState()
     for ch in command:
@@ -324,7 +335,7 @@ def _check_newlines(command: str) -> GuardFinding | None:
         state.feed(ch)
         if ch in ("\n", "\r") and not state.in_any_quote:
             rest = command[i + 1 :]
-            if rest.lstrip() and not rest.lstrip()[0:1] == "":
+            if rest.lstrip():
                 return _finding(
                     "SHELL_EVASION_NEWLINE",
                     GuardSeverity.HIGH,
@@ -334,6 +345,25 @@ def _check_newlines(command: str) -> GuardFinding | None:
                 )
 
     return None
+
+
+def _looks_like_heredoc(command: str) -> bool:
+    """Return True when command appears to include a complete heredoc."""
+    opener_re = re.compile(
+        r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1",
+    )
+    lines = command.splitlines()
+    if len(lines) < 2:
+        return False
+    for i, line in enumerate(lines):
+        m = opener_re.search(line)
+        if not m:
+            continue
+        delim = m.group(2)
+        for next_line in lines[i + 1 :]:
+            if next_line.strip() == delim:
+                return True
+    return False
 
 
 def _check_comment_quote_desync(command: str) -> GuardFinding | None:
@@ -456,8 +486,7 @@ def _finding(
 # Guardian class
 # =====================================================================
 
-# All checks, executed in order. Short-circuit on first finding to keep
-# the approval dialog focused on the primary concern.
+# All checks, executed in order, collecting all matched findings.
 _ShellCheckFn = Callable[..., GuardFinding | None]
 _CHECKS: tuple[_ShellCheckFn, ...] = (
     _check_command_substitution,
@@ -493,8 +522,8 @@ class ShellEvasionGuardian(BaseToolGuardian):
         if not isinstance(command, str) or not command.strip():
             return []
 
-        # Pre-compute unquoted content for checks that need it.
-        unquoted = _extract_unquoted(command)
+        # Pre-compute content outside single quotes for checks that need it.
+        outside_single_quotes = _extract_outside_single_quotes(command)
 
         findings: list[GuardFinding] = []
         for check in _CHECKS:
@@ -502,7 +531,7 @@ class ShellEvasionGuardian(BaseToolGuardian):
             # others take only the raw command.
             try:
                 if check is _check_command_substitution:
-                    result = check(command, unquoted)
+                    result = check(command, outside_single_quotes)
                 else:
                     result = check(command)
             except Exception:
