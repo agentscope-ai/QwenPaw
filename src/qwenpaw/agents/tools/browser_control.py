@@ -555,7 +555,7 @@ def _start_managed_chromium_process(
     ]
     args.extend(_chromium_launch_args())
     if browser_args:
-        args.extend(shlex.split(browser_args))
+        args.extend(shlex.split(browser_args, posix=sys.platform != "win32"))
     if headless:
         args.extend(["--headless=new", "--disable-gpu"])
 
@@ -799,6 +799,8 @@ async def _ensure_browser(
                     state,
                     headed=not state["headless"],
                     private_mode=True,
+                    browser_args=state.get("_browser_args", ""),
+                    executable_path=state.get("_executable_path", ""),
                 )
         state["_last_browser_error"] = None
         _touch_activity(state)
