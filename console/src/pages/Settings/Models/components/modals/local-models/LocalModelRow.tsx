@@ -102,7 +102,7 @@ export const LocalModelRow = memo(function LocalModelRow({
               icon={<DeleteOutlined />}
               loading={isDeleting}
               onClick={() => onDeleteModel(model)}
-              disabled={isDeleting}
+              disabled={isDeleting || isServerBusy}
             >
               {t("common.delete")}
             </Button>
