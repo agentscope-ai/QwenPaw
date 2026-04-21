@@ -230,10 +230,16 @@ async def test_calls_compact_tool_result_when_enabled(hook, agent, mm):
     )
 
     with _mock_hook_deps(cfg):
-        # Verify replacement is active
+        # Verify replacement via both mod and hook globals
         assert (
             mod.load_agent_config("x") is cfg
-        ), "load_agent_config replacement not active"
+        ), "mod.load_agent_config not replaced"
+        hook_fn = hook.__call__.__globals__.get("load_agent_config")
+        assert hook_fn is not None, "load_agent_config not in hook globals"
+        assert hook_fn("x") is cfg, (
+            f"hook globals load_agent_config returns {hook_fn('x')!r}, "
+            f"not cfg. hook_fn={hook_fn!r}"
+        )
         await hook(agent, {})
 
     mm.compact_tool_result.assert_called_once_with(
