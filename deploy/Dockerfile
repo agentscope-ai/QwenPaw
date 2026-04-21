@@ -16,6 +16,7 @@ ENV NODE_ENV=production
 ENV WORKSPACE_DIR=/app
 ENV QWENPAW_WORKING_DIR=/app/working
 ENV QWENPAW_SECRET_DIR=/app/working.secret
+ENV QWENPAW_BACKUP_DIR=/app/working.backups
 
 # Channel filtering: use QWENPAW_DISABLED_CHANNELS (exclusion, recommended)
 # or QWENPAW_ENABLED_CHANNELS (whitelist). Override at runtime with -e.

@@ -782,20 +782,35 @@ function SkillsPage() {
               onChange={setSearchTags}
               searchValue={searchQuery}
               onSearch={setSearchQuery}
-              open={filterOpen && allTags.length > 0}
+              open={filterOpen}
               onDropdownVisibleChange={setFilterOpen}
               allowClear
               maxTagCount="responsive"
               suffixIcon={<SearchOutlined />}
               notFoundContent={<></>}
-              dropdownRender={() => (
-                <SkillFilterDropdown
-                  allTags={allTags}
-                  searchTags={searchTags}
-                  setSearchTags={setSearchTags}
-                  styles={styles}
-                />
-              )}
+              dropdownStyle={
+                allTags.length === 0
+                  ? {
+                      padding: 0,
+                      border: "none",
+                      boxShadow: "none",
+                      height: 0,
+                      overflow: "hidden",
+                    }
+                  : undefined
+              }
+              dropdownRender={() =>
+                allTags.length > 0 ? (
+                  <SkillFilterDropdown
+                    allTags={allTags}
+                    searchTags={searchTags}
+                    setSearchTags={setSearchTags}
+                    styles={styles}
+                  />
+                ) : (
+                  <div />
+                )
+              }
             />
           </div>
           <div className={styles.toolbarRight}>
