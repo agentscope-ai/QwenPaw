@@ -290,7 +290,10 @@
     "validUrl": "http:// または https:// で始まる有効なURLを入力してください",
     "importedSkill": "スキルをインポートしました: {{name}}",
     "batchOperation": "一括操作",
-    "exitBatch": "一括操作を終了"
+    "exitBatch": "一括操作を終了",
+    "noSearchResults": "検索に一致するスキルが見つかりません",
+    "filterByTag": "タグで絞り込み",
+    "noTags": "タグがありません"
   },
   "skillPool": {
     "description": "ビルトインスキルとワークスペースアップロード用の共有ローカルスキルプール。ClawHub や LobeHub などの外部インポートは別機能です。",

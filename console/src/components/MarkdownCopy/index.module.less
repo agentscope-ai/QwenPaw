@@ -41,6 +41,75 @@
   border: 1px solid #d9d9d9;
   border-radius: 6px;
   background-color: #fff;
+  max-width: 100%;
+
+  :global {
+    .x-markdown {
+      max-width: 100%;
+      overflow-wrap: break-word;
+      word-break: break-word;
+    }
+
+    pre {
+      background: #f6f8fa;
+      border-radius: 6px;
+      padding: 12px 16px;
+      overflow-x: auto;
+      height: auto;
+
+      code {
+        background: transparent;
+        padding: 0;
+        margin: 0;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
+          monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    }
+
+    table {
+      border-collapse: collapse;
+      width: auto;
+      margin: 1em 0;
+      display: table !important;
+      max-width: 100%;
+      overflow-x: auto;
+
+      thead,
+      tbody,
+      tfoot {
+        display: table-header-group;
+      }
+
+      tbody {
+        display: table-row-group;
+      }
+
+      tr {
+        display: table-row;
+      }
+
+      th,
+      td {
+        display: table-cell;
+        border: 1px solid #d0d7de;
+        padding: 8px 12px;
+        text-align: left;
+      }
+
+      th {
+        background: #f6f8fa;
+        font-weight: 600;
+      }
+
+      tr:nth-child(2n) {
+        background: #f6f8fa;
+      }
+    }
+  }
 }
 
 .textareaContainer {

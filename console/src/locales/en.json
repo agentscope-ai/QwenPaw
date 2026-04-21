@@ -436,7 +436,10 @@
     "validUrl": "Please enter a valid URL starting with http:// or https://",
     "importedSkill": "Imported skill: {{name}}",
     "batchOperation": "Batch Operation",
-    "exitBatch": "Exit Batch"
+    "exitBatch": "Exit Batch",
+    "noSearchResults": "No skills found matching your search",
+    "filterByTag": "Filter by tag",
+    "noTags": "No tags available"
   },
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",
