@@ -173,6 +173,41 @@ class OneBotChannel(BaseChannel):
     # Lifecycle
     # ------------------------------------------------------------------
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check OneBot reverse WebSocket server status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "OneBot channel is disabled.",
+            }
+        if self._site is None:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "WebSocket server is not running.",
+            }
+        connection_count = len(self._connections)
+        if connection_count == 0:
+            return {
+                "channel": self.channel,
+                "status": "healthy",
+                "detail": (
+                    f"WebSocket server listening on "
+                    f"{self._ws_host}:{self._ws_port}, "
+                    f"no active connections."
+                ),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": (
+                f"WebSocket server listening on "
+                f"{self._ws_host}:{self._ws_port}, "
+                f"{connection_count} active connection(s)."
+            ),
+        }
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("onebot channel disabled")

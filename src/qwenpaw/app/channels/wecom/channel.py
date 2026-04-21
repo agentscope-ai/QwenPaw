@@ -689,7 +689,12 @@ class WecomChannel(BaseChannel):
                 fn = (Path(fn).stem or "file") + hint_ext
             self._media_dir.mkdir(parents=True, exist_ok=True)
             safe_name = (
-                "".join(c for c in fn if c.isalnum() or c in "-_.") or "media"
+                "".join(
+                    c
+                    for c in fn.replace("企业微信截图", "screenshot")
+                    if c.isalnum() or c in "-_."
+                )
+                or "media"
             )
             url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
             path = self._media_dir / f"wecom_{url_hash}_{safe_name}"
@@ -1151,6 +1156,34 @@ class WecomChannel(BaseChannel):
             except Exception:
                 pass
             self._ws_loop = None
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check WeCom WebSocket client status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "WeCom channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("WeCom WebSocket client not initialized")
+        ws_thread_alive = (
+            self._ws_thread is not None and self._ws_thread.is_alive()
+        )
+        if not ws_thread_alive:
+            issues.append("WebSocket thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "WeCom WebSocket client is connected.",
+        }
 
     async def start(self) -> None:
         if not self.enabled:

@@ -6,7 +6,7 @@ import json
 import uuid
 import logging
 import threading
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import paho.mqtt.client as mqtt
 from paho.mqtt import MQTTException
@@ -283,6 +283,32 @@ class MQTTChannel(BaseChannel):
                 f"Error processing MQTT message: {str(e)}",
                 exc_info=True,
             )
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check MQTT broker connection status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "MQTT channel is disabled.",
+            }
+        if self.client is None:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "MQTT client not initialized.",
+            }
+        if not self.connected:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "MQTT client is not connected to broker.",
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": f"MQTT connected to {self.host}:{self.port}.",
+        }
 
     async def start(self) -> None:
         if not self.enabled:

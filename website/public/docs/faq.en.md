@@ -105,9 +105,9 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/qwenpaw:latest
 ```
 
-5. If using the Windows Desktop App (exe), currently you need to uninstall and reinstall:
-   - Uninstall QwenPaw from your PC
-   - Download the latest version from: https://github.com/agentscope-ai/QwenPaw/releases
+5. If using the Desktop app (Windows `.exe` or macOS `.zip`), you currently need to uninstall and reinstall:
+   - Uninstall QwenPaw on your machine
+   - Download the latest build: https://qwenpaw.agentscope.io/downloads
    - Reinstall
 
 After upgrading, restart the service with `qwenpaw app`.
@@ -272,10 +272,10 @@ download and start it.
      hf download agentscope-ai/QwenPaw-Flash-4B-Q4_K_M --local_dir ./dir
      ```
 
-1. Download and install Ollama from the [official site](https://ollama.com/download),
+2. Download and install Ollama from the [official site](https://ollama.com/download),
    then start it.
 
-1. Import the downloaded model into Ollama with the `ollama create` command:
+3. Import the downloaded model into Ollama with the `ollama create` command:
 
 Create a text file named `qwenpaw-flash.txt` with the following contents. Replace
 `/path/to/your/qwenpaw-xxx.gguf` with the absolute path to the `.gguf` file in
@@ -298,7 +298,7 @@ Then run the following command in your terminal:
 ollama create qwenpaw-flash -f qwenpaw-flash.txt
 ```
 
-1. In QwenPaw model settings, choose the Ollama provider, then automatically load
+4. In QwenPaw model settings, choose the Ollama provider, then automatically load
    the model on the Models page.
 
 #### LM Studio
@@ -306,16 +306,16 @@ ollama create qwenpaw-flash -f qwenpaw-flash.txt
 1. Follow step 1 in the Ollama section above to download an appropriate
    quantized QwenPaw-Flash model.
 
-1. Download and install LM Studio from the [official site](https://lmstudio.ai/),
+2. Download and install LM Studio from the [official site](https://lmstudio.ai/),
    then start it.
 
-1. Import the downloaded model into LM Studio with the following command:
+3. Import the downloaded model into LM Studio with the following command:
 
 ```bash
 lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-Flash
 ```
 
-1. In QwenPaw model settings, choose the LM Studio provider, then automatically
+4. In QwenPaw model settings, choose the LM Studio provider, then automatically
    load the model on the Models page.
 
 ### When using models deployed with Ollama / LM Studio, why can't QwenPaw complete multi-turn interactions, complex tool calls, or remember earlier instructions?

@@ -26,7 +26,9 @@
     "actions": "操作",
     "total": "共 {{count}} 条",
     "clear": "清除",
-    "paste": "粘贴"
+    "paste": "粘贴",
+    "yes": "是",
+    "no": "否"
   },
   "chunkError": {
     "title": "页面加载失败",
@@ -48,6 +50,7 @@
     "skillPool": "技能池",
     "tools": "工具",
     "mcp": "MCP",
+    "acp": "ACP",
     "agentConfig": "运行配置",
     "agents": "智能体管理",
     "settings": "设置",
@@ -174,6 +177,37 @@
     "noPoolSkills": "技能池中暂无可用技能",
     "addSkillsToAgent": "添加技能"
   },
+  "acp": {
+    "title": "ACP",
+    "loading": "加载 ACP 配置中...",
+    "builtin": "内置",
+    "custom": "自定义",
+    "create": "新增 Custom Agent",
+    "createTitle": "新增 ACP Agent",
+    "createSuccess": "ACP Agent 已创建",
+    "editTitle": "编辑 ACP 配置",
+    "agentKey": "Agent Key",
+    "agentKeyRequired": "请输入 Agent Key",
+    "agentKeyInvalid": "Agent Key 只能包含字母、数字、下划线和连字符",
+    "enabled": "启用",
+    "command": "命令",
+    "commandRequired": "请输入命令",
+    "args": "参数",
+    "argsHelp": "每行一个参数",
+    "env": "环境变量",
+    "envHelp": "每行使用 KEY=VALUE 格式",
+    "envInvalidLine": "无效环境变量格式：{{line}}",
+    "trusted": "可信执行",
+    "toolParseMode": "工具解析模式",
+    "toolParseModeRequired": "请选择工具解析模式",
+    "stdioBufferLimit": "Stdio 缓冲上限",
+    "stdioBufferLimitHelp": "ACP 子进程 stdio 单行读取缓冲的最大字节数。",
+    "stdioBufferLimitRequired": "请输入 stdio 缓冲上限",
+    "stdioBufferLimitMin": "stdio 缓冲上限至少为 1 字节",
+    "notSet": "未设置",
+    "configSaved": "ACP 配置已保存",
+    "configFailed": "ACP 配置保存失败"
+  },
   "skills": {
     "title": "技能",
     "description": "管理智能体技能和能力。",
@@ -289,7 +323,10 @@
     "validUrl": "请输入以 http:// 或 https:// 开头的有效 URL",
     "importedSkill": "已导入技能：{{name}}",
     "batchOperation": "批量操作",
-    "exitBatch": "退出批量"
+    "exitBatch": "退出批量",
+    "noSearchResults": "未找到匹配的技能",
+    "filterByTag": "按标签筛选",
+    "noTags": "暂无标签"
   },
   "skillPool": {
     "description": "共享本地技能池，包含内置技能和工作区上传。ClawHub 或 LobeHub 等外部导入为独立功能。",
@@ -311,6 +348,8 @@
     "sourceVersion": "源码版本",
     "currentVersion": "当前版本",
     "builtinLanguage": "语言",
+    "langDefault": "默认",
+    "langDefaultTooltip": "保持每个技能原有的语言",
     "langEn": "英文",
     "langZh": "中文",
     "builtinLanguageChangeTitle": "切换内置技能语言？",

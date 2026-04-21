@@ -26,7 +26,9 @@
     "actions": "Actions",
     "total": "Total {{count}}",
     "clear": "Clear",
-    "paste": "Paste"
+    "paste": "Paste",
+    "yes": "Yes",
+    "no": "No"
   },
   "chunkError": {
     "title": "Failed to load page",
@@ -48,6 +50,7 @@
     "skillPool": "Skill Pool",
     "tools": "Tools",
     "mcp": "MCP",
+    "acp": "ACP",
     "agentConfig": "Configuration",
     "agents": "Agent Management",
     "settings": "Settings",
@@ -83,6 +86,37 @@
       "refreshSuccess": "Logs refreshed",
       "copyBackend": "Copy backend logs"
     }
+  },
+  "acp": {
+    "title": "ACP",
+    "loading": "Loading ACP configuration...",
+    "builtin": "Built-in",
+    "custom": "Custom",
+    "create": "Add Custom Agent",
+    "createTitle": "Create ACP Agent",
+    "createSuccess": "ACP agent created",
+    "editTitle": "Edit ACP Configuration",
+    "agentKey": "Agent Key",
+    "agentKeyRequired": "Please enter an agent key",
+    "agentKeyInvalid": "Agent key can only contain letters, numbers, underscores, and hyphens",
+    "enabled": "Enabled",
+    "command": "Command",
+    "commandRequired": "Please enter a command",
+    "args": "Arguments",
+    "argsHelp": "One argument per line",
+    "env": "Environment Variables",
+    "envHelp": "Use KEY=VALUE format on each line",
+    "envInvalidLine": "Invalid environment variable format: {{line}}",
+    "trusted": "Trusted",
+    "toolParseMode": "Tool Parse Mode",
+    "toolParseModeRequired": "Please select a tool parse mode",
+    "stdioBufferLimit": "Stdio Buffer Limit",
+    "stdioBufferLimitHelp": "Maximum stdio line buffer size in bytes for the ACP subprocess.",
+    "stdioBufferLimitRequired": "Please enter a stdio buffer limit",
+    "stdioBufferLimitMin": "Stdio buffer limit must be at least 1 byte",
+    "notSet": "Not set",
+    "configSaved": "ACP configuration saved",
+    "configFailed": "Failed to save ACP configuration"
   },
   "voiceTranscription": {
     "title": "Voice Transcription",
@@ -436,7 +470,10 @@
     "validUrl": "Please enter a valid URL starting with http:// or https://",
     "importedSkill": "Imported skill: {{name}}",
     "batchOperation": "Batch Operation",
-    "exitBatch": "Exit Batch"
+    "exitBatch": "Exit Batch",
+    "noSearchResults": "No skills found matching your search",
+    "filterByTag": "Filter by tag",
+    "noTags": "No tags available"
   },
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",
@@ -458,6 +495,8 @@
     "sourceVersion": "Source version",
     "currentVersion": "Current version",
     "builtinLanguage": "Language",
+    "langDefault": "Default",
+    "langDefaultTooltip": "Keep each skill in its current language",
     "langEn": "English",
     "langZh": "Chinese",
     "builtinLanguageChangeTitle": "Switch built-in language?",

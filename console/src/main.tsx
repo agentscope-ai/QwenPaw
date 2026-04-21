@@ -2,10 +2,12 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
+import { registerHostModules } from "./plugins/generated/registerHostModules";
 
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
 installHostExternals();
+registerHostModules();
 
 if (typeof window !== "undefined") {
   const originalError = console.error;

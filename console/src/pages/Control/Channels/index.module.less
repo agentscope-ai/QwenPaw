@@ -6,7 +6,9 @@
 }
 
 .channelsContainer {
+  flex: 1;
   overflow: auto;
+  padding-bottom: 24px;
 }
 
 .pageHeader {
@@ -100,13 +102,13 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(346px, 1fr));
   gap: 16px;
-  padding: 16px;
+  padding: 16px 16px 32px;
 }
 
 /* ---- Channel Card Styles ---- */
 
 .channelCard {
-  height: 138px;
+  min-height: 150px;
   display: flex;
   flex-direction: column;
   padding: 16px;
@@ -145,14 +147,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   color: #f07e26;
+  font-size: 24px;
   flex-shrink: 0;
 
   img {
-    border-radius: 8px;
+    border-radius: 10px;
     object-fit: cover;
   }
 }
@@ -242,7 +245,8 @@
 
 /* Bottom section: Bot Prefix */
 .cardBottomSection {
-  margin-bottom: 12px;
+  margin-top: auto;
+  padding-bottom: 8px;
 }
 
 .cardDescription {

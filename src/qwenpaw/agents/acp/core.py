@@ -1,9 +1,22 @@
 # -*- coding: utf-8 -*-
-"""Minimal ACP shared definitions."""
+"""ACP shared definitions."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+from ...config.config import ACPAgentConfig, ACPConfig
+
+__all__ = [
+    "ACPAgentConfig",
+    "ACPConfig",
+    "ACPErrors",
+    "ACPConfigurationError",
+    "ACPTransportError",
+    "ACPProtocolError",
+    "ACPSessionError",
+    "SuspendedPermission",
+]
 
 
 class ACPErrors(Exception):
@@ -29,14 +42,7 @@ class ACPSessionError(ACPErrors):
 
 
 @dataclass
-class PermissionResolution:
-    result: dict[str, Any] | None = None
-    suspended: "SuspendedPermission" | None = None
-
-
-@dataclass
 class SuspendedPermission:
-    request_id: Any
     payload: dict[str, Any]
     options: list[dict[str, Any]]
     agent: str

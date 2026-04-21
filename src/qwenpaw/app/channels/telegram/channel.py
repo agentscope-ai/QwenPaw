@@ -10,7 +10,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from telegram import BotCommand
 from telegram.constants import ParseMode
@@ -1029,6 +1029,33 @@ class TelegramChannel(BaseChannel):
             )
             await asyncio.sleep(delay)
             delay = min(delay * _RECONNECT_FACTOR, _RECONNECT_MAX_S)
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check Telegram polling task status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "Telegram channel is disabled.",
+            }
+        if not self._bot_token:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "Telegram bot token is not configured.",
+            }
+        task_alive = self._task is not None and not self._task.done()
+        if not task_alive:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "Telegram polling task is not running.",
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "Telegram polling task is running.",
+        }
 
     async def start(self) -> None:
         if not self.enabled or not self._bot_token:

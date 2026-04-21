@@ -10,6 +10,8 @@ import skillStyles from "../../../Agent/Skills/index.module.less";
 import { getBuiltinNoticeLines } from "../builtinNotice";
 import styles from "../index.module.less";
 
+type LanguageChoice = "en" | "zh" | "default";
+
 interface ImportBuiltinModalProps {
   open: boolean;
   loading: boolean;
@@ -35,7 +37,7 @@ export function ImportBuiltinModal({
 }: ImportBuiltinModalProps) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [language, setLanguage] = useState<"en" | "zh">(defaultLanguage);
+  const [language, setLanguage] = useState<LanguageChoice>("default");
   const availableNames = useMemo(
     () => new Set(sources.map((item) => item.name)),
     [sources],
@@ -47,13 +49,20 @@ export function ImportBuiltinModal({
 
   useEffect(() => {
     if (!open) return;
-    setLanguage(defaultLanguage);
+    setLanguage("default");
     setSelected(
       new Set(
         (defaultSelectedNames || []).filter((name) => availableNames.has(name)),
       ),
     );
-  }, [availableNames, defaultLanguage, defaultSelectedNames, open]);
+  }, [availableNames, defaultSelectedNames, open]);
+
+  const resolveLanguage = (item: BuiltinImportSpec): "en" | "zh" => {
+    if (language !== "default") return language;
+    if (item.current_language === "zh") return "zh";
+    if (item.current_language === "en") return "en";
+    return defaultLanguage;
+  };
 
   const toggleSelection = (name: string) => {
     setSelected((prev) => {
@@ -72,7 +81,11 @@ export function ImportBuiltinModal({
 
   const handleConfirm = async () => {
     await onConfirm(
-      Array.from(selected).map((name) => ({ skill_name: name, language })),
+      Array.from(selected).map((name) => {
+        const source = sources.find((s) => s.name === name);
+        const resolved = source ? resolveLanguage(source) : defaultLanguage;
+        return { skill_name: name, language: resolved };
+      }),
     );
   };
 
@@ -133,6 +146,15 @@ export function ImportBuiltinModal({
             {t("skills.clearSelection")}
           </Button>
           <span className={styles.importToolbarDivider} />
+          <Tooltip title={t("skillPool.langDefaultTooltip")}>
+            <Button
+              size="small"
+              type={language === "default" ? "primary" : "default"}
+              onClick={() => setLanguage("default")}
+            >
+              {t("skillPool.langDefault")}
+            </Button>
+          </Tooltip>
           <Button
             size="small"
             type={language === "zh" ? "primary" : "default"}
@@ -151,7 +173,8 @@ export function ImportBuiltinModal({
         <div className={skillStyles.pickerGrid}>
           {sources.map((item) => {
             const isSelected = selected.has(item.name);
-            const langSpec = item.languages?.[language];
+            const resolvedLang = resolveLanguage(item);
+            const langSpec = item.languages?.[resolvedLang];
             const status = langSpec?.status || item.status;
             return (
               <div

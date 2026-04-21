@@ -1383,6 +1383,36 @@ class WeixinChannel(BaseChannel):
     # Lifecycle
     # ------------------------------------------------------------------
 
+    async def health_check(self) -> Dict[str, Any]:
+        """Check WeChat long-poll client status."""
+        if not self.enabled:
+            return {
+                "channel": self.channel,
+                "status": "disabled",
+                "detail": "WeChat channel is disabled.",
+            }
+        issues = []
+        if self._client is None:
+            issues.append("WeChat client not initialized")
+        if not self.bot_token:
+            issues.append("Bot token not available (not logged in)")
+        poll_thread_alive = (
+            self._poll_thread is not None and self._poll_thread.is_alive()
+        )
+        if not poll_thread_alive:
+            issues.append("Long-poll thread is not running")
+        if issues:
+            return {
+                "channel": self.channel,
+                "status": "unhealthy",
+                "detail": "; ".join(issues),
+            }
+        return {
+            "channel": self.channel,
+            "status": "healthy",
+            "detail": "WeChat client is connected and polling.",
+        }
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("weixin channel disabled")

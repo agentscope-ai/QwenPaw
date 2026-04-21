@@ -178,6 +178,10 @@ export function MarkdownCopy({
           <XMarkdown
             content={markdownContent}
             {...defaultMarkdownViewerProps}
+            dompurifyConfig={{
+              ADD_TAGS: ["pre", "code"],
+              ADD_ATTR: ["data-block", "data-state", "data-lang", "class"],
+            }}
           />
         </div>
       ) : (
