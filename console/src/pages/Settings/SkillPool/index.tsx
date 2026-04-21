@@ -1,4 +1,4 @@
-import { Button, Select, Tooltip } from "@agentscope-ai/design";
+import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
 import { Badge } from "antd";
 import {
   AppstoreOutlined,
@@ -7,7 +7,6 @@ import {
   ImportOutlined,
   PlusOutlined,
   ReloadOutlined,
-  SearchOutlined,
   SendOutlined,
   SyncOutlined,
   UnorderedListOutlined,
@@ -175,31 +174,24 @@ function SkillPoolPage() {
         {!pool.loading && pool.skills.length > 0 && (
           <div className={styles.toolbar}>
             <div className={styles.searchContainer}>
+              <Input
+                className={styles.searchInput}
+                placeholder={t("skills.searchPlaceholder")}
+                value={pool.searchQuery}
+                onChange={(e) => pool.setSearchQuery(e.target.value)}
+                allowClear
+              />
               <Select
                 mode="multiple"
-                className={styles.searchSelect}
-                placeholder={t("skills.searchPlaceholder")}
+                className={styles.tagSelect}
+                placeholder={t("skills.filterByTag")}
                 value={pool.searchTags}
                 onChange={pool.setSearchTags}
-                searchValue={pool.searchQuery}
-                onSearch={pool.setSearchQuery}
                 open={pool.filterOpen}
                 onDropdownVisibleChange={pool.setFilterOpen}
                 allowClear
                 maxTagCount="responsive"
-                suffixIcon={<SearchOutlined />}
                 notFoundContent={<></>}
-                dropdownStyle={
-                  pool.allTags.length === 0
-                    ? {
-                        padding: 0,
-                        border: "none",
-                        boxShadow: "none",
-                        height: 0,
-                        overflow: "hidden",
-                      }
-                    : undefined
-                }
                 dropdownRender={() =>
                   pool.allTags.length > 0 ? (
                     <SkillFilterDropdown
@@ -209,7 +201,9 @@ function SkillPoolPage() {
                       styles={styles}
                     />
                   ) : (
-                    <div />
+                    <div className={styles.tagSelectEmpty}>
+                      {t("skills.noTags")}
+                    </div>
                   )
                 }
               />
@@ -242,6 +236,13 @@ function SkillPoolPage() {
         {pool.loading ? (
           <div className={styles.loading}>
             <span className={styles.loadingText}>{t("common.loading")}</span>
+          </div>
+        ) : pool.sortedSkills.length === 0 && pool.skills.length > 0 ? (
+          <div className={styles.noSearchResults}>
+            <span className={styles.noSearchResultsIcon}>🔍</span>
+            <span className={styles.noSearchResultsText}>
+              {t("skills.noSearchResults")}
+            </span>
           </div>
         ) : pool.viewMode === "card" ? (
           <div className={styles.skillsGrid}>

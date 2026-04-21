@@ -289,7 +289,10 @@
     "validUrl": "请输入以 http:// 或 https:// 开头的有效 URL",
     "importedSkill": "已导入技能：{{name}}",
     "batchOperation": "批量操作",
-    "exitBatch": "退出批量"
+    "exitBatch": "退出批量",
+    "noSearchResults": "未找到匹配的技能",
+    "filterByTag": "按标签筛选",
+    "noTags": "暂无标签"
   },
   "skillPool": {
     "description": "共享本地技能池，包含内置技能和工作区上传。ClawHub 或 LobeHub 等外部导入为独立功能。",
