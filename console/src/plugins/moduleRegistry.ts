@@ -51,8 +51,8 @@ class ModuleRegistryImpl implements ModuleRegistry {
             module,
             exportName,
           );
-          if (descriptor && descriptor.enumerable && !descriptor.get) {
-            // Only copy plain properties, skip getter/setter
+          if (descriptor && descriptor.enumerable) {
+            // Read the current value (works for both plain properties and getters)
             safeCopy[exportName] = module[exportName];
           }
         } catch (e) {
