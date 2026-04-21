@@ -76,41 +76,57 @@ class BaseMemoryManager(ABC):
             Ordered list of tool functions to register with the agent toolkit.
         """
 
-    @abstractmethod
-    async def summarize(self, messages: list[Msg], **kwargs) -> Any:
+    # pylint: disable=unused-argument
+    async def summarize(self, messages: list[Msg], **kwargs) -> str:
         """Summarize conversation messages and persist to memory.
+
+        NOTE: This method is optional. Subclasses may override this method
+        to implement actual summarization. Base implementation returns empty
+        string, indicating no summarization support.
 
         Args:
             messages: Ordered conversation messages to summarize.
             **kwargs: Implementation-specific options.
 
         Returns:
-            Implementation-specific result.
+            Summary string, or empty string if not implemented.
         """
+        return ""
 
-    @abstractmethod
+    # pylint: disable=unused-argument
     async def retrieve(
         self,
         messages: list[Msg] | Msg,
         **kwargs,
-    ) -> Any:
+    ) -> dict | None:
         """Retrieve relevant memory based on the given messages.
+
+        NOTE: This method is optional. Subclasses may override this method
+        to implement actual retrieval. Base implementation returns None,
+        indicating no retrieval support or no relevant memory found.
 
         Args:
             messages: One or more conversation messages used as the query.
             **kwargs: Implementation-specific options.
 
         Returns:
-            Implementation-specific result.
+            Dict with memory context to merge with kwargs, or None if
+            not implemented or no relevant memory found.
         """
+        return None
 
-    @abstractmethod
+    # pylint: disable=unused-argument
     async def dream(self, **kwargs) -> None:
         """Optimize memory files via a background agent pass.
+
+        NOTE: This method is optional. Subclasses may override this method
+        to implement actual memory optimization. Base implementation does
+        nothing, indicating no dream support.
 
         Runs a lightweight ReAct agent with file-editing tools to
         consolidate redundant or outdated memory entries.
         """
+        return None
 
     async def _summarize_worker(self) -> None:
         """Background worker that processes summarize tasks serially."""
