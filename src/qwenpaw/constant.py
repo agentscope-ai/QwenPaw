@@ -183,6 +183,18 @@ DOCS_ENABLED = EnvVarLoader.get_bool("QWENPAW_OPENAPI_DOCS", False)
 # Memory directory
 MEMORY_DIR = WORKING_DIR / "memory"
 
+# Backup directory
+BACKUP_DIR = (
+    Path(
+        EnvVarLoader.get_str(
+            "QWENPAW_BACKUP_DIR",
+            f"{WORKING_DIR}.backups",
+        ),
+    )
+    .expanduser()
+    .resolve()
+)
+
 # Custom channel modules (installed via `qwenpaw channels install`); manager
 # loads BaseChannel subclasses from here.
 CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
