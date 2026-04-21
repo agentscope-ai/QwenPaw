@@ -315,6 +315,8 @@
     "sourceVersion": "Версия в исходниках",
     "currentVersion": "Текущая версия",
     "builtinLanguage": "Язык",
+    "langDefault": "По умолчанию",
+    "langDefaultTooltip": "Сохранить текущий язык каждого навыка",
     "langEn": "Английский",
     "langZh": "Китайский",
     "builtinLanguageChangeTitle": "Сменить язык встроенного навыка?",

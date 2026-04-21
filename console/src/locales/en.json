@@ -461,6 +461,8 @@
     "sourceVersion": "Source version",
     "currentVersion": "Current version",
     "builtinLanguage": "Language",
+    "langDefault": "Default",
+    "langDefaultTooltip": "Keep each skill in its current language",
     "langEn": "English",
     "langZh": "Chinese",
     "builtinLanguageChangeTitle": "Switch built-in language?",

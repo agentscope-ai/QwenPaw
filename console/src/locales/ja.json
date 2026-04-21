@@ -315,6 +315,8 @@
     "sourceVersion": "ソース版",
     "currentVersion": "現在の版",
     "builtinLanguage": "言語",
+    "langDefault": "デフォルト",
+    "langDefaultTooltip": "各スキルの元の言語設定を保持",
     "langEn": "英語",
     "langZh": "中国語",
     "builtinLanguageChangeTitle": "ビルトイン言語を切り替えますか？",
