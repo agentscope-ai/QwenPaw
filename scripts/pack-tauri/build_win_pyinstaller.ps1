@@ -83,24 +83,19 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "PyInstaller backend rebuilt with frontend" -ForegroundColor Green
 Write-Host ""
 
-# Step 3.5: Ensure NSIS is available for Tauri bundling
+# Step 3.5: Redirect LOCALAPPDATA so Tauri caches tools in the workspace
 # Workaround for https://github.com/tauri-apps/tauri/issues/9895
 # Jenkins service users have AppData in a restricted system profile,
-# so Tauri's default NSIS download location is blocked by Windows security.
-# We download NSIS to the workspace instead and set NSIS_PATH.
-Write-Host "== Step 3.5: Ensuring NSIS is available ==" -ForegroundColor Yellow
-$NSIS_DIR = Join-Path $DIST "tools\nsis"
-$MAKENSIS = Join-Path $NSIS_DIR "makensis.exe"
-if (-not (Test-Path $MAKENSIS)) {
-    Write-Host "Downloading NSIS..."
-    $NSIS_ZIP = Join-Path $DIST "tools\nsis-3.11.zip"
-    New-Item -ItemType Directory -Force -Path (Split-Path $NSIS_ZIP) | Out-Null
-    Invoke-WebRequest -Uri "https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.11/nsis-3.11.zip" -OutFile $NSIS_ZIP
-    Expand-Archive -Path $NSIS_ZIP -DestinationPath $NSIS_DIR -Force
-    Remove-Item $NSIS_ZIP
-}
-$env:NSIS_PATH = $NSIS_DIR
-Write-Host "NSIS path: $NSIS_DIR" -ForegroundColor Green
+# so Tauri's default NSIS location (%LOCALAPPDATA%\tauri\NSIS\) is blocked
+# by Windows security policies (makensis.exe can't be executed from there).
+# NSIS_PATH env var does NOT work on Windows — Tauri only checks it on
+# Linux/macOS for cross-compilation. The only way to redirect is to change
+# where dirs::cache_dir() resolves to, which is %LOCALAPPDATA% on Windows.
+Write-Host "== Step 3.5: Redirecting LOCALAPPDATA for Tauri tools cache ==" -ForegroundColor Yellow
+$ORIG_LOCALAPPDATA = $env:LOCALAPPDATA
+$env:LOCALAPPDATA = Join-Path $DIST "local-cache"
+New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
+Write-Host "LOCALAPPDATA: $ORIG_LOCALAPPDATA -> $env:LOCALAPPDATA" -ForegroundColor Green
 Write-Host ""
 
 # Step 4: Build Tauri app
@@ -109,7 +104,12 @@ Set-Location console
 
 Write-Host "Building for Windows..."
 bun tauri build
-if ($LASTEXITCODE -ne 0) {
+$tauriExit = $LASTEXITCODE
+
+# Restore LOCALAPPDATA
+$env:LOCALAPPDATA = $ORIG_LOCALAPPDATA
+
+if ($tauriExit -ne 0) {
     throw "Tauri build failed"
 }
 
