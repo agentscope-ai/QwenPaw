@@ -172,13 +172,11 @@ class MyPlugin {
   readonly id = "my-plugin";
 
   setup(): void {
-    // 注册页面
+    // 注册侧边栏页面
     // (window as any).QwenPaw.registerRoutes?.(this.id, [...]);
-
-    // 注册工具渲染器
+    // 注册工具调用渲染器
     // (window as any).QwenPaw.registerToolRender?.(this.id, {...});
-
-    // 访问应用模块
+    // 访问并修改应用内部模块
     // const mod = (window as any).QwenPaw?.modules?.['xxxx'];
   }
 }
@@ -225,7 +223,11 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react({ jsxRuntime: "classic" })],
   build: {
-    lib: { entry: "src/index.tsx", formats: ["es"], fileName: () => "index.js" },
+    lib: {
+      entry: "src/index.tsx",
+      formats: ["es"],
+      fileName: () => "index.js",
+    },
     rollupOptions: { external: ["react", "react-dom"] },
   },
 });
@@ -239,12 +241,23 @@ cp -r . ~/.qwenpaw/plugins/my-plugin/
 qwenpaw app
 ```
 
-**说明**：
- `window.QwenPaw.host` 提供部分共享库
- - `React`
- - `antd`
- - `getApiUrl()`
- - `getApiToken()`
+**说明**：`window.QwenPaw.host` 提供以下共享库，插件无需自行打包：
+
+| 名称              | 类型                       | 说明               |
+| ----------------- | -------------------------- | ------------------ |
+| `React`           | `typeof React`             | React 运行时       |
+| `antd`            | `typeof antd`              | Ant Design 组件库  |
+| `getApiUrl(path)` | `(path: string) => string` | 构造完整 API URL   |
+| `getApiToken()`   | `() => string`             | 获取当前认证 Token |
+
+**构建说明**：
+
+- `jsxRuntime: "classic"` — 将 JSX 编译为 `React.createElement`，使用宿主提供的 `React`，无需在插件中引入
+- `external: ["react", "react-dom"]` — 不打包 React，使用应用已加载的版本
+
+**`window.QwenPaw.modules`**：应用启动时会将 `src/pages/` 下的所有模块自动注册到此对象，插件可通过模块键名访问并替换内部导出
+
+> ⚠️ **注意**：`modules` 中的模块结构未作为公开 API 维护，可能随版本变化而调整，使用前请确认兼容性。
 
 ## 使用示例
 
@@ -621,8 +634,7 @@ qwenpaw app
 /status
 ```
 
-
-### 示例 4：添加自定义页面
+### 示例 4：添加自定义前端页面
 
 向侧边栏添加一个欢迎页面。
 
@@ -738,7 +750,7 @@ cp -r . ~/.qwenpaw/plugins/welcome-plugin/
 qwenpaw app
 ```
 
-### 示例 5：自定义对话工具渲染
+### 示例 5：自定义工具调用渲染
 
 自定义 Agent 工具调用结果的展示方式。
 
@@ -780,7 +792,7 @@ class ToolRenderPlugin {
 
   setup(): void {
     (window as any).QwenPaw.registerToolRender?.(this.id, {
-      my_tool_name: MyToolCard,  // key = tool name returned by Agent
+      my_tool_name: MyToolCard, // key = tool name returned by Agent
     });
   }
 }
@@ -790,7 +802,7 @@ new ToolRenderPlugin().setup();
 
 #### 4. 其他文件
 
-使用示例 4 中的 `package.json`、`tsconfig.json`、`vite.config.ts`（修改 `name` 为 `tool-render-plugin`）。
+复用示例 4 中的 `package.json`、`tsconfig.json`、`vite.config.ts`，将 `name` 改为 `tool-render-plugin`。
 
 #### 5. 构建和安装
 
@@ -802,7 +814,7 @@ qwenpaw app
 
 ### 示例 6：修改组件行为
 
-通过 `window.QwenPaw.modules` 替换应用内部模块的方法。
+我们定制一个对话页面欢迎语
 
 #### 1. 创建插件目录
 
@@ -830,7 +842,9 @@ class CustomGreetingPlugin {
   readonly id = "custom-greeting-plugin";
 
   setup(): void {
-    const mod = (window as any).QwenPaw?.modules?.["Chat/OptionsPanel/defaultConfig"];
+    const mod = (window as any).QwenPaw?.modules?.[
+      "Chat/OptionsPanel/defaultConfig"
+    ];
     if (!mod?.configProvider) {
       console.warn("configProvider not found");
       return;
@@ -856,7 +870,7 @@ new CustomGreetingPlugin().setup();
 
 #### 4. 其他文件
 
-使用示例 4 中的 `package.json`、`tsconfig.json`、`vite.config.ts`（修改 `name` 为 `custom-greeting-plugin`）。
+复用示例 4 中的 `package.json`、`tsconfig.json`、`vite.config.ts`，将 `name` 改为 `custom-greeting-plugin`。
 
 #### 5. 构建和安装
 

@@ -10,8 +10,8 @@ The plugin system supports the following extension capabilities:
 - **Hook Plugins**: Execute custom code during application startup/shutdown
 - **Command Plugins**: Register custom `/command` magic commands
 - **Frontend Page Plugins**: Add custom pages to the sidebar
-- **Tool Renderer Plugins**: Customize how tool-call results are displayed
-- **Behavior Extension Plugins**: Modify application behavior through module registry
+- **Tool Renderer Plugins**: Customize how Agent tool-call results are displayed
+- **Behavior Extension Plugins**: Replace methods in frontend internal modules via the module registry
 
 ## Plugin Management
 
@@ -172,13 +172,11 @@ class MyPlugin {
   readonly id = "my-plugin";
 
   setup(): void {
-    // Register pages
+    // Register sidebar pages
     // (window as any).QwenPaw.registerRoutes?.(this.id, [...]);
-    
-    // Register tool renderers
+    // Register tool-call renderers
     // (window as any).QwenPaw.registerToolRender?.(this.id, {...});
-    
-    // Access application modules
+    // Access and modify application internal modules
     // const mod = (window as any).QwenPaw?.modules?.['xxxx'];
   }
 }
@@ -190,7 +188,7 @@ new MyPlugin().setup();
 
 ```json
 {
-  "name": "my-page-plugin",
+  "name": "my-plugin",
   "version": "1.0.0",
   "scripts": { "build": "vite build" },
   "devDependencies": {
@@ -225,7 +223,11 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react({ jsxRuntime: "classic" })],
   build: {
-    lib: { entry: "src/index.tsx", formats: ["es"], fileName: () => "index.js" },
+    lib: {
+      entry: "src/index.tsx",
+      formats: ["es"],
+      fileName: () => "index.js",
+    },
     rollupOptions: { external: ["react", "react-dom"] },
   },
 });
@@ -239,192 +241,23 @@ cp -r . ~/.qwenpaw/plugins/my-plugin/
 qwenpaw app
 ```
 
-**Notes**:
-- `window.QwenPaw.host` provides `React`, `antd`, `getApiUrl()`, `getApiToken()` shared libraries
-- `registerRoutes()` registers sidebar pages
-- `registerToolRender()` customizes tool result display
-- `window.QwenPaw.modules` accesses application internal modules (use with caution)
+**Notes**: `window.QwenPaw.host` provides the following shared libraries — plugins do not need to bundle them:
 
-#### Frontend Plugin Common Notes
+| Name              | Type                       | Description                  |
+| ----------------- | -------------------------- | ---------------------------- |
+| `React`           | `typeof React`             | React runtime                |
+| `antd`            | `typeof antd`              | Ant Design component library |
+| `getApiUrl(path)` | `(path: string) => string` | Build a full API URL         |
+| `getApiToken()`   | `() => string`             | Get the current auth token   |
 
-#### `window.QwenPaw.host`
+**Build notes**:
 
-All frontend plugins can access shared libraries through `window.QwenPaw.host`:
+- `jsxRuntime: "classic"` — Compiles JSX to `React.createElement`, using the host-provided `React`; no import needed in the plugin
+- `external: ["react", "react-dom"]` — Don't bundle React; use the version already loaded by the application
 
-| Name | Type | Description |
-|------|------|-------------|
-| `React` | `typeof React` | React runtime |
-| `antd` | `typeof antd` | Ant Design components |
-| `getApiUrl(path)` | `(path: string) => string` | Build full API URL |
-| `getApiToken()` | `() => string` | Current auth token |
+**`window.QwenPaw.modules`**: At startup, the application auto-registers all modules under `src/pages/` into this object. Plugins can access and replace internal exports by module.
 
-#### Build Configuration
-
-All frontend plugins use the same build configuration:
-
-- `jsxRuntime: "classic"` - Compile JSX to `React.createElement`, using `React` from `window.QwenPaw.host`
-- `external: ["react", "react-dom"]` - Don't bundle React, use version provided by application
-
-**tsconfig.json**:
-- `jsx: "react"` - Use React JSX transform
-- `moduleResolution: "bundler"` - Support modern module resolution
-
-**vite.config.ts**:
-- `jsxRuntime: "classic"` - Compile JSX to `React.createElement`, using `React` from `window.QwenPaw.host`
-- `rollupOptions.external: ["react", "react-dom"]` - Don't bundle React, use version provided by application
-
-
-## Usage Examples
-
-```
-tool-render-plugin/
-├── plugin.json
-├── src/
-│   └── index.tsx
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
-```
-
-#### plugin.json
-
-```json
-{
-  "id": "tool-render-plugin",
-  "name": "Tool Render Plugin",
-  "version": "1.0.0",
-  "author": "Your Name",
-  "entry": { "frontend": "dist/index.js" }
-}
-```
-
-#### src/index.tsx
-
-```tsx
-const { React, antd } = (window as any).QwenPaw.host;
-const { Card } = antd;
-
-function MyToolCard({ result }) {
-  return (
-    <Card style={{ marginTop: 8 }}>
-      <pre>{JSON.stringify(result, null, 2)}</pre>
-    </Card>
-  );
-}
-
-class ToolRenderPlugin {
-  readonly id = "tool-render-plugin";
-
-  setup(): void {
-    (window as any).QwenPaw.registerToolRender?.(this.id, {
-      my_tool_name: MyToolCard,  // key = tool name returned by Agent
-    });
-  }
-}
-
-new ToolRenderPlugin().setup();
-```
-
-> **Note**: `package.json`, `tsconfig.json`, `vite.config.ts` are the same as frontend page plugins.
-
-#### Build and Install
-
-```bash
-npm install && npm run build
-cp -r . ~/.qwenpaw/plugins/tool-render-plugin/
-qwenpaw app
-```
-
-### Behavior Extension Plugins
-
-Access application internal modules through `window.QwenPaw.modules` to modify application behavior.
-
-#### Basic Structure
-
-```
-custom-greeting-plugin/
-├── plugin.json
-├── src/
-│   └── index.tsx
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
-```
-
-#### plugin.json
-
-```json
-{
-  "id": "custom-greeting-plugin",
-  "name": "Custom Greeting",
-  "version": "1.0.0",
-  "author": "Your Name",
-  "entry": { "frontend": "dist/index.js" }
-}
-```
-
-#### src/index.tsx
-
-```tsx
-class CustomGreetingPlugin {
-    readonly id = "custom-greeting-plugin";
-
-    setup(): void {
-        const mod = (window as any).QwenPaw?.modules?.["Chat/OptionsPanel/defaultConfig"];
-        if (!mod?.configProvider) return;
-        
-        mod.configProvider.getGreeting = () => "Custom greeting";
-    }
-}
-
-new CustomGreetingPlugin().setup();
-```
-
-> **Note**: `package.json`, `tsconfig.json`, `vite.config.ts` are the same as frontend page plugins.
-
-#### Build and Install
-
-```bash
-npm install && npm run build
-cp -r . ~/.qwenpaw/plugins/custom-greeting-plugin/
-qwenpaw app
-```
-
-**Available extension points**:
-- `Chat/OptionsPanel/defaultConfig` → `configProvider.getGreeting(t)` - Chat greeting
-- `Chat/OptionsPanel/defaultConfig` → `configProvider.getDescription(t)` - Chat description
-- `Chat/OptionsPanel/defaultConfig` → `configProvider.getPrompts(t)` - Prompt list
-
-> ⚠️ Application auto-registers all files under `src/pages/` to `window.QwenPaw.modules` at startup. Module structure may change across versions, use with caution.
-
-### Frontend Plugin Common Notes
-
-#### `window.QwenPaw.host`
-
-All frontend plugins can access shared libraries through `window.QwenPaw.host`:
-
-| Name | Type | Description |
-|------|------|-------------|
-| `React` | `typeof React` | React runtime |
-| `antd` | `typeof antd` | Ant Design components |
-| `getApiUrl(path)` | `(path: string) => string` | Build full API URL |
-| `getApiToken()` | `() => string` | Current auth token |
-
-#### Build Configuration
-
-All frontend plugins use the same build configuration:
-
-- `jsxRuntime: "classic"` - Compile JSX to `React.createElement`, using `React` from `window.QwenPaw.host`
-- `external: ["react", "react-dom"]` - Don't bundle React, use version provided by application
-
-**tsconfig.json**:
-- `jsx: "react"` - Use React JSX transform
-- `moduleResolution: "bundler"` - Support modern module resolution
-
-**vite.config.ts**:
-- `jsxRuntime: "classic"` - Compile JSX to `React.createElement`, using `React` from `window.QwenPaw.host`
-- `rollupOptions.external: ["react", "react-dom"]` - Don't bundle React, use the version provided by application
-
+> ⚠️ **Warning**: The module structure inside `modules` is not maintained as a public API and may change across versions. Always verify compatibility before use.
 
 ## Usage Examples
 
@@ -560,10 +393,7 @@ plugin = MyLLMProviderPlugin()
 qwenpaw plugin install my-llm-provider
 
 # Start QwenPaw
-qwenpaw start
-
-# Configure API Key in Web UI
-# Then you can use the new provider
+qwenpaw app
 ```
 
 ### Example 2: Add Startup Hook
@@ -652,7 +482,7 @@ plugin = MonitoringHookPlugin()
 
 ```bash
 qwenpaw plugin install monitoring-hook
-qwenpaw start
+qwenpaw app
 ```
 
 ### Example 3: Add Custom Command
@@ -801,7 +631,7 @@ qwenpaw app
 /status
 ```
 
-### Example 4: Add Custom Page
+### Example 4: Add a Custom Frontend Page
 
 Add a welcome page to the sidebar.
 
@@ -917,9 +747,9 @@ cp -r . ~/.qwenpaw/plugins/welcome-plugin/
 qwenpaw app
 ```
 
-### Example 5: Custom Tool Renderer
+### Example 5: Custom Tool-Call Renderer
 
-Customize how Agent tool results are displayed.
+Customize how Agent tool-call results are displayed.
 
 #### 1. Create plugin directory
 
@@ -948,18 +778,22 @@ const { Card, Descriptions } = antd;
 
 function WeatherToolCard({ result }) {
   try {
-    const data = typeof result === 'string' ? JSON.parse(result) : result;
+    const data = typeof result === "string" ? JSON.parse(result) : result;
     return (
-      <Card 
-        title="Weather Information" 
-        size="small" 
+      <Card
+        title="Weather Information"
+        size="small"
         style={{ marginTop: 8, maxWidth: 400 }}
       >
         <Descriptions column={1} size="small">
           <Descriptions.Item label="City">{data.city}</Descriptions.Item>
-          <Descriptions.Item label="Temperature">{data.temperature}°C</Descriptions.Item>
+          <Descriptions.Item label="Temperature">
+            {data.temperature}°C
+          </Descriptions.Item>
           <Descriptions.Item label="Weather">{data.weather}</Descriptions.Item>
-          <Descriptions.Item label="Humidity">{data.humidity}%</Descriptions.Item>
+          <Descriptions.Item label="Humidity">
+            {data.humidity}%
+          </Descriptions.Item>
         </Descriptions>
       </Card>
     );
@@ -973,7 +807,7 @@ class ToolRenderPlugin {
 
   setup(): void {
     (window as any).QwenPaw.registerToolRender?.(this.id, {
-      get_weather: WeatherToolCard,  // Tool name must match Agent's return
+      get_weather: WeatherToolCard, // Tool name must match Agent's return
     });
   }
 }
@@ -981,9 +815,9 @@ class ToolRenderPlugin {
 new ToolRenderPlugin().setup();
 ```
 
-#### 4. Other files
+#### 4. Reuse other files
 
-Use the same `package.json`, `tsconfig.json`, `vite.config.ts` from Example 4 (change `name` to `tool-render-plugin`).
+Reuse `package.json`, `tsconfig.json`, `vite.config.ts` from Example 4, changing `name` to `tool-render-plugin`.
 
 #### 5. Build and install
 
@@ -993,9 +827,9 @@ cp -r . ~/.qwenpaw/plugins/tool-render-plugin/
 qwenpaw app
 ```
 
-### Example 6: Modify Application Behavior
+### Example 6: Modify Component Behavior
 
-Replace methods in application internal modules via `window.QwenPaw.modules`.
+Customize the chat page greeting.
 
 #### 1. Create plugin directory
 
@@ -1023,7 +857,9 @@ class CustomGreetingPlugin {
   readonly id = "custom-greeting-plugin";
 
   setup(): void {
-    const mod = (window as any).QwenPaw?.modules?.["Chat/OptionsPanel/defaultConfig"];
+    const mod = (window as any).QwenPaw?.modules?.[
+      "Chat/OptionsPanel/defaultConfig"
+    ];
     if (!mod?.configProvider) {
       console.warn("configProvider not found");
       return;
@@ -1031,10 +867,11 @@ class CustomGreetingPlugin {
 
     // Replace chat greeting
     mod.configProvider.getGreeting = () => "Hello! I'm customized QwenPaw 👋";
-    
+
     // Replace chat description
-    mod.configProvider.getDescription = () => "This is a customized chat assistant";
-    
+    mod.configProvider.getDescription = () =>
+      "This is a customized chat assistant";
+
     // Replace prompt list
     mod.configProvider.getPrompts = (t: any) => [
       { value: "Help me analyze this code" },
@@ -1047,9 +884,9 @@ class CustomGreetingPlugin {
 new CustomGreetingPlugin().setup();
 ```
 
-#### 4. Other files
+#### 4. Reuse other files
 
-Use the same `package.json`, `tsconfig.json`, `vite.config.ts` from Example 4 (change `name` to `custom-greeting-plugin`).
+Reuse `package.json`, `tsconfig.json`, `vite.config.ts` from Example 4, changing `name` to `custom-greeting-plugin`.
 
 #### 5. Build and install
 
@@ -1058,13 +895,6 @@ npm install && npm run build
 cp -r . ~/.qwenpaw/plugins/custom-greeting-plugin/
 qwenpaw app
 ```
-
-**Available extension points**:
-- `Chat/OptionsPanel/defaultConfig` → `configProvider.getGreeting(t)` - Chat greeting
-- `Chat/OptionsPanel/defaultConfig` → `configProvider.getDescription(t)` - Chat description
-- `Chat/OptionsPanel/defaultConfig` → `configProvider.getPrompts(t)` - Prompt list
-
-> ⚠️ **Warning**: Application auto-registers all files under `src/pages/` to `window.QwenPaw.modules` at startup. Module structure may change across versions, use only when necessary.
 
 ## Dependency Management
 
