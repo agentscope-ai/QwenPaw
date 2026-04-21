@@ -31,14 +31,16 @@ def _process_session_file(
     start_date_str: str,
     end_date_str: str,
     daily_stats: dict[str, dict],
+    channel_chats: dict[str, int],
     channel_messages: dict[str, dict],
     channel: str,
     session_stem: str,
     active_sessions: dict[str, set[str]],
-) -> int:
+) -> tuple[int, bool]:
     """Count tool calls, channel messages and active sessions
     from one session file."""
     tool_call_count = 0
+    has_messages_in_range = False
     try:
         memories = (
             session_data.get("agent", {}).get("memory", {}).get("memories")
@@ -68,6 +70,7 @@ def _process_session_file(
             if date_str < start_date_str or date_str > end_date_str:
                 continue
 
+            has_messages_in_range = True
             active_sessions.setdefault(date_str, set()).add(session_stem)
 
             ds = daily_stats[date_str]
@@ -97,7 +100,10 @@ def _process_session_file(
     except Exception as e:
         logger.debug("Failed to count messages in session: %s", e)
 
-    return tool_call_count
+    if has_messages_in_range:
+        channel_chats[channel] = channel_chats.get(channel, 0) + 1
+
+    return tool_call_count, has_messages_in_range
 
 
 class AgentStatsService:
@@ -159,8 +165,6 @@ class AgentStatsService:
                     if start_date <= chat_date <= end_date:
                         date_str = chat_date.isoformat()
                         daily_stats[date_str]["chats"] += 1
-                        channel_chats[ch] = channel_chats.get(ch, 0) + 1
-                        total_chats += 1
             except Exception as e:
                 logger.warning("Failed to load chat statistics: %s", e)
 
@@ -173,7 +177,7 @@ class AgentStatsService:
                     if name.endswith(".json")
                 ]
 
-                async def _process_one(session_file: Path) -> int:
+                async def _process_one(session_file: Path) -> tuple[int, bool]:
                     try:
                         async with aiofiles.open(
                             session_file,
@@ -187,14 +191,16 @@ class AgentStatsService:
                             session_file,
                             e,
                         )
-                        return 0
+                        return 0, False
                     stem = session_file.stem
                     channel = session_file_to_channel.get(stem, "console")
+
                     return _process_session_file(
                         session_data,
                         start_date_str,
                         end_date_str,
                         daily_stats,
+                        channel_chats,
                         channel_messages,
                         channel,
                         stem,
@@ -204,8 +210,11 @@ class AgentStatsService:
                 tasks = [_process_one(sf) for sf in session_files]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 for result in results:
-                    if isinstance(result, int):
-                        total_tool_calls += result
+                    if isinstance(result, tuple) and len(result) == 2:
+                        tool_calls, has_messages = result
+                        total_tool_calls += tool_calls
+                        if has_messages:
+                            total_chats += 1
                     elif isinstance(result, Exception):
                         logger.debug("Failed to process session: %s", result)
             except Exception as e:
